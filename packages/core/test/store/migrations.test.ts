@@ -453,6 +453,20 @@ describe('migrate', () => {
     expect(plan.filter((step) => /^SCAN (s|pr_snapshot)\b/.test(step))).toEqual([]);
   });
 
+  it('adds an empty budget to source rows written before 0023', () => {
+    const { raw } = rawDb(join(tempDir(), 'board.db'));
+    migrate(raw, real.slice(0, 22));
+    const budget = ['budget_remaining', 'budget_limit', 'budget_reset_at'];
+    const row = without(sampleRows.source_state, budget);
+    insertRaw(raw, 'source_state', row);
+
+    migrate(raw, real);
+
+    expect(rows(raw, 'source_state')).toEqual([
+      { ...row, budget_remaining: null, budget_limit: null, budget_reset_at: null },
+    ]);
+  });
+
   it('keeps rows written at N-1 when migrating to N', async () => {
     const dir = tempDir();
     const { raw, db } = rawDb(join(dir, 'board.db'));
@@ -1150,6 +1164,7 @@ describe('migration pins', () => {
       '3fcbc414d17b541af259532a21ea7f0c',
       '0c9118e6801ec43095111b36d3547385',
     ].join(''),
+    '0023_source_budget.sql': '30465faed50ff53978f63fcb75892f3add6d6f26bb74a1ea1bbfad3d2d4ce8bd',
   };
 
   interface MigrationFile {

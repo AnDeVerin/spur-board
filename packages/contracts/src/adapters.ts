@@ -175,6 +175,11 @@ export const batchSchema = z
     budget: z
       .strictObject({
         remaining: z.int().min(0).describe('Requests or points the source still allows.'),
+        limit: z
+          .int()
+          .positive()
+          .optional()
+          .describe('Full budget the source restores at reset; omitted when it reports none.'),
         resetAt: z.iso.datetime().describe('When the source restores the full budget.'),
       })
       .optional()

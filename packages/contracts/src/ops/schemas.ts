@@ -384,6 +384,20 @@ export const sourceViewSchema = z
       .nullable()
       .describe('Why this source is blind, or null when it is usable.'),
     message: z.string().nullable().describe('Short explanation of the source state.'),
+    budget: z
+      .strictObject({
+        remaining: z.int().nonnegative().describe('Requests or points the source still allowed.'),
+        limit: z
+          .int()
+          .positive()
+          .nullable()
+          .describe('Full budget the source restores at reset, or null when it reported none.'),
+        resetAt: z.iso.datetime().describe('When the source said it restores the full budget.'),
+      })
+      .nullable()
+      .describe(
+        'Request budget from the last poll of this source that reported one, or null when none did.',
+      ),
     stale: z.boolean().describe('Whether facts from this source exceed their freshness threshold.'),
     warmingUp: z
       .boolean()

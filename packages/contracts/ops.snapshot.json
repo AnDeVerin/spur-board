@@ -1,5 +1,5 @@
 {
-  "version": "70f192392907d7c5dde459dcd81ed69b342ed8a8bd313c7262e96c5e62d4a72e",
+  "version": "f87cfc6a5a41ef81ee3e60ccf4726d41f2b279a2465f36fb29a97d9d89228a7d",
   "grants": [
     "operator",
     "project-agent",
@@ -1193,6 +1193,42 @@
                   "description": "Short explanation of the source state.",
                   "type": ["string", "null"]
                 },
+                "budget": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "remaining": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991,
+                          "description": "Requests or points the source still allowed."
+                        },
+                        "limit": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            { "type": "null" }
+                          ],
+                          "description": "Full budget the source restores at reset, or null when it reported none."
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When the source said it restores the full budget."
+                        }
+                      },
+                      "required": ["remaining", "limit", "resetAt"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Request budget from the last poll of this source that reported one, or null when none did."
+                },
                 "stale": {
                   "type": "boolean",
                   "description": "Whether facts from this source exceed their freshness threshold."
@@ -1208,6 +1244,7 @@
                 "lastCompleteAt",
                 "blindReason",
                 "message",
+                "budget",
                 "stale",
                 "warmingUp"
               ],

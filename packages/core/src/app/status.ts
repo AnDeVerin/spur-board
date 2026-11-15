@@ -344,6 +344,14 @@ export async function getStatus(
       lastCompleteAt: last,
       blindReason,
       message: row?.blind_message ?? null,
+      budget:
+        row?.budget_remaining != null && row.budget_reset_at != null
+          ? {
+              remaining: row.budget_remaining,
+              limit: row.budget_limit,
+              resetAt: row.budget_reset_at,
+            }
+          : null,
       stale:
         last === null ||
         clock.now() - Date.parse(last) >

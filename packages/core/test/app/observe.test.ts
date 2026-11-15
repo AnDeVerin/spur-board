@@ -4413,6 +4413,65 @@ describe('persisted PR eligibility and source points', () => {
     ).toBe(5);
     expect(await store.db.selectFrom('source_cost').selectAll().execute()).toHaveLength(1);
   });
+  it('keeps each source budget from its last batch that reported one across a store reopen', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'board-observe-')), 'board.db');
+    const store = openStore(path);
+    const core = createObservationCore({ store, config, clock });
+    const issues = 'github-issues:board:o/r';
+    const prBudget = { remaining: 4000, limit: 5000, resetAt: '2026-11-04T13:00:00.000Z' };
+    const issuesBudget = { remaining: 4999, resetAt: '2026-11-04T12:30:00.000Z' };
+    const poll = (source: string, budget?: Batch['budget']) =>
+      core.observe(source, {
+        batch: {
+          source,
+          observedAt: new Date(now).toISOString(),
+          complete: true,
+          items: [],
+          entities: [],
+          ...(budget === undefined ? {} : { budget }),
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: new Date(now).toISOString(), gone: [] },
+        outcomes: [],
+      });
+    const budgets = async (target: Store) =>
+      Object.fromEntries(
+        (await getStatus({ store: target, config, clock, completeSince: new Map() })).sources.map(
+          (entry) => [entry.source, entry.budget],
+        ),
+      );
+    const columns = (target: Store) =>
+      target.db
+        .selectFrom('source_state')
+        .select(['source', 'budget_remaining', 'budget_limit', 'budget_reset_at'])
+        .orderBy('source')
+        .execute();
+
+    expect(await budgets(store)).toEqual({ spur: null, [issues]: null, [prSource]: null });
+    await core.reportSourceState('spur', { lastCompleteAt: at, gone: [] });
+    await poll(prSource, prBudget);
+    await poll(issues, issuesBudget);
+    const expected = {
+      spur: null,
+      [issues]: { ...issuesBudget, limit: null },
+      [prSource]: prBudget,
+    };
+    expect(await budgets(store)).toEqual(expected);
+    const stored = await columns(store);
+
+    now += 60_000;
+    await poll(prSource);
+    await core.reportSourceState(prSource, { lastCompleteAt: at, gone: [] });
+    await core.reportSourceState(issues, { gone: [] }, { points: 1 });
+    expect(await columns(store)).toEqual(stored);
+    expect(await budgets(store)).toEqual(expected);
+
+    await store.close();
+    const reopened = openStore(path);
+    stores.push(reopened);
+    expect(await budgets(reopened)).toEqual(expected);
+    expect(await columns(reopened)).toEqual(stored);
+  });
 });
 
 describe('source-specific terminal PR processing', () => {
