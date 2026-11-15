@@ -15,6 +15,7 @@ import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
 import { linkView, projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
+import { itemOwner } from './items.ts';
 
 function sessionView(fact: SessionFacts) {
   return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
@@ -93,6 +94,11 @@ export async function getStatus(
     project?: string | undefined;
     visibleProjects?: ReadonlySet<string> | undefined;
     includeBoardItems?: boolean | undefined;
+    /**
+     * Projects whose operator the caller is: without `includeBoardItems`, it still sees the
+     * failed deliveries of those projects' tasks, which it may retry and close.
+     */
+    operatorProjects?: ReadonlySet<string> | undefined;
     /** Adds full ticket, pull request and session facts and links to every row. */
     detail?: boolean | undefined;
   } = {},
@@ -100,6 +106,7 @@ export async function getStatus(
   const { store, config, clock, completeSince, gateways = [] } = deps;
   const { project: projectId, visibleProjects, detail = false } = options;
   const includeBoardItems = options.includeBoardItems ?? visibleProjects === undefined;
+  const operatorProjects = options.operatorProjects ?? new Set<string>();
   const projects =
     projectId === undefined
       ? config.projects.filter(
@@ -352,13 +359,25 @@ export async function getStatus(
     .where('cleared_at', 'is', null)
     .execute();
   const itemTasks = new Map(rows.map((task) => [task.id, task]));
+  const ownedProjects = new Map<number, string>();
+  if (!includeBoardItems && operatorProjects.size > 0) {
+    for (const item of itemRows) {
+      if (item.task_id !== null || item.source !== null) continue;
+      const owner = await itemOwner(store.db, item);
+      if (owner !== undefined) ownedProjects.set(item.id, owner.project);
+    }
+  }
+  const ownedBy = (item: { id: number }) => {
+    const owner = ownedProjects.get(item.id) ?? '';
+    return projectIds.has(owner) && operatorProjects.has(owner);
+  };
   const items = itemRows
     .filter((item) =>
       item.task_id !== null
         ? projectIds.has(itemTasks.get(item.task_id)?.project ?? '')
         : item.source !== null
           ? required.has(item.source)
-          : includeBoardItems,
+          : includeBoardItems || ownedBy(item),
     )
     .map((item) => {
       const source = item.source === null ? null : sourceById.get(item.source);

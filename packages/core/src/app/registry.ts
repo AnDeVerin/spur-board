@@ -5,7 +5,7 @@ import {
   type Config,
   type PrPoller,
 } from '@spur-board/contracts';
-import { authorize } from './authorize.ts';
+import { authorize, projectTarget } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
 import { createItemMutations, type ReapplyInbound } from './items.ts';
 import { createLinkMutations } from './links.ts';
@@ -93,6 +93,17 @@ export function createOperationRegistry(deps: {
           includeBoardItems:
             authorize([{ grant: 'operator' }], actor, { config, target: { kind: 'missing' } })
               .status === 'allowed',
+          operatorProjects: new Set(
+            config.projects
+              .filter(
+                (project) =>
+                  authorize([{ grant: 'operator' }], actor, {
+                    config,
+                    target: projectTarget(project.id),
+                  }).status === 'allowed',
+              )
+              .map((project) => project.id),
+          ),
           detail: input.detail,
         },
       );

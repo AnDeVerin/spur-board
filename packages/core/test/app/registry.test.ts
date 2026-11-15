@@ -895,3 +895,108 @@ it.each([
     else await expect(run).rejects.toMatchObject({ code: 'forbidden' });
   },
 );
+
+it.each([
+  [
+    'a project operator sees its own task delivery only',
+    true,
+    'agent:first-ops/s1',
+    ['delivery:1'],
+  ],
+  [
+    'the board-wide operator sees every item',
+    true,
+    'agent:hq/s1',
+    ['delivery:1', 'delivery:2', 'delivery:3'],
+  ],
+  ['the token sees every item', true, 'operator', ['delivery:1', 'delivery:2', 'delivery:3']],
+  ['a worker sees no delivery item', true, 'agent:first-worker/s1', []],
+  [
+    'a legacy project operator sees every item',
+    false,
+    'agent:first-ops/s1',
+    ['delivery:1', 'delivery:2', 'delivery:3'],
+  ],
+  ['a legacy worker sees no delivery item', false, 'agent:first-worker/s1', []],
+] as const)(
+  'shows failed deliveries in status by their owning task: %s',
+  async (_name, withBoardWide, actor, keys) => {
+    const store = openTempStore('board-registry-').store;
+    stores.push(store);
+    const scoped = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) =>
+        project.id === 'first'
+          ? {
+              ...project,
+              spurProjects: [...project.spurProjects, { name: 'first-ops', role: 'operator' }],
+            }
+          : project,
+      ),
+      ...(withBoardWide ? { spurProjects: [{ name: 'hq', role: 'operator' }] } : {}),
+    });
+    const at = new Date(clock.now());
+    await scanTransaction(store, scoped, async (trx) => {
+      for (const [project, key] of [
+        ['first', 'o/first#1'],
+        ['second', 'o/second#2'],
+      ] as const) {
+        await trx
+          .insertInto('task')
+          .values({
+            project,
+            tracker_kind: 'github-issues',
+            tracker_id: key,
+            key,
+            membership: 'active',
+            archive_reason: null,
+            column: 'todo',
+            shadow_column: null,
+            created_at: at.toISOString(),
+            last_change_at: null,
+            terminal_at: null,
+            archive_slot_at: null,
+          })
+          .execute();
+      }
+      // Outbox rows 1 and 2 carry their task in the payload; row 3 is a board-level post.
+      for (const [kind, payload] of [
+        ['conversation.open', { taskId: 1 }],
+        ['conversation.open', { taskId: 2 }],
+        ['feed.line', {}],
+      ] as const) {
+        const row = await trx
+          .insertInto('outbox')
+          .values({
+            kind,
+            dedupe_key: `${kind}:${JSON.stringify(payload)}`,
+            payload: JSON.stringify(payload),
+            state: 'post_failed',
+            next_at: at.toISOString(),
+            last_error: 'channel_not_found',
+            external_ref: null,
+            parent_outbox_id: null,
+            first_attempt_at: null,
+            first_delivery_at: null,
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+        await raiseItem(trx, {
+          itemKey: `delivery:${String(row.id)}`,
+          kind: 'post_failed',
+          text: 'A post failed',
+          url: '',
+          taskId: null,
+          blockId: null,
+          at,
+        });
+      }
+    });
+    const status = createOperationRegistry({ config: scoped, clock, completeSince: new Map() })[
+      'status.get'
+    ];
+    const query = createQuery({ store, config: scoped, clock });
+    const result = await query(status, {}, actor);
+    expect(result.items.map((item) => item.key).sort()).toEqual(keys);
+  },
+);

@@ -61,6 +61,13 @@ async function deliveryTask(trx: Trx, item: Item): Promise<Row<'task'> | undefin
   return ringTask(trx, notificationId, row.dedupe_key);
 }
 
+/** The task an item belongs to: its own, else its delivery's; undefined for a board item. */
+export async function itemOwner(trx: Trx, item: Item): Promise<Row<'task'> | undefined> {
+  return item.task_id === null
+    ? deliveryTask(trx, item)
+    : trx.selectFrom('task').selectAll().where('id', '=', item.task_id).executeTakeFirst();
+}
+
 /**
  * An item of a task is that task's project's; a board item or an unknown ID has no target, so
  * only the board-wide operator or the token may act on it, and `run` raises the unknown ID.
@@ -72,10 +79,7 @@ async function itemTarget(trx: Trx, input: { item: string }): Promise<readonly R
     .where('id', '=', Number(input.item.slice(1)))
     .executeTakeFirst();
   if (item === undefined) return [];
-  const owner =
-    item.task_id === null
-      ? await deliveryTask(trx, item)
-      : await trx.selectFrom('task').selectAll().where('id', '=', item.task_id).executeTakeFirst();
+  const owner = await itemOwner(trx, item);
   return owner === undefined ? [] : [await authorizationTarget(trx, owner)];
 }
 
