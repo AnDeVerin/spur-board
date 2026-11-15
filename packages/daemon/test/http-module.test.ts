@@ -1001,6 +1001,41 @@ describe('daemon doctor board-wide bindings', () => {
 
   it('keeps a long operator list within the fix bound', async () => {
     const ctx = doctorContext({
+      projects: [
+        ...Array.from({ length: 15 }, (_, index) => ({
+          id: `project-${String(index)}`,
+          spurProjects: [
+            { name: `ops-${String(index)}-${'x'.repeat(180)}`, role: 'operator' as const },
+          ],
+        })),
+        { id: 'project-15', spurProjects: [] },
+      ],
+      boardWide: [{ name: 'hq', role: 'operator' }],
+    });
+    const entry = checkOf(await runDaemonDoctor(ctx, '1.2.3', doctorFetch()), 'operator.path');
+    expect(entry).toMatchObject({ status: 'pass', blocking: false });
+    expect(entry?.fix?.length).toBeLessThanOrEqual(300);
+    expect(entry?.fix).toMatch(
+      /^project-0: operator ops-0-x+ \(project\); and 15 more projects\. Default Slack addressee: hq \(board-wide\)\.$/,
+    );
+  });
+
+  it("names the other projects' operators while no board-wide operator exists", async () => {
+    const ctx = doctorContext({
+      projects: [
+        { id: 'alpha', spurProjects: [{ name: 'alpha-ops', role: 'operator' }] },
+        { id: 'beta', spurProjects: [{ name: 'beta-ops', role: 'operator' }] },
+      ],
+    });
+    const entry = checkOf(await runDaemonDoctor(ctx, '1.2.3', doctorFetch()), 'operator.path');
+    expect(entry).toMatchObject({ status: 'pass', blocking: false });
+    expect(entry?.fix).toBe(
+      'alpha: operator alpha-ops (project), beta-ops (other-project). beta: operator beta-ops (project), alpha-ops (other-project).',
+    );
+  });
+
+  it('falls back to a project count when every long operator acts on every project', async () => {
+    const ctx = doctorContext({
       projects: Array.from({ length: 15 }, (_, index) => ({
         id: `project-${String(index)}`,
         spurProjects: [
@@ -1009,11 +1044,11 @@ describe('daemon doctor board-wide bindings', () => {
       })),
     });
     const entry = checkOf(await runDaemonDoctor(ctx, '1.2.3', doctorFetch()), 'operator.path');
-    expect(entry).toMatchObject({ status: 'pass', blocking: false });
-    expect(entry?.fix?.length).toBeLessThanOrEqual(300);
-    expect(entry?.fix).toMatch(
-      /^project-0: operator ops-0-x+ \(project\); and 14 more projects\.$/,
-    );
+    expect(entry).toMatchObject({
+      status: 'pass',
+      blocking: false,
+      fix: '15 projects have an operator Spur project.',
+    });
   });
 
   it('passes operator.path with no text for an approved token alone', async () => {

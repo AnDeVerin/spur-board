@@ -1077,9 +1077,9 @@ export interface ConfigBindings {
 
 /**
  * The effective column orchestrators and operators of `projects`, in config order, and the
- * default Slack addressee. Columns that are disabled or left at none have no row. A project
- * without an operator of its own lists the other projects' operators while no board-wide
- * operator exists, since those act on every board project then.
+ * default Slack addressee. Columns that are disabled or left at none have no row. While no
+ * board-wide operator exists, each project also lists the other projects' operators, since those
+ * act on every board project then (`isOperator`).
  */
 export function configBindings(config: Config, projects: ReadonlySet<string>): ConfigBindings {
   const source = (name: string) =>
@@ -1100,19 +1100,21 @@ export function configBindings(config: Config, projects: ReadonlySet<string>): C
         })),
     ),
     operators: served.flatMap((project): OperatorBinding[] => {
-      const own = operatorsOf(project);
-      if (own.length > 0) {
-        return own.map((spur) => ({
-          project: project.id,
-          operator: spur.name,
-          source: source(spur.name),
-        }));
-      }
-      if (boardWideOperator) return [];
-      return config.projects
+      const own = operatorsOf(project).map((spur): OperatorBinding => ({
+        project: project.id,
+        operator: spur.name,
+        source: source(spur.name),
+      }));
+      if (boardWideOperator) return own;
+      const others = config.projects
         .filter((other) => other.id !== project.id)
         .flatMap(operatorsOf)
-        .map((spur) => ({ project: project.id, operator: spur.name, source: 'other-project' }));
+        .map((spur): OperatorBinding => ({
+          project: project.id,
+          operator: spur.name,
+          source: 'other-project',
+        }));
+      return [...own, ...others];
     }),
     defaultAddressee: defaultAddressee(config),
   };

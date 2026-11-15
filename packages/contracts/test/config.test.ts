@@ -521,6 +521,47 @@ describe('board-wide spur projects', () => {
     ]);
   });
 
+  it.each<[string, Record<string, unknown>[], Record<string, unknown>[], unknown]>([
+    [
+      'both projects have an operator, no board-wide one',
+      [],
+      [{ name: 'api-ops', role: 'operator' }],
+      [
+        { project: 'web', operator: 'web-ops', source: 'project' },
+        { project: 'web', operator: 'api-ops', source: 'other-project' },
+        { project: 'api', operator: 'api-ops', source: 'project' },
+        { project: 'api', operator: 'web-ops', source: 'other-project' },
+      ],
+    ],
+    [
+      'only one project has an operator, no board-wide one',
+      [],
+      [],
+      [
+        { project: 'web', operator: 'web-ops', source: 'project' },
+        { project: 'api', operator: 'web-ops', source: 'other-project' },
+      ],
+    ],
+    [
+      'a board-wide operator exists',
+      [{ name: 'hq', role: 'operator' }],
+      [],
+      [
+        { project: 'web', operator: 'web-ops', source: 'project' },
+        { project: 'api', operator: 'hq', source: 'board-wide' },
+      ],
+    ],
+  ])('lists the operators acting on each project when %s', (_, top, api, operators) => {
+    const config = configSchema.parse(
+      boardWide(
+        top,
+        { spurProjects: [{ name: 'web-ops', role: 'operator' }] },
+        { spurProjects: api },
+      ),
+    );
+    expect(configBindings(config, new Set(['web', 'api'])).operators).toEqual(operators);
+  });
+
   describe('defaultAddressee', () => {
     const hq = { name: 'hq', role: 'operator' };
     const alphaOps = { spurProjects: [{ name: 'alpha-ops', role: 'operator' }] };
