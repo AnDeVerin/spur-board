@@ -1,97 +1,95 @@
 # How the Board works
 
-`board task <task> --why`: gates, holds, waits, turn and moves.
-
 ## Columns and executors
 
 `todo`, `ready-for-dev`, `dev`, `review`, `product-review`,
 `external-review`, `qa`, `ready-to-merge`, `done`.
-`projects[].columns[].enabled: false` or omitting an optional column skips its gate;
-To Do, Dev, Done stay on.
+`projects[].columns[].enabled`: disabled/omitted optional columns skip gates;
+To Do, Dev, Done stay enabled.
 
-`projects[].columns[].orchestrator` selects one executor:
+Each column has one executor: `projects[].columns[].orchestrator`:
 `none` (live worker, else operator), `operator`, or project with role
-`orchestrator` or `curator`. Workers own code and branch; others submit inspected heads or return findings;
-never push.
+`orchestrator` or `curator`. The worker owns the code and branch; others inspect/return, never push.
 
 `projects[].spurProjects[].role` accepts `worker`, `operator`, `curator` and
-`orchestrator`. Curators guide; orchestrators execute columns.
+`orchestrator`. Curators guide; orchestrators execute.
 
 ## Gates and placement
 
-Facts feed gates: move the task and open a turn (at most one per evaluation).
-Turns follow unmet entry gates, post-submit failures, rerouting or Done wrap-up.
-Holds and existing turns can yield neither action.
+Facts (head, checks, reviews, comments, ticket, sessions) feed gates; two actions: move the task and open an executor turn (at most one
+per evaluation). Turns follow unmet entry gates, actionable post-submit failures,
+rerouting or Done wrap-up. Holds and existing turns can yield neither action.
 
 Moves, turns and course checks need `projects[].dispatcher.mode: on`;
 default is `shadow`: proposed placement only; no turns, doorbells or blocks.
 
-Gates are cumulative. At turn boundaries, return to the leftmost failing column.
-Taken turns hold until submit, return or new head. Pending CI, unknown
-mergeability and incomplete comments wait. Handoffs await prerequisites; Dev
-gets repair turns for red CI, drafts, conflicts or unhandled external comments.
+Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, failed gates return to the leftmost failing
+column. Taken turns hold until submit, return or new head. Pending CI, unknown
+mergeability and incomplete comment history are waits. Downstream handoff waits
+for settled prerequisites; Dev can receive a repair turn.
 
 Dev needs an open non-draft PR, passing checks, no conflict, handled external
 feedback, comment history and current-head submit. Feedback excludes
 bots, approvals and `projects[].operatorGithubLogin` (agents' account), so worker
 thread replies never count; others' posts do.
 A status comment whose last line is a hidden `board-reviewer-progress` or
-`board-reviewer-unavailable` marker is not external feedback. No required checks: count non-skipped checks. `projects[].reposWithoutCi` waives absent checks
+`board-reviewer-unavailable` marker is not external feedback. No required checks: non-skipped count. `projects[].reposWithoutCi` waives absent checks
 for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
-External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits from other worker columns. Gate rules only configure enabled columns and no-CI.
+External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits from other worker columns. Fixed gate rules have no configuration switch
+except enabled/no-CI.
 
-Review/Product Review marks persist on the current head. Moving left clears
-visit submissions from that column onward. New heads invalidate internal marks,
+Review/Product Review mark lasts across visits on the current head. A visit
+submission belongs to one column visit; moving left clears it and those to the right. New heads invalidate internal Review and Product Review marks,
 even old heads.
 
-Anomalies: closed PR without merge/replacement, or closed ticket with live work
-and no merge. `board status` lists them; they may open operator blocks.
+PR closed without merge with no open PR, or closed
+ticket with live work and no merged PR. `board status` lists them as operator block threads.
 
 ## Turns and delivery
 
-A turn `T<number>`: a visit. Keyed `board inbox ack <entries>`.
+A turn `T<number>`: keyed `board inbox ack <entries>`.
 Only the acknowledging session may submit or return: keyed
 `board submit <turn> <sha>` accepts the head; keyed
 `board return <turn> <reason>` sends findings to Dev. In
 shadow mode, use keyed `board submit <task> <sha>`.
 Unseen heads answer `pending`: that submit is final; do not resubmit or raise a
-block. Confirms or returns the turn
-(`projects[].dispatcher.submitConfirmMs`).
+block. Confirm timeout: `projects[].dispatcher.submitConfirmMs`.
 
-New heads close taken turns outside Dev; taken Dev turns survive pushes.
-Untaken turns: CI, draft, conflict or external-comment returns.
-Operator turns: 1 inbox item + Slack thread until exit.
+A new head closes taken turns outside Dev; taken Dev turns survive pushes.
+Untaken: CI/draft/conflict/external-comment returns.
+Operator turns: inbox + Slack until exit.
 
 Closed turns receive no further Board sends; Obsolete queued rings are dropped;
 a message already accepted by Spur cannot be retracted. Check `board inbox` and
 act only on a current turn; reread after `turn_closed`.
 
 Open-turn executors in `needs_input`, `error`, `rate_limited` or `stopped` raise
-one system question after `health.turnStallAfterMs` (600000 ms default): curator,
-else operator; unread curator questions escalate. Time starts at the later of
-turn creation/state start; taking never resets it. The reason names turn, session,
-state, elapsed time and existing executor questions; quota name is unavailable,
-reset shown when known. Evidence freezes per turn/session/state episode; dismissal
-suppresses it. Recovery, replacement, removal, archive or turn closure withdraws
-it. Blind Spur opens none, retains existing blocks, honors known closure/removal.
+one question after `health.turnStallAfterMs` (default 600000 ms): curator, else
+operator. Time starts at the later turn/state start; taking never resets it.
+One frozen explanation/dismissal per turn/session/state episode. Recovery,
+replacement, removal, archive or turn closure withdraws it. Blind Spur opens none
+but holds existing questions until known closure/removal.
 
 ## Doorbells
 
 A turn opened for you by your own confirmed submit or return is first rung only after `doorbells.firstRetryMs`; a turn opened for you any other way rings at once.
 
-Read `board inbox` for a ringing turn, block, answer or follow-up. Ordinary task
-comments and blocks tracked by their author role do not ring themselves.
+A doorbell expects action: read `board inbox` for the turn, addressed
+block, answer or follow-up. Ordinary task comments do not ring; nor does a block
+tracked by its author role ring itself.
 
-Unacked series repeat up to three delivered rings; acknowledgement stops them.
-Removal notices and quiet-turn reminders ring once. Busy recipients, pending
-delivery and earlier Spur queue rings defer sends. Queued rings can time out.
+Repeat up to three delivered rings;
+acknowledgement stops them. Removal notices and quiet-turn reminders ring once.
+Busy recipients defer delivery; pending delivery or earlier rings in the Spur
+queue defer repeats. Queues can exhaust their waiting window.
 
-Most notices await recipients. Taskless worker, orchestrator and operator-agent
-answers end without a live asker. Curator and course-check questions fall back
-to operator; operator conversations await their project. Exhaustion alerts the
-operator except removals/reminders; curator questions move to operator.
+Most notices await recipients; taskless worker, orchestrator and operator-agent
+answers end without a live asking session. Curator and course-check orchestrator
+questions fall back to operator. Operator conversations await their project.
+Exhaustion alerts the operator, except removals and quiet-turn reminders;
+curator questions move to operator.
 
 ## Course checks and cycle limits
 
@@ -101,19 +99,18 @@ takes priority. Executor returns, changes requested and external comments count;
 CI failures, conflicts and drafts alone do not count, nor reopened tickets or
 mode switches.
 
-Checks hold for input.
 If returns keep hitting the same mechanism, fix the bug class once; cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description. Still fix P0/P1 and user-visible findings in this PR.
 `projects[].columns[].courseCheckTo`: `operator`, curator or column orchestrator.
 Default: curator (`projects[].spurProjects[].role`), else operator. An answer
 resets the course count and reaches the worker as a task comment. Only the
 operator can resolve the separate cycle limit and reset its count. With no live
 session it falls back to the operator; a live conductor that does not
-answer keeps the question, with intervention item.
+answer keeps the question.
 
 ## Blocks and escalation
 
 A question (`needs_input`): column orchestrator, else curator, else
-operator. Avoid self-routing: orchestrators ask the curator; curators
+operator. Routing avoids asking yourself: orchestrators ask the curator; curators
 ask the operator.
 
 A `code` block goes to the worker; `dependency` or `external` block stays with
@@ -121,18 +118,18 @@ its author's role. Escalation: column orchestrator to curator to
 operator; other blocks escalate straight to the operator. Use keyed
 `board escalate <block>` if its addressee cannot resolve it.
 
-Taskless questions, all roles to operator:
+Taskless: all roles, operator only:
 `board project ask <project> <text> --to operator --key <key>`.
-Project questions get Slack threads except operator-agent asks. Read
-`board inbox`, keyed `board answer`. Answers reach a current curator; other
-roles use the asking session.
+Project `needs_input` blocks get Slack threads except operator-agent asks;
+operator: `board inbox`, keyed `board answer`. Answers reach a current curator session; other roles use the asking session.
 
-`operator.slack` is the Slack user ID; roles follow session.
+`projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
+`operator.slack`.
 
 ## Slack now
 
 `slack.channels.feed`: curator answers and operator items,
-except items elsewhere/delivery problems.
+except elsewhere/delivery problems.
 `slack.channels.orchestrators`: block threads addressed to the operator by
 others. Answer in the existing block thread.
 
@@ -143,16 +140,16 @@ With `projects[].spurProjects[].shortName`, a new operator message in
 `@shortName` selects that Spur project and is stripped. With absent or unknown
 leading name, `slack.defaultAddressee` gets the complete text, retaining any
 unknown prefix; without it Board replies once with the valid prefixes.
-Middle mentions and Slack `<@U…>` address nobody. Unknown names cause no lookup
-error; check short-name collisions with workspace names.
+Middle mentions or Slack `<@U…>` address nobody; unknown names cause no lookup
+error. The operator checks short-name collisions with workspace names.
 A task key after the prefix attaches it.
 
-Read `board inbox`, reply with `board answer`. Each operator thread message
-rings again; `close` or ✅ closes it. Replies use `projects[].spurProjects[].displayName` and `icon`,
-else project name/role icon (`board` for operator). No session:
+Read `board inbox`; reply with `board answer`. Each operator thread message rings again; `close` or ✅ in the
+thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`,
+else project/role icon. No session:
 `board status` lists it as waiting.
 
 ## Done follows the ticket
 
-Done follows the ticket, not a merge: `projects[].tracker.doneStatuses` for Jira; for GitHub, the Issue must be
+One linked PR merging does not by itself finish the task. Done: `projects[].tracker.doneStatuses` for Jira; for GitHub, the Issue must be
 closed. If open after merge, link another PR.
