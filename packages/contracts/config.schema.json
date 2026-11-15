@@ -150,7 +150,7 @@
           "operatorGithubLogin": {
             "type": "string",
             "pattern": "^[A-Za-z0-9-]{1,39}$",
-            "description": "The GitHub account agents open PRs under. PR discovery in repos keeps only PRs whose author is this login. It is not necessarily the maintainer's own account: when agents push as one account and a maintainer approves as another, set the agents' account, or no PR is discovered."
+            "description": "The GitHub account agents open PRs under. PR discovery in repos keeps only PRs whose author is this login. It is not necessarily the maintainer's own account: when agents push as one account and a maintainer approves as another, set the agents' account, or no PR is discovered. Comments, reviews and approvals by this login or by a bot (GitHub App) are not external: they never return a task to Dev, approve External Review or block its approval. Every other account is external, the repo owner's and the human operator's included."
           },
           "spurProjects": {
             "default": [],
@@ -289,7 +289,7 @@
                 },
                 "cycleLimit": {
                   "default": 10,
-                  "description": "How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, changes requested and external comments count; a conflict, red CI and a draft do not.",
+                  "description": "How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor and for external comments count, a changes-requested review included (it is an external comment, not a separate return); a conflict, red CI and a draft do not.",
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 9007199254740991

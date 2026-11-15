@@ -78,6 +78,15 @@ describe('generated public references', () => {
       .find((line) => line.startsWith('| `projects[].operatorGithubLogin` '));
     expect(login).toContain('author');
     expect(login).toContain('open PRs under');
+    expect(login).toContain('by this login or by a bot (GitHub App) are not external');
+    expect(login).toContain("the repo owner's and the human operator's included");
+    const cycleLimit = configuration
+      .split('\n')
+      .find((line) => line.startsWith('| `projects[].columns[].cycleLimit` '));
+    expect(cycleLimit).toContain(
+      'a changes-requested review included (it is an external comment, not a separate return)',
+    );
+    expect(cycleLimit).not.toContain('changes requested and external comments');
     const sessionLinks = configuration.split('## Session links')[1]?.split('\n## ')[0];
     expect(sessionLinks).toBeDefined();
     for (const token of [

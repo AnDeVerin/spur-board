@@ -32,12 +32,20 @@ default is `shadow`: proposed placement, no turns, doorbells or blocks.
 Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, failed gates return to the leftmost failing
 column. Taken turns hold until submit, return or a new head. Pending CI, unknown
 mergeability and incomplete comment history are waits. Downstream handoff waits
-for settled prerequisites; Dev can receive a repair turn.
+for settled prerequisites; Dev can receive a repair turn for red CI, drafts,
+conflicts or unhandled external comments.
 
 Dev: open non-draft PR, passing checks, no conflict, handled external
 feedback, comment history, current-head submit. Feedback excludes
 bots, approvals and `projects[].operatorGithubLogin` (agents' account), so worker
 thread replies never count; others' posts do.
+The repo owner's and the human operator's own accounts count too, unless one is
+that login: a PR comment is a change request; talk to agents in Slack
+(`@shortName`) or the Board. A review-thread reply is a new review. An approval
+hides its inline comments; thread resolution and the head a comment was left on
+change nothing. Bots (GitHub Apps) neither return a task, approve it nor block
+an approval. Handled means handed by ID to a Dev turn, not answered; in shadow
+mode, a later submit in Dev or an executor `none` column handles it.
 A status comment whose last line is a hidden `board-reviewer-progress` or
 `board-reviewer-unavailable` marker is not external feedback. No required checks: non-skipped ones count. `projects[].reposWithoutCi` waives absent (never failed/skipped
 required) checks for listed repos.
@@ -65,7 +73,9 @@ block. Confirms or returns the turn
 (`projects[].dispatcher.submitConfirmMs`).
 
 A new head closes taken turns outside Dev; taken Dev turns survive pushes.
-Untaken turns: CI, draft, conflict or external-comment returns.
+Right of Dev, red CI, a draft, a conflict or an external comment returns the
+task to Dev at once, unless a turn is taken; then after its submit or return.
+The Dev turn hands the comments, beside a return's `code` block.
 Operator turns: 1 inbox item + Slack thread until exit.
 
 Closed turns receive no further Board sends; Obsolete queued rings are dropped;
@@ -95,9 +105,11 @@ curator questions move to operator.
 
 `projects[].columns[].courseCheck` defaults to 3 counted returns to Dev;
 `courseCheck: 0` disables it. `projects[].columns[].cycleLimit` defaults to 10 and
-takes priority. Executor returns, changes requested and external comments count;
-CI failures, conflicts and drafts alone do not count.
+takes priority. Executor returns and external comments (a changes-requested
+review is one) count; CI failures, conflicts and drafts alone do not count, nor
+reopened tickets or mode switches.
 
+Checks hold for input.
 If returns keep hitting the same mechanism, fix the bug class once; cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description. Still fix P0/P1 and user-visible findings in this PR.
 `projects[].columns[].courseCheckTo`: `operator`, curator or column orchestrator
 (`projects[].spurProjects[].role`); default curator, else operator. An answer
