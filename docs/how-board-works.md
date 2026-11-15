@@ -32,17 +32,19 @@ column. Taken turns hold until submit, return or a new head. Pending CI, unknown
 mergeability and incomplete comment history are waits. Downstream handoff waits
 for settled prerequisites; Dev can receive a repair turn for red CI, drafts,
 conflicts or unhandled external comments.
-A status comment whose last line is a hidden `board-reviewer-progress` or
-`board-reviewer-unavailable` marker is not external feedback.
 
 Dev needs an open non-draft PR, passing checks, no conflict, handled external
-feedback, complete comment history and current-head submit. Non-skipped checks
+feedback, complete comment history and current-head submit. Feedback excludes
+bots, approvals and `projects[].operatorGithubLogin` (agents' account), so worker
+thread replies never count; others' posts do.
+A status comment whose last line is a hidden `board-reviewer-progress` or
+`board-reviewer-unavailable` marker is not external feedback. Non-skipped checks
 count when none are required. `projects[].reposWithoutCi` waives absent checks
 for listed repos, never failing or skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
 External Review's external approval. QA needs a current-head submission; Ready to Merge waits for merge. Executor `none` may reuse same-head worker submissions
-from another worker column. Fixed gate rules have no configuration switch
+from other worker columns. Fixed gate rules have no configuration switch
 beyond enabled columns and the no-CI exception.
 
 A Review or Product Review mark lasts across visits on the current head. A visit
@@ -59,8 +61,8 @@ surface as operator block threads.
 A turn `T<number>` assigns a visit. Use keyed `board inbox ack <entries>`.
 Only the acknowledging session may submit or return: keyed
 `board submit <turn> <sha>` accepts the head; keyed
-`board return <turn> <reason>` sends findings to Dev. Submit after pushing. In
-shadow mode, use keyed `board submit <task> <sha>`.
+`board return <turn> <reason>` sends findings to Dev.
+In shadow mode, use keyed `board submit <task> <sha>`.
 Unseen heads answer `pending`: that submit is final; do not resubmit or raise a
 block. It confirms or returns the turn
 (`projects[].dispatcher.submitConfirmMs`).
@@ -110,12 +112,11 @@ answer keeps the question, with an intervention item.
 
 A question (`needs_input`) goes to the column orchestrator, else curator, else
 operator. Routing avoids asking yourself: orchestrators ask the curator; curators
-ask the operator. An `operator` column asks the operator.
+ask the operator.
 
 A `code` block goes to the worker; a `dependency` or `external` block stays with
 its author's role. Questions escalate from column orchestrator to curator to
-operator; other blocks escalate straight to the operator. A curator
-orchestrating the column escalates to the operator. Use keyed
+operator; other blocks escalate straight to the operator. Use keyed
 `board escalate <block>` if the addressee cannot resolve it.
 
 Taskless: all roles, operator only:
@@ -154,5 +155,4 @@ else project name and role icon (`board` for operator). Without a session,
 
 One linked PR merging does not by itself finish the task. Done follows the
 ticket: `projects[].tracker.doneStatuses` for Jira; for GitHub, the Issue must be
-closed. After merge, if the tracker stays open, work continues and
-another PR can be linked.
+closed. If it stays open after merge, link another PR.
