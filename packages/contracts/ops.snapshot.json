@@ -1,5 +1,5 @@
 {
-  "version": "be1a54bf89ef4cb26a114473db5c264bb5f0b10609693e94060b2b324b5dd87e",
+  "version": "3c4b515f33d9c57c787487471d62981d895770408d890e11419b9be64ba9e06f",
   "grants": [
     "operator",
     "project-agent",
@@ -1549,6 +1549,20 @@
                             "resolved": {
                               "type": "boolean",
                               "description": "Whether the review thread is resolved."
+                            },
+                            "id": {
+                              "description": "Node ID of the review thread; missing in facts stored by an earlier version.",
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "url": {
+                              "description": "Web URL of the thread's first comment; missing in facts stored by an earlier version.",
+                              "type": "string",
+                              "format": "uri"
+                            },
+                            "outdated": {
+                              "description": "Whether the thread is on a diff line the head no longer has; missing in facts stored by an earlier version.",
+                              "type": "boolean"
                             }
                           },
                           "required": ["resolved"],
@@ -2156,6 +2170,20 @@
                       "resolved": {
                         "type": "boolean",
                         "description": "Whether the review thread is resolved."
+                      },
+                      "id": {
+                        "description": "Node ID of the review thread; missing in facts stored by an earlier version.",
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "url": {
+                        "description": "Web URL of the thread's first comment; missing in facts stored by an earlier version.",
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      "outdated": {
+                        "description": "Whether the thread is on a diff line the head no longer has; missing in facts stored by an earlier version.",
+                        "type": "boolean"
                       }
                     },
                     "required": ["resolved"],
