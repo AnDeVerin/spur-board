@@ -697,7 +697,7 @@ export async function runDoctor(
                 [
                   ...(missing.length > 0
                     ? [
-                        `Correct spurProjects in config.yaml or register these projects in Spur${listing(safeIds(missing))}.`,
+                        `Correct spurProjects or projects[].spurProjects in config.yaml or register these projects in Spur${listing(safeIds(missing))}.`,
                       ]
                     : []),
                   ...(unknown.length > 0

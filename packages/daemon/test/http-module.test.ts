@@ -8,7 +8,7 @@ import {
   sampleLinkRules,
   teamScopeDenied,
 } from '@spur-board/adapters';
-import { configSchema } from '@spur-board/contracts';
+import { configSchema, type ConfigInput } from '@spur-board/contracts';
 import {
   createOperationRegistry,
   openStore,
@@ -56,6 +56,8 @@ function doctorContext(
         role: 'worker' | 'operator' | 'curator' | 'orchestrator';
       }[];
     }[];
+    // Top-level `spurProjects`: Spur projects bound board-wide.
+    boardWide?: ConfigInput['spurProjects'];
   } = {},
 ) {
   const store = openStore(join(makeHome(), 'board.sqlite'));
@@ -84,6 +86,7 @@ function doctorContext(
       spurProjects,
       columns,
     })),
+    spurProjects: options.boardWide ?? [],
     operator: { slack: 'U0000000000' },
     ...(options.slack === false
       ? {}
@@ -608,11 +611,12 @@ describe('daemon doctor checks', () => {
     expect(
       report.checks
         .filter((check) => check.id !== 'link.rules')
-        // curator.sessions passes with text naming each project's curator.
+        // curator.sessions passes with text naming each project's curator, operator.path with
+        // each project's operator.
         .every(
           (check) =>
             check.status === 'pass' &&
-            (['curator.sessions', 'orchestrator.sessions'].includes(check.id) ||
+            (['curator.sessions', 'orchestrator.sessions', 'operator.path'].includes(check.id) ||
               check.fix === null),
         ),
     ).toBe(true);
@@ -949,6 +953,78 @@ describe('daemon doctor orchestrator sessions', () => {
     expect(entry?.fix).toContain('review-1');
     expect(entry?.fix?.length).toBeLessThanOrEqual(300);
     expect(report.checks.length).toBeLessThanOrEqual(30);
+  });
+});
+
+describe('daemon doctor board-wide bindings', () => {
+  const boardWide = () =>
+    doctorContext({
+      projects: [
+        { id: 'alpha', spurProjects: [{ name: 'alpha-ops', role: 'operator' }] },
+        { id: 'beta', spurProjects: [] },
+      ],
+      boardWide: [
+        { name: 'br', role: 'orchestrator', columns: ['review'] },
+        { name: 'hq', role: 'operator' },
+      ],
+    });
+  const checkOf = (report: Awaited<ReturnType<typeof runDaemonDoctor>>, id: string) =>
+    report.checks.find((check) => check.id === id);
+
+  it('tags a board-wide orchestrator in orchestrator.sessions', async () => {
+    const ctx = boardWide();
+    await seedSession(ctx, 'br-1', 'br');
+    const entry = checkOf(
+      await runDaemonDoctor(ctx, '1.2.3', doctorFetch()),
+      'orchestrator.sessions',
+    );
+    expect(entry).toMatchObject({ status: 'pass', blocking: false });
+    expect(entry?.fix).toBe(
+      'alpha: orchestrator br (board-wide), session br-1, columns review. beta: orchestrator br (board-wide), session br-1, columns review.',
+    );
+    expect(entry?.fix?.length).toBeLessThanOrEqual(300);
+  });
+
+  it('names each project operator with its source and the default addressee on a pass', async () => {
+    const entry = checkOf(
+      await runDaemonDoctor(boardWide(), '1.2.3', doctorFetch()),
+      'operator.path',
+    );
+    expect(entry).toEqual({
+      id: 'operator.path',
+      status: 'pass',
+      blocking: false,
+      fix: 'alpha: operator alpha-ops (project). beta: operator hq (board-wide). Default Slack addressee: hq (board-wide).',
+    });
+    expect(entry?.fix?.length).toBeLessThanOrEqual(300);
+  });
+
+  it('keeps a long operator list within the fix bound', async () => {
+    const ctx = doctorContext({
+      projects: Array.from({ length: 15 }, (_, index) => ({
+        id: `project-${String(index)}`,
+        spurProjects: [
+          { name: `ops-${String(index)}-${'x'.repeat(200)}`, role: 'operator' as const },
+        ],
+      })),
+    });
+    const entry = checkOf(await runDaemonDoctor(ctx, '1.2.3', doctorFetch()), 'operator.path');
+    expect(entry).toMatchObject({ status: 'pass', blocking: false });
+    expect(entry?.fix?.length).toBeLessThanOrEqual(300);
+    expect(entry?.fix).toMatch(
+      /^project-0: operator ops-0-x+ \(project\); and 14 more projects\.$/,
+    );
+  });
+
+  it('passes operator.path with no text for an approved token alone', async () => {
+    const ctx = doctorContext();
+    await seedApprovedToken(ctx.store, ctx.config, { name: 'desk', folder: tokenFolder() });
+    expect(checkOf(await runDaemonDoctor(ctx, '1.2.3', doctorFetch()), 'operator.path')).toEqual({
+      id: 'operator.path',
+      status: 'pass',
+      blocking: false,
+      fix: null,
+    });
   });
 });
 
