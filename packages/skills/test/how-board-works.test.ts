@@ -35,8 +35,14 @@ describe('how the Board works guide', () => {
         /visit submission belongs to one column visit/,
         /new head invalidates internal\s*Review and Product Review marks/,
         /fixed gate rules have no\s*configuration switch/,
+        /worker's thread replies never count/,
+        /other accounts' posts, the\s*operator's too, count/,
       ],
-      keys: ['projects[].dispatcher.mode: on', 'projects[].reposWithoutCi'],
+      keys: [
+        'projects[].dispatcher.mode: on',
+        'projects[].reposWithoutCi',
+        'projects[].operatorGithubLogin',
+      ],
     },
     {
       section: 'Turns and delivery',

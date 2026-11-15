@@ -17,9 +17,9 @@ the turn. The worker owns the code and branch. Other column executors inspect th
 head and submit it or return it with findings; they do not push to that branch.
 
 `projects[].spurProjects[].role` currently accepts `worker`, `operator` and
-`curator`. The curator answers questions and checks direction. A separate
-`orchestrator` project role is planned, not available; today column assignment
-uses the configured Spur project name rather than that role value.
+`curator`. A separate `orchestrator` project role is planned, not available;
+today column assignment uses the configured Spur project name rather than that
+role value.
 
 ## Gates and placement
 
@@ -31,21 +31,24 @@ Gates are cumulative: a column checks its own enabled exit gate and every enable
 gate to its left. At a turn boundary, a broken earlier gate returns the task to
 the leftmost failing column. A taken turn normally holds its column until it is
 submitted, returned or closed by a new head. Pending CI, unknown mergeability and
-incomplete comment history are waits, not reasons by themselves to send work back.
+incomplete comment history are waits, not reasons to return work.
 Downstream handoff waits for settled prerequisites; Dev can still receive a
 repair turn to fix red CI, a draft, conflicts or unhandled external comments.
 
 Dev needs an open, non-draft PR, passing checks, no conflict, handled external
-feedback, complete comment history and a submit on the current head. With no
-required checks, non-skipped checks are evaluated. `projects[].reposWithoutCi`
-waives the check requirement only for a listed repository with no checks at all;
-it does not waive a failing or skipped required check.
+feedback (the worker's thread replies never count: a bot or
+`projects[].operatorGithubLogin` post is internal; other accounts' posts, the
+operator's too, count), complete comment history and a submit on the current
+head. With no required checks, non-skipped checks are evaluated.
+`projects[].reposWithoutCi` waives the check requirement only for a listed
+repository with no checks at all; it does not waive a failing or skipped required
+check.
 
 Review and Product Review need current-head review marks. External Review waits
 for external approval. QA needs a current-head submission; Ready to Merge waits
 for the PR to merge. A column with executor `none` can use a worker submission on
 that head from another worker-executed column. These fixed gate rules have no
-configuration switch beyond enabling columns and the no-CI exception above.
+configuration switch beyond enabling columns and the no-CI exception.
 
 A Review or Product Review mark lasts across visits while its head remains
 current. A visit submission belongs to one column visit; a move left clears
@@ -57,8 +60,8 @@ Review and Product Review marks, even if an older head later comes back.
 A turn `T<number>` hands one column visit to its executor. First acknowledge it
 with keyed `board inbox ack <entries>`. Only the acknowledging session may submit
 or return it: keyed `board submit <turn> <sha>` accepts the head, and keyed
-`board return <turn> <reason>` sends findings back to Dev. A worker submits a fresh
-PR head after pushing. In shadow mode, use keyed `board submit <task> <sha>`.
+`board return <turn> <reason>` sends findings back to Dev.
+In shadow mode, use keyed `board submit <task> <sha>`.
 An unseen head answers `pending`: that submit is final,
 so do not resubmit or raise a block; the Board confirms it or hands the turn back
 (`projects[].dispatcher.submitConfirmMs`).
