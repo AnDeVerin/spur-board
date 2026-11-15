@@ -113,6 +113,39 @@ export function installPackage(packageRef: string, prefix: string): string {
   return join(prefix, 'node_modules/.bin/board');
 }
 
+// npmjs can list a just-published version in the packument before its tarball reaches every CDN
+// edge, and npm never retries a 404. The smoke scripts wait out that lag for tarballs only.
+const TARBALL_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 15_000, 15_000];
+
+/** `/<name>/-/<file>.tgz` or `/@scope/<name>/-/<file>.tgz`; never a packument or `/-/v1/...`. */
+export function isTarballPath(pathname: string): boolean {
+  return /^\/(?:@[^/]+\/)?[^/]+\/-\/[^/]+\.tgz$/.test(pathname);
+}
+
+/**
+ * Calls `attempt`, then repeats it on the CDN-lag schedule while `is404` holds for its result.
+ * `onRetry` runs before each wait. Errors thrown by `attempt` propagate.
+ */
+export async function retryTarball404<T>(
+  attempt: () => T | Promise<T>,
+  is404: (result: T) => boolean,
+  onRetry: (result: T, attempts: number, wait: number, waited: number) => void | Promise<void>,
+  sleep: (ms: number) => Promise<unknown>,
+): Promise<{ result: T; attempts: number; waitedMs: number }> {
+  let result = await attempt();
+  let attempts = 1;
+  let waitedMs = 0;
+  for (const wait of TARBALL_RETRY_DELAYS_MS) {
+    if (!is404(result)) break;
+    await onRetry(result, attempts, wait, waitedMs);
+    await sleep(wait);
+    waitedMs += wait;
+    result = await attempt();
+    attempts += 1;
+  }
+  return { result, attempts, waitedMs };
+}
+
 /** The version of `spur-board` installed under `prefix`. */
 export function installedVersion(prefix: string): string {
   const manifest = JSON.parse(
