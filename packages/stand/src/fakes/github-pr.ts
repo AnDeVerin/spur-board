@@ -67,13 +67,10 @@ const KNOWN_DOCUMENTS = [
 ];
 // Keep exact legacy shapes for the committed live recordings, which select neither the cost nor
 // a comment body; neither is inferred.
+const legacy = (query: string): string =>
+  query.replace('cost remaining', 'remaining').replaceAll('createdAt body }', 'createdAt }');
 const KNOWN_SHAPES = new Set(
-  KNOWN_DOCUMENTS.flatMap((query) => [
-    canonicalizeQuery(query),
-    canonicalizeQuery(
-      query.replace('cost remaining', 'remaining').replaceAll('createdAt body }', 'createdAt }'),
-    ),
-  ]),
+  KNOWN_DOCUMENTS.flatMap((query) => [canonicalizeQuery(query), canonicalizeQuery(legacy(query))]),
 );
 
 /** Whether a query text is one of the shapes this fake answers. */
@@ -86,6 +83,8 @@ const actorSchema = z.strictObject({ login: z.string().min(1) }).nullable();
 const typedActorSchema = z
   .strictObject({ __typename: z.string().min(1), login: z.string().min(1) })
   .nullable();
+// A comment's text; only the reviewer status marker on its last line matters to the board.
+const commentBody = { body: z.string().default('Stand comment.') };
 const contextSchema = z.discriminatedUnion('__typename', [
   z.strictObject({
     __typename: z.literal('CheckRun'),
@@ -134,11 +133,7 @@ const fieldsSchema = z.strictObject({
     }),
   ),
   comments: z.array(
-    z.strictObject({
-      author: typedActorSchema,
-      createdAt: z.iso.datetime(),
-      body: z.string().optional(),
-    }),
+    z.strictObject({ author: typedActorSchema, createdAt: z.iso.datetime(), ...commentBody }),
   ),
   reviewThreads: z.array(z.strictObject({ isResolved: z.boolean() })),
   reviewRequests: z.array(
@@ -177,12 +172,7 @@ const prControlSchema = z.discriminatedUnion('verb', [
   z.strictObject({ ...target, verb: z.literal('reopen') }),
   z.strictObject({ ...target, verb: z.literal('conflict') }),
   z.strictObject({ ...target, verb: z.literal('push'), sha: z.string().regex(SHA) }),
-  z.strictObject({
-    ...target,
-    verb: z.literal('comment'),
-    ...feedbackAuthor,
-    body: z.string().optional(),
-  }),
+  z.strictObject({ ...target, verb: z.literal('comment'), ...feedbackAuthor, ...commentBody }),
   z.strictObject({
     ...target,
     verb: z.literal('review'),
@@ -345,11 +335,7 @@ export function createGithubPrFake(options: {
       case 'comment':
         pr.comments = [
           ...pr.comments,
-          {
-            author: authorOf(command),
-            createdAt: at,
-            ...(command.body === undefined ? {} : { body: command.body }),
-          },
+          { author: authorOf(command), createdAt: at, body: command.body },
         ];
         break;
       case 'ci-red': {
@@ -415,11 +401,7 @@ export function createGithubPrFake(options: {
     const { closingIssuesReferences: closing, contexts } = pr;
     const n = String(pr.number);
     const reviews = pr.reviews.map((review, i) => ({ id: `PRR_${n}_${String(i)}`, ...review }));
-    const comments = pr.comments.map((comment, i) => ({
-      id: `IC_${n}_${String(i)}`,
-      ...comment,
-      body: comment.body ?? 'Stand comment.',
-    }));
+    const comments = pr.comments.map((comment, i) => ({ id: `IC_${n}_${String(i)}`, ...comment }));
     return {
       id: `PR_${String(pr.number)}`,
       number: pr.number,
