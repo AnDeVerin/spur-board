@@ -262,9 +262,10 @@ Without a board-wide operator, a Spur project with `role: operator` has operator
 Board project. Once top-level `spurProjects` has an entry with `role: operator`, that entry
 serves every Board project without its own operator, a project's own operator acts only in its
 project, and only the board-wide operator and the operator token run operator commands that name
-no project, such as `board token list`, `board task add` with a key not yet on the Board, and
-`board item retry` or `board item close` on an item of no task. Restoring an archived task and
-retrying or closing an item of a task count as that task's project. Operations open
+no project, such as `board token list` and `board item retry` or `board item close` on an item
+of no task. Adding a key counts as the Board project whose tracker it matches; retrying or
+closing an item of a task, or of a failed post for a task, counts as that task's project, and
+`board status` lists such items to that project's operator. Operations open
 only to project agents, such as `board ask` and `board inbox ack`, still need the session's Spur
 project listed under that task's Board project. Linking a session to a task from its pull
 request or branch needs its Spur project listed with `role: worker` under that task's Board
