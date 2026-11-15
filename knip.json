@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignoreFiles": ["packages/*/test/lint-fixtures/**"],
+  "ignoreFiles": ["packages/*/test/lint-fixtures/**", "design/**"],
   "ignoreDependencies": ["conventional-changelog-conventionalcommits"],
   "ignoreBinaries": ["flock", "systemd-notify", "systemd-analyze"]
 }

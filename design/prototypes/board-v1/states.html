@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spur-board prototype: pages and states</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <style>
+      body {
+        padding: 24px;
+        max-width: 640px;
+      }
+      h1 {
+        font-size: 16px;
+        text-transform: uppercase;
+        margin: 0 0 16px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      td {
+        padding: 6px 8px 6px 0;
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+      a {
+        color: var(--color-status-working);
+      }
+      p {
+        color: var(--color-text-secondary);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Board V1: pages and states</h1>
+    <table>
+      <tr>
+        <td>Board, live</td>
+        <td><a href="index.html?theme=dark">dark</a></td>
+        <td><a href="index.html?theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Task: block for you</td>
+        <td><a href="index.html?open=509&theme=dark">dark</a></td>
+        <td><a href="index.html?open=509&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Inbox</td>
+        <td><a href="index.html?open=inbox&theme=dark">dark</a></td>
+        <td><a href="index.html?open=inbox&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Services</td>
+        <td><a href="index.html?open=services&theme=dark">dark</a></td>
+        <td><a href="index.html?open=services&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Loading</td>
+        <td><a href="index.html?state=loading&theme=dark">dark</a></td>
+        <td><a href="index.html?state=loading&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Empty project</td>
+        <td><a href="index.html?state=empty&theme=dark">dark</a></td>
+        <td><a href="index.html?state=empty&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Stream reconnecting</td>
+        <td><a href="index.html?state=reconnecting&theme=dark">dark</a></td>
+        <td><a href="index.html?state=reconnecting&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Stream lost, data is stale</td>
+        <td><a href="index.html?state=offline&theme=dark">dark</a></td>
+        <td><a href="index.html?state=offline&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Daemon unreachable</td>
+        <td><a href="index.html?state=daemon-down&theme=dark">dark</a></td>
+        <td><a href="index.html?state=daemon-down&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>A source is blind (Spur)</td>
+        <td><a href="index.html?state=source-blind&theme=dark">dark</a></td>
+        <td><a href="index.html?state=source-blind&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Shadow project</td>
+        <td><a href="index.html?state=shadow&theme=dark">dark</a></td>
+        <td><a href="index.html?state=shadow&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Block: answer not sent</td>
+        <td><a href="index.html?state=block-failed&theme=dark">dark</a></td>
+        <td><a href="index.html?state=block-failed&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Long title and many markers</td>
+        <td><a href="index.html?state=long&theme=dark">dark</a></td>
+        <td><a href="index.html?state=long&theme=light">light</a></td>
+      </tr>
+      <tr>
+        <td>Follow-up on an answered block (not in V1)</td>
+        <td><a href="index.html?open=509&followup=1&theme=dark">dark</a></td>
+        <td><a href="index.html?open=509&followup=1&theme=light">light</a></td>
+      </tr>
+    </table>
+    <p>
+      Exploration: <a href="explore/card.html">task card variants</a>,
+      <a href="explore/logo.html">logo options</a>.
+    </p>
+  </body>
+</html>

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spur-board: logo options</title>
+    <link rel="stylesheet" href="../tokens.css" />
+    <style>
+      body {
+        padding: 24px;
+      }
+      h1 {
+        font-size: 16px;
+        text-transform: uppercase;
+        margin: 0 0 16px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 420px));
+        gap: 24px;
+      }
+      .side {
+        border: 1px solid var(--color-border-default);
+        padding: 16px;
+        background: var(--color-bg-base);
+        color: var(--color-text-primary);
+      }
+      .opt {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        padding: 14px 0;
+        border-top: 1px solid var(--color-border-subtle);
+      }
+      .opt:first-of-type {
+        border-top: 0;
+      }
+      .opt b {
+        width: 150px;
+        font-size: 11px;
+      }
+      .opt small {
+        display: block;
+        font-weight: 400;
+        color: var(--color-text-secondary);
+        font-size: 10px;
+        margin-top: 2px;
+      }
+      .side[data-theme='light'] {
+        background: #ffffff;
+        color: #1f2328;
+        border-color: #d1d9e0;
+      }
+      .side[data-theme='light'] small {
+        color: #59636e;
+      }
+      svg {
+        fill: currentColor;
+        flex: none;
+      }
+      .o svg {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.6;
+      }
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Logo options</h1>
+    <div class="grid" id="g"></div>
+    <script>
+      const O = [
+        [
+          'A. Steps',
+          'a card moving across columns',
+          '',
+          '<rect x="1" y="1" width="4" height="6"/><rect x="6" y="5" width="4" height="6"/><rect x="11" y="9" width="4" height="6"/>',
+        ],
+        [
+          'B. Board',
+          'three columns, one card',
+          'o',
+          '<rect x="1.5" y="1.5" width="13" height="13"/><path d="M5.8 1.5v13M10.2 1.5v13"/><rect x="6.9" y="4" width="2.2" height="4" fill="currentColor" stroke="none"/>',
+        ],
+        [
+          'C. Spur on a board',
+          'the Spur mark in a frame',
+          'o',
+          '<rect x="1.5" y="1.5" width="13" height="13"/><path d="M8 4.2v7.6M4.7 6.1l6.6 3.8M11.3 6.1L4.7 9.9"/>',
+        ],
+      ];
+      const row = (o) =>
+        `<div class="opt ${o[2]}"><b>${o[0]}<small>${o[1]}</small></b>${[16, 20, 32, 64].map((s) => `<svg width="${s}" height="${s}" viewBox="0 0 16 16">${o[3]}</svg>`).join('')}</div>`;
+      document.getElementById('g').innerHTML = ['dark', 'light']
+        .map((t) => `<div class="side" data-theme="${t}">${O.map(row).join('')}</div>`)
+        .join('');
+    </script>
+  </body>
+</html>

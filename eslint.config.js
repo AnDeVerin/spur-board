@@ -232,6 +232,8 @@ export default defineConfig(
       '**/coverage/**',
       '.vitest/**',
       '.stryker-tmp/**',
+      // Design prototypes are browser scripts read as a spec, never built or shipped.
+      'design/**',
     ],
   },
   { linterOptions: { reportUnusedDisableDirectives: 'error' } },

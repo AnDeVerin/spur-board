@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spur-board: board</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="proto.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand" id="brand" title="spur-board"></div>
+      <button class="project" title="Switch project">spur-board <span id="caret"></span></button>
+      <span class="mode s-ok" id="mode" title="Dispatcher mode"
+        ><span class="dot"></span>dispatcher on</span
+      >
+      <label class="filter"
+        ><span id="search"></span
+        ><input id="filter" placeholder="Task key, session or block id" aria-label="Filter tasks"
+      /></label>
+      <span class="spacer"></span>
+      <span class="live s-ok" id="live" title="Live updates"
+        ><span class="dot"></span><span>live</span></span
+      >
+      <button class="inbox waiting" id="inbox"></button>
+    </header>
+
+    <div class="banner" id="banner" hidden role="status"></div>
+    <main class="board" id="board"></main>
+
+    <div class="scrim" id="scrim" hidden></div>
+    <aside class="panel" id="panel" hidden aria-label="Side panel"></aside>
+    <div class="mscrim" id="mscrim" hidden></div>
+    <div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-label="Task"></div>
+
+    <footer class="statusbar" id="statusbar"></footer>
+    <script src="base.js"></script>
+    <script src="card.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Task card: three variants</title>
+    <link rel="stylesheet" href="../tokens.css" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      .page {
+        padding: var(--space-4) var(--space-6) 64px;
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
+        height: var(--size-header);
+        border-bottom: 1px solid var(--color-border-default);
+        margin: 0 calc(-1 * var(--space-6)) var(--space-4);
+        padding: 0 var(--space-6);
+        position: sticky;
+        top: 0;
+        background: var(--color-bg-base);
+        z-index: 2;
+      }
+      .top h1 {
+        font-size: var(--text-title);
+        font-weight: 700;
+        text-transform: uppercase;
+        margin: 0;
+        letter-spacing: 0.04em;
+      }
+      .seg {
+        display: inline-flex;
+        border: 1px solid var(--color-border-default);
+        margin-left: auto;
+      }
+      .seg button {
+        all: unset;
+        cursor: pointer;
+        padding: 0 10px;
+        height: 24px;
+        line-height: 24px;
+        font-size: var(--text-micro);
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-bar);
+        color: var(--color-text-secondary);
+      }
+      .seg button + button {
+        border-left: 1px solid var(--color-border-default);
+      }
+      .seg button[aria-pressed='true'] {
+        background: var(--color-text-primary);
+        color: var(--color-bg-base);
+      }
+      .seg button:focus-visible {
+        outline: 1px solid var(--color-status-working);
+        outline-offset: 1px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 150px repeat(3, var(--size-column));
+        gap: var(--space-4) var(--space-6);
+        align-items: start;
+        overflow-x: auto;
+      }
+      .vhead {
+        padding: var(--space-2) 0;
+        border-bottom: 1px solid var(--color-border-default);
+        align-self: stretch;
+      }
+      .vhead b {
+        display: block;
+        font-size: var(--text-small);
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-label);
+      }
+      .vhead span {
+        color: var(--color-text-secondary);
+        font-size: var(--text-micro);
+        display: block;
+        margin-top: 2px;
+      }
+      .state {
+        color: var(--color-text-secondary);
+        font-size: var(--text-micro);
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-bar);
+        padding-top: var(--space-2);
+      }
+
+      /* ---------- shared card parts ---------- */
+      .card {
+        background: var(--color-bg-elevated);
+        border: 1px solid var(--color-border-default);
+        padding: var(--space-2) 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+        position: relative;
+      }
+      .card:hover {
+        border-color: var(--color-border-strong);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        min-width: 0;
+      }
+      .key {
+        font-weight: 700;
+        font-size: var(--text-small);
+        color: var(--color-text-secondary);
+        white-space: nowrap;
+      }
+      .title {
+        margin: 0;
+        font-size: var(--text-body);
+        font-weight: 500;
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .ic {
+        width: var(--size-icon);
+        height: var(--size-icon);
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .ic.fill {
+        fill: currentColor;
+        stroke: none;
+      }
+
+      .links {
+        margin-left: auto;
+        display: inline-flex;
+        gap: 2px;
+      }
+      .links a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        color: var(--color-text-tertiary);
+        border: 1px solid transparent;
+      }
+      .links a:hover {
+        color: var(--color-text-primary);
+        border-color: var(--color-border-default);
+      }
+      .links a:focus-visible {
+        outline: 1px solid var(--color-status-working);
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border: 1px solid var(--color-border-default);
+        padding: 1px 6px;
+        font-size: var(--text-micro);
+        color: var(--color-text-secondary);
+        white-space: nowrap;
+      }
+      .chip.err {
+        color: var(--color-status-error);
+        border-color: var(--color-status-error);
+        background: var(--color-fill-error);
+      }
+      .chip.warn {
+        color: var(--color-status-attention);
+        border-color: var(--color-status-attention);
+        background: var(--color-fill-attention);
+      }
+      .chip.you {
+        background: var(--color-you-bg);
+        color: var(--color-you-text);
+        border-color: var(--color-you-bg);
+        font-weight: 700;
+      }
+      .chip.ghost {
+        border-style: dashed;
+        color: var(--color-text-tertiary);
+      }
+      .ok {
+        color: var(--color-status-ready);
+      }
+      .bad {
+        color: var(--color-status-error);
+      }
+      .pend {
+        color: var(--color-status-attention);
+      }
+      .mute {
+        color: var(--color-text-tertiary);
+      }
+
+      .turn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--text-micro);
+        color: var(--color-text-secondary);
+        border-top: 1px solid var(--color-border-subtle);
+        padding-top: 6px;
+        margin-top: 2px;
+      }
+      .turn b {
+        color: var(--color-text-primary);
+        font-weight: 500;
+      }
+      .turn .who {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .turn .age {
+        margin-left: auto;
+        white-space: nowrap;
+      }
+      .dot {
+        width: var(--size-dot);
+        height: var(--size-dot);
+        border-radius: 50%;
+        flex: none;
+        background: var(--c);
+        box-shadow: 0 0 4px var(--c);
+      }
+      .dot.hollow {
+        background: transparent;
+        box-shadow: none;
+        border: 1px solid var(--c);
+      }
+      .t-agent {
+        --c: var(--color-status-working);
+      }
+      .t-wait {
+        --c: var(--color-status-attention);
+      }
+      .t-you {
+        --c: var(--color-status-attention);
+      }
+      .t-stall {
+        --c: var(--color-status-error);
+      }
+      .t-none {
+        --c: var(--color-text-tertiary);
+      }
+      .turn .t-wait-text {
+        color: var(--color-status-attention);
+      }
+      .turn .t-stall-text {
+        color: var(--color-status-error);
+      }
+
+      /* ---------- variant B: Spur PR chip ---------- */
+      .prchip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--color-border-default);
+        padding: 1px 6px;
+        font-size: var(--text-micro);
+        white-space: nowrap;
+      }
+      .prchip span {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+
+      /* ---------- variant C: gate lights ---------- */
+      .card.rail {
+        padding-left: 12px;
+      }
+      .card.rail::before {
+        content: '';
+        position: absolute;
+        left: -1px;
+        top: -1px;
+        bottom: -1px;
+        width: 2px;
+        background: color-mix(in srgb, var(--c) 55%, transparent);
+      }
+      .card.rail.t-none::before {
+        background: transparent;
+      }
+      .card.rail.t-wait::before {
+        background: repeating-linear-gradient(
+          to bottom,
+          color-mix(in srgb, var(--c) 55%, transparent) 0 4px,
+          transparent 4px 8px
+        );
+      }
+      .lights {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        border: 1px solid var(--color-border-default);
+      }
+      .lights > span {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        height: 22px;
+        font-size: var(--text-micro);
+        color: var(--color-text-tertiary);
+      }
+      .lights > span + span {
+        border-left: 1px solid var(--color-border-default);
+      }
+      .lights .ok {
+        color: var(--color-text-secondary);
+      }
+      .lights .ok .ic {
+        color: var(--color-status-ready);
+      }
+      .lights .bad {
+        color: var(--color-status-error);
+        background: var(--color-fill-error);
+        font-weight: 700;
+      }
+      .lights .pend {
+        color: var(--color-status-attention);
+        background: var(--color-fill-attention);
+      }
+      .lights.none {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 24px;
+        border-style: dashed;
+        font-size: var(--text-micro);
+        color: var(--color-text-tertiary);
+      }
+
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: repeat(3, var(--size-column));
+        }
+        .state {
+          grid-column: 1 / -1;
+          padding-top: var(--space-4);
+        }
+        .vhead.blank {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="top">
+        <h1>Task card</h1>
+        <div class="seg" role="group" aria-label="Theme">
+          <button data-theme-set="light">Light</button><button data-theme-set="dark">Dark</button>
+        </div>
+      </div>
+      <div class="grid" id="grid"></div>
+    </div>
+
+    <script>
+      const I = {
+        ticket: '<circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="1.5" class="f"/>',
+        pr: '<circle cx="4" cy="3.5" r="1.7"/><circle cx="4" cy="12.5" r="1.7"/><circle cx="12" cy="12.5" r="1.7"/><path d="M4 5.2v5.6M12 10.8V7a2.5 2.5 0 0 0-2.5-2.5H8"/>',
+        term: '<rect x="1.5" y="2.5" width="13" height="11"/><path d="M4.5 6l2.5 2-2.5 2M8.5 10.5h3"/>',
+        check: '<path d="M3 8.5l3.2 3.2L13 4.8"/>',
+        x: '<path d="M4 4l8 8M12 4l-8 8"/>',
+        clock: '<circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.6"/>',
+        merge:
+          '<circle cx="4" cy="3.5" r="1.7"/><circle cx="4" cy="12.5" r="1.7"/><circle cx="12" cy="6" r="1.7"/><path d="M4 5.2v5.6M12 7.7c0 2.3-3 2.3-8 2.6"/>',
+        bubble: '<path d="M2 3h12v8H7.5L4.5 13.5V11H2z"/>',
+        person:
+          '<circle cx="8" cy="5" r="2.6"/><path d="M2.8 14c.6-3 2.6-4.3 5.2-4.3s4.6 1.3 5.2 4.3"/>',
+        block: '<circle cx="8" cy="8" r="6"/><path d="M3.8 3.8l8.4 8.4"/>',
+        back: '<path d="M6 4L2.5 7.5 6 11M2.5 7.5H10a3.5 3.5 0 0 1 0 7H8"/>',
+        pause: '<path d="M5.5 3.5v9M10.5 3.5v9"/>',
+        shadow:
+          '<path d="M8 2l6 3.2-6 3.2-6-3.2z"/><path d="M2 8.6l6 3.2 6-3.2" stroke-dasharray="1.6 1.6"/>',
+      };
+      const ic = (n, cls = '') =>
+        `<svg class="ic ${cls}" viewBox="0 0 16 16" aria-hidden="true">${I[n]}</svg>`;
+
+      /* ci: [state, done, total]; review: [state, count]; threads: [resolved, total] */
+      const TASKS = [
+        {
+          state: 'Worker on it, all quiet',
+          key: '#512',
+          title: 'unresolved review threads as a gate fact',
+          pr: null,
+          turn: { id: 'T49', role: 'worker', who: 'sb-649b', kind: 'agent', age: '38m' },
+        },
+        {
+          state: 'CI running, block for you',
+          key: '#509',
+          title: 'bind column orchestrators and operators board-wide or per project',
+          pr: {
+            n: 522,
+            ci: ['pend', 9, 14],
+            conflict: false,
+            threads: [0, 0],
+            review: ['none', 0],
+          },
+          block: 'B89',
+          turn: { id: 'T42', role: 'worker', who: 'sb-0ead', kind: 'agent', age: '14m' },
+        },
+        {
+          state: 'Returned from review',
+          key: '#511',
+          title: 'raise a block when the executor of an open turn is stuck',
+          pr: {
+            n: 518,
+            ci: ['ok', 12, 12],
+            conflict: false,
+            threads: [0, 3],
+            review: ['changes', 1],
+          },
+          returned: 3,
+          turn: { id: 'T51', role: 'worker', who: 'sb-49bf', kind: 'agent', age: '2h' },
+        },
+        {
+          state: 'CI red and conflict',
+          key: '#523',
+          title: 'persist the GitHub rate budget per source',
+          pr: { n: 529, ci: ['bad', 2, 14], conflict: true, threads: [1, 1], review: ['none', 0] },
+          turn: { id: 'T53', role: 'worker', who: 'sb-77c1', kind: 'agent', age: '1h' },
+        },
+        {
+          state: 'Turn not acked',
+          key: '#515',
+          title: 'docs: return to Dev on PR comments',
+          pr: null,
+          turn: { id: 'T50', role: 'worker', who: 'sb-a8c6', kind: 'wait', age: '6m' },
+        },
+        {
+          state: 'Your turn',
+          key: '#519',
+          title: 'approve the token budget for the weekly mutation run',
+          pr: { n: 521, ci: ['ok', 14, 14], conflict: false, threads: [2, 2], review: ['ok', 1] },
+          turn: { id: 'T55', role: 'operator', who: 'you', kind: 'you', age: '3h' },
+        },
+        {
+          state: 'All gates pass',
+          key: '#510',
+          title: "check the PR's Changed checks section against changed test files",
+          pr: { n: 517, ci: ['ok', 14, 14], conflict: false, threads: [2, 2], review: ['ok', 1] },
+          turn: { id: 'T48', role: 'curator', who: 'bn', kind: 'agent', age: '9m' },
+        },
+        {
+          state: 'Held by you, no turn',
+          key: '#516',
+          title: 'Weekly mutation run failed',
+          pr: null,
+          held: true,
+          turn: null,
+        },
+        {
+          state: 'Jira, shadow, stalled, long title',
+          key: 'PROJ-1234',
+          title:
+            'Variance notes: keep the base Button for Retry and Close in the note error states across every report table',
+          pr: { n: 4533, ci: ['ok', 31, 31], conflict: false, threads: [6, 6], review: ['ok', 2] },
+          shadow: ['review', 'dev'],
+          turn: { id: 'T12', role: 'orchestrator', who: 'br', kind: 'stall', age: '47m' },
+        },
+      ];
+
+      const links = (t) => `<span class="links">
+  <a href="#" title="Ticket ${t.key}">${ic('ticket')}</a>
+  ${t.pr ? `<a href="#" title="PR #${t.pr.n}">${ic('pr')}</a>` : ''}
+  ${t.turn && t.turn.kind !== 'you' ? `<a href="#" title="Spur session ${t.turn.who}">${ic('term')}</a>` : ''}</span>`;
+
+      const markers = (t) =>
+        [
+          t.block ? `<span class="chip you">${ic('block')}${t.block} → you</span>` : '',
+          t.returned
+            ? `<span class="chip warn">${ic('back')}returned · ${t.returned} findings</span>`
+            : '',
+          t.held ? `<span class="chip">${ic('pause')}held by you</span>` : '',
+          t.shadow
+            ? `<span class="chip ghost">${ic('shadow')}board: ${t.shadow[0]} · tracker: ${t.shadow[1]}</span>`
+            : '',
+        ].join('');
+
+      function turn(t) {
+        const u = t.turn;
+        if (!u)
+          return `<div class="turn t-none"><span class="dot hollow"></span>no open turn</div>`;
+        const tail = {
+          agent: `acked · ${u.age}`,
+          wait: `<span class="t-wait-text">not acked · ${u.age}</span>`,
+          you: `<span class="t-wait-text">open · ${u.age}</span>`,
+          stall: `<span class="t-stall-text">stalled · ${u.age}</span>`,
+        }[u.kind];
+        return `<div class="turn t-${u.kind}"><span class="dot ${u.kind === 'wait' ? 'hollow' : ''}"></span>
+    <span class="who">${u.id} ${u.kind === 'you' ? '<b>your turn</b>' : `${u.role} <b>${u.who}</b>`}</span><span class="age">${tail}</span></div>`;
+      }
+      const wrap = (rows, r) =>
+        rows.filter(Boolean).length ? `<div class="row">${rows.join('')}</div>` : '';
+
+      /* A. Quiet: a gate shows only when it needs attention */
+      function cardA(t) {
+        const p = t.pr,
+          g = [];
+        if (p) {
+          if (p.ci[0] === 'bad')
+            g.push(`<span class="chip err">${ic('x')}CI ${p.ci[1]}/${p.ci[2]} failed</span>`);
+          if (p.ci[0] === 'pend')
+            g.push(`<span class="chip">${ic('clock')}CI ${p.ci[1]}/${p.ci[2]}</span>`);
+          if (p.conflict) g.push(`<span class="chip err">${ic('merge')}conflict</span>`);
+          if (p.threads[0] < p.threads[1])
+            g.push(`<span class="chip warn">${ic('bubble')}${p.threads[0]}/${p.threads[1]}</span>`);
+          if (p.review[0] === 'changes')
+            g.push(`<span class="chip err">${ic('person')}changes requested</span>`);
+          if (!g.length)
+            g.push(`<span class="chip"><span class="ok">${ic('check')}</span>gates pass</span>`);
+        } else g.push(`<span class="chip ghost">no PR yet</span>`);
+        return `<article class="card"><div class="row"><span class="key">${t.key}</span>${links(t)}</div>
+    <p class="title">${t.title}</p>${wrap(g)}${wrap([markers(t)])}${turn(t)}</article>`;
+      }
+
+      /* B. Spur chip: the PR chip from the Spur task row, always complete */
+      function cardB(t) {
+        const p = t.pr;
+        let chip;
+        if (p) {
+          const ci = {
+            ok: `<span class="ok">${ic('check')}</span>`,
+            bad: `<span class="bad">${ic('x')}</span>`,
+            pend: `<span class="pend">${ic('clock')}</span>`,
+          }[p.ci[0]];
+          const rv = p.review[0] === 'ok' ? 'ok' : p.review[0] === 'changes' ? 'bad' : 'mute';
+          const th = p.threads[0] < p.threads[1] ? 'pend' : 'mute';
+          chip = `<span class="prchip"><span class="${p.review[0] === 'changes' ? 'bad' : 'ok'}">${ic('pr')}#${p.n}</span>${ci}
+      <span class="${rv}">${ic('person')}${p.review[1]}</span><span class="${th}">${ic('bubble')}${p.threads[0]}/${p.threads[1]}</span></span>
+      ${p.conflict ? `<span class="chip err">${ic('merge')}conflict</span>` : ''}`;
+        } else chip = `<span class="chip ghost">no PR yet</span>`;
+        const sess =
+          t.turn && t.turn.kind !== 'you'
+            ? `<span class="chip">${ic('term')}${t.turn.who}</span>`
+            : '';
+        return `<article class="card"><div class="row"><span class="chip">${ic('ticket')}${t.key}</span>${sess}</div>
+    <div class="row">${chip}</div><p class="title">${t.title}</p>${wrap([markers(t)])}${turn(t)}</article>`;
+      }
+
+      /* C. Gate lights: four fixed cells, same place on every card; the rail shows who holds the turn */
+      function cardC(t) {
+        const p = t.pr;
+        let strip;
+        if (p) {
+          const ci = `<span class="${p.ci[0]}" title="CI ${p.ci[1]}/${p.ci[2]}">${ic({ ok: 'check', bad: 'x', pend: 'clock' }[p.ci[0]])}${p.ci[1]}/${p.ci[2]}</span>`;
+          const mg = `<span class="${p.conflict ? 'bad' : 'ok'}" title="${p.conflict ? 'Merge conflict' : 'No conflict'}">${ic('merge')}${p.conflict ? ic('x') : ''}</span>`;
+          const th = `<span class="${p.threads[1] === 0 ? '' : p.threads[0] < p.threads[1] ? 'pend' : 'ok'}" title="Review threads resolved">${ic('bubble')}${p.threads[0]}/${p.threads[1]}</span>`;
+          const rv = `<span class="${{ ok: 'ok', changes: 'bad', none: '' }[p.review[0]]}" title="Reviews">${ic('person')}${p.review[0] === 'none' ? '–' : p.review[1]}</span>`;
+          strip = `<div class="lights">${ci}${mg}${th}${rv}</div>`;
+        } else strip = `<div class="lights none">no PR yet</div>`;
+        const k = t.turn ? t.turn.kind : 'none';
+        return `<article class="card rail t-${k}"><div class="row"><span class="key">${t.key}</span>${links(t)}</div>
+    <p class="title">${t.title}</p>${strip}${wrap([markers(t)])}${turn(t)}</article>`;
+      }
+
+      const V = [
+        ['A. Quiet', 'A gate appears only when it needs attention.', cardA],
+        ['B. Spur chip', 'The PR chip from the Spur task row, always complete.', cardB],
+        [
+          'C. Gate lights',
+          'Four fixed cells in the same place on every card. The left rail is the turn.',
+          cardC,
+        ],
+      ];
+      let html =
+        '<div class="vhead blank"></div>' +
+        V.map((v) => `<div class="vhead"><b>${v[0]}</b><span>${v[1]}</span></div>`).join('');
+      for (const t of TASKS)
+        html += `<div class="state">${t.state}</div>` + V.map((v) => v[2](t)).join('');
+      document.getElementById('grid').innerHTML = html;
+
+      const q = new URLSearchParams(location.search);
+      function setTheme(th) {
+        document.documentElement.dataset.theme = th;
+        document
+          .querySelectorAll('[data-theme-set]')
+          .forEach((b) => b.setAttribute('aria-pressed', b.dataset.themeSet === th));
+      }
+      document
+        .querySelectorAll('[data-theme-set]')
+        .forEach((b) => (b.onclick = () => setTheme(b.dataset.themeSet)));
+      setTheme(q.get('theme') === 'light' ? 'light' : 'dark');
+    </script>
+  </body>
+</html>
