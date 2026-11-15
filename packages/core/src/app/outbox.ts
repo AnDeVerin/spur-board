@@ -601,14 +601,12 @@ async function blockPost(
     taskId === null
       ? null
       : await trx.selectFrom('task').selectAll().where('id', '=', taskId).executeTakeFirstOrThrow();
+  const head = `text on ${safeKey} not sent: looks like a secret (${rule}), read `;
   // The command is code only for a real key; `board task the task` is not a command.
   const segments: FeedSegment[] | undefined =
     typeof payload.key === 'string' && safeKey === payload.key
       ? [
-          {
-            kind: 'text',
-            text: `text on ${safeKey} not sent: looks like a secret (${rule}), read `,
-          },
+          { kind: 'text', text: head },
           { kind: 'code', text: `board task ${safeKey}` },
         ]
       : undefined;
@@ -617,7 +615,7 @@ async function blockPost(
     {
       itemKey: `secret-post:${createHash('sha256').update(row.dedupeKey).digest('hex')}`,
       kind: 'post_blocked',
-      text: `text on ${safeKey} not sent: looks like a secret (${rule}), read board task ${safeKey}`,
+      text: `${head}board task ${safeKey}`,
       url: task === null ? '' : taskUrl(task, scanConfig()),
       taskId,
       blockId,
