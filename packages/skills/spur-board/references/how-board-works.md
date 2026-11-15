@@ -16,9 +16,9 @@ Each column has one executor: `projects[].columns[].orchestrator` selects
 `projects[].spurProjects[].role` accepts `worker`, `operator`, `curator` and
 `orchestrator`. Orchestrators run columns, never as workers.
 
-Top-level `spurProjects[].columns` fills its columns left at `none` in each
-project board-wide; a project-level binding wins, and a top-level `operator`
-serves projects without their own. One session acts in each project it serves.
+Top-level `spurProjects[].columns` fills columns left `none` board-wide; a
+project-level binding wins. A top-level `operator` serves projects without
+their own; one session acts in each.
 
 ## Gates and placement
 
@@ -31,7 +31,7 @@ Moves, turns and course checks require `projects[].dispatcher.mode: on`. The
 default is `shadow`: proposed placement only, no turns, doorbells or blocks.
 
 Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, broken gates return work to the leftmost failing
-column. Pending CI, unknown
+column. Taken turns hold until submit, return or a new head. Pending CI, unknown
 mergeability and incomplete comment history are waits. Downstream handoff waits
 for settled prerequisites; Dev can receive a repair turn.
 
@@ -46,14 +46,14 @@ for listed repos, never failing or skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
 External Review's external approval. QA needs a current-head submission; Ready to Merge waits for merge. Executor `none` may reuse same-head worker submissions
-from other worker columns. Fixed gate rules have no configuration switch.
+from other worker columns.
 
 A Review or Product Review mark lasts across visits on the current head. A visit
 submission belongs to one column visit; moving left clears submissions there and
 to its right. New heads invalidate internal Review and Product Review marks,
 even if an old head returns.
 
-Derived anomalies include a PR closed without merge with no open PR, or a closed
+Anomalies include a PR closed without merge with no open PR, or a closed
 ticket with live work and no merged PR. `board status` lists them; they can also
 surface as operator block threads.
 
@@ -135,7 +135,7 @@ others. Answer in the existing block thread.
 
 ## Slack addressing
 
-With a `projects[].spurProjects[].shortName` or `spurProjects[].shortName`, or a
+With any `projects[].spurProjects[].shortName`, `spurProjects[].shortName` or
 board-wide operator, a new operator message in
 `slack.channels.orchestrators` starts a conversation. A leading registered
 `@shortName` selects that Spur project and is stripped. With an absent or unknown
@@ -148,11 +148,12 @@ A task key after the prefix attaches it.
 
 The addressee gets the block ID, reads `board inbox`, replies with
 `board answer`. Each operator thread message rings again; `close` or ✅ in the
-thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`. Without a session,
+thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`, top-level ones too,
+else project name and role icon (`board` for operator). Without a session,
 `board status` lists it as waiting.
 
 ## Done follows the ticket
 
 One linked PR merging does not by itself finish the task. Done follows the
 ticket: `projects[].tracker.doneStatuses` for Jira; for GitHub, the Issue must be
-closed. If it stays open after merge, link another PR.
+closed. Still open after merge: link another PR.

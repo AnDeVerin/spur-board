@@ -47,7 +47,7 @@ describe('how the Board works guide', () => {
         /mark lasts across visits on the current head/,
         /visit\s*submission belongs to one column visit/,
         /New heads invalidate internal Review and Product Review marks/,
-        /Fixed gate rules have no configuration switch/,
+        /Taken turns hold until submit, return or a new head/,
         /Feedback excludes\s+bots, approvals and `projects\[\]\.operatorGithubLogin`\s+\(agents'\s+account\), so worker\s+thread replies never count/,
         /never count; others' posts do\./,
       ],
@@ -164,6 +164,7 @@ describe('how the Board works guide', () => {
         /`close` or ✅ in the\s*thread closes it/,
         /`board status` lists it as waiting/,
         /board-wide operator/,
+        /top-level ones too,\s*else project name and role icon \(`board` for operator\)/,
       ],
       keys: [
         'projects[].spurProjects[].shortName',
