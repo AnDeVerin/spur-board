@@ -3849,3 +3849,113 @@ describe('persisted PR eligibility and source points', () => {
     expect(await store.db.selectFrom('source_cost').selectAll().execute()).toHaveLength(1);
   });
 });
+
+describe('source-specific terminal PR processing', () => {
+  const shared = configSchema.parse({
+    ...config,
+    projects: [
+      ...config.projects,
+      {
+        id: 'web',
+        tracker: {
+          type: 'jira',
+          baseUrl: 'https://jira.example.test',
+          jql: 'project = WEBDEV',
+          doneStatuses: ['Done'],
+          readyStatuses: ['Ready'],
+          projectKeys: ['WEBDEV'],
+        },
+        repos: ['o/r'],
+        operatorGithubLogin: 'operator',
+      },
+    ],
+  });
+  const first = 'github:board:o/r';
+  const second = 'github:web:o/r';
+  const ref = { kind: 'pr' as const, repo: 'o/r', number: 7 };
+  const observe = (
+    core: ReturnType<typeof createObservationCore>,
+    source: string,
+    state: PrFacts['state'],
+    keys: string[],
+  ) =>
+    core.observe(source, {
+      batch: {
+        source,
+        observedAt: new Date(now).toISOString(),
+        complete: true,
+        items: [{ kind: 'pr', facts: { ...prFact(), state, ticketKeys: keys } }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: new Date(now).toISOString(), gone: [] },
+      outcomes: [],
+    });
+  async function board() {
+    const b = setup(shared);
+    await b.apply(b.mutations.add, { task: 'o/r#9' }, 'operator');
+    await b.apply(b.mutations.add, { task: 'WEBDEV-1' }, 'operator');
+    return b;
+  }
+  it.each(['merged', 'closed'] as const)(
+    'scopes final %s suppression to sources that processed their own project links',
+    async (state) => {
+      const { store, core } = await board();
+      await observe(core, first, state, ['o/r#9']);
+      // Simulate a snapshot written before per-source processing metadata existed.
+      await store.db.deleteFrom('meta').where('key', 'like', 'pr-poll:%').execute();
+      expect((await core.context(first)).terminalPrs).toEqual([{ ref, state }]);
+      const unprocessed = await core.context(second);
+      expect(unprocessed.terminalPrs).toEqual([]);
+      expect(unprocessed.observe.prs).toEqual([ref]);
+      await observe(core, second, state, ['WEBDEV-1']);
+      const links = await store.db
+        .selectFrom('link')
+        .innerJoin('task', 'task.id', 'link.task_id')
+        .select(['task.project', 'task.key'])
+        .where('link.entity', '=', 'pr')
+        .where('link.number', '=', 7)
+        .orderBy('task.project')
+        .execute();
+      expect(links).toEqual([
+        { project: 'board', key: 'o/r#9' },
+        { project: 'web', key: 'WEBDEV-1' },
+      ]);
+      const restarted = createObservationCore({ store, config: shared, clock });
+      for (const source of [first, second]) {
+        expect((await restarted.context(source)).terminalPrs).toEqual([{ ref, state }]);
+        expect((await restarted.context(source)).observe.prs).toEqual([]);
+      }
+    },
+  );
+  it('keeps closed deadlines independent when another source reads or probes the shared PR', async () => {
+    const { store, core } = await board();
+    await observe(core, first, 'closed', ['o/r#9']);
+    now += 3_600_000;
+    await observe(core, second, 'closed', ['WEBDEV-1']);
+    const snapshot = await store.db.selectFrom('pr_snapshot').selectAll().executeTakeFirstOrThrow();
+    now += 5 * 3_600_000;
+    expect((await core.context(first)).prRechecks).toEqual([ref]);
+    expect((await core.context(second)).prRechecks).toEqual([]);
+    await core.observe(first, {
+      batch: {
+        source: first,
+        observedAt: new Date(now).toISOString(),
+        complete: true,
+        items: [],
+        entities: [],
+        prProbes: [{ ref, status: 'closed' }],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: new Date(now).toISOString(), gone: [] },
+      outcomes: [],
+    });
+    expect(await store.db.selectFrom('pr_snapshot').selectAll().executeTakeFirstOrThrow()).toEqual(
+      snapshot,
+    );
+    now += 3_600_000;
+    const restarted = createObservationCore({ store, config: shared, clock });
+    expect((await restarted.context(first)).prRechecks).toEqual([]);
+    expect((await restarted.context(second)).prRechecks).toEqual([ref]);
+  });
+});

@@ -482,6 +482,45 @@ async function ticket(
   }
 }
 
+// A shared snapshot stores the latest facts; each source must first apply its own project links.
+const prPollingSchema = z.strictObject({
+  state: z.enum(['merged', 'closed']),
+  headSha: prFactsSchema.shape.headSha,
+  recheckAt: z.iso.datetime().nullable(),
+});
+const prPollingKey = (source: string, ref: PrEntityRef): string =>
+  `pr-poll:${source}:${refKey(ref)}`;
+function readPrPolling(value: string | undefined): z.output<typeof prPollingSchema> | undefined {
+  if (value === undefined) return;
+  try {
+    const parsed = prPollingSchema.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return;
+  }
+}
+async function savePrPolling(
+  trx: Trx,
+  source: string,
+  fact: Pick<PrFacts, 'repo' | 'number' | 'state' | 'headSha'>,
+  recheckAt: string | null,
+  preserve = false,
+): Promise<void> {
+  const key = prPollingKey(source, { kind: 'pr', repo: fact.repo, number: fact.number });
+  if (fact.state !== 'merged' && fact.state !== 'closed') {
+    await trx.deleteFrom('meta').where('key', '=', key).execute();
+    return;
+  }
+  const value = toJson(prPollingSchema, { state: fact.state, headSha: fact.headSha, recheckAt });
+  await trx
+    .insertInto('meta')
+    .values({ key, value })
+    .onConflict((oc) =>
+      preserve ? oc.column('key').doNothing() : oc.column('key').doUpdateSet({ value }),
+    )
+    .execute();
+}
+
 async function pr(
   trx: Trx,
   config: Config,
@@ -496,6 +535,12 @@ async function pr(
     .where('number', '=', fact.number)
     .executeTakeFirst();
   const previous = old === undefined ? null : parseJson(prFactsSchema, old.detail);
+  const recheckAt =
+    fact.state === 'closed' ? new Date(Date.parse(at) + 6 * 60 * 60_000).toISOString() : null;
+  // Preserve a legacy owner's processing/deadline before another source replaces the shared row.
+  if (old !== undefined && previous !== null && old.source !== source)
+    await savePrPolling(trx, old.source, previous, old.closed_recheck_at, true);
+  await savePrPolling(trx, source, fact, recheckAt);
   const changed = previous === null || JSON.stringify(previous) !== JSON.stringify(fact);
   await trx
     .insertInto('pr_snapshot')
@@ -511,13 +556,11 @@ async function pr(
       detail: toJson(prFactsSchema, fact),
       source,
       observed_at: at,
-      closed_recheck_at:
-        fact.state === 'closed' ? new Date(Date.parse(at) + 6 * 60 * 60_000).toISOString() : null,
+      closed_recheck_at: recheckAt,
     })
     .onConflict((oc) =>
       oc.columns(['repo', 'number']).doUpdateSet({
-        closed_recheck_at:
-          fact.state === 'closed' ? new Date(Date.parse(at) + 6 * 60 * 60_000).toISOString() : null,
+        closed_recheck_at: recheckAt,
         head_sha: fact.headSha,
         head_branch: fact.headBranch,
         state: fact.state,
@@ -1174,6 +1217,14 @@ export function createObservationCore(deps: {
             )
             .execute()
         : [];
+      const pollingRows = source.startsWith('github:')
+        ? await store.db
+            .selectFrom('meta')
+            .select(['key', 'value'])
+            .where('key', 'like', `pr-poll:${source}:%`)
+            .execute()
+        : [];
+      const polling = new Map(pollingRows.map((row) => [row.key, row.value]));
       const linkedKeys = new Set(linked.map(refKey));
       const terminalPrs: NonNullable<PollContext['terminalPrs']>[number][] = [];
       const prRechecks: PrEntityRef[] = [];
@@ -1185,13 +1236,28 @@ export function createObservationCore(deps: {
           continue;
         }
         const parsed = prFactsSchema.safeParse(value);
-        if (!parsed.success || !['merged', 'closed'].includes(parsed.data.state)) continue;
+        if (!parsed.success || (parsed.data.state !== 'merged' && parsed.data.state !== 'closed'))
+          continue;
         const ref: PrEntityRef = { kind: 'pr', repo: row.repo, number: row.number };
+        const processed =
+          row.source === source
+            ? {
+                state: parsed.data.state,
+                headSha: parsed.data.headSha,
+                recheckAt: row.closed_recheck_at,
+              }
+            : readPrPolling(polling.get(prPollingKey(source, ref)));
+        if (
+          processed === undefined ||
+          processed.state !== parsed.data.state ||
+          processed.headSha.toLowerCase() !== parsed.data.headSha.toLowerCase()
+        )
+          continue;
         terminalPrs.push({ ref, state: parsed.data.state === 'merged' ? 'merged' : 'closed' });
         if (
           parsed.data.state === 'closed' &&
           linkedKeys.has(refKey(ref)) &&
-          (row.closed_recheck_at === null || Date.parse(row.closed_recheck_at) <= clock.now())
+          (processed.recheckAt === null || Date.parse(processed.recheckAt) <= clock.now())
         )
           prRechecks.push(ref);
       }
@@ -1266,13 +1332,40 @@ export function createObservationCore(deps: {
         await recordUsage(trx, source, batch.usage, now);
         for (const probe of batch.prProbes ?? []) {
           if (probe.status !== 'closed') continue;
+          const recheckAt = new Date(Date.parse(batch.observedAt) + 6 * 60 * 60_000).toISOString();
+          const row = await trx
+            .selectFrom('pr_snapshot')
+            .selectAll()
+            .where(sql<boolean>`lower(repo) = ${probe.ref.repo.toLowerCase()}`)
+            .where('number', '=', probe.ref.number)
+            .where('state', '=', 'closed')
+            .executeTakeFirst();
+          if (row === undefined) continue;
+          const saved = await trx
+            .selectFrom('meta')
+            .select('value')
+            .where('key', '=', prPollingKey(source, probe.ref))
+            .executeTakeFirst();
+          const processed =
+            row.source === source
+              ? { state: 'closed' as const, headSha: parseJson(prFactsSchema, row.detail).headSha }
+              : readPrPolling(saved?.value);
+          if (processed !== undefined)
+            await savePrPolling(
+              trx,
+              source,
+              {
+                repo: probe.ref.repo,
+                number: probe.ref.number,
+                state: processed.state,
+                headSha: processed.headSha,
+              },
+              recheckAt,
+            );
           await trx
             .updateTable('pr_snapshot')
-            .set({
-              closed_recheck_at: new Date(
-                Date.parse(batch.observedAt) + 6 * 60 * 60_000,
-              ).toISOString(),
-            })
+            .set({ closed_recheck_at: recheckAt })
+            .where('source', '=', source)
             .where(sql<boolean>`lower(repo) = ${probe.ref.repo.toLowerCase()}`)
             .where('number', '=', probe.ref.number)
             .where('state', '=', 'closed')
