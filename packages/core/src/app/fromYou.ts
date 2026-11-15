@@ -459,17 +459,14 @@ export async function reconcileItems(
         .orderBy('id')
         .execute();
       for (const row of stopped) {
-        const linked =
-          turn.role === 'worker'
-            ? await trx
-                .selectFrom('link')
-                .select('id')
-                .where('task_id', '=', task.id)
-                .where('session_id', '=', row.id)
-                .where('role', '=', 'worker')
-                .where('banned', '=', 0)
-                .executeTakeFirst()
-            : undefined;
+        const linked = await trx
+          .selectFrom('link')
+          .select('id')
+          .where('task_id', '=', task.id)
+          .where('session_id', '=', row.id)
+          .where('role', '=', turn.role === 'worker' ? 'worker' : 'orchestrator')
+          .where('banned', '=', 0)
+          .executeTakeFirst();
         if (linked !== undefined || (turn.role !== 'worker' && row.spur_project === target)) {
           executor = row;
           break;
@@ -491,6 +488,7 @@ export async function reconcileItems(
     const parsed = sessionFactsSchema.safeParse(JSON.parse(executor.detail));
     if (!parsed.success) continue;
     const fact = parsed.data;
+    if (holder?.actor === 'agent' && holder.actorRef.project !== fact.spurProject) continue;
     if (!['needs_input', 'error', 'rate_limited', 'stopped'].includes(fact.health)) continue;
     const since = Math.max(Date.parse(turn.created_at), Date.parse(fact.healthSince));
     if (!Number.isFinite(since)) continue;

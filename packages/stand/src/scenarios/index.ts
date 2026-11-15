@@ -56,6 +56,7 @@ import {
   spurTransitionsRapidRecovery,
   spurTransitionsCursorExpired,
   spurTransitionsKilledHolder,
+  spurTurnStall,
 } from './spur-transitions.ts';
 import { spurSourceSilent } from './spur-source-silent.ts';
 import { tokenApproval } from './token-approval.ts';
@@ -202,6 +203,7 @@ export const SCENARIOS: readonly Scenario[] = [
   spurTransitionsRapidRecovery,
   spurTransitionsCursorExpired,
   spurTransitionsKilledHolder,
+  spurTurnStall,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>
