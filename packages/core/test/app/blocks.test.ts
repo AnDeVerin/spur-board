@@ -1180,14 +1180,14 @@ describe('curator delivery', () => {
     {
       kind: 'paragraph',
       children: [
-        { kind: 'emphasis', text: 'Question:' },
+        { kind: 'emphasis', text: 'Q:' },
         { kind: 'text', text: ' Q?' },
       ],
     },
     {
       kind: 'paragraph',
       children: [
-        { kind: 'emphasis', text: 'Answer:' },
+        { kind: 'emphasis', text: 'A:' },
         { kind: 'text', text: ' A.' },
       ],
     },
@@ -1330,18 +1330,18 @@ describe('curator delivery', () => {
   });
 
   it('shortens the question and answer in the line and keeps the full answer', async () => {
-    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const { store, file, apply, ops: curated } = await curatorBoard('qa', used);
     const question = `Why\n  ${'q'.repeat(150)}`;
     const answer = 'a'.repeat(300);
     const { block } = await apply(curated.ask, { task: KEY, text: question }, author, 'ask');
     const answered = await apply(curated.answer, { block: block.id, text: answer }, curator, 'a');
     const [line] = await feedLines(store);
     expect(line?.payload.text).toBe(
-      `B1 · web/worker-1 asked: Why ${'q'.repeat(115)}… → curator answered: ${'a'.repeat(199)}…`,
+      `B1 · web/worker-1 asked: Why ${'q'.repeat(122)}… → curator answered: ${'a'.repeat(204)}…`,
     );
     expect(line?.payload.exchange).toMatchObject({
-      question: `Why ${'q'.repeat(115)}…`,
-      answer: `${'a'.repeat(199)}…`,
+      question: `Why ${'q'.repeat(122)}…`,
+      answer: `${'a'.repeat(204)}…`,
     });
     const comment = await store.db
       .selectFrom('comment')
@@ -1349,6 +1349,59 @@ describe('curator delivery', () => {
       .where('id', '=', Number(answered.comment.id.slice(1)))
       .executeTakeFirstOrThrow();
     expect(comment).toEqual({ text: answer, delivery_state: null });
+
+    const observed = await deliver(store, file, used);
+    expect(observed.requests).toHaveLength(1);
+    expect(observed.requests[0]?.body).toMatchInlineSnapshot(`
+      [
+        {
+          "children": [
+            {
+              "kind": "link",
+              "text": "o/r#101",
+              "url": "https://github.com/o/r/issues/101",
+            },
+          ],
+          "kind": "paragraph",
+        },
+        {
+          "children": [
+            {
+              "kind": "emphasis",
+              "text": "Q:",
+            },
+            {
+              "kind": "text",
+              "text": " Why qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq…",
+            },
+          ],
+          "kind": "paragraph",
+        },
+        {
+          "children": [
+            {
+              "kind": "emphasis",
+              "text": "A:",
+            },
+            {
+              "kind": "text",
+              "text": " aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…",
+            },
+          ],
+          "kind": "paragraph",
+        },
+        {
+          "children": [
+            {
+              "kind": "text",
+              "text": "B1 · asked by web/worker-1 · answered by cur/cur-1 · unblocked",
+            },
+          ],
+          "kind": "context",
+        },
+      ]
+    `);
+    expect(observed.violations).toEqual([]);
   });
 
   it.each([
