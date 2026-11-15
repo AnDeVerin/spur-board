@@ -234,7 +234,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists thirty-three scenarios, each with a seed and a settled check', () => {
+  it('lists thirty-six scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -265,6 +265,9 @@ describe('scenarios', () => {
       'dispatch-course-check-to',
       'dispatch-long-comment-history',
       'dispatch-ci-pending-after-submit',
+      'dispatch-submit-before-pr-linked',
+      'dispatch-submit-head-moved',
+      'dispatch-submit-no-pr',
       'dispatch-new-head-in-ready-to-merge',
       'dispatch-ci-red-new-head-in-product-review',
       'dispatch-ring-closed-turn',
@@ -1344,13 +1347,12 @@ describe('dispatcher scenarios', () => {
   );
 
   it(
-    'dispatch-review-loop: a head no poll saw is refused while GitHub is down',
+    'dispatch-review-loop: a head no poll saw is accepted pending while GitHub is down',
     async () => {
       await up();
       await seed('dispatch-review-loop');
       const dev = await mustTurn(as('worker'));
       await ack(as('worker'), dev.id);
-      const before = await submissions();
       await github('fail', { mode: 'server-error' });
       await github('push', { sha: B });
 
@@ -1359,13 +1361,24 @@ describe('dispatcher scenarios', () => {
         headers: { 'content-type': 'application/json', 'x-board-session': as('worker') },
         body: JSON.stringify({ input: { turn: dev.id, sha: B }, key: randomUUID() }),
       });
-      const body = (await response.json()) as { code: string };
+      const body = (await response.json()) as { value: { status: string } };
 
-      expect(response.status, JSON.stringify(body)).toBe(503);
-      expect(body.code).toBe('github_unavailable');
-      expect((await turnRow(turnNumber(dev.id))).closed_at).toBeNull();
-      expect(await submissions()).toEqual(before);
+      expect(response.status, JSON.stringify(body)).toBe(200);
+      expect(body.value.status).toBe('pending');
+      expect((await turnRow(turnNumber(dev.id))).closed_reason).toBe('submitted');
+      const pending = () =>
+        withStore((store) =>
+          store.db
+            .selectFrom('submission')
+            .select(['commit_sha', 'pending_until'])
+            .where('commit_sha', '=', B)
+            .executeTakeFirstOrThrow(),
+        );
+      expect((await pending()).pending_until).not.toBeNull();
+
       await github('fail', { mode: 'clear' });
+      await poll();
+      expect((await pending()).pending_until).toBeNull();
     },
     TIMEOUT,
   );
@@ -1556,6 +1569,45 @@ describe('dispatcher scenarios', () => {
         reason: 'review: no_review_on_head',
         head: A,
       });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-submit-before-pr-linked: the next poll confirms a pending submit and Review opens',
+    async () => {
+      await up();
+      await seed('dispatch-submit-before-pr-linked');
+      expect((await turnsIn('dev')).map(({ closed_reason }) => closed_reason)).toContain(
+        'submitted',
+      );
+      expect(await mustTurn(as('orchestrator'))).toMatchObject({
+        reason: 'review: no_review_on_head',
+        head: A,
+      });
+      expect(await turnOf(as('worker'))).toBeUndefined();
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-submit-head-moved: a pending submit on a moved head returns the Dev turn',
+    async () => {
+      await up();
+      await seed('dispatch-submit-head-moved');
+      expect((await mustTurn(as('worker'))).reason).toContain('head moved to bbbbbbb');
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-submit-no-pr: a pending submit with no PR past the bound returns the Dev turn',
+    async () => {
+      await up();
+      await seed('dispatch-submit-no-pr');
+      expect((await mustTurn(as('worker'))).reason).toBe(
+        'dev: no_pr (submit of aaaaaaa: no PR found for stand-worker)',
+      );
     },
     TIMEOUT,
   );

@@ -36,6 +36,9 @@ import {
   dispatchCiRedNewHeadInProductReview,
   dispatchNewHeadInReadyToMerge,
   dispatchRingClosedTurn,
+  dispatchSubmitBeforePrLinked,
+  dispatchSubmitHeadMoved,
+  dispatchSubmitNoPr,
 } from './new-head.ts';
 import { questionToOperator } from './question-to-operator.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
@@ -164,6 +167,9 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchCourseCheckTo,
   dispatchLongCommentHistory,
   dispatchCiPendingAfterSubmit,
+  dispatchSubmitBeforePrLinked,
+  dispatchSubmitHeadMoved,
+  dispatchSubmitNoPr,
   dispatchNewHeadInReadyToMerge,
   dispatchCiRedNewHeadInProductReview,
   dispatchRingClosedTurn,
