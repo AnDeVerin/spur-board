@@ -44,7 +44,7 @@ export function createSlackGateway(config: SlackGatewayConfig): Gateway {
   return {
     ...delivery,
     ...socket,
-    recover: (request) => recoverThreads(api, request, botIdentity, config.now),
+    recover: (request) => recoverThreads(api, request, botIdentity, config.now, config.channels),
     async respond(interaction, text, options) {
       const addressed = parseInteractionRef(interaction);
       const rendered = renderResponse(text, options.cliHint);

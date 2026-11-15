@@ -17,6 +17,7 @@ const ITEM_KINDS = [
   'anomaly',
   'cycle_limit',
   'course_check',
+  'conversation_waiting',
 ] as const;
 
 export type ItemKind = (typeof ITEM_KINDS)[number];
@@ -168,6 +169,15 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: true,
+  },
+  /** An operator conversation whose ring waits for a live session of its Spur project. */
+  conversation_waiting: {
+    retry: 'none',
+    feed: false,
+    priority: 4,
+    buttons: 'item',
+    reconciled: true,
+    block: false,
   },
 } as const satisfies Record<ItemKind, ItemPolicy>;
 

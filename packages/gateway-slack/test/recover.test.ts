@@ -39,6 +39,7 @@ function recoverWith(client: unknown, signal: AbortSignal): Promise<InboundEvent
       },
       () => Promise.resolve({ userId: 'U_BOT' }),
       () => Date.now(),
+      { orchestrators: 'C_ORCH', feed: 'C_FEED' },
     ),
   );
 }
@@ -124,6 +125,44 @@ describe('Slack thread recovery', () => {
       expect(
         live.filter((event) => event.kind === 'connection' && event.state === 'down'),
       ).toHaveLength(1);
+    } finally {
+      await gateway.stop();
+      await fake.close();
+    }
+  });
+
+  it('recovers a user-started message with its live space, and replies and edits without one', async () => {
+    const { fake, gateway } = await setup();
+    const live: InboundEvent[] = [];
+    try {
+      await gateway.start((event) => Promise.resolve(void live.push(event)));
+      const started = { kind: 'message', space: 'orchestrators', author, text: 'hi' } as const;
+      const root = await fake.platform.inject(started);
+      const conversation = root.conversation;
+      if (conversation === undefined) throw new Error('fake did not return the conversation');
+      const reply = await fake.platform.inject({ ...started, space: undefined, conversation });
+      if (reply.message === undefined) throw new Error('fake did not return the reply ref');
+      await fake.platform.inject({ kind: 'edit', message: reply.message, text: 'more, edited' });
+      await fake.platform.settle();
+      const recovered = await collect(
+        gateway.recover({ conversations: [{ ref: conversation }], since: new Date(0) }),
+      );
+      const find = (events: InboundEvent[], kind: InboundEvent['kind'], ref?: string) =>
+        events.find((event) => event.kind === kind && 'message' in event && event.message === ref);
+      expect(find(live, 'message', root.message)).toMatchObject({ sourceSpace: 'orchestrators' });
+      expect(find(recovered, 'message', root.message)).toEqual(find(live, 'message', root.message));
+      const liveReply = find(live, 'message', reply.message);
+      const liveEdit = find(live, 'message_edited', reply.message);
+      const unlabeled = [liveReply, liveEdit].filter(
+        (e) => e !== undefined && !('sourceSpace' in e),
+      );
+      expect(unlabeled).toHaveLength(2);
+      // History holds the edited text; every other key matches the live reply.
+      expect(find(recovered, 'message', reply.message)).toEqual({
+        ...liveReply,
+        text: 'more, edited',
+      });
+      expect(find(recovered, 'message_edited', reply.message)).toEqual(liveEdit);
     } finally {
       await gateway.stop();
       await fake.close();

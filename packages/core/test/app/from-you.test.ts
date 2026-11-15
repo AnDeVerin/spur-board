@@ -13,9 +13,16 @@ import {
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { raiseItem } from '../../src/app/feed.ts';
-import { raiseCycleLimit } from '../../src/app/fromYou.ts';
+import { raiseCycleLimit, reconcileItems } from '../../src/app/fromYou.ts';
 import { enqueueFeedLine } from '../../src/app/outbox.ts';
 import { openTempStore } from '../support/store.ts';
+import {
+  CONVERSATION_AT,
+  conversationConfig,
+  conversationStore,
+  liveSession,
+  startConversation,
+} from '../support/conversation.ts';
 
 const base = Date.parse('2026-11-04T12:00:00.000Z');
 let now = base;
@@ -790,4 +797,41 @@ describe('cycle limit', () => {
       lines: 0,
     });
   });
+});
+
+it('lists an operator conversation waiting for a live session in status items, with no feed line', async () => {
+  const board = conversationConfig();
+  const { store } = await conversationStore();
+  stores.push(store);
+  await startConversation(store, board, '@cur hello');
+  await startConversation(store, board, '@qa o/r#101 status?', 2);
+  await liveSession(store, 'qa-1', 'qa');
+  const opened = Date.parse(CONVERSATION_AT);
+  const reconcile = () =>
+    scanTransaction(store, board, (trx) => reconcileItems(trx, board, opened, true));
+  await reconcile();
+  const status = await getStatus({
+    store,
+    config: board,
+    clock: { now: () => opened },
+    completeSince: new Map(),
+  });
+  expect(status.items).toEqual([
+    expect.objectContaining({
+      task: null,
+      summary: 'proj (project): message to @cur waits for a live cur session',
+    }),
+  ]);
+  expect(await store.db.selectFrom('operator_item').select('kind').execute()).toEqual([
+    { kind: 'conversation_waiting' },
+  ]);
+  expect(await store.db.selectFrom('outbox').select('kind').execute()).not.toContainEqual({
+    kind: 'feed.line',
+  });
+
+  await liveSession(store, 'cur-1', 'cur');
+  await reconcile();
+  expect(
+    await store.db.selectFrom('operator_item').select('cleared_at').executeTakeFirstOrThrow(),
+  ).not.toEqual({ cleared_at: null });
 });

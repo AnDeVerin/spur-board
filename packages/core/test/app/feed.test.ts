@@ -292,6 +292,7 @@ describe('operator item feed', () => {
       'board_observation',
       'worker_ended',
       'anomaly',
+      'conversation_waiting',
     ]);
     expect(Object.keys(ITEM_POLICY).every(isItemKind)).toBe(true);
     expect(isItemKind('manual')).toBe(false);

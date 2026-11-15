@@ -1069,7 +1069,7 @@ export const OPERATIONS = [
   defineOperation({
     id: 'block.answer',
     kind: 'mutation',
-    description: 'Answer a question block; the answer becomes a comment and the block closes.',
+    description: 'Answer a question; the block closes unless it is an operator conversation.',
     mcp: {
       whenToUse: 'Answer an open question.',
       whenNotToUse: 'Use block_unblock to close without an answer.',

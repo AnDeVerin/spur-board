@@ -356,7 +356,7 @@ describe('migrate', () => {
         'reopened_at',
       ]),
     );
-    insertRaw(raw, 'block', without(sampleRows.block, ['project']));
+    insertRaw(raw, 'block', without(sampleRows.block, ['project', 'addressee_spur_project']));
     insertRaw(raw, 'comment', comment);
     insertRaw(raw, 'outbox', outbox);
 
@@ -604,7 +604,7 @@ describe('migrate', () => {
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 11));
     insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
-    insertRaw(raw, 'block', without(sampleRows.block, ['project']));
+    insertRaw(raw, 'block', without(sampleRows.block, ['project', 'addressee_spur_project']));
     const old = without(
       { ...sampleRows.notification, author_session: null, last_outbox_id: null },
       ['turn_id'],
@@ -647,7 +647,7 @@ describe('migrate', () => {
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 12));
     insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
-    insertRaw(raw, 'block', without(sampleRows.block, ['project']));
+    insertRaw(raw, 'block', without(sampleRows.block, ['project', 'addressee_spur_project']));
     insertRaw(raw, 'turn', {
       ...without(sampleRows.turn, ['head_sha']),
       closed_at: null,
@@ -696,11 +696,13 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 18));
-    const block = { ...sampleRows.block, task_id: null, project: 'proj' };
+    const block = without({ ...sampleRows.block, task_id: null, project: 'proj' }, [
+      'addressee_spur_project',
+    ]);
     const snapshot = without(sampleRows.pr_snapshot, ['closed_recheck_at']);
     insertRaw(raw, 'block', block);
     insertRaw(raw, 'pr_snapshot', snapshot);
-    const result = migrate(raw, real);
+    const result = migrate(raw, real.slice(0, 19));
     expect(result.applied).toEqual(['0019_pr_polling']);
     expect(rows(raw, 'block')).toEqual([block]);
     expect(rows(raw, 'pr_snapshot')).toEqual([{ ...snapshot, closed_recheck_at: null }]);
@@ -713,7 +715,7 @@ describe('migrate', () => {
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 17));
     insertRaw(raw, 'task', sampleRows.task);
-    const block = without(sampleRows.block, ['project']);
+    const block = without(sampleRows.block, ['project', 'addressee_spur_project']);
     insertRaw(raw, 'block', block);
     insertRaw(raw, 'comment', sampleRows.comment);
     insertRaw(raw, 'turn', sampleRows.turn);
@@ -725,7 +727,7 @@ describe('migrate', () => {
 
     migrate(raw, real);
 
-    expect(rows(raw, 'block')).toEqual([{ ...block, project: null }]);
+    expect(rows(raw, 'block')).toEqual([{ ...block, project: null, addressee_spur_project: null }]);
     expect(rows(raw, 'comment')).toEqual([sampleRows.comment]);
     expect(rows(raw, 'notification')).toEqual([notification]);
     const add = (table: string, row: Record<string, unknown>) => {
@@ -765,6 +767,25 @@ describe('migrate', () => {
       });
     }).toThrow(/CHECK constraint failed/);
     expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('keeps v19 blocks with no addressed Spur project', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 19));
+    insertRaw(raw, 'task', sampleRows.task);
+    const block = without(sampleRows.block, ['addressee_spur_project']);
+    insertRaw(raw, 'block', block);
+    insertRaw(raw, 'block', { ...block, id: 2, task_id: null, project: 'proj' });
+
+    migrate(raw, real);
+
+    expect(rows(raw, 'block')).toEqual([
+      { ...block, addressee_spur_project: null },
+      { ...block, id: 2, task_id: null, project: 'proj', addressee_spur_project: null },
+    ]);
+    insertRaw(raw, 'block', { ...block, id: 3, addressee_spur_project: 'stand-curator' });
+    expect(rows(raw, 'block').at(-1)).toMatchObject({ addressee_spur_project: 'stand-curator' });
   });
 
   it('refuses a database newer than the code', () => {
@@ -941,6 +962,8 @@ describe('migration pins', () => {
     '0017_comment_conversation_message.sql':
       'b9be273061ec21c56ad54951dddfe2ee02a76887360ff956a4eba1666770de71',
     '0018_project_block.sql': '995c4435c6a2eff15b37e60e3b70a456b1bda4491ffdb1163cf2ce4c152ff64a',
+    '0020_block_addressee_spur.sql':
+      'e3fd7107df695a14678a4a8c2a47678996a7e62bf54c884987fb12c9cd3f2a33',
   };
 
   interface MigrationFile {

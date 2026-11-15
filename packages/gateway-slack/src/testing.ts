@@ -101,9 +101,16 @@ async function readForm(req: IncomingMessage): Promise<URLSearchParams> {
 }
 
 export async function startFakeSlackApi(
-  options: { pageSize?: number; now?: () => number; port?: number } = {},
+  options: {
+    pageSize?: number;
+    now?: () => number;
+    port?: number;
+    /** Channel IDs a message injected into a space is posted in; default `C_ORCH`/`C_FEED`. */
+    channels?: { orchestrators: string; feed: string };
+  } = {},
 ): Promise<FakeSlackApi> {
   const pageSize = options.pageSize ?? 100;
+  const channels = options.channels ?? { orchestrators: 'C_ORCH', feed: 'C_FEED' };
   const now = options.now ?? (() => Date.now());
   const requests: FakeRequest[] = [];
   const violations: FakeRequest[] = [];
@@ -393,7 +400,9 @@ export async function startFakeSlackApi(
       const addressed = 'conversation' in input ? parseRef(input.conversation) : null;
       const channel =
         addressed?.channel ??
-        ('space' in input && input.space === 'orchestrators' ? 'C_ORCH' : 'C_FEED');
+        ('space' in input && input.space === 'orchestrators'
+          ? channels.orchestrators
+          : channels.feed);
       const messageTs = ts();
       const threadTs = addressed?.threadTs ?? messageTs;
       const message: StoredMessage = {

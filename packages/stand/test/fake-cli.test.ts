@@ -20,11 +20,15 @@ let home: string | undefined;
 const clock = vi.fn<ControlRoutes['clock']>(() =>
   Promise.resolve({ status: 200, body: { offsetMs: 0 } }),
 );
+const slackPost = vi.fn<ControlRoutes['slackPost']>(() =>
+  Promise.resolve({ status: 200, body: { ok: true, message: 4, responses: [] } }),
+);
 
 afterEach(async () => {
   await control?.close();
   control = undefined;
   clock.mockClear();
+  slackPost.mockClear();
   if (home !== undefined) rmSync(home, { recursive: true, force: true });
   home = undefined;
 });
@@ -42,6 +46,7 @@ async function stubStand(answer: RouteResult): Promise<string> {
       fake: vi.fn(),
       slackOutbox: vi.fn(),
       slackClick: vi.fn(),
+      slackPost,
       violations: () => Promise.resolve(answer),
     },
   });
@@ -97,6 +102,27 @@ describe('stand violations', () => {
     const result = await runCli(['violations', '--home', dir]);
     expect(result.code).toBe(1);
     expect(result.stdout).toContain('unknown-shape-marker');
+  });
+});
+
+describe('stand fake slack post', () => {
+  it('posts the text and prints the message number', async () => {
+    const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
+    const result = await runCli(['fake', 'slack', 'post', '--text', '@cur hello', '--home', dir]);
+    expect(result.code).toBe(0);
+    expect(slackPost).toHaveBeenCalledExactlyOnceWith({ text: '@cur hello' });
+    expect(JSON.parse(result.stdout)).toMatchObject({ message: 4 });
+  });
+
+  it.each([
+    ['no text', ['fake', 'slack', 'post']],
+    ['an extra argument', ['fake', 'slack', 'post', 'x', '--text', 'hi']],
+  ])('exits 2 on %s without calling the stand', async (_name, args) => {
+    const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
+    const result = await runCli([...args, '--home', dir]);
+    expect(result.code).toBe(2);
+    expect(result.stderr.split('\n')[0]).toMatch(/fake slack post/);
+    expect(slackPost).not.toHaveBeenCalled();
   });
 });
 

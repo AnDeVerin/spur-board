@@ -147,6 +147,7 @@ export const sampleRows: SampleRows = {
     unblocked_at: at,
     created_at: at,
     project: null,
+    addressee_spur_project: null,
   },
   comment: {
     id: 1,

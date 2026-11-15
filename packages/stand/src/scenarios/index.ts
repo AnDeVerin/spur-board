@@ -19,6 +19,7 @@ import {
   curatorAbsent,
   curatorEscalation,
   projectQuestionToOperator,
+  operatorConversation,
   questionToCurator,
 } from './curator.ts';
 import {
@@ -130,13 +131,15 @@ export interface Scenario {
   name: string;
   summary: string;
   /**
-   * Merged into the stand's config: `thresholds` and `adapters` deep-merge, and `stand` replaces
-   * the `columns`, `dispatcher` and `spurProjects` of the `stand` project. Nothing else may
-   * change.
+   * Merged into the stand's config: `thresholds`, `adapters` and `slack` deep-merge, and `stand`
+   * replaces the `columns`, `dispatcher` and `spurProjects` of the `stand` project. Nothing else
+   * may change.
    */
   config?: {
     thresholds?: Partial<Config['thresholds']>;
     adapters?: Record<string, object>;
+    /** The operator conversation scenario names its default addressee. */
+    slack?: { defaultAddressee?: string };
     stand?: {
       columns?: object[];
       dispatcher?: { mode: 'shadow' | 'on' };
@@ -157,6 +160,7 @@ export const SCENARIOS: readonly Scenario[] = [
   curatorEscalation,
   curatorAbsent,
   projectQuestionToOperator,
+  operatorConversation,
   workerKilledNoPr,
   spurSourceSilent,
   sourceBlind,
@@ -207,8 +211,8 @@ function merge(base: unknown, extra: unknown): unknown {
 }
 
 /**
- * The stand's config with the scenario's `thresholds` and `adapters` deep-merged in, and its
- * `stand` keys written over the `stand` project's.
+ * The stand's config with the scenario's `thresholds`, `adapters` and `slack` deep-merged in, and
+ * its `stand` keys written over the `stand` project's.
  */
 export function mergeConfig(
   config: Record<string, unknown>,
@@ -230,6 +234,7 @@ export function mergeConfig(
     ...(extra.adapters === undefined
       ? {}
       : { adapters: merge(config['adapters'], extra.adapters) }),
+    ...(extra.slack === undefined ? {} : { slack: merge(config['slack'], extra.slack) }),
   };
 }
 

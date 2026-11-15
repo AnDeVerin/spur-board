@@ -16,6 +16,8 @@ export interface AuthorizationTarget {
     readonly type: BlockType;
     readonly author: ActorId;
     readonly addressee_role: AddresseeRole;
+    /** Set on an operator conversation: only this Spur project's sessions hold the block. */
+    readonly addressee_spur_project?: string | null;
   } | null;
   readonly workers: readonly {
     readonly session_id: string | null;
@@ -151,6 +153,8 @@ function matches(
       return target.task !== null && orchestrator(actor, target, config, target.task.column);
     case 'block-addressee': {
       if (target.block === null) return false;
+      const spur = target.block.addressee_spur_project ?? null;
+      if (spur !== null) return parsed?.actor === 'agent' && parsed.actorRef.project === spur;
       const addressee = parseAddressee(target.block.addressee_role);
       switch (addressee.kind) {
         case 'operator':
