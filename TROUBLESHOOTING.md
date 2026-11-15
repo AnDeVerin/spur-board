@@ -41,8 +41,9 @@ Install the package in a prefix whose `bin` appears on the current `PATH`, then 
 
 ### path.spur
 
-Start a live Spur session to let the doctor inspect its `PATH`. If the Board binary is absent
-there, install it with that session's Node and a user prefix on that `PATH`.
+Start a live Spur session to let the doctor inspect its `PATH`; `sessions.stale` defines a live
+session. If the Board binary is absent there, install it with that session's Node and a user
+prefix on that `PATH`.
 
 ### skills.codex_visibility
 
@@ -70,8 +71,8 @@ the doctor. The [setup skill](packages/skills/setup/SKILL.md) gives the project-
 
 ### sessions.codex_skill
 
-Warns about live Codex sessions that cannot see the product skill while their project's install
-passes `skills.codex_visibility`. Spur links `.agents/skills/spur-board` only when it creates a
+Warns about live Codex sessions (as `sessions.stale` defines them) that cannot see the product
+skill while their project's install passes `skills.codex_visibility`. Spur links `.agents/skills/spur-board` only when it creates a
 worktree, so these sessions started before the link. Start new sessions to replace them. It
 passes while `skills.codex_visibility` fails or warns: fix that check first, then rerun.
 
@@ -91,6 +92,14 @@ times with the install stamp and keeps listing it. When a connected session's st
 be read, the fix names it too. After a rollback to a version that was installed before, the
 sessions that already got that version's message get no new one and stay listed: stop and wake
 them.
+
+A live session is a local process with `SPUR_SESSION` set whose session Spur does not report as
+ended. The doctor asks Spur's `GET /sessions` at `adapters.spur.baseUrl`, and
+`GET /sessions/<id>` for a session missing from that list, and leaves out sessions that are
+completed, killed, errored with no running agent, or unknown to Spur. Running, waiting, stopped
+and paused sessions stay. Every session check uses this set. When Spur is unreachable or its list
+cannot be read, the doctor checks every process session; a session whose own status cannot be
+read stays too.
 
 ### http.port
 

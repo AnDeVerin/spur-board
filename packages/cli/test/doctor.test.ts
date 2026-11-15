@@ -60,8 +60,16 @@ const daemonResponse = () =>
     })),
   });
 
-function isSpurProjects(input: Parameters<typeof fetch>[0]): boolean {
-  return input instanceof URL && input.pathname.endsWith('/projects');
+/** Any request to the configured Spur API, on the default `adapters.spur.baseUrl`. */
+function isSpur(input: Parameters<typeof fetch>[0]): boolean {
+  return input instanceof URL && input.origin === 'http://127.0.0.1:4310';
+}
+
+/** Spur's project list; other Spur reads, such as sessions, answer 404 so every session stays. */
+function spurResponse(input: Parameters<typeof fetch>[0]): Response {
+  return input instanceof URL && input.pathname === '/projects'
+    ? Response.json([{ id: 'worker', path: '/main' }])
+    : Response.json({ error: 'not found' }, { status: 404 });
 }
 
 function capture() {
@@ -105,10 +113,7 @@ function ports(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
         startAt: Date.parse('2026-11-04T10:00:00.000Z'),
       },
     ],
-    fetcher: (input) =>
-      Promise.resolve(
-        isSpurProjects(input) ? Response.json([{ id: 'worker', path: '/main' }]) : daemonResponse(),
-      ),
+    fetcher: (input) => Promise.resolve(isSpur(input) ? spurResponse(input) : daemonResponse()),
     productVersion: () => '1.2.3',
     bind: () => Promise.resolve(null),
     ...overrides,
@@ -216,7 +221,7 @@ describe('board doctor', () => {
         },
         fetcher(input, init) {
           if (!(input instanceof URL)) throw new Error('Expected a URL.');
-          if (isSpurProjects(input)) return ports().fetcher(input, init);
+          if (isSpur(input)) return ports().fetcher(input, init);
           urls.push(input.href);
           return Promise.resolve(daemonResponse());
         },
@@ -233,7 +238,7 @@ describe('board doctor', () => {
       ports({
         fetcher(input, init) {
           if (!(input instanceof URL)) throw new Error('Expected a URL.');
-          if (isSpurProjects(input)) return ports().fetcher(input, init);
+          if (isSpur(input)) return ports().fetcher(input, init);
           urls.push(input.href);
           return Promise.resolve(daemonResponse());
         },
@@ -258,7 +263,7 @@ describe('board doctor', () => {
       const fake = ports({
         fetcher: (input) =>
           Promise.resolve(
-            isSpurProjects(input)
+            isSpur(input)
               ? Response.json([{ id: 'worker', path: '/main' }])
               : Response.json({
                   version: '1.2.3',
@@ -690,7 +695,7 @@ describe('board doctor', () => {
     const fake = ports({
       fetcher: (input) =>
         Promise.resolve(
-          isSpurProjects(input)
+          isSpur(input)
             ? Response.json([{ id: 'worker', path: '/main' }])
             : Response.json({
                 version: '1.2.3',
@@ -741,7 +746,7 @@ describe('board doctor', () => {
       ports({
         fetcher: (input) =>
           Promise.resolve(
-            isSpurProjects(input)
+            isSpur(input)
               ? Response.json([{ id: 'worker', path: '/main' }])
               : Response.json({
                   version: '1.2.3',
@@ -770,7 +775,7 @@ describe('board doctor', () => {
       ports({
         fetcher: (input) =>
           Promise.resolve(
-            isSpurProjects(input)
+            isSpur(input)
               ? Response.json([{ id: 'worker', path: '/main' }])
               : Response.json({
                   version: '1.2.3',
@@ -794,7 +799,7 @@ describe('board doctor', () => {
       ports({
         fetcher: (input) =>
           Promise.resolve(
-            isSpurProjects(input)
+            isSpur(input)
               ? Response.json([{ id: 'worker', path: '/main' }])
               : Response.json({
                   version: '1.2.3',
@@ -1127,6 +1132,144 @@ describe('board doctor', () => {
     expect(requests).toEqual([]);
     expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.status).toBe('pass');
   });
+
+  type SpurEntry = { id: string; status: string; runtimeAlive?: boolean };
+  /** A fake Spur: `list` answers GET /sessions; `detail` answers GET /sessions/<id>. */
+  function spurSessions(
+    list: SpurEntry[] | (() => Response),
+    detail: Record<string, SpurEntry | number> = {},
+    details: string[] = [],
+  ): (input: URL) => Response | null {
+    return (input) => {
+      if (!isSpur(input)) return null;
+      if (input.pathname === '/sessions')
+        return typeof list === 'function' ? list() : Response.json(list);
+      const id = /^\/sessions\/([^/]+)$/.exec(input.pathname)?.[1];
+      if (id === undefined) return spurResponse(input);
+      const name = decodeURIComponent(id);
+      details.push(name);
+      const reply = detail[name];
+      return reply === undefined || typeof reply === 'number'
+        ? Response.json({ error: 'status' }, { status: reply ?? 404 })
+        : Response.json(reply);
+    };
+  }
+  function withSpur(
+    spur: (input: URL) => Response | null,
+    requests: { url: string; init: RequestInit | undefined }[] = [],
+  ): DoctorPorts['fetcher'] {
+    const daemon = reloadFetcher(requests);
+    return (input, init) => {
+      if (!(input instanceof URL)) throw new Error('Expected a URL.');
+      const reply = spur(input);
+      return reply === null ? daemon(input, init) : Promise.resolve(reply);
+    };
+  }
+  const staleFix = (value: { checks: DoctorCheck[] }) =>
+    value.checks.find((entry) => entry.id === 'sessions.stale')?.fix;
+
+  it('lists only the live session when Spur reports the other completed', async () => {
+    const requests: { url: string; init: RequestInit | undefined }[] = [];
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [
+          session('ended-1', 'worker', oldStart),
+          session('live-1', 'worker', oldStart),
+        ],
+        fetcher: withSpur(
+          spurSessions([{ id: 'live-1', status: 'running', runtimeAlive: true }], {
+            'ended-1': { id: 'ended-1', status: 'completed', runtimeAlive: false },
+          }),
+          requests,
+        ),
+      }),
+    );
+    expect(staleFix(value)).toBe(stopAndWake('1 session', ': live-1'));
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.init?.body).toBe(
+      JSON.stringify({ version: '1.2.3', sessions: ['live-1'] }),
+    );
+    expect(value.text).not.toContain('ended-1');
+  });
+
+  it('leaves out killed, dead errored and unknown sessions and keeps the rest', async () => {
+    const ids = ['errored-alive', 'errored-dead', 'flaky', 'gone', 'killed', 'parked', 'paused'];
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => ids.map((id) => session(id, 'worker', oldStart)),
+        fetcher: withSpur(
+          spurSessions(
+            [
+              { id: 'killed', status: 'killed', runtimeAlive: false },
+              { id: 'parked', status: 'stopped', runtimeAlive: false },
+            ],
+            {
+              'errored-dead': { id: 'errored-dead', status: 'errored', runtimeAlive: false },
+              'errored-alive': { id: 'errored-alive', status: 'errored', runtimeAlive: true },
+              paused: { id: 'paused', status: 'paused' },
+              flaky: 500,
+            },
+          ),
+        ),
+      }),
+    );
+    expect(staleFix(value)).toBe(
+      stopAndWake('4 sessions', ': errored-alive, flaky, parked, paused'),
+    );
+  });
+
+  it('checks path.spur with the PATH of a live session', async () => {
+    const paths: (string | undefined)[] = [];
+    const sessions = [
+      { ...session('ended-1', 'worker', oldStart), path: '/ended/bin' },
+      { ...session('live-1', 'worker', oldStart), path: '/live/bin' },
+    ];
+    const spur = spurSessions([{ id: 'live-1', status: 'running' }], {
+      'ended-1': { id: 'ended-1', status: 'completed', runtimeAlive: false },
+    });
+    const recordRun: DoctorPorts['run'] = (command, args, env) => {
+      if (command === 'board' && env !== undefined) paths.push(env['PATH']);
+      return { exitCode: 0, stdout: '1.2.3\n' };
+    };
+    await run(
+      ['doctor', '--json'],
+      ports({ sessions: () => sessions, run: recordRun, fetcher: withSpur(spur) }),
+    );
+    expect(paths).toEqual(['/live/bin']);
+
+    paths.length = 0;
+    const onlyEnded = await run(
+      ['doctor', '--json'],
+      ports({ sessions: () => sessions.slice(0, 1), run: recordRun, fetcher: withSpur(spur) }),
+    );
+    expect(paths).toEqual([]);
+    expect(onlyEnded.checks.find((entry) => entry.id === 'path.spur')).toMatchObject({
+      status: 'warning',
+      blocking: false,
+      fix: 'Start a Spur session, then rerun board doctor.',
+    });
+    expect(onlyEnded.text).not.toContain('ended-1');
+  });
+
+  it('keeps every process session when Spur does not answer', async () => {
+    const details: string[] = [];
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [
+          session('ended-1', 'worker', oldStart),
+          session('live-1', 'worker', oldStart),
+        ],
+        fetcher: withSpur(
+          spurSessions(() => Response.json({ error: 'down' }, { status: 503 }), {}, details),
+        ),
+      }),
+    );
+    expect(staleFix(value)).toBe(stopAndWake('2 sessions', ': ended-1, live-1'));
+    expect(details).toEqual([]);
+  });
 });
 
 describe('board doctor Codex skill install', () => {
@@ -1238,10 +1381,22 @@ describe('board doctor Codex skill install', () => {
       ['doctor', '--json'],
       ports({
         sessions: () => [
+          { id: 'ended-1', project: 'worker', path: '/usr/bin', codexHome: '/codex', cwd: '/old' },
           { id: 'worker-1', project: 'worker', path: '/usr/bin', codexHome: '/codex', cwd: '/old' },
           { id: 'worker-1', project: 'worker', path: '/usr/bin', codexHome: '/codex', cwd: '/old' },
         ],
         exists: (path) => !path.endsWith('/skills/spur-board/SKILL.md'),
+        fetcher: (input) =>
+          Promise.resolve(
+            !isSpur(input)
+              ? daemonResponse()
+              : input instanceof URL && input.pathname === '/sessions'
+                ? Response.json([
+                    { id: 'ended-1', status: 'completed', runtimeAlive: false },
+                    { id: 'worker-1', status: 'running', runtimeAlive: true },
+                  ])
+                : spurResponse(input),
+          ),
       }),
     );
     expect(find(value.checks, 'skills.codex_visibility')?.status).toBe('pass');
@@ -1251,6 +1406,7 @@ describe('board doctor Codex skill install', () => {
       blocking: false,
       fix: 'Start new Spur sessions to replace Codex sessions created before the skill link: worker-1; Spur links .agents/skills/spur-board only into new worktrees.',
     });
+    expect(value.text).not.toContain('ended-1');
     expect(value.exitCode).toBe(0);
   });
 
@@ -1277,9 +1433,7 @@ describe('board doctor Codex skill install', () => {
       ports({
         fetcher: (input) =>
           Promise.resolve(
-            isSpurProjects(input)
-              ? Response.json([{ id: 'other', path: '/other' }])
-              : daemonResponse(),
+            isSpur(input) ? Response.json([{ id: 'other', path: '/other' }]) : daemonResponse(),
           ),
       }),
     );
