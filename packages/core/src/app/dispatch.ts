@@ -388,6 +388,8 @@ function externalApproval(pr: PrFacts, agentLogin: string): boolean {
  * unless a correction or a reroute closed that turn untaken, or once a handling submission
  * (`handlingSubmits`) on this PR was made at or after it. The entries such an untaken turn handed
  * over come from the turn when a later poll dropped them from the snapshot (`recalledFeedback`).
+ * A reviewer service's status comment (`statusComment`) never counts, not even through a recall
+ * or a reroute (`withoutStatusComments`).
  */
 async function unhandledFeedback(
   trx: Trx,
@@ -399,6 +401,7 @@ async function unhandledFeedback(
   const entries = (pr.feedback ?? []).filter(
     (entry) =>
       isExternalAuthor(entry, project.operatorGithubLogin) &&
+      entry.statusComment !== true &&
       !(
         entry.kind === 'review' &&
         (entry.state === undefined
@@ -420,8 +423,9 @@ async function unhandledFeedback(
     'handled',
   );
   const fromSnapshot = entries.map((entry) => handedOf(pr, entry));
-  const recalled = (
-    await recalledFeedback(trx, { kind: 'pr', repo: pr.repo, number: pr.number })
+  const recalled = withoutStatusComments(
+    pr,
+    await recalledFeedback(trx, { kind: 'pr', repo: pr.repo, number: pr.number }),
   ).filter((entry) => !fromSnapshot.some((old) => sameHanded(old, entry)));
   return [...recalled, ...fromSnapshot].filter(
     (entry) =>
@@ -542,6 +546,18 @@ function handedOf(pr: PrFacts, entry: NonNullable<PrFacts['feedback']>[number]):
     id: entry.id,
     postedAt: entry.postedAt,
   };
+}
+
+/**
+ * `entries` without those `pr`'s snapshot now flags as status comments: a turn may have handed
+ * such a comment over before the flag existed.
+ */
+function withoutStatusComments(pr: PrFacts | null, entries: readonly Handed[]): Handed[] {
+  if (pr === null) return [...entries];
+  const flagged = (pr.feedback ?? [])
+    .filter((entry) => entry.statusComment === true)
+    .map((entry) => handedOf(pr, entry));
+  return entries.filter((entry) => !flagged.some((old) => sameHanded(old, entry)));
 }
 
 /**
@@ -717,6 +733,8 @@ export async function readInput(
   clock: { at: Date; complete: ReadonlyMap<string, string> },
 ): Promise<{
   input: DispatchInput;
+  /** The task's PR snapshot, null without a linked PR. */
+  pr: PrFacts | null;
   handed: Handed[];
   unclosed: Row<'turn'> | undefined;
   /** The merged PR whose ticket was seen open past the grace: the task has no PR for the gates. */
@@ -886,6 +904,7 @@ export async function readInput(
           unclosed.head_sha !== pr.headSha.toLowerCase(),
       },
     },
+    pr,
     handed,
     unclosed,
     mergedOpen,
@@ -974,7 +993,8 @@ async function applyOn(
   const replaced = turn.kind === 'reroute' ? read.unclosed : undefined;
   if (replaced !== undefined) await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
   // A reroute carries the feedback the replaced turn handed over; the cursor already counts it.
-  const carried = replaced === undefined ? [] : turnHanded(replaced);
+  const carried =
+    replaced === undefined ? [] : withoutStatusComments(read.pr, turnHanded(replaced));
   const handed = [
     ...carried,
     ...read.handed.filter((entry) => !carried.some((old) => sameHanded(old, entry))),

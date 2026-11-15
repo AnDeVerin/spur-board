@@ -3721,3 +3721,83 @@ describe('pending submit', () => {
     );
   });
 });
+
+describe('reviewer-service status comments', () => {
+  const comment = (statusComment?: true) => ({
+    kind: 'comment' as const,
+    id: 'c-1',
+    author: { login: EXTERNAL, type: 'user' as const },
+    postedAt: at(1),
+    ...(statusComment === undefined ? {} : { statusComment }),
+  });
+
+  it.each([
+    { statusComment: true as const, returns: false },
+    { statusComment: undefined, returns: true },
+  ])(
+    'a comment with statusComment $statusComment during a taken Review turn returns the task: $returns',
+    async ({ statusComment, returns }) => {
+      const ctx = await inReview();
+      await ctx.ack(REV, 'T2');
+      await ctx.pr({ feedback: [comment(statusComment)] });
+
+      await ctx.submit(REV, 'T2', A);
+
+      if (returns) {
+        expect((await ctx.task()).column).toBe('dev');
+        expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['external_comments'] });
+      } else {
+        expect((await ctx.task()).column).toBe('product-review');
+      }
+    },
+  );
+
+  it('a status comment in External Review opens no Dev turn', async () => {
+    const ctx = await pastProductReview({ externalReview: true });
+    const outbox = async () =>
+      (await ctx.store.db.selectFrom('outbox').select('id').orderBy('id').execute()).map(
+        (row) => row.id,
+      );
+    const moves = await ctx.moves();
+    const queued = await outbox();
+
+    await ctx.pr({ feedback: [{ ...comment(true), postedAt: ctx.at() }] });
+    await ctx.tick();
+
+    expect((await ctx.task()).column).toBe('external-review');
+    expect(await ctx.openTurn()).toBeNull();
+    expect(await ctx.moves()).toEqual(moves);
+    expect(await outbox()).toEqual(queued);
+  });
+
+  it('does not recall a handed comment the snapshot now flags as a status comment', async () => {
+    const ctx = await started({}, 'none');
+    await ctx.pr({ feedback: [comment()] });
+    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([
+      { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(1) },
+    ]);
+    await ctx.pr({ feedback: [comment(true)] });
+
+    await ctx.move('dev');
+
+    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'corrected' });
+    const turn = await ctx.openTurn();
+    expect(turn).toEqual(turnOf('dev', 'operator', 'dev: no_submit_on_head'));
+    expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
+  });
+
+  it('does not carry a handed comment the snapshot now flags into a reroute', async () => {
+    const ctx = await started({}, 'none');
+    await ctx.pr({ feedback: [comment()] });
+    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toHaveLength(1);
+    await ctx.pr({ feedback: [comment(true)] });
+    expect(await ctx.openTurn()).toMatchObject({ id: 'T1', role: 'operator' });
+
+    await ctx.spur('live');
+
+    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'rerouted' });
+    const turn = await ctx.openTurn();
+    expect(turn).toMatchObject({ id: 'T2', role: 'worker' });
+    expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
+  });
+});
