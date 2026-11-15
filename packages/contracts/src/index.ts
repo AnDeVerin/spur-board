@@ -157,6 +157,8 @@ export {
   entityRefSchema,
   prSourceId,
   sourceCursorSchema,
+  sessionTransitionSchema,
+  type SessionTransition,
   trackerSourceId,
   type Adapter,
   type AdapterCore,

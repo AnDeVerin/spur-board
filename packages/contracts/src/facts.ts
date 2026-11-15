@@ -318,6 +318,9 @@ export const sessionFactsSchema = z
     healthSince: at.describe(
       'When the current health value began to hold, as the adapter observed it; health durations count from here.',
     ),
+    rateLimitResetAt: at
+      .optional()
+      .describe('Known reset time while the session is rate limited; omitted otherwise.'),
     lastActivityAt: at.nullable().describe('When the session last showed activity, or null.'),
     endedAt: at
       .nullable()
@@ -337,6 +340,13 @@ export const sessionFactsSchema = z
       ),
   })
   .superRefine((session, ctx) => {
+    if (session.rateLimitResetAt !== undefined && session.health !== 'rate_limited') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['rateLimitResetAt'],
+        message: 'Reset time requires rate_limited health',
+      });
+    }
     if ((session.endedAt === null) !== (session.endReason === null)) {
       ctx.addIssue({
         code: 'custom',
