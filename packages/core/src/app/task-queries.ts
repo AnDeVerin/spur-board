@@ -115,12 +115,19 @@ function shadowSummary(kind: EventKind, payloadText: string): string | null {
   }
 }
 
-/** The summary of a submit whose head the board's newest poll confirmed, or that waits for one. */
+/**
+ * The summary of a submit whose head the board's newest poll confirmed, that waits for one, or
+ * that a merge at another head superseded.
+ */
 function submitSummary(kind: EventKind, payloadText: string): string | null {
   if (kind !== 'task_submitted') return null;
   try {
     const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
     if (!payload.success) return null;
+    const merged = payload.data.supersededByMerge;
+    if (merged !== undefined) {
+      return `Submit of ${payload.data.sha.slice(0, 7)} superseded: PR merged at ${merged.slice(0, 7)}`;
+    }
     if (payload.data.pending === true) return 'Turn submitted, pending confirmation';
     return payload.data.confirmedByPoll === true
       ? 'Turn submitted on the head of the last poll'

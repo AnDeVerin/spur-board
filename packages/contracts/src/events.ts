@@ -159,6 +159,8 @@ export const eventPayloadSchemas = {
     confirmedByPoll: z.literal(true).optional(),
     /** The board accepted the submit before it could confirm the head; it confirms it on a later poll. */
     pending: z.literal(true).optional(),
+    /** A pending submit settled without a turn: its PR merged at this head, not at `sha`. */
+    supersededByMerge: S.optional(),
   }),
   task_moved: z.looseObject({
     from: z.enum(COLUMN_IDS),

@@ -3393,6 +3393,35 @@ describe('pending submit', () => {
     expect(await ctx.openTurn()).not.toMatchObject({ role: 'worker' });
   });
 
+  it('settles a submit superseded by a merge at another head with no Dev turn', async () => {
+    const { ctx } = await pendingOnPr();
+    const turns = (await ctx.turns()).length;
+
+    await ctx.pr({ state: 'merged', mergedAt: ctx.at() });
+
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await submissions(ctx))[0]).toMatchObject({ commit_sha: B, voided_at: ctx.at() });
+    expect(await ctx.turns()).toHaveLength(turns);
+    const superseded = (await ctx.history()).events.filter(
+      (event) => event.kind === 'task_submitted',
+    );
+    expect(superseded.at(-1)).toMatchObject({
+      summary: 'Submit of bbbbbbb superseded: PR merged at aaaaaaa',
+    });
+
+    await ctx.ticket('closed');
+
+    expect((await ctx.task()).column).toBe('done');
+    expect((await ctx.turns()).filter((turn) => turn.column === 'dev')).toHaveLength(turns);
+    const events = (await ctx.events()).length;
+    const after = (await ctx.turns()).length;
+    await ctx.tick();
+    await ctx.tick();
+    expect((await ctx.events()).slice(events)).toEqual([]);
+    expect(await ctx.turns()).toHaveLength(after);
+    expect(await ctx.events('task_submitted')).toHaveLength(2);
+  });
+
   it('holds a pending submit while the clock alone passes the bound', async () => {
     const { ctx } = await pendingNoPr();
     ctx.wait(BOUND + 1);

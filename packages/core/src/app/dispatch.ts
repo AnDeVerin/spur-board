@@ -544,7 +544,8 @@ function handedOf(pr: PrFacts, entry: NonNullable<PrFacts['feedback']>[number]):
 /**
  * A turn submit accepted before the board could confirm its head, and what it turned into:
  * `pending` while nothing settles it, `confirmed` once a poll observed the PR at `sha` after the
- * submit, `failed` when the head moved, the PR closed, or no PR appeared within the bound.
+ * submit, `failed` when the head moved, the PR closed, or no PR appeared within the bound, and
+ * `superseded` when the PR merged at another head: the merge decides the task, no turn.
  */
 type PendingSubmit = {
   id: number;
@@ -556,6 +557,8 @@ type PendingSubmit = {
   /** `pr`: the linked PR, copied onto a confirmed row recorded without one. */
   | { state: 'confirmed'; pr: { repo: string; number: number } }
   | { state: 'failed'; failure: string }
+  /** `head`: the merged PR's head, lowercased. */
+  | { state: 'superseded'; head: string }
 );
 
 /** The clock passed `until` and a complete poll of each of `repos` started at or after it. */
@@ -576,7 +579,8 @@ function pastBound(
 /**
  * The newest unvoided pending submit of the task's current visit in `on` mode, settled from
  * stored facts (`settlePending`). With `carry` (no turn yet in the current visit), the task's
- * newest submission from an earlier visit counts too, but only once it failed: a left move whose
+ * newest submission from an earlier visit counts too, but only once it failed or was superseded:
+ * a left move whose
  * turn was deferred or held still hands the failure back with the turn it opens later. Such a
  * row never confirms or holds the task here.
  */
@@ -613,7 +617,7 @@ async function readPendingSubmit(
     project,
     input,
   );
-  return settled.state === 'failed' ? settled : undefined;
+  return settled.state === 'failed' || settled.state === 'superseded' ? settled : undefined;
 }
 
 interface SettleInput {
@@ -666,6 +670,9 @@ async function settlePending(
       };
     }
     if (snap.head_sha.toLowerCase() === sha) return { ...pending, state: 'confirmed', pr: link };
+    if (snap.state === 'merged') {
+      return { ...pending, state: 'superseded', head: snap.head_sha.toLowerCase() };
+    }
     return {
       ...pending,
       state: 'failed',
@@ -985,6 +992,29 @@ async function applyOn(
   });
 }
 
+/**
+ * Voids a pending submit whose PR merged at another head and journals it; it opens no turn, as
+ * the merge decides the task (a ticket left open sends it back to Dev on its own).
+ */
+async function supersedeSubmit(
+  trx: Trx,
+  task: Task,
+  pending: Extract<PendingSubmit, { state: 'superseded' }>,
+  at: Date,
+): Promise<void> {
+  const row = await trx
+    .updateTable('submission')
+    .set({ voided_at: at.toISOString() })
+    .where('id', '=', pending.id)
+    .returning('column')
+    .executeTakeFirstOrThrow();
+  await emit(trx, 'task_submitted', task.project, task.id, at.toISOString(), {
+    column: row.column,
+    sha: pending.sha,
+    supersededByMerge: pending.head,
+  });
+}
+
 /** Counts a pending submit a poll confirmed: from its receipt time, on the linked PR. */
 async function confirmSubmit(
   trx: Trx,
@@ -1020,7 +1050,11 @@ export async function dispatchTasks(
     if (project === undefined) continue;
     const mode = project.dispatcher.mode;
     const read = await readInput(trx, task, project, mode, blind, ctx.config, ctx);
-    if (read === null || read.ticketUnconfirmed) continue;
+    if (read === null) continue;
+    // Before the merged-ticket hold: a merge settles the submit whatever the ticket says.
+    if (read.pending?.state === 'superseded')
+      await supersedeSubmit(trx, task, read.pending, ctx.at);
+    if (read.ticketUnconfirmed) continue;
     if (read.pending?.state === 'confirmed') await confirmSubmit(trx, read.pending);
     const result = dispatch(read.input);
     if (mode === 'shadow') await applyShadow(trx, task, project, result, ctx.at);
