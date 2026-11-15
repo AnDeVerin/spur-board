@@ -98,9 +98,10 @@ export function createOperationRegistry(deps: {
             columns: project.columns
               .filter((column) => column.enabled)
               .map((column) => {
-                const named = project.spurProjects.find(
-                  (spur) => spur.name === column.orchestrator,
-                );
+                const named =
+                  column.orchestrator === 'none' || column.orchestrator === 'operator'
+                    ? undefined
+                    : project.spurProjects.find((spur) => spur.name === column.orchestrator);
                 return {
                   id: column.id,
                   executor: {

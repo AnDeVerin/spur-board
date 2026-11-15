@@ -1042,6 +1042,56 @@ it.each([
   },
 );
 
+it.each([
+  ...configSchema.shape.projects.element.shape.spurProjects
+    .unwrap()
+    .element.shape.role.options.flatMap((role) => [
+      { name: 'none', role, binding: 'none', kind: 'automatic' },
+      { name: 'operator', role, binding: 'operator', kind: 'operator' },
+    ]),
+  { name: 'none-custom', role: 'orchestrator', binding: 'none-custom', kind: 'orchestrator' },
+  { name: 'operator-custom', role: 'curator', binding: 'operator-custom', kind: 'curator' },
+])(
+  'keeps $binding routing distinct from a $role project named $name',
+  async ({ name, role, binding, kind }) => {
+    const store = openTempStore('board-config-sentinels-').store;
+    stores.push(store);
+    const effective = configSchema.parse({
+      ...config,
+      projects: config.projects.slice(0, 1).map((project) => ({
+        ...project,
+        spurProjects: [{ name, role }],
+        columns: project.columns.map((column) => ({ ...column, orchestrator: binding })),
+      })),
+    });
+    const registry = createOperationRegistry({
+      config: effective,
+      clock,
+      completeSince: new Map(),
+    });
+    const query = createQuery({ store, config: effective, clock });
+    const result = await query(registry['config.get'], {}, 'operator');
+    expect(result.projects[0]?.spurProjects).toEqual([{ name, role, displayName: name }]);
+    expect(result.projects[0]?.columns).toEqual(
+      effective.projects[0]?.columns.map((column) => ({
+        id: column.id,
+        executor: {
+          kind:
+            kind === 'automatic'
+              ? column.id === 'external-review'
+                ? 'dispatcher'
+                : 'worker'
+              : kind,
+          name: binding === 'none' || binding === 'operator' ? null : name,
+        },
+      })),
+    );
+    expect(effective.projects[0]?.columns.every((column) => column.orchestrator === binding)).toBe(
+      true,
+    );
+  },
+);
+
 it('allowlists effective configuration and applies status project visibility', async () => {
   const store = openTempStore('board-config-view-').store;
   stores.push(store);

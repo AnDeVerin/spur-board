@@ -13,6 +13,8 @@ Read effective project configuration with `board config get`, then the current o
 and effective Spur projects with display names. It excludes credentials and adapter settings.
 A worker executor falls back to the operator when no live worker exists; unbound external review
 is handled by the dispatcher.
+Column bindings `none` and `operator` keep their routing meaning even when a Spur project has the
+same name.
 
 Compact status rows include the unclosed `turn` (or null), `prSummary` and navigation `links`.
 An untaken turn names its last assigned recipient session in `addressedTo`; a taken turn names
