@@ -383,13 +383,19 @@ export const OPERATIONS = [
   defineOperation({
     id: 'task.get',
     kind: 'query',
-    description: 'Show a task with its open turn, links, blocks and comments.',
+    description: 'Show a task; refresh reads GitHub PRs.',
     mcp: {
-      whenToUse: 'Inspect one task now; pass detail for its last closed turns.',
+      whenToUse: 'Inspect a task; detail adds closed turns.',
       whenNotToUse: 'Use task_history for past events.',
     },
     input: z.strictObject({
       task: taskKeyInputSchema,
+      refresh: z
+        .boolean()
+        .optional()
+        .describe(
+          'Read every linked pull request from GitHub before showing the task; unavailable reads fail visibly.',
+        ),
       detail: z
         .boolean()
         .optional()
@@ -414,7 +420,7 @@ export const OPERATIONS = [
       why: taskWhySchema.optional().describe('Present only with why.'),
     }),
     grants: operatorOrProjectAgent,
-    errors: ['wrong_id_kind', 'not_found'],
+    errors: ['wrong_id_kind', 'not_found', 'github_unavailable'],
     cli: { command: 'task', args: ['task'] },
     slack: { kind: 'slash-command', usage: '/board task <KEY> [why]' },
     examples: [
@@ -795,7 +801,8 @@ export const OPERATIONS = [
   defineOperation({
     id: 'link.add',
     kind: 'mutation',
-    description: 'Manually link a pull request, session, or additional ticket to a task.',
+    description:
+      'Manually link a pull request, session, or additional ticket to a task. Pull request links first read current facts from GitHub.',
     mcp: {
       whenToUse: 'Attach a pull request, session, or additional ticket.',
       whenNotToUse: 'Use link_remove to detach one.',
@@ -803,7 +810,7 @@ export const OPERATIONS = [
     input: linkInput,
     output: linkOutput,
     grants: operatorOnly,
-    errors: ['wrong_id_kind', 'not_found', 'task_archived', 'link_conflict'],
+    errors: ['wrong_id_kind', 'not_found', 'task_archived', 'link_conflict', 'github_unavailable'],
     cli: { command: 'link', args: ['task'], modes: linkModes },
     slack: null,
     examples: [

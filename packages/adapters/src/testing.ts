@@ -18,7 +18,11 @@ export interface FakeCoreOptions {
   /** Runs after `observe` records its call; a rejection rejects the call. */
   observe?: (source: string, observation: AcceptedObservation) => void | Promise<void>;
   /** Runs after `reportSourceState` records its call; a rejection rejects the call. */
-  reportSourceState?: (source: string, state: SourceState) => void | Promise<void>;
+  reportSourceState?: (
+    source: string,
+    state: SourceState,
+    usage?: Batch['usage'],
+  ) => void | Promise<void>;
 }
 
 export interface FakeCore extends AdapterCore {
@@ -26,7 +30,7 @@ export interface FakeCore extends AdapterCore {
   /** Accepted source states and separate failure/deadline reports, in call order. */
   readonly states: { source: string; state: SourceState }[];
   /** Only standalone failure/deadline reports. */
-  readonly reports: { source: string; state: SourceState }[];
+  readonly reports: { source: string; state: SourceState; usage?: Batch['usage'] }[];
   /** The most `reportSourceState` calls that were unsettled at once. */
   readonly maxReportsInFlight: number;
   /** From now on each `reportSourceState` waits until `releaseReport` is called. */
@@ -68,14 +72,14 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       await options.observe?.(source, observation);
       states.push({ source, state: observation.state });
     },
-    async reportSourceState(source, state) {
+    async reportSourceState(source, state, usage) {
       states.push({ source, state });
-      reports.push({ source, state });
+      reports.push({ source, state, ...(usage === undefined ? {} : { usage }) });
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
       try {
         if (holding) await new Promise<void>((resolve) => held.push(resolve));
-        await options.reportSourceState?.(source, state);
+        await options.reportSourceState?.(source, state, usage);
       } finally {
         inFlight -= 1;
       }

@@ -178,7 +178,11 @@ function turnView(turn: Turn, key: string) {
   };
 }
 
+import { refreshPrs } from './pr-refresh.ts';
+import type { PrPoller } from '@spur-board/contracts';
+
 export function createTaskQueries(deps: {
+  prPoller?: (() => PrPoller['pollPr'] | undefined) | undefined;
   config: Config;
   completeSince: ReadonlyMap<string, string>;
 }) {
@@ -278,6 +282,27 @@ export function createTaskQueries(deps: {
   const get: Query<'task.get'> = {
     id: 'task.get',
     resolveTargets: (trx, input) => taskTarget(trx, taskKey(input.task)),
+    async prepare(db, input) {
+      if (input.refresh !== true) return;
+      const task = await taskByKey(db, taskKey(input.task));
+      const links = await db
+        .selectFrom('link')
+        .select(['repo', 'number'])
+        .where('task_id', '=', task.id)
+        .where('entity', '=', 'pr')
+        .where('banned', '=', 0)
+        .execute();
+      await refreshPrs(
+        config,
+        task.project,
+        links.flatMap((link) =>
+          link.repo === null || link.number === null
+            ? []
+            : [{ kind: 'pr' as const, repo: link.repo, number: link.number }],
+        ),
+        deps.prPoller?.(),
+      );
+    },
     async run(trx, input) {
       const task = await taskByKey(trx, taskKey(input.task));
       const [blocks, comments, links] = await Promise.all([

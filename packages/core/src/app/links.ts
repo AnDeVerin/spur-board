@@ -8,7 +8,8 @@ import { taskTarget } from './blocks.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { rerouteDemotedWorkerTurn } from './turns.ts';
 import { canonicalKey } from './membership.ts';
-import type { Config } from '@spur-board/contracts';
+import type { Config, PrPoller } from '@spur-board/contracts';
+import { refreshPrs } from './pr-refresh.ts';
 
 type Link = Selectable<LinkTable>;
 type LinkInput = Parameters<Mutation<'link.add'>['run']>[1];
@@ -334,7 +335,10 @@ async function run(
   return { task: key, target };
 }
 
-export function createLinkMutations(config: Config): {
+export function createLinkMutations(
+  config: Config,
+  deps: { prPoller?: (() => PrPoller['pollPr'] | undefined) | undefined } = {},
+): {
   add: Mutation<'link.add'>;
   remove: Mutation<'link.remove'>;
 } {
@@ -344,6 +348,20 @@ export function createLinkMutations(config: Config): {
     add: {
       id: 'link.add',
       resolveTargets,
+      async prepare(db, input) {
+        if (input.mode !== 'pr') return;
+        const key = canonicalKey(config, input.task).key;
+        const task = await db
+          .selectFrom('task')
+          .selectAll()
+          .where('key', '=', key)
+          .executeTakeFirst();
+        if (task === undefined) throw new CommandError('not_found', 'Check the task key.');
+        if (task.membership === 'archived')
+          throw new CommandError('task_archived', 'Task is archived.');
+        const pr = prIdentity(input.pr);
+        await refreshPrs(config, task.project, [{ kind: 'pr', ...pr }], deps.prPoller?.());
+      },
       run: (trx, input, ctx) => run(trx, input, ctx, config, false),
     },
     remove: {

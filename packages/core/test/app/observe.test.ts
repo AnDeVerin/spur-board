@@ -1674,7 +1674,13 @@ describe('accepted observation', () => {
 
   it('replays the PR and session facts of a manually linked task from its own events', async () => {
     const { store, core, apply, mutations } = setup();
-    const links = createLinkMutations(config);
+    const links = createLinkMutations(config, {
+      prPoller: () => () =>
+        Promise.resolve({
+          ok: true,
+          value: { status: 'ok', facts: prFact(), observedAt: at },
+        }),
+    });
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
     const merged: PrFacts = {
       ...prFact(),
@@ -3743,5 +3749,313 @@ describe('anomaly blocks', () => {
       await spur(merged, [sessionFact('worker-1', link, true)]);
       expect(await openLedger(merged)).toEqual([]);
     });
+  });
+});
+
+describe('persisted PR eligibility and source points', () => {
+  const prSource = 'github:board:o/r';
+  const ref = { kind: 'pr' as const, repo: 'o/r', number: 7 };
+  async function accept(core: ReturnType<typeof createObservationCore>, facts: PrFacts, usage = 3) {
+    await core.observe(prSource, {
+      batch: {
+        source: prSource,
+        observedAt: new Date(now).toISOString(),
+        complete: true,
+        items: [{ kind: 'pr', facts }],
+        entities: [],
+        usage: { points: usage },
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+  }
+  it('omits legacy merged snapshots with valid heads, retains held history for explicit refresh, and survives core recreation', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await accept(core, { ...prFact(), state: 'merged' });
+    await store.db
+      .insertInto('pr_continuation')
+      .values({ source: prSource, ref_key: 'pr:o/r#7', resume: null, feedback: '[]' })
+      .execute();
+    const restarted = createObservationCore({ store, config, clock });
+    const ctx = await restarted.context(prSource);
+    expect(ctx.observe.prs).toEqual([]);
+    expect(ctx.terminalPrs).toEqual([{ ref, state: 'merged' }]);
+    expect(ctx.prRechecks).toEqual([]);
+    expect(ctx.continuations).toEqual([{ ref, resume: null, feedback: [] }]);
+    expect(
+      (await store.db.selectFrom('pr_snapshot').selectAll().executeTakeFirstOrThrow()).head_sha,
+    ).toBe(prFact().headSha);
+  });
+  it('persists closed deadlines and changes no facts, events or freshness on unchanged probes', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await accept(core, { ...prFact(), state: 'closed' });
+    const old = await store.db.selectFrom('pr_snapshot').selectAll().executeTakeFirstOrThrow();
+    const events = await store.db.selectFrom('event').selectAll().execute();
+    now += 6 * 3_600_000 - 1;
+    expect((await core.context(prSource)).prRechecks).toEqual([]);
+    now++;
+    expect((await core.context(prSource)).prRechecks).toEqual([ref]);
+    await store.db.updateTable('task').set({ membership: 'archived' }).execute();
+    expect((await core.context(prSource)).prRechecks).toEqual([]);
+    await store.db.updateTable('task').set({ membership: 'active' }).execute();
+    expect((await core.context(prSource)).prRechecks).toEqual([ref]);
+    await core.observe(prSource, {
+      batch: {
+        source: prSource,
+        observedAt: new Date(now).toISOString(),
+        complete: true,
+        items: [],
+        entities: [],
+        prProbes: [{ ref, status: 'closed' }],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    const refreshed = await store.db
+      .selectFrom('pr_snapshot')
+      .selectAll()
+      .executeTakeFirstOrThrow();
+    expect({ ...refreshed, closed_recheck_at: old.closed_recheck_at }).toEqual(old);
+    expect(await store.db.selectFrom('event').selectAll().execute()).toEqual(events);
+    const restarted = createObservationCore({ store, config, clock });
+    expect((await restarted.context(prSource)).prRechecks).toEqual([]);
+    await store.db.updateTable('pr_snapshot').set({ closed_recheck_at: null }).execute();
+    expect((await restarted.context(prSource)).prRechecks).toEqual([ref]);
+    await accept(restarted, { ...prFact(), state: 'open' });
+    expect((await restarted.context(prSource)).observe.prs).toEqual([ref]);
+    expect((await restarted.context(prSource)).terminalPrs).toEqual([]);
+  });
+  it('sums reported costs once across standalone reports and restarts with an open lower hour boundary', async () => {
+    const { store, core } = setup();
+    await accept(core, prFact(), 7);
+    await core.reportSourceState(prSource, { gone: [] }, { points: 3 });
+    const status = () => getStatus({ store, config, clock, completeSince: new Map() });
+    expect(
+      (await status()).sources.find((entry) => entry.source === prSource)?.pointsLastHour,
+    ).toBe(10);
+    now += 3_600_000;
+    expect(
+      (await status()).sources.find((entry) => entry.source === prSource)?.pointsLastHour,
+    ).toBe(0);
+    const restarted = createObservationCore({ store, config, clock });
+    await restarted.reportSourceState(prSource, { gone: [] }, { points: 5 });
+    expect(
+      (await status()).sources.find((entry) => entry.source === prSource)?.pointsLastHour,
+    ).toBe(5);
+    expect(await store.db.selectFrom('source_cost').selectAll().execute()).toHaveLength(1);
+  });
+});
+
+describe('source-specific terminal PR processing', () => {
+  const shared = configSchema.parse({
+    ...config,
+    projects: [
+      ...config.projects,
+      {
+        id: 'web',
+        tracker: {
+          type: 'jira',
+          baseUrl: 'https://jira.example.test',
+          jql: 'project = WEBDEV',
+          doneStatuses: ['Done'],
+          readyStatuses: ['Ready'],
+          projectKeys: ['WEBDEV'],
+        },
+        repos: ['o/r'],
+        operatorGithubLogin: 'operator',
+      },
+    ],
+  });
+  const first = 'github:board:o/r';
+  const second = 'github:web:o/r';
+  const ref = { kind: 'pr' as const, repo: 'o/r', number: 7 };
+  const observe = (
+    core: ReturnType<typeof createObservationCore>,
+    source: string,
+    state: PrFacts['state'],
+    keys: string[],
+  ) =>
+    core.observe(source, {
+      batch: {
+        source,
+        observedAt: new Date(now).toISOString(),
+        complete: true,
+        items: [{ kind: 'pr', facts: { ...prFact(), state, ticketKeys: keys } }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: new Date(now).toISOString(), gone: [] },
+      outcomes: [],
+    });
+  async function board() {
+    const b = setup(shared);
+    await b.apply(b.mutations.add, { task: 'o/r#9' }, 'operator');
+    await b.apply(b.mutations.add, { task: 'WEBDEV-1' }, 'operator');
+    return b;
+  }
+  it.each(['merged', 'closed'] as const)(
+    'scopes final %s suppression to sources that processed their own project links',
+    async (state) => {
+      const { store, core } = await board();
+      await observe(core, first, state, ['o/r#9']);
+      // Simulate a snapshot written before per-source processing metadata existed.
+      await store.db.deleteFrom('meta').where('key', 'like', 'pr-poll:%').execute();
+      expect((await core.context(first)).terminalPrs).toEqual([{ ref, state }]);
+      const unprocessed = await core.context(second);
+      expect(unprocessed.terminalPrs).toEqual([]);
+      expect(unprocessed.observe.prs).toEqual([ref]);
+      await observe(core, second, state, ['WEBDEV-1']);
+      const links = await store.db
+        .selectFrom('link')
+        .innerJoin('task', 'task.id', 'link.task_id')
+        .select(['task.project', 'task.key'])
+        .where('link.entity', '=', 'pr')
+        .where('link.number', '=', 7)
+        .orderBy('task.project')
+        .execute();
+      expect(links).toEqual([
+        { project: 'board', key: 'o/r#9' },
+        { project: 'web', key: 'WEBDEV-1' },
+      ]);
+      const restarted = createObservationCore({ store, config: shared, clock });
+      for (const source of [first, second]) {
+        expect((await restarted.context(source)).terminalPrs).toEqual([{ ref, state }]);
+        expect((await restarted.context(source)).observe.prs).toEqual([]);
+      }
+    },
+  );
+  it.each(['task.add', 'tracker import'] as const)(
+    'links late tasks through %s using each source extraction without refreshing snapshots',
+    async (route) => {
+      const { store, core, apply, mutations } = setup(shared);
+      await observe(core, first, 'merged', ['o/r#9']);
+      await observe(core, second, 'merged', ['WEBDEV-1']);
+      const snapshots = await store.db.selectFrom('pr_snapshot').selectAll().execute();
+      const freshness = await store.db.selectFrom('source_state').selectAll().execute();
+      now += 3_600_000;
+      for (const key of ['o/r#9', 'WEBDEV-1']) {
+        if (route === 'task.add') await apply(mutations.add, { task: key }, 'operator');
+        else {
+          const tracker = key === 'o/r#9' ? source : 'jira:web';
+          await core.observe(tracker, {
+            batch: {
+              source: tracker,
+              observedAt: new Date(now).toISOString(),
+              complete: true,
+              items: [
+                { kind: 'ticket', facts: { ...fact(key), trackerId: tracker, inFilter: true } },
+              ],
+              entities: [],
+            },
+            effectiveComplete: true,
+            state: { lastCompleteAt: at, gone: [] },
+            outcomes: [],
+          });
+        }
+      }
+      const links = await store.db
+        .selectFrom('link')
+        .innerJoin('task', 'task.id', 'link.task_id')
+        .select(['task.project', 'task.key'])
+        .where('link.entity', '=', 'pr')
+        .orderBy('task.project')
+        .execute();
+      expect(links).toEqual([
+        { project: 'board', key: 'o/r#9' },
+        { project: 'web', key: 'WEBDEV-1' },
+      ]);
+      expect(await store.db.selectFrom('pr_snapshot').selectAll().execute()).toEqual(snapshots);
+      const githubFreshness = (rows: typeof freshness) =>
+        rows.filter((row) => row.source.startsWith('github:'));
+      expect(
+        githubFreshness(await store.db.selectFrom('source_state').selectAll().execute()),
+      ).toEqual(githubFreshness(freshness));
+      for (const src of [first, second]) {
+        expect((await core.context(src)).terminalPrs).toEqual([{ ref, state: 'merged' }]);
+        expect((await core.context(src)).observe.prs).toEqual([]);
+      }
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      expect(
+        await store.db.selectFrom('link').selectAll().where('entity', '=', 'pr').execute(),
+      ).toHaveLength(2);
+      await store.db
+        .updateTable('link')
+        .set({ banned: 1 })
+        .where(
+          'task_id',
+          '=',
+          (
+            await store.db
+              .selectFrom('task')
+              .select('id')
+              .where('key', '=', 'o/r#9')
+              .executeTakeFirstOrThrow()
+          ).id,
+        )
+        .execute();
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      expect(
+        await store.db.selectFrom('link').select('banned').where('banned', '=', 1).execute(),
+      ).toHaveLength(1);
+    },
+  );
+  it('retains late-task associations through a closed state-only probe', async () => {
+    const { store, core, apply, mutations } = setup(shared);
+    await observe(core, first, 'closed', ['o/r#9']);
+    await observe(core, second, 'closed', ['WEBDEV-1']);
+    now += 6 * 3_600_000;
+    await core.observe(first, {
+      batch: {
+        source: first,
+        observedAt: new Date(now).toISOString(),
+        complete: true,
+        items: [],
+        entities: [],
+        prProbes: [{ ref, status: 'closed' }],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    expect(
+      await store.db.selectFrom('link').select('number').where('entity', '=', 'pr').execute(),
+    ).toEqual([{ number: 7 }]);
+    expect((await core.context(first)).prRechecks).toEqual([]);
+    expect((await core.context(second)).terminalPrs).toEqual([{ ref, state: 'closed' }]);
+  });
+  it('keeps closed deadlines independent when another source reads or probes the shared PR', async () => {
+    const { store, core } = await board();
+    await observe(core, first, 'closed', ['o/r#9']);
+    now += 3_600_000;
+    await observe(core, second, 'closed', ['WEBDEV-1']);
+    const snapshot = await store.db.selectFrom('pr_snapshot').selectAll().executeTakeFirstOrThrow();
+    now += 5 * 3_600_000;
+    expect((await core.context(first)).prRechecks).toEqual([ref]);
+    expect((await core.context(second)).prRechecks).toEqual([]);
+    await core.observe(first, {
+      batch: {
+        source: first,
+        observedAt: new Date(now).toISOString(),
+        complete: true,
+        items: [],
+        entities: [],
+        prProbes: [{ ref, status: 'closed' }],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: new Date(now).toISOString(), gone: [] },
+      outcomes: [],
+    });
+    expect(await store.db.selectFrom('pr_snapshot').selectAll().executeTakeFirstOrThrow()).toEqual(
+      snapshot,
+    );
+    now += 3_600_000;
+    const restarted = createObservationCore({ store, config: shared, clock });
+    expect((await restarted.context(first)).prRechecks).toEqual([]);
+    expect((await restarted.context(second)).prRechecks).toEqual([ref]);
   });
 });

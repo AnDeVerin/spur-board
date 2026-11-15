@@ -272,6 +272,15 @@ function holdsBlock(config: Config, actor: ActorId, target: ResolvedTarget): boo
   return authorize([{ grant: 'block-addressee' }], actor, { config, target }).status === 'allowed';
 }
 
+/** `target` with its block moved to `role`, to ask who would hold it there. */
+function atAddressee(target: ResolvedTarget, role: AddresseeRole): ResolvedTarget {
+  if (target.kind !== 'found' || target.value.block === null) return target;
+  return {
+    kind: 'found',
+    value: { ...target.value, block: { ...target.value.block, addressee_role: role } },
+  };
+}
+
 function wroteBlock(config: Config, actor: ActorId, target: ResolvedTarget): boolean {
   return authorize([{ grant: 'block-author' }], actor, { config, target }).status === 'allowed';
 }
@@ -828,11 +837,8 @@ export function createBlockMutations(config: Config) {
         block.type,
         curatorProject(config, task.project) !== null,
       );
-      for (const addressee_role of priors) {
-        const prior: ResolvedTarget = {
-          kind: 'found',
-          value: { ...target.value, block: { ...target.value.block, addressee_role } },
-        };
+      for (const role of priors) {
+        const prior = atAddressee(target, role);
         if (holdsBlock(config, actor, prior)) return [prior];
       }
       return [target];
@@ -843,7 +849,12 @@ export function createBlockMutations(config: Config) {
       const { task } = subject;
       if (task !== null) active(task);
       const hasCurator = curatorProject(config, subject.project) !== null;
-      const next = rule(() => escalateBlock(current(block), hasCurator));
+      const target = await subjectTarget(trx, subject, block);
+      const next = rule(() =>
+        escalateBlock(current(block), hasCurator, (role) =>
+          holdsBlock(config, ctx.actor, atAddressee(target, role)),
+        ),
+      );
       // A no-op leaves the block as it is but still posts the note to its current thread.
       const unchanged = async () => {
         if (input.note !== undefined) {
@@ -858,7 +869,6 @@ export function createBlockMutations(config: Config) {
       if (!next.changed || task === null || block.addressee_spur_project !== null)
         return unchanged();
       // An earlier addressee passes authorization to retry; only the current one moves the block.
-      const target = await subjectTarget(trx, subject, block);
       if (!holdsBlock(config, ctx.actor, target)) return unchanged();
       const updated = await moveBlockToAddressee(trx, {
         task,

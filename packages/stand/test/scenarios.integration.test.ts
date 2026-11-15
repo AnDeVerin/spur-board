@@ -125,12 +125,17 @@ interface SeedAnswer {
 }
 
 /** One operation as the operator, through the public API. */
-async function op<T>(manifest: StandManifest, id: string, input: object = {}): Promise<T> {
+async function op<T>(
+  manifest: StandManifest,
+  id: string,
+  input: object = {},
+  key?: string,
+): Promise<T> {
   const token = readFileSync(manifest.tokenPath, 'utf8').trim();
   const response = await fetch(`${manifest.daemonUrl}/v1/ops/${id}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-    body: JSON.stringify({ input }),
+    body: JSON.stringify({ input, ...(key === undefined ? {} : { key }) }),
   });
   const body = (await response.json()) as { value: T };
   expect(response.status, JSON.stringify(body)).toBe(200);
@@ -234,7 +239,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists thirty-five scenarios, each with a seed and a settled check', () => {
+  it('lists thirty-seven scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -254,6 +259,7 @@ describe('scenarios', () => {
       'dispatch-happy-path',
       'dispatch-split-pr',
       'dispatch-close-after-merge',
+      'pr-finality',
       'dispatch-review-loop',
       'dispatch-orchestrator-role',
       'dispatch-ci-red-after-submit',
@@ -2384,3 +2390,191 @@ describe('snapshots', () => {
     expect(Date.parse(after.now)).toBeGreaterThanOrEqual(Date.parse(shifted.now) + 1);
   }, 60_000);
 });
+
+it('pr-finality: final PRs cost discovery only, closed probes honor persisted deadlines, reopen and refresh read current facts', async () => {
+  const repo = 'stand-org/board';
+  const merged = `${repo}#1`;
+  const initial = Date.parse('2026-11-14T12:00:00.000Z');
+  await up({ clock: { now: () => initial } });
+  await seed('pr-finality');
+  interface RequestRecord {
+    seq: number;
+    at: string;
+    operation: string;
+    repo: string;
+    numbers: number[];
+    points: number;
+  }
+  const requests = async () =>
+    (
+      (await ok(current(), '/fake', { system: 'github', verb: 'inspect', args: {} })) as {
+        requests: RequestRecord[];
+      }
+    ).requests.filter((request) => request.repo === repo);
+  const change = (verb: string, number: number, extra: object = {}) =>
+    ok(current(), '/fake', { system: 'github', verb, args: { repo, number, ...extra } });
+  const poll = async () => {
+    const result = (await ok(current(), '/poll')) as { outcomes: { outcome: string }[] };
+    expect(result.outcomes.every(({ outcome }) => outcome === 'delivered')).toBe(true);
+  };
+  const shift = async (shiftMs: number) => {
+    const result = (await ok(current(), '/clock', { shiftMs })) as { now: string };
+    return Date.parse(result.now);
+  };
+  const snapshot = async (number: number) => {
+    const store = openStore(join(current().home, 'board.sqlite'));
+    try {
+      return await store.db
+        .selectFrom('pr_snapshot')
+        .selectAll()
+        .where('repo', '=', repo)
+        .where('number', '=', number)
+        .executeTakeFirstOrThrow();
+    } finally {
+      await store.close();
+    }
+  };
+  const history = async () => {
+    const store = openStore(join(current().home, 'board.sqlite'));
+    try {
+      const task = await store.db
+        .selectFrom('task')
+        .select('id')
+        .where('key', '=', `${repo}#2`)
+        .executeTakeFirstOrThrow();
+      return await store.db
+        .selectFrom('event')
+        .selectAll()
+        .where('task_id', '=', task.id)
+        .where('kind', '=', 'pr_facts_changed')
+        .execute();
+    } finally {
+      await store.close();
+    }
+  };
+  const points = async (now: number) => {
+    const status = await op<{ sources: { source: string; pointsLastHour?: number }[] }>(
+      current(),
+      'status.get',
+    );
+    const expected = (await requests())
+      .filter(
+        (request) => Date.parse(request.at) > now - 3_600_000 && Date.parse(request.at) <= now,
+      )
+      .reduce((sum, request) => sum + request.points, 0);
+    expect(
+      status.sources.find((source) => source.source === `github:stand:${repo}`)?.pointsLastHour,
+    ).toBe(expected);
+  };
+  let now = Date.parse((await snapshot(2)).observed_at);
+  const closed = await snapshot(2);
+  const events = await history();
+  let baseline = (await requests()).at(-1)?.seq ?? 0;
+  for (let i = 0; i < 3; i++) await poll();
+  let added = (await requests()).filter((request) => request.seq > baseline);
+  expect(added).toHaveLength(3);
+  expect(
+    added.every(
+      (request) =>
+        request.operation === 'PrBatch' && request.numbers.length === 0 && request.points === 1,
+    ),
+  ).toBe(true);
+  await points(now);
+
+  // Explicit reads reach final PRs; a stored manual key adds no request, a new key does.
+  baseline = (await requests()).at(-1)?.seq ?? 0;
+  const refreshed = await standCli([
+    'board',
+    '--home',
+    current().home,
+    'task',
+    merged,
+    '--refresh',
+    '--json',
+  ]);
+  expect(refreshed.code, refreshed.stderr).toBe(0);
+  const input = {
+    mode: 'pr',
+    task: merged,
+    pr: `https://github.com/${repo}/pull/1`,
+    reason: 'Refresh the final linked pull request.',
+  };
+  await op(current(), 'link.add', input, 'finality-link-first');
+  await op(current(), 'link.add', input, 'finality-link-first');
+  await op(current(), 'link.add', input, 'finality-link-second');
+  added = (await requests()).filter((request) => request.seq > baseline);
+  expect(added.map(({ operation, numbers, points }) => ({ operation, numbers, points }))).toEqual(
+    Array.from({ length: 3 }, () => ({ operation: 'PrDetails', numbers: [1], points: 5 })),
+  );
+  await points(now);
+
+  baseline = (await requests()).at(-1)?.seq ?? 0;
+  now = await shift(6 * 3_600_000 - 1);
+  await poll();
+  expect(
+    (await requests())
+      .filter((request) => request.seq > baseline)
+      .every((request) => request.numbers.length === 0),
+  ).toBe(true);
+  expect(await snapshot(2)).toEqual(closed);
+
+  // OPEN discovery bypasses the not-yet-due closed deadline.
+  await change('reopen', 3);
+  baseline = (await requests()).at(-1)?.seq ?? 0;
+  await poll();
+  added = (await requests()).filter((request) => request.seq > baseline);
+  expect(
+    added.filter((request) => request.numbers.includes(3)).map((request) => request.operation),
+  ).toEqual(['PrDetails']);
+  expect((await snapshot(3)).state).toBe('open');
+  expect(added.some((request) => request.numbers.includes(2))).toBe(false);
+
+  baseline = (await requests()).at(-1)?.seq ?? 0;
+  now = await shift(1);
+  await poll();
+  added = (await requests()).filter((request) => request.seq > baseline);
+  expect(
+    added
+      .filter((request) => request.numbers.includes(2))
+      .map((request) => ({ operation: request.operation, points: request.points })),
+  ).toEqual([{ operation: 'PrStates', points: 1 }]);
+  const probed = await snapshot(2);
+  expect({ ...probed, closed_recheck_at: closed.closed_recheck_at }).toEqual(closed);
+  expect(Date.parse(probed.closed_recheck_at ?? '')).toBe(now + 6 * 3_600_000);
+  expect(await history()).toEqual(events);
+  expect(added.some((request) => request.numbers.includes(1) || request.numbers.includes(4))).toBe(
+    false,
+  );
+  await points(now);
+
+  // Put another author's reopen below the discovery cursor, so only its due state probe finds it.
+  await change('create', 5, {
+    seed: {
+      author: { login: 'another-author' },
+      updatedAt: new Date(now + 2 * 86_400_000).toISOString(),
+    },
+  });
+  await poll();
+  await change('reopen', 2);
+  baseline = (await requests()).at(-1)?.seq ?? 0;
+  await poll();
+  expect(
+    (await requests())
+      .filter((request) => request.seq > baseline)
+      .some((request) => request.numbers.includes(2)),
+  ).toBe(false);
+  baseline = (await requests()).at(-1)?.seq ?? 0;
+  now = await shift(6 * 3_600_000);
+  await poll();
+  added = (await requests()).filter((request) => request.seq > baseline);
+  expect(
+    added.filter((request) => request.numbers.includes(2)).map((request) => request.operation),
+  ).toEqual(['PrStates', 'PrDetails']);
+  expect((await snapshot(2)).state).toBe('open');
+  expect((await snapshot(2)).closed_recheck_at).toBeNull();
+  expect(added.some((request) => request.numbers.includes(1) || request.numbers.includes(4))).toBe(
+    false,
+  );
+  await points(now);
+  expect(await ok(current(), '/violations')).toEqual({ total: 0, items: [] });
+}, 90_000);

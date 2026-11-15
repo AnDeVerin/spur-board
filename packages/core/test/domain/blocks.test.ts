@@ -182,6 +182,25 @@ describe('block escalation chain', () => {
     ]);
   });
 
+  it('skips a step the escalating actor holds and stops at the operator', () => {
+    expect(escalateBlock(question, true, (role) => role === 'curator')).toEqual({
+      addressee: 'operator',
+      changed: true,
+    });
+    expect(escalateBlock({ ...question, addressee: 'operator' }, true, () => true)).toEqual({
+      addressee: 'operator',
+      changed: false,
+    });
+    expect(escalateBlock(question, true, (role) => role === 'operator')).toEqual({
+      addressee: 'curator',
+      changed: true,
+    });
+    expect(priorAddressees('orchestrator:dev', 'operator', 'needs_input', true)).toEqual([
+      'orchestrator:dev',
+      'curator',
+    ]);
+  });
+
   it('finds no steps when the current addressee is off the path', () => {
     expect(priorAddressees('operator', 'curator', 'needs_input', true)).toEqual([]);
     expect(priorAddressees('orchestrator:qa', 'orchestrator:dev', 'needs_input', true)).toEqual([]);

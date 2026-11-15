@@ -205,6 +205,8 @@ export interface GraphqlRequestEntry {
   repo: string;
   /** The `pr<i>` alias literals in alias order, else the `number` variable, else none. */
   numbers: number[];
+  /** Synthetic cost when this fake reports it; absent for other sources. */
+  points?: number;
 }
 
 /** The answered requests, newest last; past 500 entries the oldest goes. */
@@ -212,7 +214,7 @@ export function createRequestLog(now: () => number) {
   let seq = 0;
   const entries: GraphqlRequestEntry[] = [];
   return {
-    record(operation: OperationDefinitionNode, variables: Variables): void {
+    record(operation: OperationDefinitionNode, variables: Variables, points?: number): void {
       const aliased = operation.selectionSet.selections
         .filter((field): field is FieldNode => field.kind === Kind.FIELD)
         .filter((field) => /^pr\d+$/.test(field.alias?.value ?? ''))
@@ -222,6 +224,7 @@ export function createRequestLog(now: () => number) {
       seq += 1;
       entries.push({
         seq,
+        ...(points === undefined ? {} : { points }),
         at: new Date(now()).toISOString(),
         operation: operation.name?.value ?? '',
         repo: `${String(variables['owner'])}/${String(variables['repo'])}`,

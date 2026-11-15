@@ -18,6 +18,8 @@ export interface Query<Id extends QueryId> {
     input: z.output<Entry<Id>['input']>,
     actor: ActorId,
   ): Promise<readonly ResolvedTarget[]>;
+  /** Runs after authorization and outside the transaction; final reading reauthorizes. */
+  prepare?(db: Kysely<Tables>, input: z.output<Entry<Id>['input']>, actor: ActorId): Promise<void>;
   run(
     trx: Kysely<Tables>,
     input: z.output<Entry<Id>['input']>,
@@ -45,31 +47,40 @@ export function createQuery(deps: {
     if (!parsed.success)
       throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
     const parsedInput = parsed.data as z.output<Entry<typeof query.id>['input']>;
-    const result = await store.transaction(async (trx) => {
-      const targets = await query.resolveTargets(trx, parsedInput, actor);
-      for (const target of targets.length === 0 ? [{ kind: 'missing' as const }] : targets) {
-        const decision = authorize(entry.grants, actor, { config, target });
-        if (decision.status === 'denied') {
-          await writeDeniedEvent(trx, {
-            config,
-            actor,
-            operation: entry.id,
-            input: parsedInput,
-            target,
-            at: new Date(clock.now()).toISOString(),
-          });
-          return { status: 'denied' as const, hint: decision.hint };
+    const read = (prepare: boolean) =>
+      store.transaction(async (trx) => {
+        const targets = await query.resolveTargets(trx, parsedInput, actor);
+        for (const target of targets.length === 0 ? [{ kind: 'missing' as const }] : targets) {
+          const decision = authorize(entry.grants, actor, { config, target });
+          if (decision.status === 'denied') {
+            await writeDeniedEvent(trx, {
+              config,
+              actor,
+              operation: entry.id,
+              input: parsedInput,
+              target,
+              at: new Date(clock.now()).toISOString(),
+            });
+            return { status: 'denied' as const, hint: decision.hint };
+          }
         }
-      }
-      if (targets.some((target) => target.kind === 'missing')) {
-        throw new CommandError('not_found', 'Check the target ID.');
-      }
-      if (targets.length === 0 && entry.grants !== 'any' && entry.id !== 'token.list') {
-        throw new CommandError('not_found', 'Resolve an authorization target before reading.');
-      }
-      const value = await query.run(trx, parsedInput, actor);
-      return { status: 'done' as const, value: entry.output.parse(value) };
-    });
+        if (targets.some((target) => target.kind === 'missing')) {
+          throw new CommandError('not_found', 'Check the target ID.');
+        }
+        if (targets.length === 0 && entry.grants !== 'any' && entry.id !== 'token.list') {
+          throw new CommandError('not_found', 'Resolve an authorization target before reading.');
+        }
+        if (prepare) return { status: 'prepared' as const };
+        const value = await query.run(trx, parsedInput, actor);
+        return { status: 'done' as const, value: entry.output.parse(value) };
+      });
+    if (query.prepare !== undefined) {
+      const preflight = await read(true);
+      if (preflight.status === 'denied') throw new CommandError('forbidden', preflight.hint);
+      await query.prepare(store.db, parsedInput, actor);
+    }
+    const result = await read(false);
+    if (result.status === 'prepared') throw new Error('Query result was not read');
     if (result.status === 'denied') throw new CommandError('forbidden', result.hint);
     return result.value as z.output<Entry<typeof query.id>['output']>;
   };

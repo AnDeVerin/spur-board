@@ -111,7 +111,16 @@ function ticketFact(): TicketFacts {
 async function setup(config = defaultConfig) {
   const store = openTempStore('board-links-').store;
   stores.push(store);
-  const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+  const registry = createOperationRegistry({
+    config,
+    clock,
+    completeSince: new Map(),
+    prPoller: () => (_source, ref) =>
+      Promise.resolve({
+        ok: true,
+        value: { status: 'ok', facts: prFact(ref.number), observedAt: at },
+      }),
+  });
   const core = createObservationCore({ store, config, clock });
   const call = (
     id: 'link.add' | 'link.remove',
@@ -788,5 +797,79 @@ describe('link rule hints in status', () => {
       expect(row?.sessionCount).toBe(1);
       expect('linkHints' in (row ?? {})).toBe(false);
     }
+  });
+});
+
+describe('manual PR refresh preparation', () => {
+  const input = { mode: 'pr', task, pr: prUrl(7), reason: 'Attach work.' };
+  it('refreshes even an existing manual target, but never a stored-key replay', async () => {
+    const { store, core } = await setup();
+    let calls = 0;
+    const registry = createOperationRegistry({
+      config,
+      clock,
+      completeSince: new Map(),
+      prPoller: () => async (source, ref) => {
+        calls++;
+        const facts = { ...prFact(ref.number, 'merged'), ticketKeys: [] };
+        // A real runner commits this observation; it also proves no link transaction is held.
+        await core.observe(source, {
+          batch: {
+            source,
+            observedAt: at,
+            complete: false,
+            items: [{ kind: 'pr', facts }],
+            entities: [{ ref, status: 'ok' }],
+          },
+          effectiveComplete: false,
+          state: { gone: [] },
+          outcomes: [],
+        });
+        return { ok: true, value: { status: 'ok', facts, observedAt: at } };
+      },
+    });
+    const call = (key: string) =>
+      dispatchOperation({ store, config, clock, registry }, 'link.add', input, 'operator', key);
+    await call('first');
+    await call('first');
+    expect(calls).toBe(1);
+    await call('second');
+    expect(calls).toBe(2);
+    expect(
+      await store.db.selectFrom('link').selectAll().where('entity', '=', 'pr').execute(),
+    ).toHaveLength(1);
+    expect(
+      (await store.db.selectFrom('pr_snapshot').select('state').executeTakeFirstOrThrow()).state,
+    ).toBe('merged');
+  });
+  it('refuses missing, denied and archived targets before calling GitHub and applies no failed link', async () => {
+    const { store } = await setup();
+    let calls = 0;
+    const registry = createOperationRegistry({
+      config,
+      clock,
+      completeSince: new Map(),
+      prPoller: () => () => {
+        calls++;
+        return Promise.resolve({ ok: false, error: { kind: 'timeout', message: 'Timeout' } });
+      },
+    });
+    const call = (value: unknown, actor: ActorId = 'operator') =>
+      dispatchOperation({ store, config, clock, registry }, 'link.add', value, actor, 'attempt');
+    await expect(call(input, 'agent:worker/worker-1')).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(call({ ...input, task: 'o/r#999' })).rejects.toMatchObject({ code: 'not_found' });
+    expect(calls).toBe(0);
+    await expect(call(input)).rejects.toMatchObject({ code: 'github_unavailable' });
+    expect(calls).toBe(1);
+    expect(
+      await store.db.selectFrom('link').selectAll().where('entity', '=', 'pr').execute(),
+    ).toEqual([]);
+    await store.db
+      .updateTable('task')
+      .set({ membership: 'archived' })
+      .where('key', '=', task)
+      .execute();
+    await expect(call(input)).rejects.toMatchObject({ code: 'task_archived' });
+    expect(calls).toBe(1);
   });
 });
