@@ -4,6 +4,7 @@ import { RECONCILED_KINDS } from '../domain/fromYou.ts';
 import { emit, type Trx } from './board-utils.ts';
 import { closeOpenBlock } from './blocks.ts';
 import { clearItem } from './feed.ts';
+import { taskSubject } from './subject.ts';
 import { closeTurns } from './turns.ts';
 
 /**
@@ -24,7 +25,8 @@ export async function archiveTask(
     .where('state', '=', 'open')
     .orderBy('id')
     .execute();
-  for (const block of blocks) await closeOpenBlock(trx, task, block, ctx, 'archived', null);
+  for (const block of blocks)
+    await closeOpenBlock(trx, taskSubject(task), block, ctx, 'archived', null);
   await closeTurns(trx, { taskId: task.id, reason: 'archived', at: new Date(at) });
   // A ledger item was cleared with its block above, without a dismissal; the other
   // state-derived items have a null block_id, and the next reconcile would clear them anyway.

@@ -5,7 +5,6 @@ import {
   conversationRefSchema,
   messageRefSchema,
   PERSONA_ROLES,
-  taskKeySchema,
   type ActorId,
   type Persona,
   type Action,
@@ -15,6 +14,7 @@ import {
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { taskUrl, type Trx } from './board-utils.ts';
+import { blockSubject, rowSubject } from './subject.ts';
 import { TASKLESS_FEED_KEY, raiseItemWith } from './item-raise.ts';
 import { SCAN_PENDING, checkGatewayStrings, scanConfig } from './secrets.ts';
 
@@ -56,10 +56,12 @@ const persona = z.strictObject({
 const id = z.int().positive();
 
 const closePayload = z.strictObject({
-  key: taskKeySchema,
+  /** The task key, or `<project> (project)` for a project-level block. */
+  key: z.string().min(1),
   text: z.string(),
   persona,
-  taskId: id,
+  /** Null for a project-level block. */
+  taskId: id.nullable(),
   blockId: id,
   commentId: id.nullable(),
   targetConversation: conversationRefSchema.optional(),
@@ -682,18 +684,11 @@ export async function enqueueConversationOpen(
 ): Promise<number | null> {
   const block = await trx
     .selectFrom('block')
-    .innerJoin('task', 'task.id', 'block.task_id')
-    .select([
-      'block.id',
-      'block.reason',
-      'block.author',
-      'block.addressee_role',
-      'task.id as taskId',
-      'task.key',
-    ])
-    .where('block.id', '=', input.blockId)
+    .select(['id', 'reason', 'author', 'addressee_role', 'task_id', 'project'])
+    .where('id', '=', input.blockId)
     .executeTakeFirstOrThrow();
   if (block.addressee_role !== 'operator' || block.author === 'operator') return null;
+  const { key } = await blockSubject(trx, block);
   const comment =
     input.commentId === null
       ? undefined
@@ -703,11 +698,11 @@ export async function enqueueConversationOpen(
           .where('id', '=', input.commentId)
           .executeTakeFirstOrThrow();
   const payload: z.input<typeof openPayload> = {
-    key: block.key,
-    title: `${block.key} ${block.reason}`,
+    key,
+    title: `${key} ${block.reason}`,
     text: comment?.text ?? block.reason,
     persona: input.persona,
-    taskId: block.taskId,
+    taskId: block.task_id,
     blockId: block.id,
     commentId: input.commentId,
   };
@@ -733,9 +728,8 @@ export async function enqueueConversationReply(
 ): Promise<number | null> {
   const comment = await trx
     .selectFrom('comment')
-    .innerJoin('task', 'task.id', 'comment.task_id')
-    .select(['comment.id', 'comment.text', 'comment.block_id', 'task.id as taskId', 'task.key'])
-    .where('comment.id', '=', input.commentId)
+    .select(['id', 'text', 'block_id', 'task_id'])
+    .where('id', '=', input.commentId)
     .executeTakeFirstOrThrow();
   const blockId = comment.block_id;
   if (blockId === null) return null;
@@ -749,10 +743,10 @@ export async function enqueueConversationReply(
     .executeTakeFirst();
   if (tail === undefined || tail.state === 'dead') return null;
   const payload: z.input<typeof replyPayload> = {
-    key: comment.key,
+    key: (await rowSubject(trx, comment)).key,
     text: comment.text,
     persona: input.persona,
-    taskId: comment.taskId,
+    taskId: comment.task_id,
     blockId,
     commentId: comment.id,
   };
@@ -774,9 +768,8 @@ export async function enqueueConversationClose(
 ): Promise<void> {
   const block = await trx
     .selectFrom('block')
-    .innerJoin('task', 'task.id', 'block.task_id')
-    .select(['task.id as taskId', 'task.key', 'block.id'])
-    .where('block.id', '=', input.blockId)
+    .select(['id', 'task_id', 'project'])
+    .where('id', '=', input.blockId)
     .executeTakeFirstOrThrow();
   const tail = await trx
     .selectFrom('outbox')
@@ -798,10 +791,10 @@ export async function enqueueConversationClose(
     .where('block_id', '=', input.blockId)
     .execute();
   const payload = {
-    key: block.key,
+    key: (await blockSubject(trx, block)).key,
     text: `resolved: ${input.outcome === 'archived' ? 'task archived' : input.outcome} (${input.actor})`,
     persona: { name: 'board', role: 'board' } as const,
-    taskId: block.taskId,
+    taskId: block.task_id,
     blockId: block.id,
     commentId: null,
   };

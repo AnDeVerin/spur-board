@@ -15,7 +15,12 @@ import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
 import { columnsBasic, columnsBasicJira } from './columns-basic.ts';
 import { dispatchCourseCheck, dispatchCourseCheckTo } from './course-check.ts';
-import { curatorAbsent, curatorEscalation, questionToCurator } from './curator.ts';
+import {
+  curatorAbsent,
+  curatorEscalation,
+  projectQuestionToOperator,
+  questionToCurator,
+} from './curator.ts';
 import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
@@ -142,6 +147,7 @@ export const SCENARIOS: readonly Scenario[] = [
   questionToCurator,
   curatorEscalation,
   curatorAbsent,
+  projectQuestionToOperator,
   workerKilledNoPr,
   spurSourceSilent,
   sourceBlind,

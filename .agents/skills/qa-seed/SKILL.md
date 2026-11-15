@@ -22,9 +22,9 @@ verbs and scenario names; this card keeps the rules and traps.
   Product Review and run Review, Product Review and Ready to Merge by `--as orchestrator`.
 - `dispatch-ci-pending-after-submit` and `dispatch-ring-closed-turn` set the conductor session
   `--state waiting` so rings to it go out.
-- The curator scenarios (`question-to-curator`, `curator-escalation`, `curator-absent`) add
-  `stand-curator` as the stand project's curator; their seeds set the worker and curator sessions
-  `--state waiting` so rings go out.
+- The curator scenarios (`question-to-curator`, `curator-escalation`, `curator-absent`,
+  `project-question-to-operator`) add `stand-curator` as the stand project's curator; their seeds
+  set the worker and curator sessions `--state waiting` so rings go out.
 - `dispatch-course-check` adds `stand-curator` as the curator too, and sets the worker and
   curator sessions `--state waiting`, so only the course check holds the worker's rings: answer
   its course block `--as curator`, then `pnpm stand poll`.

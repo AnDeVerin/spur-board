@@ -42,6 +42,7 @@ import type { ReapplyInbound } from './items.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
 import { deliveredRefSchema, enqueueConversationClose } from './outbox.ts';
 import { redactPrivateReply, redactSecretMatches } from './secrets.ts';
+import { rowSubject, type BlockSubject } from './subject.ts';
 import {
   decideTokenInTransaction,
   effectiveStatus,
@@ -116,10 +117,15 @@ async function taskContext(
   if (!('conversation' in event) || event.conversation === undefined) {
     return { taskId: null, project: null };
   }
+  // A project-level block's thread has no task: its project is the block's.
   const row = await trx
     .selectFrom('conversation')
     .leftJoin('task', 'task.id', 'conversation.task_id')
-    .select(['conversation.task_id as taskId', 'task.project'])
+    .leftJoin('block', 'block.id', 'conversation.block_id')
+    .select((eb) => [
+      'conversation.task_id as taskId',
+      eb.fn.coalesce('task.project', 'block.project').as('project'),
+    ])
     .where('conversation.gateway', '=', gateway)
     .where('conversation.ref', '=', event.conversation)
     .executeTakeFirst();
@@ -237,7 +243,9 @@ async function alreadyApplied(trx: Trx, event: MessageEvent): Promise<boolean> {
   const rows = await trx
     .selectFrom('event')
     .select(['kind', 'at'])
-    .where('task_id', '=', comment.task_id)
+    .where((eb) =>
+      comment.task_id === null ? eb('task_id', 'is', null) : eb('task_id', '=', comment.task_id),
+    )
     .where('kind', 'in', ['comment_deleted', 'comment_edited'])
     .where(sql<string>`json_extract(payload, '$.comment')`, '=', `C${String(comment.id)}`)
     .execute();
@@ -265,7 +273,7 @@ async function ringAuthor(
   input: {
     event: UserEvent;
     block: Row<'block'>;
-    task: Row<'task'>;
+    subject: BlockSubject;
     comment: Row<'comment'>;
     authorRole: AddresseeRole;
     at: string;
@@ -286,7 +294,8 @@ async function ringAuthor(
     const recipient = await selectNotificationRecipient(
       trx,
       {
-        task_id: input.task.id,
+        task_id: input.subject.task?.id ?? null,
+        block_id: input.block.id,
         role: input.authorRole,
         author_session: parsed.actorRef.session,
       },
@@ -300,8 +309,8 @@ async function ringAuthor(
     kind: 'doorbell_undelivered',
     payload: { doorbell: key, reason },
     actor: 'system',
-    taskId: input.task.id,
-    project: input.task.project,
+    taskId: input.subject.task?.id ?? null,
+    project: input.subject.project,
     at: input.at,
   });
   await raiseInboundItem(trx, {
@@ -309,7 +318,7 @@ async function ringAuthor(
     title: 'Answer author unavailable',
     sourceUrl: input.event.sourceUrl,
     event: input.event,
-    taskId: input.task.id,
+    taskId: input.subject.task?.id ?? null,
     at: input.at,
     retry: false,
   });
@@ -409,7 +418,7 @@ export function createInbound(input: {
       await ringAuthor(trx, {
         event,
         block: recorded.block,
-        task: recorded.task,
+        subject: recorded.subject,
         comment: recorded.comment,
         authorRole: recorded.authorRole,
         at,
@@ -437,17 +446,13 @@ export function createInbound(input: {
       });
       return { status: 'applied' };
     }
-    const task = await trx
-      .selectFrom('task')
-      .selectAll()
-      .where('id', '=', comment.task_id)
-      .executeTakeFirstOrThrow();
+    const subject = await rowSubject(trx, comment);
     await journal(trx, {
       kind: 'comment_deleted',
       payload: { comment: `C${String(comment.id)}`, normalizedEvent: event },
       actor: 'operator',
-      taskId: task.id,
-      project: task.project,
+      taskId: comment.task_id,
+      project: subject.project,
       at,
     });
     return { status: 'applied' };

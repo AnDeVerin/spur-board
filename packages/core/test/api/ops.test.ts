@@ -702,6 +702,7 @@ describe('catalog HTTP API', () => {
         read();
         return Promise.resolve({
           tasks: [],
+          projectBlocks: [],
           items: [],
           unlinkedPrs: [],
           unlinkedSessions: [],

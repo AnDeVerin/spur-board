@@ -37,7 +37,8 @@ import {
   type Trx,
 } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
-import type { RaiseItemInput } from './item-raise.ts';
+import { TASKLESS_ITEM_URL, type RaiseItemInput } from './item-raise.ts';
+import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { quietTurns, stuckTurnAfterMs } from './turns.ts';
 
 const episodeSchema = z.object({ startedAt: z.number() }).nullable();
@@ -151,9 +152,17 @@ export async function reconcileItems(
     .where('cleared_at', 'is', null)
     .execute();
   const ledgerIds = new Set(ledgerRoots.map((item) => item.block_id));
-  for (const block of blocks) {
+  // A project-level block has no task: it is named by its project.
+  const subjectOf = (block: Row<'block'>): BlockSubject | undefined => {
+    if (block.task_id === null)
+      return block.project === null ? undefined : projectSubject(block.project);
     const task = taskById.get(block.task_id);
-    if (task === undefined || ledgerIds.has(block.id)) continue;
+    return task === undefined ? undefined : taskSubject(task);
+  };
+  for (const block of blocks) {
+    const subject = subjectOf(block);
+    if (subject === undefined || ledgerIds.has(block.id)) continue;
+    const taskId = subject.task?.id ?? null;
     if (
       block.addressee_role === 'operator' &&
       block.author !== 'operator' &&
@@ -162,8 +171,8 @@ export async function reconcileItems(
       candidates.push({
         key: `operator-block:${String(block.id)}`,
         kind: 'board_observation',
-        taskId: task.id,
-        summary: `${task.key}: ${block.reason}`,
+        taskId,
+        summary: `${subject.key}: ${block.reason}`,
         factAt: block.created_at,
         source: null,
         priority: 0,
@@ -172,8 +181,8 @@ export async function reconcileItems(
       candidates.push({
         key: `block:${String(block.id)}`,
         kind: 'board_observation',
-        taskId: task.id,
-        summary: `${task.key}: block has been open for more than a day`,
+        taskId,
+        summary: `${subject.key}: block has been open for more than a day`,
         factAt: block.created_at,
         source: null,
         priority: 3,
@@ -543,7 +552,7 @@ export async function reconcileItems(
       itemKey: candidate.key,
       kind: candidate.kind,
       text: candidate.summary,
-      url: task === null || task === undefined ? 'https://github.com' : taskUrl(task, config),
+      url: task === null || task === undefined ? TASKLESS_ITEM_URL : taskUrl(task, config),
       at: new Date(now),
       fingerprint: hash,
       factAt: candidate.factAt,

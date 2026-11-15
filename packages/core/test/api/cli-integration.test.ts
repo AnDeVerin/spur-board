@@ -622,6 +622,7 @@ describe('CLI against the real HTTP API', () => {
         run() {
           return Promise.resolve({
             tasks: [],
+            projectBlocks: [],
             items: [],
             unlinkedPrs: [],
             unlinkedSessions: [],
@@ -683,6 +684,7 @@ describe('CLI against the real HTTP API', () => {
       expect(await runCli(['status', '--json'], { clientConfig, io: success.io })).toBe(0);
       expect(JSON.parse(success.stdout)).toEqual({
         tasks: [],
+        projectBlocks: [],
         items: [],
         unlinkedPrs: [],
         unlinkedSessions: [],

@@ -64,6 +64,7 @@ const stores: Store[] = [];
 function emptyStatus() {
   return {
     tasks: [],
+    projectBlocks: [],
     items: [],
     unlinkedPrs: [],
     unlinkedSessions: [],
@@ -2365,6 +2366,80 @@ function abortOf(signal: AbortSignal): Promise<void> {
     });
   });
 }
+
+describe('project question thread', () => {
+  async function projectSetup() {
+    const board = await setup('agent:web/worker-1');
+    await board.store.db
+      .updateTable('block')
+      .set({ task_id: null, project: 'proj' })
+      .where('id', '=', 1)
+      .execute();
+    await board.store.db.updateTable('conversation').set({ task_id: null }).execute();
+    return board;
+  }
+
+  it('answers with the first message, keeps the next as a follow-up and rings both', async () => {
+    const { store, inbound } = await projectSetup();
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    await inbound.sink(
+      message({
+        conversation: 'thread-1',
+        root: 'root-1',
+        key: 'm-2',
+        ref: 'reply-2',
+        text: 'Also',
+      }),
+    );
+    expect(
+      await store.db.selectFrom('block').select(['state', 'outcome', 'unblocked_by']).execute(),
+    ).toEqual([{ state: 'unblocked', outcome: 'done', unblocked_by: 'operator' }]);
+    expect(
+      await store.db.selectFrom('comment').select(['task_id', 'block_id', 'text']).execute(),
+    ).toEqual([
+      { task_id: null, block_id: 1, text: 'Yes' },
+      { task_id: null, block_id: 1, text: 'Also' },
+    ]);
+    expect(
+      await store.db.selectFrom('notification').select(['kind', 'task_id', 'role']).execute(),
+    ).toEqual([
+      { kind: 'answer', task_id: null, role: 'worker' },
+      { kind: 'answer', task_id: null, role: 'worker' },
+    ]);
+    const added = await store.db
+      .selectFrom('event')
+      .select(['project', 'task_id'])
+      .where('kind', '=', 'comment_added')
+      .execute();
+    expect(added).toEqual([
+      { project: 'proj', task_id: null },
+      { project: 'proj', task_id: null },
+    ]);
+  });
+
+  it('applies a replayed edit once after its command key expired', async () => {
+    const { store, inbound } = await projectSetup();
+    const edit = {
+      ...message({ conversation: 'thread-1', root: 'root-1', key: 'edit-1' }),
+      kind: 'message_edited' as const,
+      text: 'Revised',
+      at: new Date(now + 1000).toISOString(),
+    };
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    await inbound.sink(edit);
+    await purgeExpiredCommands(store, { now: () => now + 8 * DAY }, 7);
+    await inbound.sink(edit);
+    const edits = await store.db
+      .selectFrom('event')
+      .select('project')
+      .where('kind', '=', 'comment_edited')
+      .execute();
+    expect(edits).toEqual([{ project: 'proj' }]);
+    expect(await store.db.selectFrom('comment').select(['text', 'revision']).execute()).toEqual([
+      { text: 'Revised', revision: 2 },
+    ]);
+  });
+});
 
 describe('anomaly block', () => {
   it('closes an anomaly block on an operator reply without an author-unavailable item', async () => {
