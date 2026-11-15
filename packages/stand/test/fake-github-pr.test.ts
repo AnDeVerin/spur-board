@@ -660,6 +660,61 @@ describe('feedback verbs', () => {
   });
 });
 
+describe('review thread verbs', () => {
+  const url = (i: number) =>
+    `https://github.stand.invalid/${BOARD}/pull/1#discussion_r${String(i)}`;
+  const threadsOf = async () => factsOf(await pollRepo(fakes, BOARD), 1).reviewThreads;
+
+  it('opens unresolved threads with a review and resolves one by id, then the rest', async () => {
+    created(1);
+    expect(pr(fakes, 1, 'review', { state: 'APPROVED', threads: 2 }).status).toBe(200);
+    expect(pr(fakes, 1, 'review', { state: 'COMMENTED' }).status).toBe(200);
+    const open = (i: number, resolved = false) => ({
+      resolved,
+      id: `PRRT_1_${String(i)}`,
+      url: url(i),
+      outdated: false,
+    });
+    expect(await threadsOf()).toEqual([open(0), open(1)]);
+    expect(pr(fakes, 1, 'resolve', { thread: 'PRRT_1_1' }).status).toBe(200);
+    expect(await threadsOf()).toEqual([open(0), open(1, true)]);
+    expect(pr(fakes, 1, 'resolve').status).toBe(200);
+    expect(await threadsOf()).toEqual([open(0, true), open(1, true)]);
+  });
+
+  it('lists a seeded outdated thread as outdated', async () => {
+    created(1, { reviewThreads: [{ isResolved: false, isOutdated: true }] });
+    expect(await threadsOf()).toEqual([
+      { resolved: false, id: 'PRRT_1_0', url: url(0), outdated: true },
+    ]);
+  });
+
+  it('answers 404 to an unknown thread and changes nothing', async () => {
+    created(1);
+    expect(pr(fakes, 1, 'review', { state: 'COMMENTED', threads: 1 }).status).toBe(200);
+    expect(pr(fakes, 1, 'resolve', { thread: 'PRRT_1_1' }).status).toBe(404);
+    expect(await threadsOf()).toEqual([
+      { resolved: false, id: 'PRRT_1_0', url: url(0), outdated: false },
+    ]);
+  });
+
+  it.each<[string, string, Record<string, unknown>]>([
+    ['negative threads', 'review', { state: 'COMMENTED', threads: -1 }],
+    ['fractional threads', 'review', { state: 'COMMENTED', threads: 1.5 }],
+    ['an empty thread id', 'resolve', { thread: '' }],
+    ['threads on resolve', 'resolve', { threads: 1 }],
+  ])('answers 400 to %s', (_name, verb, extra) => {
+    created(1);
+    expect(pr(fakes, 1, verb, extra).status).toBe(400);
+  });
+
+  it('answers 409 to resolve on a merged PR', () => {
+    created(1);
+    expect(pr(fakes, 1, 'merge').status).toBe(200);
+    expect(pr(fakes, 1, 'resolve').status).toBe(409);
+  });
+});
+
 describe('state and restore', () => {
   it('gives a fresh fake the same pull requests, unaffected by later changes', async () => {
     created(1, { title: 'Seeded' });

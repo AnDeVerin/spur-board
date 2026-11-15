@@ -283,7 +283,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      'b6d6cd7f55feea457800e741281d397285534178e19697192d0e499593516284',
+      '39ddb236a2d81ee22bb8df1ebfebd8f4cc48c826cc66bc956c57d4918a03cbdb',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -378,6 +378,27 @@ describe('GitHub PR batch', () => {
     expect(
       normalizePr('demo/widgets', { ...wire(), state: 'CLOSED' }, demoKeys, true),
     ).not.toHaveProperty('closedAt');
+  });
+  it('maps review thread ids, outdated flags and first comment URLs', () => {
+    const url = 'https://github.com/demo/widgets/pull/7#discussion_r1';
+    const pr = {
+      ...wire(),
+      reviewThreads: conn([
+        { id: 'PRRT_1', isResolved: false, isOutdated: true, comments: conn([{ url }]) },
+        { id: 'PRRT_2', isResolved: true, isOutdated: false, comments: conn([]) },
+        // A recording of the earlier selection carries the resolved flag alone.
+        { isResolved: false },
+      ]),
+    };
+    expect(normalizePr('demo/widgets', pr, demoKeys, true).reviewThreads).toEqual([
+      { resolved: false, id: 'PRRT_1', url, outdated: true },
+      { resolved: true, id: 'PRRT_2', outdated: false },
+      { resolved: false },
+    ]);
+    for (const query of [detailQuery([7]), pageQuery('reviewThreads')])
+      expect(query).toContain(
+        'nodes { id isResolved isOutdated comments(first: 1) { nodes { url } } }',
+      );
   });
   it('keeps the latest review opinion after a comment-only review', () => {
     const pr = wire();
@@ -550,6 +571,35 @@ describe('GitHub PR batch', () => {
     ]);
     expect(batch.budget?.remaining).toBe(4000);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('continues a PR review thread connection with each thread link', async () => {
+    const first = wire();
+    first.reviewThreads.pageInfo = { hasNextPage: true, endCursor: 'thread-next' };
+    const url = 'https://github.com/demo/widgets/pull/7#discussion_r2';
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: first } }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequest: {
+              reviewThreads: conn([
+                { id: 'PRRT_2', isResolved: false, isOutdated: true, comments: conn([{ url }]) },
+              ]),
+            },
+          },
+        }),
+      );
+    const batch = await adapter(fetcher).poll(context());
+    expect(batch.items[0]?.kind === 'pr' && batch.items[0].facts.reviewThreads).toEqual([
+      { resolved: false },
+      { resolved: false, id: 'PRRT_2', url, outdated: true },
+    ]);
+    expect(sentQueries(fetcher, 'PrPage')[0]).toContain(
+      'reviewThreads(first: 100, after: $after) { nodes { id isResolved isOutdated comments(first: 1) { nodes { url } } }',
+    );
   });
   it('omits a PR with a scoped connection-page error and keeps other facts', async () => {
     const first = wire();

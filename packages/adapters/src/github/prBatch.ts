@@ -111,7 +111,15 @@ const prWire = z.object({
   statusCheckRollup: z.object({ contexts: nodes(contextWire) }).nullish(),
   reviews: nodes(reviewWire),
   comments: nodes(commentWire),
-  reviewThreads: nodes(z.object({ isResolved: z.boolean() })),
+  // `id`, `isOutdated` and `comments` are optional so recordings of the older selection replay.
+  reviewThreads: nodes(
+    z.object({
+      id: z.string().optional(),
+      isResolved: z.boolean(),
+      isOutdated: z.boolean().optional(),
+      comments: nodes(z.object({ url: z.string() })).optional(),
+    }),
+  ),
   reviewRequests: nodes(
     z.object({
       requestedReviewer: reviewerWire,
@@ -128,6 +136,7 @@ type CommentWire = z.output<typeof commentWire>;
 type ActorWire = z.output<typeof typedActor>;
 type ReviewerWire = NonNullable<z.output<typeof reviewerWire>>;
 type ClosingWire = z.output<typeof closingWire>;
+type ThreadWire = z.output<typeof prWire>['reviewThreads']['nodes'][number];
 type IssuesRule = Extract<KeyRule, { type: 'issues' }>;
 type JiraRule = Extract<KeyRule, { type: 'jira' }>;
 type Link = Config['projects'][number]['link'];
@@ -445,6 +454,15 @@ function reviewer(wire: ReviewerWire): { kind: ReviewerKind; id: string } {
       return assertNever(wire);
   }
 }
+function reviewThread(node: ThreadWire): PrFacts['reviewThreads'][number] {
+  const url = node.comments?.nodes[0]?.url;
+  return {
+    resolved: node.isResolved,
+    ...(node.id === undefined ? {} : { id: node.id }),
+    ...(url === undefined ? {} : { url }),
+    ...(node.isOutdated === undefined ? {} : { outdated: node.isOutdated }),
+  };
+}
 /**
  * `feedbackComplete` says whether the comments in `value`, with the `held` comments an earlier
  * poll read, reach back to the cursor or start.
@@ -487,7 +505,7 @@ export function normalizePr(
     mergeState,
     ...checks,
     reviews: latestReviews(wire.reviews.nodes),
-    reviewThreads: wire.reviewThreads.nodes.map((node) => ({ resolved: node.isResolved })),
+    reviewThreads: wire.reviewThreads.nodes.map(reviewThread),
     reviewRequests: wire.reviewRequests.nodes.flatMap(({ requestedReviewer, asCodeOwner }) =>
       requestedReviewer === null ? [] : [{ ...reviewer(requestedReviewer), asCodeOwner }],
     ),
