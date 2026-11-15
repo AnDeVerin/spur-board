@@ -15,6 +15,22 @@ Create or correct `config.yaml` using the [configuration reference](docs/configu
 invalid field. An offline pass checks this file only. A Spur project can be listed under only one
 Board project.
 
+### web
+
+Reports configured state, including offline: `off` when `web.port` is omitted, or `on` with
+its resolved `web.publicOrigin`. This passing check validates settings only; it does not probe
+or start a listener. Set `web.port` and `web.publicOrigin` together. Every `{port}` in the public
+origin is replaced by the configured port. `web.spurUiOrigin` independently configures the UI
+origin; it accepts no placeholders.
+
+### stand.port_range
+
+Reports the effective stand port range, including offline. Omission uses 4780..4799 and preserves
+legacy configs: overlap with `http.port` or `web.port` produces a nonblocking warning naming
+each port. Set a nonoverlapping `stand.portRange` to clear it. Explicit ranges, including `{}`
+with default endpoints, reject overlaps during config validation. Range allocation and exclusions
+are deferred to #534; current stand allocation and guards are unchanged.
+
 ### service.installed
 
 The systemd user unit is missing. Run `board service install` after confirming the Node and
