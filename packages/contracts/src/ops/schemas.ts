@@ -272,9 +272,14 @@ export const linkViewSchema = z
 const detailOnly = 'Present only with detail.';
 const count = (what: string) => z.int().min(0).describe(what);
 
+const omittedTurnDetail =
+  'Always omitted by status.get, even with detail=true; use task.get --why or inbox.get for details.';
+
 const statusTurnSchema = turnViewSchema
   .omit({ handed: true })
   .extend({
+    returned: turnViewSchema.shape.returned.describe(omittedTurnDetail),
+    threads: turnViewSchema.shape.threads.describe(omittedTurnDetail),
     addressedTo: z
       .string()
       .nullable()

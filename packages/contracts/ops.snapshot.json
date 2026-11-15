@@ -1,5 +1,5 @@
 {
-  "version": "9948b09dbb69eccc915c54513e85d885ce766b43f75b22be43af216b8d5d19c1",
+  "version": "544079cef3be63c9ee8c8489b6259b21d446c8fb574beaefe3443e5d541ddfc6",
   "grants": [
     "operator",
     "project-agent",
@@ -2017,7 +2017,7 @@
                           "description": "Why the turn was handed to the executor."
                         },
                         "returned": {
-                          "description": "The return that opened this Dev visit: who returned it, from which column, the closed turn, the code block and its reason. Missing when the visit did not start with a return.",
+                          "description": "Always omitted by status.get, even with detail=true; use task.get --why or inbox.get for details.",
                           "type": "object",
                           "properties": {
                             "by": {
@@ -2110,7 +2110,7 @@
                           "description": "Who took the turn and when; null until it is taken."
                         },
                         "threads": {
-                          "description": "The unresolved review threads on the task's open pull request, read live, in a Dev turn of a project requiring resolved threads; absent when none, or when the pull request is closed, merged or missing. Fix or answer each thread, then resolve it.",
+                          "description": "Always omitted by status.get, even with detail=true; use task.get --why or inbox.get for details.",
                           "minItems": 1,
                           "type": "array",
                           "items": {
