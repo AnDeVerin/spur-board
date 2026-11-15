@@ -20,7 +20,7 @@ import { insertConversation } from './conversations.ts';
 import { recordRingDelivery, ringStillCurrent, ringTask, ringUndelivered } from './doorbells.ts';
 import { expireTokenOfItem } from './tokens.ts';
 import { ringDue } from './turns.ts';
-import { clearItem, raiseItem, resolvedFeedBody, tokenCardBody } from './feed.ts';
+import { clearItem, feedLineBody, raiseItem, resolvedFeedBody, tokenCardBody } from './feed.ts';
 import {
   deliveredRefSchema,
   exchangeBody,
@@ -696,16 +696,8 @@ export function createSender(options: SenderOptions): Sender {
                 ? [{ kind: 'paragraph', children: [{ kind: 'text', text: c.body.payload.text }] }]
                 : c.body.kind === 'feed.line' && c.body.payload.exchange !== undefined
                   ? exchangeBody({ ...c.body.payload, exchange: c.body.payload.exchange })
-                  : c.body.kind === 'feed.line' && c.body.payload.url !== undefined
-                    ? [
-                        {
-                          kind: 'paragraph',
-                          children: [
-                            { kind: 'link', url: c.body.payload.url, text: c.body.payload.key },
-                          ],
-                        },
-                        { kind: 'quote', children: [{ kind: 'text', text: c.body.payload.text }] },
-                      ]
+                  : c.body.kind === 'feed.line'
+                    ? feedLineBody(c.body.payload)
                     : renderBody(c.body.payload.key, c.body.payload.text),
         ...((body.kind === 'feed.line' || body.kind === 'feed.line.edit') &&
         body.payload.actions !== undefined

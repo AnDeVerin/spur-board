@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   closeSync,
   constants,
@@ -20,11 +20,13 @@ import { startAdapters, type AdapterRunner } from '@spur-board/adapters';
 import {
   COLUMN_IDS,
   configSchema,
+  DEFAULT_SLACK_COMMAND,
   err,
   prSourceId,
   trackerSourceId,
   userIdSchema,
   type Config,
+  type MessageRef,
 } from '@spur-board/contracts';
 import { migrationsDir, openStore, readMigrations } from '@spur-board/core';
 import {
@@ -884,11 +886,20 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       if (api === undefined) return { status: 503, body: { error: 'The daemon is not running.' } };
       if (body.text.trim() === '') return { status: 400, body: { error: 'post needs text.' } };
       const author = userIdSchema.parse(OPERATOR_SLACK);
-      return boundedClick(
-        api,
-        { kind: 'message', space: 'orchestrators', author, text: body.text },
-        true,
-      );
+      let posted: MessageRef | undefined;
+      const result = await bounded(api, async () => {
+        const injected = await api.platform.inject({
+          kind: 'message',
+          space: 'orchestrators',
+          author,
+          text: body.text,
+        });
+        posted = injected.message;
+      });
+      if (result.status !== 200 || posted === undefined) return result;
+      // The number `fake slack click <n>` takes for this message.
+      const n = (await api.platform.messages()).findIndex((m) => m.message === posted) + 1;
+      return { status: 200, body: { ...(result.body as object), message: n } };
     },
     async slackClick(body: {
       message: number;
@@ -916,7 +927,24 @@ export async function startStand(options: StandOptions): Promise<Stand> {
           };
         input = { kind: 'action', message: target.message, actionId: body.button, author };
       }
-      return boundedClick(api, input);
+      return bounded(api, () => api.platform.inject(input));
+    },
+    /**
+     * A `/board <text>` slash command from the operator in the feed channel, with the replies it
+     * got. Seed-only: no HTTP path reaches it.
+     */
+    async slackCommand(body: { text: string }): Promise<RouteResult> {
+      const api = runningFake();
+      if (api === undefined) return { status: 503, body: { error: 'The daemon is not running.' } };
+      return bounded(api, () =>
+        api.emitEnvelope('slash_commands', {
+          trigger_id: `stand-${randomUUID()}`,
+          user_id: OPERATOR_SLACK,
+          command: DEFAULT_SLACK_COMMAND,
+          channel_id: 'C0STANDFEED',
+          text: body.text,
+        }),
+      );
     },
   };
 
@@ -1124,14 +1152,10 @@ export async function startStand(options: StandOptions): Promise<Stand> {
 
   /**
    * A probe first: the fake reports success for an action sent on a closed socket, and an action
-   * must not run once the bound has passed. Ephemeral replies are awaited before the ack. With
-   * `numbered`, the body also names the injected message's fake Slack number, which a click takes.
+   * must not run once the bound has passed. `act` sends the click, command or post and resolves on
+   * its ack; ephemeral replies are awaited before the ack.
    */
-  async function boundedClick(
-    api: FakeSlackApi,
-    input: ClickInput,
-    numbered = false,
-  ): Promise<RouteResult> {
+  async function bounded(api: FakeSlackApi, act: () => unknown): Promise<RouteResult> {
     const bound = AbortSignal.timeout(CLICK_TIMEOUT_MS);
     const noAck: RouteResult = {
       status: 504,
@@ -1145,16 +1169,13 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       }
       if (bound.aborted) return noAck;
       const seen = api.requests().length;
-      const injected = await api.platform.inject(input);
+      await act();
       const responses = api
         .requests()
         .slice(seen)
         .filter((request) => request.method === 'chat.postEphemeral')
         .map((request) => request.params['text']);
-      if (!numbered) return { status: 200, body: { ok: true, responses } };
-      const messages = await api.platform.messages();
-      const n = messages.findIndex((message) => message.message === injected.message) + 1;
-      return { status: 200, body: { ok: true, message: n, responses } };
+      return { status: 200, body: { ok: true, responses } };
     };
     const expired = new Promise<RouteResult>((resolve) => {
       bound.addEventListener('abort', () => {

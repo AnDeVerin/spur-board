@@ -351,6 +351,19 @@ describe('outside text stays literal', () => {
     ['stars in emphasis', paragraph({ kind: 'emphasis', text: 'a*b' }), '*a∗b*'],
     ['backticks inside a word', paragraph({ kind: 'text', text: 'x`y`z' }), 'x´y´z'],
     [
+      'outside backticks and a code hint on one line',
+      [
+        {
+          kind: 'quote',
+          children: [
+            { kind: 'text', text: 'x `y` ' },
+            { kind: 'code', text: 'board token list' },
+          ],
+        },
+      ],
+      '> x ´y´ `board token list`',
+    ],
+    [
       'a backtick in a bare URL',
       paragraph({ kind: 'text', text: 'https://e.test/`a`' }),
       'https://e.test/´a´',
