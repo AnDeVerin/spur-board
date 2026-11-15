@@ -84,11 +84,11 @@ acknowledgement stops them. Removal notices and quiet-turn reminders ring once.
 Busy recipients defer delivery; pending delivery or earlier rings in the Spur
 queue defer repeats. Queued rings can exhaust their waiting window.
 
-Most notices await recipients; taskless worker and operator-agent answers
-end without a live asking session. Curator and course-check orchestrator
+Most notices await recipients; taskless worker, orchestrator and operator-agent
+answers end without a live asking session. Curator and course-check orchestrator
 questions fall back to operator. Operator conversations await their project.
-Exhaustion normally alerts the operator; curator questions move to
-operator. Removals and quiet-turn reminders end without intervention.
+Exhaustion alerts the operator, except removals and quiet-turn reminders;
+curator questions move to operator.
 
 ## Course checks and cycle limits
 
@@ -121,8 +121,7 @@ a curator orchestrating the column escalates straight to the operator. Use keyed
 Taskless: all roles, operator only:
 `board project ask <project> <text> --to operator --key <key>`.
 Project `needs_input` blocks get Slack threads except operator-agent asks;
-operator: `board inbox`, keyed `board answer`. Answers reach the author's role;
-workers use the asking session.
+operator: `board inbox`, keyed `board answer`. Answers reach a current curator session; other roles use the asking session.
 
 Routing: `projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
 `operator.slack` (Slack user ID). Roles follow the current session.
