@@ -778,7 +778,7 @@ describe('migrate', () => {
     insertRaw(raw, 'block', block);
     insertRaw(raw, 'block', { ...block, id: 2, task_id: null, project: 'proj' });
 
-    migrate(raw, real);
+    migrate(raw, real.slice(0, 20));
 
     expect(rows(raw, 'block')).toEqual([
       { ...block, addressee_spur_project: null },
@@ -964,6 +964,8 @@ describe('migration pins', () => {
     '0018_project_block.sql': '995c4435c6a2eff15b37e60e3b70a456b1bda4491ffdb1163cf2ce4c152ff64a',
     '0020_block_addressee_spur.sql':
       'e3fd7107df695a14678a4a8c2a47678996a7e62bf54c884987fb12c9cd3f2a33',
+    '0021_submission_pending.sql':
+      '20a8c5ae40faa72dd3e58b2dd99ad1b3cea6035cdc8a63c3f18708483fd42cc7',
   };
 
   interface MigrationFile {

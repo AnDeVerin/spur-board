@@ -211,10 +211,19 @@ function pollMayConfirm(error: PollPrError): boolean {
   );
 }
 
+/** How a submit's head was confirmed: `pending` waits for a later poll (`dispatch.ts`). */
+type Confirmed = 'live' | 'poll' | 'pending';
+
+/** A failed poll that waiting can fix, beyond `pollMayConfirm`: a stale source, a stopped poller. */
+function submitAgain(error: PollPrError): boolean {
+  return (error.kind === 'blind' && error.reason === 'stale') || error.kind === 'stopped';
+}
+
 /**
  * How the PR head behind a submit is confirmed: `live` by this call's poll, `poll` by the
  * board's newest poll when GitHub did not answer. Throws `head_mismatch` when the confirmed head
- * is not `sha`, `github_unavailable` when nothing confirms it.
+ * is not `sha`, `github_unavailable` when nothing confirms it. With `allowPending` (turn
+ * submits), a result a later poll can settle is `pending` instead of `github_unavailable`.
  */
 function confirmHead(input: {
   prepared: SubmitPrepared | undefined;
@@ -223,16 +232,21 @@ function confirmHead(input: {
   snapshot: { head_sha: string; observed_at: string } | undefined;
   /** When the PR's source last completed a poll since start. */
   completeAt: string | undefined;
-}): 'live' | 'poll' {
-  const { prepared, pr, sha, snapshot, completeAt } = input;
+  allowPending: boolean;
+}): Confirmed {
+  const { prepared, pr, sha, snapshot, completeAt, allowPending } = input;
   const label = `${pr.repo}#${String(pr.number)}`;
   const unavailable = (hint: string) => new CommandError('github_unavailable', hint);
+  const waitable = (hint: string): 'pending' => {
+    if (allowPending) return 'pending';
+    throw unavailable(hint);
+  };
   if (
     prepared?.kind !== 'polled' ||
     prepared.repo !== pr.repo.toLowerCase() ||
     prepared.number !== pr.number
   ) {
-    throw unavailable(`The board did not poll ${label} for this call; submit again.`);
+    return waitable(`The board did not poll ${label} for this call; submit again.`);
   }
   const { result } = prepared;
   if (result === null) {
@@ -240,20 +254,23 @@ function confirmHead(input: {
   }
   if (!result.ok) {
     const hint = pollErrorHint(result.error, label);
-    if (!pollMayConfirm(result.error)) throw unavailable(hint);
+    if (!pollMayConfirm(result.error)) {
+      if (submitAgain(result.error)) return waitable(hint);
+      throw unavailable(hint);
+    }
     if (completeAt === undefined) {
-      throw unavailable(`${hint} The board has had no complete GitHub poll since it started.`);
+      return waitable(`${hint} The board has had no complete GitHub poll since it started.`);
     }
     if (snapshot === undefined) {
-      throw unavailable(`${hint} The board has not seen the head of ${label} yet.`);
+      return waitable(`${hint} The board has not seen the head of ${label} yet.`);
     }
     if (Date.parse(snapshot.observed_at) < Date.parse(completeAt)) {
-      throw unavailable(
+      return waitable(
         `${hint} The board last saw head ${snapshot.head_sha} at ${snapshot.observed_at}, before its last complete GitHub poll.`,
       );
     }
     if (snapshot.head_sha.toLowerCase() !== sha) {
-      throw unavailable(`${hint} Its last poll saw head ${snapshot.head_sha}.`);
+      return waitable(`${hint} Its last poll saw head ${snapshot.head_sha}.`);
     }
     return 'poll';
   }
@@ -293,35 +310,42 @@ async function pollTaskPr(
 
 /**
  * Records the submit of `sha` for the task's `column` visit `epoch` and says how its head was
- * confirmed (`confirmHead`). Throws `head_mismatch` or `github_unavailable` otherwise.
+ * confirmed (`confirmHead`). Throws `head_mismatch` or `github_unavailable` otherwise. With
+ * `pendingMs` (turn submits: the project's `submitConfirmMs`), a task with no PR or a head a later
+ * poll can confirm records a pending row with `pending_until = at + pendingMs`.
  */
 async function insertSubmission(
   trx: Trx,
   input: { task: Task; column: ColumnId; epoch: number; sha: string },
   ctx: CommandContext<SubmitPrepared>,
   completeSince: ReadonlyMap<string, string>,
-): Promise<'live' | 'poll'> {
+  pendingMs?: number,
+): Promise<Confirmed> {
   const { task, column, epoch, sha } = input;
   const pr = await taskPr(trx, task.id);
-  if (pr === null) {
+  if (pr === null && pendingMs === undefined) {
     throw new CommandError(
       'head_mismatch',
       'The task has no active pull request; ask the operator to link it with `board link`, then submit its head.',
     );
   }
-  const snapshot = await trx
-    .selectFrom('pr_snapshot')
-    .select(['head_sha', 'observed_at'])
-    .where(sql<boolean>`lower(repo) = ${pr.repo.toLowerCase()}`)
-    .where('number', '=', pr.number)
-    .executeTakeFirst();
-  const confirmed = confirmHead({
-    prepared: ctx.prepared,
-    pr,
-    sha,
-    snapshot,
-    completeAt: completeSince.get(prSourceId(task.project, pr.repo)),
-  });
+  let confirmed: Confirmed = 'pending';
+  if (pr !== null) {
+    const snapshot = await trx
+      .selectFrom('pr_snapshot')
+      .select(['head_sha', 'observed_at'])
+      .where(sql<boolean>`lower(repo) = ${pr.repo.toLowerCase()}`)
+      .where('number', '=', pr.number)
+      .executeTakeFirst();
+    confirmed = confirmHead({
+      prepared: ctx.prepared,
+      pr,
+      sha,
+      snapshot,
+      completeAt: completeSince.get(prSourceId(task.project, pr.repo)),
+      allowPending: pendingMs !== undefined,
+    });
+  }
   await trx
     .insertInto('submission')
     .values({
@@ -332,16 +356,23 @@ async function insertSubmission(
       author: ctx.actor,
       submitted_at: ctx.at,
       note: null,
-      pr_repo: pr.repo,
-      pr_number: pr.number,
+      pr_repo: pr?.repo ?? null,
+      pr_number: pr?.number ?? null,
+      pending_until:
+        confirmed === 'pending' && pendingMs !== undefined
+          ? new Date(Date.parse(ctx.at) + pendingMs).toISOString()
+          : null,
     })
     .execute();
   return confirmed;
 }
 
-/** The `task_submitted` payload mark of a head confirmed by the board's last poll. */
-const confirmation = (confirmed: 'live' | 'poll') =>
-  confirmed === 'poll' ? { confirmedByPoll: true as const } : {};
+/** The `task_submitted` payload mark of a head confirmed by the board's last poll, or pending. */
+const CONFIRMATION = {
+  live: {},
+  poll: { confirmedByPoll: true },
+  pending: { pending: true },
+} as const;
 
 /**
  * The executor's submit and return of a turn it took, the turnless shadow submit, and the
@@ -388,10 +419,15 @@ export function createTurnMutations(deps: {
       task.project,
       task.id,
       ctx.at,
-      { column, sha: input.sha, ...confirmation(confirmed) },
+      { column, sha: input.sha, ...CONFIRMATION[confirmed] },
       ctx.actor,
     );
-    return { task: taskView(await dispatched(trx, task.id, ctx.at)), turn: null, sha: input.sha };
+    return {
+      task: taskView(await dispatched(trx, task.id, ctx.at)),
+      turn: null,
+      sha: input.sha,
+      status: 'confirmed' as const,
+    };
   }
   const submit: Mutation<'task.submit', SubmitPrepared> = {
     id: 'task.submit',
@@ -426,6 +462,7 @@ export function createTurnMutations(deps: {
         { task, column: turn.column, epoch: turn.epoch, sha: input.sha },
         ctx,
         completeSince,
+        config.projects.find((entry) => entry.id === task.project)?.dispatcher.submitConfirmMs,
       );
       await closeTurns(trx, { taskId: task.id, reason: 'submitted', at: new Date(ctx.at) });
       await emit(
@@ -434,13 +471,14 @@ export function createTurnMutations(deps: {
         task.project,
         task.id,
         ctx.at,
-        { turn: input.turn, column: turn.column, sha: input.sha, ...confirmation(confirmed) },
+        { turn: input.turn, column: turn.column, sha: input.sha, ...CONFIRMATION[confirmed] },
         ctx.actor,
       );
       return {
         task: taskView(await dispatched(trx, task.id, ctx.at)),
         turn: input.turn,
         sha: input.sha,
+        status: confirmed === 'pending' ? ('pending' as const) : ('confirmed' as const),
       };
     },
   };

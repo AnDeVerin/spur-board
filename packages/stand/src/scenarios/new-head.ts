@@ -1,5 +1,6 @@
-// Scenarios around a turn and the PR head: a submit while CI runs, and a new head while the
-// conductor holds a turn right of Dev. They reuse the flow helpers of `dispatcher.ts`.
+// Scenarios around a turn and the PR head: a submit while CI runs, a new head while the
+// conductor holds a turn right of Dev, and a submit the board confirms on a later poll. They
+// reuse the flow helpers of `dispatcher.ts`.
 import {
   awaitTurn,
   begin,
@@ -106,6 +107,98 @@ export const dispatchCiPendingAfterSubmit: Scenario = {
     const { why } = await board.call('operator', 'task.get', { task: ISSUE, why: true });
     if (why?.waiting !== undefined) problems.push(`waiting ${JSON.stringify(why.waiting)}`);
     return settledUnless(problems);
+  },
+};
+
+/** Throws unless the worker's submit of A on `turn` was accepted pending. */
+async function submitPending(board: Board, turn: string): Promise<void> {
+  const submitted = await submit(board, 'worker', turn, A);
+  if (submitted.status !== 'pending')
+    throw new Error(`the submit is ${submitted.status}, not pending`);
+}
+
+/**
+ * The worker took the Dev turn, opened PR #1 at A with green CI while GitHub refuses the board,
+ * and submitted A pending. Refused before the PR exists, so the runner's own timer cannot link it
+ * first; the caller clears the failure.
+ */
+async function submitBeforePoll(board: Board, fakes: ScenarioFakes): Promise<void> {
+  const dev = await begin(board, fakes);
+  await take(board, 'worker', dev.id);
+  await fakes.github('fail', { mode: 'refuse' });
+  await fakes.github('create', { repo: REPO, number: 1, seed: { headRefOid: A } });
+  await fakes.github('ci-green', { repo: REPO, number: 1 });
+  await submitPending(board, dev.id);
+}
+
+export const dispatchSubmitBeforePrLinked: Scenario = {
+  name: 'dispatch-submit-before-pr-linked',
+  summary: `The worker submits ${ISSUE} at A before any poll sees PR #1: the submit is pending, and the next poll links the PR at A and moves the task to Review with no worker action.`,
+  config: flow(),
+  async seed(board, fakes) {
+    await submitBeforePoll(board, fakes);
+    await fakes.github('fail', { mode: 'clear' });
+    await board.poll();
+    await awaitTurn(board, 'orchestrator', 'review: no_review_on_head');
+    return entities(board);
+  },
+  async settled({ board }) {
+    const problems = await check(board, {
+      column: 'review',
+      role: 'orchestrator',
+      reason: 'review: no_review_on_head',
+      taken: false,
+    });
+    if ((await turnOf(board, 'worker')) !== undefined) problems.push('a worker turn');
+    return settledUnless(problems);
+  },
+};
+
+const HEAD_MOVED =
+  'dev: checks_pending, no_submit_on_head (submit of aaaaaaa: head moved to bbbbbbb)';
+
+export const dispatchSubmitHeadMoved: Scenario = {
+  name: 'dispatch-submit-head-moved',
+  summary: `The worker submits ${ISSUE} at A before any poll sees PR #1, then pushes B: the next poll hands the Dev turn back with "head moved".`,
+  config: flow(),
+  async seed(board, fakes) {
+    await submitBeforePoll(board, fakes);
+    await fakes.github('push', { repo: REPO, number: 1, sha: B });
+    await fakes.github('fail', { mode: 'clear' });
+    await board.poll();
+    await awaitTurn(board, 'worker', HEAD_MOVED);
+    return entities(board);
+  },
+  async settled({ board }) {
+    return settledUnless(
+      await check(board, { column: 'dev', role: 'worker', reason: HEAD_MOVED, taken: false }),
+    );
+  },
+};
+
+/** One second past the default `submitConfirmMs`. */
+const PAST_BOUND_MS = 181_000;
+const NO_PR_FOUND = 'dev: no_pr (submit of aaaaaaa: no PR found for stand-worker)';
+
+export const dispatchSubmitNoPr: Scenario = {
+  name: 'dispatch-submit-no-pr',
+  summary: `The worker submits ${ISSUE} at A with no PR: once the bound passed, the first complete poll after it hands the Dev turn back with "no PR found for stand-worker".`,
+  config: flow(),
+  async seed(board, fakes) {
+    const dev = await begin(board, fakes);
+    await take(board, 'worker', dev.id);
+    await submitPending(board, dev.id);
+    await board.shiftClock(PAST_BOUND_MS);
+    if ((await turnOf(board, 'worker')) !== undefined)
+      throw new Error('a worker turn before a complete poll after the bound');
+    await board.poll();
+    await awaitTurn(board, 'worker', NO_PR_FOUND);
+    return entities(board);
+  },
+  async settled({ board }) {
+    return settledUnless(
+      await check(board, { column: 'dev', role: 'worker', reason: NO_PR_FOUND, taken: false }),
+    );
   },
 };
 

@@ -300,6 +300,18 @@ describe('parseEvent', () => {
     ).toBe('invalid');
     expect(
       parseEvent({
+        ...samples.task_submitted,
+        payload: { ...samples.task_submitted.payload, pending: true },
+      }).status,
+    ).toBe('ok');
+    expect(
+      parseEvent({
+        ...samples.task_submitted,
+        payload: { ...samples.task_submitted.payload, pending: false },
+      }).status,
+    ).toBe('invalid');
+    expect(
+      parseEvent({
         ...base,
         kind: 'task_shadow_moved',
         payload: { from: 'dev', to: 'review', reason: 'sideways' },

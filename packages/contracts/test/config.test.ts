@@ -205,10 +205,13 @@ describe('fixtures', () => {
   });
 
   it('runs the dispatcher in shadow mode by default and accepts on', () => {
-    expect(configSchema.parse(validConfig()).projects[0]?.dispatcher).toEqual({ mode: 'shadow' });
+    expect(configSchema.parse(validConfig()).projects[0]?.dispatcher).toEqual({
+      mode: 'shadow',
+      submitConfirmMs: 180_000,
+    });
     expect(
       configSchema.parse(validConfig({ dispatcher: { mode: 'on' } })).projects[0]?.dispatcher,
-    ).toEqual({ mode: 'on' });
+    ).toEqual({ mode: 'on', submitConfirmMs: 180_000 });
   });
 
   it('accepts a repo without CI from repos, in any letter case', () => {
@@ -570,6 +573,12 @@ describe('invalid configs', () => {
       validConfig({ dispatcher: { mode: 'off' } }),
       'Invalid option: expected one of "shadow"|"on"',
       'projects[0].dispatcher.mode',
+    ],
+    [
+      'a zero submit confirmation bound',
+      validConfig({ dispatcher: { submitConfirmMs: 0 } }),
+      'Too small: expected number to be >=1',
+      'projects[0].dispatcher.submitConfirmMs',
     ],
     [
       'a repo without CI not in repos',
@@ -966,6 +975,7 @@ describe('JSON Schema', () => {
       '.health.hostLoad.windowMs',
       '.health.idleInDevAfterMs',
       '.health.needsInputAfterMs',
+      '.projects[].dispatcher.submitConfirmMs',
       '.sources.authRetryMs',
       '.thresholds.blockOpenMs',
     ]);

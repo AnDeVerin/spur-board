@@ -117,12 +117,21 @@ function shadowSummary(kind: EventKind, payloadText: string): string | null {
   }
 }
 
-/** The summary of a submit whose head the board's newest poll confirmed. */
+/**
+ * The summary of a submit whose head the board's newest poll confirmed, that waits for one, or
+ * that a merge at another head superseded.
+ */
 function submitSummary(kind: EventKind, payloadText: string): string | null {
   if (kind !== 'task_submitted') return null;
   try {
     const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
-    return payload.success && payload.data.confirmedByPoll === true
+    if (!payload.success) return null;
+    const merged = payload.data.supersededByMerge;
+    if (merged !== undefined) {
+      return `Submit of ${payload.data.sha.slice(0, 7)} superseded: PR merged at ${merged.slice(0, 7)}`;
+    }
+    if (payload.data.pending === true) return 'Turn submitted, pending confirmation';
+    return payload.data.confirmedByPoll === true
       ? 'Turn submitted on the head of the last poll'
       : null;
   } catch {
@@ -186,9 +195,10 @@ import type { PrPoller } from '@spur-board/contracts';
 export function createTaskQueries(deps: {
   prPoller?: (() => PrPoller['pollPr'] | undefined) | undefined;
   config: Config;
+  clock: { now(): number };
   completeSince: ReadonlyMap<string, string>;
 }) {
-  const { config, completeSince } = deps;
+  const { config, clock, completeSince } = deps;
   const taskKey = (key: string) => {
     const parsed = parseRef(key, 'task');
     return parsed.ok && parsed.value.kind === 'task' && parsed.value.form === 'github-short'
@@ -225,6 +235,7 @@ export function createTaskQueries(deps: {
       mode,
       await blindSources(trx, completeSince),
       config,
+      { at: new Date(clock.now()), complete: completeSince },
     );
     if (read === null) {
       return {
@@ -254,11 +265,21 @@ export function createTaskQueries(deps: {
       ...(read.ticketUnconfirmed ? ['ticket_unconfirmed' as const] : []),
     ].sort((left, right) => TASK_HOLDS.indexOf(left) - TASK_HOLDS.indexOf(right));
     const heldBy = holds.includes('cycle_limit') ? await holdBlocks(trx, task.id) : [];
+    const pending = read.pending?.state === 'pending' ? read.pending : undefined;
     return {
       ...shared,
       dispatcher: mode,
       holds,
       ...(heldBy.length === 0 ? {} : { heldBy }),
+      ...(pending === undefined
+        ? {}
+        : {
+            pendingSubmit: {
+              sha: pending.sha,
+              until: pending.until,
+              text: `submit pending confirmation of ${pending.sha.slice(0, 7)}`,
+            },
+          }),
       gates,
       checksWaivedBy,
       ...(waiting.length === 0 ? {} : { waiting }),
