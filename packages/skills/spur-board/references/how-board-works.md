@@ -16,9 +16,9 @@ Each column has one executor: `projects[].columns[].orchestrator`:
 `projects[].spurProjects[].role` accepts `worker`, `operator`, `curator` and
 `orchestrator`. Orchestrators run columns, never as workers.
 
-Top-level `spurProjects[].columns` fills `none` columns board-wide; a
-project-level binding wins. A top-level `operator` serves operatorless
-projects; one session acts in each.
+Top-level `spurProjects[].columns` fills `none` columns board-wide;
+`role: operator` there serves operatorless projects, one session acting in
+each. A project-level binding wins.
 
 ## Gates and placement
 
@@ -56,8 +56,8 @@ as operator block threads.
 ## Turns and delivery
 
 A turn `T<number>`: a visit. Keyed `board inbox ack <entries>`.
-Only the acknowledging session may submit or return: keyed
-`board submit <turn> <sha>` accepts the head; keyed
+Only the acknowledging session may submit or return, keyed:
+`board submit <turn> <sha>` accepts the head;
 `board return <turn> <reason>` sends findings to Dev. In
 shadow mode, use keyed `board submit <task> <sha>`.
 Unseen heads answer `pending`: that submit is final; do not resubmit or raise a
@@ -99,8 +99,8 @@ takes priority. Executor returns, changes requested and external comments count;
 CI failures, conflicts and drafts alone do not count.
 
 If returns keep hitting the same mechanism, fix the bug class once; cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description. Still fix P0/P1 and user-visible findings in this PR.
-`projects[].columns[].courseCheckTo`: `operator`, curator or column orchestrator;
-default curator (`projects[].spurProjects[].role`), else operator. An answer
+`projects[].columns[].courseCheckTo`: `operator`, curator or column orchestrator
+(`projects[].spurProjects[].role`); default curator, else operator. An answer
 resets the course count and reaches the worker as a task comment. Only the
 operator can resolve the separate cycle limit and reset its count. With no live
 session it falls back to the operator; a live conductor that does not
@@ -138,9 +138,9 @@ With any `projects[].spurProjects[].shortName`, `spurProjects[].shortName` or
 board-wide operator, a new operator message in
 `slack.channels.orchestrators` starts a conversation. A leading registered
 `@shortName` selects that Spur project and is stripped. With absent or unknown
-leading name, the complete text, retaining any
+leading name, complete text, retaining any
 unknown prefix, goes to `slack.defaultAddressee`, else board-wide operator, else
-first project operator; with none, Board replies once with the valid prefixes.
+first project with an operator; with none, Board replies once with the valid prefixes.
 Middle mentions or Slack `<@U…>` address nobody; unknown names cause no lookup
 error. The operator checks short-name collisions with workspace names.
 A task key after the prefix attaches it.

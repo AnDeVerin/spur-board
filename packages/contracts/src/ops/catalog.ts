@@ -272,7 +272,7 @@ const statusBindingsSchema = z
         source: z
           .enum(ADDRESSEE_SOURCES)
           .describe(
-            "config: slack.defaultAddressee; board-wide: the board-wide operator; project: the first project's operator.",
+            'config: slack.defaultAddressee; board-wide: the board-wide operator; project: the operator of the first board project, in config order, that lists one.',
           ),
       })
       .nullable()

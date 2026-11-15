@@ -269,7 +269,7 @@ const columnConfig = z.strictObject({
   courseCheckTo: nonEmpty
     .optional()
     .describe(
-      "Who answers this column's course check: operator, the curator's name, or the name of a column orchestrator. Without it, the curator, or the operator when the project has no curator. When the addressee has no live session the question moves to the operator; a conductor that is rung and does not answer keeps it, and the operator gets an item.",
+      "Who answers this column's course check: operator, the curator's name, or the name of a column orchestrator listed in this project's spurProjects; a board-wide orchestrator is refused. Without it, the curator, or the operator when the project has no curator. When the addressee has no live session the question moves to the operator; a conductor that is rung and does not answer keeps it, and the operator gets an item.",
     ),
 });
 
@@ -579,7 +579,7 @@ const boardWideEntry = z.strictObject({
     .array(columnId.describe('A built-in column this orchestrator executes.'))
     .optional()
     .describe(
-      'Required for role orchestrator, not allowed for operator. The columns it executes board-wide. A project column whose orchestrator is set to anything but none keeps it, and a disabled column is never filled; each listed column must be filled in at least one board project.',
+      'Required for role orchestrator, not allowed for operator. The columns it executes board-wide. A project column whose orchestrator is set to anything but none keeps it, and a disabled column is never filled; it must fill at least one column in some board project.',
     ),
   shortName: spurProject.shape.shortName.describe(
     "The name the operator types as @<shortName> at the start of a new message in the orchestrators channel to start a conversation with this Spur project's live session. Unique across the board, top-level and projects[].spurProjects alike.",

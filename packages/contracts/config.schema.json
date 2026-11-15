@@ -302,7 +302,7 @@
                   "maximum": 9007199254740991
                 },
                 "courseCheckTo": {
-                  "description": "Who answers this column's course check: operator, the curator's name, or the name of a column orchestrator. Without it, the curator, or the operator when the project has no curator. When the addressee has no live session the question moves to the operator; a conductor that is rung and does not answer keeps it, and the operator gets an item.",
+                  "description": "Who answers this column's course check: operator, the curator's name, or the name of a column orchestrator listed in this project's spurProjects; a board-wide orchestrator is refused. Without it, the curator, or the operator when the project has no curator. When the addressee has no live session the question moves to the operator; a conductor that is rung and does not answer keeps it, and the operator gets an item.",
                   "type": "string",
                   "minLength": 1
                 }
@@ -356,7 +356,7 @@
             "description": "orchestrator: sessions execute the listed columns in every board project that enables the column and leaves its orchestrator at none. operator: sessions act as the operator of every board project that lists no operator of its own; while one exists, a project's own operator acts only in its project. At most one operator."
           },
           "columns": {
-            "description": "Required for role orchestrator, not allowed for operator. The columns it executes board-wide. A project column whose orchestrator is set to anything but none keeps it, and a disabled column is never filled; each listed column must be filled in at least one board project.",
+            "description": "Required for role orchestrator, not allowed for operator. The columns it executes board-wide. A project column whose orchestrator is set to anything but none keeps it, and a disabled column is never filled; it must fill at least one column in some board project.",
             "type": "array",
             "items": {
               "type": "string",

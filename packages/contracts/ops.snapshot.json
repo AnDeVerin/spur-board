@@ -1,5 +1,5 @@
 {
-  "version": "67a2c6e762017a17bd0a67708740f6531ed86260054dcb352d3e1d5b4df95605",
+  "version": "e2362968cc55b28ae4c0542c6a431f69ef75ddb1e5b14d5350f5f6190ab9dd44",
   "grants": [
     "operator",
     "project-agent",
@@ -2580,7 +2580,7 @@
                       "source": {
                         "type": "string",
                         "enum": ["config", "board-wide", "project"],
-                        "description": "config: slack.defaultAddressee; board-wide: the board-wide operator; project: the first project's operator."
+                        "description": "config: slack.defaultAddressee; board-wide: the board-wide operator; project: the operator of the first board project, in config order, that lists one."
                       }
                     },
                     "required": ["spurProject", "source"],
