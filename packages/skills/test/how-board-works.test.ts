@@ -48,6 +48,7 @@ describe('how the Board works guide', () => {
         /visit\s*submission belongs to one column visit/,
         /New heads invalidate internal Review and Product Review marks/,
         /Taken turns hold until submit, return or a new head/,
+        /Fixed gate rules have no configuration switch/,
         /Feedback excludes\s+bots, approvals and `projects\[\]\.operatorGithubLogin`\s+\(agents'\s+account\), so worker\s+thread replies never count/,
         /never count; others' posts do\./,
         /repo owner's and the human operator's own accounts count too, unless one is\s+that login/,
