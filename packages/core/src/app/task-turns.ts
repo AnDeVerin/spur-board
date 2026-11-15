@@ -1,12 +1,13 @@
 import type { Selectable } from 'kysely';
 import type { TurnTable } from '../store/schema.ts';
-import type { Trx } from './board-utils.ts';
+import { turnReturn, type Trx } from './board-utils.ts';
 import { turnHanded } from './turns.ts';
 
 /** How many closed turns `task.get --detail` shows. */
 const DETAIL_TURNS = 5;
 
-function taskTurnView(turn: Selectable<TurnTable>) {
+async function taskTurnView(trx: Trx, turn: Selectable<TurnTable>) {
+  const returned = await turnReturn(trx, turn);
   return {
     id: `T${String(turn.id)}`,
     column: turn.column,
@@ -17,6 +18,7 @@ function taskTurnView(turn: Selectable<TurnTable>) {
         ? null
         : { by: turn.acked_by, at: turn.acked_at },
     handed: turnHanded(turn),
+    ...(returned === undefined ? {} : { returned }),
     closed:
       turn.closed_at === null || turn.closed_reason === null
         ? null
@@ -36,7 +38,7 @@ export async function taskTurns(trx: Trx, task: { id: number }, detail: boolean)
     .where('closed_at', 'is', null)
     .orderBy('id', 'desc')
     .executeTakeFirst();
-  const turn = open === undefined ? null : taskTurnView(open);
+  const turn = open === undefined ? null : await taskTurnView(trx, open);
   if (!detail) return { turn };
   const closed = await trx
     .selectFrom('turn')
@@ -46,5 +48,7 @@ export async function taskTurns(trx: Trx, task: { id: number }, detail: boolean)
     .orderBy('id', 'desc')
     .limit(DETAIL_TURNS)
     .execute();
-  return { turn, turns: closed.map(taskTurnView) };
+  const turns = [];
+  for (const row of closed) turns.push(await taskTurnView(trx, row));
+  return { turn, turns };
 }

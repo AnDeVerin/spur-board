@@ -1751,8 +1751,13 @@ describe('turns', () => {
       ['T2', 'returned'],
       ['T1', 'submitted'],
     ]);
-    expect(returned.turn).toMatchObject({ column: 'dev', closed: null });
+    expect(returned.turn).toMatchObject({
+      column: 'dev',
+      closed: null,
+      returned: { by: REV, from: 'review', turn: 'T2' },
+    });
     expect(returned.turns?.map((turn) => turn.id)).not.toContain(returned.turn?.id);
+    for (const turn of returned.turns ?? []) expect(turn).not.toHaveProperty('returned');
 
     const fresh = board();
     await fresh.ticket();

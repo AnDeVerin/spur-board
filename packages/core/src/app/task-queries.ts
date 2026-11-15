@@ -15,7 +15,7 @@ import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../d
 import type { TaskTable, TurnTable } from '../store/schema.ts';
 import { authorize, projectTarget } from './authorize.ts';
 import { blockView, commentView, subjectTarget, taskTarget } from './blocks.ts';
-import { eventActor, linkView, moveViews, taskView, type Trx } from './board-utils.ts';
+import { eventActor, linkView, moveViews, taskView, turnReturn, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
 import { blindSources, readInput } from './dispatch.ts';
@@ -176,7 +176,8 @@ async function taskByKey(trx: Trx, key: string) {
   return task;
 }
 
-function turnView(turn: Turn, key: string) {
+async function turnView(trx: Trx, turn: Turn, key: string) {
+  const returned = await turnReturn(trx, turn);
   return {
     id: `T${String(turn.id)}`,
     task: key,
@@ -184,6 +185,7 @@ function turnView(turn: Turn, key: string) {
     addressee: turn.role,
     reason: turn.reason,
     handed: turnHanded(turn),
+    ...(returned === undefined ? {} : { returned }),
     head: turn.head_sha,
     at: turn.created_at,
     taken:
@@ -225,7 +227,7 @@ export function createTaskQueries(deps: {
       .executeTakeFirst();
     const shared = {
       column,
-      turn: open === undefined ? null : turnView(open, task.key),
+      turn: open === undefined ? null : await turnView(trx, open, task.key),
       moves: await moveViews(trx, task.id, { limit: WHY_MOVES }),
     };
     const project = config.projects.find((entry) => entry.id === task.project);
@@ -430,7 +432,7 @@ export function createTaskQueries(deps: {
         )
           continue;
       }
-      turns.push(turnView(turn, turn.key));
+      turns.push(await turnView(trx, turn, turn.key));
     }
     return turns;
   }
