@@ -222,10 +222,23 @@ function isReadQuery(body: string | undefined): boolean {
 
 /** Whether a request is one of the allowlisted reads. */
 function allowed(live: Live, url: URL, method: string, body: string | undefined): boolean {
-  if (url.search !== '' && url.origin !== GITHUB_API) return false;
+  if (url.search !== '' && url.origin !== GITHUB_API && url.origin !== live.spurBase.origin)
+    return false;
   if (url.origin === live.spurBase.origin && url.pathname.startsWith(live.spurBase.pathname)) {
     const path = url.pathname.slice(live.spurBase.pathname.length);
-    return method === 'GET' && /^sessions(\/[^/]+)?$/.test(path);
+    if (path === 'sessions/transitions')
+      return (
+        method === 'GET' &&
+        body === undefined &&
+        [...url.searchParams.keys()].every(
+          (key) =>
+            ['since', 'limit', 'kinds'].includes(key) && url.searchParams.getAll(key).length === 1,
+        ) &&
+        /^(?:[1-9]\d{0,2}|1000)$/.test(url.searchParams.get('limit') ?? '200') &&
+        (url.searchParams.get('since') === null || url.searchParams.get('since') !== '') &&
+        (url.searchParams.get('kinds') === null || url.searchParams.get('kinds') === 'status,state')
+      );
+    return method === 'GET' && url.search === '' && /^sessions(\/[^/]+)?$/.test(path);
   }
   if (url.href === GRAPHQL_URL) return method === 'POST' && isReadQuery(body);
   if (url.origin === GITHUB_API) {
@@ -498,11 +511,20 @@ class Scrubber {
   // Requests ----------------------------------------------------------------------------------
 
   requestUrl(system: System, url: URL): Draft {
-    if (system === 'spur')
-      return new URL(
+    if (system === 'spur') {
+      const mapped = new URL(
         url.pathname.slice(this.live.spurBase.pathname.length) + url.search,
         apiBaseUrl(STAND.spurBase),
-      ).href;
+      );
+      const since = mapped.searchParams.get('since');
+      if (since !== null)
+        return new Pending('cursor', since, (placeholder) => {
+          const copy = new URL(mapped);
+          copy.searchParams.set('since', placeholder);
+          return copy.href;
+        });
+      return mapped.href;
+    }
     if (system === 'jira') {
       const key = /^\/rest\/api\/3\/issue\/([A-Za-z][A-Za-z0-9_]*-[1-9]\d*)$/.exec(
         url.pathname,
@@ -568,6 +590,7 @@ class Scrubber {
     keep('branch', this.placeholder('branch'));
     keep('status', (v, p) => this.scalar(v, p));
     keep('state', (v, p) => this.scalar(v, p));
+    keep('rateLimitResetAt', (v, p) => this.scalar(v, p));
     keep('lastActivityAt', (v, p) => this.scalar(v, p));
     keep('stopReason', (v, p) => this.scalar(v, p));
     keep('retainInList', (v, p) => this.scalar(v, p));
@@ -587,6 +610,47 @@ class Scrubber {
           }
         : {};
     } else if ('slots' in value) out['slots'] = this.scalar(slots, `${path}.slots`);
+    return out;
+  }
+
+  spurTransitions(value: unknown, path: string): Draft {
+    if (!isObject(value)) return this.scalar(value, path);
+    const out: Record<string, Draft> = {};
+    for (const field of ['nextCursor', 'latestCursor', 'floorCursor']) {
+      if (field in value) out[field] = this.placeholder('cursor')(value[field], `${path}.${field}`);
+    }
+    if ('hasMore' in value) out['hasMore'] = this.scalar(value['hasMore'], `${path}.hasMore`);
+    if ('entries' in value) {
+      const entries = value['entries'];
+      out['entries'] = Array.isArray(entries)
+        ? entries.map((entry, index) => {
+            const at = `${path}.entries[${String(index)}]`;
+            if (!isObject(entry)) return this.scalar(entry, at);
+            const links = entry['links'];
+            return {
+              cursor: this.placeholder('cursor')(entry['cursor'], `${at}.cursor`),
+              sessionId: this.placeholder('session')(entry['sessionId'], `${at}.sessionId`),
+              project: this.placeholder('project')(entry['project'], `${at}.project`),
+              ...Object.fromEntries(
+                ['at', 'kind', 'from', 'to', 'rateLimitResetAt']
+                  .filter((key) => key in entry)
+                  .map((key) => [key, this.scalar(entry[key], `${at}.${key}`)]),
+              ),
+              links: Array.isArray(links)
+                ? links.map((link, i) => {
+                    const p = `${at}.links[${String(i)}]`;
+                    return isObject(link)
+                      ? {
+                          label: this.scalar(link['label'], `${p}.label`),
+                          url: this.url(link['url'], `${p}.url`),
+                        }
+                      : this.scalar(link, p);
+                  })
+                : this.scalar(links, `${at}.links`),
+            };
+          })
+        : this.scalar(entries, `${path}.entries`);
+    }
     return out;
   }
 
@@ -980,7 +1044,9 @@ function syntheticId(system: System, key: string): ((value: string) => boolean) 
   if (system === 'github-issues' && key === 'node_id') return (value) => SYNTHETIC.node.test(value);
   if (system === 'jira' && key === 'id')
     return (value) => SYNTHETIC.jiraId.test(value) || JIRA_FIELD_IDS.has(value);
-  if (system === 'spur' && key === 'id')
+  if (system === 'spur' && (key === 'cursor' || key.endsWith('Cursor')))
+    return (value) => /^recorded-cursor-\d+$/.test(value);
+  if (system === 'spur' && (key === 'id' || key === 'sessionId'))
     return (value) => /^recorded-session-\d+$/.test(value) || value === PROBE_SESSION;
   return undefined;
 }
@@ -1146,6 +1212,8 @@ function draftResponse(scrubber: Scrubber, system: System, raw: RawExchange, at:
     throw new Refusal(`The answer at ${at} is not JSON.`);
   }
   const path = `${at}.body`;
+  if (system === 'spur' && raw.url.pathname.endsWith('/sessions/transitions'))
+    return scrubber.spurTransitions(body, path);
   if (raw.status < 200 || raw.status > 299) return scrubber.generic(body, path);
   if (system === 'spur')
     return Array.isArray(body)

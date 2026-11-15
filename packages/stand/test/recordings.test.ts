@@ -150,7 +150,28 @@ function requestOf(input: Parameters<typeof fetch>[0], init: Parameters<typeof f
 /** A fetch that answers each recorded request once, by method, URL and canonical body. */
 function replayFetch() {
   const pending = [...recordings.values()].flatMap(({ exchanges }) => [...exchanges]);
+  const syntheticFeedRequests: string[] = [];
   const fetcher: typeof fetch = (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (
+      url.origin === new URL(replayConfig().adapters.spur.baseUrl).origin &&
+      url.pathname === '/sessions/transitions' &&
+      (init?.method ?? 'GET') === 'GET' &&
+      url.searchParams.get('limit') === '1000' &&
+      url.searchParams.get('kinds') === 'status,state' &&
+      init?.body === undefined &&
+      (url.searchParams.get('since') === null ||
+        url.searchParams.get('since') === 'synthetic-legacy-feed') &&
+      [...url.searchParams.keys()].every(
+        (key) =>
+          ['limit', 'kinds', 'since'].includes(key) && url.searchParams.getAll(key).length === 1,
+      )
+    ) {
+      syntheticFeedRequests.push(url.href);
+      return Promise.resolve(
+        Response.json({ entries: [], nextCursor: 'synthetic-legacy-feed', hasMore: false }),
+      );
+    }
     const request = requestOf(input, init);
     const index = pending.findIndex(
       (exchange) =>
@@ -170,7 +191,7 @@ function replayFetch() {
       }),
     );
   };
-  return { fetcher, pending };
+  return { fetcher, pending, syntheticFeedRequests };
 }
 
 // Seed transforms: what the fakes must hold to answer the recorded requests -----------------------
@@ -557,6 +578,10 @@ describe('stand fakes against the recorded live responses', () => {
         .filter(({ source }) => source.startsWith('github:'))
         .every(({ batch }) => batch.usage === undefined),
     ).toBe(true);
+    expect(replay.syntheticFeedRequests).toHaveLength(1);
+    expect(
+      result.core.observed.find(({ source }) => source === 'spur')?.batch.sessionTransitions,
+    ).toEqual([]);
     expect(replay.pending.map(({ request }) => `${request.method} ${request.url}`)).toEqual([]);
   });
 

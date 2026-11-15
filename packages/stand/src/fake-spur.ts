@@ -12,7 +12,7 @@ const MAX_BODY_TEXT = 200;
 const MAX_HOLD_MS = 60_000;
 const DEFAULT_5XX = 503;
 
-const ROUTE_NAMES = ['list', 'detail', 'send'] as const;
+const ROUTE_NAMES = ['list', 'detail', 'send', 'transitions'] as const;
 type RouteName = (typeof ROUTE_NAMES)[number];
 
 /** Spur's `assertSendableStatus`, plus `spawning`, which it queues before that gate. */
@@ -32,6 +32,7 @@ const sessionArgs = z.strictObject({
   retain: z.literal(true).optional(),
   /** Why Spur stopped the session, as a live Spur reports it (`stale_timeout`). */
   stopReason: text.optional(),
+  rateLimitResetAt: z.iso.datetime().optional(),
   /** `hold` keeps later sends in the session queue, as a busy Spur session does; `deliver` empties it. */
   queue: z.enum(['hold', 'deliver']).optional(),
 });
@@ -52,6 +53,7 @@ const failArgs = z.discriminatedUnion('mode', [
 const fakeCommand = z.discriminatedUnion('verb', [
   z.strictObject({ verb: z.literal('session'), args: sessionArgs }),
   z.strictObject({ verb: z.literal('restart'), args: noArgs }),
+  z.strictObject({ verb: z.literal('expire-transitions'), args: noArgs }),
   z.strictObject({ verb: z.literal('fail'), args: failArgs }),
   z.strictObject({ verb: z.literal('clear'), args: noArgs }),
   z.strictObject({ verb: z.literal('inspect'), args: noArgs }),
@@ -69,6 +71,7 @@ interface FakeSession {
   state: string;
   lastActivityAt: string | null;
   stopReason?: string;
+  rateLimitResetAt?: string | undefined;
   retainInList?: true;
   /** Sends wait in `queuedMessages` until `--queue deliver`. */
   holdQueue?: true;
@@ -98,11 +101,26 @@ export interface FakeSpur {
   restore(state: FakeSpurState): void;
 }
 
+interface Transition {
+  cursor: string;
+  sessionId: string;
+  project: string;
+  at: string;
+  links: { label: string; url: string }[];
+  kind: 'status' | 'state';
+  from: string | null;
+  to: string;
+  rateLimitResetAt?: string | undefined;
+}
+
 /** What `FakeSpur.state` returns. */
 export interface FakeSpurState {
   sessions: [string, FakeSession][];
   rules: [RouteName, FailureRule][];
   generation: number;
+  transitions: Transition[];
+  sequence: number;
+  floor: number;
 }
 
 /** The URL of a `fetch` input. */
@@ -160,6 +178,10 @@ export function createFakeSpur(options: {
   const held = new Set<() => void>();
   let violationTotal = 0;
   let generation = 1;
+  let sequence = 0;
+  let floor = 0;
+  let transitions: Transition[] = [];
+  const cursor = (position: number) => `fake-feed-${String(position)}`;
   let closed = false;
 
   const instanceId = (): string => `stand-spur-${String(generation)}`;
@@ -180,6 +202,10 @@ export function createFakeSpur(options: {
       status: args.status ?? previous?.status ?? 'running',
       state: args.state ?? previous?.state ?? 'working',
       lastActivityAt: iso(),
+      ...((args.state ?? previous?.state) === 'rate_limited' &&
+      (args.rateLimitResetAt ?? previous?.rateLimitResetAt) !== undefined
+        ? { rateLimitResetAt: args.rateLimitResetAt ?? previous?.rateLimitResetAt }
+        : {}),
       ...(stopReason === undefined ? {} : { stopReason }),
       ...(args.retain === true || previous?.retainInList === true
         ? { retainInList: true as const }
@@ -187,6 +213,27 @@ export function createFakeSpur(options: {
       ...(holds ? { holdQueue: true as const } : {}),
       ...(queued === undefined ? {} : { queuedMessages: queued }),
     };
+    for (const kind of ['status', 'state'] as const) {
+      if (
+        previous?.[kind] === session[kind] &&
+        (kind !== 'state' || previous.rateLimitResetAt === session.rateLimitResetAt)
+      )
+        continue;
+      sequence++;
+      transitions.push({
+        cursor: cursor(sequence),
+        sessionId: session.id,
+        project: session.project,
+        at: iso(),
+        links: structuredClone(session.slots?.links ?? []),
+        kind,
+        from: previous?.[kind] ?? null,
+        to: session[kind],
+        ...(kind === 'state' && session.rateLimitResetAt !== undefined
+          ? { rateLimitResetAt: session.rateLimitResetAt }
+          : {}),
+      });
+    }
     sessions.set(args.id, session);
     return session;
   }
@@ -210,6 +257,7 @@ export function createFakeSpur(options: {
   function match(url: URL, method: string): { name: RouteName; id: string } | undefined {
     if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) return undefined;
     const path = url.pathname.slice(base.pathname.length);
+    if (method === 'GET' && path === 'sessions/transitions') return { name: 'transitions', id: '' };
     if (method === 'GET' && path === 'sessions') return { name: 'list', id: '' };
     const detail = /^sessions\/([^/]+)$/.exec(path)?.[1];
     if (method === 'GET' && detail !== undefined) return { name: 'detail', id: detail };
@@ -265,7 +313,26 @@ export function createFakeSpur(options: {
     return Response.json(session);
   }
 
-  function answer(matched: { name: RouteName; id: string }, body: string): Response {
+  function answer(matched: { name: RouteName; id: string }, body: string, url: URL): Response {
+    if (matched.name === 'transitions') {
+      const since = url.searchParams.get('since');
+      if (since !== null && !/^fake-feed-(0|[1-9]\d*)$/.test(since))
+        return errorResponse(400, 'Invalid cursor');
+      const after = since === null ? floor : Number(since.slice('fake-feed-'.length));
+      if (after > sequence) return errorResponse(400, 'Future cursor');
+      if (after < floor)
+        return Response.json(
+          { latestCursor: cursor(sequence), floorCursor: cursor(floor) },
+          { status: 410 },
+        );
+      const limit = Number(url.searchParams.get('limit') ?? 200);
+      const entries = transitions
+        .filter((entry) => Number(entry.cursor.slice('fake-feed-'.length)) > after)
+        .slice(0, limit);
+      const last = entries.at(-1)?.cursor ?? cursor(sequence);
+      const hasMore = Number(last.slice('fake-feed-'.length)) < sequence;
+      return Response.json({ entries, nextCursor: hasMore ? last : cursor(sequence), hasMore });
+    }
     if (matched.name === 'send') return answerSend(matched.id, body);
     if (matched.name === 'list')
       return Response.json(
@@ -296,7 +363,15 @@ export function createFakeSpur(options: {
       violate({ method, path, reason: 'route', detail: 'The fake models no such route.' }, body);
       return errorResponse(404, `Route not found: ${method} ${url.pathname}`);
     }
-    if (url.search !== '')
+    const validFeedQuery =
+      matched.name === 'transitions' &&
+      [...url.searchParams.keys()].every(
+        (key) =>
+          ['since', 'limit', 'kinds'].includes(key) && url.searchParams.getAll(key).length === 1,
+      ) &&
+      /^(?:[1-9]\d{0,2}|1000)$/.test(url.searchParams.get('limit') ?? '200') &&
+      (url.searchParams.get('kinds') === null || url.searchParams.get('kinds') === 'status,state');
+    if (url.search !== '' && !validFeedQuery)
       violate({ method, path, reason: 'query', detail: 'The board sends no query string.' }, '');
     if (matched.name !== 'send' && body !== '')
       violate({ method, path, reason: 'body', detail: 'A GET carries no body.' }, body);
@@ -308,7 +383,7 @@ export function createFakeSpur(options: {
     if (rule?.mode === '5xx') return errorResponse(rule.status, 'Injected failure');
     if (rule?.mode === 'hang') await hold(signal);
     if (rule?.mode === 'delay') await hold(signal, rule.ms);
-    return answer(matched, body);
+    return answer(matched, body, url);
   };
 
   function currentViolations(): ReturnType<FakeSpur['violations']> {
@@ -324,6 +399,10 @@ export function createFakeSpur(options: {
       switch (command.verb) {
         case 'session':
           return { status: 200, body: { session: upsert(command.args) } };
+        case 'expire-transitions':
+          floor = sequence;
+          transitions = [];
+          return { status: 200, body: { latestCursor: cursor(sequence) } };
         case 'restart':
           generation += 1;
           return { status: 200, body: { instanceId: instanceId() } };
@@ -342,6 +421,9 @@ export function createFakeSpur(options: {
               sessions: [...sessions.values()],
               rules: Object.fromEntries(rules),
               requests,
+              transitions,
+              cursor: cursor(sequence),
+              floor: cursor(floor),
               sends,
               violations: currentViolations(),
             },
@@ -349,7 +431,15 @@ export function createFakeSpur(options: {
       }
     },
     violations: currentViolations,
-    state: () => structuredClone({ sessions: [...sessions], rules: [...rules], generation }),
+    state: () =>
+      structuredClone({
+        sessions: [...sessions],
+        rules: [...rules],
+        generation,
+        transitions,
+        sequence,
+        floor,
+      }),
     restore(state) {
       const copy = structuredClone(state);
       sessions.clear();
@@ -357,6 +447,9 @@ export function createFakeSpur(options: {
       rules.clear();
       for (const [name, rule] of copy.rules) rules.set(name, rule);
       generation = copy.generation;
+      transitions = copy.transitions;
+      sequence = copy.sequence;
+      floor = copy.floor;
     },
     close() {
       closed = true;
@@ -367,6 +460,7 @@ export function createFakeSpur(options: {
 
 const FAKE_OPTIONS = {
   state: { type: 'string' },
+  rateLimitResetAt: { type: 'string' },
   status: { type: 'string' },
   project: { type: 'string' },
   branch: { type: 'string' },

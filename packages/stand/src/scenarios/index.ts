@@ -46,6 +46,11 @@ import {
 } from './new-head.ts';
 import { questionToOperator } from './question-to-operator.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
+import {
+  spurTransitionsRapidRecovery,
+  spurTransitionsCursorExpired,
+  spurTransitionsKilledHolder,
+} from './spur-transitions.ts';
 import { spurSourceSilent } from './spur-source-silent.ts';
 import { tokenApproval } from './token-approval.ts';
 import { dispatchTurnView } from './turn-view.ts';
@@ -178,6 +183,9 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchCiRedNewHeadInProductReview,
   dispatchRingClosedTurn,
   dispatchTurnView,
+  spurTransitionsRapidRecovery,
+  spurTransitionsCursorExpired,
+  spurTransitionsKilledHolder,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>
