@@ -323,6 +323,23 @@ describe('fixtures', () => {
     ]);
   });
 
+  it('accepts short names and a default addressee, and leaves both unset by default', () => {
+    expect(configSchema.parse(validConfig()).slack.defaultAddressee).toBeUndefined();
+    const config = configSchema.parse(
+      validConfig(
+        {
+          spurProjects: [
+            { name: 'cur', role: 'curator', shortName: 'cur' },
+            { name: 'board-pm', role: 'operator', shortName: 'pm' },
+          ],
+        },
+        { slack: { defaultAddressee: 'pm' } },
+      ),
+    );
+    expect(config.projects[0]?.spurProjects.map((spur) => spur.shortName)).toEqual(['cur', 'pm']);
+    expect(config.slack.defaultAddressee).toBe('pm');
+  });
+
   it('accepts an explicit HTTP port', () => {
     expect(configSchema.parse(validConfig({}, { http: { port: 4312 } })).http.port).toBe(4312);
     expect(configSchema.parse(validConfig({}, { http: { port: 0 } })).http.port).toBe(0);
@@ -741,6 +758,42 @@ describe('invalid configs', () => {
       withoutOperator(),
       'Invalid input: expected object, received undefined',
       'operator',
+    ],
+    [
+      'a short name repeated across two board projects',
+      validConfig(
+        {},
+        {
+          projects: [
+            {
+              ...jiraProject(),
+              spurProjects: [{ name: 'cur-a', role: 'curator', shortName: 'cur' }],
+            },
+            {
+              ...jiraProject(),
+              id: 'api',
+              spurProjects: [{ name: 'cur-b', role: 'curator', shortName: 'cur' }],
+            },
+          ],
+        },
+      ),
+      'Duplicate short name: "cur"',
+      'projects[1].spurProjects[0].shortName',
+    ],
+    [
+      'a malformed short name',
+      validConfig({ spurProjects: [{ name: 'cur', role: 'curator', shortName: '@Cur' }] }),
+      'Expected a short name of lowercase letters',
+      'projects[0].spurProjects[0].shortName',
+    ],
+    [
+      'a default addressee that names no short name',
+      validConfig(
+        { spurProjects: [{ name: 'cur', role: 'curator', shortName: 'cur' }] },
+        { slack: { defaultAddressee: 'qa' } },
+      ),
+      'Unknown short name "qa": set it as projects[].spurProjects[].shortName first',
+      'slack.defaultAddressee',
     ],
     [
       'a Spur project under two board projects',

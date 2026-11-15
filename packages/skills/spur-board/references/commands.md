@@ -125,7 +125,7 @@ Other errors: `wrong_id_kind`, `not_found`, `block_not_open`, `task_archived`, `
 
 ### `board answer`
 
-Purpose: Answer a question block; the answer becomes a comment and the block closes.
+Purpose: Answer a question; the block closes unless it is an operator conversation.
 Arguments: `<block>`, `<text>`.
 Flags: `--note <value>`, `--key <key>`, `--json`.
 Use when: Answer an open question.

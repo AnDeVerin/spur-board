@@ -41,6 +41,8 @@ export interface ControlRoutes {
   /** Lists what the fake Slack API holds; never queued. */
   slackOutbox(): Promise<RouteResult>;
   slackClick(body: { message: number; button: string; text?: string }): Promise<RouteResult>;
+  /** Posts a new operator message in the orchestrators channel; queued with `reset`. */
+  slackPost(body: { text: string }): Promise<RouteResult>;
   /** One verb on one fake system; only `spur` is queued with `poll` and `reset`. */
   fake(body: { system: string; verb: string; args: unknown }): Promise<RouteResult>;
   /** 200 with an empty log, 409 otherwise; never queued. */
@@ -111,13 +113,14 @@ const ROUTES = new Set([
   '/violations',
   '/fake/slack/outbox',
   '/fake/slack/click',
+  '/fake/slack/post',
 ]);
 
 /**
  * The stand's control endpoint on 127.0.0.1. Checks, in order: no `Origin` (403), Host exactly
  * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413) and
  * its arrival time (10 s). `wait` runs at most `MAX_WAIT_MS`.
- * `poll`, `reset`, `seed`, `clock`, `fake spur` and the Slack click run one at a time through one
+ * `poll`, `reset`, `seed`, `clock`, `fake spur`, the Slack click and post run one at a time through one
  * queue; `wait`, `violations`, the Slack outbox and the other fakes run outside it.
  */
 export async function startControl(options: {
@@ -246,6 +249,10 @@ export async function startControl(options: {
           ...(typeof text === 'string' ? { text } : {}),
         }),
       );
+    } else if (path === '/fake/slack/post') {
+      const { text } = body;
+      if (typeof text !== 'string') throw new HttpError(400, 'Send { text }.');
+      result = await queued(() => options.routes.slackPost({ text }));
     } else {
       result = await queued(() => options.routes.reset());
     }

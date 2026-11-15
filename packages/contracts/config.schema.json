@@ -169,6 +169,11 @@
                   "enum": ["worker", "operator", "curator", "orchestrator"],
                   "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
                 },
+                "shortName": {
+                  "description": "The name the operator types as @<shortName> at the start of a new message in the orchestrators channel to start a conversation with this Spur project's live session. Unique across the board.",
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+                },
                 "displayName": {
                   "description": "The name a curator's answer lines in the feed are posted under. Defaults to the Spur project name. Only for a curator.",
                   "type": "string",
@@ -382,6 +387,10 @@
             }
           },
           "additionalProperties": false
+        },
+        "defaultAddressee": {
+          "description": "The shortName of the Spur project that gets a new orchestrators-channel message which does not start with a known @<shortName>. Without it, such a message gets one reply listing the valid prefixes. Ignored when no shortName is configured.",
+          "type": "string"
         }
       },
       "additionalProperties": false

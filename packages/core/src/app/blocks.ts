@@ -29,6 +29,7 @@ import { emit, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import {
   acknowledgeNotification,
+  ackConversationNotifications,
   applyDoorbellPolicy,
   closeBlockNotification,
   moveBlockToAddressee,
@@ -130,7 +131,12 @@ export async function subjectTarget(
       block:
         block === undefined
           ? null
-          : { type: block.type, author: block.author, addressee_role: block.addressee_role },
+          : {
+              type: block.type,
+              author: block.author,
+              addressee_role: block.addressee_role,
+              addressee_spur_project: block.addressee_spur_project,
+            },
       workers,
     },
   };
@@ -280,7 +286,7 @@ function wroteBlock(config: Config, actor: ActorId, target: ResolvedTarget): boo
 }
 
 /** Inserts a comment row and journals `comment_added`; it rings and posts nothing. */
-async function insertComment(
+export async function insertComment(
   trx: Trx,
   subject: BlockSubject,
   blockId: number | null,
@@ -357,7 +363,10 @@ async function addComment(
   return row;
 }
 
-/** Opens a block; a project-level block, which has no task to route by, goes to the operator. */
+/**
+ * Opens a block; a project-level block, which has no task to route by, goes to the operator. An
+ * operator conversation names the Spur project it is addressed to, which routes its rings.
+ */
 export async function openBlock(
   trx: Trx,
   subject: BlockSubject,
@@ -366,6 +375,7 @@ export async function openBlock(
   ctx: CommandContext,
   config: Config,
   addressee?: AddresseeRole,
+  addresseeSpurProject?: string,
 ): Promise<Block> {
   const { task } = subject;
   addressee ??=
@@ -387,6 +397,7 @@ export async function openBlock(
       unblocked_by: null,
       unblocked_at: null,
       created_at: ctx.at,
+      addressee_spur_project: addresseeSpurProject ?? null,
     })
     .returningAll()
     .executeTakeFirstOrThrow();
@@ -537,7 +548,10 @@ export async function closeOpenBlock(
     actor: ctx.actor,
     at: new Date(ctx.at),
   });
-  await closeBlockNotification(trx, block.id, new Date(ctx.at), ctx.actor);
+  // A conversation's follow-up rings end with it; elsewhere an answer's ring to the asker stays.
+  if (block.addressee_spur_project === null)
+    await closeBlockNotification(trx, block.id, new Date(ctx.at), ctx.actor);
+  else await ackConversationNotifications(trx, block.id, new Date(ctx.at), ctx.actor);
   const items = await trx
     .selectFrom('operator_item')
     .selectAll()
@@ -591,7 +605,14 @@ export async function closeBlockIfOpen(
   await closeOpenBlock(trx, await blockSubject(trx, block), block, ctx, outcome, outcomeReason);
 }
 
-/** Applies an operator message to the block selected by its conversation, without echoing it. */
+/** The thread messages that close an operator conversation, compared after trimming. */
+const CLOSE_COMMANDS: ReadonlySet<string> = new Set(['close', '✅', ':white_check_mark:']);
+
+/**
+ * Applies an operator message to the block selected by its conversation, without echoing it. The
+ * first message answers and closes a block; on an operator conversation it is a follow-up that
+ * rings the addressee, and only the close command closes it.
+ */
 export async function recordInboundBlockMessage(
   trx: Trx,
   input: {
@@ -616,7 +637,9 @@ export async function recordInboundBlockMessage(
     .executeTakeFirstOrThrow();
   const subject = await blockSubject(trx, block);
   const ctx: CommandContext = { actor: 'operator', at: input.at };
-  const answered = block.state === 'open';
+  const conversation = block.addressee_spur_project !== null;
+  const closes = conversation && block.state === 'open' && CLOSE_COMMANDS.has(input.text.trim());
+  const answered = block.state === 'open' && !conversation;
   if (answered) {
     if (subject.task !== null) active(subject.task);
     rule(() => {
@@ -631,9 +654,13 @@ export async function recordInboundBlockMessage(
     ctx,
     authorRole(input.config, subject, block.author),
     input.config,
-    { source: { conversationRef: input.conversationRef, messageRef: input.messageRef } },
+    {
+      source: { conversationRef: input.conversationRef, messageRef: input.messageRef },
+      ringsAuthor: !closes,
+    },
   );
-  const updated = answered ? await closeOpenBlock(trx, subject, block, ctx, 'done', null) : block;
+  const updated =
+    answered || closes ? await closeOpenBlock(trx, subject, block, ctx, 'done', null) : block;
   return {
     comment,
     block: updated,
@@ -641,6 +668,75 @@ export async function recordInboundBlockMessage(
     answered,
     authorRole: authorRole(input.config, subject, block.author),
   };
+}
+
+/**
+ * `text` without a leading `@<shortName>` token and the space after it; a text that is only the
+ * token stays whole. An operator conversation's reason is its opening text stripped this way.
+ */
+export function stripShortName(text: string, shortName: string): string {
+  const prefix = /^@(\S+)\s*/.exec(text);
+  if (prefix?.[1] !== shortName) return text;
+  const rest = text.slice(prefix[0].length);
+  return rest.length === 0 ? text : rest;
+}
+
+/**
+ * An edit of an open operator conversation's opening message: the block reason follows the new
+ * text, and an addressee that already read the conversation is rung once more. Target and scope
+ * stay as opened.
+ */
+async function reviseConversationOpening(
+  trx: Trx,
+  updated: Comment,
+  input: { at: string; actor: ActorId; config: Config },
+  subject: BlockSubject,
+): Promise<void> {
+  if (updated.block_id === null) return;
+  const block = await trx
+    .selectFrom('block')
+    .selectAll()
+    .where('id', '=', updated.block_id)
+    .executeTakeFirstOrThrow();
+  const spur = block.addressee_spur_project;
+  if (spur === null || block.state !== 'open') return;
+  const opening = await trx
+    .selectFrom('comment')
+    .select('id')
+    .where('block_id', '=', block.id)
+    .orderBy('id')
+    .executeTakeFirstOrThrow();
+  if (opening.id !== updated.id) return;
+  const shortName = input.config.projects
+    .flatMap((project) => project.spurProjects)
+    .find((entry) => entry.name === spur)?.shortName;
+  const reason = shortName === undefined ? updated.text : stripShortName(updated.text, shortName);
+  const revised = await trx
+    .updateTable('block')
+    .set({ reason })
+    .where('id', '=', block.id)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  const waiting = await trx
+    .selectFrom('notification')
+    .select('id')
+    .where('block_id', '=', block.id)
+    .where('kind', 'in', ['block', 'answer'])
+    .where('acked_at', 'is', null)
+    .executeTakeFirst();
+  if (waiting !== undefined) return;
+  await applyDoorbellPolicy(
+    trx,
+    {
+      kind: 'answer',
+      block: revised,
+      commentId: updated.id,
+      revision: updated.revision,
+      authorRole: authorRole(input.config, subject, block.author),
+      actor: input.actor,
+    },
+    new Date(input.at),
+  );
 }
 
 /** Uses the same revision and acknowledgment rule as the catalog comment.edit mutation. */
@@ -689,6 +785,7 @@ export async function editInboundComment(
       new Date(input.at),
     );
   }
+  await reviseConversationOpening(trx, updated, input, subject);
   return updated;
 }
 
@@ -721,6 +818,8 @@ async function queueCuratorAnswerLine(
   config: Config,
 ): Promise<void> {
   if (parseAddressee(block.addressee_role).kind !== 'curator') return;
+  // An operator conversation is answered in its own thread.
+  if (block.addressee_spur_project !== null) return;
   if (authorRole(config, taskSubject(task), ctx.actor) === 'operator') return;
   const curator = parseActorId(ctx.actor);
   if (curator?.actor !== 'agent') return;
@@ -835,8 +934,10 @@ export function createBlockMutations(config: Config) {
         }
         return { block: blockView(block, subject) };
       };
-      // A project-level block is the operator's, which escalates to no one.
-      if (!next.changed || task === null) return unchanged();
+      // A project-level block is the operator's, which escalates to no one; an operator
+      // conversation stays with the Spur project the operator addressed.
+      if (!next.changed || task === null || block.addressee_spur_project !== null)
+        return unchanged();
       // An earlier addressee passes authorization to retry; only the current one moves the block.
       if (!holdsBlock(config, ctx.actor, target)) return unchanged();
       const updated = await moveBlockToAddressee(trx, {
@@ -867,6 +968,11 @@ export function createBlockMutations(config: Config) {
         answerBlock(current(block));
       });
       const role = authorRole(config, subject, block.author);
+      // An operator conversation stays open for follow-ups: the answer ends the rings so far,
+      // before its comment, so the operator's own answer still rings the addressee.
+      const conversation = block.addressee_spur_project !== null;
+      if (conversation)
+        await ackConversationNotifications(trx, block.id, new Date(ctx.at), ctx.actor);
       const comment = await addComment(trx, subject, block, input.text, ctx, role, config);
       // Before the close, so a note on a threaded block is a reply that rings nobody.
       if (input.note !== undefined) {
@@ -874,7 +980,9 @@ export function createBlockMutations(config: Config) {
           ringsAuthor: false,
         });
       }
-      const updated = await closeOpenBlock(trx, subject, block, ctx, 'done', null, comment);
+      const updated = conversation
+        ? block
+        : await closeOpenBlock(trx, subject, block, ctx, 'done', null, comment);
       if (task !== null)
         await queueCuratorAnswerLine(trx, task, block, comment, input.note, ctx, config);
       return { block: blockView(updated, subject), comment: commentView(comment, subject) };
@@ -882,7 +990,19 @@ export function createBlockMutations(config: Config) {
   };
   const unblock: Mutation<'block.unblock'> = {
     id: 'block.unblock',
-    resolveTargets: (trx, input) => blockTarget(trx, input.block),
+    async resolveTargets(trx, input) {
+      const [target] = await blockTarget(trx, input.block);
+      if (target?.kind !== 'found' || target.value.block?.addressee_spur_project == null)
+        return [target ?? { kind: 'missing' }];
+      // Only the operator closes an operator conversation: for unblocking, the operator holds it.
+      const block = { ...target.value.block, addressee_role: 'operator' as const };
+      return [
+        {
+          ...target,
+          value: { ...target.value, block: { ...block, addressee_spur_project: null } },
+        },
+      ];
+    },
     async run(trx, input, ctx) {
       const block = found(await blockById(trx, input.block));
       const subject = await blockSubject(trx, block);

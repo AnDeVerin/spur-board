@@ -407,17 +407,20 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
   }
 
   function userEvent(message: StoredMessage, user: UserRecord): InboundEvent {
+    const root = rootMessage(message.conversation);
     return {
       kind: user.kind,
       dedupeKey: messageKey(message),
       conversation: message.conversation.ref,
       message: message.message,
-      rootMessage: rootMessage(message.conversation),
+      rootMessage: root,
       sourceUrl: permalink(message.conversation, message.message),
       author: user.author,
       text: user.text,
       at: user.at,
       ...originKey(message.conversation),
+      // Only a conversation's first message names its space (G7).
+      ...(message.message === root ? { sourceSpace: message.conversation.space ?? null } : {}),
     };
   }
 

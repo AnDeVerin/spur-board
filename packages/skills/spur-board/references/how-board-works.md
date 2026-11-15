@@ -1,14 +1,14 @@
 # How the Board works
 
 Start with `board task <task> --why`: it explains the gates, holds, open turn and
-last moves behind the task's position. Read `board inbox` before acting on a ring.
+last moves behind the task's position.
 
 ## Columns and executors
 
 The fixed order is `todo`, `ready-for-dev`, `dev`, `review`, `product-review`,
 `external-review`, `qa`, `ready-to-merge`, `done`.
-`projects[].columns[].enabled` skips a column and its gate when false; To Do, Dev
-and Done must stay enabled. Omitted optional columns are skipped too.
+`projects[].columns[].enabled` false, or omitting an optional column, skips it and
+its gate; To Do, Dev and Done must stay enabled.
 
 Each column has one executor, selected by `projects[].columns[].orchestrator`:
 `none` uses the task's live worker, falling back to the operator; `operator` uses
@@ -59,10 +59,9 @@ with keyed `board inbox ack <entries>`. Only the acknowledging session may submi
 or return it: keyed `board submit <turn> <sha>` accepts the head, and keyed
 `board return <turn> <reason>` sends findings back to Dev. A worker submits a fresh
 PR head after pushing. In shadow mode, use keyed `board submit <task> <sha>`.
-If the Board has not seen the head yet, `board submit` answers `pending`:
-that submit is final. The Board confirms the head itself and, if the head moved,
-the PR closed or no PR appears within `projects[].dispatcher.submitConfirmMs`,
-hands the turn back with the reason; do not resubmit or raise a block.
+An unseen head answers `pending`: that submit is final,
+so do not resubmit or raise a block; the Board confirms it or hands the turn back
+(`projects[].dispatcher.submitConfirmMs`).
 
 A new head closes taken turns outside Dev; a taken Dev turn survives the worker's
 push so that worker can submit it. An unacknowledged turn does not hold back a
@@ -115,25 +114,28 @@ ID). Role addresses follow the current session filling the role.
 
 ## Slack now
 
-`slack.channels.feed` carries summaries such as curator answers and operator
-items, with exceptions for items represented elsewhere or delivery problems.
+`slack.channels.feed` carries summaries like curator answers and operator
+items, except items shown elsewhere and delivery problems.
 `slack.channels.orchestrators` carries block threads addressed to the operator by
-someone else. Answer in the existing block thread to preserve its task context;
-starting an unrelated message does not create a taskless project question.
+someone else. Answer in the existing block thread to preserve its task context.
 
-## Planned Slack addressing (unavailable)
+## Slack addressing
 
-Taskless project questions and the following addressing convention are planned,
-not available in the current implementation. There are no configuration keys for
-this convention yet; do not infer any from the examples.
+Once a `projects[].spurProjects[].shortName` is set, a new operator message in
+`slack.channels.orchestrators` starts a conversation. A leading registered
+`@shortName` selects that Spur project and is stripped from the text. With an
+absent or unknown leading name, `slack.defaultAddressee` receives the complete
+text, retaining any unknown prefix; without it the Board replies once with the
+valid prefixes. A mention in the middle, or a Slack `<@U…>` mention, addresses
+nobody; an unknown name causes no lookup error. The operator checks short-name
+collisions with workspace names. A task key right after the prefix attaches the
+conversation to that task.
 
-A leading registered `@shortName` would select the addressee and strip that prefix
-from the delivered text. With an absent or unknown leading name, the configured
-default would receive the complete text, retaining any unknown prefix. A mention
-in the middle would address nobody. An unknown name would not cause a lookup
-error. The operator would check short-name collisions with workspace names.
-These are intended routing rules, not instructions to use mentions for routing
-current block-thread replies.
+The addressee is rung with the block ID, reads the text in `board inbox` and
+replies in the thread with `board answer`. An operator-role addressee posts as
+`board`, a column orchestrator on its column's task as orchestrator. Each
+operator thread message rings it again; `close` or ✅ in the thread closes it.
+While no live session can take it, `board status` lists it as waiting.
 
 ## Done follows the ticket
 

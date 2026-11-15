@@ -161,7 +161,7 @@ export interface SubmissionTable {
   pr_number: number | null;
   /**
    * Deadline for a PR to appear for a turn submit accepted before the board could confirm its
-   * head; null when not pending (confirmed, or recorded before migration 0020). A pending row is
+   * head; null when not pending (confirmed, or recorded before migration 0021). A pending row is
    * no gate mark until a poll observed after `submitted_at`, or a merged PR's snapshot, confirms
    * the head; a PR seen closed before the submit fails it only past this deadline.
    */
@@ -207,6 +207,8 @@ export interface BlockTable {
   created_at: string;
   /** Board project of a project-level block; null on a task block. */
   project: string | null;
+  /** Spur project an operator conversation is addressed to; null on every other block. */
+  addressee_spur_project: string | null;
 }
 
 export interface CommentTable {
