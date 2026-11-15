@@ -1141,6 +1141,39 @@ describe('web and stand configuration', () => {
     ).toContain('→ at web.publicOrigin');
   });
 
+  it.each([
+    ['HTTP loopback becomes public', 127, 'http://{port}.0.0.1', 128],
+    ['effective IPv4 host is malformed', 1, 'https://127.0.0.{port}', 256],
+    ['effective port exceeds bounds', 1, 'https://example.test:{port}0', 65535],
+    ...[-1, 65536, 1.5, NaN, Infinity, -Infinity].map<[string, number, string, number]>(
+      (actualPort) => [
+        `invalid numeric override ${String(actualPort)}`,
+        7777,
+        'https://example.test',
+        actualPort,
+      ],
+    ),
+  ] as const)('refuses invalid actual origin: %s', (_label, port, publicOrigin, actualPort) => {
+    const config = configSchema.parse(validConfig({}, { web: { port, publicOrigin } }));
+    const before = structuredClone(config.web);
+    expect(resolveWebOrigin(config.web, actualPort)).toBeUndefined();
+    expect(config.web).toEqual(before);
+  });
+
+  it.each([
+    [127, 'http://{port}.0.0.1', 127, 'http://127.0.0.1'],
+    [127, 'https://{port}.0.0.1', 128, 'https://128.0.0.1'],
+    [0, 'http://localhost:{port}', 65535, 'http://localhost:65535'],
+    [7777, 'https://example.test', 0, 'https://example.test'],
+    [7777, 'https://{port}.local.example:{port}', 443, 'https://443.local.example'],
+  ] as const)(
+    'keeps valid actual origin %s %s at %s',
+    (port, publicOrigin, actualPort, expected) => {
+      const config = configSchema.parse(validConfig({}, { web: { port, publicOrigin } }));
+      expect(resolveWebOrigin(config.web, actualPort)).toBe(expected);
+    },
+  );
+
   it('rejects placeholders for the UI', () => {
     expect(
       errorFor(validConfig({}, { web: { spurUiOrigin: 'https://{port}.example.test' } })),

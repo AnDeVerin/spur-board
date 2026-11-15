@@ -765,7 +765,7 @@ const configObject = z.strictObject({
         .string()
         .optional()
         .describe(
-          'Bare public HTTP/HTTPS origin for the web API; HTTP requires loopback. Set together with port. Every {port} is replaced with the listener port, including in hostnames. No trailing slash.',
+          'Bare public HTTP/HTTPS origin for the web API; HTTP requires loopback. Set together with port. Every {port} is replaced with the listener port, including in hostnames. No trailing slash. The resolved origin must remain valid and HTTP loopback-only after actual-port substitution; the resolver returns no origin for an invalid actual port or resulting origin.',
         ),
       spurUiOrigin: concreteOrigin
         .optional()
@@ -923,10 +923,17 @@ export const configSchema = configObject.superRefine((config, ctx) => {
 export type Config = z.output<typeof configSchema>;
 export type ConfigInput = z.input<typeof configSchema>;
 
-/** Resolve a validated web configuration without changing it or performing I/O. */
+/**
+ * Resolve validated web settings without mutation or I/O. Returns undefined when off, or when
+ * the effective port is not an integer in 0..65535 or its substituted origin violates the
+ * config origin policy. Invalid overrides never expose a URL parser error or unsafe origin.
+ */
 export function resolveWebOrigin(web: Config['web'], actualPort?: number): string | undefined {
   if (web.port === undefined || web.publicOrigin === undefined) return undefined;
-  return new URL(web.publicOrigin.replaceAll('{port}', String(actualPort ?? web.port))).origin;
+  const port = actualPort ?? web.port;
+  if (!Number.isInteger(port) || port < 0 || port > 65_535) return undefined;
+  if (!validOrigin(web.publicOrigin, port)) return undefined;
+  return new URL(web.publicOrigin.replaceAll('{port}', String(port))).origin;
 }
 
 /** Recognized names in the private secrets.env file; values never belong in config.yaml. */

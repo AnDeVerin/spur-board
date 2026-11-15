@@ -524,7 +524,7 @@
           "maximum": 65535
         },
         "publicOrigin": {
-          "description": "Bare public HTTP/HTTPS origin for the web API; HTTP requires loopback. Set together with port. Every {port} is replaced with the listener port, including in hostnames. No trailing slash.",
+          "description": "Bare public HTTP/HTTPS origin for the web API; HTTP requires loopback. Set together with port. Every {port} is replaced with the listener port, including in hostnames. No trailing slash. The resolved origin must remain valid and HTTP loopback-only after actual-port substitution; the resolver returns no origin for an invalid actual port or resulting origin.",
           "type": "string"
         },
         "spurUiOrigin": {
