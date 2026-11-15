@@ -413,11 +413,22 @@ const courseBlocks = (eb: ExpressionBuilder<Tables, 'notification'>) =>
  * Whether a worker notification is held by a course check on its task. Two holds apply: while a
  * `course_check` item is active, and, once it clears with a note, until the note's first ring is
  * delivered to any session, so the note rings first. A course note is a worker `answer`
- * notification on a course check's block. Other roles and `cycle_limit` items hold no ring.
+ * notification on a course check's block. Other roles, operator conversations and `cycle_limit`
+ * items hold no ring.
  */
 function courseHold(eb: ExpressionBuilder<Tables, 'notification'>) {
   return eb.and([
     eb('notification.role', '=', 'worker'),
+    // An operator conversation rings its Spur project, never the task's worker: no hold.
+    eb.not(
+      eb.exists(
+        eb
+          .selectFrom('block')
+          .select('block.id')
+          .whereRef('block.id', '=', 'notification.block_id')
+          .where('block.addressee_spur_project', 'is not', null),
+      ),
+    ),
     eb.or([
       eb.exists(
         eb

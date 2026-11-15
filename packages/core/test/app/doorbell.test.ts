@@ -3614,6 +3614,36 @@ describe('operator conversation doorbells', () => {
     expect((await ctx.rings()).map((ring) => ring.session)).toEqual(['cur-2', 'cur-2']);
   });
 
+  it('rings an orchestrator-role addressee on a task held by a course check', async () => {
+    const { store } = await conversationStore();
+    stores.push(store);
+    await liveSession(store, 'qa-1', 'qa');
+    await store.db
+      .insertInto('operator_item')
+      .values({
+        ...sampleRows.operator_item,
+        item_key: 'course_check:1',
+        kind: 'course_check',
+        text: 'course check',
+        block_id: null,
+        line_outbox_id: null,
+      })
+      .execute();
+    await startConversation(store, board, '@qa o/r#101 status?');
+    expect(
+      await store.db.selectFrom('block').select(['task_id', 'addressee_role']).execute(),
+    ).toEqual([{ task_id: 1, addressee_role: 'worker' }]);
+    await reconcileDueDoorbells(store, board, at);
+    const rings = await store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'doorbell')
+      .execute();
+    expect(rings.map((row) => (JSON.parse(row.payload) as { session: string }).session)).toEqual([
+      'qa-1',
+    ]);
+  });
+
   it("keeps the operator's removal ring for the addressee until a session appears", async () => {
     const ctx = await conversation(false);
     const ops = createBlockMutations(board);
