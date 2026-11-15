@@ -202,7 +202,8 @@ describe('gateway secret scan', () => {
     'blocks $name in a question before outbox insertion',
     async ({ token, rule }) => {
       const { store, apply } = await setup();
-      expect(await scanSecret(token)).toContain(rule);
+      const found = await scanSecret(token);
+      expect(found).toContain(rule);
       const asked = await apply(
         ops.ask,
         { task: KEY, text: `Please inspect ${token}` },
@@ -216,9 +217,16 @@ describe('gateway secret scan', () => {
       expect(outbox[0]?.payload).toContain(KEY);
       expect(outbox[0]?.payload).toContain(rule);
       expect(outbox[0]?.payload).not.toContain(token);
-      expect(JSON.parse(outbox[0]?.payload ?? '{}')).toMatchObject({
-        url: 'https://github.com/o/r/issues/101',
-      });
+      const line = JSON.parse(outbox[0]?.payload ?? '{}') as { text: string; segments: unknown };
+      expect(line).toMatchObject({ url: 'https://github.com/o/r/issues/101' });
+      const head = `text on ${KEY} not sent: looks like a secret (${String(found)}), read `;
+      const plain = `${head}board task ${KEY}`;
+      expect(line.segments).toEqual([
+        { kind: 'text', text: head },
+        { kind: 'code', text: `board task ${KEY}` },
+      ]);
+      expect(line.text).toBe(plain);
+      expect(line.text).not.toContain('`');
       const comments = await store.db
         .selectFrom('comment')
         .select(['text', 'delivery_state'])
@@ -228,7 +236,7 @@ describe('gateway secret scan', () => {
       ]);
       const items = await store.db.selectFrom('operator_item').selectAll().execute();
       expect(items).toHaveLength(1);
-      expect(items[0]?.text).toContain(rule);
+      expect(items[0]?.text).toBe(plain);
       expect(items[0]?.url).toBe('https://github.com/o/r/issues/101');
       expect(items[0]?.line_outbox_id).not.toBeNull();
       expect(JSON.stringify(items)).not.toContain(token);
@@ -420,10 +428,19 @@ describe('gateway secret scan', () => {
     ).toEqual(['conversation.open', 'feed.line', 'feed.line', 'feed.line', 'feed.line']);
     const notices = await store.db
       .selectFrom('operator_item')
-      .select(['kind', 'text'])
-      .where('kind', '=', 'post_blocked')
+      .innerJoin('outbox', 'outbox.id', 'operator_item.line_outbox_id')
+      .select(['operator_item.kind', 'operator_item.text', 'outbox.payload'])
+      .where('operator_item.kind', '=', 'post_blocked')
       .execute();
     expect(notices).toHaveLength(3);
     expect(JSON.stringify(notices)).not.toContain(token);
+    const fallback = notices.filter((notice) => notice.text.endsWith('read board task the task'));
+    expect(fallback).toHaveLength(1);
+    expect(JSON.parse(fallback[0]?.payload ?? '{}')).not.toHaveProperty('segments');
+    for (const notice of notices.filter((each) => !fallback.includes(each))) {
+      const line = JSON.parse(notice.payload) as { key: string; segments: unknown[] };
+      expect(line.segments.at(-1)).toEqual({ kind: 'code', text: `board task ${line.key}` });
+      expect(JSON.stringify(line.segments)).not.toContain('the task');
+    }
   });
 });

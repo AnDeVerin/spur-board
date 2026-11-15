@@ -1,6 +1,7 @@
 import { scanTransaction } from '../../src/app/secrets.ts';
 import {
   clearItem as clearOperatorItem,
+  feedLineBody,
   raiseItem as raiseOperatorItem,
 } from '../../src/app/feed.ts';
 import { createHash } from 'node:crypto';
@@ -39,7 +40,7 @@ import {
   requestToken,
   verifyOperatorToken,
 } from '../../src/app/tokens.ts';
-import { renderBody } from '../../src/app/outbox.ts';
+import type { FeedSegment } from '../../src/app/outbox.ts';
 import { renderedLength } from '../support/rendered.ts';
 import { sql } from 'kysely';
 
@@ -2765,7 +2766,11 @@ describe('operator token revoke from the gateway', () => {
       .select('payload')
       .where('dedupe_key', '=', `feed.line:token-list:${key}`)
       .executeTakeFirstOrThrow();
-    return JSON.parse(list.payload) as { text: string; actions: unknown[] };
+    return JSON.parse(list.payload) as {
+      text: string;
+      actions: unknown[];
+      segments?: FeedSegment[];
+    };
   }
 
   it('lists and puts Revoke buttons on the first 20 tokens and counts the rest', async () => {
@@ -2780,6 +2785,11 @@ describe('operator token revoke from the gateway', () => {
       Array.from({ length: 20 }, (_, i) => `t${String(i + 1)} (approved), workspace`),
     );
     expect(lines[20]).toBe('1 more: board token list');
+    expect(payload.text).not.toContain('`');
+    expect(payload.segments).toEqual([
+      { kind: 'text', text: `${lines.slice(0, 20).join('\n')}\n1 more: ` },
+      { kind: 'code', text: 'board token list' },
+    ]);
     expect(responses).toEqual(['Posted 21 operator tokens to the feed.']);
   });
 
@@ -2794,7 +2804,10 @@ describe('operator token revoke from the gateway', () => {
     expect(shown).toBeLessThan(20);
     expect(payload.actions).toHaveLength(shown);
     expect(lines.at(-1)).toBe(`${String(20 - shown)} more: board token list`);
-    expect(renderedLength(renderBody('spur-board', payload.text))).toBeLessThanOrEqual(2900);
+    expect(payload.segments?.at(-1)).toEqual({ kind: 'code', text: 'board token list' });
+    expect(renderedLength(feedLineBody({ key: 'spur-board', ...payload }))).toBeLessThanOrEqual(
+      2900,
+    );
     expect(responses).toEqual(['Posted 20 operator tokens to the feed.']);
   });
 
