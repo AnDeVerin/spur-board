@@ -221,6 +221,13 @@ export const dispatchReviewLoop: Scenario = {
     const code = blocks.find(({ id }) => id === named.blocks?.['code']);
     if (code?.state !== 'open' || code.addressee !== 'worker' || code.type !== 'code')
       problems.push('no open code block for the worker');
+    const returned = (await turnOf(board, 'worker'))?.returned;
+    if (
+      returned?.from !== 'review' ||
+      returned.block !== code?.id ||
+      returned.reason !== 'Handle the empty list.'
+    )
+      problems.push(`the turn shows the return ${JSON.stringify(returned)}`);
     return settledUnless(problems);
   },
 };
@@ -317,8 +324,51 @@ export const dispatchReentrySameHead: Scenario = {
     const reason = 'dev: external_comments, no_submit_on_head';
     const problems = await check(board, { column: 'dev', role: 'worker', reason });
     const handed = (await turnOf(board, 'worker'))?.handed ?? [];
-    if (handed.length !== 1 || handed[0]?.kind !== 'comment')
-      problems.push(`the turn hands ${JSON.stringify(handed)}, not one comment`);
+    if (handed.length !== 1 || handed[0]?.kind !== 'comment' || handed[0].url === undefined)
+      problems.push(`the turn hands ${JSON.stringify(handed)}, not one comment with its url`);
+    return settledUnless(problems);
+  },
+};
+
+/** Waits for the worker's open turn after `after` that hands one comment, and takes it. */
+async function handedTurn(board: Board, after: string): Promise<Turn> {
+  let found: Turn | undefined;
+  await board.until('worker turn handing a comment', STEP_MS, async () => {
+    found = await turnOf(board, 'worker');
+    return found !== undefined && found.id !== after && found.handed.length === 1;
+  });
+  if (found === undefined) throw new Error('no worker turn handing a comment');
+  await take(board, 'worker', found.id);
+  return found;
+}
+
+export const dispatchEditedComment: Scenario = {
+  name: 'dispatch-edited-comment',
+  summary: `A reviewer edits a comment on PR #1 after a Dev turn of ${ISSUE} handed it; the worker's submit leaves Dev with a turn handing it again, edited.`,
+  config: flow(),
+  async seed(board, fakes) {
+    const dev = await begin(board, fakes);
+    await take(board, 'worker', dev.id);
+    await openPr(board, fakes);
+    await fakes.github('comment', { repo: REPO, number: 1 });
+    await board.poll();
+    await submit(board, 'worker', dev.id, A);
+    const first = await handedTurn(board, dev.id);
+    await fakes.github('edit', { repo: REPO, number: 1, index: 0, body: 'Stand comment, edited.' });
+    await board.poll();
+    await submit(board, 'worker', first.id, A);
+    await handedTurn(board, first.id);
+    return entities(board);
+  },
+  async settled({ board }) {
+    const problems = await check(board, { column: 'dev' });
+    const [entry] = (await turnOf(board, 'worker'))?.handed ?? [];
+    if (entry?.kind !== 'comment' || entry.editedAt === undefined || entry.url === undefined)
+      problems.push(`the turn hands ${JSON.stringify(entry)}, not the edited comment`);
+    const { turns } = await board.call('operator', 'task.get', { task: ISSUE, detail: true });
+    const before = turns?.find(({ handed }) => handed.some(({ id }) => id === entry?.id));
+    if (before === undefined || before.handed[0]?.editedAt !== undefined)
+      problems.push('no closed turn handed the comment before its edit');
     return settledUnless(problems);
   },
 };

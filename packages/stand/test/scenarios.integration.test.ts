@@ -267,6 +267,7 @@ describe('scenarios', () => {
       'dispatch-conflict-in-review',
       'dispatch-conflict-in-ready-to-merge',
       'dispatch-reentry-same-head',
+      'dispatch-edited-comment',
       'dispatch-external-comment',
       'dispatch-dead-executor',
       'dispatch-source-blind',
