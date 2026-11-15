@@ -19,6 +19,10 @@ completeness fact, `feedbackComplete`, so a gap can be stated without guessing a
   wraps an abort while reading the body as `transient`.
 - Report each history page's budget right after the query, before any error check, as `fullPr`
   does; the batch keeps the last budget read.
+- Comment nodes select `body` only for `isStatusComment` in
+  `packages/adapters/src/github/prBatch.ts`: a last non-blank line that is exactly a
+  `STATUS_MARKERS` marker sets `statusComment: true`. Reviews are never flagged, and the body
+  never leaves the adapter.
 - Tests: `describe('PR feedback')` in `packages/adapters/test/github/prBatch.test.ts`.
 
 ## Continuation across polls

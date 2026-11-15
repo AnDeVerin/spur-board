@@ -1,5 +1,5 @@
 {
-  "version": "9b69072f46f58cbf7652a3efeb159d97ebdc3b1fe92fc7b94785f48865885309",
+  "version": "be1a54bf89ef4cb26a114473db5c264bb5f0b10609693e94060b2b324b5dd87e",
   "grants": [
     "operator",
     "project-agent",
@@ -1662,6 +1662,11 @@
                               "description": "State of this review; missing for a comment and in snapshots written before it.",
                               "type": "string",
                               "enum": ["approved", "changes_requested", "commented", "dismissed"]
+                            },
+                            "statusComment": {
+                              "description": "True for a status comment of a reviewer service, marked by its last line; it is not external feedback. Missing otherwise.",
+                              "type": "boolean",
+                              "const": true
                             }
                           },
                           "required": ["kind", "id", "author", "postedAt"],
@@ -2264,6 +2269,11 @@
                         "description": "State of this review; missing for a comment and in snapshots written before it.",
                         "type": "string",
                         "enum": ["approved", "changes_requested", "commented", "dismissed"]
+                      },
+                      "statusComment": {
+                        "description": "True for a status comment of a reviewer service, marked by its last line; it is not external feedback. Missing otherwise.",
+                        "type": "boolean",
+                        "const": true
                       }
                     },
                     "required": ["kind", "id", "author", "postedAt"],

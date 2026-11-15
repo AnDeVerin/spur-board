@@ -63,6 +63,8 @@ export const commentWire = z.object({
   author: typedActor,
   // Same check as the fact's postedAt, so a bad time fails its own history page.
   createdAt: z.iso.datetime(),
+  // Read only by `isStatusComment`; it never reaches the facts.
+  body: z.string().optional(),
 });
 const loginReviewer = <T extends string>(type: T) =>
   z.object({ __typename: z.literal(type), login: z.string() });
@@ -285,6 +287,18 @@ function feedbackAuthor(wire: ActorWire): PrFeedback['author'] {
     ? null
     : { login: wire.login, type: wire.__typename === 'Bot' ? 'bot' : 'user' };
 }
+// The hidden markers that end a reviewer service's status comment; the one list of them.
+const STATUS_MARKERS = ['board-reviewer-progress', 'board-reviewer-unavailable'] as const;
+const STATUS_LINE = new RegExp(`^<!-- (?:${STATUS_MARKERS.join('|')}):\\S+ -->$`);
+/**
+ * Whether a comment body is a reviewer service's status comment: its last non-blank line, with
+ * trailing whitespace trimmed, is exactly one of the `STATUS_MARKERS` markers. A quoted marker,
+ * a marker followed by text or one inside a line does not match; a missing body never does.
+ */
+function isStatusComment(body: string | undefined): boolean {
+  const last = body?.trimEnd().split('\n').at(-1);
+  return last !== undefined && STATUS_LINE.test(last);
+}
 // Every comment and submitted review once, oldest first; equal times fall back to the id. Held
 // comments from an earlier poll come first, so a comment read again replaces its held entry.
 function feedbackOf(
@@ -303,6 +317,7 @@ function feedbackOf(
       id: node.id,
       author: feedbackAuthor(node.author),
       postedAt: node.createdAt,
+      ...(isStatusComment(node.body) ? { statusComment: true as const } : {}),
     });
   for (const node of reviews) {
     if (node.submittedAt == null) continue;

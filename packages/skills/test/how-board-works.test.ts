@@ -40,6 +40,7 @@ describe('how the Board works guide', () => {
         /turn boundary[\s\S]*leftmost failing\s*column/,
         /Pending CI, unknown\s*mergeability and incomplete comment history are waits/,
         /Downstream handoff waits\s*for settled prerequisites; Dev can receive a repair turn/,
+        /status comment whose last line is a hidden `board-reviewer-progress` or\s*`board-reviewer-unavailable` marker is not external feedback/,
         /mark lasts across visits on the current head/,
         /visit\s*submission belongs to one column visit/,
         /New heads invalidate internal Review and Product Review marks/,

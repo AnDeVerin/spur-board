@@ -125,17 +125,17 @@ function replayConfig(): Config {
   return configSchema.parse(raw);
 }
 
-/** Ignore only the newly selected optional cost when replaying older recorded requests.
- * The response remains untouched: a recording with no cost contributes no reported usage.
+/** Ignore only the newly selected optional cost and comment body when replaying older recorded
+ * requests. The response remains untouched: a recording with no cost contributes no reported
+ * usage, and a comment with no body is never a status comment.
  */
 function replayBody(body: Json): string {
   if (isObject(body) && typeof body['query'] === 'string')
     return canonical({
       ...body,
-      query: body['query'].replace(
-        'rateLimit { cost remaining resetAt }',
-        'rateLimit { remaining resetAt }',
-      ),
+      query: body['query']
+        .replace('rateLimit { cost remaining resetAt }', 'rateLimit { remaining resetAt }')
+        .replaceAll(' createdAt body }', ' createdAt }'),
     });
   return canonical(body);
 }

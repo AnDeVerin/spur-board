@@ -107,6 +107,12 @@ const feedbackSchema = z.strictObject({
     .enum(REVIEW_STATES)
     .optional()
     .describe('State of this review; missing for a comment and in snapshots written before it.'),
+  statusComment: z
+    .literal(true)
+    .optional()
+    .describe(
+      'True for a status comment of a reviewer service, marked by its last line; it is not external feedback. Missing otherwise.',
+    ),
 });
 export type PrFeedback = z.output<typeof feedbackSchema>;
 

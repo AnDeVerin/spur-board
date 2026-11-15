@@ -282,6 +282,7 @@ describe('scenarios', () => {
       'dispatch-ci-red-new-head-in-product-review',
       'dispatch-ring-closed-turn',
       'dispatch-turn-view',
+      'dispatch-reviewer-status-comment',
       'spur-transitions-rapid-recovery',
       'spur-transitions-cursor-expired',
       'spur-transitions-killed-holder',
@@ -1811,6 +1812,23 @@ describe('dispatcher scenarios', () => {
         'dev',
         'ready-to-merge',
       ]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-reviewer-status-comment: status comments leave the task, a free-form comment returns it',
+    async () => {
+      await up();
+      await seed('dispatch-reviewer-status-comment');
+      expect(await column()).toBe('ready-to-merge');
+      expect(await turnOf(as('worker'))).toBeUndefined();
+
+      await github('comment');
+      await poll();
+      const turn = await mustTurn(as('worker'));
+      expect(turn).toMatchObject({ reason: 'dev: external_comments, no_submit_on_head' });
+      expect(turn.handed.map(({ kind, id }) => [kind, id])).toEqual([['comment', 'IC_1_2']]);
     },
     TIMEOUT,
   );

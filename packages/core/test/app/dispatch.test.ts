@@ -3787,3 +3787,116 @@ describe('pending submit', () => {
     );
   });
 });
+
+describe('reviewer-service status comments', () => {
+  const comment = (statusComment?: true) => ({
+    kind: 'comment' as const,
+    id: 'c-1',
+    author: { login: EXTERNAL, type: 'user' as const },
+    postedAt: at(1),
+    ...(statusComment === undefined ? {} : { statusComment }),
+  });
+
+  it.each([
+    { statusComment: true as const, returns: false },
+    { statusComment: undefined, returns: true },
+  ])(
+    'a comment with statusComment $statusComment during a taken Review turn returns the task: $returns',
+    async ({ statusComment, returns }) => {
+      const ctx = await inReview();
+      await ctx.ack(REV, 'T2');
+      await ctx.pr({ feedback: [comment(statusComment)] });
+
+      await ctx.submit(REV, 'T2', A);
+
+      if (returns) {
+        expect((await ctx.task()).column).toBe('dev');
+        expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['external_comments'] });
+      } else {
+        expect((await ctx.task()).column).toBe('product-review');
+      }
+    },
+  );
+
+  it('a status comment in External Review opens no Dev turn', async () => {
+    const ctx = await pastProductReview({ externalReview: true });
+    const outbox = async () =>
+      (await ctx.store.db.selectFrom('outbox').select('id').orderBy('id').execute()).map(
+        (row) => row.id,
+      );
+    const moves = await ctx.moves();
+    const queued = await outbox();
+
+    await ctx.pr({ feedback: [{ ...comment(true), postedAt: ctx.at() }] });
+    await ctx.tick();
+
+    expect((await ctx.task()).column).toBe('external-review');
+    expect(await ctx.openTurn()).toBeNull();
+    expect(await ctx.moves()).toEqual(moves);
+    expect(await outbox()).toEqual(queued);
+  });
+
+  const handedC1 = { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(1) };
+
+  // Every path that hands earlier handed feedback over again: T1 handed c-1 before the snapshot
+  // flagged it, then the path opens the next turn.
+  it.each([
+    {
+      path: 'a recall after a correction',
+      closed: 'corrected',
+      next: { id: 'T2', column: 'dev', role: 'operator', reason: 'dev: no_submit_on_head' },
+      run: async () => {
+        const ctx = await started({}, 'none');
+        await ctx.pr({ feedback: [comment()] });
+        expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handedC1]);
+        await ctx.pr({ feedback: [comment(true)] });
+        await ctx.move('dev');
+        return ctx;
+      },
+    },
+    {
+      // A reroute keeps T1's reason, so the row does not assert it.
+      path: 'the carry of a reroute to a live worker',
+      closed: 'rerouted',
+      next: { id: 'T2', role: 'worker' },
+      run: async () => {
+        const ctx = await started({}, 'none');
+        await ctx.pr({ feedback: [comment()] });
+        expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handedC1]);
+        await ctx.pr({ feedback: [comment(true)] });
+        expect(await ctx.openTurn()).toMatchObject({ id: 'T1', role: 'operator' });
+        await ctx.spur('live');
+        return ctx;
+      },
+    },
+    {
+      path: 'the reroute of a demoted worker turn',
+      closed: 'rerouted',
+      next: { id: 'T2', role: 'operator' },
+      run: async () => {
+        const ctx = await inDev({ workerRole: 'worker' });
+        await ctx.store.transaction((trx) =>
+          trx
+            .updateTable('turn')
+            .set({ handed: JSON.stringify([handedC1]) })
+            .where('id', '=', 1)
+            .execute(),
+        );
+        await ctx.pr({ feedback: [comment(true)] });
+        ctx.restart({ workerRole: 'orchestrator' });
+        await ctx.spur();
+        return ctx;
+      },
+    },
+  ])(
+    '$path does not hand over a comment the snapshot now flags as a status comment',
+    async ({ run, closed, next }) => {
+      const ctx = await run();
+
+      expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: closed });
+      const turn = await ctx.openTurn();
+      expect(turn).toMatchObject(next);
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
+    },
+  );
+});

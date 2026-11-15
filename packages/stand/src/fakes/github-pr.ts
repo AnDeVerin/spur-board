@@ -28,7 +28,7 @@ const REVIEWER_FIELDS =
 const REVIEW_FIELDS = 'id author { __typename login } state commit { oid } submittedAt';
 const PAGE_INFO = 'pageInfo { hasNextPage endCursor }';
 const COMMENT_FIELDS =
-  'nodes { id author { __typename login } createdAt } pageInfo { hasPreviousPage startCursor }';
+  'nodes { id author { __typename login } createdAt body } pageInfo { hasPreviousPage startCursor }';
 const CLOSING_FIELDS = `nodes { number repository { nameWithOwner } } ${PAGE_INFO}`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } ${PAGE_INFO}`;
 const RATE_LIMIT = 'rateLimit { cost remaining resetAt }';
@@ -65,12 +65,12 @@ const KNOWN_DOCUMENTS = [
   discoveryPage('OPEN, MERGED, CLOSED'),
   discoveryPage('OPEN'),
 ];
-// Keep exact costless shapes for the committed live recordings; their absent cost is not inferred.
+// Keep exact legacy shapes for the committed live recordings, which select neither the cost nor
+// a comment body; neither is inferred.
+const legacy = (query: string): string =>
+  query.replace('cost remaining', 'remaining').replaceAll('createdAt body }', 'createdAt }');
 const KNOWN_SHAPES = new Set(
-  KNOWN_DOCUMENTS.flatMap((query) => [
-    canonicalizeQuery(query),
-    canonicalizeQuery(query.replace('cost remaining', 'remaining')),
-  ]),
+  KNOWN_DOCUMENTS.flatMap((query) => [canonicalizeQuery(query), canonicalizeQuery(legacy(query))]),
 );
 
 /** Whether a query text is one of the shapes this fake answers. */
@@ -83,6 +83,8 @@ const actorSchema = z.strictObject({ login: z.string().min(1) }).nullable();
 const typedActorSchema = z
   .strictObject({ __typename: z.string().min(1), login: z.string().min(1) })
   .nullable();
+// A comment's text; only the reviewer status marker on its last line matters to the board.
+const commentBody = { body: z.string().default('Stand comment.') };
 const contextSchema = z.discriminatedUnion('__typename', [
   z.strictObject({
     __typename: z.literal('CheckRun'),
@@ -130,7 +132,9 @@ const fieldsSchema = z.strictObject({
       submittedAt: z.string().nullable(),
     }),
   ),
-  comments: z.array(z.strictObject({ author: typedActorSchema, createdAt: z.iso.datetime() })),
+  comments: z.array(
+    z.strictObject({ author: typedActorSchema, createdAt: z.iso.datetime(), ...commentBody }),
+  ),
   reviewThreads: z.array(z.strictObject({ isResolved: z.boolean() })),
   reviewRequests: z.array(
     z.strictObject({ requestedReviewer: reviewerSchema.nullable(), asCodeOwner: z.boolean() }),
@@ -168,7 +172,7 @@ const prControlSchema = z.discriminatedUnion('verb', [
   z.strictObject({ ...target, verb: z.literal('reopen') }),
   z.strictObject({ ...target, verb: z.literal('conflict') }),
   z.strictObject({ ...target, verb: z.literal('push'), sha: z.string().regex(SHA) }),
-  z.strictObject({ ...target, verb: z.literal('comment'), ...feedbackAuthor }),
+  z.strictObject({ ...target, verb: z.literal('comment'), ...feedbackAuthor, ...commentBody }),
   z.strictObject({
     ...target,
     verb: z.literal('review'),
@@ -329,7 +333,10 @@ export function createGithubPrFake(options: {
         addReview(pr, authorOf(command), command.state, at);
         break;
       case 'comment':
-        pr.comments = [...pr.comments, { author: authorOf(command), createdAt: at }];
+        pr.comments = [
+          ...pr.comments,
+          { author: authorOf(command), createdAt: at, body: command.body },
+        ];
         break;
       case 'ci-red': {
         const anyRequired = pr.contexts.some((context) => context.isRequired);

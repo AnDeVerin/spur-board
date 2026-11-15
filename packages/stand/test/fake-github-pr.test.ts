@@ -541,6 +541,7 @@ describe('feedback verbs', () => {
       ['review', { state: 'CHANGES_REQUESTED' }],
       ['review', { state: 'COMMENTED', bot: true }],
       ['review', { state: 'APPROVED', author: 'dave' }],
+      ['comment', { body: 'Review completed.\n\n<!-- board-reviewer-progress:1 -->' }],
     ];
     let last = NOW;
     for (const [verb, extra] of steps) {
@@ -595,9 +596,16 @@ describe('feedback verbs', () => {
           postedAt: at(6),
           state: 'approved',
         },
+        {
+          kind: 'comment',
+          id: 'IC_1_3',
+          author: { login: 'stand-reviewer', type: 'user' },
+          postedAt: at(7),
+          statusComment: true,
+        },
       ]),
     );
-    expect(facts.feedback).toHaveLength(6);
+    expect(facts.feedback).toHaveLength(7);
     expect(facts.reviews).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ reviewer: 'stand-reviewer', commitSha: SHA }),
@@ -612,7 +620,9 @@ describe('feedback verbs', () => {
     ['a non-boolean bot', 'comment', { bot: 'yes' }],
     ['a missing review state', 'review', {}],
     ['an unknown review state', 'review', { state: 'DISMISSED' }],
-    ['an unknown field', 'comment', { body: 'hi' }],
+    ['an unknown field', 'comment', { text: 'hi' }],
+    ['a non-string comment body', 'comment', { body: 1 }],
+    ['a review body', 'review', { state: 'COMMENTED', body: 'hi' }],
   ])('answers 400 to %s', (_name, verb, extra) => {
     created(1);
     expect(pr(fakes, 1, verb, extra).status).toBe(400);

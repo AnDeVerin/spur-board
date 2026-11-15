@@ -54,9 +54,10 @@ export function teamScopeDenied(error: GraphError, query: string): boolean {
 const REVIEWER_FIELDS =
   'requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner';
 const REVIEW_FIELDS = 'id author { __typename login } state commit { oid } submittedAt';
-// Comments are read newest first, back from the end of the PR.
+// Comments are read newest first, back from the end of the PR. The body is read only to tell a
+// reviewer status comment (`isStatusComment` in prBatch.ts) and never leaves the adapter.
 const COMMENT_FIELDS =
-  'nodes { id author { __typename login } createdAt } pageInfo { hasPreviousPage startCursor }';
+  'nodes { id author { __typename login } createdAt body } pageInfo { hasPreviousPage startCursor }';
 const CLOSING_FIELDS =
   'nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor }';
 // `closing` adds the issues a PR closes; only the tracker repo of a github-issues project

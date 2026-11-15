@@ -40,13 +40,13 @@ import {
 import { linkedSession } from './doorbells.ts';
 import { raiseCycleLimit } from './fromYou.ts';
 import {
+  carriedFeedback,
   closeTurns,
   isNewer,
   openTurn,
   recalledFeedback,
   sameHanded,
   turnFeedbackCursors,
-  turnHanded,
 } from './turns.ts';
 
 // The dispatcher applies the pure cascade of `domain/dispatch.ts` inside its caller's
@@ -390,6 +390,8 @@ function externalApproval(pr: PrFacts, agentLogin: string): boolean {
  * unless a correction or a reroute closed that turn untaken, or once a handling submission
  * (`handlingSubmits`) on this PR was made at or after it. The entries such an untaken turn handed
  * over come from the turn when a later poll dropped them from the snapshot (`recalledFeedback`).
+ * A reviewer service's status comment (`statusComment`) never counts, and neither a recall nor a
+ * reroute hands one over again (`withoutStatusComments` in `turns.ts`).
  */
 async function unhandledFeedback(
   trx: Trx,
@@ -401,6 +403,7 @@ async function unhandledFeedback(
   const entries = (pr.feedback ?? []).filter(
     (entry) =>
       isExternalAuthor(entry, project.operatorGithubLogin) &&
+      entry.statusComment !== true &&
       !(
         entry.kind === 'review' &&
         (entry.state === undefined
@@ -976,7 +979,7 @@ async function applyOn(
   const replaced = turn.kind === 'reroute' ? read.unclosed : undefined;
   if (replaced !== undefined) await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
   // A reroute carries the feedback the replaced turn handed over; the cursor already counts it.
-  const carried = replaced === undefined ? [] : turnHanded(replaced);
+  const carried = replaced === undefined ? [] : await carriedFeedback(trx, replaced);
   const handed = [
     ...carried,
     ...read.handed.filter((entry) => !carried.some((old) => sameHanded(old, entry))),

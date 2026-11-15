@@ -35,14 +35,16 @@ conflicts or unhandled external comments.
 Dev needs an open non-draft PR, passing checks, no conflict, handled external
 feedback, comment history and current-head submit. Feedback excludes
 bots, approvals and `projects[].operatorGithubLogin` (agents' account), so worker
-thread replies never count; others' posts do. Without required checks, count non-skipped checks. `projects[].reposWithoutCi` waives absent checks
-for listed repos; never failed/skipped required checks.
+thread replies never count; others' posts do.
+A status comment whose last line is a hidden `board-reviewer-progress` or
+`board-reviewer-unavailable` marker is not external feedback. No required checks: count non-skipped checks. `projects[].reposWithoutCi` waives absent checks
+for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
 External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits from other worker columns. Fixed gate rules have no configuration switch
 except enabled columns and no-CI.
 
-A Review or Product Review mark lasts across visits on the current head. A visit
+Review/Product Review mark lasts across visits on the current head. A visit
 submission belongs to one column visit; moving left clears it and those to the right. New heads invalidate internal Review and Product Review marks,
 even old heads.
 
@@ -62,8 +64,8 @@ block. Confirms or returns the turn
 (`projects[].dispatcher.submitConfirmMs`).
 
 A new head closes taken turns outside Dev; taken Dev turns survive pushes.
-Untaken turns allow CI, draft, conflict or external-comment returns.
-Operator turns: one inbox item and Slack thread until exit.
+Untaken turns: CI, draft, conflict or external-comment returns.
+Operator turns: 1 inbox item + Slack thread until exit.
 
 Closed turns receive no further Board sends; Obsolete queued rings are dropped;
 a message already accepted by Spur cannot be retracted. Check `board inbox` and
@@ -75,9 +77,9 @@ A turn opened for you by your own confirmed submit or return is first rung only 
 
 A doorbell expects action: read `board inbox` for the turn, addressed
 block, answer or follow-up. Ordinary task comments do not ring; nor does a block
-tracked by its author role ring itself. Notices differ from moves.
+tracked by its author role ring itself. Rings differ from moves.
 
-Series repeat up to three delivered rings;
+Unacked series repeat, up to three delivered rings;
 acknowledgement stops them. Removal notices and quiet-turn reminders ring once.
 Busy recipients defer delivery; pending delivery or earlier rings in the Spur
 queue defer repeats. Queued rings can exhaust their waiting window.
@@ -93,8 +95,8 @@ curator questions move to operator.
 `projects[].columns[].courseCheck` defaults to 3 counted returns to Dev;
 `courseCheck: 0` disables it. `projects[].columns[].cycleLimit` defaults to 10 and
 takes priority. Executor returns, changes requested and external comments count;
-CI failures, conflicts and drafts alone do not count, nor ticket reopening or
-dispatcher mode changes.
+CI failures, conflicts and drafts alone do not count, nor reopened tickets or
+mode switches.
 
 Checks hold for input.
 If returns keep hitting the same mechanism, fix the bug class once; cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description. Still fix P0/P1 and user-visible findings in this PR.
@@ -109,12 +111,11 @@ answer keeps the question, with intervention item.
 
 A question (`needs_input`): column orchestrator, else curator, else
 operator. Routing avoids asking yourself: orchestrators ask the curator; curators
-ask the operator. An `operator` column asks operator.
+ask the operator.
 
 A `code` block goes to the worker; `dependency` or `external` block stays with
 its author's role. Escalation: column orchestrator to curator to
-operator; other blocks escalate straight to the operator. A curator executing
-the column escalates to the operator. Use keyed
+operator; other blocks escalate straight to the operator. Use keyed
 `board escalate <block>` if its addressee cannot resolve it.
 
 Taskless: all roles, operator only:
@@ -143,7 +144,7 @@ Middle mentions or Slack `<@U…>` address nobody; unknown names cause no lookup
 error. The operator checks short-name collisions with workspace names.
 A task key after the prefix attaches it.
 
-Addressee gets ID; reads `board inbox`, replies with
+Given block ID, read `board inbox`, reply with
 `board answer`. Each operator thread message rings again; `close` or ✅ in the
 thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`,
 else project name/role icon (`board` for operator). No session:
@@ -152,4 +153,4 @@ else project name/role icon (`board` for operator). No session:
 ## Done follows the ticket
 
 One linked PR merging does not by itself finish the task. Done per ticket: `projects[].tracker.doneStatuses` for Jira; for GitHub, the Issue must be
-closed. After merge, await tracker; if open, link another PR.
+closed. If open after merge, link another PR.
