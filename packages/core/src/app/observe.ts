@@ -1372,8 +1372,6 @@ export function createObservationCore(deps: {
             )
             .execute();
         }
-        for (const edge of batch.sessionTransitions ?? [])
-          await sessionTransition(trx, config, edge);
         const branchCounts = new Map<string, number>();
         for (const item of batch.items)
           if (
@@ -1414,6 +1412,10 @@ export function createObservationCore(deps: {
               batch.sessionTransitions !== undefined,
             );
         }
+        // Snapshot reconciliation can establish this poll's first inferred session link.
+        // History uses that association only when its event-time links do not name a task.
+        for (const edge of batch.sessionTransitions ?? [])
+          await sessionTransition(trx, config, edge);
         // A held history outlives no unbanned link to a task that is not archived: a discovered
         // PR left unlinked drops it here, and so, on purpose, does a PR whose only links are on
         // archived tasks. A restored task's PR reads its history again on the next poll.

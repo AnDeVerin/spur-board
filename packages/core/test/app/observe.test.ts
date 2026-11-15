@@ -16,6 +16,8 @@ import {
   createApply,
   createMembershipMutations,
   createObservationCore,
+  createOperationRegistry,
+  createQuery,
   getStatus,
   openStore,
   tickBoard,
@@ -4085,6 +4087,89 @@ describe('ordered historical session observations', () => {
     });
   }
 
+  it('attributes a transition to a same-poll inferred session link exactly once', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    const previous = { ...sessionFact('worker-1'), branch: null };
+    await deliver(core, {
+      sessionTransitions: [],
+      cursor: cursor('before-link'),
+      items: [{ kind: 'session', facts: previous }],
+    });
+    expect(
+      await store.db.selectFrom('link').selectAll().where('entity', '=', 'session').execute(),
+    ).toEqual([]);
+    const observedAt = new Date(Date.parse(at) + 15_000).toISOString();
+    const current = { ...sessionFact('worker-1'), lifecycle: 'stopped' as const };
+    const edge = {
+      ...transition('newly-linked-edge', 'stopped'),
+      links: {},
+      dimension: 'lifecycle' as const,
+      from: 'running',
+    };
+    await deliver(core, {
+      observedAt,
+      sessionTransitions: [edge],
+      cursor: edge.position,
+      items: [{ kind: 'session', facts: current }],
+    });
+    const task = await store.db
+      .selectFrom('task')
+      .selectAll()
+      .where('key', '=', 'o/r#9')
+      .executeTakeFirstOrThrow();
+    const registry = createOperationRegistry({ config, clock, completeSince: core.completeSince });
+    const query = createQuery({ store, config, clock });
+    const history = () => query(registry['task.history'], { task: 'o/r#9' }, 'operator');
+    expect((await history()).events.filter(({ kind }) => kind === 'session_state_changed')).toEqual(
+      [
+        {
+          at: edge.at,
+          kind: 'session_state_changed',
+          actor: 'system',
+          summary: 'Session state changed',
+        },
+      ],
+    );
+    const rows = await store.db
+      .selectFrom('event')
+      .selectAll()
+      .where('kind', '=', 'session_state_changed')
+      .execute();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ task_id: task.id, at: edge.at });
+    expect(JSON.parse(rows[0]?.payload ?? '{}')).toEqual({
+      session: edge.session,
+      from: edge.from,
+      to: edge.to,
+      transition: edge,
+    });
+    expect(
+      await store.db
+        .selectFrom('link')
+        .select(['task_id', 'source'])
+        .where('entity', '=', 'session')
+        .execute(),
+    ).toEqual([{ task_id: task.id, source: 'branch' }]);
+    expect(
+      JSON.parse(
+        (await store.db.selectFrom('session_snapshot').select('detail').executeTakeFirstOrThrow())
+          .detail,
+      ),
+    ).toEqual(current);
+    expect(task.last_change_at).toBe(observedAt);
+    expect((await core.context('spur')).cursor).toBe(edge.position);
+    await deliver(createObservationCore({ store, config, clock }), {
+      observedAt,
+      sessionTransitions: [],
+      cursor: edge.position,
+      items: [{ kind: 'session', facts: current }],
+    });
+    expect(
+      (await history()).events.filter(({ kind }) => kind === 'session_state_changed'),
+    ).toHaveLength(1);
+  });
+
   it('journals original order and attribution without regressing snapshot or task timestamps', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
@@ -4201,20 +4286,22 @@ describe('ordered historical session observations', () => {
     expect((await recreated.context('spur')).cursor).toBe('delayed');
   });
 
-  it('rolls back transitions and cursor when the later snapshot write fails, then retries one copy', async () => {
+  it('rolls back transitions and cursor when later reconciliation fails, then retries one copy', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
     await deliver(core, { sessionTransitions: [], cursor: cursor('before') });
     const { sql } = await import('kysely');
-    await sql`create trigger fail_snapshot before insert on session_snapshot begin select raise(abort, 'injected snapshot failure'); end`.execute(
-      store.db,
-    );
+    await sql`create trigger fail_reconcile before update of terminal_at on task begin
+      select case when exists (select 1 from event where kind = 'session_state_changed' and json_extract(payload, '$.transition.position') = 'after')
+        then raise(abort, 'injected post-transition failure')
+        else raise(abort, 'expected transition before failure') end;
+      end`.execute(store.db);
     const batch = {
       sessionTransitions: [transition('after', 'rate_limited')],
       cursor: cursor('after'),
       items: [{ kind: 'session' as const, facts: sessionFact('worker-1') }],
     };
-    await expect(deliver(core, batch)).rejects.toThrow('injected snapshot failure');
+    await expect(deliver(core, batch)).rejects.toThrow('injected post-transition failure');
     expect((await core.context('spur')).cursor).toBe('before');
     expect(
       await store.db
@@ -4223,7 +4310,11 @@ describe('ordered historical session observations', () => {
         .where('kind', '=', 'session_state_changed')
         .execute(),
     ).toEqual([]);
-    await sql`drop trigger fail_snapshot`.execute(store.db);
+    expect(await store.db.selectFrom('session_snapshot').selectAll().execute()).toEqual([]);
+    expect(
+      await store.db.selectFrom('link').selectAll().where('entity', '=', 'session').execute(),
+    ).toEqual([]);
+    await sql`drop trigger fail_reconcile`.execute(store.db);
     await deliver(core, batch);
     expect((await core.context('spur')).cursor).toBe('after');
     expect(
