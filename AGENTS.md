@@ -143,6 +143,7 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
 | [critic](.agents/agents/critic.md) | role | Falsify the researcher's options, score each against doing nothing, and select one |
 | [designer](.agents/agents/designer.md) | role | UI design gate. Plan mode reviews the UI in a spec before code; code mode checks layout, tokens and states of the changed web UI |
 | [developer](.agents/agents/developer.md) | role | Implement the spec, checking it against the code; tier 0 works from the issue, tier 3 does recon, plan and code in one context. Writes code and tests, runs local checks, commits |
+| [doc-reviewer](.agents/agents/doc-reviewer.md) | role | Docs gate - check that the branch diff updates every doc surface its behaviour change touches, that changed docs match the code, and that copies and generated files ship. Read-only |
 | [researcher](.agents/agents/researcher.md) | role | Find 2-3 distinct ways to build the change, with code evidence, keeping verified facts apart from inferences |
 | [reviewer](.agents/agents/reviewer.md) | role | Code review gate - falsify the branch diff against the spec's criteria, invariants and tests, and catch checks weakened without notice |
 | [spec-critic](.agents/agents/spec-critic.md) | role | Try to falsify the architect's spec before any code - cited facts, change map, invariants, and a bound verification for every criterion |
@@ -161,7 +162,8 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
 - Before opening the PR run `pnpm check`, then `pnpm guardrails`. Every file guardrails reports,
   and every deleted, skipped or weakened check, gets a line under `## Changed checks`; the CI
   guardrails job fails otherwise. The developer fills that section from its report.
-- The reviewer runs `pnpm guardrails` before approving.
+- CI `guardrails` checks that section against its report, every added, changed or deleted test
+  file included, and re-runs on a description edit; the reviewer checks what it cannot see.
 - Agents never merge, approve or push to `main`. A human merges.
 
 ## Git hooks

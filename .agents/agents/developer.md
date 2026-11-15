@@ -27,11 +27,23 @@ Implement in small chunks, check each one, commit when green. The spec is a hypo
 
 ## Loop
 1. Implement one logical chunk.
-2. Run the checks that cover it (`pnpm` scripts; no `package.json` yet -> `no checks available`).
+2. Run the checks that cover it (`pnpm` scripts).
    Read each exit code directly, never through a pipe.
 3. Fix every failure before moving on.
 4. Commit: `git add <files> && git commit -m "<type>(<scope>): <summary>"`. Never amend pushed
    commits, force-push, skip hooks, push to `main` or merge.
+
+## Docs
+- A behaviour change ships its doc updates in the same commit, on every surface it touches:
+  `docs/*.md`, `README.md`, `SETUP.md`, `TROUBLESHOOTING.md`; `packages/skills/spur-board/` and
+  its references; error hints in `packages/contracts/src/errors.ts`; operation descriptions and
+  examples in `packages/contracts/src/ops/catalog.ts` (`--help`, MCP tools, `board schema`);
+  field `.describe(` texts in `packages/contracts/src/ops/schemas.ts` and `catalog.ts` (CLI
+  flags, MCP inputs); local command help in `packages/cli/src/cli.ts`.
+- `docs/how-board-works.md` and its copy in `packages/skills/spur-board/references/` stay
+  byte-identical.
+- Changed generator source -> `pnpm gen`; commit every file it changes.
+- A test or CI diff (modifier in `.agents/skills/manager/SKILL.md`) -> no doc edit.
 
 ## Reporting
 - Every changed test, snapshot, lint rule, TypeScript option or CI setting goes on its own line

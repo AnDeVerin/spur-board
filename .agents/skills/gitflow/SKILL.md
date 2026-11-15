@@ -17,14 +17,13 @@ One issue, one branch, one PR. Explain why in the PR body.
 - Conventional commits: `<type>(<scope>): <summary>`, imperative, no trailing period.
 - Changes to agent files (`.agents/`, `.claude/`, `.codex/`, `AGENTS.md`) go in their own
   commit (`chore(agents)`, or `fix(<skill>)` for a stale rule), apart from code changes.
+- A behaviour change ships its doc updates in the same commit; surfaces: `developer`, Docs.
 - Leave the session marker out of commits and PR titles.
 - Run `pnpm check` before opening the PR as `AGENTS.md` requires; use it again when a wider local
-  check is needed. Without a `package.json`, report `no checks available`. Never wait for or poll
-  remote CI.
+  check is needed. Never wait for or poll remote CI.
 - The pre-push hook checks the refs being pushed: changed-file format and lint plus types and unit
   tests for changed packages (all packages for shared root changes). Push only the checked-out
-  HEAD. `VITEST_MAX_WORKERS` defaults to two and accepts a positive integer override. CI runs
-  `check:full`, including startup and process tests.
+  HEAD. CI runs `check:full`, including startup and process tests.
 
 ## History
 
@@ -84,10 +83,10 @@ changed and why:
 - `continue-on-error` or any other way to let a CI step fail silently;
 - loosened thresholds: coverage, timeouts, retries.
 
-`pnpm guardrails` has no rule for a changed expected value (`RULE_IDS` in
-`scripts/guardrails.ts`); add that line by hand.
+CI `guardrails` fails until the section names each added, changed or deleted test file;
+a description edit re-runs it. Add a changed expected value by hand.
 
-Any other change to a test or a check also gets a line. No entries -> delete the section.
+Any other changed check gets a line. No entries -> delete the section.
 
 ## Public text
 

@@ -201,6 +201,10 @@ async function courseSummary(
     lines.push(`PR: ${pr.url}`);
   }
   lines.push(`Issue: ${url}`);
+  lines.push(
+    '',
+    'If returns keep hitting the same mechanism, fix the bug class once and cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description instead of fixing them here. Still fix P0/P1 and user-visible findings in this PR.',
+  );
   return lines.join('\n');
 }
 
