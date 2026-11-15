@@ -113,7 +113,7 @@ describe('how the Board works guide', () => {
         /unknown name causes no lookup error/,
         /operator checks short-name\s*collisions with workspace names/,
         /task key right after the prefix attaches/,
-        /Replies\s+post\s+under\s*`projects\[\]\.spurProjects\[\]\.displayName`\s+and\s+`icon`/,
+        /Replies\s+use\s*`projects\[\]\.spurProjects\[\]\.displayName`\s+and\s+`icon`/,
         /`close` or ✅ in the thread closes it/,
         /`board status` lists it as waiting/,
       ],
