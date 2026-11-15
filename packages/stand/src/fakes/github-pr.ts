@@ -425,7 +425,12 @@ export function createGithubPrFake(options: {
               ? 2
               : 1;
       const root: WireObject = {
-        rateLimit: { cost: points, remaining: 5_000, resetAt: iso(now() + 3_600_000) },
+        rateLimit: {
+          cost: points,
+          limit: 5_000,
+          remaining: 5_000,
+          resetAt: iso(now() + 3_600_000),
+        },
         repository: (args: Args) => repositoryView(args['owner'], args['name']),
       };
       const answer = () => {

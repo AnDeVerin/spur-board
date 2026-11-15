@@ -394,6 +394,9 @@ export interface SourceStateTable {
   blind_message: string | null;
   /** JSON array of entity refs. */
   gone: Generated<string>;
+  budget_remaining: number | null;
+  budget_limit: number | null;
+  budget_reset_at: string | null;
 }
 
 export interface SourceMissTable {

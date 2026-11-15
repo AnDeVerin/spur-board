@@ -87,7 +87,10 @@ function matchesFilter(issue: IssueWire, tracker: Tracker): boolean {
   return issue.milestone?.title === tracker.milestone;
 }
 
-/** The REST `core` budget from GitHub's rate-limit headers; undefined when either is invalid. */
+/**
+ * The REST `core` budget from GitHub's rate-limit headers; undefined when remaining or reset is
+ * invalid. An invalid `x-ratelimit-limit` is left out of the budget.
+ */
 function restBudget(headers: Headers): Batch['budget'] {
   const remaining = headers.get('x-ratelimit-remaining');
   const reset = headers.get('x-ratelimit-reset');
@@ -99,7 +102,10 @@ function restBudget(headers: Headers): Batch['budget'] {
   const iso = resetAt.toISOString();
   // Past the year 9999 the ISO string gets an extended year, which batchSchema rejects.
   if (!/^\d{4}-/.test(iso)) return undefined;
-  return { remaining: count, resetAt: iso };
+  const limit = Number(headers.get('x-ratelimit-limit')?.match(/^\d+$/)?.[0]);
+  return Number.isSafeInteger(limit) && limit > 0
+    ? { remaining: count, limit, resetAt: iso }
+    : { remaining: count, resetAt: iso };
 }
 
 /**

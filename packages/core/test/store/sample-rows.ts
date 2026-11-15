@@ -280,6 +280,9 @@ export const sampleRows: SampleRows = {
     observed_at: at,
     blind_message: null,
     gone: '[]',
+    budget_remaining: 4999,
+    budget_limit: 5000,
+    budget_reset_at: at,
   },
   source_miss: {
     source: 'github',

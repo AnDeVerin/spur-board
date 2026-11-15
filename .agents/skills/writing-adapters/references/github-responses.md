@@ -77,8 +77,10 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
 
 ## Budget
 
-- PR queries select `rateLimit { cost remaining resetAt }`; a missing cost is allowed and never
-  inferred from remaining-budget changes. Keep the latest remaining/reset independently.
+- PR queries select `rateLimit { cost limit remaining resetAt }`; a missing cost is allowed and
+  never inferred from remaining-budget changes. Keep the latest remaining/reset independently.
+- `Batch.budget.limit` comes only from a valid positive integer `limit`; a missing or invalid one
+  is left out and never fails the poll or drops remaining/reset (`GithubClient.query`).
 - Capture valid reported cost before GraphQL classification and PR parsing; sum it once per
   attempt in `Batch.usage`, or attach it to `AdapterError.usage` when the attempt rejects.
 - Expose pending cost through optional `Adapter.takeUsage`; the runner drains it synchronously
@@ -91,4 +93,8 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
   `packages/adapters/test/runner/runner.test.ts`.
 - Nested thread comments (`comments(last: 100)` under `reviewThreads(first: 100)`) add about 100
   requests per PR to each detail alias's cost; detail chunks hit `github.reserveRemaining` sooner.
-- Issues reads `x-ratelimit-remaining`/`-reset` and omits bad ones.
+- Issues reads `x-ratelimit-remaining`/`-reset` and omits bad ones; it adds `x-ratelimit-limit`
+  only when it is a positive safe integer (`restBudget` in `packages/adapters/src/github/issues.ts`).
+- Core keeps each source's budget from its last batch that carried one in `source_state` and
+  shows it as `sources[].budget` in `status.get`; a batch or source report without a budget leaves
+  it unchanged (`sourceState` in `packages/core/src/app/observe.ts`).

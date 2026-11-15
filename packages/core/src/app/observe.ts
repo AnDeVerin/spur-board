@@ -155,6 +155,7 @@ async function sourceState(
   state: SourceState,
   observedAt?: string,
   cursor?: string,
+  budget?: Batch['budget'],
 ) {
   await trx
     .insertInto('source_state')
@@ -167,6 +168,9 @@ async function sourceState(
       cursor: cursor ?? null,
       observed_at: observedAt ?? null,
       gone: toJson(z.array(entityRefSchema), [...state.gone]),
+      budget_remaining: budget?.remaining ?? null,
+      budget_limit: budget?.limit ?? null,
+      budget_reset_at: budget?.resetAt ?? null,
     })
     .onConflict((oc) =>
       oc.column('source').doUpdateSet((eb) => ({
@@ -177,6 +181,13 @@ async function sourceState(
         cursor: cursor ?? eb.ref('source_state.cursor'),
         observed_at: observedAt ?? eb.ref('source_state.observed_at'),
         gone: toJson(z.array(entityRefSchema), [...state.gone]),
+        // The three budget columns come from one batch together, or keep the stored budget.
+        budget_remaining:
+          budget === undefined ? eb.ref('source_state.budget_remaining') : budget.remaining,
+        budget_limit:
+          budget === undefined ? eb.ref('source_state.budget_limit') : (budget.limit ?? null),
+        budget_reset_at:
+          budget === undefined ? eb.ref('source_state.budget_reset_at') : budget.resetAt,
       })),
     )
     .execute();
@@ -1316,7 +1327,14 @@ export function createObservationCore(deps: {
           Date.parse(batch.observedAt) >
             Date.parse(previousSpur.last_complete_at) +
               config.adapters.spur.intervalMs * config.thresholds.staleMultiplier;
-        await sourceState(trx, source, observation.state, batch.observedAt, batch.cursor);
+        await sourceState(
+          trx,
+          source,
+          observation.state,
+          batch.observedAt,
+          batch.cursor,
+          batch.budget,
+        );
         await recordUsage(trx, source, batch.usage, now);
         for (const probe of batch.prProbes ?? []) {
           if (probe.status !== 'closed') continue;

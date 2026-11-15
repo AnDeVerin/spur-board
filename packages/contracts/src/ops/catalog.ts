@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sourceViewSchema } from './source-view-schema.ts';
 import { configViewSchema } from './config-view-schema.ts';
 import {
   ADDRESSEE_SOURCES,
@@ -29,7 +30,6 @@ import {
   linkViewSchema,
   moveViewSchema,
   schemaGetOutputSchema,
-  sourceViewSchema,
   statusItemSchema,
   statusSessionFactsSchema,
   statusTaskSchema,

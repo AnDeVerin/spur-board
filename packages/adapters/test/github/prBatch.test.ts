@@ -260,19 +260,19 @@ describe('GitHub PR batch', () => {
   it('pins the discovery and detail queries', () => {
     const query = discoveryQuery();
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      'ed5408a6d8394754c92b244c13db18b4cc543ed7c81d6f39f327e609e29adf43',
+      'c109680eb229009de09917a7aff9b208d7b23d9e6b4da761f874e309fe258ffc',
     );
-    expect(query).toContain('rateLimit { cost remaining resetAt }');
+    expect(query).toContain('rateLimit { cost limit remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
     expect(query).not.toContain('pr0: repository');
     expect(query).toContain('states: [OPEN, MERGED, CLOSED]');
     expect(pageQuery('pullRequests')).toContain('states: [OPEN, MERGED, CLOSED]');
     const details = detailQuery([7]);
-    expect(details).toContain('rateLimit { cost remaining resetAt }');
+    expect(details).toContain('rateLimit { cost limit remaining resetAt }');
     expect(details).toContain('pr0: repository');
     const bootstrapQuery = discoveryQuery(true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      '26d80dbae4818ae5454484fbf472db07507f69a06fe74adb080de6098c109dc0',
+      'ad61393fd28055b5052d3d999af5cdeb6265cfa4e7b67ac26c8388c8e6a8f4ae',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
     expect(bootstrapQuery).toContain(
@@ -283,7 +283,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '40fadb899c0ab6d2242ee27b16dd8bacd45188495efc3644dcc03ec25efeb9c9',
+      'd9591863b96cb97eb8d94f1fb4e461b88a524d5256d3e1e85a09837f0db7f39e',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -532,6 +532,28 @@ describe('GitHub PR batch', () => {
     expect(batch.items).toHaveLength(1);
     expect(batch.budget?.remaining).toBe(4321);
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('reports a valid GraphQL budget limit and leaves out an invalid one', async () => {
+    const resetAt = '2026-01-03T00:00:00.000Z';
+    const poll = (limit: unknown) =>
+      adapter(
+        vi.fn<typeof fetch>().mockResolvedValue(
+          response({
+            rateLimit: { cost: 1, limit, remaining: 4321, resetAt },
+            repository: { pullRequests: conn([]) },
+            pr0: { pullRequest: wire() },
+          }),
+        ),
+      ).poll(context());
+    const valid = await poll(5000);
+    expect(batchSchema.parse(valid)).toEqual(valid);
+    expect(valid.budget).toEqual({ remaining: 4321, limit: 5000, resetAt });
+    for (const limit of [0, 'x']) {
+      const batch = await poll(limit);
+      expect(batchSchema.parse(batch)).toEqual(batch);
+      expect(batch.complete).toBe(true);
+      expect(batch.budget).toEqual({ remaining: 4321, resetAt });
+    }
   });
   it('records observedAt from the injected now before the first request', async () => {
     let t = Date.parse('2031-01-01T00:00:00.000Z');

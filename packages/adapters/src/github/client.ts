@@ -112,16 +112,16 @@ export function discoveryQuery(bootstrap = false): string {
   const baseline = bootstrap
     ? ' mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } }'
     : '';
-  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { cost remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} }${baseline} }  }`;
+  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} }${baseline} }  }`;
 }
 export function stateQuery(numbers: readonly number[]): string {
-  return `query PrStates($owner: String!, $repo: String!) { rateLimit { cost remaining resetAt } ${aliases(numbers, () => 'number state')} }`;
+  return `query PrStates($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, () => 'number state')} }`;
 }
 export function indexQuery(numbers: readonly number[]): string {
-  return `query PrIndex($owner: String!, $repo: String!) { rateLimit { cost remaining resetAt } ${aliases(numbers, () => INDEX_FIELDS)} }`;
+  return `query PrIndex($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, () => INDEX_FIELDS)} }`;
 }
 export function detailQuery(numbers: readonly number[], closing = false): string {
-  return `query PrDetails($owner: String!, $repo: String!) { rateLimit { cost remaining resetAt } ${aliases(numbers, (number) => prFields(number, closing))} }`;
+  return `query PrDetails($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, (number) => prFields(number, closing))} }`;
 }
 export function pageQuery(
   connection:
@@ -135,10 +135,10 @@ export function pageQuery(
   bootstrap = false,
 ): string {
   if (connection === 'comments')
-    return `query PrPage($owner: String!, $repo: String!, $number: Int!, $before: String!) { rateLimit { cost remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { comments(last: 100, before: $before) { ${COMMENT_FIELDS} } } } }`;
+    return `query PrPage($owner: String!, $repo: String!, $number: Int!, $before: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { comments(last: 100, before: $before) { ${COMMENT_FIELDS} } } } }`;
   if (connection === 'pullRequests') {
     const states = discoveryStates(bootstrap);
-    return `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { rateLimit { cost remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} } } }`;
+    return `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} } } }`;
   }
   const field =
     connection === 'closingIssuesReferences'
@@ -146,7 +146,7 @@ export function pageQuery(
       : connection === 'contexts'
         ? `statusCheckRollup { contexts(first: 100, after: $after) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: $number) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: $number) } } pageInfo { hasNextPage endCursor } } }`
         : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? REVIEW_FIELDS : connection === 'reviewThreads' ? THREAD_FIELDS : REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }`;
-  return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { cost remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
+  return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }
 
 /**
@@ -246,6 +246,13 @@ export class GithubClient {
     const failure = graphqlFailure(errors, query, response.headers, this.now());
     if (failure !== null) throw failure;
     const data = parseWire(dataWire, wire.data, MALFORMED, ['data']);
-    return { data, errors, budget: data.rateLimit };
+    // A missing or invalid limit is left out; remaining and resetAt still count.
+    const limit = z
+      .object({ rateLimit: z.object({ limit: z.int().positive() }) })
+      .safeParse(wire.data);
+    const budget = limit.success
+      ? { ...data.rateLimit, limit: limit.data.rateLimit.limit }
+      : data.rateLimit;
+    return { data, errors, budget };
   }
 }

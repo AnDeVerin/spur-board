@@ -14,7 +14,7 @@ const THREAD_FIELDS =
   'id isResolved isOutdated comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } }';
 const CLOSING_FIELDS = `nodes { number repository { nameWithOwner } } ${PAGE_INFO}`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } ${PAGE_INFO}`;
-const RATE_LIMIT = 'rateLimit { cost remaining resetAt }';
+const RATE_LIMIT = 'rateLimit { cost limit remaining resetAt }';
 const ORDER = 'orderBy: {field: UPDATED_AT, direction: DESC}';
 const contextNodes = (number: string): string =>
   `nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${number}) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${number}) } }`;
@@ -48,12 +48,12 @@ const KNOWN_DOCUMENTS = [
   discoveryPage('OPEN, MERGED, CLOSED'),
   discoveryPage('OPEN'),
 ];
-// Keep exact legacy shapes for the committed live recordings, which select neither the cost, a
-// comment body, links and edits, nor a thread's id, outdated flag and inline comments; none is
-// inferred.
+// Keep exact legacy shapes for the committed live recordings, which select neither the cost and
+// limit, a comment body, links and edits, nor a thread's id, outdated flag and inline comments;
+// none is inferred.
 const legacy = (query: string): string =>
   query
-    .replace('cost remaining', 'remaining')
+    .replace('cost limit remaining', 'remaining')
     .replaceAll('createdAt body url lastEditedAt }', 'createdAt }')
     .replaceAll('submittedAt url lastEditedAt', 'submittedAt')
     .replaceAll(THREAD_FIELDS, 'isResolved')

@@ -2773,18 +2773,24 @@ it('pr-finality: final PRs cost discovery only, closed probes honor persisted de
     }
   };
   const points = async (now: number) => {
-    const status = await op<{ sources: { source: string; pointsLastHour?: number }[] }>(
-      current(),
-      'status.get',
-    );
+    const status = await op<{
+      sources: {
+        source: string;
+        pointsLastHour?: number;
+        budget: { remaining: number; limit: number | null; resetAt: string } | null;
+      }[];
+    }>(current(), 'status.get');
     const expected = (await requests())
       .filter(
         (request) => Date.parse(request.at) > now - 3_600_000 && Date.parse(request.at) <= now,
       )
       .reduce((sum, request) => sum + request.points, 0);
-    expect(
-      status.sources.find((source) => source.source === `github:stand:${repo}`)?.pointsLastHour,
-    ).toBe(expected);
+    const source = status.sources.find((entry) => entry.source === `github:stand:${repo}`);
+    expect(source?.pointsLastHour).toBe(expected);
+    // The fake GitHub reports its full budget on every response, so the stored one is the last.
+    const resetAt = source?.budget?.resetAt;
+    expect(resetAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(source?.budget).toEqual({ remaining: 5000, limit: 5000, resetAt });
   };
   let now = Date.parse((await snapshot(2)).observed_at);
   const closed = await snapshot(2);

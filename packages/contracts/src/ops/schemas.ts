@@ -442,31 +442,6 @@ export const statusItemSchema = itemViewSchema
   })
   .describe('An actionable item with its freshness mark.');
 
-export const sourceViewSchema = z
-  .strictObject({
-    pointsLastHour: z
-      .int()
-      .nonnegative()
-      .optional()
-      .describe('Reported source points consumed during the preceding hour.'),
-    source: z.string().min(1).describe('Adapter source identifier.'),
-    observedAt: z.iso.datetime().nullable().describe('Time of the latest observation, if any.'),
-    lastCompleteAt: z.iso
-      .datetime()
-      .nullable()
-      .describe('Time of the latest complete observation.'),
-    blindReason: z
-      .enum(['auth', 'config', 'stale'])
-      .nullable()
-      .describe('Why this source is blind, or null when it is usable.'),
-    message: z.string().nullable().describe('Short explanation of the source state.'),
-    stale: z.boolean().describe('Whether facts from this source exceed their freshness threshold.'),
-    warmingUp: z
-      .boolean()
-      .describe('Whether this source needs a complete poll in this daemon run.'),
-  })
-  .describe('Freshness and availability of one source.');
-
 /** Roles `schema.get` can filter the catalog for. */
 export const SCHEMA_ROLES = ['operator', 'worker', 'orchestrator'] as const;
 

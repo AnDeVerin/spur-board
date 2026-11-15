@@ -215,6 +215,11 @@ describe('batch', () => {
   it('keeps an optional budget and rejects a negative one', () => {
     const budget = { remaining: 4200, resetAt: '2026-11-01T13:00:00Z' };
     expect(batchSchema.parse(batch({ budget })).budget).toEqual(budget);
+    expect(batchSchema.parse(batch({ budget: { ...budget, limit: 5000 } })).budget).toEqual({
+      ...budget,
+      limit: 5000,
+    });
+    expect(batchSchema.safeParse(batch({ budget: { ...budget, limit: 0 } })).success).toBe(false);
     expect(batchSchema.parse(batch()).budget).toBeUndefined();
     expect(batchSchema.safeParse(batch({ budget: { ...budget, remaining: -1 } })).success).toBe(
       false,

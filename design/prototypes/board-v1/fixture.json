@@ -1,0 +1,349 @@
+{
+  "config": {
+    "project": "spur-board",
+    "dispatcher": "on",
+    "version": "0.64.0",
+    "generatedAt": "15:00 15/11/26"
+  },
+  "columns": [
+    {
+      "name": "todo",
+      "exec": "dispatcher · next free worker",
+      "tasks": [
+        {
+          "key": "#513",
+          "title": "hand Dev turns direct comment links and re-hand edited comments",
+          "pr": null,
+          "turn": null
+        },
+        {
+          "key": "#516",
+          "title": "Weekly mutation run failed",
+          "pr": null,
+          "held": true,
+          "turn": null
+        },
+        {
+          "key": "#520",
+          "title": "docs: Slack persona icon fallback follows the author's role",
+          "pr": null,
+          "turn": null
+        }
+      ]
+    },
+    {
+      "name": "dev",
+      "exec": "worker",
+      "tasks": [
+        {
+          "key": "#509",
+          "title": "bind column orchestrators and operators board-wide or per project",
+          "pr": {
+            "n": 522,
+            "ci": ["pend", 9, 14],
+            "conflict": false,
+            "threads": [0, 0],
+            "review": ["none", 0]
+          },
+          "block": "B89",
+          "turn": {
+            "id": "T42",
+            "role": "worker",
+            "who": "sb-0ead",
+            "kind": "agent",
+            "age": "14m"
+          }
+        },
+        {
+          "key": "#511",
+          "title": "raise a block when the executor of an open turn is stuck",
+          "pr": {
+            "n": 518,
+            "ci": ["ok", 12, 12],
+            "conflict": false,
+            "threads": [0, 3],
+            "review": ["changes", 1]
+          },
+          "returned": 3,
+          "turn": {
+            "id": "T51",
+            "role": "worker",
+            "who": "sb-49bf",
+            "kind": "agent",
+            "age": "2h"
+          }
+        },
+        {
+          "key": "#523",
+          "title": "persist the GitHub rate budget per source",
+          "pr": {
+            "n": 529,
+            "ci": ["bad", 2, 14],
+            "conflict": true,
+            "threads": [1, 1],
+            "review": ["none", 0]
+          },
+          "turn": {
+            "id": "T53",
+            "role": "worker",
+            "who": "sb-77c1",
+            "kind": "agent",
+            "age": "1h"
+          }
+        },
+        {
+          "key": "#512",
+          "title": "unresolved review threads as a gate fact",
+          "pr": null,
+          "turn": {
+            "id": "T49",
+            "role": "worker",
+            "who": "sb-649b",
+            "kind": "agent",
+            "age": "38m"
+          }
+        },
+        {
+          "key": "#515",
+          "title": "docs: return to Dev on PR comments",
+          "pr": null,
+          "turn": {
+            "id": "T50",
+            "role": "worker",
+            "who": "sb-a8c6",
+            "kind": "wait",
+            "age": "6m"
+          }
+        }
+      ]
+    },
+    {
+      "name": "review",
+      "exec": "orchestrator br",
+      "tasks": [
+        {
+          "key": "#508",
+          "title": "journal events for turn open, take and close",
+          "pr": {
+            "n": 526,
+            "ci": ["ok", 14, 14],
+            "conflict": false,
+            "threads": [4, 4],
+            "review": ["none", 0]
+          },
+          "turn": {
+            "id": "T47",
+            "role": "orchestrator",
+            "who": "br",
+            "kind": "stall",
+            "age": "47m"
+          }
+        }
+      ]
+    },
+    {
+      "name": "product-review",
+      "exec": "curator bn",
+      "tasks": []
+    },
+    {
+      "name": "external-review",
+      "exec": "external reviewer",
+      "tasks": []
+    },
+    {
+      "name": "qa",
+      "exec": "orchestrator qa",
+      "tasks": []
+    },
+    {
+      "name": "ready-to-merge",
+      "exec": "operator",
+      "tasks": [
+        {
+          "key": "#510",
+          "title": "check the PR's Changed checks section against changed test files",
+          "pr": {
+            "n": 517,
+            "ci": ["ok", 14, 14],
+            "conflict": false,
+            "threads": [2, 2],
+            "review": ["ok", 1]
+          },
+          "turn": {
+            "id": "T55",
+            "role": "operator",
+            "who": "you",
+            "kind": "you",
+            "age": "3h"
+          }
+        }
+      ]
+    }
+  ],
+  "done": {
+    "total": 31,
+    "last": [
+      ["#514", "doc freshness gate in the worker cycle"],
+      ["#507", "stand guard reads the live config"],
+      ["#502", "Slack thread replies reach the task"]
+    ]
+  },
+  "tasks": {
+    "#509": {
+      "since": "2h 10m",
+      "blocks": [
+        {
+          "id": "B89",
+          "from": "worker sb-0ead",
+          "to": "you",
+          "age": "14m",
+          "status": "open",
+          "text": "Should a board-wide orchestrator binding skip projects that set their own column executor, or override them?"
+        },
+        {
+          "id": "B84",
+          "from": "worker sb-0ead",
+          "to": "you",
+          "age": "1d",
+          "status": "slack",
+          "text": "Is the config key `orchestrators` or `columnExecutors`?",
+          "reply": "`columnExecutors`, as in the design note."
+        }
+      ],
+      "comments": [
+        {
+          "id": "C31",
+          "from": "curator bn",
+          "age": "1h",
+          "text": "The spec covers both bindings. A project-level binding wins over the board-wide one."
+        }
+      ],
+      "history": [
+        ["14:46 15/11/26", "from_you_raised", "<b>B89</b> waits for the operator"],
+        [
+          "14:46 15/11/26",
+          "block_opened",
+          "worker <b>sb-0ead</b> opened <b>B89</b> for the operator"
+        ],
+        ["14:08 15/11/26", "checks_changed", "CI on <b>#522</b>: 9 of 14 done, running"],
+        ["14:07 15/11/26", "head_moved", "PR <b>#522</b> head is <b>a41c9e2</b>"],
+        ["14:07 15/11/26", "link_added", "PR <b>#522</b> linked to the task"],
+        ["12:51 15/11/26", "turn_acked", "worker <b>sb-0ead</b> acked <b>T42</b>"],
+        ["12:50 15/11/26", "doorbell_rung", "doorbell to worker <b>sb-0ead</b>"],
+        ["12:50 15/11/26", "turn_opened", "<b>T42</b> opened for a worker in <b>dev</b>"],
+        ["12:50 15/11/26", "task_moved", "dispatcher moved the task <b>todo → dev</b>"],
+        ["16:20 14/11/26", "block_unblocked", "operator answered <b>B84</b> in Slack"],
+        [
+          "15:02 14/11/26",
+          "block_opened",
+          "worker <b>sb-0ead</b> opened <b>B84</b> for the operator"
+        ],
+        ["11:15 13/11/26", "task_added", "task added from ticket <b>#509</b>"]
+      ]
+    }
+  },
+  "inbox": [
+    {
+      "proj": "spur-board",
+      "kind": "block B89",
+      "cls": "warn",
+      "text": "Should a board-wide orchestrator binding skip projects that set their own column executor, or override them?",
+      "age": "14m",
+      "task": "#509"
+    },
+    {
+      "proj": "spur-board",
+      "kind": "your turn T55",
+      "cls": "warn",
+      "text": "ready-to-merge: check the PR's Changed checks section against changed test files",
+      "age": "3h",
+      "task": "#510"
+    },
+    {
+      "proj": "spur-board",
+      "kind": "stalled T47",
+      "cls": "err",
+      "text": "Orchestrator br has not moved the review turn for 47m.",
+      "age": "47m",
+      "task": "#508"
+    },
+    {
+      "proj": "system",
+      "kind": "github",
+      "cls": "err",
+      "text": "Rate budget is low: 312 of 5000 left, resets at 16:40.",
+      "age": "5m",
+      "task": null
+    }
+  ],
+  "handled": [
+    {
+      "proj": "spur-board",
+      "kind": "block B84",
+      "text": "Answered in Slack",
+      "age": "1d",
+      "task": "#509"
+    },
+    {
+      "proj": "spur-board",
+      "kind": "block B81",
+      "text": "Answered on the board",
+      "age": "2d",
+      "task": "#511"
+    }
+  ],
+  "services": {
+    "daemon": {
+      "icon": "pulse",
+      "st": "s-ok",
+      "state": "running",
+      "rows": [
+        ["Since", "09:12 14/11/26"],
+        ["Version", "0.64.0"],
+        ["Dispatcher tick", "14:59 15/11/26"],
+        ["CPU", "41%", 41],
+        ["RAM", "62%", 62],
+        ["Disk", "38%", 38]
+      ]
+    },
+    "slack": {
+      "icon": "hash",
+      "st": "s-ok",
+      "state": "connected",
+      "rows": [
+        ["Since", "09:12 14/11/26"],
+        ["Last request", "14:58 15/11/26 · chat.postMessage · ok"]
+      ]
+    },
+    "github": {
+      "icon": "pr",
+      "st": "s-warn",
+      "state": "budget low",
+      "rows": [
+        ["Since", "13:40 15/11/26"],
+        ["Last request", "14:59 15/11/26 · graphql · ok"],
+        ["Rate budget", "312 of 5000 left", 6],
+        ["Resets at", "16:40 15/11/26"]
+      ]
+    },
+    "jira": {
+      "icon": "diamond",
+      "st": "s-ok",
+      "state": "connected",
+      "rows": [
+        ["Since", "09:12 14/11/26"],
+        ["Last request", "14:55 15/11/26 · search · ok"]
+      ]
+    },
+    "spur": {
+      "icon": "mark",
+      "st": "s-ok",
+      "state": "connected",
+      "rows": [
+        ["Since", "09:12 14/11/26"],
+        ["Last request", "14:59 15/11/26 · sessions · ok"]
+      ]
+    }
+  }
+}
