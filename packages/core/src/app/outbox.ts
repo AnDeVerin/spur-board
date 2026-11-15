@@ -110,13 +110,32 @@ const exchange = z.strictObject({
   answeredBy: z.string().min(1),
   outcome: z.literal('unblocked'),
 });
-const feedLineWithLinkPayload = feedLinePayload.extend({
-  itemId: id.optional(),
-  url: z.url().optional(),
-  actions: z.array(actionPayload).optional(),
-  exchange: exchange.optional(),
-});
-type FeedLinePayload = z.output<typeof feedLineWithLinkPayload>;
+/** One piece of a feed line: plain text, or a command shown as code on one line. */
+const segment = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('text'), text: z.string() }),
+  z.strictObject({ kind: z.literal('code'), text: z.string().regex(/^[^\n]+$/) }),
+]);
+export type FeedSegment = z.output<typeof segment>;
+
+/** The plain summary of `segments`: what is scanned, stored on the item and struck. */
+export function feedText(segments: readonly FeedSegment[]): string {
+  return segments.map((part) => part.text).join('');
+}
+
+/** `segments`, when set, is the line's rich form of `text`; a mismatch is never sent. */
+const feedLineWithLinkPayload = feedLinePayload
+  .extend({
+    itemId: id.optional(),
+    url: z.url().optional(),
+    actions: z.array(actionPayload).optional(),
+    exchange: exchange.optional(),
+    segments: z.array(segment).optional(),
+  })
+  .refine((line) => line.segments === undefined || line.text === feedText(line.segments), {
+    message: 'text does not match segments',
+    path: ['text'],
+  });
+export type FeedLinePayload = z.output<typeof feedLineWithLinkPayload>;
 const doorbellPayload = z.strictObject({
   session: z.string().min(1),
   text: z.string(),
@@ -321,6 +340,7 @@ export async function enqueueFeedLine(
     url: string;
     taskId: number | null;
     actions?: readonly Action[];
+    segments?: readonly FeedSegment[];
     at: Date;
   },
 ): Promise<number | null> {
@@ -337,6 +357,7 @@ export async function enqueueFeedLine(
       taskId: input.taskId ?? undefined,
       ...(input.url === '' ? {} : { url: input.url }),
       actions: input.actions,
+      ...(input.segments === undefined ? {} : { segments: input.segments }),
     },
     parent: null,
     at: input.at,
@@ -377,6 +398,7 @@ export async function enqueueBoardFeedLine(
     text: string;
     title: string;
     actions?: readonly Action[];
+    segments?: readonly FeedSegment[];
     at: Date;
   },
 ): Promise<number | null> {
@@ -390,6 +412,7 @@ export async function enqueueBoardFeedLine(
       persona: { name: 'board', role: 'board' },
       itemKey: input.itemKey,
       ...(input.actions === undefined ? {} : { actions: input.actions }),
+      ...(input.segments === undefined ? {} : { segments: input.segments }),
     },
     parent: null,
     at: input.at,
@@ -578,12 +601,21 @@ async function blockPost(
     taskId === null
       ? null
       : await trx.selectFrom('task').selectAll().where('id', '=', taskId).executeTakeFirstOrThrow();
+  const head = `text on ${safeKey} not sent: looks like a secret (${rule}), read `;
+  // The command is code only for a real key; `board task the task` is not a command.
+  const segments: FeedSegment[] | undefined =
+    typeof payload.key === 'string' && safeKey === payload.key
+      ? [
+          { kind: 'text', text: head },
+          { kind: 'code', text: `board task ${safeKey}` },
+        ]
+      : undefined;
   await raiseItemWith(
     trx,
     {
       itemKey: `secret-post:${createHash('sha256').update(row.dedupeKey).digest('hex')}`,
       kind: 'post_blocked',
-      text: `text on ${safeKey} not sent: looks like a secret (${rule}), read board task ${safeKey}`,
+      text: `${head}board task ${safeKey}`,
       url: task === null ? '' : taskUrl(task, scanConfig()),
       taskId,
       blockId,
@@ -591,7 +623,9 @@ async function blockPost(
       rule,
       source: row.kind,
     },
-    enqueueFeedLine,
+    segments === undefined
+      ? enqueueFeedLine
+      : (t, line) => enqueueFeedLine(t, { ...line, segments }),
   );
 }
 

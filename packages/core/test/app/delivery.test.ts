@@ -1112,6 +1112,86 @@ describe('delivered records refs', () => {
   });
 });
 
+describe('feed line segments', () => {
+  const URL = 'https://github.com/o/r/issues/7';
+  const SEGMENTS = [
+    { kind: 'text', text: 'read ' },
+    { kind: 'code', text: 'board task o/r#7' },
+  ] as const;
+
+  function segmentLine(ctx: Ctx, item: string, extra: object): Promise<number> {
+    return insertRow(ctx, 'feed.line', `feed.line:${item}`, {
+      key: 'o/r#7',
+      title: 'o/r#7 line',
+      text: 'read board task o/r#7',
+      persona: PERSONA,
+      itemKey: item,
+      ...extra,
+    });
+  }
+
+  it('delivers the segments under a linked key', async () => {
+    const ctx = setup('slack-like');
+    await segmentLine(ctx, 'item-1', { url: URL, segments: SEGMENTS });
+    await ctx.sender.tick();
+    expect(request(ctx, 0).body).toEqual([
+      { kind: 'paragraph', children: [{ kind: 'link', url: URL, text: 'o/r#7' }] },
+      { kind: 'quote', children: SEGMENTS },
+    ]);
+  });
+
+  it('delivers the segments under a plain key', async () => {
+    const ctx = setup('slack-like');
+    await segmentLine(ctx, 'item-1', { segments: SEGMENTS });
+    await ctx.sender.tick();
+    expect(request(ctx, 0).body).toEqual([
+      { kind: 'paragraph', children: [{ kind: 'text', text: 'o/r#7' }] },
+      { kind: 'quote', children: SEGMENTS },
+    ]);
+  });
+
+  it('delivers a line without segments as before', async () => {
+    const ctx = setup('slack-like');
+    await segmentLine(ctx, 'item-1', {});
+    await segmentLine(ctx, 'item-2', { url: URL });
+    await ctx.sender.tick();
+    await step(ctx);
+    expect(ctx.observed.requests.map((each) => each.body)).toEqual([
+      renderBody('o/r#7', 'read board task o/r#7'),
+      [
+        { kind: 'paragraph', children: [{ kind: 'link', url: URL, text: 'o/r#7' }] },
+        { kind: 'quote', children: [{ kind: 'text', text: 'read board task o/r#7' }] },
+      ],
+    ]);
+  });
+
+  it.each([
+    ['text that differs from its segments', { text: 'read board task o/r#8', segments: SEGMENTS }],
+    [
+      'a code segment with a line break',
+      {
+        text: 'read board\ntask',
+        segments: [
+          { kind: 'text', text: 'read ' },
+          { kind: 'code', text: 'board\ntask' },
+        ],
+      },
+    ],
+    [
+      'an empty code segment',
+      { text: 'read ', segments: [...SEGMENTS.slice(0, 1), { kind: 'code', text: '' }] },
+    ],
+  ])('never sends a line with %s', async (_name, extra) => {
+    const ctx = setup('slack-like');
+    const id = await segmentLine(ctx, 'item-1', extra);
+    await ctx.sender.tick();
+    const row = await outboxRow(ctx, id);
+    expect(row.state).toBe('dead');
+    expect(row.last_error).toMatch(/^invalid payload/);
+    expect(ctx.observed.requests).toHaveLength(0);
+  });
+});
+
 describe('failures', () => {
   it('30 min of retry gives post_failed', async () => {
     const ctx = setup();
