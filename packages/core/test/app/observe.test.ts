@@ -19,6 +19,7 @@ import {
   createObservationCore,
   createOperationRegistry,
   createQuery,
+  createSender,
   getStatus,
   openStore,
   tickBoard,
@@ -2574,67 +2575,132 @@ describe('anomaly blocks', () => {
     expect((await surface(b)).blocks).toEqual(opened.blocks);
   });
 
-  it.each(['same executor', 'different curator', 'healthy replacement curator'] as const)(
-    'routes stalled curator-column turns with %s',
-    async (recipient) => {
-      const cfg = configSchema.parse({
-        ...config,
-        projects: config.projects.map((project) => ({
-          ...project,
-          columns: project.columns.map((column) => ({
-            ...column,
-            orchestrator: recipient === 'different curator' ? 'reviewer' : 'curator',
-          })),
-          spurProjects: [
-            ...project.spurProjects,
-            { name: 'curator', role: 'curator' },
-            { name: 'reviewer', role: 'orchestrator' },
-          ],
+  it.each([
+    'same executor',
+    'different curator',
+    'healthy replacement curator',
+    'ended curator',
+    'claimed curator ended',
+    'healthy handover',
+  ] as const)('routes stalled curator-column turns with %s', async (recipient) => {
+    const cfg = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) => ({
+        ...project,
+        columns: project.columns.map((column) => ({
+          ...column,
+          orchestrator: recipient === 'different curator' ? 'reviewer' : 'curator',
         })),
-      });
-      const b = await board(cfg);
-      const project = recipient === 'different curator' ? 'reviewer' : 'curator';
-      const executor = session('executor', 'needs_input', {
-        spurProject: project,
-        links: {},
-        branch: null,
-      });
-      await spur(b, [executor]);
-      const turn = await heldTurn(b, 'executor');
+        spurProjects: [
+          ...project.spurProjects,
+          { name: 'curator', role: 'curator' },
+          { name: 'reviewer', role: 'orchestrator' },
+        ],
+      })),
+    });
+    const b = await board(cfg);
+    const project = recipient === 'different curator' ? 'reviewer' : 'curator';
+    const executor = session('executor', 'needs_input', {
+      spurProject: project,
+      links: {},
+      branch: null,
+    });
+    await spur(b, [executor]);
+    const turn = await heldTurn(b, 'executor');
+    await b.store.db
+      .updateTable('turn')
+      .set({ role: `orchestrator:${b.task.column}`, acked_by: `agent:${project}/executor` })
+      .where('id', '=', turn.id)
+      .execute();
+    now += 1;
+    if (recipient !== 'same executor')
+      await spur(b, [
+        executor,
+        session('healthy-curator', 'waiting', {
+          spurProject: 'curator',
+          links: {},
+          branch: null,
+        }),
+      ]);
+    now += cfg.health.turnStallAfterMs;
+    await tick(b);
+    const { blocks } = await surface(b);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.addressee_role).toBe(recipient === 'same executor' ? 'operator' : 'curator');
+    expect(
       await b.store.db
-        .updateTable('turn')
-        .set({ role: `orchestrator:${b.task.column}`, acked_by: `agent:${project}/executor` })
-        .where('id', '=', turn.id)
-        .execute();
-      now += 1;
-      if (recipient !== 'same executor')
-        await spur(b, [
-          executor,
-          session('healthy-curator', 'waiting', {
-            spurProject: 'curator',
-            links: {},
-            branch: null,
-          }),
-        ]);
-      now += cfg.health.turnStallAfterMs;
-      await tick(b);
-      const { blocks } = await surface(b);
-      expect(blocks).toHaveLength(1);
-      expect(blocks[0]?.addressee_role).toBe(
-        recipient === 'same executor' ? 'operator' : 'curator',
+        .selectFrom('notification')
+        .select('role')
+        .where('block_id', '=', blocks[0]?.id ?? -1)
+        .execute(),
+    ).toEqual(recipient === 'same executor' ? [] : [expect.objectContaining({ role: 'curator' })]);
+    expect((await surface(b)).opens).toBe(recipient === 'same executor' ? 1 : 0);
+    if (['ended curator', 'claimed curator ended', 'healthy handover'].includes(recipient)) {
+      await scanTransaction(b.store, b.config, (trx) =>
+        reconcileDoorbells(trx, new Date(now), b.config),
       );
+      const queued = await b.store.db
+        .selectFrom('outbox')
+        .selectAll()
+        .where('kind', '=', 'doorbell')
+        .executeTakeFirstOrThrow();
+      if (recipient === 'claimed curator ended')
+        await b.store.db
+          .updateTable('outbox')
+          .set({ state: 'in_flight', attempts: 1, attempt_started: 0 })
+          .where('id', '=', queued.id)
+          .execute();
+      now += 1;
+      await spur(b, [
+        executor,
+        session('healthy-curator', 'waiting', {
+          spurProject: 'curator',
+          links: {},
+          branch: null,
+          lifecycle: 'completed',
+          endedAt: iso(),
+          endReason: 'complete',
+        }),
+        ...(recipient === 'healthy handover'
+          ? [
+              session('next-curator', 'waiting', {
+                spurProject: 'curator',
+                links: {},
+                branch: null,
+              }),
+            ]
+          : []),
+      ]);
+      const [after] = (await surface(b)).blocks;
+      expect(after?.id).toBe(blocks[0]?.id);
+      expect(after?.reason).toBe(blocks[0]?.reason);
+      expect(after?.state).toBe('open');
+      expect(after?.addressee_role).toBe(recipient === 'healthy handover' ? 'curator' : 'operator');
+      const sent: string[] = [];
+      const sender = createSender({
+        store: b.store,
+        config: b.config,
+        now: () => new Date(now),
+        spur: {
+          send(id) {
+            sent.push(id);
+            return Promise.resolve();
+          },
+        },
+      });
+      await sender.recover();
+      await sender.tick();
+      expect(sent).not.toContain('executor');
+      expect(sent).not.toContain('healthy-curator');
       expect(
         await b.store.db
-          .selectFrom('notification')
-          .select('role')
-          .where('block_id', '=', blocks[0]?.id ?? -1)
-          .execute(),
-      ).toEqual(
-        recipient === 'same executor' ? [] : [expect.objectContaining({ role: 'curator' })],
-      );
-      expect((await surface(b)).opens).toBe(recipient === 'same executor' ? 1 : 0);
-    },
-  );
+          .selectFrom('outbox')
+          .select('state')
+          .where('id', '=', queued.id)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ state: 'dead' });
+    }
+  });
 
   it.each(['worker', 'linked orchestrator', 'unlinked orchestrator'] as const)(
     'diagnoses taken and untaken %s executors in every unhealthy state',

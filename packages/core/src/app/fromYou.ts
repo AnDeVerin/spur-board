@@ -7,6 +7,7 @@ import {
   ticketFactsSchema,
   type ColumnId,
   type Config,
+  type SessionFacts,
 } from '@spur-board/contracts';
 import { z } from 'zod';
 import { sql } from 'kysely';
@@ -37,13 +38,24 @@ import {
   type Trx,
 } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
-import { bestProjectSession, curatorSession, selectNotificationRecipient } from './doorbells.ts';
+import {
+  bestProjectSession,
+  curatorSession,
+  moveBlockToAddressee,
+  selectNotificationRecipient,
+} from './doorbells.ts';
 import { curatorProject } from './authorize.ts';
 import { TASKLESS_ITEM_URL, type RaiseItemInput } from './item-raise.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { quietTurns, stuckTurnAfterMs } from './turns.ts';
 
 const episodeSchema = z.object({ startedAt: z.number() }).nullable();
+const stallEpisodeSchema = z.object({
+  session: z.string().nullable(),
+  health: z.string().nullable(),
+  since: z.string().nullable(),
+  revision: z.int().min(1),
+});
 const stallObservationSchema = z.object({
   blind: z.boolean(),
   observedAt: z.string().nullable(),
@@ -520,8 +532,10 @@ export async function reconcileItems(
         }
       }
     }
-    if (executor === undefined || executor.ended_at !== null || executor.absent_since !== null)
+    if (executor === undefined || executor.ended_at !== null || executor.absent_since !== null) {
+      await observeTurnEpisode(trx, turn.id, null);
       continue;
+    }
     if (turn.role === 'worker') {
       const removed = await trx
         .selectFrom('link')
@@ -530,24 +544,52 @@ export async function reconcileItems(
         .where('session_id', '=', executor.id)
         .where('banned', '=', 1)
         .executeTakeFirst();
-      if (removed !== undefined) continue;
+      if (removed !== undefined) {
+        await observeTurnEpisode(trx, turn.id, null);
+        continue;
+      }
     }
     const parsed = sessionFactsSchema.safeParse(JSON.parse(executor.detail));
-    if (!parsed.success) continue;
+    if (!parsed.success) {
+      await observeTurnEpisode(trx, turn.id, null);
+      continue;
+    }
     const fact = parsed.data;
-    if (holder?.actor === 'agent' && holder.actorRef.project !== fact.spurProject) continue;
+    if (holder?.actor === 'agent' && holder.actorRef.project !== fact.spurProject) {
+      await observeTurnEpisode(trx, turn.id, null);
+      continue;
+    }
+    const episode = await observeTurnEpisode(trx, turn.id, fact);
+    const episodeSince = episode.since ?? fact.healthSince;
     if (!['needs_input', 'error', 'rate_limited', 'stopped'].includes(fact.health)) continue;
-    const healthStart = Math.max(Date.parse(turn.created_at), Date.parse(fact.healthSince));
+    const healthStart = Math.max(Date.parse(turn.created_at), Date.parse(episodeSince));
     if (!Number.isFinite(healthStart)) continue;
     stalled.add(`${String(task.id)}:${fact.id}`);
-    const key = `turn-stall:${String(turn.id)}:${fact.id}:${fact.health}:${fact.healthSince}`;
+    const key = `turn-stall:${String(turn.id)}:${fact.id}:${fact.health}:${episodeSince}:${String(episode.revision)}`;
     stallHeld.add(key);
     const previous = await trx
       .selectFrom('operator_item')
-      .select(['text', 'cleared_at'])
+      .select(['text', 'cleared_at', 'block_id'])
       .where('item_key', '=', key)
       .orderBy('id', 'desc')
       .executeTakeFirst();
+    const activeBlock =
+      previous?.cleared_at === null
+        ? blocks.find((block) => block.id === previous.block_id)
+        : undefined;
+    // The curator can change while this block is open, including while new alerts wait.
+    if (
+      activeBlock?.addressee_role === 'curator' &&
+      (await curatorSession(trx, config, task.project))?.id === fact.id
+    )
+      await moveBlockToAddressee(trx, {
+        task,
+        block: activeBlock,
+        to: 'operator',
+        reason: 'The selected curator is the stalled executor.',
+        ctx: { actor: 'system', at: new Date(now).toISOString() },
+        config,
+      });
     const since =
       previous?.cleared_at === null
         ? healthStart
@@ -576,8 +618,8 @@ export async function reconcileItems(
       taskId: task.id,
       summary:
         previous?.text ??
-        `${task.key}: turn T${String(turn.id)} executor ${fact.id} remains ${fact.health} since ${fact.healthSince}; turn-relative elapsed ${String(now - since)} ms${since > healthStart ? `; continuous observation since ${new Date(since).toISOString()}` : ''}${quota}${questions.length === 0 ? '' : `; open executor questions: ${questions.join(', ')}`}`,
-      factAt: fact.healthSince,
+        `${task.key}: turn T${String(turn.id)} executor ${fact.id} remains ${fact.health} since ${episodeSince}; turn-relative elapsed ${String(now - since)} ms${since > healthStart ? `; continuous observation since ${new Date(since).toISOString()}` : ''}${quota}${questions.length === 0 ? '' : `; open executor questions: ${questions.join(', ')}`}`,
+      factAt: episodeSince,
       source: 'spur',
       priority: 4,
     });
@@ -870,6 +912,37 @@ async function blindHeldKeys(
       );
   for (const { turn } of await quietTurns(trx)) held.add(`stuck-turn:${String(turn.id)}`);
   return held;
+}
+
+/** A producer's local healthSince can restart without a new current observed health state. */
+async function observeTurnEpisode(trx: Trx, turnId: number, fact: SessionFacts | null) {
+  const key = `turn_stall_episode:${String(turnId)}`;
+  const row = await trx
+    .selectFrom('meta')
+    .select('value')
+    .where('key', '=', key)
+    .executeTakeFirst();
+  const previous = row === undefined ? undefined : parseJson(stallEpisodeSchema, row.value);
+  if (
+    previous !== undefined &&
+    previous.session === (fact?.id ?? null) &&
+    previous.health === (fact?.health ?? null)
+  )
+    return previous;
+  const episode = {
+    session: fact?.id ?? null,
+    health: fact?.health ?? null,
+    since: fact?.healthSince ?? null,
+    revision: (previous?.revision ?? 0) + 1,
+  };
+  await trx
+    .insertInto('meta')
+    .values({ key, value: toJson(stallEpisodeSchema, episode) })
+    .onConflict((oc) =>
+      oc.column('key').doUpdateSet({ value: toJson(stallEpisodeSchema, episode) }),
+    )
+    .execute();
+  return episode;
 }
 
 function healthKey(taskId: number, flag: SessionHealthFlag): string {
