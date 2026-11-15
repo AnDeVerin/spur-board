@@ -229,6 +229,17 @@ describe('web listener', () => {
     const comments = await store.db.selectFrom('comment').selectAll().execute();
     expect(comments).toHaveLength(2);
     expect(comments.every((entry) => entry.author === 'operator')).toBe(true);
+    const events = await store.db
+      .selectFrom('event')
+      .select(['kind', 'actor', 'via'])
+      .orderBy('id')
+      .execute();
+    expect(events).toEqual([
+      { kind: 'comment_added', actor: 'operator', via: 'web' },
+      { kind: 'comment_added', actor: 'operator', via: 'web' },
+      { kind: 'block_unblocked', actor: 'operator', via: 'web' },
+    ]);
+
     expect(order).toEqual([
       'comment.add',
       'after',
@@ -238,7 +249,17 @@ describe('web listener', () => {
       'after',
     ]);
     expect((await app.inject(post('task.get', { task: 'o/r#101' }))).statusCode).toBe(200);
-    expect((await app.inject(post('task.history', { task: 'o/r#101' }))).statusCode).toBe(200);
+    const history = await app.inject(post('task.history', { task: 'o/r#101' }));
+    expect(history.statusCode).toBe(200);
+    expect(history.json()).toMatchObject({
+      value: {
+        events: [
+          { kind: 'comment_added', actor: 'operator', via: 'web' },
+          { kind: 'comment_added', actor: 'operator', via: 'web' },
+          { kind: 'block_unblocked', actor: 'operator', via: 'web' },
+        ],
+      },
+    });
   });
 
   it.each([

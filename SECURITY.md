@@ -47,7 +47,7 @@ one of the limits below is not a vulnerability; a way around a guarantee below i
   [SETUP.md](SETUP.md) for the operator paths.
 - **The journal records the actor and the channel.** Each journal event records who acted (the
   operator, an agent and its session, or the board) and, in `via`, the channel the write arrived
-  through (`slack`, or `web` once the web listener of #530 ships), whoever the actor; writes from
+  through (`slack` or `web`), whoever the actor; writes from
   the CLI, MCP, agents and scheduled work have none. The channel is where the daemon received
   the write, not proof of who typed it.
 
@@ -65,8 +65,8 @@ users, who can supply these headers themselves. Token, skill, schema, doctor and
 are absent on the web listener. CSP blocks inline scripts/styles and external resources.
 Request logs record `via: web`, forwarded client metadata and user agent alongside the request
 ID, method, path and status. Forwarded IP metadata is untrusted audit data, never identity.
-Persistent event channel and history presentation depend on the channel-context implementation;
-the compatibility wrapper in this slice does not persist them.
+Journal events from web writes persist `via: web`. Task history keeps `actor: operator` and
+includes `via: web`, so clients can show `operator (web)` without changing actor IDs.
 
 ### Other OS users on the same host
 

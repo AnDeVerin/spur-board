@@ -4,6 +4,7 @@ import { extname, join } from 'node:path';
 import { resolveWebOrigin } from '@spur-board/contracts';
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { CommandError } from '../app/commands.ts';
+import { withVia } from '../app/board-utils.ts';
 import { createOpsRoute, installOperationErrors } from './ops-route.ts';
 import type { ApiOptions } from './server.ts';
 
@@ -30,11 +31,6 @@ export interface WebOptions extends Pick<
     forwardedFor?: string;
     userAgent?: string;
   }) => void;
-}
-
-// #529 replaces this authorized compatibility stub with context propagation.
-function withChannel<T>(_via: 'web' | 'slack', fn: () => Promise<T>): Promise<T> {
-  return fn();
 }
 
 const mime: Readonly<Record<string, string>> = {
@@ -167,7 +163,7 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
     identify: () => Promise.resolve({ actor: 'operator' }),
     allow: (operation) => operation.web !== null,
     runOperation: (id, input, run) =>
-      withChannel('web', () =>
+      withVia('web', () =>
         options.runOperation === undefined ? run() : options.runOperation(id, input, run),
       ),
   });

@@ -43,6 +43,7 @@ agent API. The web listener is off by default and a failed bind does not stop th
 
 A private-network proxy must preserve Host. Exact Origin, Host, JSON and fetch-metadata checks
 reject foreign browser pages; anyone with network or local access can still act as operator.
-Logs include the web channel and untrusted forwarded client/user-agent metadata. Persistent
-event channels and history labels are supplied by the separate channel-context slice.
+Logs include the web channel and untrusted forwarded client/user-agent metadata. Web writes
+persist `via: web` in the journal; history returns `actor: operator` with `via: web`, allowing
+clients to show `operator (web)`.
 Missing UI assets return a 503 build hint while health and operations remain available.

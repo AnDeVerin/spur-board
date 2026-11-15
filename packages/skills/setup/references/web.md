@@ -23,4 +23,5 @@ A missing UI build returns 503 with
 ``UI is not built: run `pnpm --filter @spur-board/web build` ``.
 Run that build when the UI package is available. Health and catalog operations remain usable.
 The listener does not supply the SPA. Request logs record the web channel and untrusted
-forwarded client metadata and user agent; persistent event channels come with channel context.
+forwarded client metadata and user agent. Journal events and history retain `via: web` beside
+the operator actor.
