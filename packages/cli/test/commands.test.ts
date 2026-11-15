@@ -899,6 +899,19 @@ describe('catalog commands', () => {
 
       hiddenUnlinkedPrs: 0
       hiddenUnlinkedSessions: 0
+      bindings:
+        columns:
+          - project: web
+            column: review
+            orchestrator: web-review
+            source: project
+        operators:
+          - project: web
+            operator: hq
+            source: board-wide
+        defaultAddressee:
+          spurProject: hq
+          source: board-wide
       "
     `);
   });

@@ -1,5 +1,5 @@
 {
-  "version": "a26d86ddf017fda2deb15c9c8174da87e118863fa38f3580b5d8ef7c3a5776c2",
+  "version": "0242dc16d791523bf2189b22f95b5427576754288b20bffab5052eed65ddd60f",
   "grants": [
     "operator",
     "project-agent",
@@ -960,7 +960,19 @@
             "unlinkedPrs": [],
             "unlinkedSessions": [],
             "hiddenUnlinkedPrs": 0,
-            "hiddenUnlinkedSessions": 0
+            "hiddenUnlinkedSessions": 0,
+            "bindings": {
+              "columns": [
+                {
+                  "project": "web",
+                  "column": "review",
+                  "orchestrator": "web-review",
+                  "source": "project"
+                }
+              ],
+              "operators": [{ "project": "web", "operator": "hq", "source": "board-wide" }],
+              "defaultAddressee": { "spurProject": "hq", "source": "board-wide" }
+            }
           }
         },
         {
@@ -993,7 +1005,8 @@
             "unlinkedPrs": [],
             "unlinkedSessions": [],
             "hiddenUnlinkedPrs": 0,
-            "hiddenUnlinkedSessions": 0
+            "hiddenUnlinkedSessions": 0,
+            "bindings": { "columns": [], "operators": [], "defaultAddressee": null }
           }
         }
       ],
@@ -2509,6 +2522,106 @@
             "minimum": 0,
             "maximum": 9007199254740991,
             "description": "Unlinked sessions not listed: ended, or gone from Spur's session list, for over 7 days. Counted within the requested projects; detail does not list them."
+          },
+          "bindings": {
+            "type": "object",
+            "properties": {
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "project": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Board project."
+                    },
+                    "column": {
+                      "type": "string",
+                      "enum": [
+                        "todo",
+                        "ready-for-dev",
+                        "dev",
+                        "review",
+                        "product-review",
+                        "external-review",
+                        "qa",
+                        "ready-to-merge",
+                        "done"
+                      ],
+                      "description": "Enabled column with an orchestrator."
+                    },
+                    "orchestrator": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Spur project, or operator, that takes the column turns."
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": ["project", "board-wide"],
+                      "description": "project: set in projects[].columns; board-wide: filled from top-level spurProjects."
+                    }
+                  },
+                  "required": ["project", "column", "orchestrator", "source"],
+                  "additionalProperties": false,
+                  "description": "One column binding."
+                },
+                "description": "Column orchestrators of each requested project; columns left at none are absent."
+              },
+              "operators": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "project": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Board project."
+                    },
+                    "operator": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Spur project acting as operator there."
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": ["project", "board-wide", "other-project"],
+                      "description": "project: its own spurProjects; board-wide: top-level spurProjects; other-project: another project's operator, without a board-wide one."
+                    }
+                  },
+                  "required": ["project", "operator", "source"],
+                  "additionalProperties": false,
+                  "description": "One operator binding."
+                },
+                "description": "Operator Spur projects of each requested project."
+              },
+              "defaultAddressee": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "spurProject": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Spur project the message goes to."
+                      },
+                      "source": {
+                        "type": "string",
+                        "enum": ["config", "board-wide", "project"],
+                        "description": "config: slack.defaultAddressee; board-wide: the board-wide operator; project: the operator of the first board project, in config order, that lists one."
+                      }
+                    },
+                    "required": ["spurProject", "source"],
+                    "additionalProperties": false
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Who an orchestrators-channel message without a known @shortName goes to; null when it is left unhandled or answered with the prefixes."
+              }
+            },
+            "required": ["columns", "operators", "defaultAddressee"],
+            "additionalProperties": false,
+            "description": "Effective column orchestrators, operators and default Slack addressee."
           }
         },
         "required": [
@@ -2523,7 +2636,8 @@
           "unlinkedPrs",
           "unlinkedSessions",
           "hiddenUnlinkedPrs",
-          "hiddenUnlinkedSessions"
+          "hiddenUnlinkedSessions",
+          "bindings"
         ],
         "additionalProperties": false
       }

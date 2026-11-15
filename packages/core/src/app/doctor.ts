@@ -1,4 +1,10 @@
-import { prSourceId, trackerSourceId, type Config } from '@spur-board/contracts';
+import {
+  boardWideSpurProject,
+  prSourceId,
+  trackerSourceId,
+  type ColumnBindingSource,
+  type Config,
+} from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { curatorProject } from './authorize.ts';
 import type { Trx } from './board-utils.ts';
@@ -62,11 +68,15 @@ export async function curatorSessions(db: Trx, config: Config): Promise<CuratorS
   return entries;
 }
 
-/** Configured orchestrators and the same live session selected for their rings. */
+/**
+ * Configured orchestrators, where each binding comes from, and the same live session selected
+ * for their rings.
+ */
 export async function orchestratorSessions(db: Trx, config: Config) {
   const entries: {
     project: string;
     orchestrator: string;
+    source: ColumnBindingSource;
     session: string | null;
     columns: string[];
   }[] = [];
@@ -75,6 +85,7 @@ export async function orchestratorSessions(db: Trx, config: Config) {
       entries.push({
         project: project.id,
         orchestrator: spur.name,
+        source: boardWideSpurProject(config, spur.name) === undefined ? 'project' : 'board-wide',
         session: (await bestProjectSession(db, spur.name))?.id ?? null,
         columns: project.columns
           .filter(

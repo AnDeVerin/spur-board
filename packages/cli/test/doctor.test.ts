@@ -1519,7 +1519,7 @@ describe('board doctor Codex skill install', () => {
     const check = find(value.checks, 'skills.codex_visibility');
     expect(check).toMatchObject({ status: 'warning', blocking: false });
     expect(check?.fix).toBe(
-      'Correct spurProjects in config.yaml or register these projects in Spur: worker.',
+      'Correct spurProjects or projects[].spurProjects in config.yaml or register these projects in Spur: worker.',
     );
     expect(value.exitCode).toBe(0);
   });

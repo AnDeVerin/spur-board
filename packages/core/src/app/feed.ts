@@ -160,7 +160,7 @@ function actorInline(
   parsed: NonNullable<ReturnType<typeof parseActorId>>,
   config: Config,
 ): RichTextInline {
-  return parsed.actor === 'agent' && !isOperator(by, config)
+  return parsed.actor === 'agent' && !isOperator(by, config, null)
     ? { kind: 'text', text: `${parsed.actorRef.project}/${parsed.actorRef.session}` }
     : { kind: 'mention', user: userIdSchema.parse(config.operator.slack) };
 }

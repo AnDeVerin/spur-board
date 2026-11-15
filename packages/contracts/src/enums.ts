@@ -23,6 +23,21 @@ export const REQUIRED_COLUMN_IDS: readonly ColumnId[] = COLUMNS.filter(
   (column) => column.required,
 ).map((column) => column.id);
 
+/** Where a column's effective orchestrator comes from: its own column entry or top-level `spurProjects`. */
+export const COLUMN_BINDING_SOURCES = ['project', 'board-wide'] as const;
+export type ColumnBindingSource = (typeof COLUMN_BINDING_SOURCES)[number];
+
+/**
+ * Where a project's effective operator comes from: its own `spurProjects`, top-level
+ * `spurProjects`, or, while no board-wide operator exists, another board project's list.
+ */
+export const OPERATOR_BINDING_SOURCES = ['project', 'board-wide', 'other-project'] as const;
+export type OperatorBindingSource = (typeof OPERATOR_BINDING_SOURCES)[number];
+
+/** Where the default Slack addressee comes from: `slack.defaultAddressee`, the board-wide operator or a project's operator. */
+export const ADDRESSEE_SOURCES = ['config', 'board-wide', 'project'] as const;
+export type AddresseeSource = (typeof ADDRESSEE_SOURCES)[number];
+
 /** Whether a task is on the board, outside the tracker filter, or archived. */
 export const MEMBERSHIPS = ['active', 'out_of_filter', 'archived'] as const;
 export type Membership = (typeof MEMBERSHIPS)[number];

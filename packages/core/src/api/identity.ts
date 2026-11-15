@@ -1,4 +1,10 @@
-import { SESSION_STATUSES, actorIdSchema, type ActorId, type Config } from '@spur-board/contracts';
+import {
+  SESSION_STATUSES,
+  actorIdSchema,
+  boardWideSpurProject,
+  type ActorId,
+  type Config,
+} from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
 import { CommandError } from '../app/commands.ts';
 
@@ -33,8 +39,10 @@ function sessionActor(project: string, session: string, config: Config): ActorId
       `Spur project "${project}" is not listed in any spurProjects in the Board's config.yaml (not Spur's spur.yaml), and inside a Spur session a token is not used. Ask the operator to add it under projects[].spurProjects there and restart the Board daemon, or run the command outside a Spur session.`,
     );
   }
-  // configSchema refuses this; without the branch a hand-built config would authenticate.
-  if (matches.length > 1) {
+  // A board-wide Spur project is copied into every board project it serves. configSchema
+  // refuses any other name under several; without the branch a hand-built config would
+  // authenticate.
+  if (matches.length > 1 && boardWideSpurProject(config, project) === undefined) {
     throw new CommandError(
       'forbidden',
       `Spur project "${project}" is listed under several Board projects: ${matches.map((entry) => entry.id).join(', ')}. Ask the operator to keep it under one of them in the Board's config.yaml (not Spur's spur.yaml) and restart the Board daemon.`,
