@@ -17,13 +17,13 @@ One issue, one branch, one PR. Explain why in the PR body.
 - Conventional commits: `<type>(<scope>): <summary>`, imperative, no trailing period.
 - Changes to agent files (`.agents/`, `.claude/`, `.codex/`, `AGENTS.md`) go in their own
   commit (`chore(agents)`, or `fix(<skill>)` for a stale rule), apart from code changes.
+- A behaviour change ships its doc updates in the same commit; surfaces: `developer`, Docs.
 - Leave the session marker out of commits and PR titles.
 - Run `pnpm check` before opening the PR as `AGENTS.md` requires; use it again when a wider local
   check is needed. Never wait for or poll remote CI.
 - The pre-push hook checks the refs being pushed: changed-file format and lint plus types and unit
   tests for changed packages (all packages for shared root changes). Push only the checked-out
-  HEAD. `VITEST_MAX_WORKERS` defaults to two and accepts a positive integer override. CI runs
-  `check:full`, including startup and process tests.
+  HEAD. CI runs `check:full`, including startup and process tests.
 
 ## History
 

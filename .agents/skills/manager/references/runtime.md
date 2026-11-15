@@ -33,11 +33,12 @@ Every spawn gets, and only gets:
 - the Clarify outcome and the Assumptions so far;
 - the `origin/main` SHA recorded at intake; roles use it wherever they would name `origin/main`;
 - the cycle as `N/cap`;
-- `reviewer` only: `PR: <url> | none`, and every `developer` output of the run, not only the last;
+- `reviewer` only: `PR: <url> | none`;
+- `reviewer` and `doc-reviewer`: every `developer` output of the run, not only the last;
 - `designer` code only: the changed files from `git diff --name-only <sha>...HEAD` and the
   screenshots the run already has;
-- `tester` only: `Head: <sha>`, from `git rev-parse HEAD` run right before each `tester` spawn -
-  the last `developer` or fix commit, since no other role commits.
+- `tester` and `doc-reviewer`: `Head: <sha>`, from `git rev-parse HEAD` run right before each
+  spawn - the last `developer` or fix commit, since no other role commits.
 
 Never pass the raw conversation.
 
