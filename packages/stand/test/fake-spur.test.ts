@@ -124,9 +124,10 @@ describe('sessions', () => {
       expect(batch.items).toHaveLength(1);
       expect(batch.items[0]?.facts).toMatchObject({ lifecycle: status, health: state, endReason });
       expect(batch.entities).toEqual([{ ref: { kind: 'session', id: 's1' }, status: 'ok' }]);
-      expect(inspect(fake).requests.map(({ path }) => path)).toEqual(
-        listed ? ['/sessions'] : ['/sessions', '/sessions/s1'],
-      );
+      expect(inspect(fake).requests.map(({ path }) => path)).toEqual([
+        '/sessions/transitions?limit=1000&kinds=status%2Cstate',
+        ...(listed ? ['/sessions'] : ['/sessions', '/sessions/s1']),
+      ]);
       expect(fake.violations().total).toBe(0);
     },
   );
@@ -634,5 +635,64 @@ describe('state and restore', () => {
     run(restored, 'session', { id: 's3' });
     expect(fake.state()).not.toEqual(state);
     expect(state.sessions.map(([id]) => id)).toEqual(['s1']);
+  });
+});
+
+describe('retained transition feed', () => {
+  it('pages strictly after a cursor, retains reset refinements and restores its baseline', async () => {
+    const { fake } = createFake();
+    const links = [{ label: 'board-worker', url: 'https://github.com/o/r/issues/1' }];
+    run(fake, 'session', { id: 's1', links });
+    run(fake, 'session', {
+      id: 's1',
+      state: 'rate_limited',
+      rateLimitResetAt: '2026-11-01T13:00:00.000Z',
+    });
+    run(fake, 'session', { id: 's1', rateLimitResetAt: '2026-11-01T14:00:00.000Z' });
+    run(fake, 'session', { id: 's1', state: 'working' });
+    const first = (await (
+      await fake.fetch(`${sessionsUrl}/transitions?limit=2&kinds=status,state`)
+    ).json()) as { entries: { cursor: string }[]; nextCursor: string; hasMore: boolean };
+    expect(first.entries).toHaveLength(2);
+    expect(first.hasMore).toBe(true);
+    const second = (await (
+      await fake.fetch(
+        `${sessionsUrl}/transitions?limit=1000&kinds=status,state&since=${first.nextCursor}`,
+      )
+    ).json()) as {
+      entries: { from: string; to: string; links: unknown; rateLimitResetAt?: string }[];
+      nextCursor: string;
+    };
+    expect(second.entries.map(({ to }) => to)).toEqual(['rate_limited', 'rate_limited', 'working']);
+    expect(second.entries.map(({ rateLimitResetAt }) => rateLimitResetAt)).toEqual([
+      '2026-11-01T13:00:00.000Z',
+      '2026-11-01T14:00:00.000Z',
+      undefined,
+    ]);
+    expect(
+      second.entries.every((entry) => JSON.stringify(entry.links) === JSON.stringify(links)),
+    ).toBe(true);
+    const saved = fake.state();
+    run(fake, 'expire-transitions');
+    const expired = await fake.fetch(`${sessionsUrl}/transitions?since=${first.nextCursor}`);
+    expect(expired.status).toBe(410);
+    expect(await expired.json()).toMatchObject({ latestCursor: second.nextCursor });
+    fake.restore(saved);
+    expect((await fake.fetch(`${sessionsUrl}/transitions?since=${first.nextCursor}`)).status).toBe(
+      200,
+    );
+    const empty = (await (
+      await fake.fetch(`${sessionsUrl}/transitions?since=${second.nextCursor}`)
+    ).json()) as unknown;
+    expect(empty).toEqual({ entries: [], nextCursor: second.nextCursor, hasMore: false });
+    expect(fake.violations().items).toEqual([]);
+  });
+
+  it('rejects foreign and future cursors and records unsupported feed query parameters', async () => {
+    const { fake } = createFake();
+    expect((await fake.fetch(`${sessionsUrl}/transitions?since=foreign`)).status).toBe(400);
+    expect((await fake.fetch(`${sessionsUrl}/transitions?since=fake-feed-99`)).status).toBe(400);
+    await fake.fetch(`${sessionsUrl}/transitions?limit=1&link=worker`);
+    expect(fake.violations().items).toHaveLength(1);
   });
 });

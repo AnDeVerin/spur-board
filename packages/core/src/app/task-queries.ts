@@ -24,6 +24,7 @@ import { canonicalKey } from './membership.ts';
 import type { Query } from './queries.ts';
 import { blockSubject, rowSubject, taskSubject } from './subject.ts';
 import { taskTurns } from './task-turns.ts';
+import { taskSessions } from './task-sessions.ts';
 import { turnHanded, turnNotification } from './turns.ts';
 
 type Task = Selectable<TaskTable>;
@@ -350,6 +351,7 @@ export function createTaskQueries(deps: {
       ]);
       const subject = taskSubject(task);
       return {
+        sessions: await taskSessions(trx, task.id),
         task: taskView(task),
         ...(await taskTurns(trx, task, input.detail === true)),
         links: links.map(({ state, ...link }) => {

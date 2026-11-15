@@ -23,6 +23,7 @@ import {
   schemaGetOutputSchema,
   sourceViewSchema,
   statusItemSchema,
+  statusSessionFactsSchema,
   statusTaskSchema,
   statusUnlinkedPrSchema,
   statusUnlinkedSessionSchema,
@@ -415,6 +416,10 @@ export const OPERATIONS = [
         .optional()
         .describe('Present only with detail: the last 5 closed turns, newest first.'),
       links: z.array(linkViewSchema).describe('Effective pull request, session, and ticket links.'),
+      sessions: z
+        .array(statusSessionFactsSchema)
+        .optional()
+        .describe('Current facts of effective linked sessions.'),
       blocks: z.array(blockViewSchema).describe('Blocks on the task, open and unblocked.'),
       comments: z.array(commentSchema).describe('Comments on the task, oldest first.'),
       why: taskWhySchema.optional().describe('Present only with why.'),

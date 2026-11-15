@@ -209,14 +209,14 @@ const spurProject = z.strictObject({
     .max(80)
     .optional()
     .describe(
-      "The name a curator's answer lines in the feed are posted under. Defaults to the Spur project name. Only for a curator.",
+      "The name Slack messages this Spur project's sessions write are posted under: block threads and replies, and a curator's answer lines in the feed. Defaults to the Spur project name.",
     ),
   icon: z
     .string()
     .regex(/^:[a-z0-9_+'-]+:$/, 'Expected an emoji shortcode such as :owl:')
     .optional()
     .describe(
-      "The emoji shortcode, such as :owl:, shown on a curator's answer lines in the feed instead of the curator icon. Only for a curator.",
+      'The emoji shortcode, such as :owl:, shown on those messages instead of the role icon.',
     ),
 });
 
@@ -372,17 +372,7 @@ const projectSchema = z
         rejectDuplicates(items, 'name', 'spur project name', ctx);
         let curator: string | undefined;
         items.forEach((item, i) => {
-          if (item.role !== 'curator') {
-            for (const field of ['displayName', 'icon'] as const) {
-              if (item[field] === undefined) continue;
-              ctx.addIssue({
-                code: 'custom',
-                path: [i, field],
-                message: 'displayName and icon apply only to a curator',
-              });
-            }
-            return;
-          }
+          if (item.role !== 'curator') return;
           if (curator !== undefined) {
             ctx.addIssue({
               code: 'custom',

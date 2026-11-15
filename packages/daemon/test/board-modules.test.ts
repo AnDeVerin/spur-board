@@ -222,6 +222,10 @@ it('moves Spur observation times and the Slack recovery window with one shifted 
   };
   const spurFetch: typeof fetch = (input) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname === '/sessions/transitions')
+      return Promise.resolve(
+        Response.json({ entries: [], nextCursor: 'synthetic-empty', hasMore: false }),
+      );
     if (url.pathname !== '/sessions') throw new Error(`Unexpected fake URL ${url.pathname}`);
     return Promise.resolve(
       Response.json([{ id: 's1', project: 'p', status: 'running', state: 'working' }]),

@@ -1811,7 +1811,11 @@ describe('fake Spur in a running stand', () => {
     expect(log.status).toBe(409);
     expect(log.body).toMatchObject({
       items: expect.arrayContaining([
-        expect.objectContaining({ method: 'GET', path: '/drift/sessions', reason: 'route' }),
+        expect.objectContaining({
+          method: 'GET',
+          path: '/drift/sessions/transitions?limit=1000&kinds=status%2Cstate',
+          reason: 'route',
+        }),
       ]) as unknown,
     });
   }, 60_000);

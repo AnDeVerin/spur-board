@@ -2,7 +2,7 @@ import type { Config, SessionFacts, SessionLinkRole } from '@spur-board/contract
 
 export interface SessionHealthSubject extends Pick<
   SessionFacts,
-  'id' | 'health' | 'healthSince' | 'endedAt' | 'endReason'
+  'id' | 'health' | 'healthSince' | 'endedAt' | 'endReason' | 'rateLimitResetAt'
 > {
   taskId: string;
   role: SessionLinkRole;
@@ -52,6 +52,7 @@ export interface SessionHealthStatus {
   taskId: string;
   sessionId: string;
   kind: 'rate_limited';
+  rateLimitResetAt?: string;
 }
 
 export interface SessionHealthInput {
@@ -175,7 +176,14 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
     }
 
     if (session.health === 'rate_limited') {
-      statuses.push({ taskId: session.taskId, sessionId: session.id, kind: 'rate_limited' });
+      statuses.push({
+        taskId: session.taskId,
+        sessionId: session.id,
+        kind: 'rate_limited',
+        ...(session.rateLimitResetAt === undefined
+          ? {}
+          : { rateLimitResetAt: session.rateLimitResetAt }),
+      });
       continue;
     }
     if (session.role === 'other') continue;

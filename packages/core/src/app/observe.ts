@@ -28,6 +28,7 @@ import {
   type PrFacts,
   type SourceCursor,
   type SessionFacts,
+  type SessionTransition,
   type SourceState,
   type TicketFacts,
 } from '@spur-board/contracts';
@@ -707,6 +708,58 @@ function branchHasKey(branch: string, key: string): boolean {
 /** The Jira task key at the end of a session's `/browse/` link. */
 const BROWSE_KEY = new RegExp(`/browse/(${JIRA_PROJECT_KEY}-${REF_NUMBER})$`);
 
+/** Parse a published task URL without deciding whether that task is currently known. */
+function sessionTaskKey(url: string): string | undefined {
+  const candidate = BROWSE_KEY.exec(url)?.[1] ?? /\/issues\/([1-9]\d*)$/.exec(url)?.[1];
+  return candidate === undefined
+    ? undefined
+    : url.includes('/issues/')
+      ? `${new URL(url).pathname.split('/').slice(1, 3).join('/')}#${candidate}`
+      : candidate;
+}
+
+/** Select one explicit label before resolving its task; unknown selections never fall through. */
+async function resolveSessionLabels(trx: Trx, config: Config, links: SessionFacts['links']) {
+  let key: string | undefined;
+  let role: 'worker' | 'other' | undefined;
+  for (const label of ['board-worker', 'board-other'] as const) {
+    const url = links[label];
+    if (url === undefined) continue;
+    key = sessionTaskKey(url);
+    role = label === 'board-worker' ? 'worker' : 'other';
+    if (key !== undefined) break;
+  }
+  const task =
+    key === undefined || projectForKey(config, key) === null
+      ? undefined
+      : await trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
+  return { key, role, task };
+}
+
+/** History is journaled without changing snapshots, links or task change times. */
+async function sessionTransition(trx: Trx, config: Config, edge: SessionTransition): Promise<void> {
+  const projects = config.projects.filter((project) =>
+    project.spurProjects.some((spur) => spur.name === edge.spurProject),
+  );
+  const { task } = await resolveSessionLabels(trx, config, edge.links);
+  if (task !== undefined) {
+    await emit(trx, 'session_state_changed', task.project, task.id, edge.at, {
+      session: edge.session,
+      from: edge.from,
+      to: edge.to,
+      transition: edge,
+    });
+  } else {
+    for (const project of projects)
+      await emit(trx, 'session_state_changed', project.id, null, edge.at, {
+        session: edge.session,
+        from: edge.from,
+        to: edge.to,
+        transition: edge,
+      });
+  }
+}
+
 async function session(
   trx: Trx,
   config: Config,
@@ -714,6 +767,7 @@ async function session(
   at: string,
   source: string,
   ambiguousBranches: ReadonlySet<string>,
+  feedEnabled: boolean,
 ): Promise<void> {
   const old = await trx
     .selectFrom('session_snapshot')
@@ -802,21 +856,9 @@ async function session(
     }
   }
   // Explicit ticket links are read before branch inference and keep their first role.
-  let key: string | undefined;
-  let role: 'worker' | 'other' | undefined;
-  for (const label of ['board-worker', 'board-other'] as const) {
-    const url = fact.links[label];
-    if (url === undefined) continue;
-    const candidate = BROWSE_KEY.exec(url)?.[1] ?? /\/issues\/([1-9]\d*)$/.exec(url)?.[1];
-    key =
-      candidate === undefined
-        ? undefined
-        : url.includes('/issues/')
-          ? `${new URL(url).pathname.split('/').slice(1, 3).join('/')}#${candidate}`
-          : candidate;
-    role = label === 'board-worker' && !orchestrator ? 'worker' : 'other';
-    if (key !== undefined) break;
-  }
+  const explicit = await resolveSessionLabels(trx, config, fact.links);
+  let key = explicit.key;
+  let role = orchestrator && explicit.role === 'worker' ? ('other' as const) : explicit.role;
   // A pr field names the worker only from the PR's head branch; otherwise the branch rules run
   // first and the PR's task is the fallback, linked as other.
   let prOnlyKey: string | undefined;
@@ -893,8 +935,13 @@ async function session(
     key = prOnlyKey;
     role = 'other';
   }
-  if (key !== undefined && projectForKey(config, key) !== null) {
-    const task = await trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
+  if (key !== undefined) {
+    const task =
+      explicit.key !== undefined
+        ? explicit.task
+        : projectForKey(config, key) === null
+          ? undefined
+          : await trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
     if (task !== undefined) {
       const existing = await trx
         .selectFrom('link')
@@ -953,7 +1000,7 @@ async function session(
       .selectAll()
       .where('id', '=', link.task_id)
       .executeTakeFirstOrThrow();
-    if (previous?.lifecycle !== fact.lifecycle && previous !== null)
+    if (!feedEnabled && previous?.lifecycle !== fact.lifecycle && previous !== null)
       await emit(trx, 'session_state_changed', task.project, task.id, at, {
         session: fact.id,
         from: previous.lifecycle,
@@ -1350,8 +1397,20 @@ export function createObservationCore(deps: {
           else if (item.kind === 'pr') {
             await pr(trx, config, item.facts, batch.observedAt, source);
             await holdContinuation(trx, source, item);
-          } else await session(trx, config, item.facts, batch.observedAt, source, ambiguous);
+          } else
+            await session(
+              trx,
+              config,
+              item.facts,
+              batch.observedAt,
+              source,
+              ambiguous,
+              batch.sessionTransitions !== undefined,
+            );
         }
+        // Reconcile current tasks before resolving the history's explicit event-time task links.
+        for (const edge of batch.sessionTransitions ?? [])
+          await sessionTransition(trx, config, edge);
         // A held history outlives no unbanned link to a task that is not archived: a discovered
         // PR left unlinked drops it here, and so, on purpose, does a PR whose only links are on
         // archived tasks. A restored task's PR reads its history again on the next poll.

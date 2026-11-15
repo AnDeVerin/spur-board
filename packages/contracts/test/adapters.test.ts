@@ -370,7 +370,7 @@ describe('obligation ids', () => {
 const scanned = ['packages/contracts', 'packages/core/src'];
 const skipped = new Set(['node_modules', 'dist', 'coverage']);
 const wireTerms =
-  /rateLimit|pageInfo|startCursor|endCursor|hasPreviousPage|nextPageToken|statusCheckRollup/i;
+  /rateLimit(?!ResetAt)|pageInfo|startCursor|endCursor|hasPreviousPage|nextPageToken|statusCheckRollup/i;
 
 function filesUnder(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -401,7 +401,7 @@ describe('no wire formats', () => {
   it('flags wire terms and leaves neutral words alone', () => {
     for (const term of ['X-RateLimit-Reset', 'pageInfo', 'startCursor', 'hasPreviousPage'])
       expect(term).toMatch(wireTerms);
-    for (const word of ['cursor', 'retryAt', 'throttled', 'feedbackCursors'])
+    for (const word of ['cursor', 'retryAt', 'throttled', 'feedbackCursors', 'rateLimitResetAt'])
       expect(word).not.toMatch(wireTerms);
   });
 
@@ -414,5 +414,31 @@ describe('no wire formats', () => {
       .filter((file) => wireTerms.test(readFileSync(file, 'utf8')))
       .map((file) => relative(root, file));
     expect(hits).toEqual([]);
+  });
+});
+
+describe('ordered session transitions', () => {
+  const edge = {
+    position: 'opaque-1',
+    session: 'worker-1',
+    spurProject: 'demo',
+    at: '2026-11-01T12:00:00Z',
+    links: {},
+    dimension: 'health',
+    from: 'working',
+    to: 'rate_limited',
+    rateLimitResetAt: '2026-11-01T13:00:00Z',
+  };
+  it('allows repeated session identities but rejects repeated positions and wire fields', () => {
+    expect(
+      batchSchema.safeParse(
+        batch({ sessionTransitions: [edge, { ...edge, position: 'opaque-2', to: 'working' }] }),
+      ).success,
+    ).toBe(true);
+    expect(batchSchema.safeParse(batch({ sessionTransitions: [edge, edge] })).success).toBe(false);
+    expect(
+      batchSchema.safeParse(batch({ sessionTransitions: [{ ...edge, kind: 'state' }] })).success,
+    ).toBe(false);
+    expect(batchSchema.safeParse(batch()).success).toBe(true);
   });
 });

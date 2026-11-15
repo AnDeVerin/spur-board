@@ -20,10 +20,11 @@ import {
   openSystemBlock,
   recordInboundBlockMessage,
 } from '../../src/app/blocks.ts';
+import { personaFor } from '../../src/app/block-thread.ts';
 import { raiseItem } from '../../src/app/feed.ts';
 import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { taskSubject } from '../../src/app/subject.ts';
+import { projectSubject, taskSubject } from '../../src/app/subject.ts';
 import { createTaskQueries } from '../../src/app/task-queries.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { observeGateway } from '../support/observe.ts';
@@ -2165,21 +2166,21 @@ describe('project question', () => {
 describe('operator conversation', () => {
   const board = conversationConfig();
   /** A `cur` conversation with its block ring and one unacked operator follow-up ring. */
-  async function followedUp(text = '@cur hello') {
+  async function followedUp(text = '@cur hello', config = board) {
     const { store } = await conversationStore();
     stores.push(store);
-    await startConversation(store, board, text);
-    await scanTransaction(store, board, (trx) =>
+    await startConversation(store, config, text);
+    await scanTransaction(store, config, (trx) =>
       recordInboundBlockMessage(trx, {
         blockId: 1,
         text: 'and more',
         conversationRef: 'top-1',
         messageRef: 'top-1-reply-1',
         at: new Date(NOW).toISOString(),
-        config: board,
+        config,
       }),
     );
-    return { store, apply: createApply({ store, clock, config: board }) };
+    return { store, apply: createApply({ store, clock, config }) };
   }
   const notices = (store: Store) =>
     store.db
@@ -2226,6 +2227,47 @@ describe('operator conversation', () => {
     expect(
       await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'feed.line').execute(),
     ).toEqual([]);
+  });
+
+  /** `board` with display names and icons on operator-role `board-pm` and curator `cur`. */
+  const named = configSchema.parse({
+    ...board,
+    projects: board.projects.map((project) => ({
+      ...project,
+      spurProjects: project.spurProjects.map((spur) =>
+        spur.name === 'board-pm'
+          ? { ...spur, displayName: 'PM', icon: ':memo:' }
+          : spur.name === 'cur'
+            ? { ...spur, displayName: 'Cur Bot', icon: ':owl:' }
+            : spur,
+      ),
+    })),
+  });
+
+  it.each([
+    [
+      'an operator-role agent',
+      'agent:board-pm/pm-1',
+      { name: 'PM', role: 'board', icon: ':memo:' },
+    ],
+    ['the curator', 'agent:cur/cur-1', { name: 'Cur Bot', role: 'curator', icon: ':owl:' }],
+    ['the operator CLI', 'operator', { name: 'operator', role: 'board' }],
+  ] as const)(
+    'answers for %s under its configured display name and icon',
+    async (_who, actor, persona) => {
+      const { store, apply } = await followedUp('@cur hello', named);
+      await apply(createBlockMutations(named).answer, { block: 'B1', text: 'hi' }, actor, 'answer');
+      expect(await replies(store)).toEqual([
+        expect.objectContaining({ text: 'hi', persona, targetConversation: 'top-1' }),
+      ]);
+    },
+  );
+
+  it('keeps the board persona on board-written messages under configured display names', () => {
+    expect(personaFor(named, projectSubject('proj'), 'system')).toEqual({
+      name: 'board',
+      role: 'board',
+    });
   });
 
   it('rings the addressee again for an operator CLI answer', async () => {

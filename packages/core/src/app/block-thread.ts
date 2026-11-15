@@ -70,7 +70,15 @@ export function personaFor(config: Config, subject: BlockSubject, actor: ActorId
   if (actor === 'operator') return { name: 'operator', role: 'board' };
   const parsed = parseActorId(actor);
   if (parsed?.actor !== 'agent') throw new Error('Invalid actor');
-  return { name: parsed.actorRef.project, role: personaRole(authorRole(config, subject, actor)) };
+  const { project } = parsed.actorRef;
+  const entry = config.projects
+    .flatMap((p) => p.spurProjects)
+    .find((spur) => spur.name === project);
+  return {
+    name: entry?.displayName ?? project,
+    role: personaRole(authorRole(config, subject, actor)),
+    ...(entry?.icon === undefined ? {} : { icon: entry.icon }),
+  };
 }
 
 export async function queueBlockOpen(

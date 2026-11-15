@@ -29,7 +29,7 @@ import { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { packPackage } from './package.ts';
-import { command, credentialFreeEnv } from './package-smoke.ts';
+import { command, credentialFreeEnv, isTarballPath, retryTarball404 } from './package-smoke.ts';
 
 const NAME = 'spur-board';
 const SERVICE = 'spur-board.service';
@@ -211,15 +211,6 @@ export function upstreamUrl(path: string): string | undefined {
   return `https://registry.npmjs.org/${target.pathname.slice(1)}${target.search}`;
 }
 
-// npmjs can list a just-published version in the packument before its tarball reaches every CDN
-// edge, and npm never retries a 404. The proxy waits out that lag for tarballs only.
-const TARBALL_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 15_000, 15_000];
-
-/** `/<name>/-/<file>.tgz` or `/@scope/<name>/-/<file>.tgz`; never a packument or `/-/v1/...`. */
-function isTarballPath(pathname: string): boolean {
-  return /^\/(?:@[^/]+\/)?[^/]+\/-\/[^/]+\.tgz$/.test(pathname);
-}
-
 interface RegistryDeps {
   fetch: typeof fetch;
   sleep: (ms: number) => Promise<unknown>;
@@ -241,26 +232,23 @@ async function upstream(
     }
     return once();
   };
-  let response = await attempt();
   const pathname = new URL(url).pathname;
-  if (response.status !== 404 || !isTarballPath(pathname)) return response;
-  let attempts = 1;
-  let waited = 0;
-  for (const wait of TARBALL_RETRY_DELAYS_MS) {
-    if (response.status !== 404) break;
-    await response.body?.cancel();
-    deps.log(
-      `registry: 404 on ${pathname}, attempt ${String(attempts)}, retrying in ${String(wait)} ms (waited ${String(waited)} ms)`,
-    );
-    await deps.sleep(wait);
-    waited += wait;
-    response = await attempt();
-    attempts += 1;
-  }
-  deps.log(
-    `registry: ${pathname} answered ${String(response.status)} after ${String(attempts)} attempts, waited ${String(waited)} ms`,
+  const { result, attempts, waitedMs } = await retryTarball404(
+    attempt,
+    (response) => response.status === 404 && isTarballPath(pathname),
+    async (response, tries, wait, waited) => {
+      await response.body?.cancel();
+      deps.log(
+        `registry: 404 on ${pathname}, attempt ${String(tries)}, retrying in ${String(wait)} ms (waited ${String(waited)} ms)`,
+      );
+    },
+    deps.sleep,
   );
-  return response;
+  if (attempts > 1)
+    deps.log(
+      `registry: ${pathname} answered ${String(result.status)} after ${String(attempts)} attempts, waited ${String(waitedMs)} ms`,
+    );
+  return result;
 }
 
 interface Registry {

@@ -229,12 +229,22 @@ describe('startAdapters', () => {
         return context();
       },
     });
-    const fetchSpur = vi.fn().mockResolvedValue(Response.json([]));
+    const fetchSpur = vi.fn<typeof fetch>((input) =>
+      Promise.resolve(
+        Response.json(
+          new URL(input instanceof Request ? input.url : input).pathname.endsWith(
+            '/sessions/transitions',
+          )
+            ? { entries: [], nextCursor: 'synthetic-empty', hasMore: false }
+            : [],
+        ),
+      ),
+    );
     vi.stubGlobal('fetch', fetchSpur);
     const runner = entry.startAdapters(config, core, { now: () => Date.now() });
     await vi.advanceTimersByTimeAsync(0);
     await expect(runner.stop()).resolves.toBeUndefined();
-    expect(fetchSpur).toHaveBeenCalledTimes(1);
+    expect(fetchSpur).toHaveBeenCalledTimes(2);
     expect(core.observed).toHaveLength(1);
     expect(core.observed[0]?.batch).toMatchObject({ source: 'spur', complete: true, items: [] });
     expect(core.states.at(-1)?.source).toBe('spur');
@@ -271,15 +281,21 @@ describe('startAdapters', () => {
       digest: { tz: 'UTC' },
     });
     const core = createFakeCore();
-    const fetchSpur = vi.fn().mockResolvedValue(
-      Response.json([
-        {
-          id: 'worker-1',
-          project: 'web',
-          status: 'running',
-          state: 'future_state',
-        },
-      ]),
+    const fetchSpur = vi.fn<typeof fetch>((input) =>
+      Promise.resolve(
+        new URL(input instanceof Request ? input.url : input).pathname.endsWith(
+          '/sessions/transitions',
+        )
+          ? Response.json({ entries: [], nextCursor: 'synthetic-empty', hasMore: false })
+          : Response.json([
+              {
+                id: 'worker-1',
+                project: 'web',
+                status: 'running',
+                state: 'future_state',
+              },
+            ]),
+      ),
     );
     vi.stubGlobal('fetch', fetchSpur);
     let release: () => void = () => undefined;
@@ -678,6 +694,10 @@ describe('budget', () => {
           }),
         );
       }
+      if (url.pathname.endsWith('/sessions/transitions'))
+        return Promise.resolve(
+          Response.json({ entries: [], nextCursor: 'synthetic-empty', hasMore: false }),
+        );
       if (url.pathname.endsWith('/sessions')) return Promise.resolve(Response.json([]));
       return Promise.resolve(new Response('', { status: 404 }));
     });

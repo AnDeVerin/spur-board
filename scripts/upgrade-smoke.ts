@@ -2,11 +2,14 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { packPackage } from './package.ts';
 import {
   credentialFreeEnv,
   installPackage,
   installedVersion,
+  isTarballPath,
+  retryTarball404,
   smokeInstalled,
 } from './package-smoke.ts';
 
@@ -47,6 +50,57 @@ export function registryVersions(
   throw new Error(`Could not read published versions: ${stderr || stdout}`);
 }
 
+/** The npmjs tarball path of an `npm install` 404, or undefined for any other failure. */
+function tarball404Path(result: string | Error): string | undefined {
+  if (typeof result === 'string' || !/\bcode E404\b/.test(result.message)) return undefined;
+  const path = /GET https:\/\/registry\.npmjs\.org(\/\S+)/.exec(result.message)?.[1];
+  return path !== undefined && isTarballPath(path) ? path : undefined;
+}
+
+interface InstallDeps {
+  sleep: (ms: number) => Promise<unknown>;
+  log: (text: string) => void;
+}
+
+const installDeps: InstallDeps = {
+  sleep: (ms) => delay(ms),
+  log: (text) => process.stdout.write(`${text}\n`),
+};
+
+/**
+ * Installs a published registry spec, waiting out the CDN lag while npmjs answers 404 for a
+ * tarball it already lists. Any other install failure throws on the first attempt.
+ */
+export async function installPublished(
+  spec: string,
+  prefix: string,
+  deps: InstallDeps = installDeps,
+): Promise<string> {
+  const { result, attempts, waitedMs } = await retryTarball404<string | Error>(
+    () => {
+      try {
+        return installPackage(spec, prefix);
+      } catch (error) {
+        if (error instanceof Error) return error;
+        throw error;
+      }
+    },
+    (result) => tarball404Path(result) !== undefined,
+    (failure, tries, wait, waited) => {
+      deps.log(
+        `upgrade smoke: 404 on ${String(tarball404Path(failure))} installing ${spec}, attempt ${String(tries)}, retrying in ${String(wait)} ms (waited ${String(waited)} ms)`,
+      );
+    },
+    deps.sleep,
+  );
+  if (typeof result === 'string') return result;
+  const path = tarball404Path(result);
+  if (path === undefined) throw result;
+  throw new Error(
+    `upgrade smoke: ${spec} still answers 404 for ${path} after ${String(attempts)} attempts, waited ${String(waitedMs)} ms (npmjs has not served the tarball yet): ${result.message.replace(/^Tarball install failed: /, '')}`,
+  );
+}
+
 export async function smokeUpgrade(tarball?: string): Promise<'skipped' | 'passed'> {
   const lookup = spawnSync('npm', ['view', 'spur-board', 'versions', '--json'], {
     encoding: 'utf8',
@@ -61,7 +115,10 @@ export async function smokeUpgrade(tarball?: string): Promise<'skipped' | 'passe
   }
   const temporary = mkdtempSync(join(tmpdir(), 'spur-board-upgrade-smoke-'));
   try {
-    const previousBinary = installPackage(`spur-board@${previous}`, join(temporary, 'previous'));
+    const previousBinary = await installPublished(
+      `spur-board@${previous}`,
+      join(temporary, 'previous'),
+    );
     const home = join(temporary, 'home');
     await smokeInstalled(previousBinary, home, previous, true);
     const candidate = tarball ?? packPackage(temporary);

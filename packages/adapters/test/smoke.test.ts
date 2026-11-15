@@ -258,6 +258,10 @@ function fixture(
           ),
         );
     }
+    if (url.pathname === '/sessions/transitions')
+      return Promise.resolve(
+        Response.json({ entries: [], nextCursor: 'synthetic-empty', hasMore: false }),
+      );
     if (url.pathname === '/sessions')
       return Promise.resolve(
         Response.json([

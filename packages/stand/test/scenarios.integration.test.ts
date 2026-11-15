@@ -239,7 +239,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists forty scenarios, each with a seed and a settled check', () => {
+  it('lists all scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -282,6 +282,9 @@ describe('scenarios', () => {
       'dispatch-ci-red-new-head-in-product-review',
       'dispatch-ring-closed-turn',
       'dispatch-turn-view',
+      'spur-transitions-rapid-recovery',
+      'spur-transitions-cursor-expired',
+      'spur-transitions-killed-holder',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -646,6 +649,103 @@ describe('each scenario', () => {
       },
       { timeout: 5_000, interval: 100 },
     );
+  }, 60_000);
+
+  it('spur-transitions-rapid-recovery: retains both edges and their original reset and links', async () => {
+    await up();
+    await seed('spur-transitions-rapid-recovery');
+    const store = openStore(join(current().home, 'board.sqlite'));
+    try {
+      const events = await store.db
+        .selectFrom('event')
+        .selectAll()
+        .where('kind', '=', 'session_state_changed')
+        .orderBy('id')
+        .execute();
+      const edges = events
+        .map((row) => ({
+          at: row.at,
+          payload: JSON.parse(row.payload) as {
+            transition?: {
+              session: string;
+              from: string | null;
+              to: string;
+              at: string;
+              links: unknown;
+              rateLimitResetAt?: string;
+            };
+          },
+        }))
+        .filter(
+          ({ payload }) =>
+            payload.transition?.session === 'transition-worker' && payload.transition.from !== null,
+        );
+      expect(edges.map(({ payload }) => payload.transition?.to)).toEqual([
+        'rate_limited',
+        'working',
+      ]);
+      expect(edges[0]?.payload.transition).toMatchObject({
+        rateLimitResetAt: '2099-01-01T00:00:00.000Z',
+        links: { 'board-worker': 'https://github.com/stand-org/board/issues/1' },
+      });
+      expect(edges.every(({ at, payload }) => at === payload.transition?.at)).toBe(true);
+      expect(edges[1]?.payload.transition).not.toHaveProperty('rateLimitResetAt');
+    } finally {
+      await store.close();
+    }
+  }, 60_000);
+
+  it('spur-transitions-cursor-expired: resyncs once and does not duplicate historical events', async () => {
+    await up();
+    await seed('spur-transitions-cursor-expired');
+    const fake = (await ok(current(), '/fake', { system: 'spur', verb: 'inspect', args: {} })) as {
+      cursor: string;
+      requests: { path: string }[];
+    };
+    const feed = fake.requests.filter(({ path }) => path.startsWith('/sessions/transitions'));
+    expect(new URL(feed.at(-1)?.path ?? '', 'http://fake').searchParams.get('since')).toBe(
+      fake.cursor,
+    );
+    const finalFeedIndex = fake.requests.findIndex((request) => request === feed.at(-1));
+    const priorFeedIndex = fake.requests.findIndex((request) => request === feed.at(-2));
+    expect(
+      fake.requests
+        .slice(priorFeedIndex, finalFeedIndex)
+        .filter(({ path }) => path === '/sessions'),
+    ).toHaveLength(1);
+    const store = openStore(join(current().home, 'board.sqlite'));
+    try {
+      const events = await store.db
+        .selectFrom('event')
+        .select('payload')
+        .where('kind', '=', 'session_state_changed')
+        .execute();
+      const positions = events
+        .map(
+          ({ payload }) =>
+            (JSON.parse(payload) as { transition?: { position: string } }).transition?.position,
+        )
+        .filter((value) => value !== undefined);
+      expect(new Set(positions).size).toBe(positions.length);
+    } finally {
+      await store.close();
+    }
+  }, 60_000);
+
+  it('spur-transitions-killed-holder: ended facts and worker_lost arrive without a second poll', async () => {
+    await up();
+    await seed('spur-transitions-killed-holder');
+    expect(
+      (await status(current())).items.some((item) =>
+        item.summary.includes('worker ended during its open turn'),
+      ),
+    ).toBe(true);
+    const task = await op<{ sessions: { id: string; endReason: string | null }[] }>(
+      current(),
+      'task.get',
+      { task: 'stand-org/board#1' },
+    );
+    expect(task.sessions.find(({ id }) => id === current().roles.worker)?.endReason).toBe('kill');
   }, 60_000);
 
   it('worker-killed-no-pr: the ended worker item is raised and the task row agrees', async () => {

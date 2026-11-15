@@ -161,6 +161,7 @@ function prNode(number: number) {
 }
 
 interface Fixture {
+  transitions?: Raw;
   statuses: string[];
   issueNodeId: string;
   spurLinks: { label: string; url: string }[];
@@ -192,6 +193,16 @@ function syntheticLive(fixture: Fixture = defaultFixture()) {
     const url = new URL(input instanceof Request ? input.url : String(input));
     const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Raw) : {};
     if (url.origin === SPUR) {
+      if (url.pathname === '/sessions/transitions')
+        return Promise.resolve(
+          json(
+            fixture.transitions ?? {
+              entries: [],
+              nextCursor: 'live-feed-position',
+              hasMore: false,
+            },
+          ),
+        );
       if (url.pathname === '/sessions')
         return Promise.resolve(
           json(
@@ -588,7 +599,9 @@ describe('record:fakes', () => {
       'updated_at',
     ]);
 
-    const [spurList] = exchanges(result.read('spur'));
+    const spurList = exchanges(result.read('spur')).find(
+      (exchange) => exchange.request.url === 'http://spur.stand.invalid/sessions',
+    );
     expect(spurList?.request.url).toBe('http://spur.stand.invalid/sessions');
     expect(spurList?.response.headers['x-spur-lifecycle-instance-id']).toBe('recorded-instance-1');
     const [session] = spurList?.response.body as Raw[];
@@ -840,7 +853,9 @@ describe('record:fakes', () => {
       { name: 'Status 1' },
     ]);
     // The Spur link names the live ACMEX-3, the second key the Jira answer holds.
-    const [spurList] = exchanges(result.read('spur'));
+    const spurList = exchanges(result.read('spur')).find(
+      (exchange) => exchange.request.url === 'http://spur.stand.invalid/sessions',
+    );
     const [session] = spurList?.response.body as { slots: { links: Raw[] } }[];
     expect(session?.slots.links[1]).toEqual({
       label: 'tracker',
@@ -908,4 +923,64 @@ describe('record:fakes', () => {
       rule: shape,
     });
   });
+});
+
+it('scrubs populated transition identities, links and cursors while retaining edge facts', async () => {
+  const fixture = defaultFixture();
+  fixture.transitions = {
+    entries: [
+      {
+        cursor: 'live-position-1',
+        sessionId: 'acme-worker-1f2e',
+        project: 'acme-worker',
+        at: iso(1),
+        kind: 'state',
+        from: 'working',
+        to: 'rate_limited',
+        rateLimitResetAt: iso(2),
+        links: fixture.spurLinks,
+      },
+    ],
+    nextCursor: 'live-position-1',
+    hasMore: false,
+  };
+  const result = await run(liveConfig(), fixture);
+  expect(result.code, result.errors).toBe(0);
+  const feed = exchanges(result.read('spur')).find(({ request }) =>
+    request.url.includes('/sessions/transitions'),
+  );
+  expect(feed?.response.body).toMatchObject({
+    entries: [
+      {
+        cursor: expect.stringMatching(/^recorded-cursor-/) as unknown,
+        sessionId: expect.stringMatching(/^recorded-session-/) as unknown,
+        project: expect.stringMatching(/^recorded-project-/) as unknown,
+        at: iso(1),
+        kind: 'state',
+        from: 'working',
+        to: 'rate_limited',
+        rateLimitResetAt: iso(2),
+        links: [
+          { label: 'pr', url: 'https://github.com/stand-org/board/pull/7' },
+          { label: 'tracker', url: 'https://jira.stand.invalid/browse/STAND-1' },
+          { label: 'docs', url: expect.stringMatching(/^https:\/\/recorded.invalid\//) as unknown },
+        ],
+      },
+    ],
+    nextCursor: expect.stringMatching(/^recorded-cursor-/) as unknown,
+  });
+  for (const text of result.texts()) {
+    expect(text).not.toContain('live-position');
+    expect(text).not.toContain('acme-worker');
+  }
+});
+
+it('allows only supported transition read queries', async () => {
+  const transport = syntheticLive();
+  const guarded = createReadGuard(narrow(configSchema.parse(liveConfig())), transport, []);
+  await guarded(`${SPUR}/sessions/transitions?limit=1000&kinds=status,state&since=opaque`);
+  expect(transport).toHaveBeenCalledTimes(1);
+  for (const query of ['limit=1001', 'limit=1&limit=2', 'link=worker', 'kinds=other', 'since='])
+    await expect(guarded(`${SPUR}/sessions/transitions?${query}`)).rejects.toThrow(/refused/);
+  expect(transport).toHaveBeenCalledTimes(1);
 });

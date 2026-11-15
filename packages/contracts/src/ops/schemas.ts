@@ -291,7 +291,7 @@ export const itemViewSchema = z
   })
   .describe('A "from you" item: something waiting for the operator.');
 
-const statusSessionFactsSchema = z
+export const statusSessionFactsSchema = z
   .strictObject({
     ...sessionFactsSchema.shape,
     links: z

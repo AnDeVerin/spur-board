@@ -13,6 +13,7 @@ import {
   SESSION_LINK_ROLES,
 } from './enums.ts';
 import { actorPartSchema } from './ids.ts';
+import { sessionTransitionSchema } from './adapters.ts';
 import { prFactsSchema, sessionFactsSchema, ticketFactsSchema } from './facts.ts';
 
 export const EVENT_KINDS = [
@@ -113,6 +114,7 @@ export const eventPayloadSchemas = {
     from,
     to: S,
     endReason: z.enum(SESSION_END_REASONS).optional(),
+    transition: sessionTransitionSchema.optional(),
   }),
   session_facts_changed: z.looseObject({ facts: sessionFactsSchema }),
   spur_unknown_state: z.looseObject({

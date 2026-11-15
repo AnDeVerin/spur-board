@@ -24,6 +24,20 @@ export type EntityStatus = (typeof ENTITY_STATUSES)[number];
 export const sourceCursorSchema = z.string().min(1).brand<'SourceCursor'>();
 export type SourceCursor = z.output<typeof sourceCursorSchema>;
 
+/** An ordered historical edge, separate from current session snapshots. */
+export const sessionTransitionSchema = z.strictObject({
+  position: sourceCursorSchema.describe('Opaque position of this edge.'),
+  session: actorPartSchema.describe('Session identity.'),
+  spurProject: actorPartSchema.describe('Source project at event time.'),
+  at: z.iso.datetime().describe('When the producer recorded the edge.'),
+  links: z.record(z.string().min(1), z.url()).describe('Published links at event time.'),
+  dimension: z.enum(['lifecycle', 'health']).describe('Which session fact changed.'),
+  from: z.string().min(1).nullable().describe('Previous value, null on first observation.'),
+  to: z.string().min(1).describe('Observed value.'),
+  rateLimitResetAt: z.iso.datetime().optional().describe('Known rate limit reset at event time.'),
+});
+export type SessionTransition = z.output<typeof sessionTransitionSchema>;
+
 /** A requested entity: a pull request, a ticket or a session. */
 export const entityRefSchema = z.discriminatedUnion('kind', [
   prRefSchema.extend({ kind: z.literal('pr').describe('A pull request.') }),
@@ -124,6 +138,12 @@ export const batchSchema = z
       .boolean()
       .describe('Whether everything was listed without errors (A3); per-entity outcomes aside.'),
     items: z.array(batchItemSchema).describe('Facts observed in this poll.'),
+    sessionTransitions: z
+      .array(sessionTransitionSchema)
+      .optional()
+      .describe(
+        'Ordered historical edges; presence makes the feed authoritative for session lifecycle events.',
+      ),
     cursor: sourceCursorSchema
       .optional()
       .describe('Where the next poll continues; omitted when the source has none (A5).'),
@@ -161,6 +181,16 @@ export const batchSchema = z
       .describe('Request budget the source reported on this poll; omitted when it reports none.'),
   })
   .superRefine((batch, ctx) => {
+    const positions = new Set<string>();
+    batch.sessionTransitions?.forEach((edge, index) => {
+      if (positions.has(edge.position))
+        ctx.addIssue({
+          code: 'custom',
+          path: ['sessionTransitions', index, 'position'],
+          message: 'Report each transition position once',
+        });
+      positions.add(edge.position);
+    });
     const items = new Set<string>();
     batch.items.forEach((item, index) => {
       const identity = itemIdentity(item);

@@ -123,19 +123,20 @@ someone else. Answer in the existing block thread to preserve its task context.
 
 Once a `projects[].spurProjects[].shortName` is set, a new operator message in
 `slack.channels.orchestrators` starts a conversation. A leading registered
-`@shortName` selects that Spur project and is stripped from the text. With an
+`@shortName` selects that Spur project and is stripped. With an
 absent or unknown leading name, `slack.defaultAddressee` receives the complete
 text, retaining any unknown prefix; without it the Board replies once with the
 valid prefixes. A mention in the middle, or a Slack `<@U…>` mention, addresses
 nobody; an unknown name causes no lookup error. The operator checks short-name
-collisions with workspace names. A task key right after the prefix attaches the
-conversation to that task.
+collisions with workspace names. A task key right after the prefix attaches
+that task.
 
-The addressee is rung with the block ID, reads the text in `board inbox` and
-replies in the thread with `board answer`. An operator-role addressee posts as
-`board`, a column orchestrator on its column's task as orchestrator. Each
-operator thread message rings it again; `close` or ✅ in the thread closes it.
-While no live session can take it, `board status` lists it as waiting.
+The addressee is rung with the block ID, reads it in `board inbox` and replies
+in the thread with `board answer`. Each operator thread message rings it again;
+`close` or ✅ in the thread closes it. Replies use
+`projects[].spurProjects[].displayName` and `icon`, else the project name and
+role icon (`board` for operator roles). With no live session,
+`board status` lists it as waiting.
 
 ## Done follows the ticket
 
