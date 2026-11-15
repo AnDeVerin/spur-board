@@ -1,8 +1,21 @@
 import { AdapterError, batchSchema, type PollContext } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startRunner, type AdapterRunner, type PollFailure } from '../../src/runner/runner.ts';
-import { createSpurAdapter, type SpurNotice } from '../../src/spur/spur.ts';
+import {
+  createSpurAdapter as createRealSpurAdapter,
+  type SpurNotice,
+} from '../../src/spur/spur.ts';
 import { createFakeCore } from '../../src/testing.ts';
+
+// Legacy snapshot cases use an explicitly synthetic empty transition feed.
+const createSpurAdapter: typeof createRealSpurAdapter = (options) =>
+  createRealSpurAdapter({
+    ...options,
+    fetch: (input, init) =>
+      requestUrl(input).pathname === '/sessions/transitions'
+        ? Promise.resolve(response({ entries: [], nextCursor: 'synthetic-empty', hasMore: false }))
+        : (options.fetch ?? fetch)(input, init),
+  });
 
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
 const defaults = {
@@ -75,6 +88,8 @@ describe('Spur adapter', () => {
     expect(batchSchema.parse(batch)).toEqual(batch);
     expect(batch).toEqual({
       source: 'spur',
+      cursor: 'synthetic-empty',
+      sessionTransitions: [],
       observedAt: at(0),
       complete: true,
       items: [

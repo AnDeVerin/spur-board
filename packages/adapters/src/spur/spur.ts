@@ -7,6 +7,8 @@ import {
   parseRingMarker,
   prRefSchema,
   sessionFactsSchema,
+  sessionTransitionSchema,
+  sourceCursorSchema,
   type Adapter,
   type Batch,
   type PollContext,
@@ -23,6 +25,7 @@ const sessionWire = z.object({
   branch: z.string().nullable().optional(),
   status: z.string().min(1),
   state: z.string().min(1),
+  rateLimitResetAt: z.iso.datetime().optional(),
   lastActivityAt: z.iso.datetime().nullable().optional(),
   slots: z
     .object({
@@ -30,6 +33,22 @@ const sessionWire = z.object({
     })
     .optional(),
   queuedMessages: z.object({ messages: z.array(z.string()) }).optional(),
+});
+const transitionWire = z.object({
+  cursor: z.string().min(1),
+  sessionId: z.string().min(1),
+  project: z.string().min(1),
+  at: z.iso.datetime(),
+  links: z.array(z.object({ label: z.string().min(1), url: z.url() })),
+  kind: z.enum(['status', 'state']),
+  from: z.string().min(1).nullable(),
+  to: z.string().min(1),
+  rateLimitResetAt: z.iso.datetime().optional(),
+});
+const transitionsWire = z.object({
+  entries: z.array(transitionWire).max(1000),
+  nextCursor: sourceCursorSchema,
+  hasMore: z.boolean(),
 });
 type SessionWire = z.output<typeof sessionWire>;
 
@@ -93,7 +112,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
     }, REQUEST_TIMEOUT_MS);
     try {
       const response = await fetchImpl(new URL(path, base), { signal: controller.signal });
-      if (!response.ok) return { response };
+      if (!response.ok && response.status !== 410) return { response };
       try {
         return { response, body: await response.json() };
       } catch (error) {
@@ -172,6 +191,11 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
       lifecycle: wire.status,
       health: state.stable,
       healthSince: state.since,
+      ...(wire.state === 'rate_limited' &&
+      state.stable === 'rate_limited' &&
+      wire.rateLimitResetAt !== undefined
+        ? { rateLimitResetAt: wire.rateLimitResetAt }
+        : {}),
       lastActivityAt: wire.lastActivityAt ?? null,
       endedAt: endReason === null ? null : observedAt,
       endReason,
@@ -184,6 +208,56 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
     intervalMs: options.intervalMs,
     async poll(ctx: PollContext): Promise<Batch> {
       const observedAt = new Date(options.now()).toISOString();
+      let cursor = ctx.cursor;
+      const sessionTransitions: NonNullable<Batch['sessionTransitions']> = [];
+      const positions = new Set<string>();
+      for (let page = 0; page < 4; page++) {
+        const query = new URLSearchParams({ limit: '1000', kinds: 'status,state' });
+        if (cursor !== undefined) query.set('since', cursor);
+        const { response, body } = await request(
+          `sessions/transitions?${query.toString()}`,
+          ctx.signal,
+        );
+        if (response.status === 410) {
+          cursor = parseWire(
+            z.object({ latestCursor: sourceCursorSchema }),
+            body,
+            'Invalid Spur expired cursor',
+          ).latestCursor;
+          sessionTransitions.length = 0;
+          break;
+        }
+        if (!response.ok)
+          throw classifyHttpFailure(
+            { status: response.status, headers: response.headers },
+            options.now(),
+          );
+        const feed = parseWire(transitionsWire, body, 'Invalid Spur transitions');
+        for (const entry of feed.entries) {
+          if (positions.has(entry.cursor) || entry.cursor === cursor)
+            throw new AdapterError('transient', 'Repeated Spur transition position');
+          positions.add(entry.cursor);
+          sessionTransitions.push(
+            sessionTransitionSchema.parse({
+              position: entry.cursor,
+              session: entry.sessionId,
+              spurProject: entry.project,
+              at: entry.at,
+              links: Object.fromEntries(entry.links.map(({ label, url }) => [label, url])),
+              dimension: entry.kind === 'status' ? 'lifecycle' : 'health',
+              from: entry.from,
+              to: entry.to,
+              ...(entry.rateLimitResetAt === undefined
+                ? {}
+                : { rateLimitResetAt: entry.rateLimitResetAt }),
+            }),
+          );
+        }
+        if (feed.hasMore && (feed.nextCursor === cursor || feed.entries.length === 0))
+          throw new AdapterError('transient', 'Spur transitions made no progress');
+        cursor = feed.nextCursor;
+        if (!feed.hasMore) break;
+      }
       const { response: listResponse, body: listBody } = await request('sessions', ctx.signal);
       if (!listResponse.ok) {
         throw classifyHttpFailure(
@@ -258,6 +332,8 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
         complete: true,
         items,
         entities,
+        sessionTransitions,
+        ...(cursor === undefined ? {} : { cursor }),
       };
       if (restartNotice) await options.onNotice?.(restartNotice);
       for (const wire of [...listed, ...detail.values()]) {
