@@ -108,8 +108,8 @@ export async function reconcileItems(
   now: number,
   spurComplete: boolean,
   warnSkipped?: WarnSkipped,
-  /** First complete Spur batch of this core, even when it precedes a tick or status report. */
-  firstSpurObservationAt?: number,
+  /** Fresh complete Spur batch after startup or an expired observation interval. */
+  spurContinuityStartAt?: number,
 ): Promise<void> {
   const candidates: ItemCandidate[] = [];
   const sources = await trx.selectFrom('source_state').selectAll().execute();
@@ -442,15 +442,20 @@ export async function reconcileItems(
     observationRow === undefined
       ? { blind: false, observedAt: null, resumedAt: null }
       : parseJson(stallObservationSchema, observationRow.value);
+  const spurExpired =
+    spur?.last_complete_at != null &&
+    now >
+      Date.parse(spur.last_complete_at) +
+        config.adapters.spur.intervalMs * config.thresholds.staleMultiplier;
   const observation =
-    spurBlind || !spurComplete
+    spurBlind || !spurComplete || spurExpired
       ? {
           ...previousObservation,
           blind: true,
           observedAt: spurComplete ? (spur?.observed_at ?? null) : null,
         }
-      : firstSpurObservationAt !== undefined
-        ? { blind: false, observedAt: spur?.observed_at ?? null, resumedAt: firstSpurObservationAt }
+      : spurContinuityStartAt !== undefined
+        ? { blind: false, observedAt: spur?.observed_at ?? null, resumedAt: spurContinuityStartAt }
         : previousObservation.blind &&
             spur?.observed_at != null &&
             spur.observed_at !== previousObservation.observedAt

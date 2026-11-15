@@ -2320,10 +2320,16 @@ describe('anomaly blocks', () => {
   type Items = Parameters<ReturnType<typeof setup>['core']['observe']>[1]['batch']['items'];
 
   async function board(testConfig = config, key = 'o/r#9') {
-    const ctx = setup(testConfig);
+    // These cases advance health clocks without a live poll timer. Isolate their health
+    // boundaries with a long source window; expiry cases select a shorter poll interval.
+    const fixtureConfig = configSchema.parse({
+      ...testConfig,
+      thresholds: { ...testConfig.thresholds, staleMultiplier: 1000 },
+    });
+    const ctx = setup(fixtureConfig);
     await ctx.apply(ctx.mutations.add, { task: key }, 'operator');
     const task = await ctx.store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow();
-    return { ...ctx, task, config: testConfig };
+    return { ...ctx, task, config: fixtureConfig };
   }
   type Board = Awaited<ReturnType<typeof board>>;
 
@@ -2485,77 +2491,88 @@ describe('anomaly blocks', () => {
     },
   );
 
-  it.each(['needs_input', 'error', 'rate_limited', 'stopped'] as const)(
-    'restarts unproven %s continuity after an observation gap',
-    async (health) => {
-      for (const gap of [
+  it.each(
+    (['needs_input', 'error', 'rate_limited', 'stopped'] as const).flatMap((health) =>
+      [
         'same core',
         'new core',
         'status before snapshot',
         'startup poll first',
         'startup tick first',
         'startup status first',
-      ]) {
-        const b = await board();
-        const original = session('worker-1', health, {
-          lifecycle: health === 'stopped' ? 'stopped' : 'running',
-        });
-        await spur(b, [original]);
-        await heldTurn(b);
-        now += 300_000;
-        await tick(b);
-        expect(await openLedger(b)).toEqual([]);
-        if (!gap.startsWith('startup '))
-          await b.core.reportSourceState('spur', {
-            lastCompleteAt: iso(),
-            blind: { reason: 'stale', message: 'Offline' },
-            gone: [],
-          });
-        now += 3_600_000;
-        const resumed =
-          gap === 'new core' || gap.startsWith('startup ')
-            ? { ...b, core: createObservationCore({ store: b.store, config, clock }) }
-            : b;
-        if (gap === 'startup status first')
-          await resumed.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
-        if (gap !== 'startup poll first') await tick(resumed);
-        expect(await openLedger(b)).toEqual([]);
-        if (gap === 'status before snapshot') {
-          await resumed.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
-          await tick(resumed);
-          expect(await openLedger(b)).toEqual([]);
-        }
-        await spur(resumed, [original]);
-        expect(await openLedger(b)).toEqual([]);
-        now += config.health.turnStallAfterMs - 1;
-        await spur(resumed, [original]);
-        await tick(resumed);
-        expect(await openLedger(b)).toEqual([]);
-        now += 1;
-        await tick(resumed);
-        const opened = await surface(b);
-        expect(opened.blocks).toHaveLength(1);
-        expect(opened.blocks[0]?.state).toBe('open');
-        expect(opened.blocks[0]?.reason).toContain('elapsed 600000 ms');
-        const holding = gap.startsWith('startup ')
-          ? { ...resumed, core: createObservationCore({ store: b.store, config, clock }) }
-          : resumed;
-        if (!gap.startsWith('startup '))
-          await holding.core.reportSourceState('spur', {
-            lastCompleteAt: iso(),
-            blind: { reason: 'stale', message: 'Offline again' },
-            gone: [],
-          });
-        now += 3_600_000;
-        if (gap === 'startup status first')
-          await holding.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
-        if (gap !== 'startup poll first') await tick(holding);
-        expect((await surface(b)).blocks).toEqual(opened.blocks);
-        await spur(holding, [original]);
-        expect((await surface(b)).blocks).toEqual(opened.blocks);
-      }
-    },
-  );
+        'unpublished tick first',
+        'unpublished poll first',
+      ].map((gap) => ({ health, gap })),
+    ),
+  )('restarts unproven $health continuity after $gap', async ({ health, gap }) => {
+    const b = await board(
+      gap.startsWith('unpublished ')
+        ? configSchema.parse({
+            ...config,
+            adapters: {
+              ...config.adapters,
+              spur: { ...config.adapters.spur, intervalMs: 2000 },
+            },
+          })
+        : config,
+    );
+    const original = session('worker-1', health, {
+      lifecycle: health === 'stopped' ? 'stopped' : 'running',
+    });
+    await spur(b, [original]);
+    await heldTurn(b);
+    now += 300_000;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    if (!gap.startsWith('startup ') && !gap.startsWith('unpublished '))
+      await b.core.reportSourceState('spur', {
+        lastCompleteAt: iso(),
+        blind: { reason: 'stale', message: 'Offline' },
+        gone: [],
+      });
+    now += 3_600_000;
+    const resumed =
+      gap === 'new core' || gap.startsWith('startup ')
+        ? { ...b, core: createObservationCore({ store: b.store, config: b.config, clock }) }
+        : b;
+    if (gap === 'startup status first')
+      await resumed.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
+    if (gap !== 'startup poll first' && gap !== 'unpublished poll first') await tick(resumed);
+    expect(await openLedger(b)).toEqual([]);
+    if (gap === 'status before snapshot') {
+      await resumed.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
+      await tick(resumed);
+      expect(await openLedger(b)).toEqual([]);
+    }
+    await spur(resumed, [original]);
+    expect(await openLedger(b)).toEqual([]);
+    now += config.health.turnStallAfterMs - 1;
+    await spur(resumed, [original]);
+    await tick(resumed);
+    expect(await openLedger(b)).toEqual([]);
+    now += 1;
+    await tick(resumed);
+    const opened = await surface(b);
+    expect(opened.blocks).toHaveLength(1);
+    expect(opened.blocks[0]?.state).toBe('open');
+    expect(opened.blocks[0]?.reason).toContain('elapsed 600000 ms');
+    const holding = gap.startsWith('startup ')
+      ? { ...resumed, core: createObservationCore({ store: b.store, config: b.config, clock }) }
+      : resumed;
+    if (!gap.startsWith('startup ') && !gap.startsWith('unpublished '))
+      await holding.core.reportSourceState('spur', {
+        lastCompleteAt: iso(),
+        blind: { reason: 'stale', message: 'Offline again' },
+        gone: [],
+      });
+    now += 3_600_000;
+    if (gap === 'startup status first')
+      await holding.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
+    if (gap !== 'startup poll first' && gap !== 'unpublished poll first') await tick(holding);
+    expect((await surface(b)).blocks).toEqual(opened.blocks);
+    await spur(holding, [original]);
+    expect((await surface(b)).blocks).toEqual(opened.blocks);
+  });
 
   it.each(['same executor', 'different curator', 'healthy replacement curator'] as const)(
     'routes stalled curator-column turns with %s',
@@ -2723,7 +2740,10 @@ describe('anomaly blocks', () => {
     expect(first.reason).not.toContain(`B${String(questions[2]?.id)}`);
     expect(first.reason).not.toContain(`B${String(questions[3]?.id)}`);
     now += 60_000;
-    const restarted = { ...b, core: createObservationCore({ store: b.store, config, clock }) };
+    const restarted = {
+      ...b,
+      core: createObservationCore({ store: b.store, config: b.config, clock }),
+    };
     await spur(restarted, [{ ...stalled, rateLimitResetAt: '2099-02-01T00:00:00.000Z' }]);
     expect((await surface(b)).blocks.find((block) => block.author === 'system')).toEqual(first);
     await b.apply(
