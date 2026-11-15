@@ -175,13 +175,13 @@
                   "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
                 },
                 "displayName": {
-                  "description": "The name a curator's answer lines in the feed are posted under. Defaults to the Spur project name. Only for a curator.",
+                  "description": "The name Slack messages this Spur project's sessions write are posted under: block threads and replies, and a curator's answer lines in the feed. Defaults to the Spur project name.",
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 80
                 },
                 "icon": {
-                  "description": "The emoji shortcode, such as :owl:, shown on a curator's answer lines in the feed instead of the curator icon. Only for a curator.",
+                  "description": "The emoji shortcode, such as :owl:, shown on those messages instead of the role icon.",
                   "type": "string",
                   "pattern": "^:[a-z0-9_+'-]+:$"
                 }

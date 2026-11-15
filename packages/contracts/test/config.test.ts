@@ -305,19 +305,16 @@ describe('fixtures', () => {
     ).toEqual(['curator-a', 'curator-b']);
   });
 
-  it('accepts a curator display name and icon', () => {
-    const config = configSchema.parse(
-      validConfig({
-        spurProjects: [
-          { name: 'worker-a', role: 'worker' },
-          { name: 'cur', role: 'curator', displayName: 'Cur Bot', icon: ':owl:' },
-        ],
-      }),
-    );
-    expect(config.projects[0]?.spurProjects).toEqual([
+  it('accepts a display name and icon on every role', () => {
+    const spurProjects = [
       { name: 'worker-a', role: 'worker' },
+      { name: 'worker-b', role: 'worker', displayName: 'Worker B' },
+      { name: 'board-pm', role: 'operator', displayName: 'PM', icon: ':memo:' },
+      { name: 'orch', role: 'orchestrator', displayName: 'Orch', icon: ':gear:' },
       { name: 'cur', role: 'curator', displayName: 'Cur Bot', icon: ':owl:' },
-    ]);
+    ];
+    const config = configSchema.parse(validConfig({ spurProjects }));
+    expect(config.projects[0]?.spurProjects).toEqual(spurProjects);
   });
 
   it('accepts short names and a default addressee, and leaves both unset by default', () => {
@@ -653,12 +650,6 @@ describe('invalid configs', () => {
       }),
       'Second curator "curator-b": "curator-a" is already the curator of this board project',
       'projects[0].spurProjects[1].role',
-    ],
-    [
-      'display name on a worker',
-      validConfig({ spurProjects: [{ name: 'worker-a', role: 'worker', displayName: 'Worker' }] }),
-      'displayName and icon apply only to a curator',
-      'projects[0].spurProjects[0].displayName',
     ],
     [
       'icon that is not an emoji shortcode',
