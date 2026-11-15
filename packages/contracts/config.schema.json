@@ -617,6 +617,13 @@
       "default": {},
       "type": "object",
       "properties": {
+        "turnStallAfterMs": {
+          "default": 600000,
+          "description": "How long an unhealthy open-turn executor waits before a curator or operator block in milliseconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
         "errorAfterMs": {
           "default": 90000,
           "description": "How long a session stays in error before it is flagged in milliseconds.",

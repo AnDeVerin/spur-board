@@ -2442,6 +2442,46 @@ describe('anomaly blocks', () => {
     return { reminder, outboxId: reminder.last_outbox_id };
   }
 
+  it.each(['needs_input', 'error', 'rate_limited', 'stopped'] as const)(
+    'times an open-turn executor in %s from its health episode',
+    async (health) => {
+      const b = await board();
+      await spur(b, [session('worker-1', health)]);
+      const turn = await heldTurn(b);
+      now += 600_000 - 1;
+      await tick(b);
+      expect(await openLedger(b)).toEqual([]);
+      now += 1;
+      await tick(b);
+      const state = await surface(b);
+      expect(state.blocks).toHaveLength(1);
+      expect(state.blocks[0]).toEqual(
+        expect.objectContaining({
+          state: 'open',
+          author: 'system',
+          addressee_role: 'operator',
+          type: 'needs_input',
+        }),
+      );
+      expect(state.blocks[0]?.reason).toContain(`turn T${String(turn.id)}`);
+      expect(state.blocks[0]?.reason).toContain(`worker-1 remains ${health} since ${at}`);
+      expect(state.blocks[0]?.reason).toContain('600000 ms');
+      if (health === 'rate_limited')
+        expect(state.blocks[0]?.reason).toContain('quota name unavailable');
+      now += 60_000;
+      await tick(b);
+      expect((await surface(b)).blocks).toEqual(state.blocks);
+      await closeTurn(b);
+      await tick(b);
+      expect(
+        (await surface(b)).items.filter(
+          (item) => item.item_key.startsWith('turn-stall:') && item.cleared_at === null,
+        ),
+      ).toEqual([]);
+      expect((await surface(b)).blocks[0]?.outcome).toBe('withdrawn');
+    },
+  );
+
   it('opens one block for a session in error and closes it on recovery', async () => {
     const b = await board();
     await spur(b, [session('worker-1', 'error')]);

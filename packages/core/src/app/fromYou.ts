@@ -37,7 +37,8 @@ import {
   type Trx,
 } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
-import { bestProjectSession } from './doorbells.ts';
+import { bestProjectSession, selectNotificationRecipient } from './doorbells.ts';
+import { curatorProject } from './authorize.ts';
 import { TASKLESS_ITEM_URL, type RaiseItemInput } from './item-raise.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { quietTurns, stuckTurnAfterMs } from './turns.ts';
@@ -423,6 +424,114 @@ export async function reconcileItems(
       revision: 'closed',
     });
   }
+  // Diagnose turns separately from delivery: a stopped session cannot receive a ring.
+  const stalled = new Set<string>();
+  const stallHeld = new Set<string>();
+  const turns = await trx.selectFrom('turn').selectAll().where('closed_at', 'is', null).execute();
+  for (const turn of turns) {
+    const task = taskById.get(turn.task_id);
+    if (task === undefined || turn.role === 'operator') continue;
+    const holder = turn.acked_by === null ? null : parseActorId(turn.acked_by);
+    let executor =
+      holder?.actor === 'agent'
+        ? await trx
+            .selectFrom('session_snapshot')
+            .selectAll()
+            .where('id', '=', holder.actorRef.session)
+            .executeTakeFirst()
+        : turn.acked_at === null
+          ? await selectNotificationRecipient(
+              trx,
+              { task_id: task.id, role: turn.role, author_session: null },
+              config,
+            )
+          : undefined;
+    if (executor === undefined && turn.acked_at === null) {
+      const project = config.projects.find((entry) => entry.id === task.project);
+      const target = project?.columns.find((entry) => entry.id === turn.column)?.orchestrator;
+      const stopped = await trx
+        .selectFrom('session_snapshot')
+        .selectAll()
+        .where('state', '=', 'stopped')
+        .where('ended_at', 'is', null)
+        .where('absent_since', 'is', null)
+        .orderBy('first_seen', 'desc')
+        .orderBy('id')
+        .execute();
+      for (const row of stopped) {
+        const linked =
+          turn.role === 'worker'
+            ? await trx
+                .selectFrom('link')
+                .select('id')
+                .where('task_id', '=', task.id)
+                .where('session_id', '=', row.id)
+                .where('role', '=', 'worker')
+                .where('banned', '=', 0)
+                .executeTakeFirst()
+            : undefined;
+        if (linked !== undefined || (turn.role !== 'worker' && row.spur_project === target)) {
+          executor = row;
+          break;
+        }
+      }
+    }
+    if (executor === undefined || executor.ended_at !== null || executor.absent_since !== null)
+      continue;
+    if (turn.role === 'worker') {
+      const removed = await trx
+        .selectFrom('link')
+        .select('id')
+        .where('task_id', '=', task.id)
+        .where('session_id', '=', executor.id)
+        .where('banned', '=', 1)
+        .executeTakeFirst();
+      if (removed !== undefined) continue;
+    }
+    const parsed = sessionFactsSchema.safeParse(JSON.parse(executor.detail));
+    if (!parsed.success) continue;
+    const fact = parsed.data;
+    if (!['needs_input', 'error', 'rate_limited', 'stopped'].includes(fact.health)) continue;
+    const since = Math.max(Date.parse(turn.created_at), Date.parse(fact.healthSince));
+    if (!Number.isFinite(since)) continue;
+    stalled.add(`${String(task.id)}:${fact.id}`);
+    const key = `turn-stall:${String(turn.id)}:${fact.id}:${fact.health}:${fact.healthSince}`;
+    stallHeld.add(key);
+    if (spurBlind || now - since < config.health.turnStallAfterMs) continue;
+    const questions = blocks
+      .filter((block) => {
+        const author = parseActorId(block.author);
+        return (
+          block.task_id === task.id &&
+          author?.actor === 'agent' &&
+          author.actorRef.project === fact.spurProject &&
+          author.actorRef.session === fact.id
+        );
+      })
+      .map((block) => `B${String(block.id)}`);
+    const quota =
+      fact.health === 'rate_limited'
+        ? `; quota name unavailable; reset ${fact.rateLimitResetAt ?? 'unknown'}`
+        : '';
+    // The opening evidence is frozen even if reset metadata or elapsed time changes later.
+    const previous = await trx
+      .selectFrom('operator_item')
+      .select('text')
+      .where('item_key', '=', key)
+      .orderBy('id')
+      .executeTakeFirst();
+    candidates.push({
+      key,
+      kind: 'anomaly',
+      taskId: task.id,
+      summary:
+        previous?.text ??
+        `${task.key}: turn T${String(turn.id)} executor ${fact.id} remains ${fact.health} since ${fact.healthSince}; turn-relative elapsed ${String(now - since)} ms${quota}${questions.length === 0 ? '' : `; open executor questions: ${questions.join(', ')}`}`,
+      factAt: fact.healthSince,
+      source: 'spur',
+      priority: 4,
+    });
+  }
   const previousEpisode = await trx
     .selectFrom('meta')
     .select('value')
@@ -452,6 +561,11 @@ export async function reconcileItems(
     const fact = subjects.find(
       (subject) => subject.taskId === flag.taskId && subject.id === flag.sessionId,
     );
+    if (
+      ['stuck_worker', 'stuck_orchestrator', 'needs_input'].includes(flag.kind) &&
+      stalled.has(`${flag.taskId}:${flag.sessionId}`)
+    )
+      continue;
     const endedLabel = ENDED_WORKER_LABELS[flag.kind];
     // A session waiting on its own board question already has the operator's attention.
     const asking =
@@ -520,7 +634,8 @@ export async function reconcileItems(
   const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {
     const task = taskById.get(Number(flag.taskId));
-    if (task !== undefined) seen.add(healthKey(task.id, flag));
+    if (task !== undefined && !stalled.has(`${flag.taskId}:${flag.sessionId}`))
+      seen.add(healthKey(task.id, flag));
   }
   const existing = await trx
     .selectFrom('operator_item')
@@ -535,7 +650,10 @@ export async function reconcileItems(
       : subjects
           .filter(
             (subject) =>
-              subject.endedAt === null && subject.health === 'error' && subject.role !== 'other',
+              subject.endedAt === null &&
+              subject.health === 'error' &&
+              subject.role !== 'other' &&
+              !stalled.has(`${subject.taskId}:${subject.id}`),
           )
           .map((subject) =>
             healthKey(Number(subject.taskId), {
@@ -545,7 +663,8 @@ export async function reconcileItems(
             }),
           ),
   );
-  const spurHeld = spurBlind ? await blindHeldKeys(trx, subjects) : new Set();
+  const spurHeld = spurBlind ? await blindHeldKeys(trx, subjects) : new Set<string>();
+  if (spurBlind) for (const key of stallHeld) spurHeld.add(key);
   for (const item of existing) {
     if (item.kind !== ('anomaly' satisfies ItemKind)) continue;
     // Spur-derived blocks wait out a blind Spur, and error blocks a host-load episode.
@@ -647,6 +766,9 @@ async function raiseAnomaly(
     reason: input.text.startsWith(prefix) ? input.text.slice(prefix.length) : input.text,
     at: input.at.toISOString(),
     config,
+    ...(input.itemKey.startsWith('turn-stall:') && curatorProject(config, task.project) !== null
+      ? { addressee: 'curator' as const }
+      : {}),
   });
   return raiseItem(trx, { ...input, taskId: task.id, blockId: block.id });
 }
