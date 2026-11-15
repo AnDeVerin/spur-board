@@ -1338,6 +1338,57 @@ describe('on-demand PR poll', () => {
     });
   });
 
+  it.each(['not_found', 'invalid', 'rejected', 'expired'] as const)(
+    'preserves live miss counts when a demand read is %s',
+    async (mode) => {
+      random(0);
+      const held = deferred<Batch>();
+      const { core, runner } = start(
+        () =>
+          Promise.resolve(
+            batch({
+              complete: false,
+              entities: [{ ref: pr, status: 'no_access' }],
+            }),
+          ),
+        {
+          core: {
+            context: () => ({ ...context({ prs: [pr] }), missCounts: [{ ref: pr, count: 3 }] }),
+            observe: (_, observation) => {
+              if (mode === 'rejected' && observation.batch.items.length > 0)
+                throw new Error('Reject facts');
+            },
+          },
+          pollPr: () =>
+            mode === 'expired'
+              ? held.promise
+              : Promise.resolve(
+                  mode === 'not_found'
+                    ? demandNotFound()
+                    : mode === 'invalid'
+                      ? demandOk({ source: 'other' })
+                      : demandOk(),
+                ),
+        },
+      );
+      await flush();
+      const pending = runner.pollPr?.('github', pr, { timeoutMs: 100 });
+      if (mode === 'expired') {
+        await advanceTo(100);
+        held.resolve(demandOk());
+      }
+      const result = await pending;
+      expect(result).toMatchObject(
+        mode === 'not_found' ? { ok: true, value: { status: 'not_found' } } : { ok: false },
+      );
+      await advanceTo(I);
+      expect(core.observed.at(-1)?.observation.outcomes).toEqual([
+        { ref: pr, misses: 3, gone: true },
+      ]);
+      expect(core.states.at(-1)?.state.gone).toEqual([pr]);
+    },
+  );
+
   it('answers not_found without an item', async () => {
     const { runner } = start(() => Promise.resolve(batch()), {
       pollPr: () => Promise.resolve(demandNotFound()),

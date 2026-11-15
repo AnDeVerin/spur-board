@@ -521,7 +521,18 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
         if (!live()) return;
         if (stopping) return err(stoppedError);
         observing();
-        const committed = state();
+        // Full positive demand facts recover this PR just like an ordinary ok outcome.
+        // Stage recovery until core accepts it; rejected/expired reads cannot change counts.
+        const recoveredKey = value.status === 'ok' ? entityKey(ref).toLowerCase() : undefined;
+        const recoveredCounts =
+          recoveredKey === undefined
+            ? counts
+            : new Map([...counts].filter(([key]) => key.toLowerCase() !== recoveredKey));
+        const recoveredGone =
+          recoveredKey === undefined
+            ? gone
+            : gone.filter((known) => entityKey(known).toLowerCase() !== recoveredKey);
+        const committed = { ...state(), gone: recoveredGone };
         await core.observe(source, {
           batch: parsed.data,
           effectiveComplete: false,
@@ -529,6 +540,8 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
           outcomes: [],
         });
         usage = undefined;
+        counts = recoveredCounts;
+        gone = recoveredGone;
         lastReported = JSON.stringify(committed);
         return ok(value);
       });
