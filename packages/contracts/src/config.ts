@@ -565,16 +565,13 @@ function rejectSharedShortNames(
   });
 }
 
-/** The roles a top-level `spurProjects` entry can take; workers and curators stay per project. */
-export const BOARD_WIDE_ROLES = ['orchestrator', 'operator'] as const;
-
 /** A Spur project bound for every board project at once, in top-level `spurProjects`. */
 const boardWideEntry = z.strictObject({
   name: spurProject.shape.name.describe(
     'The name of the project in Spur. It must not also be listed under any projects[].spurProjects, and none and operator are reserved.',
   ),
   role: z
-    .enum(BOARD_WIDE_ROLES)
+    .enum(['orchestrator', 'operator'])
     .describe(
       "orchestrator: sessions execute the listed columns in every board project that enables the column and leaves its orchestrator at none. operator: sessions act as the operator of every board project that lists no operator of its own; while one exists, a project's own operator acts only in its project. At most one operator.",
     ),
@@ -1069,8 +1066,8 @@ export interface OperatorBinding {
 }
 
 export interface ConfigBindings {
-  readonly columns: readonly ColumnBinding[];
-  readonly operators: readonly OperatorBinding[];
+  readonly columns: ColumnBinding[];
+  readonly operators: OperatorBinding[];
   readonly defaultAddressee: DefaultAddressee | null;
 }
 
