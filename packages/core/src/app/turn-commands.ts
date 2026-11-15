@@ -386,9 +386,9 @@ export function createTurnMutations(deps: {
 }) {
   const { config, prPoller, completeSince } = deps;
   /** Dispatches the task after the command's change and returns its fresh row. */
-  async function dispatched(trx: Trx, taskId: number, at: string): Promise<Task> {
-    await dispatchTasks(trx, [taskId], { config, at: new Date(at), complete: completeSince });
-    return taskById(trx, taskId);
+  async function dispatched(trx: Trx, id: number, at: string, actor: ActorId): Promise<Task> {
+    await dispatchTasks(trx, [id], { config, at: new Date(at), complete: completeSince, actor });
+    return taskById(trx, id);
   }
   async function submitShadow(
     trx: Trx,
@@ -423,7 +423,7 @@ export function createTurnMutations(deps: {
       ctx.actor,
     );
     return {
-      task: taskView(await dispatched(trx, task.id, ctx.at)),
+      task: taskView(await dispatched(trx, task.id, ctx.at, ctx.actor)),
       turn: null,
       sha: input.sha,
       status: 'confirmed' as const,
@@ -475,7 +475,7 @@ export function createTurnMutations(deps: {
         ctx.actor,
       );
       return {
-        task: taskView(await dispatched(trx, task.id, ctx.at)),
+        task: taskView(await dispatched(trx, task.id, ctx.at, ctx.actor)),
         turn: input.turn,
         sha: input.sha,
         status: confirmed === 'pending' ? ('pending' as const) : ('confirmed' as const),
@@ -505,7 +505,7 @@ export function createTurnMutations(deps: {
         turn: turnLabel(turn.id),
         block: `B${String(block.id)}`,
       });
-      const moved = await dispatched(trx, task.id, ctx.at);
+      const moved = await dispatched(trx, task.id, ctx.at, ctx.actor);
       return { task: taskView(moved), block: blockView(block, taskSubject(moved)) };
     },
   };
@@ -568,7 +568,7 @@ export function createTurnMutations(deps: {
         reason: input.reason,
         config,
       });
-      const settled = await dispatched(trx, task.id, ctx.at);
+      const settled = await dispatched(trx, task.id, ctx.at, ctx.actor);
       return {
         task: taskView(settled),
         from: corrected.from,
