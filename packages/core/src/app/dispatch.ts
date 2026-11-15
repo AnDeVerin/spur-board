@@ -42,7 +42,9 @@ import { raiseCycleLimit } from './fromYou.ts';
 import {
   carriedFeedback,
   closeTurns,
+  editBaselines,
   isNewer,
+  isNewerEdit,
   openTurn,
   recalledFeedback,
   sameHanded,
@@ -388,7 +390,8 @@ function externalApproval(pr: PrFacts, agentLogin: string): boolean {
  * by its own state, or, in a snapshot written before entries had one, when it matches the
  * reviewer's latest approval. An entry is handled once a turn handed it over, or an older one,
  * unless a correction or a reroute closed that turn untaken, or once a handling submission
- * (`handlingSubmits`) on this PR was made at or after it. The entries such an untaken turn handed
+ * (`handlingSubmits`) on this PR was made at or after it and its last edit. An edit after the
+ * entry's baseline (`editBaselines`) makes it unhandled again, so it is handed once per edit. The entries such an untaken turn handed
  * over come from the turn when a later poll dropped them from the snapshot (`recalledFeedback`).
  * A reviewer service's status comment (`statusComment`) never counts, and neither a recall nor a
  * reroute hands one over again (`withoutStatusComments` in `turns.ts`).
@@ -428,10 +431,14 @@ async function unhandledFeedback(
   const recalled = (
     await recalledFeedback(trx, { kind: 'pr', repo: pr.repo, number: pr.number })
   ).filter((entry) => !fromSnapshot.some((old) => sameHanded(old, entry)));
-  return [...recalled, ...fromSnapshot].filter(
-    (entry) =>
-      !(Date.parse(entry.postedAt) <= newest) && (cursor === undefined || isNewer(entry, cursor)),
-  );
+  const baseline = await editBaselines(trx, { kind: 'pr', repo: pr.repo, number: pr.number });
+  return [...recalled, ...fromSnapshot].filter((entry) => {
+    const edited = entry.editedAt === undefined ? -Infinity : Date.parse(entry.editedAt);
+    return (
+      !(Math.max(Date.parse(entry.postedAt), edited) <= newest) &&
+      (cursor === undefined || isNewer(entry, cursor) || edited > baseline(entry))
+    );
+  });
 }
 
 /**
@@ -546,6 +553,9 @@ function handedOf(pr: PrFacts, entry: NonNullable<PrFacts['feedback']>[number]):
     kind: entry.kind,
     id: entry.id,
     postedAt: entry.postedAt,
+    ...(entry.url === undefined ? {} : { url: entry.url }),
+    ...(entry.editedAt === undefined ? {} : { editedAt: entry.editedAt }),
+    ...(entry.comments === undefined ? {} : { comments: entry.comments }),
   };
 }
 
@@ -979,9 +989,13 @@ async function applyOn(
   const replaced = turn.kind === 'reroute' ? read.unclosed : undefined;
   if (replaced !== undefined) await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
   // A reroute carries the feedback the replaced turn handed over; the cursor already counts it.
+  // An entry edited since comes as the newer copy.
   const carried = replaced === undefined ? [] : await carriedFeedback(trx, replaced);
   const handed = [
-    ...carried,
+    ...carried.map((old) => {
+      const fresh = read.handed.find((entry) => sameHanded(old, entry));
+      return fresh !== undefined && isNewerEdit(fresh, old) ? fresh : old;
+    }),
     ...read.handed.filter((entry) => !carried.some((old) => sameHanded(old, entry))),
   ];
   const reason =

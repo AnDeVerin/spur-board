@@ -454,15 +454,18 @@ export async function turnFeedbackCursors(
 
 /**
  * The feedback on `ref` that the turns `turnFeedbackCursors` leaves out of `handled` handed over,
- * oldest first and once each. A later poll may have dropped these entries from the PR snapshot,
- * and the poll cursor, which still counts those turns, never pages back to them.
+ * oldest first and once each, as the copy with the newest edit. A later poll may have dropped
+ * these entries from the PR snapshot, and the poll cursor, which still counts those turns, never
+ * pages back to them.
  */
 export async function recalledFeedback(db: Trx, ref: PrEntityRef): Promise<Handed[]> {
   const entries: Handed[] = [];
   for (const row of await prTurns(db, [ref])) {
     if (!isRecalled(row)) continue;
     for (const entry of handedOn(row, ref)) {
-      if (!entries.some((old) => sameHanded(old, entry))) entries.push(entry);
+      const index = entries.findIndex((old) => sameHanded(old, entry));
+      if (index === -1) entries.push(entry);
+      else if (isNewerEdit(entry, entries[index] as Handed)) entries[index] = entry;
     }
   }
   return (await withoutStatusComments(db, entries)).sort((left, right) =>
@@ -502,6 +505,43 @@ async function withoutStatusComments(db: Trx, entries: readonly Handed[]): Promi
   return entries.filter((entry) => !flagged.some((old) => sameHanded(old, entry)));
 }
 
+/** Whether `left` carries a newer edit than `right`. */
+export function isNewerEdit(left: Pick<Handed, 'editedAt'>, right: Pick<Handed, 'editedAt'>) {
+  if (left.editedAt === undefined) return false;
+  return right.editedAt === undefined || Date.parse(left.editedAt) > Date.parse(right.editedAt);
+}
+
+/**
+ * The edit baseline of feedback on `ref`: an entry edited after it counts as unhandled again.
+ * Over the turns `turnFeedbackCursors` counts as `handled`, each copy of the entry gives its
+ * `editedAt`; else, with a `url`, no bound (this version handed it unedited, so any edit counts);
+ * else its turn's `created_at` (handed before entries had either). The newest copy wins. An entry
+ * no turn handed gets the earliest `created_at` of the turns that handed a newer entry, or none.
+ */
+export async function editBaselines(db: Trx, ref: PrEntityRef): Promise<(entry: Handed) => number> {
+  const turns = (await prTurns(db, [ref]))
+    .filter((row) => !isRecalled(row))
+    .map((row) => ({ at: Date.parse(row.created_at), entries: handedOn(row, ref) }));
+  return (entry) => {
+    let base: number | undefined;
+    for (const { at, entries } of turns) {
+      for (const copy of entries) {
+        if (!sameHanded(copy, entry)) continue;
+        const own =
+          copy.editedAt !== undefined
+            ? Date.parse(copy.editedAt)
+            : copy.url !== undefined
+              ? -Infinity
+              : at;
+        base = base === undefined ? own : Math.max(base, own);
+      }
+    }
+    if (base !== undefined) return base;
+    const newer = turns.filter(({ entries }) => entries.some((copy) => isNewer(copy, entry)));
+    return Math.min(Infinity, ...newer.map(({ at }) => at));
+  };
+}
+
 /** Whether two handed entries are the same feedback on the same PR. */
 export function sameHanded(left: Handed, right: Handed): boolean {
   return (
@@ -519,7 +559,14 @@ function prTurns(db: Trx, prs: readonly PrEntityRef[]) {
   return db
     .selectFrom('turn')
     .innerJoin('link', 'link.task_id', 'turn.task_id')
-    .select(['link.repo', 'link.number', 'turn.handed', 'turn.acked_at', 'turn.closed_reason'])
+    .select([
+      'link.repo',
+      'link.number',
+      'turn.handed',
+      'turn.acked_at',
+      'turn.closed_reason',
+      'turn.created_at',
+    ])
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
     .where(
