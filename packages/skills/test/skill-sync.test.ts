@@ -21,40 +21,28 @@ const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url))
 const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.url));
 const troubleshootingPath = fileURLToPath(new URL('../../../TROUBLESHOOTING.md', import.meta.url));
 const runbookPath = fileURLToPath(new URL('../../../docs/runbook.md', import.meta.url));
-const setupReferencesPath = fileURLToPath(new URL('../setup/references/', import.meta.url));
+const setupRefsPath = fileURLToPath(new URL('../setup/references/', import.meta.url));
 const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
-const referencesPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
-const manualReferenceNames = [
-  'how-board-works.md',
-  'how-board-works-columns.md',
-  'how-board-works-turns.md',
-  'how-board-works-blocks.md',
-  'how-board-works-slack.md',
-  'how-board-works-done.md',
-];
-const manualGuides = manualReferenceNames.map((name) =>
-  readFileSync(new URL(`../../../docs/${name}`, import.meta.url), 'utf8'),
+const refsPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
+const docsPath = fileURLToPath(new URL('../../../docs/', import.meta.url));
+const manualNames = ['', '-columns', '-turns', '-blocks', '-slack', '-done'].map(
+  (topic) => `how-board-works${topic}.md`,
 );
-const manualReferences = manualReferenceNames.map((name) =>
-  readFileSync(new URL(`../spur-board/references/${name}`, import.meta.url), 'utf8'),
-);
+const manualGuides = manualNames.map((name) => readFileSync(`${docsPath}/${name}`, 'utf8'));
+const manualTexts = manualNames.map((name) => readFileSync(`${refsPath}/${name}`, 'utf8'));
 const skill = readFileSync(skillPath, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
 const publicGuides = [readmePath, setupGuidePath, troubleshootingPath, runbookPath].map((path) =>
   readFileSync(path, 'utf8'),
 );
-const setupReferenceNames = ['secrets.md', 'slack.md', 'update.md', 'worker-links.md'];
-const setupReferenceTexts = setupReferenceNames.map((name) =>
-  readFileSync(new URL(`../setup/references/${name}`, import.meta.url), 'utf8'),
-);
-const setupFullText = [setupSkill, ...setupReferenceTexts].join('\n');
+const setupNames = ['secrets.md', 'slack.md', 'update.md', 'worker-links.md'];
+const setupTexts = setupNames.map((name) => readFileSync(`${setupRefsPath}/${name}`, 'utf8'));
+const setupFullText = [setupSkill, ...setupTexts].join('\n');
 const binarySource = readFileSync(binaryPath, 'utf8');
 const references = renderCommandReferences();
-const referenceTexts = references.map((reference) =>
-  readFileSync(new URL(`../spur-board/references/${reference.fileName}`, import.meta.url), 'utf8'),
-);
+const referenceTexts = references.map((r) => readFileSync(`${refsPath}/${r.fileName}`, 'utf8'));
 const referenceText = referenceTexts.join('\n');
-const fullText = [skill, ...referenceTexts, ...manualReferences].join('\n');
+const fullText = [skill, ...referenceTexts, ...manualTexts].join('\n');
 const operations = [...OPERATIONS].sort(
   (left, right) => right.cli.command.split(' ').length - left.cli.command.split(' ').length,
 );
@@ -223,8 +211,8 @@ describe('product skill sync', () => {
     expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(5120);
     expect(references.map((reference) => reference.fileName)).toEqual(['commands.md', 'errors.md']);
     expect(references[0]?.content).toContain('[errors.md](errors.md)');
-    expect(readdirSync(referencesPath).sort()).toEqual(
-      [...references.map((reference) => reference.fileName), ...manualReferenceNames].sort(),
+    expect(readdirSync(refsPath).sort()).toEqual(
+      [...references.map((reference) => reference.fileName), ...manualNames].sort(),
     );
     for (const [index, reference] of references.entries()) {
       expect(referenceTexts[index]).toBe(reference.content);
@@ -233,19 +221,15 @@ describe('product skill sync', () => {
   });
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
-    expect(
-      readdirSync(new URL('../../../docs/', import.meta.url))
-        .filter((name) => /^how-board-works.*\.md$/.test(name))
-        .sort(),
-    ).toEqual([...manualReferenceNames].sort());
-    for (const [index, reference] of manualReferences.entries()) {
+    const guides = readdirSync(docsPath).filter((name) => /^how-board-works.*\.md$/.test(name));
+    expect(guides.sort()).toEqual([...manualNames].sort());
+    for (const [index, reference] of manualTexts.entries()) {
       expect(reference).toBe(manualGuides[index]);
       expect(Buffer.byteLength(reference)).toBeLessThan(8192);
       expect(validateInvocations(reference)).toEqual([]);
     }
-    expect(
-      [...(manualReferences[0]?.matchAll(/\]\(([^)]+)\)/g) ?? [])].map((match) => match[1]).sort(),
-    ).toEqual(manualReferenceNames.slice(1).sort());
+    const links = [...(manualTexts[0]?.matchAll(/\]\(([^)]+)\)/g) ?? [])];
+    expect(links.map((match) => match[1]).sort()).toEqual(manualNames.slice(1).sort());
     expect(skill).toContain('[how the Board works](references/how-board-works.md)');
     expect(skill).toContain('untrusted: true');
   });
@@ -414,10 +398,10 @@ describe('product skill sync', () => {
 describe('setup skill sync', () => {
   it('keeps the skill and references within their byte budgets', () => {
     expect(Buffer.byteLength(setupSkill)).toBeLessThanOrEqual(5120);
-    expect(readdirSync(setupReferencesPath).sort()).toEqual(setupReferenceNames);
-    for (const [index, name] of setupReferenceNames.entries()) {
+    expect(readdirSync(setupRefsPath).sort()).toEqual(setupNames);
+    for (const [index, name] of setupNames.entries()) {
       expect(setupSkill).toContain(`references/${name}`);
-      expect(Buffer.byteLength(setupReferenceTexts[index] ?? '')).toBeLessThan(8192);
+      expect(Buffer.byteLength(setupTexts[index] ?? '')).toBeLessThan(8192);
     }
   });
 
@@ -517,7 +501,7 @@ describe('public guide command mentions', () => {
 
   it('documents board update and the rollback recovery', () => {
     const [, setup, troubleshooting] = publicGuides;
-    const updateRun = setupReferenceTexts[setupReferenceNames.indexOf('update.md')];
+    const updateRun = setupTexts[setupNames.indexOf('update.md')];
     expect(setup).toContain('`board update`');
     expect(updateRun).toContain('`board update`');
     for (const guide of [setup, updateRun]) {

@@ -244,7 +244,7 @@ function headingSlugs(text: string): Set<string> {
       .replace(/\s/g, '-');
     let slug = base;
     let duplicate = 0;
-    while (slugs.has(slug)) slug = `${base}-${++duplicate}`;
+    while (slugs.has(slug)) slug = `${base}-${String(++duplicate)}`;
     slugs.add(slug);
   }
   return slugs;
