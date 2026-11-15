@@ -20,9 +20,9 @@ import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
  * text after it, else `slack.defaultAddressee` with the text unchanged, else a hint that lists the
  * valid prefixes. Null when no short name is configured: the message then stays unhandled.
  */
-export type OperatorAddress = { spur: string; text: string } | { hint: string } | null;
+type OperatorAddress = { spur: string; text: string } | { hint: string } | null;
 
-export function addressOperatorMessage(text: string, config: Config): OperatorAddress {
+function addressOperatorMessage(text: string, config: Config): OperatorAddress {
   const spurByShortName = new Map<string, string>();
   for (const project of config.projects)
     for (const spur of project.spurProjects)
