@@ -209,7 +209,7 @@ async function courseSummary(
 }
 
 /** The task's active PR facts, or null without a readable snapshot. */
-async function prFacts(trx: Trx, taskId: number): Promise<PrFacts | null> {
+export async function prFacts(trx: Trx, taskId: number): Promise<PrFacts | null> {
   const link = await taskPr(trx, taskId);
   if (link === null) return null;
   const snapshot = await trx

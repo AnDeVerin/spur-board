@@ -104,6 +104,7 @@ export const GATE_CONDITIONS = [
   'no_conflict',
   'external_comments_handled',
   'comment_history_read',
+  'threads_resolved',
   'submit_on_head',
   'review_on_head',
   'approved',

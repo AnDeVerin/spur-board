@@ -73,6 +73,7 @@ export const GATE_REASONS = [
   'mergeable_unknown',
   'external_comments',
   'comment_history_incomplete',
+  'unresolved_threads',
   'no_submit_on_head',
   'no_review_on_head',
   'not_approved',

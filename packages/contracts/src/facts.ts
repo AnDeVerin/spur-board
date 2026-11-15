@@ -155,6 +155,24 @@ export const prFactsSchema = z
       .array(
         z.strictObject({
           resolved: z.boolean().describe('Whether the review thread is resolved.'),
+          id: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              'Node ID of the review thread; missing in facts stored by an earlier version.',
+            ),
+          url: webUrl
+            .optional()
+            .describe(
+              "Web URL of the thread's first comment; missing in facts stored by an earlier version.",
+            ),
+          outdated: z
+            .boolean()
+            .optional()
+            .describe(
+              'Whether the thread is on a diff line the head no longer has; missing in facts stored by an earlier version.',
+            ),
         }),
       )
       .describe('Review threads on the pull request.'),
