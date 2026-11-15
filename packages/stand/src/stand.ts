@@ -14,6 +14,7 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs';
+import { createServer } from 'node:net';
 import { basename, join } from 'node:path';
 import { startAdapters, type AdapterRunner } from '@spur-board/adapters';
 import {
@@ -381,6 +382,32 @@ export interface Stand {
    * daemon that exited on its own. `exited` settles later, once teardown has finished.
    */
   readonly stopping: Promise<void>;
+}
+
+/**
+ * Fails before the daemon starts when `port` is taken on 127.0.0.1, naming the port. Otherwise the
+ * daemon's failed bind surfaces only as "Daemon did not bind HTTP". Port 0 is always free.
+ */
+async function checkPortFree(port: number): Promise<void> {
+  if (port === 0) return;
+  const server = createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', resolve);
+    });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err;
+    throw new Error(
+      `Port ${String(port)} on 127.0.0.1 is in use; start the stand on another port or on port 0.`,
+      { cause: err },
+    );
+  }
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      resolve();
+    });
+  });
 }
 
 /**
@@ -1146,6 +1173,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   }
 
   try {
+    await checkPortFree(options.port);
     fake = await startFake();
     await writeHome(fake.url, options.scenario);
     current = await startDaemon();
