@@ -4087,7 +4087,7 @@ describe('ordered historical session observations', () => {
     });
   }
 
-  it('attributes a transition to a same-poll inferred session link exactly once', async () => {
+  it('keeps an unlabeled transition project-scoped when the same poll infers a session link', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
     const previous = { ...sessionFact('worker-1'), branch: null };
@@ -4122,14 +4122,7 @@ describe('ordered historical session observations', () => {
     const query = createQuery({ store, config, clock });
     const history = () => query(registry['task.history'], { task: 'o/r#9' }, 'operator');
     expect((await history()).events.filter(({ kind }) => kind === 'session_state_changed')).toEqual(
-      [
-        {
-          at: edge.at,
-          kind: 'session_state_changed',
-          actor: 'system',
-          summary: 'Session state changed',
-        },
-      ],
+      [],
     );
     const rows = await store.db
       .selectFrom('event')
@@ -4137,7 +4130,7 @@ describe('ordered historical session observations', () => {
       .where('kind', '=', 'session_state_changed')
       .execute();
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ task_id: task.id, at: edge.at });
+    expect(rows[0]).toMatchObject({ project: 'board', task_id: null, at: edge.at });
     expect(JSON.parse(rows[0]?.payload ?? '{}')).toEqual({
       session: edge.session,
       from: edge.from,
@@ -4167,7 +4160,78 @@ describe('ordered historical session observations', () => {
     });
     expect(
       (await history()).events.filter(({ kind }) => kind === 'session_state_changed'),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
+  });
+
+  it('keeps older unlabeled transitions project-scoped despite a current session association', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    const current = sessionFact('worker-1');
+    await deliver(core, {
+      sessionTransitions: [],
+      cursor: cursor('before'),
+      items: [{ kind: 'session', facts: current }],
+    });
+    const links = await store.db
+      .selectFrom('link')
+      .selectAll()
+      .where('entity', '=', 'session')
+      .execute();
+    expect(links).toHaveLength(1);
+    const task = await store.db
+      .selectFrom('task')
+      .selectAll()
+      .where('key', '=', 'o/r#9')
+      .executeTakeFirstOrThrow();
+    const edge = {
+      ...transition('old-unlabeled', 'killed'),
+      links: {},
+      dimension: 'lifecycle' as const,
+      from: 'running',
+    };
+    await deliver(core, {
+      sessionTransitions: [edge],
+      cursor: edge.position,
+      items: [{ kind: 'session', facts: current }],
+    });
+    const registry = createOperationRegistry({ config, clock, completeSince: core.completeSince });
+    const history = await createQuery({ store, config, clock })(
+      registry['task.history'],
+      { task: 'o/r#9' },
+      'operator',
+    );
+    expect(history.events.filter(({ kind }) => kind === 'session_state_changed')).toEqual([]);
+    const events = await store.db
+      .selectFrom('event')
+      .selectAll()
+      .where('kind', '=', 'session_state_changed')
+      .execute();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ project: 'board', task_id: null, at: edge.at });
+    expect(JSON.parse(events[0]?.payload ?? '{}')).toEqual({
+      session: edge.session,
+      from: edge.from,
+      to: edge.to,
+      transition: edge,
+    });
+    expect(
+      await store.db.selectFrom('link').selectAll().where('entity', '=', 'session').execute(),
+    ).toEqual(links);
+    expect(
+      JSON.parse(
+        (await store.db.selectFrom('session_snapshot').select('detail').executeTakeFirstOrThrow())
+          .detail,
+      ),
+    ).toEqual(current);
+    expect(
+      (
+        await store.db
+          .selectFrom('task')
+          .selectAll()
+          .where('id', '=', task.id)
+          .executeTakeFirstOrThrow()
+      ).last_change_at,
+    ).toBe(task.last_change_at);
   });
 
   it('journals original order and attribution without regressing snapshot or task timestamps', async () => {

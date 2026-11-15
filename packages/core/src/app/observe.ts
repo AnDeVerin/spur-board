@@ -726,15 +726,6 @@ async function sessionTransition(trx: Trx, config: Config, edge: SessionTransiti
       .select(['id', 'project'])
       .where('key', 'in', explicit)
       .execute();
-  } else {
-    tasks = await trx
-      .selectFrom('link')
-      .innerJoin('task', 'task.id', 'link.task_id')
-      .select(['task.id', 'task.project'])
-      .where('link.entity', '=', 'session')
-      .where('link.session_id', '=', edge.session)
-      .where('link.banned', '=', 0)
-      .execute();
   }
   const projectIds = new Set(projects.map((project) => project.id));
   tasks = tasks.filter((task) => projectIds.has(task.project));
@@ -1412,8 +1403,7 @@ export function createObservationCore(deps: {
               batch.sessionTransitions !== undefined,
             );
         }
-        // Snapshot reconciliation can establish this poll's first inferred session link.
-        // History uses that association only when its event-time links do not name a task.
+        // Reconcile current tasks before resolving the history's explicit event-time task links.
         for (const edge of batch.sessionTransitions ?? [])
           await sessionTransition(trx, config, edge);
         // A held history outlives no unbanned link to a task that is not archived: a discovered
