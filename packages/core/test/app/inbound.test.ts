@@ -85,6 +85,7 @@ function emptyStatus() {
     spurUnavailable: null,
     hostLoad: null,
     transport: [],
+    bindings: { columns: [], operators: [], defaultAddressee: null },
   };
 }
 

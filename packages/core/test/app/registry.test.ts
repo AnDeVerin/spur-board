@@ -730,3 +730,83 @@ it('hides no session as gone from the list until a complete Spur poll omits it',
   expect(ids).not.toContain('ended-0');
   expect(result.hiddenUnlinkedSessions).toBe(150);
 });
+
+it('reports the effective bindings of the projects a caller may see', async () => {
+  const store = openTempStore('board-registry-').store;
+  stores.push(store);
+  const boardWide = configSchema.parse({
+    ...config,
+    projects: config.projects.map((project) =>
+      project.id === 'first'
+        ? {
+            ...project,
+            spurProjects: [
+              ...project.spurProjects,
+              { name: 'first-ops', role: 'operator' },
+              { name: 'first-rev', role: 'orchestrator' },
+            ],
+            columns: project.columns.map((column) =>
+              column.id === 'review' ? { ...column, orchestrator: 'first-rev' } : column,
+            ),
+          }
+        : project,
+    ),
+    spurProjects: [
+      { name: 'br', role: 'orchestrator', columns: ['review'] },
+      { name: 'hq', role: 'operator' },
+    ],
+  });
+  const status = createOperationRegistry({
+    config: boardWide,
+    clock,
+    completeSince: new Map(),
+  })['status.get'];
+  const query = createQuery({ store, config: boardWide, clock });
+  const first = {
+    columns: [{ project: 'first', column: 'review', orchestrator: 'first-rev', source: 'project' }],
+    operators: [{ project: 'first', operator: 'first-ops', source: 'project' }],
+  };
+  const defaultAddressee = { spurProject: 'hq', source: 'board-wide' };
+  expect((await query(status, {}, 'operator')).bindings).toEqual({
+    columns: [
+      ...first.columns,
+      { project: 'second', column: 'review', orchestrator: 'br', source: 'board-wide' },
+    ],
+    operators: [...first.operators, { project: 'second', operator: 'hq', source: 'board-wide' }],
+    defaultAddressee,
+  });
+  expect((await query(status, {}, 'agent:first-worker/session-1')).bindings).toEqual({
+    ...first,
+    defaultAddressee,
+  });
+});
+
+it('lists other projects operators for a project without one while no board-wide operator exists', async () => {
+  const store = openTempStore('board-registry-').store;
+  stores.push(store);
+  const shared = configSchema.parse({
+    ...config,
+    projects: config.projects.map((project) =>
+      project.id === 'first'
+        ? {
+            ...project,
+            spurProjects: [...project.spurProjects, { name: 'first-ops', role: 'operator' }],
+          }
+        : project,
+    ),
+  });
+  const status = createOperationRegistry({
+    config: shared,
+    clock,
+    completeSince: new Map(),
+  })['status.get'];
+  const query = createQuery({ store, config: shared, clock });
+  expect((await query(status, {}, 'operator')).bindings).toEqual({
+    columns: [],
+    operators: [
+      { project: 'first', operator: 'first-ops', source: 'project' },
+      { project: 'second', operator: 'first-ops', source: 'other-project' },
+    ],
+    defaultAddressee: null,
+  });
+});

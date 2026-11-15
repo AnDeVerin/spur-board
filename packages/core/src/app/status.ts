@@ -1,4 +1,5 @@
 import {
+  configBindings,
   prFactsSchema,
   prSourceId,
   sessionFactsSchema,
@@ -415,6 +416,7 @@ export async function getStatus(
         spaces: down.map((row) => row.space).sort(),
       };
     });
+  const bindings = configBindings(config, projectIds);
   return {
     items,
     warmingUp: sources.some((source) => source.warmingUp),
@@ -431,5 +433,6 @@ export async function getStatus(
     unlinkedSessions,
     hiddenUnlinkedPrs: prRows.length - unlinkedPrs.length,
     hiddenUnlinkedSessions: sessionRows.length - unlinkedSessions.length,
+    bindings: { ...bindings, columns: [...bindings.columns], operators: [...bindings.operators] },
   };
 }

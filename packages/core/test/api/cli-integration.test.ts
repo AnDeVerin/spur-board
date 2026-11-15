@@ -633,6 +633,7 @@ describe('CLI against the real HTTP API', () => {
             spurUnavailable: null,
             hostLoad: null,
             transport: [],
+            bindings: { columns: [], operators: [], defaultAddressee: null },
           });
         },
       };
@@ -695,6 +696,7 @@ describe('CLI against the real HTTP API', () => {
         spurUnavailable: null,
         hostLoad: null,
         transport: [],
+        bindings: { columns: [], operators: [], defaultAddressee: null },
       });
       expect(success.stderr).toBe('');
 
