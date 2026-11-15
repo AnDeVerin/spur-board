@@ -8,6 +8,7 @@ import { COLUMN_IDS, DISPATCHER_MODES, REQUIRED_COLUMN_IDS } from './enums.ts';
  * range 32768-60999.
  */
 export const DEFAULT_HTTP_PORT = 4777;
+export const DEFAULT_STAND_PORT_RANGE = { min: 4780, max: 4799 } as const;
 export const DEFAULT_SLACK_APP_NAME = 'spur-board';
 export const DEFAULT_SLACK_COMMAND = '/board';
 /**
@@ -65,6 +66,24 @@ export function plainHttpAllowed(url: URL): boolean {
   const host = url.hostname;
   return host === 'localhost' || host === '[::1]' || LOOPBACK_IPV4.test(host);
 }
+
+/** Check raw syntax before URL normalization can hide a slash, whitespace or backslash. */
+function validOrigin(value: string, template: boolean): boolean {
+  const resolved = template ? value.replaceAll('{port}', '7777') : value;
+  if (!/^https?:\/\/[^/\\\s?#@{}]+$/i.test(resolved)) return false;
+  try {
+    const url = new URL(resolved);
+    return url.username === '' && url.password === '' && plainHttpAllowed(url);
+  } catch {
+    return false;
+  }
+}
+
+const origin = (template: boolean) =>
+  z.string().refine((value) => validOrigin(value, template), {
+    error:
+      'Expected a bare HTTP/HTTPS origin; HTTP requires loopback, with no path, trailing slash, query, fragment, credentials or invalid placeholders',
+  });
 
 const jiraTracker = z.strictObject({
   type: z
@@ -732,6 +751,51 @@ const configObject = z.strictObject({
         ),
     })
     .prefault({}),
+  web: z
+    .strictObject({
+      port: z
+        .int()
+        .min(0)
+        .max(65_535)
+        .optional()
+        .describe(
+          'Optional web listener port (0 assigns a free port); omitted means off. Set together with publicOrigin. This config does not start a listener.',
+        ),
+      publicOrigin: origin(true)
+        .optional()
+        .describe(
+          'Bare public HTTP/HTTPS origin for the web API; HTTP requires loopback. Set together with port. Every {port} is replaced with the listener port, including in hostnames. No trailing slash.',
+        ),
+      spurUiOrigin: origin(false)
+        .optional()
+        .describe(
+          'Optional concrete bare origin for the Spur UI, independently of the web API. HTTP requires loopback; no placeholders or trailing slash. Omitted means no configured UI origin.',
+        ),
+    })
+    .prefault({}),
+  stand: z
+    .strictObject({
+      portRange: z
+        .strictObject({
+          min: z
+            .int()
+            .min(1024)
+            .max(65_535)
+            .default(DEFAULT_STAND_PORT_RANGE.min)
+            .describe('Inclusive first stand port; defaults to 4780 when a range is supplied.'),
+          max: z
+            .int()
+            .min(1024)
+            .max(65_535)
+            .default(DEFAULT_STAND_PORT_RANGE.max)
+            .describe('Inclusive last stand port; defaults to 4799 when a range is supplied.'),
+        })
+        .optional()
+        .describe(
+          'Optional stand port range, effectively 4780..4799 when omitted. An explicit range (including {}) must exclude http.port and web.port; an omitted range preserves legacy configs and doctor warns on overlaps. Range allocation and exclusions are deferred to #534; current stand behavior is unchanged.',
+        ),
+    })
+    .prefault({}),
   adapters: z
     .strictObject({
       spur: spurAdapterSection,
@@ -801,6 +865,43 @@ const configObject = z.strictObject({
 
 /** The board config file. Every object rejects unknown keys; no key holds a secret. */
 export const configSchema = configObject.superRefine((config, ctx) => {
+  const { web } = config;
+  if ((web.port === undefined) !== (web.publicOrigin === undefined)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['web', web.port === undefined ? 'port' : 'publicOrigin'],
+      message: 'Set web.port and web.publicOrigin together',
+    });
+  }
+  if (web.port !== undefined && web.port === config.http.port) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['web', 'port'],
+      message: 'Web port must differ from http.port',
+    });
+  }
+  const range = config.stand.portRange;
+  if (range !== undefined) {
+    if (range.min > range.max) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['stand', 'portRange', 'max'],
+        message: 'Range maximum must be at least its minimum',
+      });
+    }
+    for (const [field, port] of [
+      ['http', config.http.port],
+      ['web', web.port],
+    ] as const) {
+      if (port !== undefined && port >= range.min && port <= range.max) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['stand', 'portRange'],
+          message: `Stand port range includes ${field}.port ${port}`,
+        });
+      }
+    }
+  }
   const addressee = config.slack.defaultAddressee;
   if (addressee === undefined) return;
   const known = config.projects.some((project) =>
@@ -817,6 +918,12 @@ export const configSchema = configObject.superRefine((config, ctx) => {
 
 export type Config = z.output<typeof configSchema>;
 export type ConfigInput = z.input<typeof configSchema>;
+
+/** Resolve a validated web configuration without changing it or performing I/O. */
+export function resolveWebOrigin(web: Config['web'], actualPort?: number): string | undefined {
+  if (web.port === undefined || web.publicOrigin === undefined) return undefined;
+  return new URL(web.publicOrigin.replaceAll('{port}', String(actualPort ?? web.port))).origin;
+}
 
 /** Recognized names in the private secrets.env file; values never belong in config.yaml. */
 export const SECRET_ENV_KEYS = [

@@ -4,6 +4,8 @@ import YAML from 'yaml';
 import { z } from 'zod';
 import {
   DEFAULT_HTTP_PORT,
+  DEFAULT_STAND_PORT_RANGE,
+  resolveWebOrigin,
   RESERVED_PROJECT,
   type Config,
   configJsonSchema,
@@ -1011,5 +1013,139 @@ describe('JSON Schema', () => {
     walk(configJsonSchema());
     expect(names).toContain('staleMultiplier');
     expect(names.filter((name) => /token|secret|password/i.test(name))).toEqual([]);
+  });
+});
+
+describe('web and stand configuration', () => {
+  it.each(['jira-project.yaml', 'github-issues-project.yaml'])(
+    'keeps %s web off with an implicit range',
+    (fixture) => {
+      const config = configSchema.parse(readFixture(fixture));
+      expect(config.web).toEqual({});
+      expect(config.stand.portRange).toBeUndefined();
+      expect(config.stand.portRange ?? DEFAULT_STAND_PORT_RANGE).toEqual({ min: 4780, max: 4799 });
+    },
+  );
+
+  it.each([0, 4780, 4799])('preserves legacy stand HTTP port %s', (port) => {
+    expect(configSchema.parse(validConfig({}, { http: { port } })).http.port).toBe(port);
+  });
+
+  it.each([
+    [{}, undefined],
+    [{ stand: {} }, undefined],
+    [{ stand: { portRange: {} } }, { min: 4780, max: 4799 }],
+    [{ stand: { portRange: { min: 4790 } } }, { min: 4790, max: 4799 }],
+    [{ stand: { portRange: { max: 4785 } } }, { min: 4780, max: 4785 }],
+    [
+      { stand: { portRange: { min: 1024, max: 65535 } }, http: { port: 0 } },
+      { min: 1024, max: 65535 },
+    ],
+    [{ stand: { portRange: { min: 4800, max: 4800 } } }, { min: 4800, max: 4800 }],
+  ])('preserves explicit range provenance for %j', (root, expected) => {
+    expect(configSchema.parse(validConfig({}, root)).stand.portRange).toEqual(expected);
+  });
+
+  const web = { port: 7777, publicOrigin: 'http://localhost:{port}' };
+  it.each<[Record<string, unknown>, string]>([
+    [{ web: { port: 7777 } }, 'web.publicOrigin'],
+    [{ web: { publicOrigin: 'https://example.test' } }, 'web.port'],
+    [{ web: { ...web, port: 4777 } }, 'web.port'],
+    [{ http: { port: 0 }, web: { ...web, port: 0 } }, 'web.port'],
+    ...[-1, 65536, 1.5].map<[Record<string, unknown>, string]>((port) => [
+      { web: { ...web, port } },
+      'web.port',
+    ]),
+    [{ web: { ...web, extra: true } }, 'web'],
+    [{ stand: { extra: true } }, 'stand'],
+    [{ stand: { portRange: { extra: true } } }, 'stand.portRange'],
+    ...[{ min: 1023 }, { max: 65536 }, { min: 4780.5 }, { min: 4800, max: 4799 }].map<
+      [Record<string, unknown>, string]
+    >((portRange) => [{ stand: { portRange } }, 'stand.portRange']),
+  ])('rejects invalid sections %j at %s', (root, path) => {
+    expect(errorFor(validConfig({}, root))).toContain(`→ at ${path}`);
+  });
+
+  it.each([undefined, 'worker'])(
+    'checks inclusive collisions with addressee %s',
+    (defaultAddressee) => {
+      for (const port of [4780, 4799]) {
+        const root = {
+          slack: defaultAddressee === undefined ? {} : { defaultAddressee },
+          stand: { portRange: {} },
+        };
+        const project = { spurProjects: [{ name: 'worker', role: 'worker', shortName: 'worker' }] };
+        for (const listeners of [
+          { http: { port } },
+          { web: { ...web, port } },
+          { http: { port }, web: { ...web, port: port === 4780 ? 4799 : 4780 } },
+        ]) {
+          const error = errorFor(validConfig(project, { ...root, ...listeners }));
+          expect(error).toContain('→ at stand.portRange');
+          expect(error).toContain('Stand port range includes');
+        }
+      }
+    },
+  );
+
+  it.each([
+    'http://example.test',
+    'https://example.test/',
+    'https://example.test/path',
+    'https://example.test?query',
+    'https://example.test#fragment',
+    'https://user:pass@example.test',
+    'https://@example.test',
+    'https://example.test:{unknown}',
+    'https://{port.example.test',
+    'https://example.test}',
+    'https://example.test/{port}',
+    ' https://example.test',
+    'https://example.test\n',
+    'https:////example.test',
+    'https://example.test:bad',
+    'https://example.test\\path',
+  ])('rejects raw invalid origin %j for API and UI', (value) => {
+    expect(errorFor(validConfig({}, { web: { ...web, publicOrigin: value } }))).toContain(
+      '→ at web.publicOrigin',
+    );
+    expect(errorFor(validConfig({}, { web: { spurUiOrigin: value } }))).toContain(
+      '→ at web.spurUiOrigin',
+    );
+  });
+
+  it.each([
+    'http://localhost',
+    'http://127.1.2.3:7777',
+    'http://[::1]:7777',
+    'https://example.test',
+  ])('allows bare origin %s independently for UI', (value) => {
+    expect(configSchema.parse(validConfig({}, { web: { spurUiOrigin: value } })).web).toEqual({
+      spurUiOrigin: value,
+    });
+    expect(
+      configSchema.parse(validConfig({}, { web: { ...web, publicOrigin: value } })).web
+        .publicOrigin,
+    ).toBe(value);
+  });
+
+  it('rejects placeholders for the UI', () => {
+    expect(
+      errorFor(validConfig({}, { web: { spurUiOrigin: 'https://{port}.example.test' } })),
+    ).toContain('→ at web.spurUiOrigin');
+  });
+
+  it.each([
+    ['http://localhost:{port}', undefined, 'http://localhost:7777'],
+    ['https://{port}.local.example', undefined, 'https://7777.local.example'],
+    ['https://{port}.local.example:{port}', 8888, 'https://8888.local.example:8888'],
+    ['https://EXAMPLE.test:443', undefined, 'https://example.test'],
+    ['http://localhost:{port}', 0, 'http://localhost:0'],
+  ])('resolves %s with override %s', (publicOrigin, actualPort, expected) => {
+    const config = configSchema.parse(validConfig({}, { web: { ...web, publicOrigin } }));
+    const before = structuredClone(config.web);
+    expect(resolveWebOrigin(config.web, actualPort)).toBe(expected);
+    expect(config.web).toEqual(before);
+    expect(resolveWebOrigin({})).toBeUndefined();
   });
 });
