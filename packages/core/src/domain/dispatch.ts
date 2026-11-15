@@ -53,7 +53,8 @@ interface DispatchInput {
   submitPending: boolean;
   /**
    * A pending turn submit of the current visit failed (head moved, PR closed, no PR): its turn
-   * goes back to the executor even on a closed PR.
+   * goes back to the executor even on a closed PR, or after a left move to the target column's
+   * executor.
    */
   submitFailed: boolean;
   turn: VisitTurn;
@@ -145,6 +146,8 @@ export function dispatch(input: DispatchInput): DispatchResult {
   const { project, reopened, cycleHeld } = input;
   const workerLive = input.liveWorker && !input.spurBlind;
   const started = workStarted(input);
+  // A left move resets `turn`, so the failed submit is judged on the visit it was made in.
+  const handsBack = input.submitFailed && input.turn.visit === 'submitted';
   let { column, facts, turn } = input;
   const move = (to: ColumnId, reason: MoveReason, gate?: GateReason[]) => {
     moves.push({ from: column, to, reason, ...(gate === undefined ? {} : { gate }) });
@@ -208,9 +211,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
     const executor = orchestratorOf(project, column);
     if (column === 'external-review' && executor === 'none') return result(null);
     // A closed PR opens no turn, except to hand back a pending submit it failed.
-    if (reasons.includes('pr_closed') && !(input.submitFailed && turn.visit === 'submitted')) {
-      return result(null);
-    }
+    if (reasons.includes('pr_closed') && !handsBack) return result(null);
     switch (turn.visit) {
       case 'none':
         return result({ column, reasons, kind: 'entry' });

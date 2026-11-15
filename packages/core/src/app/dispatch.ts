@@ -101,7 +101,8 @@ async function voidColumns(
  * Sets `voided_at` on the unvoided Review and Product Review marks of PR `repo#number` that are
  * not on `head`, for the PR's new head: a mark lasts only while its head stays the PR's head, so
  * a head that comes back to an earlier commit needs fresh marks. Marks made before submissions
- * recorded their PR count for the tasks linked to the PR.
+ * recorded their PR count for the tasks linked to the PR. A pending mark is left to the
+ * dispatcher, which hands it back with the new head (`readPendingSubmit`).
  */
 export async function voidMarksOffHead(
   trx: Trx,
@@ -113,6 +114,7 @@ export async function voidMarksOffHead(
     .set({ voided_at: input.at })
     .where('voided_at', 'is', null)
     .where('column', 'in', MARK_COLUMNS)
+    .where('pending_until', 'is', null)
     .where(sql<boolean>`lower(commit_sha) != ${input.head.toLowerCase()}`)
     .where((eb) =>
       eb.or([
@@ -855,6 +857,16 @@ async function applyOn(
   ctx: DispatchContext,
 ): Promise<void> {
   const { at, config } = ctx;
+  const failed = read.pending?.state === 'failed' ? read.pending : undefined;
+  // By id: `voidSubmits` and a turn's `voids` skip the Review and Product Review marks.
+  const voidFailed = async () => {
+    if (failed === undefined) return;
+    await trx
+      .updateTable('submission')
+      .set({ voided_at: at.toISOString() })
+      .where('id', '=', failed.id)
+      .execute();
+  };
   let current = task;
   for (const move of result.moves) {
     if (indexOf(move.to) < indexOf(move.from)) {
@@ -868,6 +880,8 @@ async function applyOn(
         ...(move.gate === undefined ? {} : { gate: move.gate }),
       });
       current = left.task;
+      // The left move ends the visit of the failed submit.
+      await voidFailed();
       if (left.limitReached) return;
       continue;
     }
@@ -887,16 +901,9 @@ async function applyOn(
   const turn = result.turn;
   if (turn === null) return;
   if (result.voids !== undefined) await voidColumns(trx, current.id, [result.voids], at);
-  // By id: the turn's `voids` skips the Review and Product Review marks.
-  const failed =
-    turn.kind === 'after_submit' && read.pending?.state === 'failed' ? read.pending : undefined;
-  if (failed !== undefined) {
-    await trx
-      .updateTable('submission')
-      .set({ voided_at: at.toISOString() })
-      .where('id', '=', failed.id)
-      .execute();
-  }
+  if (turn.kind === 'after_submit') await voidFailed();
+  // An entry turn hands a failed submit back after a left move: the target column's executor.
+  const handedBack = turn.kind === 'after_submit' || turn.kind === 'entry' ? failed : undefined;
   const replaced = turn.kind === 'reroute' ? read.unclosed : undefined;
   if (replaced !== undefined) await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
   // A reroute carries the feedback the replaced turn handed over; the cursor already counts it.
@@ -912,9 +919,9 @@ async function applyOn(
   await openTurn(trx, {
     task: current,
     reason:
-      failed === undefined
+      handedBack === undefined
         ? reason
-        : `${reason} (submit of ${failed.sha.slice(0, 7)}: ${failed.failure})`,
+        : `${reason} (submit of ${handedBack.sha.slice(0, 7)}: ${handedBack.failure})`,
     handed: current.column === 'dev' ? handed : [],
     at,
     config,

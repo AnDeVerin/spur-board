@@ -440,6 +440,17 @@ const cases: [string, Changes, Result][] = [
     { moves: [], turn: turn('after_submit', 'dev', 'pr_closed'), voids: 'dev' },
   ],
   [
+    'failed Review submit on a closed PR moves to Dev and opens its entry turn',
+    {
+      column: 'review',
+      pr: { state: 'closed' },
+      facts: { marks: [submit('dev')] },
+      submitFailed: true,
+      turn: { visit: 'submitted' },
+    },
+    { moves: [left('review', 'dev', 'pr_closed')], turn: turn('entry', 'dev', 'pr_closed') },
+  ],
+  [
     'closed PR without a failed submit opens no turn',
     { pr: { state: 'closed' }, facts: { marks: [] }, turn: { visit: 'submitted' } },
     nothing,
