@@ -23,13 +23,12 @@ after checking an uncertain outcome.
 ## Turns
 
 Ack T<number> first with keyed
-`board inbox ack <entries>`; only its acking session may submit or return. New heads
-close turns outside Dev; taken Dev turns survive pushes.
+`board inbox ack <entries>`; only its acking session may submit or return.
 On `turn_closed`, act only on a turn `board inbox` lists. Shadow mode opens no turn:
 `board submit <task> <sha>`.
 
-- Dev worker: ack, push, then keyed `board submit <turn> <sha>`; use a fresh PR head. Answer each external comment the turn hands you with a new head or a reasoned reply.
-  Re-request review only from reviewers whose threads this push closed.
+- Dev worker: ack, then keyed `board submit <turn> <sha>` for the PR head. Answer each external comment the turn hands you with a new head or a reasoned reply; a reply alone submits the same head.
+  Re-request review only from reviewers whose threads your push closed.
   If returns repeat the same mechanism, fix the class once; one table test for variants;
   edges with no user-visible effect under PR Risk; still fix P0/P1 and user-visible findings.
 - Column orchestrator: ack, then keyed `board submit <turn> <sha>` for the reviewed head, or
