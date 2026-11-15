@@ -9,7 +9,7 @@ import {
   stateQuery,
 } from '../../adapters/src/github/client.ts';
 import type { Fakes } from '../src/fakes/fetch.ts';
-import { isKnownShape } from '../src/fakes/github-pr.ts';
+import { isKnownShape } from '../src/fakes/github-pr-shapes.ts';
 import {
   BOARD,
   fakeFetch,

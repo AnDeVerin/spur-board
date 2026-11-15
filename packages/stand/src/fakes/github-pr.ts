@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import { FakeViolation, type FakeModule } from './fetch.ts';
+import { KNOWN_SHAPES } from './github-pr-shapes.ts';
 import {
-  canonicalizeQuery,
   canonicalize,
   createRequestLog,
   NotFound,
@@ -20,67 +20,6 @@ const AGENT = 'stand-agent';
 const REVIEWER = 'stand-reviewer';
 const BOT = 'stand-bot';
 const SHA = /^[0-9a-f]{40,64}$/;
-
-// The request shapes the adapter may send, written out here on purpose: a change to an adapter
-// query must fail until this list is updated, so these never come from the adapter's builders.
-const REVIEWER_FIELDS =
-  'requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner';
-const REVIEW_FIELDS = 'id author { __typename login } state commit { oid } submittedAt';
-const PAGE_INFO = 'pageInfo { hasNextPage endCursor }';
-const COMMENT_FIELDS =
-  'nodes { id author { __typename login } createdAt body } pageInfo { hasPreviousPage startCursor }';
-const THREAD_FIELDS = 'id isResolved isOutdated comments(first: 1) { nodes { url } }';
-const CLOSING_FIELDS = `nodes { number repository { nameWithOwner } } ${PAGE_INFO}`;
-const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } ${PAGE_INFO}`;
-const RATE_LIMIT = 'rateLimit { cost remaining resetAt }';
-const ORDER = 'orderBy: {field: UPDATED_AT, direction: DESC}';
-const contextNodes = (number: string): string =>
-  `nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${number}) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${number}) } }`;
-const prAlias = (closing: boolean): string =>
-  `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt mergedAt closedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} } } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { ${THREAD_FIELDS} } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
-const prBatch = (states: string, baseline: string): string =>
-  `query PrBatch($owner: String!, $repo: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} }${baseline} } }`;
-const PR_INDEX = `query PrIndex($owner: String!, $repo: String!) { ${RATE_LIMIT} pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { __typename name status conclusion completedAt } ... on StatusContext { __typename context state } } } } reviews(first: 100) { totalCount nodes { id state } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } } } } }`;
-const prDetails = (closing: boolean): string =>
-  `query PrDetails($owner: String!, $repo: String!) { ${RATE_LIMIT} ${prAlias(closing)} }`;
-const prPage = (field: string, cursor = 'after'): string =>
-  `query PrPage($owner: String!, $repo: String!, $number: Int!, $${cursor}: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
-const discoveryPage = (states: string): string =>
-  `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} } } }`;
-const BASELINE = ` mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED], ${ORDER}) { nodes { updatedAt } }`;
-const KNOWN_DOCUMENTS = [
-  prBatch('OPEN, MERGED, CLOSED', ''),
-  prBatch('OPEN', BASELINE),
-  PR_INDEX,
-  `query PrStates($owner: String!, $repo: String!) { ${RATE_LIMIT} pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { number state } } }`,
-  prDetails(false),
-  prDetails(true),
-  prPage(`reviews(first: 100, after: $after) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} }`),
-  prPage(`reviewThreads(first: 100, after: $after) { nodes { ${THREAD_FIELDS} } ${PAGE_INFO} }`),
-  prPage(`reviewRequests(first: 100, after: $after) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }`),
-  prPage(
-    `statusCheckRollup { contexts(first: 100, after: $after) { ${contextNodes('$number')} ${PAGE_INFO} } }`,
-  ),
-  prPage(`closingIssuesReferences(first: 100, after: $after) { ${CLOSING_FIELDS} }`),
-  prPage(`comments(last: 100, before: $before) { ${COMMENT_FIELDS} }`, 'before'),
-  discoveryPage('OPEN, MERGED, CLOSED'),
-  discoveryPage('OPEN'),
-];
-// Keep exact legacy shapes for the committed live recordings, which select neither the cost, a
-// comment body nor a thread's id, outdated flag and link; none is inferred.
-const legacy = (query: string): string =>
-  query
-    .replace('cost remaining', 'remaining')
-    .replaceAll('createdAt body }', 'createdAt }')
-    .replaceAll(THREAD_FIELDS, 'isResolved');
-const KNOWN_SHAPES = new Set(
-  KNOWN_DOCUMENTS.flatMap((query) => [canonicalizeQuery(query), canonicalizeQuery(legacy(query))]),
-);
-
-/** Whether a query text is one of the shapes this fake answers. */
-export function isKnownShape(query: string): boolean {
-  return KNOWN_SHAPES.has(canonicalizeQuery(query));
-}
 
 const actorSchema = z.strictObject({ login: z.string().min(1) }).nullable();
 // Comment and review authors also name their type, as GitHub's Actor union does.
@@ -543,7 +482,7 @@ export function createGithubPrFake(options: {
       const { operation, variables } = parseGraphqlRequest(request.body);
       if (!KNOWN_SHAPES.has(canonicalize(operation)))
         throw new FakeViolation(
-          `Unknown query shape ${operation.name?.value ?? '(unnamed)'}: if the adapter changed on purpose, update KNOWN_DOCUMENTS in packages/stand/src/fakes/github-pr.ts.`,
+          `Unknown query shape ${operation.name?.value ?? '(unnamed)'}: if the adapter changed on purpose, update KNOWN_DOCUMENTS in packages/stand/src/fakes/github-pr-shapes.ts.`,
         );
       // Synthetic operation costs make request savings measurable without claiming live pricing.
       const operationName = operation.name?.value;
