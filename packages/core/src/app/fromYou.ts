@@ -108,6 +108,8 @@ export async function reconcileItems(
   now: number,
   spurComplete: boolean,
   warnSkipped?: WarnSkipped,
+  /** First complete Spur batch of this core, even when it precedes a tick or status report. */
+  firstSpurObservationAt?: number,
 ): Promise<void> {
   const candidates: ItemCandidate[] = [];
   const sources = await trx.selectFrom('source_state').selectAll().execute();
@@ -447,11 +449,13 @@ export async function reconcileItems(
           blind: true,
           observedAt: spurComplete ? (spur?.observed_at ?? null) : null,
         }
-      : previousObservation.blind &&
-          spur?.observed_at != null &&
-          spur.observed_at !== previousObservation.observedAt
-        ? { blind: false, observedAt: spur.observed_at, resumedAt: Date.parse(spur.observed_at) }
-        : previousObservation;
+      : firstSpurObservationAt !== undefined
+        ? { blind: false, observedAt: spur?.observed_at ?? null, resumedAt: firstSpurObservationAt }
+        : previousObservation.blind &&
+            spur?.observed_at != null &&
+            spur.observed_at !== previousObservation.observedAt
+          ? { blind: false, observedAt: spur.observed_at, resumedAt: Date.parse(spur.observed_at) }
+          : previousObservation;
   if (JSON.stringify(observation) !== JSON.stringify(previousObservation))
     await trx
       .insertInto('meta')

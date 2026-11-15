@@ -2492,7 +2492,9 @@ describe('anomaly blocks', () => {
         'same core',
         'new core',
         'status before snapshot',
-        'startup before snapshot',
+        'startup poll first',
+        'startup tick first',
+        'startup status first',
       ]) {
         const b = await board();
         const original = session('worker-1', health, {
@@ -2503,7 +2505,7 @@ describe('anomaly blocks', () => {
         now += 300_000;
         await tick(b);
         expect(await openLedger(b)).toEqual([]);
-        if (gap !== 'startup before snapshot')
+        if (!gap.startsWith('startup '))
           await b.core.reportSourceState('spur', {
             lastCompleteAt: iso(),
             blind: { reason: 'stale', message: 'Offline' },
@@ -2511,10 +2513,12 @@ describe('anomaly blocks', () => {
           });
         now += 3_600_000;
         const resumed =
-          gap === 'new core' || gap === 'startup before snapshot'
+          gap === 'new core' || gap.startsWith('startup ')
             ? { ...b, core: createObservationCore({ store: b.store, config, clock }) }
             : b;
-        await tick(resumed);
+        if (gap === 'startup status first')
+          await resumed.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
+        if (gap !== 'startup poll first') await tick(resumed);
         expect(await openLedger(b)).toEqual([]);
         if (gap === 'status before snapshot') {
           await resumed.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
@@ -2524,6 +2528,7 @@ describe('anomaly blocks', () => {
         await spur(resumed, [original]);
         expect(await openLedger(b)).toEqual([]);
         now += config.health.turnStallAfterMs - 1;
+        await spur(resumed, [original]);
         await tick(resumed);
         expect(await openLedger(b)).toEqual([]);
         now += 1;
@@ -2532,18 +2537,19 @@ describe('anomaly blocks', () => {
         expect(opened.blocks).toHaveLength(1);
         expect(opened.blocks[0]?.state).toBe('open');
         expect(opened.blocks[0]?.reason).toContain('elapsed 600000 ms');
-        const holding =
-          gap === 'startup before snapshot'
-            ? { ...resumed, core: createObservationCore({ store: b.store, config, clock }) }
-            : resumed;
-        if (gap !== 'startup before snapshot')
+        const holding = gap.startsWith('startup ')
+          ? { ...resumed, core: createObservationCore({ store: b.store, config, clock }) }
+          : resumed;
+        if (!gap.startsWith('startup '))
           await holding.core.reportSourceState('spur', {
             lastCompleteAt: iso(),
             blind: { reason: 'stale', message: 'Offline again' },
             gone: [],
           });
         now += 3_600_000;
-        await tick(holding);
+        if (gap === 'startup status first')
+          await holding.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
+        if (gap !== 'startup poll first') await tick(holding);
         expect((await surface(b)).blocks).toEqual(opened.blocks);
         await spur(holding, [original]);
         expect((await surface(b)).blocks).toEqual(opened.blocks);

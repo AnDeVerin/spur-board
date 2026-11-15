@@ -1560,7 +1560,16 @@ export function createObservationCore(deps: {
           await dispatchSource(trx, source, dispatchContext);
         await dispatchMergedTickets(trx, source, dispatchContext);
         await dispatchJournaled(trx, dispatchContext);
-        await reconcileItems(trx, config, now, currentComplete.has('spur'), warnSkipped);
+        await reconcileItems(
+          trx,
+          config,
+          now,
+          currentComplete.has('spur'),
+          warnSkipped,
+          source === 'spur' && observation.effectiveComplete && !completeSince.has('spur')
+            ? Date.parse(batch.observedAt)
+            : undefined,
+        );
         if (deps.productVersion !== undefined)
           await enqueueLiveAfterFirstPoll(trx, {
             config,
