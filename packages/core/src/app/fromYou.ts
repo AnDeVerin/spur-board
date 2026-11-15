@@ -429,7 +429,7 @@ export async function reconcileItems(
       revision: 'closed',
     });
   }
-  // A source can recover with the adapter's old healthSince. New alerts need a fresh
+  // Startup snapshots and source recovery can retain an old healthSince. New alerts need a fresh
   // observed interval; an already-open or dismissed episode keeps its established identity.
   const observationRow = await trx
     .selectFrom('meta')
@@ -440,13 +440,18 @@ export async function reconcileItems(
     observationRow === undefined
       ? { blind: false, observedAt: null, resumedAt: null }
       : parseJson(stallObservationSchema, observationRow.value);
-  const observation = spurBlind
-    ? { ...previousObservation, blind: true, observedAt: spur.observed_at }
-    : previousObservation.blind &&
-        spur?.observed_at != null &&
-        spur.observed_at !== previousObservation.observedAt
-      ? { blind: false, observedAt: spur.observed_at, resumedAt: Date.parse(spur.observed_at) }
-      : previousObservation;
+  const observation =
+    spurBlind || !spurComplete
+      ? {
+          ...previousObservation,
+          blind: true,
+          observedAt: spurComplete ? (spur?.observed_at ?? null) : null,
+        }
+      : previousObservation.blind &&
+          spur?.observed_at != null &&
+          spur.observed_at !== previousObservation.observedAt
+        ? { blind: false, observedAt: spur.observed_at, resumedAt: Date.parse(spur.observed_at) }
+        : previousObservation;
   if (JSON.stringify(observation) !== JSON.stringify(previousObservation))
     await trx
       .insertInto('meta')
@@ -455,7 +460,7 @@ export async function reconcileItems(
         oc.column('key').doUpdateSet({ value: toJson(stallObservationSchema, observation) }),
       )
       .execute();
-  const stallBlind = spurBlind || observation.blind;
+  const stallBlind = observation.blind;
   const stallExecutors = new Map<string, string>();
   // Diagnose turns separately from delivery: a stopped session cannot receive a ring.
   const stalled = new Set<string>();
