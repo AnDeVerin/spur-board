@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { InboundEvent, RecoverRequest } from '@spur-board/contracts';
 import { apiFailure, IncompleteHistoryError, readMessages } from './api.ts';
 import { normalizeMessage, type BotIdentity } from './normalize.ts';
+import type { SlackChannels } from './deliver.ts';
 import { parseRef } from './ref.ts';
 import { fieldsOf, messageTs } from './wire.ts';
 
@@ -94,6 +95,7 @@ export async function* recoverThreads(
   request: RecoverRequest,
   botIdentity: () => Promise<BotIdentity>,
   now: () => number,
+  channels: SlackChannels,
 ): AsyncIterable<InboundEvent> {
   const until = now();
   const from = request.since.getTime();
@@ -141,6 +143,7 @@ export async function* recoverThreads(
       if (source === null) continue;
       const events = normalizeMessage(addressed.channel, source, {
         bot,
+        channels,
         root,
         rootTs: addressed.threadTs,
       });

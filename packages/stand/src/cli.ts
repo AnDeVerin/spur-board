@@ -89,6 +89,8 @@ const USAGE = `Usage: pnpm stand <command>
   fake slack click <n> <button> [--text <text>]
                                   press a button on outbox message n as the operator. The button
                                   answer takes --text: a thread reply, as Slack has no such button
+  fake slack post --text <text>   post a new operator message in the orchestrators channel;
+                                  prints its fake Slack message number, the <n> click takes
   fake spur session <id> [--state s] [--status s] [--project p] [--branch b] [--retain]
                     [--queue hold|deliver]
                                   create or update a session in the fake Spur; --queue hold keeps
@@ -683,7 +685,10 @@ export function fakeBody(
   throw new UsageError('fake github needs fail <mode>, inspect, pr <n> <verb> or issue <n> <verb>');
 }
 
-/** `fake slack outbox` and `fake slack click <n> <button> [--text <text>]`. */
+/**
+ * `fake slack outbox`, `fake slack click <n> <button> [--text <text>]` and
+ * `fake slack post --text <text>`.
+ */
 function fakeSlack(home: string | undefined, args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args,
@@ -697,7 +702,13 @@ function fakeSlack(home: string | undefined, args: string[]): Promise<number> {
       throw new UsageError('fake slack outbox takes no arguments');
     return control(manifest(), '/fake/slack/outbox', {}, 10_000);
   }
-  if (verb !== 'click') throw new UsageError('fake slack needs outbox or click');
+  if (verb === 'post') {
+    if (rest.length > 0 || values.text === undefined)
+      throw new UsageError('fake slack post needs --text and no other argument');
+    // Queued behind a reset, so it gets the same bound as one.
+    return control(manifest(), '/fake/slack/post', { text: values.text }, 120_000);
+  }
+  if (verb !== 'click') throw new UsageError('fake slack needs outbox, click or post');
   const [message, button, ...extra] = rest;
   if (
     message === undefined ||

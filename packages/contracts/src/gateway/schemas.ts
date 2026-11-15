@@ -56,6 +56,12 @@ const sourceUrl = z.url();
 /** Configured board space for an interaction, or null when it came from outside. */
 const sourceSpace = z.enum(SPACE_IDS).nullable();
 
+/**
+ * Configured board space of a conversation's first message, set only when `rootMessage` equals
+ * `message`; a reply in a conversation carries none.
+ */
+const firstMessageSpace = sourceSpace.optional();
+
 const messageEventSchema = z.strictObject({
   kind: z.literal('message'),
   dedupeKey,
@@ -66,6 +72,7 @@ const messageEventSchema = z.strictObject({
   author: userIdSchema,
   text,
   at,
+  sourceSpace: firstMessageSpace,
   originKey: z.string().min(1).optional(),
 });
 
@@ -139,6 +146,7 @@ const mentionEventSchema = z.strictObject({
   author: userIdSchema,
   text,
   at,
+  sourceSpace: firstMessageSpace,
   originKey: z.string().min(1).optional(),
 });
 

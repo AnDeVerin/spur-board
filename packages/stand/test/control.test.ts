@@ -53,6 +53,7 @@ const unused = {
   violations: vi.fn(),
   slackOutbox: vi.fn(),
   slackClick: vi.fn(),
+  slackPost: vi.fn(),
 };
 
 let control: Control | undefined;
@@ -84,11 +85,12 @@ describe('control endpoint', () => {
     expect(reset).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['/fake/slack/outbox', '/fake/slack/click'])(
+  it.each(['/fake/slack/outbox', '/fake/slack/click', '/fake/slack/post'])(
     'rejects a missing token, a foreign Host and an Origin on %s',
     async (path) => {
       const slackOutbox = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
       const slackClick = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+      const slackPost = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
       control = await startControl({
         token: TOKEN,
         routes: {
@@ -98,6 +100,7 @@ describe('control endpoint', () => {
           reset: vi.fn(),
           slackOutbox,
           slackClick,
+          slackPost,
         },
       });
       const port = new URL(control.url).port;
@@ -109,6 +112,7 @@ describe('control endpoint', () => {
       expect(await raw(control, { host, authorization, origin: 'http://evil' }, path)).toBe(403);
       expect(slackOutbox).not.toHaveBeenCalled();
       expect(slackClick).not.toHaveBeenCalled();
+      expect(slackPost).not.toHaveBeenCalled();
     },
   );
 
@@ -155,6 +159,26 @@ describe('control endpoint', () => {
       [{ message: 2, button: 'answer', text: 'Yes.' }],
       [{ message: 1, button: 'item:1:close' }],
     ]);
+  });
+
+  it('passes a post with text to its route and answers 400 without text', async () => {
+    const slackPost = vi.fn(() => Promise.resolve({ status: 200, body: { ok: true, message: 3 } }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), slackPost },
+    });
+    const post = (body: unknown) =>
+      fetch(`${control?.url ?? ''}/fake/slack/post`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    expect((await post({})).status).toBe(400);
+    expect((await post({ text: 1 })).status).toBe(400);
+    const posted = await post({ text: '@cur hello' });
+    expect(posted.status).toBe(200);
+    expect(await posted.json()).toEqual({ ok: true, message: 3 });
+    expect(slackPost.mock.calls).toEqual([[{ text: '@cur hello' }]]);
   });
 
   it('queues a click behind a reset and answers the outbox beside it', async () => {

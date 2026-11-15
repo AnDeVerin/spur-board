@@ -114,22 +114,25 @@ ID). Role addresses follow the current session filling the role.
 `slack.channels.feed` carries summaries such as curator answers and operator
 items, with exceptions for items represented elsewhere or delivery problems.
 `slack.channels.orchestrators` carries block threads addressed to the operator by
-someone else. Answer in the existing block thread to preserve its task context;
-starting an unrelated message does not create a taskless project question.
+someone else. Answer in the existing block thread to preserve its task context.
 
-## Planned Slack addressing (unavailable)
+## Slack addressing
 
-Taskless project questions and the following addressing convention are planned,
-not available in the current implementation. There are no configuration keys for
-this convention yet; do not infer any from the examples.
+Once a `projects[].spurProjects[].shortName` is set, a new operator message in
+`slack.channels.orchestrators` starts a conversation. A leading registered
+`@shortName` selects that Spur project and is stripped from the text. With an
+absent or unknown leading name, `slack.defaultAddressee` receives the complete
+text, retaining any unknown prefix; without it the Board replies once with the
+valid prefixes. A mention in the middle, or a Slack `<@U…>` mention, addresses
+nobody; an unknown name causes no lookup error. The operator checks short-name
+collisions with workspace names. A task key right after the prefix attaches the
+conversation to that task.
 
-A leading registered `@shortName` would select the addressee and strip that prefix
-from the delivered text. With an absent or unknown leading name, the configured
-default would receive the complete text, retaining any unknown prefix. A mention
-in the middle would address nobody. An unknown name would not cause a lookup
-error. The operator would check short-name collisions with workspace names.
-These are intended routing rules, not instructions to use mentions for routing
-current block-thread replies.
+The addressee is rung with the block ID, reads the text in `board inbox` and
+replies in the thread with `board answer`. An operator-role addressee posts as
+`board`, a column orchestrator on its column's task as orchestrator. Each
+operator thread message rings it again; `close` or ✅ in the thread closes it.
+While no live session can take it, `board status` lists it as waiting.
 
 ## Done follows the ticket
 

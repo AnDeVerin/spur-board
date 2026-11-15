@@ -1,5 +1,5 @@
 {
-  "version": "d03aa67fd70f21633afcb172886fd51a56b7508002bc352ae0abd3caaa33a702",
+  "version": "06ce6c1241352a8036f9d23c9705548413d9523a2af9f575958999abde6a0601",
   "grants": [
     "operator",
     "project-agent",
@@ -6966,7 +6966,7 @@
     {
       "id": "block.answer",
       "kind": "mutation",
-      "description": "Answer a question block; the answer becomes a comment and the block closes.",
+      "description": "Answer a question; the block closes unless it is an operator conversation.",
       "grants": [{ "grant": "block-addressee" }, { "grant": "operator" }],
       "preconditions": { "blockTypes": ["needs_input"] },
       "errors": [

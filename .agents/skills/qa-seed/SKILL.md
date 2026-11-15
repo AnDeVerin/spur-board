@@ -25,6 +25,9 @@ verbs and scenario names; this card keeps the rules and traps.
 - The curator scenarios (`question-to-curator`, `curator-escalation`, `curator-absent`,
   `project-question-to-operator`) add `stand-curator` as the stand project's curator; their seeds
   set the worker and curator sessions `--state waiting` so rings go out.
+- `operator-conversation` gives `stand-curator` the short name `cur` and `stand-qa` the short name
+  `qa`, the default addressee; read a conversation with `board inbox --as curator` or
+  `--as orchestrator`.
 - `dispatch-course-check` adds `stand-curator` as the curator too, and sets the worker and
   curator sessions `--state waiting`, so only the course check holds the worker's rings: answer
   its course block `--as curator`, then `pnpm stand poll`.
@@ -53,6 +56,9 @@ verbs and scenario names; this card keeps the rules and traps.
 - `fake spur session <id> --queue hold` keeps later sends in the session's Spur queue, as a busy
   session does, so the board holds the next ring; `--queue deliver` empties it. Run
   `pnpm stand poll` after either so the board reads the queue.
+- `fake slack post --text <t>` posts a new operator message in the orchestrators channel and
+  prints its fake Slack message number `<n>`; follow up or `close` it with
+  `fake slack click <n> answer --text`.
 - `fake github pr <n> comment` and `fake github pr <n> review <state>` add a comment, or a review
   on the head, at the stand clock. The author is `--author`, else `stand-reviewer`, or `stand-bot`
   with `--bot`; keep bots off `stand-reviewer`, or its approvals stop counting.

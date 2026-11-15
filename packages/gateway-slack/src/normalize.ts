@@ -38,6 +38,8 @@ export interface BotIdentity {
 
 export interface NormalizeContext {
   bot: BotIdentity;
+  /** The configured spaces; a conversation's first message names the one it was posted in. */
+  channels: SlackChannels;
   root?: unknown;
   rootTs?: string;
 }
@@ -167,8 +169,12 @@ export function normalizeMessage(
   if (messageAt === undefined) return [];
   const kind =
     base.threadTs === base.ts && body.includes(`<@${context.bot.userId}>`) ? 'mention' : 'message';
+  // Only a conversation's first message names its space; replies keep the shape they were
+  // stored with before the field existed, so a recovered reply replays under its stored key.
+  const space: { sourceSpace?: SpaceId | null } =
+    base.threadTs === base.ts ? { sourceSpace: sourceSpace(channel, context.channels) } : {};
   const events: InboundEvent[] = [
-    { kind, dedupeKey: `slack:${channel}:${base.ts}`, ...eventBase, at: messageAt },
+    { kind, dedupeKey: `slack:${channel}:${base.ts}`, ...eventBase, at: messageAt, ...space },
   ];
   if (editAt !== undefined && editedTs !== undefined && body.length > 0) {
     events.push({

@@ -507,7 +507,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board answer`
 
-Answer a question block; the answer becomes a comment and the block closes.
+Answer a question; the block closes unless it is an operator conversation.
 
 Arguments: `<block> <text>`.
 

@@ -128,7 +128,8 @@ export type RespondResult = 'sent' | 'dropped';
  * - G6: `delivered` is returned only after every step is confirmed; it carries `conversation`
  *   for target `open`.
  * - G7: Every conversation root carries a marker of its delivery key; events from such a
- *   conversation set `originKey`.
+ *   conversation set `originKey`. The first message of a conversation a user starts names its
+ *   space in `sourceSpace`; its replies carry none.
  * - G8: One normalizer for live and recovered messages; a message keeps its `dedupeKey`.
  * - G9: An edit and a deletion get `dedupeKey`s of their own, distinct from the message's; each
  *   edit gets a distinct one.

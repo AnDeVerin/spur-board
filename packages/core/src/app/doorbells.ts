@@ -284,6 +284,10 @@ async function registerAnswerNotification(
   input: Extract<DoorbellEvent, { kind: 'answer' }>,
   at: Date,
 ): Promise<void> {
+  if (input.block.addressee_spur_project !== null) {
+    await registerConversationFollowUp(trx, input, at);
+    return;
+  }
   const parsed = parseActorId(input.block.author);
   if (parsed?.actor !== 'agent' || input.actor === input.block.author) return;
   const actor = parseActorId(input.actor);
@@ -314,6 +318,55 @@ async function registerAnswerNotification(
     })
     .onConflict((oc) => oc.column('source_key').doNothing())
     .execute();
+}
+
+/**
+ * Register the addressee's ring for an operator's follow-up in an open operator conversation. An
+ * agent's answer rings nobody: the operator reads it in the thread.
+ */
+async function registerConversationFollowUp(
+  trx: Trx,
+  input: Extract<DoorbellEvent, { kind: 'answer' }>,
+  at: Date,
+): Promise<void> {
+  if (input.actor !== 'operator' || input.block.state !== 'open') return;
+  await trx
+    .insertInto('notification')
+    .values({
+      source_key: `comment:${String(input.commentId)}:${String(input.revision)}`,
+      kind: 'answer',
+      task_id: input.block.task_id,
+      block_id: input.block.id,
+      comment_id: input.commentId,
+      revision: input.revision,
+      role: input.block.addressee_role,
+      author_session: null,
+      recipient_session: null,
+      next_at: at.toISOString(),
+      last_outbox_id: null,
+      acked_at: null,
+      exhausted_at: null,
+      created_at: at.toISOString(),
+    })
+    .onConflict((oc) => oc.column('source_key').doNothing())
+    .execute();
+}
+
+/**
+ * The Spur project an operator conversation's notification is addressed to, or null for every
+ * other notification. It routes the ring before the role does.
+ */
+async function conversationTarget(
+  trx: Trx,
+  n: Partial<Pick<Notification, 'block_id'>>,
+): Promise<string | null> {
+  if (n.block_id === undefined || n.block_id === null) return null;
+  const block = await trx
+    .selectFrom('block')
+    .select('addressee_spur_project')
+    .where('id', '=', n.block_id)
+    .executeTakeFirst();
+  return block?.addressee_spur_project ?? null;
 }
 
 /**
@@ -360,11 +413,22 @@ const courseBlocks = (eb: ExpressionBuilder<Tables, 'notification'>) =>
  * Whether a worker notification is held by a course check on its task. Two holds apply: while a
  * `course_check` item is active, and, once it clears with a note, until the note's first ring is
  * delivered to any session, so the note rings first. A course note is a worker `answer`
- * notification on a course check's block. Other roles and `cycle_limit` items hold no ring.
+ * notification on a course check's block. Other roles, operator conversations and `cycle_limit`
+ * items hold no ring.
  */
 function courseHold(eb: ExpressionBuilder<Tables, 'notification'>) {
   return eb.and([
     eb('notification.role', '=', 'worker'),
+    // An operator conversation rings its Spur project, never the task's worker: no hold.
+    eb.not(
+      eb.exists(
+        eb
+          .selectFrom('block')
+          .select('block.id')
+          .whereRef('block.id', '=', 'notification.block_id')
+          .where('block.addressee_spur_project', 'is not', null),
+      ),
+    ),
     eb.or([
       eb.exists(
         eb
@@ -608,6 +672,8 @@ export async function selectNotificationRecipient(
 ): Promise<Session | undefined> {
   if (n.kind === 'turn_reminder')
     return n.author_session === null ? undefined : liveSession(trx, n.author_session);
+  const target = await conversationTarget(trx, n);
+  if (target !== null) return bestProjectSession(trx, target);
   const addressee = parseAddressee(n.role);
   switch (addressee.kind) {
     case 'curator':
@@ -693,7 +759,13 @@ async function endNotification(
   const { task } = subject;
   // A block that ends with no recipient (`noRecipientEnd`) moves to the operator, as does a
   // curator block whose rings ran out. A project block already addresses the operator.
-  if (n.kind === 'block' && task !== null && (addressee.kind === 'curator' || session === null)) {
+  // An operator conversation stays with the Spur project the operator addressed.
+  if (
+    n.kind === 'block' &&
+    task !== null &&
+    (addressee.kind === 'curator' || session === null) &&
+    (await conversationTarget(trx, n)) === null
+  ) {
     const block = await trx
       .selectFrom('block')
       .selectAll()
@@ -792,9 +864,11 @@ export async function ringUndelivered(
  * Why a notification with no recipient ends now, or null when it stays due for a next session. A
  * curator block, and an orchestrator block of a course check, end with `session: null`, which
  * `endNotification` turns into a move to the operator. A worker's answer on a project-level block
- * goes only to the session that asked.
+ * goes only to the session that asked. An operator conversation's notification never ends here.
  */
 async function noRecipientEnd(trx: Trx, n: Notification): Promise<string | null> {
+  // An operator conversation waits for a live session of its Spur project.
+  if ((await conversationTarget(trx, n)) !== null) return null;
   if (
     n.kind === 'removed' ||
     n.kind === 'turn_reminder' ||
@@ -872,7 +946,7 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
     .execute();
   for (const n of due) {
     const session = await selectNotificationRecipient(trx, n, config);
-    const keepsRings = resolvedByProject(n.role);
+    const keepsRings = resolvedByProject(n.role) || (await conversationTarget(trx, n)) !== null;
     if (session === undefined) {
       const reason = await noRecipientEnd(trx, n);
       if (reason !== null) {
@@ -1208,6 +1282,8 @@ export async function notificationAddressedTo(
   const parsed = parseActorId(actor);
   if (parsed?.actor !== 'agent') return false;
   const { project, session } = parsed.actorRef;
+  const target = await conversationTarget(trx, n);
+  if (target !== null) return project === target;
   const addressee = parseAddressee(n.role);
   switch (addressee.kind) {
     case 'curator':
@@ -1300,9 +1376,45 @@ export async function closeTurnNotification(trx: Trx, turnId: number, at: Date):
   await closeOwnedNotifications(trx, 'turn', turnId, at, 'system');
 }
 
+/**
+ * Ends an operator conversation's block and follow-up rings, whoever answered or closed it: the
+ * operation's grant already chose the actor. Exhaustion items are cleared by `actor`, and each
+ * follow-up comment is marked read at its current revision.
+ */
+export async function ackConversationNotifications(
+  trx: Trx,
+  blockId: number,
+  at: Date,
+  actor: ActorId,
+): Promise<void> {
+  // The answer or close covers each follow-up as read, so a later edit is a clarification.
+  const answers = await trx
+    .selectFrom('notification')
+    .select('comment_id')
+    .where('block_id', '=', blockId)
+    .where('kind', '=', 'answer')
+    .where('acked_at', 'is', null)
+    .execute();
+  await closeOwnedNotifications(trx, 'conversation', blockId, at, actor);
+  for (const { comment_id: id } of answers) {
+    if (id === null) continue;
+    await trx
+      .updateTable('comment')
+      .set((eb) => ({ acked_revision: eb.ref('revision') }))
+      .where('id', '=', id)
+      .execute();
+  }
+}
+
+const OWNED_KINDS = {
+  block: ['block'],
+  conversation: ['block', 'answer'],
+  turn: ['turn', 'turn_reminder'],
+} as const satisfies Record<string, readonly Notification['kind'][]>;
+
 async function closeOwnedNotifications(
   trx: Trx,
-  kind: 'block' | 'turn',
+  kind: keyof typeof OWNED_KINDS,
   ownerId: number,
   at: Date,
   actor: ActorId,
@@ -1310,8 +1422,8 @@ async function closeOwnedNotifications(
   const closed = await trx
     .updateTable('notification')
     .set({ acked_at: at.toISOString() })
-    .where(kind === 'block' ? 'block_id' : 'turn_id', '=', ownerId)
-    .where('kind', 'in', kind === 'block' ? ['block'] : ['turn', 'turn_reminder'])
+    .where(kind === 'turn' ? 'turn_id' : 'block_id', '=', ownerId)
+    .where('kind', 'in', OWNED_KINDS[kind])
     .where('acked_at', 'is', null)
     .returning(['kind', 'source_key'])
     .execute();

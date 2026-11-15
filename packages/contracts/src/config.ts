@@ -195,6 +195,16 @@ const spurProject = z.strictObject({
     .describe(
       "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one.",
     ),
+  shortName: z
+    .string()
+    .regex(
+      /^[a-z0-9][a-z0-9_-]{0,31}$/,
+      'Expected a short name of lowercase letters, digits, _ and -, starting with a letter or digit, at most 32 characters',
+    )
+    .optional()
+    .describe(
+      "The name the operator types as @<shortName> at the start of a new message in the orchestrators channel to start a conversation with this Spur project's live session. Unique across the board.",
+    ),
   displayName: nonEmpty
     .max(80)
     .optional()
@@ -531,14 +541,36 @@ function rejectSharedSpurProjects(
   });
 }
 
-/** The board config file. Every object rejects unknown keys; no key holds a secret. */
-export const configSchema = z.strictObject({
+/** A `shortName` addresses one Spur project, so it is unique across every board project. */
+function rejectSharedShortNames(
+  items: readonly z.output<typeof projectSchema>[],
+  ctx: z.RefinementCtx,
+): void {
+  const seen = new Set<string>();
+  items.forEach((project, i) => {
+    project.spurProjects.forEach(({ shortName }, j) => {
+      if (shortName === undefined) return;
+      if (seen.has(shortName)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [i, 'spurProjects', j, 'shortName'],
+          message: `Duplicate short name: ${JSON.stringify(shortName)}`,
+        });
+      }
+      seen.add(shortName);
+    });
+  });
+}
+
+/** The board config file before the checks across its sections. */
+const configObject = z.strictObject({
   projects: z
     .array(projectSchema)
     .min(1)
     .superRefine((items, ctx) => {
       rejectDuplicates(items, 'id', 'project id', ctx);
       rejectSharedSpurProjects(items, ctx);
+      rejectSharedShortNames(items, ctx);
     })
     .describe(
       'Board projects, at least one. Each reads tasks from one tracker and PRs from its repos. A Spur project can be listed under only one board project.',
@@ -586,6 +618,12 @@ export const configSchema = z.strictObject({
             ),
         })
         .prefault({}),
+      defaultAddressee: z
+        .string()
+        .optional()
+        .describe(
+          'The shortName of the Spur project that gets a new orchestrators-channel message which does not start with a known @<shortName>. Without it, such a message gets one reply listing the valid prefixes. Ignored when no shortName is configured.',
+        ),
     })
     .prefault({}),
   thresholds: z
@@ -740,6 +778,22 @@ export const configSchema = z.strictObject({
         .prefault({}),
     })
     .prefault({}),
+});
+
+/** The board config file. Every object rejects unknown keys; no key holds a secret. */
+export const configSchema = configObject.superRefine((config, ctx) => {
+  const addressee = config.slack.defaultAddressee;
+  if (addressee === undefined) return;
+  const known = config.projects.some((project) =>
+    project.spurProjects.some(({ shortName }) => shortName === addressee),
+  );
+  if (!known) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['slack', 'defaultAddressee'],
+      message: `Unknown short name ${JSON.stringify(addressee)}: set it as projects[].spurProjects[].shortName first`,
+    });
+  }
 });
 
 export type Config = z.output<typeof configSchema>;
