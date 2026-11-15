@@ -178,6 +178,93 @@ describe('authorize catalog grants', () => {
     );
   });
 
+  it("keeps a project operator's rights on every board project without a board-wide operator", () => {
+    const archive = operation('task.archive');
+    const elsewhere = { ...target, project: 'other' };
+    expect(
+      authorize(archive.grants, 'agent:ops/ops-1', {
+        config,
+        target: { kind: 'found', value: elsewhere },
+      }).status,
+    ).toBe('allowed');
+    expect(
+      authorize(operation('token.list').grants, 'agent:ops/ops-1', {
+        config,
+        target: { kind: 'missing' },
+      }).status,
+    ).toBe('allowed');
+  });
+
+  describe('board-wide operator', () => {
+    const wide = configSchema.parse({
+      projects: ['alpha', 'beta'].map((id) => ({
+        id,
+        tracker: { type: 'github-issues', repo: `${id}/r`, milestone: 'M1' },
+        repos: [`${id}/r`],
+        operatorGithubLogin: 'operator',
+        spurProjects: id === 'alpha' ? [{ name: 'alpha-ops', role: 'operator' }] : [],
+      })),
+      spurProjects: [{ name: 'hq', role: 'operator' }],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    const hq: ActorId = 'agent:hq/hq-1';
+    const alphaOps: ActorId = 'agent:alpha-ops/ops-1';
+    const on = (project: string) => ({
+      config: wide,
+      target: { kind: 'found' as const, value: { ...target, project, workers: [] } },
+    });
+
+    it.each([
+      [hq, 'beta', 'allowed'],
+      [hq, 'alpha', 'denied'],
+      [alphaOps, 'alpha', 'allowed'],
+      [alphaOps, 'beta', 'denied'],
+      ['operator', 'alpha', 'allowed'],
+      ['operator', 'beta', 'allowed'],
+    ] as const)('gives %s the operator grant on %s: %s', (actor, project, status) => {
+      expect(authorize(operation('task.archive').grants, actor, on(project)).status).toBe(status);
+    });
+
+    it.each([
+      [hq, 'allowed'],
+      [alphaOps, 'denied'],
+      ['operator', 'allowed'],
+    ] as const)('gives %s an operator operation without a target: %s', (actor, status) => {
+      expect(
+        authorize(operation('token.list').grants, actor, {
+          config: wide,
+          target: { kind: 'missing' },
+        }).status,
+      ).toBe(status);
+    });
+
+    it('lets only the operator of the block project answer an operator-addressed block', () => {
+      const answer = operation('block.answer');
+      const question = (project: string) => {
+        const state = on(project);
+        return {
+          ...state,
+          target: {
+            ...state.target,
+            value: {
+              ...state.target.value,
+              block: {
+                type: 'needs_input' as const,
+                author: 'agent:foreign/f-1' as const,
+                addressee_role: 'operator' as const,
+              },
+            },
+          },
+        };
+      };
+      expect(authorize(answer.grants, hq, question('beta')).status).toBe('allowed');
+      expect(authorize(answer.grants, alphaOps, question('beta')).status).toBe('denied');
+      expect(authorize(answer.grants, alphaOps, question('alpha')).status).toBe('allowed');
+      expect(authorize(answer.grants, hq, question('alpha')).status).toBe('denied');
+    });
+  });
+
   it('resolves each block addressee role against current state', () => {
     const escalate = operation('block.escalate');
     const state = (addressee_role: 'operator' | 'orchestrator:dev' | 'worker') => ({

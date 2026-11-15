@@ -508,6 +508,41 @@ describe('API identity', () => {
     expect(verifyToken).not.toHaveBeenCalled();
   });
 
+  it('accepts a session of a board-wide Spur project that serves several Board projects', async () => {
+    const store = await storeWithSession();
+    const [board] = config.projects;
+    if (board === undefined) throw new Error('Missing project');
+    const wide = configSchema.parse({
+      projects: [board, { ...board, id: 'other', spurProjects: [] }],
+      spurProjects: [{ name: 'br', role: 'orchestrator', columns: ['review'] }],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    expect(
+      wide.projects.filter((project) => project.spurProjects.some((spur) => spur.name === 'br')),
+    ).toHaveLength(2);
+    await scanTransaction(store, config, async (trx) => {
+      await trx
+        .insertInto('session_snapshot')
+        .values({
+          ...sampleRows.session_snapshot,
+          id: 'br-1',
+          spur_project: 'br',
+          ended_at: null,
+          end_reason: null,
+        })
+        .execute();
+    });
+    const verifyToken = vi.fn();
+    await expect(
+      identify(
+        { store, config: wide, lookupSession: vi.fn(), verifyToken },
+        { session: 'br-1', authorization: undefined },
+      ),
+    ).resolves.toBe('agent:br/br-1');
+    expect(verifyToken).not.toHaveBeenCalled();
+  });
+
   it('does not echo a live project name with control characters', async () => {
     const store = await storeWithSession();
     const error: unknown = await identify(
