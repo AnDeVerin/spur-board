@@ -27,6 +27,7 @@ import {
   restartNotification,
   selectNotificationRecipient,
 } from '../../src/app/doorbells.ts';
+import { withVia } from '../../src/app/board-utils.ts';
 import { curatorSessions } from '../../src/app/doctor.ts';
 import { raiseCourseCheck } from '../../src/app/course-check.ts';
 import { raiseCycleLimit, reconcileItems } from '../../src/app/fromYou.ts';
@@ -613,7 +614,9 @@ describe('role addressed doorbells', () => {
       'agent:web/worker-1',
       'ask-unread',
     );
-    await ctx.apply(ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
+    await withVia('web', () =>
+      ctx.apply(ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator'),
+    );
     for (const pause of [0, 120_000, 300_000]) {
       ctx.advance(pause);
       await ctx.ring();
@@ -640,14 +643,15 @@ describe('role addressed doorbells', () => {
       .executeTakeFirstOrThrow();
     const events = await ctx.store.db
       .selectFrom('event')
-      .select(['id', 'kind', 'request_id'])
+      .select(['id', 'kind', 'request_id', 'via'])
       .orderBy('id')
       .execute();
     expect(events.filter((event) => event.kind === 'block_opened')).toMatchObject([
-      { request_id: 'ask-unread' },
+      { request_id: 'ask-unread', via: null },
     ]);
     const answered = events.filter((event) => event.request_id === answer.key);
     expect(answered.length).toBeGreaterThan(0);
+    expect(answered.map((event) => event.via)).toEqual(answered.map(() => 'web'));
     const lastCommandEvent = Math.max(...answered.map((event) => event.id));
     expect(
       events
@@ -658,6 +662,7 @@ describe('role addressed doorbells', () => {
     expect(unkeyed.map((event) => event.kind)).toContain('doorbell_rung');
     expect(unkeyed.map((event) => event.kind)).toContain('from_you_raised');
     expect(unkeyed.map((event) => event.request_id)).toEqual(unkeyed.map(() => null));
+    expect(unkeyed.map((event) => event.via)).toEqual(unkeyed.map(() => null));
   });
 
   it('does not count a transport retry as another semantic ring', async () => {

@@ -5,6 +5,7 @@ import {
   parseRef,
   PR_STATES,
   TASK_HOLDS,
+  VIAS,
   type ActorId,
   type Config,
   type EventKind,
@@ -369,11 +370,13 @@ export function createTaskQueries(deps: {
       const events = rows.flatMap((row) => {
         const kind = EVENT_KINDS.find((candidate) => candidate === row.kind);
         if (kind === undefined) return [];
+        const via = VIAS.find((value) => value === row.via);
         return [
           {
             at: row.at,
             kind,
             actor: eventActor(row),
+            ...(via === undefined ? {} : { via }),
             summary:
               linkOrEscalationSummary(kind, row.payload) ??
               shadowSummary(kind, row.payload) ??

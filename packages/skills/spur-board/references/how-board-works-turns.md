@@ -23,6 +23,8 @@ a message already accepted by Spur cannot be retracted. Check `board inbox` and
 act only on a current turn; reread after `turn_closed`.
 Task history (`board task history <task>`) shows journal events `turn_opened`,
 `turn_taken` and `turn_closed`: executor, taker, outcome.
+Each event names who acted and, for a write from Slack or the web UI, its
+channel (`via`); CLI, MCP and agent writes have none.
 
 Open-turn executors in `needs_input`, `error`, `rate_limited` or `stopped` raise
 one question after `health.turnStallAfterMs` (default 600000): curator unless self, else

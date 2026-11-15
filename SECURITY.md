@@ -46,6 +46,10 @@ one of the limits below is not a vulnerability; a way around a guarantee below i
   15 minutes unless the operator approves it in the messenger. An approved token has no expiry:
   it works until `board token revoke`, and the daemon checks its status on every call. See
   [SETUP.md](SETUP.md) for the operator paths.
+- **The journal records the actor and the channel.** Each journal event records who acted (the
+  operator, an agent and its session, or the board) and the channel of an operator write
+  (`slack` or `web`; none for the CLI, MCP and agents). The channel is where the daemon received
+  the request, not proof of who typed it.
 
 ### Other OS users on the same host
 
