@@ -17,6 +17,10 @@
   (`scripts/ci-runs.ts`, `scripts/ci-runs.test.ts`, `describe('reuse gating in ci.yml',`).
 - `ci-ok` writes the test and stand wall time per Node leg to the job summary and warns when stand
   is slower; the step never fails `ci-ok` (`scripts/ci-runs.ts`, `standTiming`).
+- CI `guardrails` runs on every PR event, edits included. It fails when `## Changed checks` misses
+  a file it reports, each added, changed or deleted test file included, and warns on a named path
+  the PR does not change (`scripts/guardrails.ts`, `scripts/guardrails.test.ts`,
+  `describe('guardrails.ts CLI',`).
 - CI `test` and `stand` jobs: `check:full --only test` and `--only stand` (`.github/workflows/ci.yml`).
 - CI `package-smoke` job: `pnpm package:smoke` and `pnpm upgrade:smoke` on PRs, then
   `pnpm update:smoke`; on a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a
