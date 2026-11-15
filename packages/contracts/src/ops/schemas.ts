@@ -25,6 +25,7 @@ import {
   FEEDBACK_KINDS,
   PR_STATES,
   commitShaSchema,
+  feedbackLinkShape,
   prFactsSchema,
   prRefSchema,
   sessionFactsSchema,
@@ -115,8 +116,20 @@ export const turnHandedSchema = z
     postedAt: z.iso
       .datetime()
       .describe('When the comment was posted or the review submitted, ISO 8601 UTC.'),
+    ...feedbackLinkShape,
   })
-  .describe('Pull request feedback handed over with a turn.');
+  .describe('Pull request feedback a turn handed; an edit after the hand hands it again.');
+
+/** The return that opened the Dev visit a turn belongs to. */
+const turnReturnSchema = z
+  .strictObject({
+    by: actorIdSchema.describe('Who returned the task to Dev.'),
+    from: z.enum(COLUMN_IDS).describe('Column the task was returned from.'),
+    turn: turnIdSchema.describe('The turn the return closed.'),
+    block: blockIdSchema.describe('The code block the return opened.'),
+    reason: z.string().describe('Reason of the return, verbatim from its code block.'),
+  })
+  .describe('The return that sent the task back to Dev and opened this visit.');
 
 export const turnViewSchema = z
   .strictObject({
@@ -126,6 +139,11 @@ export const turnViewSchema = z
     addressee: z.enum(ADDRESSEE_ROLES).describe('Who executes the turn.'),
     reason: z.string().describe('Why the turn was handed to the executor.'),
     handed: z.array(turnHandedSchema).describe('Pull request feedback handed over with the turn.'),
+    returned: turnReturnSchema
+      .optional()
+      .describe(
+        'The return that opened this Dev visit: who returned it, from which column, the closed turn, the code block and its reason. Missing when the visit did not start with a return.',
+      ),
     head: commitShaSchema
       .nullable()
       .describe(
@@ -144,7 +162,15 @@ export const turnViewSchema = z
 
 /** A turn as `task.get` shows it: who executes it, whether it was taken, and how it closed. */
 export const taskTurnSchema = turnViewSchema
-  .pick({ id: true, column: true, addressee: true, at: true, taken: true })
+  .pick({
+    id: true,
+    column: true,
+    addressee: true,
+    at: true,
+    taken: true,
+    handed: true,
+    returned: true,
+  })
   .extend({
     closed: z
       .strictObject({

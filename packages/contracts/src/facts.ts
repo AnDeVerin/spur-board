@@ -92,6 +92,46 @@ const checkSchema = z.strictObject({
   completedAt: at.nullable().describe('When the latest run finished; null while it runs.'),
 });
 
+/**
+ * Link and edit fields a feedback entry and a handed entry share: the direct URL, the newest edit
+ * and a review's inline comments.
+ */
+export const feedbackLinkShape = {
+  url: webUrl
+    .optional()
+    .describe(
+      'Web URL of the comment or review; missing in snapshots and handed entries written before it.',
+    ),
+  editedAt: at
+    .optional()
+    .describe(
+      'When it was last edited; for a review the newest edit of its body or its inline comments. Missing when never edited or not yet read.',
+    ),
+  comments: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).describe('Stable id of the inline review comment in the source.'),
+        url: webUrl
+          .optional()
+          .describe(
+            'Web URL that opens the inline comment, a thread reply included, in its thread.',
+          ),
+        threadId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Id of the review thread the inline comment belongs to.'),
+        editedAt: at
+          .optional()
+          .describe('When the inline comment was last edited; missing when never edited.'),
+      }),
+    )
+    .optional()
+    .describe(
+      "A review's inline comments, thread replies included, oldest first within each thread; missing for a comment and a review without inline comments.",
+    ),
+};
+
 const feedbackSchema = z.strictObject({
   kind: z.enum(FEEDBACK_KINDS).describe('Whether this is a comment or a submitted review.'),
   id: z.string().min(1).describe('Stable id of the comment or review in the source.'),
@@ -113,6 +153,7 @@ const feedbackSchema = z.strictObject({
     .describe(
       'True for a status comment of a reviewer service, marked by its last line; it is not external feedback. Missing otherwise.',
     ),
+  ...feedbackLinkShape,
 });
 export type PrFeedback = z.output<typeof feedbackSchema>;
 

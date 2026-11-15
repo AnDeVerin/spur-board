@@ -351,6 +351,39 @@ describe('stored facts', () => {
     expect(parse(comment).data?.feedback?.[0]).not.toHaveProperty('statusComment');
     expect(parse({ ...comment, statusComment: false }).success).toBe(false);
   });
+
+  it('accepts feedback with url, editedAt and inline comments; rejects a non-http url', () => {
+    const input = prFacts();
+    const [comment, , review] = input['feedback'] as Record<string, unknown>[];
+    const linkedComment = {
+      ...comment,
+      url: 'https://github.com/acme/web/pull/42#issuecomment-1',
+      editedAt: '2026-11-01T12:00:00Z',
+    };
+    const linkedReview = {
+      ...review,
+      url: 'https://github.com/acme/web/pull/42#pullrequestreview-1',
+      comments: [
+        {
+          id: 'PRRC_1',
+          url: 'https://github.com/acme/web/pull/42#discussion_r1',
+          threadId: 'PRRT_1',
+          editedAt: '2026-11-01T12:30:00Z',
+        },
+        { id: 'PRRC_2' },
+      ],
+    };
+    const parse = (feedback: unknown[]) => prFactsSchema.safeParse({ ...input, feedback });
+    expect(parse([linkedComment, linkedReview]).data?.feedback).toEqual([
+      linkedComment,
+      linkedReview,
+    ]);
+    expect(parse([{ ...comment, url: 'javascript:alert(1)' }]).success).toBe(false);
+    expect(
+      parse([{ ...review, comments: [{ id: 'PRRC_1', url: 'ftp://example.com/c' }] }]).success,
+    ).toBe(false);
+    expect(parse([{ ...review, comments: [{ id: 'PRRC_1', extra: true }] }]).success).toBe(false);
+  });
 });
 
 describe('external authors', () => {

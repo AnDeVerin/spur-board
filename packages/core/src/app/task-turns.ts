@@ -1,6 +1,7 @@
 import type { Selectable } from 'kysely';
 import type { TurnTable } from '../store/schema.ts';
 import type { Trx } from './board-utils.ts';
+import { turnHanded } from './turns.ts';
 
 /** How many closed turns `task.get --detail` shows. */
 const DETAIL_TURNS = 5;
@@ -15,6 +16,7 @@ function taskTurnView(turn: Selectable<TurnTable>) {
       turn.acked_by === null || turn.acked_at === null
         ? null
         : { by: turn.acked_by, at: turn.acked_at },
+    handed: turnHanded(turn),
     closed:
       turn.closed_at === null || turn.closed_reason === null
         ? null

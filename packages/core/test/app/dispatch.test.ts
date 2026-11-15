@@ -1723,6 +1723,7 @@ describe('turns', () => {
       addressee: 'worker',
       at: opened,
       taken: null,
+      handed: [],
       closed: null,
     });
     expect(unacked).not.toHaveProperty('turns');

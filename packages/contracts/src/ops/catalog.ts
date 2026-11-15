@@ -30,6 +30,7 @@ import {
   taskTurnSchema,
   taskViewSchema,
   taskWhySchema,
+  type turnHandedSchema,
   turnViewSchema,
 } from './schemas.ts';
 import { SPACE_IDS } from '../gateway/schemas.ts';
@@ -141,12 +142,28 @@ const devTurn = {
   closed: null,
 } as const;
 const later = '2026-01-05T10:15:00.000Z';
-const handedReview = {
+const handedReview: z.input<typeof turnHandedSchema> = {
   repo: 'acme/web',
   number: 42,
   kind: 'review',
   id: 'PRR_kwDOA1',
   postedAt: at,
+  url: 'https://github.com/acme/web/pull/42#pullrequestreview-2001',
+  comments: [
+    {
+      id: 'PRRC_kwDOA2',
+      url: 'https://github.com/acme/web/pull/42#discussion_r3001',
+      threadId: 'PRRT_kwDOA3',
+    },
+  ],
+};
+/** The return from Review that opened the Dev visit, with its code block. */
+const returnFromReview = {
+  by: 'agent:rev/rev-1',
+  from: 'review',
+  turn: 'T2',
+  block: codeBlock.id,
+  reason: codeBlock.reason,
 } as const;
 const submittedSha = '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4';
 const item = { id: 'I7', task: 'PROJ-123', at, summary: 'Deploy of PROJ-123 failed.' } as const;
@@ -432,7 +449,13 @@ export const OPERATIONS = [
       {
         summary: 'Show one task',
         input: { task: 'PROJ-123' },
-        output: { task, turn: devTurn, links: [], blocks: [question], comments: [comment] },
+        output: {
+          task,
+          turn: { ...devTurn, handed: [handedReview], returned: returnFromReview },
+          links: [],
+          blocks: [question, codeBlock],
+          comments: [comment],
+        },
       },
       {
         summary: 'Explain why a task waits in Review',
@@ -445,6 +468,7 @@ export const OPERATIONS = [
             addressee: reviewTurn.addressee,
             at,
             taken: { by: 'agent:rev/rev-1', at },
+            handed: [],
             closed: null,
           },
           links: [],
@@ -481,8 +505,14 @@ export const OPERATIONS = [
         input: { task: 'PROJ-123', detail: true },
         output: {
           task,
-          turn: { ...devTurn, id: 'T4', at: later, taken: { by: 'agent:web/web-7', at: later } },
-          turns: [{ ...devTurn, closed: { at: later, outcome: 'submitted' } }],
+          turn: {
+            ...devTurn,
+            id: 'T4',
+            at: later,
+            taken: { by: 'agent:web/web-7', at: later },
+            handed: [],
+          },
+          turns: [{ ...devTurn, handed: [], closed: { at: later, outcome: 'submitted' } }],
           links: [],
           blocks: [],
           comments: [],
