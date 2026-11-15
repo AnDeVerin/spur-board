@@ -23,6 +23,12 @@ completeness fact, `feedbackComplete`, so a gap can be stated without guessing a
   `packages/adapters/src/github/prBatch.ts`: a last non-blank line that is exactly a
   `STATUS_MARKERS` marker sets `statusComment: true`. Reviews are never flagged, and the body
   never leaves the adapter.
+- Comment and review nodes also select `url` and `lastEditedAt`; each review thread lists its
+  newest 100 inline comments, grouped under their review by `pullRequestReview` id
+  (`packages/adapters/src/github/feedbackLinks.ts`). A missing `url` gives no `url` fact.
+- Edits show only on comments the full read lists: the newest page, history pages read that
+  poll and the held run. An inline comment's edit has no index sign and waits for the next full
+  read, up to `OPEN_REFRESH_MS`.
 - Tests: `describe('PR feedback')` in `packages/adapters/test/github/prBatch.test.ts`.
 
 ## Continuation across polls
