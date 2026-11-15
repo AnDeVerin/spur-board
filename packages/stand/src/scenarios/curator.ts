@@ -178,3 +178,39 @@ export const projectQuestionToOperator: Scenario = {
     ]);
   },
 };
+
+/**
+ * The operator starts conversations in Slack: `@cur` addresses the curator, `@qa` the stand
+ * orchestrator, and a message without a known prefix goes to `@qa`, the default addressee. Issue
+ * 1 is open for a conversation on a task; worker, curator and orchestrator wait, so rings go out.
+ */
+export const operatorConversation: Scenario = {
+  name: 'operator-conversation',
+  summary: 'Short names @cur and @qa, @qa the default addressee, issue 1 open for a task key.',
+  config: {
+    stand: {
+      spurProjects: [
+        { name: 'stand-worker', role: 'worker' },
+        { name: 'stand-qa', role: 'orchestrator', shortName: 'qa' },
+        { name: 'stand-curator', role: 'curator', shortName: 'cur' },
+      ],
+    },
+    slack: { defaultAddressee: 'qa' },
+  },
+  async seed(board, fakes) {
+    await openIssues(fakes, 1);
+    for (const session of [board.roles.worker, board.roles.curator, board.roles.orchestrator])
+      await fakes.spur('session', { id: session, state: 'waiting' });
+    await board.poll();
+    return {
+      tasks: { issue: issueKey(1) },
+      sessions: { curator: board.roles.curator, orchestrator: board.roles.orchestrator },
+    };
+  },
+  async settled({ board }) {
+    const { tasks } = await board.call('operator', 'status.get', {});
+    return settledUnless(
+      tasks.some((task) => task.key === issueKey(1)) ? [] : [`no task ${issueKey(1)} yet`],
+    );
+  },
+};

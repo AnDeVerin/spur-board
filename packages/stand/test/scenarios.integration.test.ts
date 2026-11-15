@@ -234,7 +234,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists thirty-four scenarios, each with a seed and a settled check', () => {
+  it('lists thirty-five scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -243,6 +243,7 @@ describe('scenarios', () => {
       'curator-escalation',
       'curator-absent',
       'project-question-to-operator',
+      'operator-conversation',
       'worker-killed-no-pr',
       'spur-source-silent',
       'source-blind',
@@ -963,6 +964,131 @@ describe('curator scenarios', () => {
     expect(events.map(({ kind }) => kind)).not.toContain('doorbell_rung');
     expect(await sendsNaming(manifest.roles.curator, id)).toEqual([]);
   }, 60_000);
+
+  it('operator-conversation: the five issue messages reach their addressees', async () => {
+    const manifest = await up();
+    await seed('operator-conversation');
+    const { curator, orchestrator } = manifest.roles;
+    interface InboxBlock {
+      id: string;
+      task: string | null;
+      project?: string;
+      type: string;
+      addressee: string;
+      reason: string;
+      state: string;
+    }
+    const inbox = async (role: 'curator' | 'orchestrator'): Promise<InboxBlock[]> => {
+      const listed = await standCli([
+        'board',
+        '--home',
+        manifest.home,
+        '--as',
+        role,
+        'inbox',
+        '--json',
+      ]);
+      expect(listed.code, listed.stderr).toBe(0);
+      return (JSON.parse(listed.stdout) as { blocks: InboxBlock[] }).blocks;
+    };
+    /** Posts `text` and returns its message number and the block `role`'s inbox gained. */
+    const post = async (text: string, role: 'curator' | 'orchestrator') => {
+      const before = new Set((await inbox(role)).map((block) => block.id));
+      const { message } = (await ok(current(), '/fake/slack/post', { text })) as {
+        message: number;
+      };
+      const gained = (await inbox(role)).filter((block) => !before.has(block.id));
+      expect(gained, text).toHaveLength(1);
+      return { message, block: gained[0] as InboxBlock };
+    };
+    const rings = async (session: string, id: string, at = 1) => {
+      await ok(current(), '/poll');
+      await vi.waitFor(
+        async () => {
+          expect((await sendsNaming(session, id)).length).toBeGreaterThanOrEqual(at);
+        },
+        { timeout: 20_000, interval: 100 },
+      );
+    };
+    const drained = () =>
+      ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 10_000 });
+    const thread = async (n: number) => {
+      const messages = await slack();
+      const root = messages.find((message) => message.n === n);
+      return messages.filter((message) => message.conversation === root?.conversation);
+    };
+    const projectBlock = { type: 'needs_input', task: null, project: 'stand', state: 'open' };
+
+    const first = await post('@cur hello', 'curator');
+    expect(first.block).toMatchObject({ ...projectBlock, reason: 'hello', addressee: 'curator' });
+    await rings(curator, first.block.id);
+    expect(await sendsNaming(orchestrator, first.block.id)).toEqual([]);
+    const answered = await standCli([
+      'board',
+      '--home',
+      manifest.home,
+      '--as',
+      'curator',
+      'answer',
+      first.block.id,
+      'Hi from the curator.',
+    ]);
+    expect(answered.code, answered.stderr).toBe(0);
+    await drained();
+    expect(await thread(first.message)).toContainEqual(
+      expect.objectContaining({
+        root: false,
+        text: expect.stringContaining('Hi from the curator.') as unknown,
+      }),
+    );
+    expect(channelOf((await thread(first.message))[0] as SlackMessage)).toBe('C0STANDORCH');
+    expect((await inbox('curator')).map((block) => block.id)).toContain(first.block.id);
+    const before = (await sendsNaming(curator, first.block.id)).length;
+    const follow = { message: first.message, button: 'answer', text: 'and more' };
+    await ok(current(), '/fake/slack/click', follow);
+    await rings(curator, first.block.id, before + 1);
+    await ok(current(), '/fake/slack/click', { ...follow, text: 'close' });
+    await drained();
+    expect(await thread(first.message)).toContainEqual(
+      expect.objectContaining({
+        text: expect.stringContaining('resolved: done (operator)') as unknown,
+      }),
+    );
+    expect((await inbox('curator')).map((block) => block.id)).not.toContain(first.block.id);
+
+    const quiet: number[] = [];
+    for (const text of ['hello', '@nobody hello', 'please ask @cur']) {
+      const curatorBefore = (await inbox('curator')).length;
+      const step = await post(text, 'orchestrator');
+      expect(step.block).toMatchObject({ ...projectBlock, reason: text, addressee: 'worker' });
+      await rings(orchestrator, step.block.id);
+      expect(await inbox('curator')).toHaveLength(curatorBefore);
+      expect(await sendsNaming(curator, step.block.id)).toEqual([]);
+      quiet.push(step.message);
+    }
+
+    const task = 'stand-org/board#1';
+    const { message } = (await ok(current(), '/fake/slack/post', {
+      text: '@cur stand-org/board#1 status?',
+    })) as { message: number };
+    quiet.push(message);
+    const onTask = (await op<{ blocks: InboxBlock[] }>(current(), 'task.get', { task })).blocks;
+    expect(onTask).toEqual([
+      expect.objectContaining({
+        type: 'needs_input',
+        task,
+        addressee: 'curator',
+        reason: 'stand-org/board#1 status?',
+        state: 'open',
+      }),
+    ]);
+    await rings(curator, onTask[0]?.id ?? '');
+
+    await drained();
+    for (const n of quiet) {
+      expect((await thread(n)).map((m) => ({ n: m.n, root: m.root }))).toEqual([{ n, root: true }]);
+    }
+  }, 120_000);
 
   it('project-question-to-operator: the operator answers in the thread and the curator is rung', async () => {
     const manifest = await up();
