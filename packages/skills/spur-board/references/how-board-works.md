@@ -118,9 +118,11 @@ operator; other blocks escalate straight to the operator. Skip your own project:
 a curator orchestrating the column escalates straight to the operator. Use keyed
 `board escalate <block>` if the addressee cannot resolve it.
 
-Without a task, all four project-agent roles ask only the operator: `board project ask <project> <text> --to operator --key <key>`.
-This opens a project-level `needs_input` block and operator Slack thread. Answers
-route to the author's role; workers receive them in the asking session.
+Taskless: all roles, operator only:
+`board project ask <project> <text> --to operator --key <key>`.
+Project `needs_input` blocks get Slack threads except operator-agent asks;
+operator: `board inbox`, keyed `board answer`. Answers reach the author's role;
+workers use the asking session.
 
 Routing: `projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
 `operator.slack` (Slack user ID). Roles follow the current session.
