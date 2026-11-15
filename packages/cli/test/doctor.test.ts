@@ -201,7 +201,30 @@ describe('board doctor', () => {
     const section = guide.split('## Doctor checks\n')[1]?.split('\n## ')[0] ?? '';
     const documented = [...section.matchAll(/^### ([a-z][a-z0-9_.]+)$/gm)].map((match) => match[1]);
     expect(documented.length).toBe(new Set(documented).size);
-    expect(documented.sort()).toEqual(emitted);
+    const web = await run(
+      ['doctor', '--json'],
+      ports({
+        fetcher: () =>
+          Promise.resolve(
+            Response.json({
+              version: '1.2.3',
+              checks: [
+                ...remoteIds.map((id): DoctorCheck => ({
+                  id,
+                  status: 'pass',
+                  blocking: false,
+                  fix: null,
+                })),
+                { id: 'web.listening', status: 'pass', blocking: false, fix: null },
+              ],
+            }),
+          ),
+      }),
+    );
+    expect(web.checks.some((check) => check.id === 'web.listening')).toBe(true);
+    expect(documented.sort()).toEqual(
+      [...new Set([...emitted, ...web.checks.map(({ id }) => id)])].sort(),
+    );
   });
 
   it.each([
@@ -1716,4 +1739,35 @@ describe('http.port check', () => {
     expect(value.exitCode).toBe(0);
     expect(value.checks.find((entry) => entry.id === 'http.port')?.status).toBe('pass');
   });
+});
+
+it('preserves remote web.listening failure alongside the offline web configuration check', async () => {
+  const value = await run(
+    ['doctor', '--json'],
+    ports({
+      fetcher: () =>
+        Promise.resolve(
+          Response.json({
+            version: '1.2.3',
+            checks: [
+              ...remoteIds.map((id): DoctorCheck => ({
+                id,
+                status: 'pass',
+                blocking: false,
+                fix: null,
+              })),
+              {
+                id: 'web.listening',
+                status: 'fail',
+                blocking: true,
+                fix: 'Free the configured web port and restart the daemon.',
+              },
+            ],
+          }),
+        ),
+    }),
+  );
+  expect(value.checks.find((check) => check.id === 'web')?.status).toBe('pass');
+  expect(value.checks.find((check) => check.id === 'web.listening')?.status).toBe('fail');
+  expect(value.exitCode).toBe(1);
 });

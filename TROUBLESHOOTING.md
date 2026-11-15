@@ -23,6 +23,18 @@ or start a listener. Set `web.port` and `web.publicOrigin` together. Every `{por
 origin is replaced by the configured port. `web.spurUiOrigin` independently configures the UI
 origin; it accepts no placeholders.
 
+### web.listening
+
+The daemon reports whether its optional web listener is bound. A busy web port fails this
+check while the agent API continues running. Free `web.port` or select another port and restart
+the daemon. This differs from `web`, which checks configuration offline.
+
+For private-network access, set `web.port` and `web.publicOrigin` together and preserve `Host`
+through the reverse proxy. Origin must exactly match the resolved public origin. A 503 page
+saying "UI is not built" means the UI assets are absent: run
+`pnpm --filter @spur-board/web build` when the UI package is available. Health and operations
+remain usable. See [Security](SECURITY.md) before enabling anonymous operator access.
+
 ### stand.port_range
 
 Reports the effective stand port range, including offline. Omission uses 4780..4799 and preserves

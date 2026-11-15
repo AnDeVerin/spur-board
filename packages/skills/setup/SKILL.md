@@ -5,7 +5,7 @@ description: Install, configure, check, and update spur-board with an operator. 
 
 # Set up spur-board
 
-Ask one question at a time, only when current state cannot answer it. Check before every write. Ask before changing package, config, secret, service, token, skill-folder, or project-checkout state, or enabling lingering. Never show secret values or put them in chat, logs, or shell history. A same-version rerun changes nothing and repeats no answered question. Never uninstall the service or revoke a token without an explicit operator request.
+Ask one question at a time when inspection cannot answer it. Check before writing. Ask before changing package, config, secret, service, token, skill-folder, or project-checkout state, or enabling lingering. Never show secret values or put them in chat, logs, or shell history. A same-version rerun changes nothing and repeats no answered question. Never uninstall the service or revoke a token without an explicit operator request.
 
 ## 1. Inspect
 
@@ -17,20 +17,21 @@ Ask one question at a time, only when current state cannot answer it. Check befo
 ## 2. Install the package
 
 - Check whether the required package version and `board` binary are visible on the live session PATH. If current, skip installation.
-- Otherwise choose a user npm prefix whose `bin` is on that PATH, commonly `$HOME/.local`; use the live session's Node and npm for `npm i -g --prefix <prefix> spur-board`. Verify `board --version` with the live session PATH.
+- Otherwise choose a user npm prefix with `bin` on that PATH, often `$HOME/.local`; use the live session's Node and npm for `npm i -g --prefix <prefix> spur-board`. Verify `board --version` with the session PATH.
 
 ## 3. Complete missing configuration
 
-- Discover repositories, Spur projects, and GitHub logins where possible. For each unset value, ask one question and write only that answer: Jira filter and statuses if used, repositories, project names and roles, the GitHub login agents open PRs under per project (PR discovery filters by it; not always the operator's), and the operator's Slack user ID. Preserve settled and unrelated fields; validate against the shipped config schema.
+- Discover repositories, Spur projects, and GitHub logins where possible. Ask and write only unset values: Jira filter and statuses if used, repositories, project names and roles, the GitHub login agents open PRs under per project (PR discovery filters by it; not always the operator's), and the operator's Slack user ID. Preserve settled and unrelated fields; validate against the shipped config schema.
 - If Slack roles are unset, follow [Slack setup](references/slack.md). List channels visible to the bot and ask which serve orchestrators and feed; store their IDs. The bot sees only private channels it joined.
 - Check required secret names and permissions. Follow [secret files](references/secrets.md) for private entry and any existing `slack.env` migration. Write `config.yaml` and a regular mode `0600` `secrets.env` only when needed.
 - For a `github-issues` project, follow [worker links](references/worker-links.md).
-- After config edits, run `board doctor --offline` and apply its config fixes. An offline pass does not prove service or integration readiness.
+- For browser access, follow [web setup](references/web.md); check `web.listening`.
+- After config edits, run `board doctor --offline` and apply its config fixes. Offline checks do not prove service or integration readiness.
 
 ## 4. Start service and grant access
 
 - Check `board service status`; if absent, run `board service install`. Ask before enabling user lingering, which keeps the service running after logout.
-- If operator access is unset, ask whether the operator will use a Spur project marked `operator`, which needs no token, or a session outside Spur rooted in a chosen folder, inside its git worktree if any, not above the root. If no valid token exists, run `board token create --name <name> --into <folder>`, then have the operator approve the Slack prompt with its `requestHash`. Check existing agent registration before registering `board mcp`.
+- If operator access is unset, ask whether to use a Spur project marked `operator`, without a token, or an outside-Spur session rooted in a chosen folder inside its git worktree if any, never above it. If no valid token exists, run `board token create --name <name> --into <folder>`, then have the operator approve the Slack prompt with its `requestHash`. Check existing agent registration before registering `board mcp`.
 - Check installed skill stamps and content. If absent or older, ask before writing skill folders, run `board skills install`, then verify both Claude Code and Codex copies.
 - For a Spur project used by Codex, check `.agents/skills/spur-board/SKILL.md` in a fresh session. If missing, ask before touching the project's main checkout. In that checkout, link the path to the installed product skill, for example `ln -s "$HOME/.codex/skills/spur-board" .agents/skills/spur-board`. Add `/.agents/skills/spur-board` to the Git exclude file resolved by `git rev-parse --git-path info/exclude`. Add `.agents/skills/spur-board` to that project's `symlinks` in `spur.yaml` and reload Spur config. Start a new session and verify the injected SKILL.md resolves.
 

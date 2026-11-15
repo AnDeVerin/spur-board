@@ -526,10 +526,21 @@ export async function runDaemonDoctor(
   ctx: ModuleContext<Store>,
   productVersion: string,
   fetcher: typeof fetch = fetch,
-  { deadlineMs = DEADLINE_MS }: { deadlineMs?: number } = {},
+  {
+    deadlineMs = DEADLINE_MS,
+    webListening,
+  }: { deadlineMs?: number; webListening?: (() => boolean) | undefined } = {},
 ): Promise<DoctorReport> {
   const { config, secrets } = ctx;
   const checks: Check[] = [];
+  if (config.web.port !== undefined)
+    checks.push(
+      check(
+        'web.listening',
+        webListening?.() === true,
+        'Free the configured web port and restart the daemon.',
+      ),
+    );
   const jiraTrackers = config.projects.flatMap((project) =>
     project.tracker.type === 'jira' ? [project.tracker] : [],
   );

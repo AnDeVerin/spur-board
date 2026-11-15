@@ -107,6 +107,8 @@ export interface Operation<
     destructive: boolean;
   };
   slack: SlackBinding | null;
+  /** Exposed to the operator through the optional web listener. */
+  web: true | null;
   examples: readonly [Example<I, O>, ...Example<I, O>[]];
 }
 
@@ -142,6 +144,7 @@ export function defineOperation<
   cli: { command: string; args: readonly string[]; modes?: readonly [CliMode, ...CliMode[]] };
   mcp: { whenToUse: string; whenNotToUse: string; destructive?: boolean };
   slack: SlackBinding | null;
+  web?: true | null;
   examples: readonly [Example<I, O>, ...Example<I, O>[]];
 }): Operation<Id, K, I, O> {
   const mutation = spec.kind === 'mutation';
@@ -151,6 +154,7 @@ export function defineOperation<
   ].sort((a, b) => order.indexOf(a) - order.indexOf(b));
   return {
     ...spec,
+    web: spec.web ?? null,
     preconditions: spec.preconditions ?? null,
     errors,
     cli: {

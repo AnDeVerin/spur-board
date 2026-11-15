@@ -71,3 +71,5 @@ export {
   type SessionHealthSubject,
   type TaskPrState,
 } from './domain/health.ts';
+
+export { createWebServer, type WebOptions } from './api/web-server.ts';

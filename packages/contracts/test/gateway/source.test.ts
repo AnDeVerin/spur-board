@@ -8,6 +8,11 @@ const scanned = ['packages/contracts/src/gateway', 'packages/core'];
 const skipped = new Set(['node_modules', 'dist', 'coverage']);
 const platformTerms = /thread_ts|channel|mrkdwn|@slack\//i;
 
+// Transport context is neutral; keep platform field names and other identifiers banned.
+function hasPlatformTerms(source: string): boolean {
+  return platformTerms.test(source.replaceAll(/\bwithChannel\b/g, 'contextWrapper'));
+}
+
 function filesUnder(dir: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -23,11 +28,18 @@ function filesUnder(dir: string): string[] {
 
 describe('no Slack fields', () => {
   it('flags platform terms and leaves neutral words alone', () => {
-    for (const term of ['thread_ts', 'Channel', 'MRKDWN', "from '@slack/bolt'"]) {
-      expect(term).toMatch(platformTerms);
+    for (const term of [
+      'thread_ts',
+      'Channel',
+      'channel_id',
+      'channelId',
+      'MRKDWN',
+      "from '@slack/bolt'",
+    ]) {
+      expect(hasPlatformTerms(term)).toBe(true);
     }
-    for (const word of ['block', 'Block Kit', 'conversation', 'space']) {
-      expect(word).not.toMatch(platformTerms);
+    for (const word of ['block', 'Block Kit', 'conversation', 'space', 'withChannel']) {
+      expect(hasPlatformTerms(word)).toBe(false);
     }
   });
 
@@ -35,7 +47,7 @@ describe('no Slack fields', () => {
     const files = scanned.flatMap((dir) => filesUnder(join(root, dir)));
     expect(files.length).toBeGreaterThanOrEqual(2);
     const hits = files
-      .filter((file) => platformTerms.test(readFileSync(file, 'utf8')))
+      .filter((file) => hasPlatformTerms(readFileSync(file, 'utf8')))
       .map((file) => relative(root, file));
     expect(hits).toEqual([]);
   });

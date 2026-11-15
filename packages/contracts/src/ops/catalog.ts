@@ -313,6 +313,7 @@ const tokenName = z.string().min(1).describe('Unique name of the operator token.
 export const OPERATIONS = [
   defineOperation({
     id: 'status.get',
+    web: true,
     kind: 'query',
     description:
       'List actionable items, source freshness and compact tasks; detail adds full facts and links.',
@@ -469,6 +470,7 @@ export const OPERATIONS = [
   }),
   defineOperation({
     id: 'task.get',
+    web: true,
     kind: 'query',
     description: 'Show a task; refresh reads GitHub PRs.',
     mcp: {
@@ -591,6 +593,7 @@ export const OPERATIONS = [
   }),
   defineOperation({
     id: 'task.history',
+    web: true,
     kind: 'query',
     description: 'List what happened to a task, oldest first.',
     mcp: {
@@ -686,6 +689,7 @@ export const OPERATIONS = [
   }),
   defineOperation({
     id: 'inbox.get',
+    web: true,
     kind: 'query',
     description: 'List the comments, blocks and turns addressed to the caller and not yet handled.',
     mcp: {
@@ -1045,6 +1049,7 @@ export const OPERATIONS = [
   }),
   defineOperation({
     id: 'comment.add',
+    web: true,
     kind: 'mutation',
     description: 'Comment on a task.',
     mcp: {
@@ -1167,6 +1172,7 @@ export const OPERATIONS = [
   }),
   defineOperation({
     id: 'block.answer',
+    web: true,
     kind: 'mutation',
     description: 'Answer a question; the block closes unless it is an operator conversation.',
     mcp: {

@@ -59,6 +59,30 @@ describe('schema walker', () => {
 });
 
 describe('catalog', () => {
+  it('defaults web off and exposes exactly the screen reads and two operator writes', () => {
+    expect(
+      OPERATIONS.filter((op) => op.web !== null)
+        .map((op) => op.id)
+        .sort(),
+    ).toEqual([
+      'block.answer',
+      'comment.add',
+      'inbox.get',
+      'status.get',
+      'task.get',
+      'task.history',
+    ]);
+    expect(
+      OPERATIONS.filter((op) => op.kind === 'mutation' && op.web !== null)
+        .map((op) => op.id)
+        .sort(),
+    ).toEqual(['block.answer', 'comment.add']);
+    expect(OPERATIONS.find((op) => op.id === 'schema.get')?.web).toBeNull();
+    expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
+      true,
+    );
+  });
+
   it('requires one link target mode and a reason', () => {
     for (const id of ['link.add', 'link.remove']) {
       const operation = OPERATIONS.find((entry) => entry.id === id);

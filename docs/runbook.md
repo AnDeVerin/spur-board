@@ -188,3 +188,25 @@ board status
 start it before the update. The update leaves the service enabled and running. To keep the
 pause, run `systemctl --user stop spur-board.service` again after the update, and `disable`
 again if you had disabled it.
+
+## 6. Optional web listener
+
+The optional web listener is off by default. Set `web.port` and `web.publicOrigin` together
+in config.yaml, for example:
+
+```yaml
+web:
+  port: 7777
+  publicOrigin: https://{port}.local.example
+```
+
+The daemon binds this separate listener to `127.0.0.1`; `{port}` resolves to the actual port.
+Configure the private-network reverse proxy to preserve `Host` and use the exact public origin.
+Anyone who reaches it can use the web-bound reads and `comment.add` / `block.answer` as operator
+without a token. Host/Origin guards protect against foreign browser pages, not network members
+or local users; keep the network limited to the operator's devices. See [Security](../SECURITY.md).
+
+A busy web port leaves the agent API running; `board doctor --json` reports `web.listening`
+failed. Free the port or change the settings, then restart the daemon. Missing UI assets return
+503 with the hint ``UI is not built: run `pnpm --filter @spur-board/web build` ``; health and
+operations still work. The UI build is supplied separately from this listener.
