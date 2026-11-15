@@ -27,6 +27,7 @@ import {
   type PrFacts,
   type SourceCursor,
   type SessionFacts,
+  type SessionTransition,
   type SourceState,
   type TicketFacts,
 } from '@spur-board/contracts';
@@ -705,6 +706,57 @@ function branchHasKey(branch: string, key: string): boolean {
 /** The Jira task key at the end of a session's `/browse/` link. */
 const BROWSE_KEY = new RegExp(`/browse/(${JIRA_PROJECT_KEY}-${REF_NUMBER})$`);
 
+/** History is journaled without changing snapshots, links or task change times. */
+async function sessionTransition(trx: Trx, config: Config, edge: SessionTransition): Promise<void> {
+  const projects = config.projects.filter((project) =>
+    project.spurProjects.some((spur) => spur.name === edge.spurProject),
+  );
+  const explicit = ['board-worker', 'board-other'].flatMap((label) => {
+    const url = edge.links[label];
+    if (url === undefined) return [];
+    const jira = BROWSE_KEY.exec(url)?.[1];
+    if (jira !== undefined) return [jira];
+    const match = /^\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)$/.exec(new URL(url).pathname);
+    return match === null ? [] : [`${match[1]}#${match[2]}`];
+  });
+  let tasks: { id: number; project: string }[] = [];
+  if (explicit.length > 0) {
+    tasks = await trx
+      .selectFrom('task')
+      .select(['id', 'project'])
+      .where('key', 'in', explicit)
+      .execute();
+  } else {
+    tasks = await trx
+      .selectFrom('link')
+      .innerJoin('task', 'task.id', 'link.task_id')
+      .select(['task.id', 'task.project'])
+      .where('link.entity', '=', 'session')
+      .where('link.session_id', '=', edge.session)
+      .where('link.banned', '=', 0)
+      .execute();
+  }
+  const projectIds = new Set(projects.map((project) => project.id));
+  tasks = tasks.filter((task) => projectIds.has(task.project));
+  if (tasks.length > 0) {
+    for (const task of tasks)
+      await emit(trx, 'session_state_changed', task.project, task.id, edge.at, {
+        session: edge.session,
+        from: edge.from,
+        to: edge.to,
+        transition: edge,
+      });
+  } else {
+    for (const project of projects)
+      await emit(trx, 'session_state_changed', project.id, null, edge.at, {
+        session: edge.session,
+        from: edge.from,
+        to: edge.to,
+        transition: edge,
+      });
+  }
+}
+
 async function session(
   trx: Trx,
   config: Config,
@@ -712,6 +764,7 @@ async function session(
   at: string,
   source: string,
   ambiguousBranches: ReadonlySet<string>,
+  feedEnabled: boolean,
 ): Promise<void> {
   const old = await trx
     .selectFrom('session_snapshot')
@@ -951,7 +1004,7 @@ async function session(
       .selectAll()
       .where('id', '=', link.task_id)
       .executeTakeFirstOrThrow();
-    if (previous?.lifecycle !== fact.lifecycle && previous !== null)
+    if (!feedEnabled && previous?.lifecycle !== fact.lifecycle && previous !== null)
       await emit(trx, 'session_state_changed', task.project, task.id, at, {
         session: fact.id,
         from: previous.lifecycle,
@@ -1319,6 +1372,8 @@ export function createObservationCore(deps: {
             )
             .execute();
         }
+        for (const edge of batch.sessionTransitions ?? [])
+          await sessionTransition(trx, config, edge);
         const branchCounts = new Map<string, number>();
         for (const item of batch.items)
           if (
@@ -1348,7 +1403,16 @@ export function createObservationCore(deps: {
           else if (item.kind === 'pr') {
             await pr(trx, config, item.facts, batch.observedAt, source);
             await holdContinuation(trx, source, item);
-          } else await session(trx, config, item.facts, batch.observedAt, source, ambiguous);
+          } else
+            await session(
+              trx,
+              config,
+              item.facts,
+              batch.observedAt,
+              source,
+              ambiguous,
+              batch.sessionTransitions !== undefined,
+            );
         }
         // A held history outlives no unbanned link to a task that is not archived: a discovered
         // PR left unlinked drops it here, and so, on purpose, does a PR whose only links are on

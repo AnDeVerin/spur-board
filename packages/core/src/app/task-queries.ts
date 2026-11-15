@@ -4,6 +4,7 @@ import {
   parseActorId,
   parseRef,
   PR_STATES,
+  sessionFactsSchema,
   TASK_HOLDS,
   type ActorId,
   type Config,
@@ -16,6 +17,7 @@ import type { TaskTable, TurnTable } from '../store/schema.ts';
 import { authorize, projectTarget } from './authorize.ts';
 import { blockView, commentView, subjectTarget, taskTarget } from './blocks.ts';
 import { eventActor, linkView, moveViews, taskView, type Trx } from './board-utils.ts';
+import { parseJson } from '../store/json.ts';
 import { CommandError } from './commands.ts';
 import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
 import { blindSources, readInput } from './dispatch.ts';
@@ -327,8 +329,24 @@ export function createTaskQueries(deps: {
           .orderBy('link.id')
           .execute(),
       ]);
+      const linkedSessions = await trx
+        .selectFrom('link')
+        .innerJoin('session_snapshot', 'session_snapshot.id', 'link.session_id')
+        .select('session_snapshot.detail')
+        .where('link.task_id', '=', task.id)
+        .where('link.entity', '=', 'session')
+        .where('link.banned', '=', 0)
+        .orderBy('link.id')
+        .execute();
       const subject = taskSubject(task);
       return {
+        sessions: linkedSessions.map((row) => {
+          const facts = parseJson(sessionFactsSchema, row.detail);
+          return {
+            ...facts,
+            links: Object.entries(facts.links).map(([label, url]) => ({ label, url })),
+          };
+        }),
         task: taskView(task),
         ...(await taskTurns(trx, task, input.detail === true)),
         links: links.map(({ state, ...link }) => {

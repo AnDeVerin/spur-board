@@ -4059,3 +4059,179 @@ describe('source-specific terminal PR processing', () => {
     expect((await restarted.context(second)).prRechecks).toEqual([ref]);
   });
 });
+
+describe('ordered historical session observations', () => {
+  const cursor = (value: string) => value as SourceCursor;
+  const transition = (
+    position: string,
+    to: string,
+    links = { 'board-worker': 'https://github.com/o/r/issues/9' },
+  ) => ({
+    position: cursor(position),
+    session: 'worker-1',
+    spurProject: 'worker',
+    at: '2026-11-03T12:00:00.000Z',
+    links,
+    dimension: 'health' as const,
+    from: 'working',
+    to,
+  });
+  async function deliver(core: ReturnType<typeof setup>['core'], batch: Partial<Batch>) {
+    await core.observe('spur', {
+      batch: { source: 'spur', observedAt: at, complete: true, items: [], entities: [], ...batch },
+      effectiveComplete: true,
+      outcomes: [],
+      state: { lastCompleteAt: at, gone: [] },
+    });
+  }
+
+  it('journals original order and attribution without regressing snapshot or task timestamps', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await apply(mutations.add, { task: 'o/r#10' }, 'operator');
+    const current = {
+      ...sessionFact('worker-1', { 'board-worker': 'https://github.com/o/r/issues/10' }),
+      branch: null,
+    };
+    await deliver(core, {
+      sessionTransitions: [],
+      cursor: cursor('before'),
+      items: [{ kind: 'session', facts: current }],
+    });
+    const before = await store.db
+      .selectFrom('task')
+      .select(['id', 'key', 'last_change_at'])
+      .orderBy('id')
+      .execute();
+    const edges = [
+      { ...transition('edge-1', 'rate_limited'), rateLimitResetAt: '2026-11-03T13:00:00.000Z' },
+      { ...transition('edge-2', 'killed'), dimension: 'lifecycle' as const, from: 'running' },
+      { ...transition('edge-3', 'working'), from: 'rate_limited' },
+    ];
+    await deliver(createObservationCore({ store, config, clock }), {
+      sessionTransitions: edges,
+      cursor: cursor('edge-3'),
+      items: [{ kind: 'session', facts: current }],
+    });
+    const events = await store.db
+      .selectFrom('event')
+      .selectAll()
+      .where('kind', '=', 'session_state_changed')
+      .orderBy('id')
+      .execute();
+    expect(events.map((row) => JSON.parse(row.payload))).toEqual(
+      edges.map((edge) => ({
+        session: edge.session,
+        from: edge.from,
+        to: edge.to,
+        transition: edge,
+      })),
+    );
+    expect(events.every((row) => row.at === edges[0]?.at && row.task_id === before[0]?.id)).toBe(
+      true,
+    );
+    expect(
+      JSON.parse(
+        (await store.db.selectFrom('session_snapshot').select('detail').executeTakeFirstOrThrow())
+          .detail,
+      ),
+    ).toEqual(current);
+    expect(
+      await store.db
+        .selectFrom('task')
+        .select(['id', 'key', 'last_change_at'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual(before);
+    expect(
+      (
+        await store.db
+          .selectFrom('link')
+          .select('task_id')
+          .where('entity', '=', 'session')
+          .execute()
+      ).map((row) => row.task_id),
+    ).toEqual([before[1]?.id]);
+    expect((await createObservationCore({ store, config, clock }).context('spur')).cursor).toBe(
+      'edge-3',
+    );
+  });
+
+  it('suppresses lifecycle snapshot edges across ticks and emits a delayed feed edge once', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await deliver(core, {
+      sessionTransitions: [],
+      cursor: cursor('start'),
+      items: [{ kind: 'session', facts: sessionFact('worker-1') }],
+    });
+    const ended = sessionFact('worker-1', {}, true);
+    await deliver(core, {
+      sessionTransitions: [],
+      cursor: cursor('page-cap'),
+      items: [{ kind: 'session', facts: ended }],
+    });
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('id')
+        .where('kind', '=', 'session_state_changed')
+        .execute(),
+    ).toEqual([]);
+    const recreated = createObservationCore({ store, config, clock });
+    await deliver(recreated, {
+      sessionTransitions: [
+        { ...transition('delayed', 'completed'), dimension: 'lifecycle', from: 'running' },
+      ],
+      cursor: cursor('delayed'),
+      items: [{ kind: 'session', facts: ended }],
+    });
+    await deliver(createObservationCore({ store, config, clock }), {
+      sessionTransitions: [],
+      cursor: cursor('delayed'),
+      items: [{ kind: 'session', facts: ended }],
+    });
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('id')
+        .where('kind', '=', 'session_state_changed')
+        .execute(),
+    ).toHaveLength(1);
+    expect((await recreated.context('spur')).cursor).toBe('delayed');
+  });
+
+  it('rolls back transitions and cursor when the later snapshot write fails, then retries one copy', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await deliver(core, { sessionTransitions: [], cursor: cursor('before') });
+    const { sql } = await import('kysely');
+    await sql`create trigger fail_snapshot before insert on session_snapshot begin select raise(abort, 'injected snapshot failure'); end`.execute(
+      store.db,
+    );
+    const batch = {
+      sessionTransitions: [transition('after', 'rate_limited')],
+      cursor: cursor('after'),
+      items: [{ kind: 'session' as const, facts: sessionFact('worker-1') }],
+    };
+    await expect(deliver(core, batch)).rejects.toThrow('injected snapshot failure');
+    expect((await core.context('spur')).cursor).toBe('before');
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('id')
+        .where('kind', '=', 'session_state_changed')
+        .execute(),
+    ).toEqual([]);
+    await sql`drop trigger fail_snapshot`.execute(store.db);
+    await deliver(core, batch);
+    expect((await core.context('spur')).cursor).toBe('after');
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('id')
+        .where('kind', '=', 'session_state_changed')
+        .execute(),
+    ).toHaveLength(1);
+  });
+});
