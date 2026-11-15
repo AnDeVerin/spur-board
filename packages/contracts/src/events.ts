@@ -11,8 +11,9 @@ import {
   PR_LINK_STATES,
   SESSION_END_REASONS,
   SESSION_LINK_ROLES,
+  TURN_OUTCOMES,
 } from './enums.ts';
-import { actorPartSchema } from './ids.ts';
+import { actorIdSchema, actorPartSchema } from './ids.ts';
 import { sessionTransitionSchema } from './adapters.ts';
 import { prFactsSchema, sessionFactsSchema, ticketFactsSchema } from './facts.ts';
 
@@ -37,6 +38,9 @@ export const EVENT_KINDS = [
   'task_shadow_moved',
   'task_corrected',
   'dispatcher_mode_changed',
+  'turn_opened',
+  'turn_taken',
+  'turn_closed',
   'block_opened',
   'block_escalated',
   'block_unblocked',
@@ -190,6 +194,15 @@ export const eventPayloadSchemas = {
     from: z.enum(DISPATCHER_MODES),
     to: z.enum(DISPATCHER_MODES),
   }),
+  /** `addressee` is the turn's executor; an empty `reason` is kept rather than refused. */
+  turn_opened: z.looseObject({
+    turn: S,
+    column: z.enum(COLUMN_IDS),
+    addressee: role,
+    reason: z.string(),
+  }),
+  turn_taken: z.looseObject({ turn: S, taker: actorIdSchema }),
+  turn_closed: z.looseObject({ turn: S, outcome: z.enum(TURN_OUTCOMES) }),
   block_opened: z.looseObject({ block: S, type: z.enum(BLOCK_TYPES), addressee: role }),
   block_escalated: z.looseObject({ block: S, from: role, to: role, reason: S.optional() }),
   block_unblocked: z.looseObject({
