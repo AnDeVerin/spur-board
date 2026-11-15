@@ -323,6 +323,28 @@ export const dispatchReentrySameHead: Scenario = {
   },
 };
 
+export const dispatchReviewerStatusComment: Scenario = {
+  name: 'dispatch-reviewer-status-comment',
+  summary: `A reviewer service's progress and unavailable status comments in Ready to Merge leave ${ISSUE} there with no worker turn.`,
+  config: flow(),
+  async seed(board, fakes) {
+    const turn = await toReadyToMerge(board, fakes);
+    for (const body of [
+      'Review completed.\n\n<!-- board-reviewer-progress:1 -->',
+      `Automated review is temporarily unavailable for commit ${A}.\n\n<!-- board-reviewer-unavailable:1:${A}:abc -->`,
+    ])
+      await fakes.github('comment', { repo: REPO, number: 1, body });
+    await board.poll();
+    return entities(board, { items: { turn } });
+  },
+  async settled({ board }) {
+    const problems = await check(board, { column: 'ready-to-merge' });
+    const turn = await turnOf(board, 'worker');
+    if (turn !== undefined) problems.push(`worker turn ${turn.reason} is open`);
+    return settledUnless(problems);
+  },
+};
+
 /** Comments by the agent account before the stand clock, oldest first, as `pageBack` needs. */
 const agentHistory = (now: number, count: number) =>
   Array.from({ length: count }, (_, i) => ({
