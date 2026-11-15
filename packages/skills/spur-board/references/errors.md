@@ -13,6 +13,7 @@
 
 - `not_found`: Check the ID with `board status` or `board task <KEY>`.
 - `wrong_id_kind`: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.
+- `github_unavailable`: Follow the message: ask the operator to fix what it names, or retry a read or link once GitHub answers the board's polls; repeat a submit only by task key in shadow mode.
 - `stale_comment_revision`: Read the latest comment revision, then acknowledge that revision.
 - `idempotency_key_mismatch`: Use a new key for a new command, or repeat the earlier input with the same key.
 - `task_archived`: Ask an operator to add the task to the board again if work continues.
@@ -21,5 +22,4 @@
 - `turn_closed`: Read your open turns with `board inbox` and act only on a turn listed there.
 - `not_turn_taker`: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.
 - `head_mismatch`: Push the commit to the task's pull request branch and submit the head GitHub shows.
-- `github_unavailable`: Follow the message: ask the operator to fix what it names, or, for a submit by task key in shadow mode, repeat it once GitHub answers the board's polls.
 - `return_not_allowed`: In Dev, ask with `board ask` instead.

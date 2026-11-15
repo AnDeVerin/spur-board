@@ -69,10 +69,18 @@ describe('GitHub discovery', () => {
         sourceCursorSchema.parse(old),
         'operator',
       ),
-    ).toEqual({ numbers: [1, 3], cursor: newer });
+    ).toEqual({
+      numbers: [1, 3],
+      states: new Map([
+        [1, 'OPEN'],
+        [2, 'OPEN'],
+        [3, 'MERGED'],
+      ]),
+      cursor: newer,
+    });
     expect(
       discover([node(4, '2025-12-31T00:00:00.000Z')], sourceCursorSchema.parse(old), 'operator'),
-    ).toEqual({ numbers: [], cursor: old });
+    ).toEqual({ numbers: [], states: new Map(), cursor: old });
   });
   it('rejects malformed pagination', () => {
     expect(() =>

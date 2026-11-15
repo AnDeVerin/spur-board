@@ -119,12 +119,19 @@ export function priorAddressees(
   return path;
 }
 
+/** Skips each step the escalating actor's own project holds, up to the operator. */
 export function escalateBlock(
   block: CurrentBlock,
   hasCurator = false,
+  heldByActor: (role: AddresseeRole) => boolean = () => false,
 ): { addressee: AddresseeRole; changed: boolean } {
   requireOpen(block);
-  const addressee = nextAddressee(block.addressee, block.type, hasCurator);
+  let addressee = nextAddressee(block.addressee, block.type, hasCurator);
+  while (heldByActor(addressee)) {
+    const next = nextAddressee(addressee, block.type, hasCurator);
+    if (next === addressee) break;
+    addressee = next;
+  }
   return { addressee, changed: block.addressee !== addressee };
 }
 

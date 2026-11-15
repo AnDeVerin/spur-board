@@ -67,6 +67,7 @@ export interface TaskTable {
 }
 
 export interface PrSnapshotTable {
+  closed_recheck_at: Generated<string | null>;
   repo: string;
   number: number;
   head_sha: string;
@@ -157,7 +158,7 @@ export interface SubmissionTable {
   pr_number: number | null;
   /**
    * Deadline for a PR to appear for a turn submit accepted before the board could confirm its
-   * head; null when not pending (confirmed, or recorded before migration 0019). A pending row is
+   * head; null when not pending (confirmed, or recorded before migration 0020). A pending row is
    * no gate mark until a poll observed after `submitted_at` confirms the head.
    */
   pending_until: string | null;
@@ -427,6 +428,7 @@ export interface Tables {
   dismissal: DismissalTable;
   meta: MetaTable;
   source_state: SourceStateTable;
+  source_cost: { id: Generated<number>; source: string; at: string; points: number };
   source_miss: SourceMissTable;
   pr_continuation: PrContinuationTable;
   transport_health: TransportHealthTable;

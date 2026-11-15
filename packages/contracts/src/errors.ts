@@ -249,10 +249,10 @@ export const ERRORS = {
   github_unavailable: spec('github_unavailable', {
     status: 503,
     exit: EXIT_CODES.notApplied,
-    message: 'GitHub did not confirm the pull request head; nothing was applied.',
-    hint: "Follow the message: ask the operator to fix what it names, or, for a submit by task key in shadow mode, repeat it once GitHub answers the board's polls.",
+    message: 'GitHub did not confirm current pull request facts.',
+    hint: "Follow the message: ask the operator to fix what it names, or retry a read or link once GitHub answers the board's polls; repeat a submit only by task key in shadow mode.",
     recovery: retry(
-      'Ask the operator to fix what the message names; repeat only a submit by task key in shadow mode, once GitHub answers.',
+      'Ask the operator to fix what the message names; retry a read or link once GitHub answers, and repeat a submit only by task key in shadow mode.',
       "After GitHub answers the board's polls.",
     ),
   }),

@@ -684,12 +684,12 @@ Example:
 
 ## github_unavailable
 
-GitHub did not confirm the pull request head; nothing was applied.
+GitHub did not confirm current pull request facts.
 
 HTTP: 503  
 Exit code: 3  
-Hint: Follow the message: ask the operator to fix what it names, or, for a submit by task key in shadow mode, repeat it once GitHub answers the board's polls.  
-Recovery: Ask the operator to fix what the message names; repeat only a submit by task key in shadow mode, once GitHub answers.  
+Hint: Follow the message: ask the operator to fix what it names, or retry a read or link once GitHub answers the board's polls; repeat a submit only by task key in shadow mode.  
+Recovery: Ask the operator to fix what the message names; retry a read or link once GitHub answers, and repeat a submit only by task key in shadow mode.  
 Side effects: none  
 Retry: maximum 3; After GitHub answers the board's polls.
 
@@ -702,11 +702,11 @@ Example:
   "error": {
     "code": "github_unavailable",
     "requestId": "req-example-123",
-    "message": "GitHub did not confirm the pull request head; nothing was applied.",
-    "hint": "Follow the message: ask the operator to fix what it names, or, for a submit by task key in shadow mode, repeat it once GitHub answers the board's polls.",
+    "message": "GitHub did not confirm current pull request facts.",
+    "hint": "Follow the message: ask the operator to fix what it names, or retry a read or link once GitHub answers the board's polls; repeat a submit only by task key in shadow mode.",
     "docs": "docs/errors.md#github_unavailable",
     "recovery": {
-      "action": "Ask the operator to fix what the message names; repeat only a submit by task key in shadow mode, once GitHub answers.",
+      "action": "Ask the operator to fix what the message names; retry a read or link once GitHub answers, and repeat a submit only by task key in shadow mode.",
       "sideEffects": "none",
       "maxRetries": 3,
       "retryTiming": "After GitHub answers the board's polls."

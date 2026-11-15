@@ -1,3 +1,11 @@
+import {
+  linkPrToTask,
+  mergedBefore,
+  prPollingKey,
+  readPrPolling,
+  reconcileTaskPrs,
+  savePrPolling,
+} from './pr-associations.ts';
 import { scanTransaction } from './secrets.ts';
 import {
   JIRA_PROJECT_KEY,
@@ -264,15 +272,6 @@ async function setReopenFloor(trx: Trx, taskId: number, at: string): Promise<voi
  * `updatedAt`, never earlier than the merge, so a later edit makes the merge count. Then the reopen hides this link only: another link
  * of the task that already counts, such as a follow-up merged after the reopen, keeps counting.
  */
-/** The PR was merged before `reopenedAt`; a tie counts the merge. */
-function mergedBefore(fact: PrFacts, reopenedAt: string | null): boolean {
-  return (
-    fact.state === 'merged' &&
-    reopenedAt !== null &&
-    Date.parse(fact.mergedAt ?? fact.updatedAt) < Date.parse(reopenedAt)
-  );
-}
-
 async function applyPendingReopen(trx: Trx, fact: PrFacts, at: string): Promise<void> {
   if (fact.state === 'open') return;
   const pending = await trx
@@ -347,6 +346,8 @@ async function ticket(
     .where('project', '=', project.id)
     .where('key', '=', fact.key)
     .executeTakeFirst();
+  const previousKey = task?.key ?? pending?.key;
+  const previousMembership = task?.membership ?? pending?.membership;
   if (task !== undefined && pending !== undefined && pending.id !== task.id) {
     const oldKey = task.key;
     await trx
@@ -480,6 +481,8 @@ async function ticket(
       await emit(trx, 'flag_cleared', project.id, task.id, at, { flag: 'out_of_filter' });
     else await emit(trx, 'task_added', project.id, task.id, at, { column: task.column });
   }
+  if (previousKey !== fact.key || previousMembership === 'archived')
+    await reconcileTaskPrs(trx, config, task.id, at);
 }
 
 async function pr(
@@ -489,6 +492,12 @@ async function pr(
   at: string,
   source: string,
 ): Promise<void> {
+  // Positive full facts supersede this source's stale absence, including demand reads.
+  await trx
+    .deleteFrom('source_miss')
+    .where('source', '=', source)
+    .where('ref_key', '=', refKey({ kind: 'pr', repo: fact.repo, number: fact.number }))
+    .execute();
   const old = await trx
     .selectFrom('pr_snapshot')
     .selectAll()
@@ -496,6 +505,12 @@ async function pr(
     .where('number', '=', fact.number)
     .executeTakeFirst();
   const previous = old === undefined ? null : parseJson(prFactsSchema, old.detail);
+  const recheckAt =
+    fact.state === 'closed' ? new Date(Date.parse(at) + 6 * 60 * 60_000).toISOString() : null;
+  // Preserve a legacy owner's processing/deadline before another source replaces the shared row.
+  if (old !== undefined && previous !== null && old.source !== source)
+    await savePrPolling(trx, old.source, previous, old.closed_recheck_at, true);
+  await savePrPolling(trx, source, fact, recheckAt);
   const changed = previous === null || JSON.stringify(previous) !== JSON.stringify(fact);
   await trx
     .insertInto('pr_snapshot')
@@ -511,9 +526,11 @@ async function pr(
       detail: toJson(prFactsSchema, fact),
       source,
       observed_at: at,
+      closed_recheck_at: recheckAt,
     })
     .onConflict((oc) =>
       oc.columns(['repo', 'number']).doUpdateSet({
+        closed_recheck_at: recheckAt,
         head_sha: fact.headSha,
         head_branch: fact.headBranch,
         state: fact.state,
@@ -544,53 +561,7 @@ async function pr(
       .where('key', '=', key)
       .executeTakeFirst();
     if (task === undefined || task.membership === 'archived') continue;
-    const linked = await trx
-      .selectFrom('link')
-      .selectAll()
-      .where('task_id', '=', task.id)
-      .where('entity', '=', 'pr')
-      .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
-      .where('number', '=', fact.number)
-      .executeTakeFirst();
-    if (linked === undefined) {
-      const active = await trx
-        .selectFrom('link')
-        .selectAll()
-        .where('task_id', '=', task.id)
-        .where('entity', '=', 'pr')
-        .where('pr_state', '=', 'active')
-        .where('banned', '=', 0)
-        .where('pr_open', '=', 1)
-        .executeTakeFirst();
-      const state = fact.state !== 'open' || active === undefined ? 'active' : 'conflict';
-      await trx
-        .insertInto('link')
-        .values({
-          task_id: task.id,
-          entity: 'pr',
-          repo: fact.repo,
-          number: fact.number,
-          pr_state: state,
-          session_id: null,
-          role: null,
-          source: 'branch',
-          banned: 0,
-          created_at: at,
-          ticket_key: null,
-          pr_open: fact.state === 'open' ? 1 : 0,
-          // First seen merged after a reopen it predates: hidden like the links the reopen hid.
-          reopen_hidden_at: mergedBefore(fact, task.reopened_at) ? at : null,
-        })
-        .execute();
-      await emit(trx, 'link_added', task.project, task.id, at, {
-        entity: 'pr',
-        repo: fact.repo,
-        pr: fact.number,
-        state,
-        source: 'branch',
-        facts: fact,
-      });
-    }
+    await linkPrToTask(trx, task, fact, at);
   }
   const linkedPrs = await trx
     .selectFrom('link')
@@ -1075,6 +1046,24 @@ async function holdContinuation(
     .execute();
 }
 
+/** Reported cost only; shared remaining-budget changes do not measure consumption. */
+async function recordUsage(
+  trx: Trx,
+  source: string,
+  usage: Batch['usage'],
+  now: number,
+): Promise<void> {
+  if (usage === undefined) return;
+  await trx
+    .deleteFrom('source_cost')
+    .where('at', '<=', new Date(now - 3_600_000).toISOString())
+    .execute();
+  await trx
+    .insertInto('source_cost')
+    .values({ source, at: new Date(now).toISOString(), points: usage.points })
+    .execute();
+}
+
 /** Core's adapter-facing port. Every accepted batch and its source state share one transaction. */
 export function createObservationCore(deps: {
   store: Store;
@@ -1142,7 +1131,62 @@ export function createObservationCore(deps: {
                 : [];
             })
           : [];
-      const requested = await linkedPrs(store.db, source);
+      const linked = await linkedPrs(store.db, source);
+      const snapshots = source.startsWith('github:')
+        ? await store.db
+            .selectFrom('pr_snapshot')
+            .selectAll()
+            .where(
+              sql<boolean>`lower(repo) = ${source.slice(source.lastIndexOf(':') + 1).toLowerCase()}`,
+            )
+            .execute()
+        : [];
+      const pollingRows = source.startsWith('github:')
+        ? await store.db
+            .selectFrom('meta')
+            .select(['key', 'value'])
+            .where('key', 'like', `pr-poll:${source}:%`)
+            .execute()
+        : [];
+      const polling = new Map(pollingRows.map((row) => [row.key, row.value]));
+      const linkedKeys = new Set(linked.map(refKey));
+      const terminalPrs: NonNullable<PollContext['terminalPrs']>[number][] = [];
+      const prRechecks: PrEntityRef[] = [];
+      for (const row of snapshots) {
+        let value: unknown;
+        try {
+          value = JSON.parse(row.detail);
+        } catch {
+          continue;
+        }
+        const parsed = prFactsSchema.safeParse(value);
+        if (!parsed.success || (parsed.data.state !== 'merged' && parsed.data.state !== 'closed'))
+          continue;
+        const ref: PrEntityRef = { kind: 'pr', repo: row.repo, number: row.number };
+        const processed =
+          row.source === source
+            ? {
+                state: parsed.data.state,
+                headSha: parsed.data.headSha,
+                recheckAt: row.closed_recheck_at,
+              }
+            : readPrPolling(polling.get(prPollingKey(source, ref)));
+        if (
+          processed === undefined ||
+          processed.state !== parsed.data.state ||
+          processed.headSha.toLowerCase() !== parsed.data.headSha.toLowerCase()
+        )
+          continue;
+        terminalPrs.push({ ref, state: parsed.data.state === 'merged' ? 'merged' : 'closed' });
+        if (
+          parsed.data.state === 'closed' &&
+          linkedKeys.has(refKey(ref)) &&
+          (processed.recheckAt === null || Date.parse(processed.recheckAt) <= clock.now())
+        )
+          prRechecks.push(ref);
+      }
+      const terminal = new Set(terminalPrs.map(({ ref }) => refKey(ref)));
+      const requested = linked.filter((ref) => !terminal.has(refKey(ref)));
       const sessions =
         source === 'spur'
           ? (
@@ -1177,9 +1221,11 @@ export function createObservationCore(deps: {
         .selectAll()
         .where('source', '=', source)
         .execute();
-      const feedbackCursors = await pollFeedbackCursors(store.db, config, requested);
-      const continuations = await heldContinuations(store.db, source, requested);
+      const feedbackCursors = await pollFeedbackCursors(store.db, config, linked);
+      const continuations = await heldContinuations(store.db, source, linked);
       return {
+        terminalPrs,
+        prRechecks,
         observe: {
           prs: requested,
           tickets,
@@ -1207,6 +1253,49 @@ export function createObservationCore(deps: {
       await scanTransaction(store, config, async (trx) => {
         const wasBlind = await blindReason(trx, source);
         await sourceState(trx, source, observation.state, batch.observedAt, batch.cursor);
+        await recordUsage(trx, source, batch.usage, now);
+        for (const probe of batch.prProbes ?? []) {
+          if (probe.status !== 'closed') continue;
+          const recheckAt = new Date(Date.parse(batch.observedAt) + 6 * 60 * 60_000).toISOString();
+          const row = await trx
+            .selectFrom('pr_snapshot')
+            .selectAll()
+            .where(sql<boolean>`lower(repo) = ${probe.ref.repo.toLowerCase()}`)
+            .where('number', '=', probe.ref.number)
+            .where('state', '=', 'closed')
+            .executeTakeFirst();
+          if (row === undefined) continue;
+          const saved = await trx
+            .selectFrom('meta')
+            .select('value')
+            .where('key', '=', prPollingKey(source, probe.ref))
+            .executeTakeFirst();
+          const processed =
+            row.source === source
+              ? { ...parseJson(prFactsSchema, row.detail), state: 'closed' as const }
+              : readPrPolling(saved?.value);
+          if (processed !== undefined)
+            await savePrPolling(
+              trx,
+              source,
+              {
+                repo: probe.ref.repo,
+                number: probe.ref.number,
+                state: processed.state,
+                headSha: processed.headSha,
+                ...(processed.ticketKeys === undefined ? {} : { ticketKeys: processed.ticketKeys }),
+              },
+              recheckAt,
+            );
+          await trx
+            .updateTable('pr_snapshot')
+            .set({ closed_recheck_at: recheckAt })
+            .where('source', '=', source)
+            .where(sql<boolean>`lower(repo) = ${probe.ref.repo.toLowerCase()}`)
+            .where('number', '=', probe.ref.number)
+            .where('state', '=', 'closed')
+            .execute();
+        }
         for (const outcome of observation.outcomes) {
           const answer = batch.entities.find(
             (entity) => refKey(entity.ref) === refKey(outcome.ref),
@@ -1422,11 +1511,12 @@ export function createObservationCore(deps: {
       });
       if (observation.effectiveComplete) completeSince.set(source, batch.observedAt);
     },
-    reportSourceState(source, state) {
+    reportSourceState(source, state, usage) {
       const now = clock.now();
       return scanTransaction(store, config, async (trx) => {
         const wasBlind = await blindReason(trx, source);
         await sourceState(trx, source, state);
+        await recordUsage(trx, source, usage, now);
         if (wasBlind !== null && state.blind === undefined)
           await dispatchSource(trx, source, { config, at: new Date(now), complete: completeSince });
         await reconcileItems(trx, config, now, completeSince.has('spur'), warnSkipped);

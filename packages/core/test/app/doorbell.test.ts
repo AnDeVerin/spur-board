@@ -2066,7 +2066,7 @@ describe('doorbell policy', () => {
     expect(ctx.sent).toEqual([]);
   });
 
-  it('a dual-role escalation still rings the curator role', async () => {
+  it('a dual-role escalation skips the curator and rings nobody', async () => {
     const ctx = await setup({ config: policyBoard('cur'), column: 'dev' });
     await addSession(ctx, 'cur-1', 'cur');
     const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
@@ -2077,13 +2077,12 @@ describe('doorbell policy', () => {
       'agent:cur/cur-1',
       'esc',
     );
-    expect(moved.block.addressee).toBe('curator');
+    expect(moved.block.addressee).toBe('operator');
     expect((await notices(ctx)).map((n) => [n.role, n.acked_at === null])).toEqual([
       ['orchestrator:dev', false],
-      ['curator', true],
     ]);
     await step(ctx);
-    expect(sessionsRung(ctx)).toEqual(['cur-1']);
+    expect(sessionsRung(ctx)).toEqual([]);
   });
 
   it.each(['curator', 'orchestrator:dev'] as const)(

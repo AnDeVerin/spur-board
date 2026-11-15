@@ -56,7 +56,8 @@ rule names another. A PR changing a practice named here updates this skill.
   `config`, until `retryAt` after `throttled`, and backs off exponentially otherwise.
 - `pollPr` retries a `transient` step-`poll` failure `DEMAND_RETRY_WAITS_MS` apart within
   `timeoutMs` (`packages/adapters/src/runner/runner.ts`).
-- Report the budget in `Batch.budget` (GitHub: `references/github-responses.md`). `budgetPause`
+- Report remaining budget in `Batch.budget` and reported consumption in optional `Batch.usage`
+  (GitHub: `references/github-responses.md`). `budgetPause`
   pauses each bucket below `github.reserveRemaining`.
 - The runner hands each failed step and rejected report to `onFailure`; no bare `catch`.
 - GitHub, GitHub Issues and Jira requests run under `withTimeout` in
@@ -78,8 +79,8 @@ rule names another. A PR changing a practice named here updates this skill.
 
 ## Gaps
 
-- No shared contract suite runs every adapter against the port.
-- The fakes live in `packages/adapters/src/testing.ts`, not next to the port in contracts.
+- No shared suite runs every adapter against the port.
+- Fakes: `packages/adapters/src/testing.ts`.
 - Recordings: `packages/stand/recordings/`; refresh with `pnpm record:fakes` after a request change.
 
 ## Checks

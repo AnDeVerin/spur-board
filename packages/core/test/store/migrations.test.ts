@@ -33,6 +33,7 @@ import { rawDatabase } from '../support/store.ts';
 import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
 
 const INDEXES: Record<string, { table: string; columns: string[]; partialUnique: boolean }> = {
+  source_cost_source_at: { table: 'source_cost', columns: ['source', 'at'], partialUnique: false },
   task_stable_tracker_id: {
     table: 'task',
     columns: ['project', 'tracker_kind', 'tracker_id'],
@@ -456,7 +457,10 @@ describe('migrate', () => {
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 9));
     insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
-    insertRaw(raw, 'pr_snapshot', { ...sampleRows.pr_snapshot, state: 'closed' });
+    insertRaw(raw, 'pr_snapshot', {
+      ...without(sampleRows.pr_snapshot, ['closed_recheck_at']),
+      state: 'closed',
+    });
     insertRaw(
       raw,
       'link',
@@ -688,6 +692,22 @@ describe('migrate', () => {
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
+  it('upgrades current-main project blocks and PR snapshots with only the polling migration', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 18));
+    const block = { ...sampleRows.block, task_id: null, project: 'proj' };
+    const snapshot = without(sampleRows.pr_snapshot, ['closed_recheck_at']);
+    insertRaw(raw, 'block', block);
+    insertRaw(raw, 'pr_snapshot', snapshot);
+    const result = migrate(raw, real.slice(0, 19));
+    expect(result.applied).toEqual(['0019_pr_polling']);
+    expect(rows(raw, 'block')).toEqual([block]);
+    expect(rows(raw, 'pr_snapshot')).toEqual([{ ...snapshot, closed_recheck_at: null }]);
+    expect(rows(raw, 'source_cost')).toEqual([]);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
   it('rebuilds block, comment and notification for a project-level block', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
@@ -892,6 +912,7 @@ describe('migration pins', () => {
   // sha256 of each migration file's raw bytes. A pinned file never changes: add a new file
   // and its pin instead. Changing the pin of an existing file is a review blocker.
   const PINS: Record<string, string> = {
+    '0019_pr_polling.sql': '17e2b7964c72320f484ae05ae54e68f5964ebc06ea6c5e014013d13f2060d198',
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',
     '0003_delivery_search.sql': '3e915831a61930771096e91e17273a933cd8b5c2476aaec1c2d23b5f4fc2c755',
@@ -920,7 +941,7 @@ describe('migration pins', () => {
     '0017_comment_conversation_message.sql':
       'b9be273061ec21c56ad54951dddfe2ee02a76887360ff956a4eba1666770de71',
     '0018_project_block.sql': '995c4435c6a2eff15b37e60e3b70a456b1bda4491ffdb1163cf2ce4c152ff64a',
-    '0019_submission_pending.sql':
+    '0020_submission_pending.sql':
       '20a8c5ae40faa72dd3e58b2dd99ad1b3cea6035cdc8a63c3f18708483fd42cc7',
   };
 

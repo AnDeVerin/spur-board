@@ -104,7 +104,9 @@ the curator's own question goes to the operator. A column explicitly assigned to
 A `code` block goes to the worker to repair. A `dependency` or `external` block
 stays with its author's role to track the dependency or outside event. Questions
 can escalate from column orchestrator to curator to operator; other blocks
-escalate straight to the operator. Use keyed `board escalate <block>`
+escalate straight to the operator. Escalation skips a step your own project also
+holds: a curator that also orchestrates the column escalates its column's
+question straight to the operator. Use keyed `board escalate <block>`
 when the current addressee cannot resolve it.
 
 The routing configuration is `projects[].columns[].orchestrator`,

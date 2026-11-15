@@ -421,6 +421,11 @@ export const statusItemSchema = itemViewSchema
 
 export const sourceViewSchema = z
   .strictObject({
+    pointsLastHour: z
+      .int()
+      .nonnegative()
+      .optional()
+      .describe('Reported source points consumed during the preceding hour.'),
     source: z.string().min(1).describe('Adapter source identifier.'),
     observedAt: z.iso.datetime().nullable().describe('Time of the latest observation, if any.'),
     lastCompleteAt: z.iso
