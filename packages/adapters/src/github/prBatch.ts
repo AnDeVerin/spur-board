@@ -296,11 +296,7 @@ const STATUS_LINE = new RegExp(`^<!-- (?:${STATUS_MARKERS.join('|')}):\\S+ -->$`
  * a marker followed by text or one inside a line does not match; a missing body never does.
  */
 function isStatusComment(body: string | undefined): boolean {
-  if (body === undefined) return false;
-  const last = body
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .findLast((line) => line !== '');
+  const last = body?.trimEnd().split('\n').at(-1);
   return last !== undefined && STATUS_LINE.test(last);
 }
 // Every comment and submitted review once, oldest first; equal times fall back to the id. Held
