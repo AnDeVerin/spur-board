@@ -234,7 +234,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists thirty-four scenarios, each with a seed and a settled check', () => {
+  it('lists thirty-six scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -247,6 +247,7 @@ describe('scenarios', () => {
       'spur-source-silent',
       'source-blind',
       'token-approval',
+      'feed-code-hints',
       'columns-basic-jira',
       'worker-killed-no-pr-jira',
       'source-blind-jira',
@@ -788,6 +789,40 @@ describe('each scenario', () => {
     expect((await tokens()).tokens).toContainEqual(
       expect.objectContaining({ name: 'stand-tester', status: 'approved' }),
     );
+  }, 60_000);
+
+  it('feed-code-hints: each board-written hint reaches Slack as code, the rest escaped', async () => {
+    await up();
+    // The seed throws unless `/board tokens` replied `Posted 7 operator tokens to the feed.`:
+    // the six requests and the stand's own operator token.
+    const { scenario } = await seed('feed-code-hints');
+    const messages = await outbox(current());
+    const byName = (name: string) => {
+      const n = Number(scenario.messages?.[name]);
+      const message = messages.find((candidate) => candidate.n === n);
+      if (message === undefined) throw new Error(`no ${name} message`);
+      return message.text;
+    };
+    const backticks = (text: string): number => text.split('`').length - 1;
+
+    const list = byName('list');
+    const more = /> (\d+) more: `board token list`$/.exec(list);
+    if (more === null) throw new Error(`no hidden-count hint in ${list}`);
+    const hidden = Number(more[1]);
+    const shown = (list.match(/ \((?:pending|approved)\), /g) ?? []).length;
+    expect(hidden).toBeGreaterThanOrEqual(1);
+    expect(shown).toBeLessThan(7);
+    expect(shown + hidden).toBe(7);
+    expect(backticks(list)).toBe(2);
+    expect(list).toContain('´pwd´');
+    expect(list).toContain('&amp;');
+    expect(list).not.toContain('&&');
+
+    const blocked = byName('blocked');
+    expect(blocked).toContain(' read `board task stand-org/board#1`');
+    expect(backticks(blocked)).toBe(2);
+
+    expect(await ok(current(), '/violations')).toMatchObject({ total: 0 });
   }, 60_000);
 });
 
