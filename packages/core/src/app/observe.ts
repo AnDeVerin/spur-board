@@ -716,26 +716,30 @@ function sessionTaskKey(url: string): string | undefined {
       : candidate;
 }
 
+/** Select one explicit label before resolving its task; unknown selections never fall through. */
+async function resolveSessionLabels(trx: Trx, config: Config, links: SessionFacts['links']) {
+  let key: string | undefined;
+  let role: 'worker' | 'other' | undefined;
+  for (const label of ['board-worker', 'board-other'] as const) {
+    const url = links[label];
+    if (url === undefined) continue;
+    key = sessionTaskKey(url);
+    role = label === 'board-worker' ? 'worker' : 'other';
+    if (key !== undefined) break;
+  }
+  const task =
+    key === undefined || projectForKey(config, key) === null
+      ? undefined
+      : await trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
+  return { key, role, task };
+}
+
 /** History is journaled without changing snapshots, links or task change times. */
 async function sessionTransition(trx: Trx, config: Config, edge: SessionTransition): Promise<void> {
   const projects = config.projects.filter((project) =>
     project.spurProjects.some((spur) => spur.name === edge.spurProject),
   );
-  let key: string | undefined;
-  for (const label of ['board-worker', 'board-other'] as const) {
-    const url = edge.links[label];
-    if (url === undefined) continue;
-    key = sessionTaskKey(url);
-    if (key !== undefined) break;
-  }
-  const task =
-    key === undefined
-      ? undefined
-      : await trx
-          .selectFrom('task')
-          .select(['id', 'project'])
-          .where('key', '=', key)
-          .executeTakeFirst();
+  const { task } = await resolveSessionLabels(trx, config, edge.links);
   if (task !== undefined) {
     await emit(trx, 'session_state_changed', task.project, task.id, edge.at, {
       session: edge.session,
@@ -850,15 +854,9 @@ async function session(
     }
   }
   // Explicit ticket links are read before branch inference and keep their first role.
-  let key: string | undefined;
-  let role: 'worker' | 'other' | undefined;
-  for (const label of ['board-worker', 'board-other'] as const) {
-    const url = fact.links[label];
-    if (url === undefined) continue;
-    key = sessionTaskKey(url);
-    role = label === 'board-worker' && !orchestrator ? 'worker' : 'other';
-    if (key !== undefined) break;
-  }
+  const explicit = await resolveSessionLabels(trx, config, fact.links);
+  let key = explicit.key;
+  let role = orchestrator && explicit.role === 'worker' ? ('other' as const) : explicit.role;
   // A pr field names the worker only from the PR's head branch; otherwise the branch rules run
   // first and the PR's task is the fallback, linked as other.
   let prOnlyKey: string | undefined;
@@ -935,8 +933,13 @@ async function session(
     key = prOnlyKey;
     role = 'other';
   }
-  if (key !== undefined && projectForKey(config, key) !== null) {
-    const task = await trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
+  if (key !== undefined) {
+    const task =
+      explicit.key !== undefined
+        ? explicit.task
+        : projectForKey(config, key) === null
+          ? undefined
+          : await trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
     if (task !== undefined) {
       const existing = await trx
         .selectFrom('link')

@@ -4091,12 +4091,27 @@ describe('ordered historical session observations', () => {
     ['competing labels', 'https://github.com/o/r/issues/9', 'o/r#9', 'worker'],
     ['unresolved first label', 'https://github.com/o/r/issues/999', null, null],
     ['unparseable first label', 'https://example.com/docs', 'o/r#10', 'other'],
+    ['cross-project label', 'https://github.com/x/y/issues/1', 'x/y#1', 'worker'],
   ] as const)(
-    'uses snapshot label precedence for historical %s',
+    'uses one explicit ownership rule for snapshot and history with %s',
     async (_name, workerUrl, expectedKey, expectedRole) => {
-      const { store, core, apply, mutations } = setup();
+      const pairedConfig = configSchema.parse({
+        ...config,
+        projects: [
+          ...config.projects,
+          {
+            id: 'other',
+            tracker: { type: 'github-issues', repo: 'x/y', label: 'board' },
+            repos: ['x/y'],
+            operatorGithubLogin: 'operator',
+            spurProjects: [{ name: 'other-worker', role: 'worker' }],
+          },
+        ],
+      });
+      const { store, core, apply, mutations } = setup(pairedConfig);
       await apply(mutations.add, { task: 'o/r#9' }, 'operator');
       await apply(mutations.add, { task: 'o/r#10' }, 'operator');
+      await apply(mutations.add, { task: 'x/y#1' }, 'operator');
       const links = {
         'board-worker': workerUrl,
         'board-other': 'https://github.com/o/r/issues/10',
@@ -4112,7 +4127,7 @@ describe('ordered historical session observations', () => {
         cursor: edge.position,
         items: [{ kind: 'session', facts: current }],
       });
-      const tasks = await store.db.selectFrom('task').select(['id', 'key']).execute();
+      const tasks = await store.db.selectFrom('task').select(['id', 'key', 'project']).execute();
       const selected = tasks.find((task) => task.key === expectedKey);
       const events = await store.db
         .selectFrom('event')
@@ -4121,7 +4136,7 @@ describe('ordered historical session observations', () => {
         .execute();
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({
-        project: 'board',
+        project: selected?.project ?? 'board',
         task_id: selected?.id ?? null,
         at: edge.at,
       });
@@ -4132,24 +4147,26 @@ describe('ordered historical session observations', () => {
         transition: edge,
       });
       const registry = createOperationRegistry({
-        config,
+        config: pairedConfig,
         clock,
         completeSince: core.completeSince,
       });
-      const query = createQuery({ store, config, clock });
+      const query = createQuery({ store, config: pairedConfig, clock });
       for (const task of tasks) {
         const history = await query(registry['task.history'], { task: task.key }, 'operator');
         expect(history.events.filter(({ kind }) => kind === 'session_state_changed')).toHaveLength(
           task.key === expectedKey ? 1 : 0,
         );
       }
-      expect(
-        await store.db
-          .selectFrom('link')
-          .select(['task_id', 'role'])
-          .where('entity', '=', 'session')
-          .execute(),
-      ).toEqual(selected === undefined ? [] : [{ task_id: selected.id, role: expectedRole }]);
+      const snapshotLinks = await store.db
+        .selectFrom('link')
+        .select(['task_id', 'role'])
+        .where('entity', '=', 'session')
+        .execute();
+      expect(snapshotLinks).toEqual(
+        selected === undefined ? [] : [{ task_id: selected.id, role: expectedRole }],
+      );
+      expect(events.map((event) => event.task_id)).toEqual([snapshotLinks[0]?.task_id ?? null]);
       expect(
         JSON.parse(
           (await store.db.selectFrom('session_snapshot').select('detail').executeTakeFirstOrThrow())
