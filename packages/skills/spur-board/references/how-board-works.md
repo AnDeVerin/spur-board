@@ -28,7 +28,7 @@ column. Pending CI, unknown
 mergeability and incomplete comment history are waits. Downstream handoff waits
 for settled prerequisites; Dev can receive a repair turn.
 
-Dev needs an open non-draft PR, passing checks, no conflict, handled external
+Dev needs an open non-draft PR, passing checks, no conflict, handled
 feedback, comment history and current-head submit. Feedback excludes
 bots, approvals and `projects[].operatorGithubLogin` (agents' account), so worker
 thread replies never count; others' posts do.
@@ -37,14 +37,14 @@ that login: a PR comment is a change request; talk to agents in Slack
 (`@shortName`) or the Board. A review-thread reply is a new review. An approval
 hides its inline comments; thread resolution and the head a comment was left on
 change nothing for feedback. Bots (GitHub Apps) neither return a task, approve it nor block
-an approval. Handled means handed by ID to a Dev turn, not answered; in shadow
+an approval; their threads still count. Handled means handed by ID to a Dev turn, not answered; in shadow
 mode, a later submit in Dev or an executor `none` column handles it.
 A status comment whose last line is a hidden `board-reviewer-progress` or
 `board-reviewer-unavailable` marker is not external feedback. No required checks: non-skipped count. `projects[].reposWithoutCi` waives absent checks
 for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
-External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits from other worker columns. Fixed gate rules have no configuration switch
+External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits of other worker columns. Fixed gate rules have no configuration switch
 except enabled columns, no-CI and resolved threads.
 
 `projects[].columns[].requireResolvedThreads` (default: `ready-to-merge` only)
@@ -71,8 +71,8 @@ Unseen heads answer `pending`: that submit is final; do not resubmit or raise a
 block. Confirm timeout: `projects[].dispatcher.submitConfirmMs`.
 
 A new head closes taken turns outside Dev; taken Dev turns survive pushes.
-Right of Dev, red CI, a draft, a conflict or an external comment returns the
-task to Dev at once, unless a turn is taken; then after its submit or return.
+Right of Dev, red CI, a draft, a conflict, an external comment or an unresolved
+thread where required returns the task to Dev at once, unless a turn is taken; then after its submit or return.
 The Dev turn hands the comments, beside a return's `code` block.
 
 Closed turns receive no further Board sends; Obsolete queued rings are dropped;
@@ -80,7 +80,7 @@ a message already accepted by Spur cannot be retracted. Check `board inbox` and
 act only on a current turn; reread after `turn_closed`.
 
 Open-turn executors in `needs_input`, `error`, `rate_limited` or `stopped` raise
-one question after `health.turnStallAfterMs` (default 600000 ms): curator unless self, else
+one question after `health.turnStallAfterMs` (default 600000): curator unless self, else
 operator. Time starts at the later turn/state start; taking never resets it.
 One frozen explanation/dismissal per turn/session/state episode. Recovery,
 replacement, removal, archive or turn closure withdraws it. Blind Spur opens none,
@@ -124,8 +124,7 @@ answer keeps the question.
 ## Blocks and escalation
 
 A question (`needs_input`): column orchestrator, else curator, else
-operator. Routing avoids asking yourself: orchestrators ask curator, curators
-operator.
+operator. Routing avoids asking yourself.
 
 A `code` block goes to the worker; `dependency` or `external` block stays with
 its author's role. Escalation: column orchestrator to curator to
@@ -158,7 +157,7 @@ Middle mentions or Slack `<@U…>` address nobody; unknown names cause no lookup
 error. The operator checks short-name collisions with workspace names.
 A task key after the prefix attaches it.
 
-Read `board inbox`; reply with `board answer`. Each operator thread message rings again; `close` or ✅ in the
+Read `board inbox`; reply via `board answer`. Each operator thread message rings again; `close` or ✅ in the
 thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`.
 No session:
 `board status` lists it as waiting.

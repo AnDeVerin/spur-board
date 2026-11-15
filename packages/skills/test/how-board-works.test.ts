@@ -56,7 +56,7 @@ describe('how the Board works guide', () => {
         /a PR comment is a change request; talk to agents in Slack\s+\(`@shortName`\) or the Board/,
         /A review-thread reply is a new review/,
         /An approval\s+hides its inline comments; thread resolution and the head a comment was left on\s+change nothing/,
-        /Bots \(GitHub Apps\) neither return a task, approve it nor block\s+an approval/,
+        /Bots \(GitHub Apps\) neither return a task, approve it nor block\s+an approval; their threads still count/,
         /Handled means handed by ID to a Dev turn, not answered; in shadow\s+mode, a later submit in Dev or an executor `none` column handles it/,
       ],
       keys: [
@@ -82,7 +82,7 @@ describe('how the Board works guide', () => {
         /shadow mode, use keyed `board submit <task> <sha>`/,
         /answer `pending`: that submit is final/,
         /do not resubmit or raise a\s*block/,
-        /Right of Dev, red CI, a draft, a conflict or an external comment returns the\s+task to Dev at once, unless a turn is taken; then after its submit or return/,
+        /Right of Dev, red CI, a draft, a conflict, an external comment or an unresolved\s+thread where required returns the\s+task to Dev at once, unless a turn is taken; then after its submit or return/,
         /The Dev turn hands the comments, beside a return's `code` block/,
       ],
       keys: ['projects[].dispatcher.submitConfirmMs'],
