@@ -492,6 +492,12 @@ async function pr(
   at: string,
   source: string,
 ): Promise<void> {
+  // Positive full facts supersede this source's stale absence, including demand reads.
+  await trx
+    .deleteFrom('source_miss')
+    .where('source', '=', source)
+    .where('ref_key', '=', refKey({ kind: 'pr', repo: fact.repo, number: fact.number }))
+    .execute();
   const old = await trx
     .selectFrom('pr_snapshot')
     .selectAll()

@@ -1,6 +1,13 @@
-import { EVENT_KINDS, OPERATIONS, configSchema } from '@spur-board/contracts';
+import { EVENT_KINDS, OPERATIONS, configSchema, sourceCursorSchema } from '@spur-board/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createApply, createOperationRegistry, createQuery, type Store } from '../../src/index.ts';
+import {
+  createApply,
+  createObservationCore,
+  createOperationRegistry,
+  createQuery,
+  getStatus,
+  type Store,
+} from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { closeTurns, openTurn } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
@@ -713,6 +720,148 @@ describe('authorized task PR refresh', () => {
     await expect(
       query(success['task.get'], { task: KEY, refresh: true }, worker),
     ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+  it('clears only recovered PR miss evidence after an explicit refresh finds merged facts', async () => {
+    const { store, query } = await linked();
+    const core = createObservationCore({ store, config, clock });
+    const source = 'github:board:o/r';
+    const ref = { kind: 'pr' as const, repo: 'o/r', number: 7 };
+    const unrelated = { kind: 'pr' as const, repo: 'o/r', number: 8 };
+    await core.observe(source, {
+      batch: {
+        source,
+        observedAt: AT,
+        complete: true,
+        cursor: sourceCursorSchema.parse('saved-cursor'),
+        items: [],
+        entities: [
+          { ref, status: 'not_found' },
+          { ref: unrelated, status: 'no_access' },
+        ],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: AT, gone: [ref, unrelated] },
+      outcomes: [
+        { ref, misses: 3, gone: true },
+        { ref: unrelated, misses: 4, gone: true },
+      ],
+    });
+    await core.reportSourceState('github:other:x/y', { gone: [] });
+    await store.db
+      .insertInto('source_miss')
+      .values({
+        source: 'github:other:x/y',
+        ref_key: 'pr:x/y#7',
+        ref: JSON.stringify({ kind: 'pr', repo: 'x/y', number: 7 }),
+        misses: 5,
+        gone: 1,
+        outcome: 'not_found',
+      })
+      .execute();
+    await core.reportSourceState('github-issues:board:o/r', { gone: [] });
+    await store.db
+      .insertInto('source_miss')
+      .values({
+        source: 'github-issues:board:o/r',
+        ref_key: `ticket:github-issues:board:o/r:${KEY}`,
+        ref: JSON.stringify({ kind: 'ticket', trackerId: 'github-issues:board:o/r', key: KEY }),
+        misses: 6,
+        gone: 1,
+        outcome: 'no_access',
+      })
+      .execute();
+    const otherMisses = await store.db
+      .selectFrom('source_miss')
+      .selectAll()
+      .where('ref_key', '!=', 'pr:o/r#7')
+      .orderBy('source')
+      .execute();
+    const sourceState = await store.db
+      .selectFrom('source_state')
+      .selectAll()
+      .where('source', '=', source)
+      .executeTakeFirstOrThrow();
+    const status = () => getStatus({ store, config, clock, completeSince: core.completeSince });
+    expect(
+      (await status()).items.some(
+        (item) => item.summary === `${KEY}: linked pull request not_found`,
+      ),
+    ).toBe(true);
+    let calls = 0;
+    const registry = createOperationRegistry({
+      config,
+      clock,
+      completeSince: core.completeSince,
+      prPoller: () => async (requestedSource, requestedRef) => {
+        calls++;
+        expect(requestedSource).toBe(source);
+        expect(requestedRef).toEqual(ref);
+        // The runner commits successful demand facts without absence outcomes or poll progress.
+        await core.observe(source, {
+          batch: {
+            source,
+            observedAt: AT,
+            complete: false,
+            items: [{ kind: 'pr', facts: refreshFact }],
+            entities: [{ ref, status: 'ok' }],
+          },
+          effectiveComplete: false,
+          state: { lastCompleteAt: AT, gone: [ref, unrelated] },
+          outcomes: [],
+        });
+        return { ok: true, value: { status: 'ok', facts: refreshFact, observedAt: AT } };
+      },
+    });
+    await query(registry['task.get'], { task: KEY, refresh: true }, 'operator');
+    expect(calls).toBe(1);
+    expect(
+      (await status()).items.some(
+        (item) => item.summary === `${KEY}: linked pull request not_found`,
+      ),
+    ).toBe(false);
+    expect(
+      await store.db.selectFrom('source_miss').selectAll().orderBy('source').execute(),
+    ).toEqual(otherMisses);
+    expect(
+      await store.db
+        .selectFrom('source_state')
+        .selectAll()
+        .where('source', '=', source)
+        .executeTakeFirstOrThrow(),
+    ).toEqual(sourceState);
+    expect(core.completeSince.get(source)).toBe(AT);
+    const ordinary = await core.context(source);
+    expect(ordinary.observe.prs).toEqual([]);
+    expect(ordinary.terminalPrs).toEqual([{ ref, state: 'merged' }]);
+    expect(ordinary.prRechecks).toEqual([]);
+    // Even an identical PR ref reported by a different source retains its own evidence.
+    const foreignMiss = {
+      source: 'github:other:x/y',
+      ref_key: 'pr:o/r#7',
+      ref: JSON.stringify(ref),
+      misses: 3,
+      gone: 1 as const,
+      outcome: 'not_found' as const,
+    };
+    await store.db.insertInto('source_miss').values(foreignMiss).execute();
+    await query(registry['task.get'], { task: KEY, refresh: true }, 'operator');
+    expect(calls).toBe(2);
+    expect(
+      await store.db
+        .selectFrom('source_miss')
+        .selectAll()
+        .where('source', '=', foreignMiss.source)
+        .where('ref_key', '=', foreignMiss.ref_key)
+        .executeTakeFirst(),
+    ).toEqual(foreignMiss);
+    expect(
+      await store.db
+        .selectFrom('source_miss')
+        .selectAll()
+        .where('source', '=', source)
+        .where('ref_key', '=', foreignMiss.ref_key)
+        .execute(),
+    ).toEqual([]);
   });
   it('fails visibly when the poller is missing rather than returning cached facts', async () => {
     const { query, registry } = await linked();
