@@ -3171,6 +3171,66 @@ describe('design flows 2.5 and 2.10', () => {
     await ctx.pr(review('operator-human', 'approved', 30));
     expect((await ctx.task()).column).toBe('ready-to-merge');
   });
+
+  /** A thread reply (a `commented` review) and a PR comment by `login`. */
+  const posts = (login: string) => ({
+    feedback: [
+      {
+        kind: 'review' as const,
+        id: 'r-reply',
+        author: { login, type: 'user' as const },
+        postedAt: at(20),
+        state: 'commented' as const,
+      },
+      {
+        kind: 'comment' as const,
+        id: 'c-reply',
+        author: { login, type: 'user' as const },
+        postedAt: at(21),
+      },
+    ],
+  });
+
+  it.each([
+    { author: 'agent-bot', returns: false },
+    { author: EXTERNAL, returns: true },
+    { author: 'operator-human', returns: true },
+  ])(
+    'posts by $author during a taken Review turn return to Dev at submit: $returns',
+    async ({ author, returns }) => {
+      const ctx = await inReview();
+      await ctx.ack(REV, 'T2');
+      await ctx.pr(posts(author));
+      expect((await ctx.task()).column).toBe('review');
+      expect((await ctx.turns())[1]).toMatchObject({
+        id: 2,
+        column: 'review',
+        acked_by: REV,
+        closed_at: null,
+      });
+
+      await ctx.submit(REV, 'T2', A);
+      if (!returns) {
+        expect((await ctx.task()).column).toBe('product-review');
+        return;
+      }
+      expect((await ctx.task()).column).toBe('dev');
+      expect((await ctx.moves()).at(-1)).toMatchObject({
+        from: 'review',
+        to: 'dev',
+        reason: 'gate_broken',
+        gate: ['external_comments'],
+      });
+    },
+  );
+
+  it("a comment by the agents' account in External Review opens no Dev turn", async () => {
+    const ctx = await pastProductReview({ externalReview: true });
+    await ctx.pr(posts('agent-bot'));
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('external-review');
+    expect(await ctx.openTurn()).toBeNull();
+  });
 });
 
 describe('triggers', () => {
