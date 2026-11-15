@@ -141,6 +141,7 @@ describe('how the Board works guide', () => {
       clauses: [
         /question \(`needs_input`\)/,
         /avoids asking yourself/,
+        /curators ask the operator/,
         /`code` block goes to the worker/,
         /`dependency` or `external` block stays with\s*its author's role/,
         /column orchestrator to curator to\s*operator/,

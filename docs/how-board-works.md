@@ -4,7 +4,7 @@
 
 `todo`, `ready-for-dev`, `dev`, `review`, `product-review`,
 `external-review`, `qa`, `ready-to-merge`, `done`.
-`projects[].columns[].enabled`: disabled/omitted optional columns skip gates;
+`projects[].columns[].enabled`: disabled/omitted columns skip gates;
 To Do, Dev, Done stay enabled.
 
 Each column has one executor: `projects[].columns[].orchestrator`:
@@ -21,7 +21,7 @@ per evaluation). Turns follow unmet entry gates, actionable post-submit failures
 rerouting or Done wrap-up. Holds and existing turns can yield neither action.
 
 Moves, turns and course checks need `projects[].dispatcher.mode: on`;
-default is `shadow`: no turns, doorbells or blocks.
+default is `shadow`: no doorbells or blocks.
 
 Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, failed gates return to the leftmost failing
 column. Pending CI, unknown
@@ -107,7 +107,7 @@ curator questions move to operator.
 
 ## Course checks and cycle limits
 
-`projects[].columns[].courseCheck` defaults to 3 counted returns to Dev;
+`projects[].columns[].courseCheck` defaults to 3 returns to Dev;
 `courseCheck: 0` disables it. `projects[].columns[].cycleLimit` defaults to 10 and
 takes priority. Executor returns and external comments (a changes-requested
 review is one) count, as do thread returns; CI failures, conflicts and drafts alone do not count, nor
@@ -124,7 +124,7 @@ answer keeps the question.
 ## Blocks and escalation
 
 A question (`needs_input`): column orchestrator, else curator, else
-operator. Routing avoids asking yourself.
+operator. Routing avoids asking yourself; curators ask the operator.
 
 A `code` block goes to the worker; `dependency` or `external` block stays with
 its author's role. Escalation: column orchestrator to curator to
@@ -165,4 +165,4 @@ No session:
 ## Done follows the ticket
 
 One linked PR merging does not by itself finish the task. Done: `projects[].tracker.doneStatuses` for Jira; for GitHub, the Issue must be
-closed. If open after merge, link another PR.
+closed. If still open, link another PR.
