@@ -33,7 +33,7 @@ Prefer an existing pattern in the repo over a new abstraction.
 - Tests stay as strong as before. Do not delete, skip or loosen a test to make a change fit.
   When a test must change (it tested a removed internal), report it under `Changed checks` as
   `gitflow` lists.
-- Run `pnpm check` after each chunk; without a `package.json`, report `no checks available`.
+- Run `pnpm check` after each chunk.
   Read exit codes directly. A failure means the change altered behaviour - revert that chunk.
 - Agent files in the diff (`.agents/`, `.claude/`, `.codex/`, `AGENTS.md`): check them against
   `skill-writer` and keep the copies in sync.

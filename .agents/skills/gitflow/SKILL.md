@@ -19,8 +19,7 @@ One issue, one branch, one PR. Explain why in the PR body.
   commit (`chore(agents)`, or `fix(<skill>)` for a stale rule), apart from code changes.
 - Leave the session marker out of commits and PR titles.
 - Run `pnpm check` before opening the PR as `AGENTS.md` requires; use it again when a wider local
-  check is needed. Without a `package.json`, report `no checks available`. Never wait for or poll
-  remote CI.
+  check is needed. Never wait for or poll remote CI.
 - The pre-push hook checks the refs being pushed: changed-file format and lint plus types and unit
   tests for changed packages (all packages for shared root changes). Push only the checked-out
   HEAD. `VITEST_MAX_WORKERS` defaults to two and accepts a positive integer override. CI runs

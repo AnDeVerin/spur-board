@@ -27,7 +27,7 @@ Implement in small chunks, check each one, commit when green. The spec is a hypo
 
 ## Loop
 1. Implement one logical chunk.
-2. Run the checks that cover it (`pnpm` scripts; no `package.json` yet -> `no checks available`).
+2. Run the checks that cover it (`pnpm` scripts).
    Read each exit code directly, never through a pipe.
 3. Fix every failure before moving on.
 4. Commit: `git add <files> && git commit -m "<type>(<scope>): <summary>"`. Never amend pushed

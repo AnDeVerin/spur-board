@@ -63,6 +63,5 @@ them there; always list them under `Findings` in the `Manager Run` block.
 
 ## Checks
 
-The repo's checks are its `pnpm` scripts; `pnpm check` is the single entry point once the
-workspace exists. Before that, roles report `no checks available` instead of inventing a
-command. Verify every check by its exit code, never through a pipe.
+The repo's checks are its `pnpm` scripts; `pnpm check` is the single entry point.
+Verify every check by its exit code, never through a pipe.
