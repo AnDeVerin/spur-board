@@ -24,13 +24,19 @@ const runbookPath = fileURLToPath(new URL('../../../docs/runbook.md', import.met
 const setupReferencesPath = fileURLToPath(new URL('../setup/references/', import.meta.url));
 const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 const referencesPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
-const howBoardWorks = readFileSync(
-  new URL('../../../docs/how-board-works.md', import.meta.url),
-  'utf8',
+const manualReferenceNames = [
+  'how-board-works.md',
+  'how-board-works-columns.md',
+  'how-board-works-turns.md',
+  'how-board-works-blocks.md',
+  'how-board-works-slack.md',
+  'how-board-works-done.md',
+];
+const manualGuides = manualReferenceNames.map((name) =>
+  readFileSync(new URL(`../../../docs/${name}`, import.meta.url), 'utf8'),
 );
-const howBoardWorksReference = readFileSync(
-  new URL('../spur-board/references/how-board-works.md', import.meta.url),
-  'utf8',
+const manualReferences = manualReferenceNames.map((name) =>
+  readFileSync(new URL(`../spur-board/references/${name}`, import.meta.url), 'utf8'),
 );
 const skill = readFileSync(skillPath, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
@@ -48,7 +54,7 @@ const referenceTexts = references.map((reference) =>
   readFileSync(new URL(`../spur-board/references/${reference.fileName}`, import.meta.url), 'utf8'),
 );
 const referenceText = referenceTexts.join('\n');
-const fullText = [skill, ...referenceTexts, howBoardWorksReference].join('\n');
+const fullText = [skill, ...referenceTexts, ...manualReferences].join('\n');
 const operations = [...OPERATIONS].sort(
   (left, right) => right.cli.command.split(' ').length - left.cli.command.split(' ').length,
 );
@@ -218,20 +224,30 @@ describe('product skill sync', () => {
     expect(references.map((reference) => reference.fileName)).toEqual(['commands.md', 'errors.md']);
     expect(references[0]?.content).toContain('[errors.md](errors.md)');
     expect(readdirSync(referencesPath).sort()).toEqual(
-      [...references.map((reference) => reference.fileName), 'how-board-works.md'].sort(),
+      [...references.map((reference) => reference.fileName), ...manualReferenceNames].sort(),
     );
     for (const [index, reference] of references.entries()) {
       expect(referenceTexts[index]).toBe(reference.content);
-      expect(Buffer.byteLength(reference.content)).toBeLessThanOrEqual(8192);
+      expect(Buffer.byteLength(reference.content)).toBeLessThan(8192);
     }
   });
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
-    expect(howBoardWorksReference).toBe(howBoardWorks);
-    expect(Buffer.byteLength(howBoardWorksReference)).toBeLessThanOrEqual(10240);
+    expect(
+      readdirSync(new URL('../../../docs/', import.meta.url))
+        .filter((name) => /^how-board-works.*\.md$/.test(name))
+        .sort(),
+    ).toEqual([...manualReferenceNames].sort());
+    for (const [index, reference] of manualReferences.entries()) {
+      expect(reference).toBe(manualGuides[index]);
+      expect(Buffer.byteLength(reference)).toBeLessThan(8192);
+      expect(validateInvocations(reference)).toEqual([]);
+    }
+    expect(
+      [...(manualReferences[0]?.matchAll(/\]\(([^)]+)\)/g) ?? [])].map((match) => match[1]).sort(),
+    ).toEqual(manualReferenceNames.slice(1).sort());
     expect(skill).toContain('[how the Board works](references/how-board-works.md)');
     expect(skill).toContain('untrusted: true');
-    expect(validateInvocations(howBoardWorks)).toEqual([]);
   });
 
   it('keeps repeated-mechanism guidance and exceptions with Dev-worker duties', () => {
@@ -401,7 +417,7 @@ describe('setup skill sync', () => {
     expect(readdirSync(setupReferencesPath).sort()).toEqual(setupReferenceNames);
     for (const [index, name] of setupReferenceNames.entries()) {
       expect(setupSkill).toContain(`references/${name}`);
-      expect(Buffer.byteLength(setupReferenceTexts[index] ?? '')).toBeLessThanOrEqual(8192);
+      expect(Buffer.byteLength(setupReferenceTexts[index] ?? '')).toBeLessThan(8192);
     }
   });
 
