@@ -159,6 +159,17 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
     kind: 'dispatcher_mode_changed',
     payload: { from: 'shadow', to: 'on' },
   },
+  turn_opened: {
+    ...base,
+    kind: 'turn_opened',
+    payload: { turn: 'T4', column: 'review', addressee: 'orchestrator:review', reason: 'Review' },
+  },
+  turn_taken: {
+    ...base,
+    kind: 'turn_taken',
+    payload: { turn: 'T4', taker: 'agent:rev/rev-1' },
+  },
+  turn_closed: { ...base, kind: 'turn_closed', payload: { turn: 'T4', outcome: 'submitted' } },
   block_opened: {
     ...base,
     kind: 'block_opened',
@@ -228,8 +239,8 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
 };
 
 describe('event kinds', () => {
-  it('has a payload schema for each of the 42 kinds', () => {
-    expect(EVENT_KINDS).toHaveLength(42);
+  it('has a payload schema for each of the 45 kinds', () => {
+    expect(EVENT_KINDS).toHaveLength(45);
     expect(Object.keys(eventPayloadSchemas).sort()).toEqual([...EVENT_KINDS].sort());
   });
 

@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
-import { parsePr, taskPr, taskUrl, type Trx } from './board-utils.ts';
+import { emit, parsePr, taskPr, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import {
   acknowledgeNotification,
@@ -36,6 +36,7 @@ type Handed = z.output<typeof turnHandedSchema>;
 const handedSchema = z.array(turnHandedSchema);
 
 const turnItemKey = (turnId: number) => `turn:${String(turnId)}`;
+const turnRef = (turnId: number) => `T${String(turnId)}`;
 
 /**
  * Who executes a column's turn: its orchestrator project, the operator, or for a column with
@@ -141,6 +142,12 @@ export async function openTurn(
     })
     .returningAll()
     .executeTakeFirstOrThrow();
+  await emit(trx, 'turn_opened', task.project, task.id, turn.created_at, {
+    turn: turnRef(turn.id),
+    column: turn.column,
+    addressee: turn.role,
+    reason: turn.reason,
+  });
   if (role === 'operator') {
     await raiseItem(trx, {
       itemKey: turnItemKey(turn.id),
@@ -193,6 +200,20 @@ export async function takeTurn(
     .where('acked_at', 'is', null)
     .where('exhausted_at', 'is', null)
     .execute();
+  const task = await trx
+    .selectFrom('task')
+    .select('project')
+    .where('id', '=', turn.task_id)
+    .executeTakeFirstOrThrow();
+  await emit(
+    trx,
+    'turn_taken',
+    task.project,
+    turn.task_id,
+    at.toISOString(),
+    { turn: turnRef(turnId), taker: actor },
+    actor,
+  );
   return true;
 }
 
@@ -212,7 +233,17 @@ export async function closeTurns(
     .where('closed_at', 'is', null)
     .returning('id')
     .execute();
+  if (closed.length === 0) return;
+  const task = await trx
+    .selectFrom('task')
+    .select('project')
+    .where('id', '=', taskId)
+    .executeTakeFirstOrThrow();
   for (const { id } of closed) {
+    await emit(trx, 'turn_closed', task.project, taskId, at.toISOString(), {
+      turn: turnRef(id),
+      outcome: reason,
+    });
     await closeTurnNotification(trx, id, at);
     const item = await trx
       .selectFrom('operator_item')

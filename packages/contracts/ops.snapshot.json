@@ -1,5 +1,5 @@
 {
-  "version": "544079cef3be63c9ee8c8489b6259b21d446c8fb574beaefe3443e5d541ddfc6",
+  "version": "2cd2d7998adaf4a9484773220cc758f254e6eb4fa8901e61cc2833fe61f16401",
   "grants": [
     "operator",
     "project-agent",
@@ -5141,6 +5141,9 @@
                     "task_shadow_moved",
                     "task_corrected",
                     "dispatcher_mode_changed",
+                    "turn_opened",
+                    "turn_taken",
+                    "turn_closed",
                     "block_opened",
                     "block_escalated",
                     "block_unblocked",

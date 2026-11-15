@@ -92,6 +92,7 @@ describe('how the Board works guide', () => {
         /The Dev turn hands the comments, beside a return's `code` block/,
         /Each handed entry has its `url`, `editedAt` once edited, and a review's inline\s+`comments` with `url` and `threadId`/,
         /Turns of a Dev visit opened by a return\s+show `returned`: who, from, the turn, the `code` block and the verbatim reason/,
+        /journal events `turn_opened`,\s*`turn_taken` and `turn_closed`/,
       ],
       keys: ['projects[].dispatcher.submitConfirmMs'],
     },

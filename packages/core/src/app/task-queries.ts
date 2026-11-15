@@ -23,7 +23,7 @@ import { notificationAddressedTo } from './doorbells.ts';
 import { canonicalKey } from './membership.ts';
 import type { Query } from './queries.ts';
 import { blockSubject, rowSubject, taskSubject } from './subject.ts';
-import { taskTurns } from './task-turns.ts';
+import { taskTurns, turnSummary } from './task-turns.ts';
 import { taskSessions } from './task-sessions.ts';
 import { turnView } from './turn-view.ts';
 import { turnNotification } from './turns.ts';
@@ -61,6 +61,9 @@ const EVENT_SUMMARIES = {
   task_shadow_moved: 'Shadow move',
   task_corrected: 'Column corrected by the operator',
   dispatcher_mode_changed: 'Dispatcher mode changed',
+  turn_opened: 'Turn opened',
+  turn_taken: 'Turn taken',
+  turn_closed: 'Turn closed',
   block_opened: 'Block opened',
   block_escalated: 'Block escalated',
   block_unblocked: 'Block unblocked',
@@ -375,6 +378,7 @@ export function createTaskQueries(deps: {
               linkOrEscalationSummary(kind, row.payload) ??
               shadowSummary(kind, row.payload) ??
               submitSummary(kind, row.payload) ??
+              turnSummary(kind, row.payload) ??
               EVENT_SUMMARIES[kind],
           },
         ];

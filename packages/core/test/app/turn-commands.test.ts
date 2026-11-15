@@ -19,7 +19,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { closeTurns, openTurn } from '../../src/app/turns.ts';
+import { closeTurns, openTurn, takeTurn } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
 
 const AT = '2026-11-04T08:00:00.000Z';
@@ -1151,6 +1151,7 @@ describe('task.return', () => {
     expect(await ctx.store.db.selectFrom('outbox').selectAll().execute()).toEqual([]);
     expect((await ctx.events()).slice(seen)).toEqual([
       { kind: 'block_opened', payload: { block: 'B1', type: 'code', addressee: 'worker' } },
+      { kind: 'turn_closed', payload: { turn: 'T1', outcome: 'returned' } },
       { kind: 'task_moved', payload: { from: 'review', to: 'dev', turn: 'T1', block: 'B1' } },
     ]);
     expect(await ctx.turn()).toMatchObject({ closed_reason: 'returned', closed_at: AT });
@@ -1282,6 +1283,150 @@ describe('task.return', () => {
       'operation_denied',
     ]);
     expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(unchanged));
+  });
+});
+
+describe('turn journal', () => {
+  const TURN_KINDS = ['turn_opened', 'turn_taken', 'turn_closed'] as const;
+  const LATER = new Date(Date.parse(AT) + 60_000);
+
+  /** The journal rows of turn opens, takes and closes, oldest first. */
+  const turnEvents = async (ctx: Awaited<ReturnType<typeof setup>>) =>
+    (
+      await ctx.store.db
+        .selectFrom('event')
+        .select(['kind', 'project', 'task_id', 'at', 'actor', 'actor_ref', 'payload'])
+        .where('kind', 'in', TURN_KINDS)
+        .orderBy('id')
+        .execute()
+    ).map((row) => ({ ...row, payload: JSON.parse(row.payload) as unknown }));
+
+  it('journals one event per turn open, take and close', async () => {
+    const ctx = await taken();
+    ctx.commits(A);
+
+    await expect(ctx.submit(REV_1, A, 'submit-1')).resolves.toMatchObject({ turn: 'T1' });
+
+    const turn = await ctx.turn();
+    const rev1 = {
+      actor: 'agent',
+      actor_ref: JSON.stringify({ project: 'rev', session: 'rev-1' }),
+    };
+    const row = { project: 'proj', task_id: 1, at: AT };
+    expect(await turnEvents(ctx)).toEqual([
+      {
+        ...row,
+        kind: 'turn_opened',
+        actor: 'system',
+        actor_ref: null,
+        payload: { turn: 'T1', column: turn.column, addressee: turn.role, reason: turn.reason },
+      },
+      { ...row, ...rev1, kind: 'turn_taken', payload: { turn: 'T1', taker: turn.acked_by } },
+      {
+        ...row,
+        kind: 'turn_closed',
+        actor: 'system',
+        actor_ref: null,
+        payload: { turn: 'T1', outcome: turn.closed_reason },
+      },
+    ]);
+    expect(turn).toMatchObject({
+      column: 'review',
+      role: 'orchestrator:review',
+      reason: 'Review',
+      acked_by: REV_1,
+      closed_reason: 'submitted',
+    });
+    expect(
+      (await ctx.history())
+        .filter((event) => (TURN_KINDS as readonly string[]).includes(event.kind))
+        .map((event) => [event.actor, event.summary]),
+    ).toEqual([
+      ['system', 'Turn T1 opened in review for orchestrator:review: Review'],
+      [REV_1, 'Turn T1 taken by agent:rev/rev-1'],
+      ['system', 'Turn T1 closed: submitted'],
+    ]);
+  });
+
+  it('writes no turn event when nothing changes', async () => {
+    const ctx = await setup();
+    await ctx.openTurn();
+    await ctx.openTurn();
+    expect((await turnEvents(ctx)).map((event) => event.kind)).toEqual(['turn_opened']);
+
+    await ctx.ack(REV_1);
+    const seen = (await turnEvents(ctx)).length;
+    const turn = await ctx.turn();
+    await expect(ctx.ack(QA_1)).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await turnEvents(ctx)).toHaveLength(seen);
+    expect(await ctx.turn()).toEqual(turn);
+
+    ctx.commits(A);
+    await ctx.submit(REV_1, A, 'submit-1');
+    const closed = (await turnEvents(ctx)).length;
+    await ctx.store.transaction((trx) =>
+      closeTurns(trx, { taskId: 1, reason: 'moved', at: LATER }),
+    );
+    expect(await turnEvents(ctx)).toHaveLength(closed);
+  });
+
+  it('journals every successful take', async () => {
+    const ctx = await taken();
+    const takers = async () =>
+      (await turnEvents(ctx))
+        .filter((event) => event.kind === 'turn_taken')
+        .map((event) => event.payload);
+    expect(await takers()).toEqual([{ turn: 'T1', taker: REV_1 }]);
+
+    await expect(ctx.ack(REV_2)).resolves.toBeDefined();
+    expect(await takers()).toEqual([
+      { turn: 'T1', taker: REV_1 },
+      { turn: 'T1', taker: REV_2 },
+    ]);
+
+    await expect(
+      ctx.store.transaction((trx) =>
+        takeTurn(trx, { turnId: 1, actor: REV_2, at: LATER, config: ctx.config }),
+      ),
+    ).resolves.toBe(true);
+    expect((await ctx.turn()).acked_at).toBe(LATER.toISOString());
+    expect(await takers()).toEqual([
+      { turn: 'T1', taker: REV_1 },
+      { turn: 'T1', taker: REV_2 },
+      { turn: 'T1', taker: REV_2 },
+    ]);
+  });
+
+  it('rolls back the event with the turn write', async () => {
+    const fresh = await setup();
+    await expect(
+      fresh.store.transaction(async (trx) => {
+        const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+        await openTurn(trx, {
+          task,
+          reason: 'Review',
+          handed: [],
+          at: new Date(AT),
+          config: fresh.config,
+        });
+        await closeTurns(trx, { taskId: 1, reason: 'moved', at: new Date(AT) });
+        throw new Error('rollback');
+      }),
+    ).rejects.toThrow('rollback');
+    expect(await fresh.store.db.selectFrom('turn').selectAll().execute()).toEqual([]);
+    expect(await turnEvents(fresh)).toEqual([]);
+
+    const ctx = await taken();
+    const turn = await ctx.turn();
+    const seen = await turnEvents(ctx);
+    await expect(
+      ctx.store.transaction(async (trx) => {
+        await takeTurn(trx, { turnId: 1, actor: REV_2, at: LATER, config: ctx.config });
+        throw new Error('rollback');
+      }),
+    ).rejects.toThrow('rollback');
+    expect(await ctx.turn()).toEqual(turn);
+    expect(await turnEvents(ctx)).toEqual(seen);
   });
 });
 
@@ -1490,6 +1635,10 @@ describe('task.move', () => {
     ]);
     const events = (await ctx.events()).slice(seen);
     expect(events[0]).toEqual({
+      kind: 'turn_closed',
+      payload: { turn: 'T1', outcome: 'corrected' },
+    });
+    expect(events[1]).toEqual({
       kind: 'task_corrected',
       payload: { from: 'done', to: 'dev', reason: 'The board moved it wrongly.', shadow: false },
     });
