@@ -385,10 +385,6 @@ export interface Stand {
 }
 
 /**
- * Starts a stand: an in-process daemon on a generated home with dummy secrets, the loopback-only
- * network guard and a control endpoint. Every refusal happens before anything is created.
- */
-/**
  * Fails before the daemon starts when `port` is taken on 127.0.0.1, naming the port. Otherwise the
  * daemon's failed bind surfaces only as "Daemon did not bind HTTP". Port 0 is always free.
  */
@@ -414,6 +410,10 @@ async function checkPortFree(port: number): Promise<void> {
   });
 }
 
+/**
+ * Starts a stand: an in-process daemon on a generated home with dummy secrets, the loopback-only
+ * network guard and a control endpoint. Every refusal happens before anything is created.
+ */
 export async function startStand(options: StandOptions): Promise<Stand> {
   const refused =
     proxyRefusal({ env: options.env, execArgv: options.execArgv ?? [] }) ??
