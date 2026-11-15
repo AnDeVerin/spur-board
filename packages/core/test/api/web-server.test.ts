@@ -108,7 +108,7 @@ describe('web listener', () => {
 
   it('accepts exact origin with JSON parameters and runs bound reads as operator', async () => {
     const { app } = await setup();
-    for (const id of ['status.get', 'inbox.get']) {
+    for (const id of ['status.get', 'inbox.get', 'config.get']) {
       const response = await app.inject({
         ...post(id),
         headers: { ...headers, 'content-type': 'application/json; charset=utf-8' },
@@ -116,6 +116,55 @@ describe('web listener', () => {
       expect(response.statusCode).toBe(200);
       secure(response);
     }
+  });
+
+  it('serves effective configuration and compact task projections through the web registry', async () => {
+    const { app, store } = await setup();
+    const configuration = await app.inject(post('config.get'));
+    expect(configuration.statusCode).toBe(200);
+    expect(configuration.json()).toEqual({
+      ok: true,
+      requestId: configuration.headers['x-request-id'],
+      value: {
+        projects: [
+          {
+            id: 'proj',
+            columns: [
+              ['todo', 'worker'],
+              ['ready-for-dev', 'worker'],
+              ['dev', 'worker'],
+              ['review', 'worker'],
+              ['product-review', 'worker'],
+              ['external-review', 'dispatcher'],
+              ['qa', 'worker'],
+              ['ready-to-merge', 'worker'],
+              ['done', 'worker'],
+            ].map(([id, kind]) => ({ id, executor: { kind, name: null } })),
+            dispatcher: { mode: 'shadow' },
+            spurProjects: [],
+          },
+        ],
+      },
+    });
+    await store.db
+      .insertInto('task')
+      .values({ ...sampleRows.task, membership: 'active', archive_reason: null })
+      .execute();
+    const status = await app.inject(post('status.get'));
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({
+      ok: true,
+      value: {
+        tasks: [
+          {
+            key: 'o/r#101',
+            turn: null,
+            prSummary: null,
+            links: { ticket: null, prs: [], sessions: [] },
+          },
+        ],
+      },
+    });
   });
 
   it('denies unbound operations before their handlers and supports common readiness/errors', async () => {

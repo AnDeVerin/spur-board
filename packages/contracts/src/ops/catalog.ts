@@ -1539,6 +1539,7 @@ export const OPERATIONS = [
   }),
   defineOperation({
     id: 'config.get',
+    web: true,
     kind: 'query',
     description: 'Show effective project columns, executors and Spur bindings.',
     mcp: {

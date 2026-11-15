@@ -1,5 +1,5 @@
 {
-  "version": "4b8662bb8297ee6ac593eeb759180130b2d37415b7b861b65c7e1836a9baa988",
+  "version": "bd9666006144f2834d30852dca4e72097eb2e0952ddded76326ebf64ee240927",
   "grants": [
     "operator",
     "project-agent",
@@ -9824,7 +9824,7 @@
         "destructive": false
       },
       "slack": null,
-      "web": null,
+      "web": true,
       "examples": [
         {
           "summary": "Show effective configuration",

@@ -37,6 +37,7 @@ The catalog version changes with these contracts; restart the daemon and live MC
 With `web.port` and `web.publicOrigin` configured, a second loopback listener serves browser
 assets, health and catalog operations whose `web` binding is enabled. It uses the same registry,
 authorization, idempotency and operation hooks as the agent API, with the operator caller.
+Effective project configuration is available through `config.get`.
 Only `comment.add` and `block.answer` are enabled writes. Token and skill routes stay on the
 agent API. The web listener is off by default and a failed bind does not stop the agent API.
 

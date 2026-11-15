@@ -67,6 +67,7 @@ describe('catalog', () => {
     ).toEqual([
       'block.answer',
       'comment.add',
+      'config.get',
       'inbox.get',
       'status.get',
       'task.get',
