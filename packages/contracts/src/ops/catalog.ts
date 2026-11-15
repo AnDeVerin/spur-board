@@ -612,7 +612,7 @@ export const OPERATIONS = [
                 .enum(VIAS)
                 .optional()
                 .describe(
-                  'Channel of the write: web or slack; absent for CLI, MCP, agents and the board.',
+                  'Channel the write arrived through, web or slack, whoever the actor; absent for CLI, MCP, agent and scheduled writes.',
                 ),
               summary: z.string().describe('What happened, in one line.'),
             })

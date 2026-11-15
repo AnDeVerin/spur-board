@@ -136,8 +136,9 @@ export const ACTORS = ['operator', 'agent', 'system'] as const;
 export type Actor = (typeof ACTORS)[number];
 
 /**
- * The channel an operator write came through, journaled as `event.via`; a write outside both has
- * none. Named `via` because core keeps platform terms such as "channel" out of its source.
+ * The channel a write arrived through, whoever the actor, journaled as `event.via`; a write
+ * outside both has none. Named `via` because core keeps platform terms such as "channel" out of
+ * its source.
  */
 export const VIAS = ['web', 'slack'] as const;
 export type Via = (typeof VIAS)[number];

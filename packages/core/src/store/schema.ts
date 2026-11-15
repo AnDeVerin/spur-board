@@ -253,7 +253,7 @@ export interface EventTable {
   payload: string;
   v: number;
   request_id: string | null;
-  /** `web` or `slack` for a write that came that way; NULL for CLI, MCP, agents and the board. */
+  /** `web` or `slack` for a write that arrived that way, any actor; NULL for CLI, MCP, agents. */
   via: Via | null;
 }
 

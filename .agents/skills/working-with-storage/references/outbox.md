@@ -42,11 +42,11 @@
   `journalInsertBan` in `eslint.config.js` refuses any other `insertInto('event')` in core or
   daemon sources. `emit` sets `request_id` to the key of the `withCommandKey` scope around it
   (opened by `replayOperation` and inbound `recordFailure`), or null outside one (observation,
-  ticks). It sets `via` from the `withVia` scope the same way: `'slack'` in inbound
-  `applyUser`, `applyGap` and `reapply`, `'web'` from the web listener, else null (CLI, MCP,
-  agents, ticks). Never call a job `trigger()` or start detached work inside a command or a
-  `withVia` scope: it inherits the scope, and the scheduler chains later runs from it, so every
-  later scheduled run would carry that key or `via`.
+  ticks). It sets `via` from the `withVia` scope the same way: `'slack'` in inbound `applyUser`,
+  `applyGap` and `reapply` whoever the actor, `'web'` from the web listener coming with #530, else
+  null (CLI, MCP, agents, ticks). Never call a job `trigger()` or start detached work inside a
+  command or a `withVia` scope: it inherits the scope, and the scheduler chains later runs from it,
+  so every later scheduled run would carry that key or `via`.
 - Event kinds and payloads follow `working-with-contracts`. JSON columns are read and written
   through `parseJson` / `toJson`.
 - A column that records who did something holds an `ActorId` (`packages/core/src/store/schema.ts`):
