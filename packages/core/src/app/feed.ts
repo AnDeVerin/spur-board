@@ -16,6 +16,7 @@ import {
   enqueueFeedLine,
   promoteWorkerDoorbells,
   type FeedEditPayload,
+  type FeedLinePayload,
 } from './outbox.ts';
 
 /** The struck summary is capped so the edit stays one message part. */
@@ -173,6 +174,24 @@ function resolvedLine(by: ActorId, at: string, config: Config): RichTextInline[]
     { kind: 'text', text: '✓ Resolved by ' },
     actorInline(by, parsed, config),
     { kind: 'text', text: ` at ${feedTime(at, config)}` },
+  ];
+}
+
+/**
+ * A feed line: its key, linked when it has a url, then its segments, or its text, as a quote.
+ */
+export function feedLineBody(
+  payload: Pick<FeedLinePayload, 'key' | 'url' | 'text' | 'segments'>,
+): RichText {
+  const { key, url, text, segments } = payload;
+  return [
+    {
+      kind: 'paragraph',
+      children: [
+        url === undefined ? { kind: 'text', text: key } : { kind: 'link', url, text: key },
+      ],
+    },
+    { kind: 'quote', children: segments ?? [{ kind: 'text', text }] },
   ];
 }
 
