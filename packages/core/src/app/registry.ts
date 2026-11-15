@@ -36,7 +36,12 @@ export function createOperationRegistry(deps: {
   const membership = createMembershipMutations(config);
   const links = createLinkMutations(config, { prPoller: deps.prPoller });
   const blocks = createBlockMutations(config);
-  const taskQueries = createTaskQueries({ config, completeSince, prPoller: deps.prPoller });
+  const taskQueries = createTaskQueries({
+    config,
+    clock,
+    completeSince,
+    prPoller: deps.prPoller,
+  });
   const turns = createTurnMutations({ config, prPoller: deps.prPoller, completeSince });
   const schema: Query<'schema.get'> = {
     id: 'schema.get',

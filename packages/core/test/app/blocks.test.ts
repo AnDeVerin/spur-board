@@ -900,7 +900,7 @@ describe('curator escalation', () => {
     );
     const get = () =>
       createQuery({ store, clock, config: used })(
-        createTaskQueries({ config: used, completeSince: new Map() }).get,
+        createTaskQueries({ config: used, clock, completeSince: new Map() }).get,
         { task: KEY },
         'operator',
       );
@@ -1954,7 +1954,7 @@ describe('project question', () => {
     );
   const inbox = (store: Store, actor: ActorId) =>
     createQuery({ store, clock, config: used })(
-      createTaskQueries({ config: used, completeSince: new Map() }).inbox,
+      createTaskQueries({ config: used, clock, completeSince: new Map() }).inbox,
       {},
       actor,
     );
@@ -2314,7 +2314,7 @@ describe('operator conversation', () => {
       .execute();
     expect(fresh).toEqual([{ kind: 'answer', role: 'curator', comment_id: followUp.id }]);
     const listed = await createQuery({ store, clock, config: board })(
-      createTaskQueries({ config: board, completeSince: new Map() }).inbox,
+      createTaskQueries({ config: board, clock, completeSince: new Map() }).inbox,
       {},
       'agent:cur/cur-1',
     );

@@ -52,8 +52,10 @@ describe('how the Board works guide', () => {
         /message already accepted by Spur cannot be retracted/,
         /check\s*`board inbox` and act only on a current turn/,
         /shadow mode, use keyed `board submit <task> <sha>`/,
+        /answers `pending`:\s*that submit is final/,
+        /do not resubmit or raise a block/,
       ],
-      keys: [],
+      keys: ['projects[].dispatcher.submitConfirmMs'],
     },
     {
       section: 'Course checks and cycle limits',
