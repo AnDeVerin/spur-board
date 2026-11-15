@@ -103,6 +103,7 @@ const adapterDefaults: Pick<Config, 'adapters' | 'sources' | 'github' | 'health'
   sources: { authRetryMs: 900_000, goneAfterPolls: 3 },
   github: { reserveRemaining: 1000 },
   health: {
+    turnStallAfterMs: 600_000,
     errorAfterMs: 90_000,
     needsInputAfterMs: 120_000,
     idleInDevAfterMs: 1_800_000,
@@ -966,6 +967,18 @@ describe('invalid configs', () => {
       'adapters.spur.baseUrl',
     ],
     [
+      'zero turn-stall duration',
+      validConfig({}, { health: { turnStallAfterMs: 0 } }),
+      'Too small: expected number to be >=1',
+      'health.turnStallAfterMs',
+    ],
+    [
+      'negative turn-stall duration',
+      validConfig({}, { health: { turnStallAfterMs: -1 } }),
+      'Too small: expected number to be >=1',
+      'health.turnStallAfterMs',
+    ],
+    [
       'zero error-after duration',
       validConfig({}, { health: { errorAfterMs: 0 } }),
       'Too small: expected number to be >=1',
@@ -1355,6 +1368,7 @@ describe('JSON Schema', () => {
       '.health.hostLoad.windowMs',
       '.health.idleInDevAfterMs',
       '.health.needsInputAfterMs',
+      '.health.turnStallAfterMs',
       '.projects[].dispatcher.submitConfirmMs',
       '.sources.authRetryMs',
       '.thresholds.blockOpenMs',

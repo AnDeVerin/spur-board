@@ -5,6 +5,7 @@ import {
   configSchema,
   OPERATIONS,
   RESERVED_PROJECT,
+  unknownSessionHealthSchema,
   type Batch,
   type PrFacts,
   type SourceCursor,
@@ -18,6 +19,7 @@ import {
   createObservationCore,
   createOperationRegistry,
   createQuery,
+  createSender,
   getStatus,
   openStore,
   tickBoard,
@@ -2319,10 +2321,16 @@ describe('anomaly blocks', () => {
   type Items = Parameters<ReturnType<typeof setup>['core']['observe']>[1]['batch']['items'];
 
   async function board(testConfig = config, key = 'o/r#9') {
-    const ctx = setup(testConfig);
+    // These cases advance health clocks without a live poll timer. Isolate their health
+    // boundaries with a long source window; expiry cases select a shorter poll interval.
+    const fixtureConfig = configSchema.parse({
+      ...testConfig,
+      thresholds: { ...testConfig.thresholds, staleMultiplier: 1000 },
+    });
+    const ctx = setup(fixtureConfig);
     await ctx.apply(ctx.mutations.add, { task: key }, 'operator');
     const task = await ctx.store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow();
-    return { ...ctx, task, config: testConfig };
+    return { ...ctx, task, config: fixtureConfig };
   }
   type Board = Awaited<ReturnType<typeof board>>;
 
@@ -2441,6 +2449,561 @@ describe('anomaly blocks', () => {
     if (reminder?.last_outbox_id == null) throw new Error('Missing reminder ring');
     return { reminder, outboxId: reminder.last_outbox_id };
   }
+
+  it.each(['needs_input', 'error', 'rate_limited', 'stopped'] as const)(
+    'times an open-turn executor in %s from its health episode',
+    async (health) => {
+      const b = await board();
+      await spur(b, [
+        session('worker-1', health, { lifecycle: health === 'stopped' ? 'stopped' : 'running' }),
+      ]);
+      const turn = await heldTurn(b);
+      now += 600_000 - 1;
+      await tick(b);
+      expect(await openLedger(b)).toEqual([]);
+      now += 1;
+      await tick(b);
+      const state = await surface(b);
+      expect(state.blocks).toHaveLength(1);
+      expect(state.blocks[0]).toEqual(
+        expect.objectContaining({
+          state: 'open',
+          author: 'system',
+          addressee_role: 'operator',
+          type: 'needs_input',
+        }),
+      );
+      expect(state.blocks[0]?.reason).toContain(`turn T${String(turn.id)}`);
+      expect(state.blocks[0]?.reason).toContain(`worker-1 remains ${health} since ${at}`);
+      expect(state.blocks[0]?.reason).toContain('600000 ms');
+      if (health === 'rate_limited')
+        expect(state.blocks[0]?.reason).toContain('quota name unavailable');
+      now += 60_000;
+      await tick(b);
+      expect((await surface(b)).blocks).toEqual(state.blocks);
+      await closeTurn(b);
+      await tick(b);
+      expect(
+        (await surface(b)).items.filter(
+          (item) => item.item_key.startsWith('turn-stall:') && item.cleared_at === null,
+        ),
+      ).toEqual([]);
+      expect((await surface(b)).blocks[0]?.outcome).toBe('withdrawn');
+    },
+  );
+
+  it.each(
+    (['needs_input', 'error', 'rate_limited', 'stopped'] as const).flatMap((health) =>
+      [
+        'same core',
+        'new core',
+        'status before snapshot',
+        'startup poll first',
+        'startup tick first',
+        'startup status first',
+        'unpublished tick first',
+        'unpublished poll first',
+      ].map((gap) => ({ health, gap })),
+    ),
+  )('restarts unproven $health continuity after $gap', async ({ health, gap }) => {
+    const b = await board(
+      gap.startsWith('unpublished ')
+        ? configSchema.parse({
+            ...config,
+            adapters: {
+              ...config.adapters,
+              spur: { ...config.adapters.spur, intervalMs: 2000 },
+            },
+          })
+        : config,
+    );
+    const original = session('worker-1', health, {
+      lifecycle: health === 'stopped' ? 'stopped' : 'running',
+    });
+    await spur(b, [original]);
+    await heldTurn(b);
+    now += 300_000;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    if (!gap.startsWith('startup ') && !gap.startsWith('unpublished '))
+      await b.core.reportSourceState('spur', {
+        lastCompleteAt: iso(),
+        blind: { reason: 'stale', message: 'Offline' },
+        gone: [],
+      });
+    now += 3_600_000;
+    const resumed =
+      gap === 'new core' || gap.startsWith('startup ')
+        ? { ...b, core: createObservationCore({ store: b.store, config: b.config, clock }) }
+        : b;
+    if (gap === 'startup status first')
+      await resumed.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
+    if (gap !== 'startup poll first' && gap !== 'unpublished poll first') await tick(resumed);
+    expect(await openLedger(b)).toEqual([]);
+    if (gap === 'status before snapshot') {
+      await resumed.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
+      await tick(resumed);
+      expect(await openLedger(b)).toEqual([]);
+    }
+    await spur(resumed, [original]);
+    expect(await openLedger(b)).toEqual([]);
+    now += config.health.turnStallAfterMs - 1;
+    await spur(resumed, [original]);
+    await tick(resumed);
+    expect(await openLedger(b)).toEqual([]);
+    now += 1;
+    await tick(resumed);
+    const opened = await surface(b);
+    expect(opened.blocks).toHaveLength(1);
+    expect(opened.blocks[0]?.state).toBe('open');
+    expect(opened.blocks[0]?.reason).toContain('elapsed 600000 ms');
+    const holding = gap.startsWith('startup ')
+      ? { ...resumed, core: createObservationCore({ store: b.store, config: b.config, clock }) }
+      : resumed;
+    if (!gap.startsWith('startup ') && !gap.startsWith('unpublished '))
+      await holding.core.reportSourceState('spur', {
+        lastCompleteAt: iso(),
+        blind: { reason: 'stale', message: 'Offline again' },
+        gone: [],
+      });
+    now += 3_600_000;
+    if (gap === 'startup status first')
+      await holding.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
+    if (gap !== 'startup poll first' && gap !== 'unpublished poll first') await tick(holding);
+    expect((await surface(b)).blocks).toEqual(opened.blocks);
+    await spur(holding, [original]);
+    expect((await surface(b)).blocks).toEqual(opened.blocks);
+  });
+
+  it.each([
+    'same executor',
+    'different curator',
+    'healthy replacement curator',
+    'ended curator',
+    'claimed curator ended',
+    'healthy handover',
+  ] as const)('routes stalled curator-column turns with %s', async (recipient) => {
+    const cfg = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) => ({
+        ...project,
+        columns: project.columns.map((column) => ({
+          ...column,
+          orchestrator: recipient === 'different curator' ? 'reviewer' : 'curator',
+        })),
+        spurProjects: [
+          ...project.spurProjects,
+          { name: 'curator', role: 'curator' },
+          { name: 'reviewer', role: 'orchestrator' },
+        ],
+      })),
+    });
+    const b = await board(cfg);
+    const project = recipient === 'different curator' ? 'reviewer' : 'curator';
+    const executor = session('executor', 'needs_input', {
+      spurProject: project,
+      links: {},
+      branch: null,
+    });
+    await spur(b, [executor]);
+    const turn = await heldTurn(b, 'executor');
+    await b.store.db
+      .updateTable('turn')
+      .set({ role: `orchestrator:${b.task.column}`, acked_by: `agent:${project}/executor` })
+      .where('id', '=', turn.id)
+      .execute();
+    now += 1;
+    if (recipient !== 'same executor')
+      await spur(b, [
+        executor,
+        session('healthy-curator', 'waiting', {
+          spurProject: 'curator',
+          links: {},
+          branch: null,
+        }),
+      ]);
+    now += cfg.health.turnStallAfterMs;
+    await tick(b);
+    const { blocks } = await surface(b);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.addressee_role).toBe(recipient === 'same executor' ? 'operator' : 'curator');
+    expect(
+      await b.store.db
+        .selectFrom('notification')
+        .select('role')
+        .where('block_id', '=', blocks[0]?.id ?? -1)
+        .execute(),
+    ).toEqual(recipient === 'same executor' ? [] : [expect.objectContaining({ role: 'curator' })]);
+    expect((await surface(b)).opens).toBe(recipient === 'same executor' ? 1 : 0);
+    if (['ended curator', 'claimed curator ended', 'healthy handover'].includes(recipient)) {
+      await scanTransaction(b.store, b.config, (trx) =>
+        reconcileDoorbells(trx, new Date(now), b.config),
+      );
+      const queued = await b.store.db
+        .selectFrom('outbox')
+        .selectAll()
+        .where('kind', '=', 'doorbell')
+        .executeTakeFirstOrThrow();
+      if (recipient === 'claimed curator ended')
+        await b.store.db
+          .updateTable('outbox')
+          .set({ state: 'in_flight', attempts: 1, attempt_started: 0 })
+          .where('id', '=', queued.id)
+          .execute();
+      now += 1;
+      await spur(b, [
+        executor,
+        session('healthy-curator', 'waiting', {
+          spurProject: 'curator',
+          links: {},
+          branch: null,
+          lifecycle: 'completed',
+          endedAt: iso(),
+          endReason: 'complete',
+        }),
+        ...(recipient === 'healthy handover'
+          ? [
+              session('next-curator', 'waiting', {
+                spurProject: 'curator',
+                links: {},
+                branch: null,
+              }),
+            ]
+          : []),
+      ]);
+      const [after] = (await surface(b)).blocks;
+      expect(after?.id).toBe(blocks[0]?.id);
+      expect(after?.reason).toBe(blocks[0]?.reason);
+      expect(after?.state).toBe('open');
+      expect(after?.addressee_role).toBe(recipient === 'healthy handover' ? 'curator' : 'operator');
+      const sent: string[] = [];
+      const sender = createSender({
+        store: b.store,
+        config: b.config,
+        now: () => new Date(now),
+        spur: {
+          send(id) {
+            sent.push(id);
+            return Promise.resolve();
+          },
+        },
+      });
+      await sender.recover();
+      await sender.tick();
+      expect(sent).not.toContain('executor');
+      expect(sent).not.toContain('healthy-curator');
+      expect(
+        await b.store.db
+          .selectFrom('outbox')
+          .select('state')
+          .where('id', '=', queued.id)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ state: 'dead' });
+    }
+  });
+
+  it.each(['worker', 'linked orchestrator', 'unlinked orchestrator'] as const)(
+    'diagnoses taken and untaken %s executors in every unhealthy state',
+    async (kind) => {
+      for (const taken of [false, true])
+        for (const health of ['needs_input', 'error', 'rate_limited', 'stopped'] as const) {
+          const cfg = configSchema.parse({
+            ...config,
+            projects: config.projects.map((project) => ({
+              ...project,
+              columns: project.columns.map((column) => ({
+                ...column,
+                orchestrator: kind === 'worker' ? 'none' : 'reviewer',
+              })),
+              spurProjects: [...project.spurProjects, { name: 'reviewer', role: 'orchestrator' }],
+            })),
+          });
+          const b = await board(cfg);
+          const fact = session('executor', health, {
+            lifecycle: health === 'stopped' ? 'stopped' : 'running',
+            spurProject: kind === 'worker' ? 'worker' : 'reviewer',
+            links:
+              kind === 'unlinked orchestrator'
+                ? {}
+                : kind === 'worker'
+                  ? link
+                  : { 'board-other': 'https://github.com/o/r/issues/9' },
+          });
+          await spur(b, [fact]);
+          const links = await b.store.db
+            .selectFrom('link')
+            .select('id')
+            .where('session_id', '=', fact.id)
+            .execute();
+          expect(links).toHaveLength(kind === 'unlinked orchestrator' ? 0 : 1);
+          const turn = await heldTurn(b, 'executor');
+          await b.store.db
+            .updateTable('turn')
+            .set({
+              role: kind === 'worker' ? 'worker' : `orchestrator:${b.task.column}`,
+              acked_by: taken ? `agent:${fact.spurProject}/executor` : null,
+              acked_at: taken ? iso() : null,
+            })
+            .where('id', '=', turn.id)
+            .execute();
+          now += cfg.health.turnStallAfterMs - 1;
+          await tick(b);
+          expect(
+            (await surface(b)).items.filter((item) => item.item_key.startsWith('turn-stall:')),
+          ).toEqual([]);
+          now += 1;
+          await tick(b);
+          const state = await surface(b);
+          expect(
+            state.items.filter(
+              (item) => item.item_key.startsWith('turn-stall:') && item.cleared_at === null,
+            ),
+          ).toHaveLength(1);
+          expect(
+            state.blocks.filter((block) => block.state === 'open' && block.author === 'system'),
+          ).toHaveLength(1);
+        }
+    },
+  );
+
+  it('freezes reset and question evidence across polls, restarts, and manual dismissal', async () => {
+    const b = await board();
+    const reset = '2099-01-01T00:00:00.000Z';
+    const stalled = session('worker-1', 'rate_limited', { rateLimitResetAt: reset });
+    await spur(b, [stalled]);
+    await heldTurn(b);
+    for (const [actor, key] of [
+      ['agent:worker/worker-1', 'same'],
+      ['agent:worker/worker-1', 'same-again'],
+      ['agent:worker/worker-1', 'other-author'],
+      ['agent:worker/worker-1', 'other-task'],
+    ] as const)
+      await b.apply(createBlockMutations(config).ask, { task: b.task.key, text: key }, actor, key);
+    const questions = (await surface(b)).blocks;
+    await b.store.db
+      .updateTable('block')
+      .set({ author: 'agent:worker/unrelated' })
+      .where('id', '=', questions[2]?.id ?? -1)
+      .execute();
+    await b.apply(b.mutations.add, { task: 'o/r#10' }, 'operator');
+    const otherTask = await b.store.db
+      .selectFrom('task')
+      .select('id')
+      .where('key', '=', 'o/r#10')
+      .executeTakeFirstOrThrow();
+    await b.store.db
+      .updateTable('block')
+      .set({ task_id: otherTask.id })
+      .where('id', '=', questions[3]?.id ?? -1)
+      .execute();
+    now += config.health.turnStallAfterMs;
+    await tick(b);
+    const first = (await surface(b)).blocks.find((block) => block.author === 'system');
+    if (first === undefined) throw new Error('Missing stall block');
+    expect(first.reason).toContain(reset);
+    expect(first.reason).toContain(`open executor questions: B${String(questions[0]?.id)}`);
+    expect(first.reason).toContain(`B${String(questions[1]?.id)}`);
+    expect(first.reason).not.toContain(`B${String(questions[2]?.id)}`);
+    expect(first.reason).not.toContain(`B${String(questions[3]?.id)}`);
+    now += 60_000;
+    const restarted = {
+      ...b,
+      core: createObservationCore({ store: b.store, config: b.config, clock }),
+    };
+    await spur(restarted, [{ ...stalled, rateLimitResetAt: '2099-02-01T00:00:00.000Z' }]);
+    expect((await surface(b)).blocks.find((block) => block.author === 'system')).toEqual(first);
+    await b.apply(
+      createBlockMutations(config).unblock,
+      { mode: 'reason', block: `B${String(first.id)}`, reason: 'Handled' },
+      'operator',
+    );
+    await tick(restarted);
+    expect((await surface(b)).blocks.filter((block) => block.author === 'system')).toHaveLength(1);
+    expect(
+      (await surface(b)).items.filter(
+        (item) => item.item_key.startsWith('turn-stall:') && item.cleared_at === null,
+      ),
+    ).toEqual([]);
+    expect((await surface(b)).blocks[0]?.state).toBe('open');
+  });
+
+  it('uses a custom threshold and never restarts its clock on acknowledgement', async () => {
+    const cfg = configSchema.parse({
+      ...config,
+      health: { ...config.health, turnStallAfterMs: 300_000 },
+    });
+    const b = await board(cfg);
+    await spur(b, [session('worker-1', 'error')]);
+    const turn = await heldTurn(b);
+    await b.store.db
+      .updateTable('turn')
+      .set({ acked_by: null, acked_at: null })
+      .where('id', '=', turn.id)
+      .execute();
+    now += 299_999;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    await b.store.db
+      .updateTable('turn')
+      .set({ acked_by: 'agent:worker/worker-1', acked_at: iso() })
+      .where('id', '=', turn.id)
+      .execute();
+    now += 1;
+    await tick(b);
+    expect((await surface(b)).blocks).toHaveLength(1);
+  });
+
+  it.each(['older health', 'new health'] as const)(
+    'starts at the later turn/state timestamp with %s',
+    async (kind) => {
+      const b = await board();
+      const turnStart = now;
+      await spur(b, [
+        session('worker-1', 'rate_limited', { healthSince: new Date(now - 600_000).toISOString() }),
+      ]);
+      await heldTurn(b);
+      let start = turnStart;
+      if (kind === 'new health') {
+        now += 100_000;
+        start = now;
+        await spur(b, [session('worker-1', 'needs_input')]);
+      }
+      now = start + config.health.turnStallAfterMs - 1;
+      await tick(b);
+      expect(await openLedger(b)).toEqual([]);
+      now += 1;
+      await tick(b);
+      expect((await surface(b)).blocks).toHaveLength(1);
+    },
+  );
+
+  it('prefers an eligible replacement over an untaken stopped worker', async () => {
+    const b = await board();
+    const old = session('worker-1', 'stopped', { lifecycle: 'stopped' });
+    await spur(b, [old]);
+    const turn = await heldTurn(b);
+    await b.store.db
+      .updateTable('turn')
+      .set({ acked_at: null, acked_by: null })
+      .where('id', '=', turn.id)
+      .execute();
+    now += config.health.turnStallAfterMs;
+    await tick(b);
+    expect((await surface(b)).blocks).toHaveLength(1);
+    now += 1;
+    await spur(b, [old, session('worker-2', 'working')]);
+    await b.store.db
+      .updateTable('link')
+      .set({ role: 'worker' })
+      .where('session_id', '=', 'worker-2')
+      .execute();
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect((await surface(b)).blocks[0]?.outcome).toBe('withdrawn');
+  });
+
+  it('withdraws on state change and recovery, and waits for each new episode', async () => {
+    const b = await board();
+    await spur(b, [session('worker-1', 'error')]);
+    await heldTurn(b);
+    now += 60_000;
+    await spur(b, [session('worker-1', 'working')]);
+    now += config.health.turnStallAfterMs;
+    await tick(b);
+    expect((await surface(b)).blocks).toEqual([]);
+    await spur(b, [session('worker-1', 'needs_input')]);
+    now += config.health.turnStallAfterMs;
+    await tick(b);
+    expect((await surface(b)).blocks).toHaveLength(1);
+    await spur(b, [session('worker-1', 'rate_limited')]);
+    expect(await openLedger(b)).toEqual([]);
+    now += config.health.turnStallAfterMs - 1;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    now += 1;
+    await tick(b);
+    expect((await surface(b)).blocks).toHaveLength(2);
+    await spur(b, [session('worker-1', 'working')]);
+    expect(await openLedger(b)).toEqual([]);
+  });
+
+  it.each(['replacement', 'removed', 'archived', 'closed'] as const)(
+    'withdraws a stalled turn on %s even during Spur blindness',
+    async (end) => {
+      const b = await board();
+      await spur(b, [session('worker-1', 'rate_limited')]);
+      const turn = await heldTurn(b);
+      now += config.health.turnStallAfterMs;
+      await b.core.reportSourceState('spur', {
+        lastCompleteAt: iso(),
+        blind: { reason: 'stale', message: 'Offline' },
+        gone: [],
+      });
+      await tick(b);
+      expect((await surface(b)).blocks).toEqual([]);
+      await spur(b, [session('worker-1', 'rate_limited', { healthSince: at })]);
+      expect((await surface(b)).blocks).toEqual([]);
+      now += config.health.turnStallAfterMs;
+      await tick(b);
+      expect((await surface(b)).blocks).toHaveLength(1);
+      await b.core.reportSourceState('spur', {
+        lastCompleteAt: iso(),
+        blind: { reason: 'stale', message: 'Offline' },
+        gone: [],
+      });
+      now += 60_000;
+      await tick(b);
+      expect((await surface(b)).blocks[0]?.state).toBe('open');
+      if (end === 'replacement')
+        await b.store.db
+          .updateTable('turn')
+          .set({ acked_by: 'agent:worker/replacement' })
+          .where('id', '=', turn.id)
+          .execute();
+      if (end === 'removed')
+        await b.store.db
+          .updateTable('link')
+          .set({ banned: 1 })
+          .where('session_id', '=', 'worker-1')
+          .execute();
+      if (end === 'archived')
+        await b.store.db
+          .updateTable('task')
+          .set({ membership: 'archived' })
+          .where('id', '=', b.task.id)
+          .execute();
+      if (end === 'closed') await closeTurn(b);
+      await tick(b);
+      expect(await openLedger(b)).toEqual([]);
+      expect((await surface(b)).blocks[0]?.outcome).toBe('withdrawn');
+    },
+  );
+
+  it.each(['operator', 'missing', 'unknown', 'ended'] as const)(
+    'does not diagnose %s executors',
+    async (kind) => {
+      const b = await board();
+      await spur(b, [
+        session(
+          'worker-1',
+          kind === 'unknown' ? unknownSessionHealthSchema.parse('new-state') : 'rate_limited',
+          kind === 'ended' ? { endedAt: at, lifecycle: 'completed', endReason: 'complete' } : {},
+        ),
+      ]);
+      const turn = await heldTurn(b, kind === 'missing' ? 'missing' : 'worker-1');
+      if (kind === 'operator')
+        await b.store.db
+          .updateTable('turn')
+          .set({ role: 'operator', acked_by: 'operator' })
+          .where('id', '=', turn.id)
+          .execute();
+      now += config.health.turnStallAfterMs;
+      await tick(b);
+      expect(
+        (await surface(b)).items.filter((item) => item.item_key.startsWith('turn-stall:')),
+      ).toEqual([]);
+    },
+  );
 
   it('opens one block for a session in error and closes it on recovery', async () => {
     const b = await board();

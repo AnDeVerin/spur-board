@@ -846,6 +846,10 @@ const configObject = z.strictObject({
     .prefault({}),
   health: z
     .strictObject({
+      turnStallAfterMs: durationMs(
+        600_000,
+        'How long an unhealthy open-turn executor waits before a curator or operator block',
+      ),
       errorAfterMs: durationMs(90_000, 'How long a session stays in error before it is flagged'),
       needsInputAfterMs: durationMs(
         120_000,

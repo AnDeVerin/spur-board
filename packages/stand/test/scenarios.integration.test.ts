@@ -286,6 +286,7 @@ describe('scenarios', () => {
       'spur-transitions-rapid-recovery',
       'spur-transitions-cursor-expired',
       'spur-transitions-killed-holder',
+      'spur-turn-stall',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -981,6 +982,46 @@ describe('curator scenarios', () => {
     if (task === undefined || id === undefined) throw new Error('the seed named no question');
     return { task, id };
   }
+
+  it('spur-turn-stall: delivers to curator, escalates to operator, withdraws on recovery', async () => {
+    await up();
+    const { scenario } = await seed('spur-turn-stall');
+    const task = scenario.tasks?.['stall'];
+    const id = scenario.blocks?.['stall'];
+    if (task === undefined || id === undefined) throw new Error('Missing stall seed');
+    expect(await blockOf(task, id)).toMatchObject({ state: 'open', addressee: 'curator' });
+    expect(await sendsNaming(current().roles.curator, id)).toHaveLength(1);
+    const inbox = await asCurator(current(), ['inbox', '--json']);
+    expect(inbox.code, inbox.stderr).toBe(0);
+    expect(
+      (JSON.parse(inbox.stdout) as { blocks: { id: string }[] }).blocks.map((block) => block.id),
+    ).toContain(id);
+    const escalated = await asCurator(current(), [
+      'escalate',
+      id,
+      '--note',
+      'Operator intervention needed.',
+    ]);
+    expect(escalated.code, escalated.stderr).toBe(0);
+    await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 20_000 });
+    expect(await blockOf(task, id)).toMatchObject({ state: 'open', addressee: 'operator' });
+    expect((await slack()).some((message) => message.text.includes('remains needs_input'))).toBe(
+      true,
+    );
+    await ok(current(), '/fake', {
+      system: 'spur',
+      verb: 'session',
+      args: { id: current().roles.orchestrator, state: 'working' },
+    });
+    await ok(current(), '/poll');
+    await vi.waitFor(
+      async () => {
+        expect(await blockOf(task, id)).toMatchObject({ state: 'unblocked', outcome: 'withdrawn' });
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    expect((await history(task)).some((event) => event.kind === 'block_escalated')).toBe(true);
+  }, 60_000);
 
   it('question-to-curator: the curator reads its inbox, answers, and the worker is rung', async () => {
     const manifest = await up();

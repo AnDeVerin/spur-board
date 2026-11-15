@@ -1301,6 +1301,21 @@ export function createObservationCore(deps: {
       const now = clock.now();
       await scanTransaction(store, config, async (trx) => {
         const wasBlind = await blindReason(trx, source);
+        // Capture the prior deadline before this batch replaces source_state. A fresh poll
+        // may be the first event after a gap, before any tick or stale-state report.
+        const previousSpur =
+          source === 'spur'
+            ? await trx
+                .selectFrom('source_state')
+                .select('last_complete_at')
+                .where('source', '=', source)
+                .executeTakeFirst()
+            : undefined;
+        const spurGap =
+          previousSpur?.last_complete_at != null &&
+          Date.parse(batch.observedAt) >
+            Date.parse(previousSpur.last_complete_at) +
+              config.adapters.spur.intervalMs * config.thresholds.staleMultiplier;
         await sourceState(trx, source, observation.state, batch.observedAt, batch.cursor);
         await recordUsage(trx, source, batch.usage, now);
         for (const probe of batch.prProbes ?? []) {
@@ -1560,7 +1575,18 @@ export function createObservationCore(deps: {
           await dispatchSource(trx, source, dispatchContext);
         await dispatchMergedTickets(trx, source, dispatchContext);
         await dispatchJournaled(trx, dispatchContext);
-        await reconcileItems(trx, config, now, currentComplete.has('spur'), warnSkipped);
+        await reconcileItems(
+          trx,
+          config,
+          now,
+          currentComplete.has('spur'),
+          warnSkipped,
+          source === 'spur' &&
+            observation.effectiveComplete &&
+            (!completeSince.has('spur') || spurGap)
+            ? Date.parse(batch.observedAt)
+            : undefined,
+        );
         if (deps.productVersion !== undefined)
           await enqueueLiveAfterFirstPoll(trx, {
             config,
