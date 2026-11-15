@@ -8,6 +8,7 @@ import {
   COLUMN_IDS,
   OPERATOR_BINDING_SOURCES,
   TOKEN_STATUSES,
+  VIAS,
 } from '../enums.ts';
 import { EVENT_KINDS } from '../events.ts';
 import {
@@ -618,6 +619,12 @@ export const OPERATIONS = [
               at: z.iso.datetime().describe('When it happened, ISO 8601 UTC.'),
               kind: z.enum(EVENT_KINDS).describe('Journal event kind.'),
               actor: actorIdSchema,
+              via: z
+                .enum(VIAS)
+                .optional()
+                .describe(
+                  'Channel the write arrived through, web or slack, whoever the actor; absent for CLI, MCP, agent and scheduled writes.',
+                ),
               summary: z.string().describe('What happened, in one line.'),
             })
             .describe('One journal event.'),

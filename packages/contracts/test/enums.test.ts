@@ -20,6 +20,7 @@ import {
   TASK_HOLDS,
   TOKEN_STATUSES,
   TURN_OUTCOMES,
+  VIAS,
 } from '../src/index.ts';
 
 it('lists the built-in columns from To Do to Done, with ids and display names', () => {
@@ -103,6 +104,10 @@ it('lists session end reasons', () => {
 
 it('lists actors', () => {
   expect(ACTORS).toEqual(['operator', 'agent', 'system']);
+});
+
+it('lists write vias', () => {
+  expect(VIAS).toEqual(['web', 'slack']);
 });
 
 it('lists token statuses', () => {

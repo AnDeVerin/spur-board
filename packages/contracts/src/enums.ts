@@ -135,6 +135,14 @@ export type TaskHold = (typeof TASK_HOLDS)[number];
 export const ACTORS = ['operator', 'agent', 'system'] as const;
 export type Actor = (typeof ACTORS)[number];
 
+/**
+ * The channel a write arrived through, whoever the actor, journaled as `event.via`; a write
+ * outside both has none. Named `via` because core keeps platform terms such as "channel" out of
+ * its source.
+ */
+export const VIAS = ['web', 'slack'] as const;
+export type Via = (typeof VIAS)[number];
+
 /** The stored state of an operator token. */
 export const TOKEN_STATUSES = ['pending', 'approved', 'denied', 'expired', 'revoked'] as const;
 

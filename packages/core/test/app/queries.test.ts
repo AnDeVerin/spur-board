@@ -8,6 +8,7 @@ import {
   getStatus,
   type Store,
 } from '../../src/index.ts';
+import { withVia } from '../../src/app/board-utils.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { closeTurns, openTurn } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
@@ -254,6 +255,45 @@ describe('production query handlers', () => {
       expect(event.summary.trim()).not.toBe('');
       expect(event.summary).not.toMatch(/[\r\n]/);
     }
+  });
+
+  it('shows the via of web and Slack writes in task history', async () => {
+    const { registry, query, apply } = await seeded();
+    const asked = await apply(
+      required(registry['block.ask']),
+      { task: KEY, text: 'Which version?' },
+      worker,
+      'ask-1',
+    );
+    await withVia('web', () =>
+      withVia('slack', () =>
+        apply(
+          required(registry['block.answer']),
+          { block: asked.block.id, text: 'Use v2.' },
+          'operator',
+          'answer-1',
+        ),
+      ),
+    );
+    await withVia('web', () =>
+      apply(
+        required(registry['comment.add']),
+        { task: KEY, text: 'Also update the README.' },
+        'operator',
+        'comment-1',
+      ),
+    );
+
+    const { events } = await query(required(registry['task.history']), { task: KEY }, worker);
+
+    const opened = events.find(({ kind }) => kind === 'block_opened');
+    expect(opened).toBeDefined();
+    expect(Object.keys(opened ?? {}).sort()).toEqual(['actor', 'at', 'kind', 'summary']);
+    expect(events.find(({ kind }) => kind === 'block_unblocked')?.via).toBe('slack');
+    // The question block.ask journals has no `via`; the answer and the web comment do.
+    const comments = events.filter(({ kind }) => kind === 'comment_added');
+    expect(comments.map((event) => 'via' in event)).toEqual([false, true, true]);
+    expect(comments.map(({ via }) => via)).toEqual([undefined, 'slack', 'web']);
   });
 
   it('shows the current answer revision, acknowledges it, and shows an edited clarification', async () => {

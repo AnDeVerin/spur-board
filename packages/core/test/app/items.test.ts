@@ -624,6 +624,17 @@ describe('item.retry and item.close', () => {
       ['operator', 'retry-reply', 'item.retry'],
     ]);
     expect((await item(ctx, failure.id)).cleared_at).not.toBeNull();
+    // The replayed Slack reply keeps its `via`; the retry's own clearing event has none.
+    const journal = await rows(ctx, 'event');
+    const replayed = journal.filter((event) => event.request_id === 'reply-1');
+    expect(replayed.map((event) => event.kind)).toContain('comment_added');
+    expect(replayed.map((event) => event.via)).toEqual(replayed.map(() => 'slack'));
+    expect(
+      journal
+        .filter((event) => event.request_id === 'retry-reply')
+        .filter((event) => event.kind === 'from_you_cleared')
+        .map((event) => event.via),
+    ).toEqual([null]);
 
     // (b) A stored Close press replays under its own key, only when it passed the press gate.
     const target = await raise(ctx, { key: 'inbound:gap:x', kind: 'inbound_gap' });
@@ -990,6 +1001,7 @@ describe('item.retry and item.close', () => {
     expect(pressKey).toEqual(expect.any(String));
     expect(pressKey).not.toBe('k');
     expect(cleared.map((event) => event.request_id)).toEqual([pressKey, 'k']);
+    expect(cleared.map((event) => event.via)).toEqual(['slack', null]);
   });
 });
 

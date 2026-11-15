@@ -16,6 +16,7 @@ import {
   type GateReason,
   type MoveReason,
   type PrFacts,
+  type Via,
 } from '@spur-board/contracts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql, type Kysely, type Selectable } from 'kysely';
@@ -198,7 +199,22 @@ export function withCommandKey<T>(key: string, fn: () => Promise<T>): Promise<T>
   return commandKeys.run(key, fn);
 }
 
-/** The only writer of the journal; `request_id` is the key of the enclosing command, or null. */
+const vias = new AsyncLocalStorage<Via>();
+
+/**
+ * Runs fn in the scope of one write path (`web` or `slack`): every event `emit` writes inside it
+ * carries it in `via`. The innermost scope wins, and it nests independently of `withCommandKey`.
+ * The same rule applies: run only request work inside it, never trigger a job or start detached
+ * work (timers, unawaited promises), or later scheduled runs would carry this `via`.
+ */
+export function withVia<T>(via: Via, fn: () => Promise<T>): Promise<T> {
+  return vias.run(via, fn);
+}
+
+/**
+ * The only writer of the journal; `request_id` is the key of the enclosing command and `via` the
+ * write path of the enclosing `withVia` scope, each null outside one.
+ */
 export async function emit<K extends EventKind>(
   trx: Trx,
   kind: K,
@@ -222,6 +238,7 @@ export async function emit<K extends EventKind>(
       payload: toJson(eventPayloadSchemas[kind], payload),
       v: EVENT_VERSION,
       request_id: commandKeys.getStore() ?? null,
+      via: vias.getStore() ?? null,
     })
     .execute();
 }
