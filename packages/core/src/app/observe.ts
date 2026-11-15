@@ -1,3 +1,11 @@
+import {
+  linkPrToTask,
+  mergedBefore,
+  prPollingKey,
+  readPrPolling,
+  reconcileTaskPrs,
+  savePrPolling,
+} from './pr-associations.ts';
 import { scanTransaction } from './secrets.ts';
 import {
   JIRA_PROJECT_KEY,
@@ -264,15 +272,6 @@ async function setReopenFloor(trx: Trx, taskId: number, at: string): Promise<voi
  * `updatedAt`, never earlier than the merge, so a later edit makes the merge count. Then the reopen hides this link only: another link
  * of the task that already counts, such as a follow-up merged after the reopen, keeps counting.
  */
-/** The PR was merged before `reopenedAt`; a tie counts the merge. */
-function mergedBefore(fact: PrFacts, reopenedAt: string | null): boolean {
-  return (
-    fact.state === 'merged' &&
-    reopenedAt !== null &&
-    Date.parse(fact.mergedAt ?? fact.updatedAt) < Date.parse(reopenedAt)
-  );
-}
-
 async function applyPendingReopen(trx: Trx, fact: PrFacts, at: string): Promise<void> {
   if (fact.state === 'open') return;
   const pending = await trx
@@ -347,6 +346,8 @@ async function ticket(
     .where('project', '=', project.id)
     .where('key', '=', fact.key)
     .executeTakeFirst();
+  const previousKey = task?.key ?? pending?.key;
+  const previousMembership = task?.membership ?? pending?.membership;
   if (task !== undefined && pending !== undefined && pending.id !== task.id) {
     const oldKey = task.key;
     await trx
@@ -480,45 +481,8 @@ async function ticket(
       await emit(trx, 'flag_cleared', project.id, task.id, at, { flag: 'out_of_filter' });
     else await emit(trx, 'task_added', project.id, task.id, at, { column: task.column });
   }
-}
-
-// A shared snapshot stores the latest facts; each source must first apply its own project links.
-const prPollingSchema = z.strictObject({
-  state: z.enum(['merged', 'closed']),
-  headSha: prFactsSchema.shape.headSha,
-  recheckAt: z.iso.datetime().nullable(),
-});
-const prPollingKey = (source: string, ref: PrEntityRef): string =>
-  `pr-poll:${source}:${refKey(ref)}`;
-function readPrPolling(value: string | undefined): z.output<typeof prPollingSchema> | undefined {
-  if (value === undefined) return;
-  try {
-    const parsed = prPollingSchema.safeParse(JSON.parse(value));
-    return parsed.success ? parsed.data : undefined;
-  } catch {
-    return;
-  }
-}
-async function savePrPolling(
-  trx: Trx,
-  source: string,
-  fact: Pick<PrFacts, 'repo' | 'number' | 'state' | 'headSha'>,
-  recheckAt: string | null,
-  preserve = false,
-): Promise<void> {
-  const key = prPollingKey(source, { kind: 'pr', repo: fact.repo, number: fact.number });
-  if (fact.state !== 'merged' && fact.state !== 'closed') {
-    await trx.deleteFrom('meta').where('key', '=', key).execute();
-    return;
-  }
-  const value = toJson(prPollingSchema, { state: fact.state, headSha: fact.headSha, recheckAt });
-  await trx
-    .insertInto('meta')
-    .values({ key, value })
-    .onConflict((oc) =>
-      preserve ? oc.column('key').doNothing() : oc.column('key').doUpdateSet({ value }),
-    )
-    .execute();
+  if (previousKey !== fact.key || previousMembership === 'archived')
+    await reconcileTaskPrs(trx, config, task.id, at);
 }
 
 async function pr(
@@ -591,53 +555,7 @@ async function pr(
       .where('key', '=', key)
       .executeTakeFirst();
     if (task === undefined || task.membership === 'archived') continue;
-    const linked = await trx
-      .selectFrom('link')
-      .selectAll()
-      .where('task_id', '=', task.id)
-      .where('entity', '=', 'pr')
-      .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
-      .where('number', '=', fact.number)
-      .executeTakeFirst();
-    if (linked === undefined) {
-      const active = await trx
-        .selectFrom('link')
-        .selectAll()
-        .where('task_id', '=', task.id)
-        .where('entity', '=', 'pr')
-        .where('pr_state', '=', 'active')
-        .where('banned', '=', 0)
-        .where('pr_open', '=', 1)
-        .executeTakeFirst();
-      const state = fact.state !== 'open' || active === undefined ? 'active' : 'conflict';
-      await trx
-        .insertInto('link')
-        .values({
-          task_id: task.id,
-          entity: 'pr',
-          repo: fact.repo,
-          number: fact.number,
-          pr_state: state,
-          session_id: null,
-          role: null,
-          source: 'branch',
-          banned: 0,
-          created_at: at,
-          ticket_key: null,
-          pr_open: fact.state === 'open' ? 1 : 0,
-          // First seen merged after a reopen it predates: hidden like the links the reopen hid.
-          reopen_hidden_at: mergedBefore(fact, task.reopened_at) ? at : null,
-        })
-        .execute();
-      await emit(trx, 'link_added', task.project, task.id, at, {
-        entity: 'pr',
-        repo: fact.repo,
-        pr: fact.number,
-        state,
-        source: 'branch',
-        facts: fact,
-      });
-    }
+    await linkPrToTask(trx, task, fact, at);
   }
   const linkedPrs = await trx
     .selectFrom('link')
@@ -1348,7 +1266,7 @@ export function createObservationCore(deps: {
             .executeTakeFirst();
           const processed =
             row.source === source
-              ? { state: 'closed' as const, headSha: parseJson(prFactsSchema, row.detail).headSha }
+              ? { ...parseJson(prFactsSchema, row.detail), state: 'closed' as const }
               : readPrPolling(saved?.value);
           if (processed !== undefined)
             await savePrPolling(
@@ -1359,6 +1277,7 @@ export function createObservationCore(deps: {
                 number: probe.ref.number,
                 state: processed.state,
                 headSha: processed.headSha,
+                ...(processed.ticketKeys === undefined ? {} : { ticketKeys: processed.ticketKeys }),
               },
               recheckAt,
             );

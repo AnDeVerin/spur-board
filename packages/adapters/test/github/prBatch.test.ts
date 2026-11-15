@@ -3011,6 +3011,32 @@ describe('persisted terminal PR policy', () => {
     expect(batch.prProbes).toEqual([{ ref, status: 'refreshed' }]);
     expect(sentQueries(fetcher, 'PrStates')).toEqual([]);
   });
+  it('refreshes a closed PR merged in discovery before its probe deadline, then suppresses final facts', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(discovery('MERGED'))
+      .mockResolvedValueOnce(
+        response({ pr0: { pullRequest: { ...wire(), state: 'MERGED', mergedAt: time } } }),
+      )
+      .mockResolvedValueOnce(discovery('MERGED'));
+    const batch = await adapter(fetcher).poll({
+      ...context([], time),
+      terminalPrs: terminal('closed'),
+    });
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0]).toMatchObject({ kind: 'pr', facts: { state: 'merged' } });
+    expect(batch.prProbes).toEqual([{ ref, status: 'refreshed' }]);
+    expect(sentQueries(fetcher, 'PrStates')).toEqual([]);
+    expect(sentQueries(fetcher, 'PrDetails')).toHaveLength(1);
+    const next = await adapter(fetcher).poll({
+      ...context([], time),
+      terminalPrs: terminal('merged'),
+    });
+    expect(next.items).toEqual([]);
+    expect(sentQueries(fetcher)).toHaveLength(1);
+    expect(sentQueries(fetcher).join(' ')).not.toContain('pullRequest(number:');
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
   it('keeps malformed/denied/missing probes separate from ordinary absence', async () => {
     for (const value of [null, { pullRequest: null }, { pullRequest: { number: 7 } }]) {
       const fetcher = vi

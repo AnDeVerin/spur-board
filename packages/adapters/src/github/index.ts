@@ -708,9 +708,10 @@ async function pollRepository({
   const probes: NonNullable<Batch['prProbes']> = [];
   const fullProbe = new Set<number>();
   const due = (ctx.prRechecks ?? []).filter((ref) => ref.repo.toLowerCase() === repo.toLowerCase());
-  // OPEN discovery bypasses closed deferral, even for PRs outside the operator's listing.
+  // Reopen or merge discovery bypasses closed deferral, even outside the operator's listing.
   for (const [number, entry] of terminal) {
-    if (entry.state === 'closed' && found.states.get(number) === 'OPEN') fullProbe.add(number);
+    if (entry.state === 'closed' && ['OPEN', 'MERGED'].includes(found.states.get(number) ?? ''))
+      fullProbe.add(number);
   }
   const stateWire = z
     .object({ pullRequest: z.object({ number: z.int().positive(), state: z.string() }).nullable() })

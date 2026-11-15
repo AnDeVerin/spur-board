@@ -3928,6 +3928,106 @@ describe('source-specific terminal PR processing', () => {
       }
     },
   );
+  it.each(['task.add', 'tracker import'] as const)(
+    'links late tasks through %s using each source extraction without refreshing snapshots',
+    async (route) => {
+      const { store, core, apply, mutations } = setup(shared);
+      await observe(core, first, 'merged', ['o/r#9']);
+      await observe(core, second, 'merged', ['WEBDEV-1']);
+      const snapshots = await store.db.selectFrom('pr_snapshot').selectAll().execute();
+      const freshness = await store.db.selectFrom('source_state').selectAll().execute();
+      now += 3_600_000;
+      for (const key of ['o/r#9', 'WEBDEV-1']) {
+        if (route === 'task.add') await apply(mutations.add, { task: key }, 'operator');
+        else {
+          const tracker = key === 'o/r#9' ? source : 'jira:web';
+          await core.observe(tracker, {
+            batch: {
+              source: tracker,
+              observedAt: new Date(now).toISOString(),
+              complete: true,
+              items: [
+                { kind: 'ticket', facts: { ...fact(key), trackerId: tracker, inFilter: true } },
+              ],
+              entities: [],
+            },
+            effectiveComplete: true,
+            state: { lastCompleteAt: at, gone: [] },
+            outcomes: [],
+          });
+        }
+      }
+      const links = await store.db
+        .selectFrom('link')
+        .innerJoin('task', 'task.id', 'link.task_id')
+        .select(['task.project', 'task.key'])
+        .where('link.entity', '=', 'pr')
+        .orderBy('task.project')
+        .execute();
+      expect(links).toEqual([
+        { project: 'board', key: 'o/r#9' },
+        { project: 'web', key: 'WEBDEV-1' },
+      ]);
+      expect(await store.db.selectFrom('pr_snapshot').selectAll().execute()).toEqual(snapshots);
+      const githubFreshness = (rows: typeof freshness) =>
+        rows.filter((row) => row.source.startsWith('github:'));
+      expect(
+        githubFreshness(await store.db.selectFrom('source_state').selectAll().execute()),
+      ).toEqual(githubFreshness(freshness));
+      for (const src of [first, second]) {
+        expect((await core.context(src)).terminalPrs).toEqual([{ ref, state: 'merged' }]);
+        expect((await core.context(src)).observe.prs).toEqual([]);
+      }
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      expect(
+        await store.db.selectFrom('link').selectAll().where('entity', '=', 'pr').execute(),
+      ).toHaveLength(2);
+      await store.db
+        .updateTable('link')
+        .set({ banned: 1 })
+        .where(
+          'task_id',
+          '=',
+          (
+            await store.db
+              .selectFrom('task')
+              .select('id')
+              .where('key', '=', 'o/r#9')
+              .executeTakeFirstOrThrow()
+          ).id,
+        )
+        .execute();
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      expect(
+        await store.db.selectFrom('link').select('banned').where('banned', '=', 1).execute(),
+      ).toHaveLength(1);
+    },
+  );
+  it('retains late-task associations through a closed state-only probe', async () => {
+    const { store, core, apply, mutations } = setup(shared);
+    await observe(core, first, 'closed', ['o/r#9']);
+    await observe(core, second, 'closed', ['WEBDEV-1']);
+    now += 6 * 3_600_000;
+    await core.observe(first, {
+      batch: {
+        source: first,
+        observedAt: new Date(now).toISOString(),
+        complete: true,
+        items: [],
+        entities: [],
+        prProbes: [{ ref, status: 'closed' }],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    expect(
+      await store.db.selectFrom('link').select('number').where('entity', '=', 'pr').execute(),
+    ).toEqual([{ number: 7 }]);
+    expect((await core.context(first)).prRechecks).toEqual([]);
+    expect((await core.context(second)).terminalPrs).toEqual([{ ref, state: 'closed' }]);
+  });
   it('keeps closed deadlines independent when another source reads or probes the shared PR', async () => {
     const { store, core } = await board();
     await observe(core, first, 'closed', ['o/r#9']);
