@@ -283,7 +283,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '65f6a781cdf33af7ce6b5261e7512dd7d2ef2b777e008a57a46ccd5154441e3b',
+      'b6d6cd7f55feea457800e741281d397285534178e19697192d0e499593516284',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -1711,9 +1711,58 @@ describe('PR feedback', () => {
     const external = (facts.feedback ?? []).filter((entry) => isExternalAuthor(entry, 'operator'));
     expect(external.map((entry) => entry.author?.login ?? null)).toEqual(['alice', 'old', null]);
     expect(detailsSent(fetcher)).toContain(
-      'comments(last: 100) { nodes { id author { __typename login } createdAt }',
+      'comments(last: 100) { nodes { id author { __typename login } createdAt body }',
     );
-    expect(detailsSent(fetcher)).not.toContain('body');
+  });
+
+  it.each([
+    ['a progress comment', 'Review completed.\n\n<!-- board-reviewer-progress:12 -->', true],
+    [
+      'an unavailable comment',
+      'Automated review is temporarily unavailable.\n\n<!-- board-reviewer-unavailable:12:abc:f00 -->',
+      true,
+    ],
+    [
+      'a marker with trailing blank lines',
+      'Review started.\n<!-- board-reviewer-progress:3 -->  \n\n',
+      true,
+    ],
+    ['a bare marker', '<!-- board-reviewer-progress:3 -->', true],
+    ['a quoted marker', 'See this:\n> <!-- board-reviewer-progress:3 -->', false],
+    ['a marker followed by text', '<!-- board-reviewer-progress:3 -->\nThanks!', false],
+    ['a marker inside a line', 'Note <!-- board-reviewer-progress:3 -->', false],
+    ['a findings marker', 'Two findings.\n\n<!-- board-reviewer:0b9c6f3e-1 -->', false],
+    ['a marker with no value', '<!-- board-reviewer-progress: -->', false],
+    ['a free-form comment', 'Please rename this.', false],
+    ['an empty body', '', false],
+    ['no body', undefined, false],
+  ])('flags reviewer status comments by their last marker line: %s', async (_, body, flagged) => {
+    const pr = {
+      ...prWith(back([{ ...comment(1), ...(body === undefined ? {} : { body }) }])),
+      // A review carrying a status marker is still a review, never flagged.
+      reviews: conn([
+        {
+          id: 'PRR_9',
+          author: user('alice'),
+          state: 'COMMENTED',
+          commit: { oid: sha },
+          submittedAt: postedAt(2),
+          body: '<!-- board-reviewer-progress:7 -->',
+        },
+      ]),
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(initial(pr));
+    const facts = factsOf(await adapter(fetcher).poll(context()));
+    const [first, review] = facts.feedback ?? [];
+    expect(first).toEqual({
+      kind: 'comment',
+      id: 'IC_1',
+      author: { login: 'alice', type: 'user' },
+      postedAt: postedAt(1),
+      ...(flagged ? { statusComment: true } : {}),
+    });
+    expect(review).not.toHaveProperty('statusComment');
+    expect(JSON.stringify(facts)).not.toContain('board-reviewer');
   });
 
   it('keeps the state of every review in feedback, not only the latest per reviewer', async () => {
@@ -1973,6 +2022,16 @@ describe('PR feedback', () => {
       for (const answer of answers) fetcher.mockResolvedValueOnce(answer);
       return fetcher.mockImplementation(() => Promise.reject(new Error('unexpected request')));
     };
+
+    it('keeps the status flag of a held comment', async () => {
+      const flagged = { ...entry(10), statusComment: true as const };
+      const held = [...entries(0, 10), flagged, ...entries(11, 300)];
+      const fetcher = pages(initial(prWith(back(range(250, 310), 'p2'))));
+      const batch = await adapter(fetcher).poll(holding(null, held));
+      const feedback = factsOf(batch).feedback ?? [];
+      expect(feedback.filter((e) => e.statusComment === true)).toEqual([flagged]);
+      expect(commentIds(batch)).toEqual(ids(0, 310));
+    });
 
     it('continues from the held resume and completes at the start of the PR', async () => {
       const fetcher = pages(

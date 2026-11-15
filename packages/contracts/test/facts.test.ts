@@ -340,6 +340,17 @@ describe('stored facts', () => {
       'approved',
     ]);
   });
+
+  it('parses a status comment flag only as true', () => {
+    const input = prFacts();
+    const [comment] = input['feedback'] as Record<string, unknown>[];
+    const parse = (entry: unknown) => prFactsSchema.safeParse({ ...input, feedback: [entry] });
+    expect(parse({ ...comment, statusComment: true }).data?.feedback?.[0]?.statusComment).toBe(
+      true,
+    );
+    expect(parse(comment).data?.feedback?.[0]).not.toHaveProperty('statusComment');
+    expect(parse({ ...comment, statusComment: false }).success).toBe(false);
+  });
 });
 
 describe('external authors', () => {
