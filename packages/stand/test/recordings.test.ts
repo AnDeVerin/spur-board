@@ -125,9 +125,10 @@ function replayConfig(): Config {
   return configSchema.parse(raw);
 }
 
-/** Ignore only the newly selected optional cost and comment body when replaying older recorded
- * requests. The response remains untouched: a recording with no cost contributes no reported
- * usage, and a comment with no body is never a status comment.
+/** Ignore only the newly selected optional cost, comment body, links, edits, thread ids and inline
+ * comments when replaying older recorded requests. The response remains untouched: a recording
+ * with no cost contributes no reported usage, a comment with no body is never a status comment,
+ * and an entry with no url or edit gets neither.
  */
 function replayBody(body: Json): string {
   if (isObject(body) && typeof body['query'] === 'string')
@@ -135,7 +136,12 @@ function replayBody(body: Json): string {
       ...body,
       query: body['query']
         .replace('rateLimit { cost remaining resetAt }', 'rateLimit { remaining resetAt }')
-        .replaceAll(' createdAt body }', ' createdAt }'),
+        .replaceAll(' createdAt body url lastEditedAt }', ' createdAt }')
+        .replaceAll(' submittedAt url lastEditedAt }', ' submittedAt }')
+        .replaceAll(
+          '{ id isResolved comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } } }',
+          '{ isResolved }',
+        ),
     });
   return canonical(body);
 }

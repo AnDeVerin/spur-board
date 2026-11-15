@@ -283,7 +283,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      'b6d6cd7f55feea457800e741281d397285534178e19697192d0e499593516284',
+      '21ae5dfc44e54d85e1bc1bbd04fbea9a7b047e9eba6c99eaca732fd88d3f3544',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -1711,8 +1711,123 @@ describe('PR feedback', () => {
     const external = (facts.feedback ?? []).filter((entry) => isExternalAuthor(entry, 'operator'));
     expect(external.map((entry) => entry.author?.login ?? null)).toEqual(['alice', 'old', null]);
     expect(detailsSent(fetcher)).toContain(
-      'comments(last: 100) { nodes { id author { __typename login } createdAt body }',
+      'comments(last: 100) { nodes { id author { __typename login } createdAt body url lastEditedAt }',
     );
+  });
+
+  it("carries comment, review and inline-comment URLs, with each inline comment's thread id", async () => {
+    const prUrl = 'https://github.com/demo/widgets/pull/7';
+    const review = (id: string, i: number, lastEditedAt: string | null = null) => ({
+      id,
+      author: user('alice'),
+      state: 'COMMENTED',
+      commit: { oid: sha },
+      submittedAt: postedAt(i),
+      url: `${prUrl}#pullrequestreview-${String(i)}`,
+      lastEditedAt,
+    });
+    const inline = (i: number, reviewId: string | null, lastEditedAt: string | null = null) => ({
+      id: `PRRC_${String(i)}`,
+      url: `${prUrl}#discussion_r${String(i)}`,
+      lastEditedAt,
+      pullRequestReview: reviewId === null ? null : { id: reviewId },
+    });
+    const pr = {
+      ...prWith(
+        back([
+          { ...comment(1), url: `${prUrl}#issuecomment-1`, lastEditedAt: null },
+          { ...comment(2), url: `${prUrl}#issuecomment-2`, lastEditedAt: postedAt(9) },
+        ]),
+      ),
+      reviews: conn([review('PRR_a', 3), review('PRR_b', 4, postedAt(5))]),
+      reviewThreads: conn([
+        // The root under PRR_a, a reply under PRR_b, and a pending review's comment.
+        {
+          id: 'PRRT_1',
+          isResolved: false,
+          comments: {
+            nodes: [inline(1, 'PRR_a'), inline(2, 'PRR_b', postedAt(8)), inline(3, null)],
+          },
+        },
+        { id: 'PRRT_2', isResolved: true, comments: { nodes: [inline(4, 'PRR_b')] } },
+      ]),
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(initial(pr));
+    const facts = factsOf(await adapter(fetcher).poll(context()));
+    const author = { login: 'alice', type: 'user' };
+    expect(facts.feedback).toEqual([
+      {
+        kind: 'comment',
+        id: 'IC_1',
+        author,
+        postedAt: postedAt(1),
+        url: `${prUrl}#issuecomment-1`,
+      },
+      {
+        kind: 'comment',
+        id: 'IC_2',
+        author,
+        postedAt: postedAt(2),
+        url: `${prUrl}#issuecomment-2`,
+        editedAt: postedAt(9),
+      },
+      {
+        kind: 'review',
+        id: 'PRR_a',
+        author,
+        postedAt: postedAt(3),
+        state: 'commented',
+        url: `${prUrl}#pullrequestreview-3`,
+        comments: [{ id: 'PRRC_1', url: `${prUrl}#discussion_r1`, threadId: 'PRRT_1' }],
+      },
+      {
+        kind: 'review',
+        id: 'PRR_b',
+        author,
+        postedAt: postedAt(4),
+        state: 'commented',
+        url: `${prUrl}#pullrequestreview-4`,
+        // The newest edit of the review body and its inline comments.
+        editedAt: postedAt(8),
+        comments: [
+          {
+            id: 'PRRC_2',
+            url: `${prUrl}#discussion_r2`,
+            threadId: 'PRRT_1',
+            editedAt: postedAt(8),
+          },
+          { id: 'PRRC_4', url: `${prUrl}#discussion_r4`, threadId: 'PRRT_2' },
+        ],
+      },
+    ]);
+    expect(facts.reviewThreads).toEqual([{ resolved: false }, { resolved: true }]);
+    expect(detailsSent(fetcher)).toContain(
+      'reviewThreads(first: 100) { nodes { id isResolved comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } } }',
+    );
+  });
+
+  it('gives no url or thread id when GitHub sends none, as the older recordings do', async () => {
+    const pr = {
+      ...prWith(back([comment(1)])),
+      reviews: conn([
+        {
+          id: 'PRR_a',
+          author: user('alice'),
+          state: 'COMMENTED',
+          commit: { oid: sha },
+          submittedAt: postedAt(2),
+        },
+      ]),
+      reviewThreads: conn([{ isResolved: false }]),
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(initial(pr));
+    const feedback = factsOf(await adapter(fetcher).poll(context())).feedback ?? [];
+    for (const entry of feedback) {
+      expect(entry).not.toHaveProperty('url');
+      expect(entry).not.toHaveProperty('editedAt');
+      expect(entry).not.toHaveProperty('comments');
+    }
+    expect(feedback).toHaveLength(2);
   });
 
   it.each([
@@ -2262,7 +2377,7 @@ function indexPr(number: number, overrides: Record<string, unknown> = {}) {
       mergeStateStatus: 'BLOCKED',
       headRefOid: sha,
       statusCheckRollup: rollup('SUCCESS'),
-      reviews: { totalCount: 1, nodes: [{ id: 'PRR_1', state: 'APPROVED' }] },
+      reviews: { totalCount: 1, nodes: [{ id: 'PRR_1', state: 'APPROVED', lastEditedAt: null }] },
       reviewThreads: { totalCount: 1, nodes: [{ isResolved: false }] },
       reviewRequests: {
         totalCount: 1,
@@ -2271,6 +2386,7 @@ function indexPr(number: number, overrides: Record<string, unknown> = {}) {
         ],
       },
       comments: { totalCount: 0, nodes: [] },
+      edited: { nodes: [] },
       ...overrides,
     },
   };
@@ -2752,9 +2868,30 @@ describe('PR index cache', () => {
   it.each([
     ['updatedAt', { updatedAt: '2026-01-05T00:00:00.000Z' }],
     ['head', { headRefOid: 'b'.repeat(40) }],
-    ['review state', { reviews: { totalCount: 1, nodes: [{ id: 'PRR_1', state: 'DISMISSED' }] } }],
+    [
+      'review state',
+      {
+        reviews: {
+          totalCount: 1,
+          nodes: [{ id: 'PRR_1', state: 'DISMISSED', lastEditedAt: null }],
+        },
+      },
+    ],
     ['resolved thread', { reviewThreads: { totalCount: 1, nodes: [{ isResolved: true }] } }],
     ['comment count', { comments: { totalCount: 1, nodes: [{ id: 'IC_1' }] } }],
+    [
+      'comment edit',
+      { edited: { nodes: [{ id: 'IC_1', updatedAt: '2026-01-05T00:00:00.000Z' }] } },
+    ],
+    [
+      'review edit',
+      {
+        reviews: {
+          totalCount: 1,
+          nodes: [{ id: 'PRR_1', state: 'APPROVED', lastEditedAt: '2026-01-05T00:00:00.000Z' }],
+        },
+      },
+    ],
   ])('reads a PR in full again when its index %s changes', async (_name, change) => {
     const run = scenario();
     await run.poll();
@@ -2856,7 +2993,10 @@ describe('PR index cache', () => {
     expect(run.details()).toEqual([8]);
   });
   it.each([
-    ['reviews', { totalCount: 101, nodes: [{ id: 'PRR_1', state: 'APPROVED' }] }],
+    [
+      'reviews',
+      { totalCount: 101, nodes: [{ id: 'PRR_1', state: 'APPROVED', lastEditedAt: null }] },
+    ],
     ['reviewThreads', { totalCount: 101, nodes: [{ isResolved: false }] }],
     [
       'reviewRequests',

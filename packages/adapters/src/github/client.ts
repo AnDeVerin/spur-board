@@ -53,11 +53,16 @@ export function teamScopeDenied(error: GraphError, query: string): boolean {
 // Every member of the RequestedReviewer union, so none arrives as an empty object.
 const REVIEWER_FIELDS =
   'requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner';
-const REVIEW_FIELDS = 'id author { __typename login } state commit { oid } submittedAt';
+const REVIEW_FIELDS =
+  'id author { __typename login } state commit { oid } submittedAt url lastEditedAt';
 // Comments are read newest first, back from the end of the PR. The body is read only to tell a
 // reviewer status comment (`isStatusComment` in prBatch.ts) and never leaves the adapter.
 const COMMENT_FIELDS =
-  'nodes { id author { __typename login } createdAt body } pageInfo { hasPreviousPage startCursor }';
+  'nodes { id author { __typename login } createdAt body url lastEditedAt } pageInfo { hasPreviousPage startCursor }';
+// Each thread's newest 100 inline comments, thread replies included, give each review its inline
+// comments with their URL and thread id; a review is found by id, never through `replyTo`.
+const THREAD_FIELDS =
+  'id isResolved comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } }';
 const CLOSING_FIELDS =
   'nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor }';
 // `closing` adds the issues a PR closes; only the tracker repo of a github-issues project
@@ -73,15 +78,17 @@ const prFields = (
  } pageInfo { hasNextPage endCursor } } }
  reviews(first: 100) { nodes { ${REVIEW_FIELDS} } pageInfo { hasNextPage endCursor } }
  comments(last: 100) { ${COMMENT_FIELDS} }
- reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }
+ reviewThreads(first: 100) { nodes { ${THREAD_FIELDS} } pageInfo { hasNextPage endCursor } }
  reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }${closing ? `\n closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''}`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } pageInfo { hasNextPage endCursor }`;
 // The fields the index compares to tell whether a PR changed since its last full read. Each
 // check is listed without `isRequired`, the costly field: GitHub's SUCCESS rollup also covers
 // skipped checks, so only the checks themselves show a skipped required check that reran.
+// `edited`, the comment updated last, and each review's `lastEditedAt` show an edit of a comment
+// or a review body; an inline comment's edit shows only at the next refresh (`OPEN_REFRESH_MS`).
 const INDEX_CONTEXTS =
   'contexts(first: 100) { totalCount nodes { ... on CheckRun { __typename name status conclusion completedAt } ... on StatusContext { __typename context state } } }';
-const INDEX_FIELDS = `number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state ${INDEX_CONTEXTS} } reviews(first: 100) { totalCount nodes { id state } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } }`;
+const INDEX_FIELDS = `number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state ${INDEX_CONTEXTS} } reviews(first: 100) { totalCount nodes { id state lastEditedAt } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } } edited: comments(first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { id updatedAt } }`;
 // Alias numbers are literals, so a request can contain an arbitrary set of requested PRs.
 function aliases(numbers: readonly number[], fields: (number: number) => string): string {
   return numbers
@@ -137,7 +144,7 @@ export function pageQuery(
       ? `closingIssuesReferences(first: 100, after: $after) { ${CLOSING_FIELDS} }`
       : connection === 'contexts'
         ? `statusCheckRollup { contexts(first: 100, after: $after) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: $number) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: $number) } } pageInfo { hasNextPage endCursor } } }`
-        : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? REVIEW_FIELDS : connection === 'reviewThreads' ? 'isResolved' : REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }`;
+        : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? REVIEW_FIELDS : connection === 'reviewThreads' ? THREAD_FIELDS : REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }`;
   return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { cost remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }
 
