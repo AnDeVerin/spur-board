@@ -15,7 +15,7 @@ Each column has one executor: `projects[].columns[].orchestrator`:
 submit inspected heads or return findings; never push.
 
 `projects[].spurProjects[].role` accepts `worker`, `operator`, `curator` and
-`orchestrator`. Curators guide; orchestrators execute columns, never as workers.
+`orchestrator`.
 
 ## Gates and placement
 
@@ -24,13 +24,12 @@ per evaluation). Turns follow unmet entry gates, actionable post-submit failures
 rerouting or Done wrap-up. Holds and existing turns can yield neither action.
 
 Moves, turns and course checks need `projects[].dispatcher.mode: on`;
-default is `shadow`: proposed placement only; no turns, doorbells or blocks.
+default is `shadow`: no turns, doorbells or blocks.
 
 Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, failed gates return to the leftmost failing
 column. Taken turns hold until submit, return or new head. Pending CI, unknown
 mergeability and incomplete comment history are waits. Downstream handoff waits
-for settled prerequisites; Dev can receive a repair turn for red CI, drafts,
-conflicts or unhandled external comments.
+for settled prerequisites; Dev can receive a repair turn.
 
 Dev needs an open non-draft PR, passing checks, no conflict, handled external
 feedback, comment history and current-head submit. Feedback excludes
@@ -42,11 +41,17 @@ for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
 External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits from other worker columns. Fixed gate rules have no configuration switch
-except enabled columns and no-CI.
+except enabled columns, no-CI and resolved threads.
+
+`projects[].columns[].requireResolvedThreads` (default: `ready-to-merge` only)
+gates that column and those right of it: an unresolved review thread, outdated
+or by anyone, returns the task to Dev, whose turn lists each thread link. The
+worker fixes or answers, then resolves each; reviewers never do. Then a
+Dev submit on the same head moves right, keeping marks and approval. An
+approval's inline notes are threads; it still passes External Review.
 
 Review/Product Review mark lasts across visits on the current head. A visit
-submission belongs to one column visit; moving left clears it and those to the right. New heads invalidate internal Review and Product Review marks,
-even old heads.
+submission belongs to one column visit; moving left clears it and those to the right. New heads invalidate internal Review and Product Review marks.
 
 Anomalies: PR closed without merge with no open PR, or closed
 ticket with live work and no merged PR. `board status` lists them; they may surface
@@ -64,8 +69,6 @@ block. Confirms or returns the turn
 (`projects[].dispatcher.submitConfirmMs`).
 
 A new head closes taken turns outside Dev; taken Dev turns survive pushes.
-Untaken turns: CI, draft, conflict or external-comment returns.
-Operator turns: 1 inbox item + Slack thread until exit.
 
 Closed turns receive no further Board sends; Obsolete queued rings are dropped;
 a message already accepted by Spur cannot be retracted. Check `board inbox` and
@@ -77,7 +80,7 @@ A turn opened for you by your own confirmed submit or return is first rung only 
 
 A doorbell expects action: read `board inbox` for the turn, addressed
 block, answer or follow-up. Ordinary task comments do not ring; nor does a block
-tracked by its author role ring itself. Rings differ from moves.
+tracked by its author role ring itself.
 
 Unacked series repeat, up to three delivered rings;
 acknowledgement stops them. Removal notices and quiet-turn reminders ring once.
@@ -94,18 +97,16 @@ curator questions move to operator.
 
 `projects[].columns[].courseCheck` defaults to 3 counted returns to Dev;
 `courseCheck: 0` disables it. `projects[].columns[].cycleLimit` defaults to 10 and
-takes priority. Executor returns, changes requested and external comments count;
-CI failures, conflicts and drafts alone do not count, nor reopened tickets or
-mode switches.
+takes priority. Executor returns, changes requested and external comments count,
+as do thread returns; CI failures, conflicts and drafts alone do not count.
 
-Checks hold for input.
 If returns keep hitting the same mechanism, fix the bug class once; cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description. Still fix P0/P1 and user-visible findings in this PR.
 `projects[].columns[].courseCheckTo`: `operator`, curator or column orchestrator.
 Default: curator (`projects[].spurProjects[].role`), else operator. An answer
 resets the course count and reaches the worker as a task comment. Only the
 operator can resolve the separate cycle limit and reset its count. With no live
 session it falls back to the operator; a live conductor that does not
-answer keeps the question, with intervention item.
+answer keeps the question.
 
 ## Blocks and escalation
 
@@ -128,8 +129,7 @@ Routing: `projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
 
 ## Slack now
 
-`slack.channels.feed`: curator answers and operator items,
-except items elsewhere/delivery problems.
+`slack.channels.feed`: curator answers and operator items.
 `slack.channels.orchestrators`: block threads addressed to the operator by
 others. Answer in the existing block thread.
 
@@ -146,8 +146,8 @@ A task key after the prefix attaches it.
 
 Given block ID, read `board inbox`, reply with
 `board answer`. Each operator thread message rings again; `close` or ✅ in the
-thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`,
-else project name/role icon (`board` for operator). No session:
+thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`.
+No session:
 `board status` lists it as waiting.
 
 ## Done follows the ticket
