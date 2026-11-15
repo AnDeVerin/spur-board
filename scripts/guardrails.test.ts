@@ -15,6 +15,7 @@ import {
   packageJsonChanged,
   parseHunks,
   reportFindings,
+  staleInSection,
   type FileChange,
 } from './guardrails.ts';
 
@@ -410,6 +411,18 @@ const CASES: Case[] = [
     flagged: del('packages/old/package.json'),
     clean: del('packages/old/README.md'),
   },
+  {
+    rule: 'test-file',
+    name: 'added test',
+    flagged: add('packages/a/test/x.test.ts'),
+    clean: add('packages/a/src/x.ts'),
+  },
+  {
+    rule: 'test-file',
+    name: 'more expects',
+    flagged: texts('src/a.spec.ts', 'expect(1);\n', 'expect(1);\nexpect(2);\n'),
+    clean: del('src/a.spec.ts'),
+  },
 ];
 
 const has = (file: FileChange, rule: RuleId) =>
@@ -423,6 +436,27 @@ describe('reportFindings', () => {
 
   it('every rule id has a flagged and a clean case', () => {
     expect(new Set(CASES.map((row) => row.rule))).toEqual(new Set(RULE_IDS));
+  });
+
+  it('test-file only when no other rule flags the test', () => {
+    const findings = reportFindings([
+      add('src/__tests__/a.ts', ['expect(1);']),
+      texts('src/b.test.ts', 'expect(1);\n', 'expect(1);\nexpect(2);\n'),
+      del('src/c.test.ts'),
+      diffed(
+        'src/d.test.ts',
+        "it('d', () => {});\n",
+        "it.skip('d', () => {});\n",
+        ["it('d', () => {});"],
+        ["it.skip('d', () => {});"],
+      ),
+    ]);
+    expect(findings.map((finding) => `${finding.path} ${finding.rule}`)).toEqual([
+      'src/__tests__/a.ts test-file',
+      'src/b.test.ts test-file',
+      'src/c.test.ts deleted-test',
+      'src/d.test.ts added-skip',
+    ]);
   });
 
   it('flags an M test file without its texts', () => {
@@ -682,6 +716,72 @@ describe('missingFromSection', () => {
       'utf8',
     ).replace('Closes #<N>', 'Closes #5');
     expect(missingFromSection(template, paths)).toEqual(paths);
+  });
+});
+
+describe('staleInSection', () => {
+  const A = 'packages/core/test/a.test.ts';
+  const changed = [A, 'scripts/ci.ts'];
+  const section = (text: string) => `## Changed checks\n\n${text}`;
+
+  it.each([
+    ['a backtick path', '- `old.test.ts` - x', ['old.test.ts']],
+    ['a bold path', '- **old.test.ts** - x', ['old.test.ts']],
+    ['a path with a line', '- `old.test.ts:42` - x', ['old.test.ts']],
+    ['a path twice', '- old.test.ts - a\n- `old.test.ts` - b', ['old.test.ts']],
+    ['a folder', '- `packages/cli/test/` - x', ['packages/cli/test/']],
+    ['a backtick path with a space', '- `docs/a b.md` - x', ['docs/a b.md']],
+  ])('reports %s', (_name, text, expected) => {
+    expect(staleInSection(section(text), changed)).toEqual(expected);
+  });
+
+  it.each([
+    `- \`${A}\` - x`,
+    `- ${A} - x`,
+    `- **${A}** - x`,
+    `- "${A}" - x`,
+    `- [${A}](https://x) - x`,
+    `- \`${A}:42\` - x`,
+    `- \`${A}:42-50\` - x`,
+    `- \`${A}:42:7\` - x`,
+    `- \`${A}:L42\` - x`,
+    `- \`${A}#L42\` - x`,
+    `- \`${A}\` - covered by \`b.test.ts\``,
+    '- `packages/core/test/` - several',
+  ])('an entry naming a changed path is not stale: %s', (text) => {
+    expect(staleInSection(section(text), changed)).toEqual([]);
+  });
+
+  it.each([
+    '- `packages/core/test/*.test.ts` - x',
+    '- `*.test.ts` - x',
+    '- packages/** - x',
+    '- **packages/cli/*.ts** - x',
+  ])('skips a glob: %s', (text) => {
+    expect(staleInSection(section(text), changed)).toEqual([]);
+  });
+
+  it.each([
+    ['none', section('none')],
+    ['a none item', section('- none')],
+    ['a matcher', section('- `it.skip` in x')],
+    ['a CI setting', section('- `continue-on-error`')],
+    ['a path under another heading', '## Description\n\n- `old.test.ts` - x\n'],
+    ['a path inside a comment', section('<!-- - `old.test.ts` - x -->')],
+  ])('reports nothing for %s', (_name, body) => {
+    expect(staleInSection(body, changed)).toEqual([]);
+  });
+
+  it('reports nothing for a null body', () => {
+    expect(staleInSection(null, changed)).toEqual([]);
+  });
+
+  it('the PR template names nothing stale', () => {
+    const template = readFileSync(
+      new URL('../.github/pull_request_template.md', import.meta.url),
+      'utf8',
+    ).replace('Closes #<N>', 'Closes #5');
+    expect(staleInSection(template, [])).toEqual([]);
   });
 });
 
@@ -954,16 +1054,112 @@ describe('guardrails.ts CLI', () => {
     expect(lines(passed.stdout).at(-1)).toBe('guardrails: PASS (all reported files named)');
   });
 
-  it('PR adding only new tests and code passes without the section', () => {
+  it('PR adding a new test fails without the section, then passes once it names it', () => {
     const box = sandbox();
     box.base({ 'README.md': 'x\n' });
     box.topic({ 'src/x.ts': 'export const x = 1;\n', 'src/x.test.ts': 'expect(1).toBe(1);\n' });
     box.merge();
-    const result = box.runPr(pr(''));
+    const failed = box.runPr(pr(''));
+    expect(failed.status).toBe(1);
+    const errors = lines(failed.stdout).filter((line) => line.startsWith('::error::'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('src/x.test.ts');
+    expect(errors[0]).not.toMatch(/src\/x\.ts(%0A|$)/);
+    expect(lines(failed.stdout).at(-1)).toBe('guardrails: FAIL');
+
+    const passed = box.runPr(pr('## Changed checks\n\n- `src/x.test.ts` - new test\n'));
+    expect(passed.status).toBe(0);
+    expect(lines(passed.stdout).at(-1)).toBe('guardrails: PASS (all reported files named)');
+  });
+
+  it('PR adding an expect to a test fails, then passes once named', () => {
+    const box = sandbox();
+    box.base({ 'src/a.test.ts': 'expect(1);\n' });
+    box.topic({ 'src/a.test.ts': 'expect(1);\nexpect(2);\n' });
+    box.merge();
+    const failed = box.runPr(pr(''));
+    expect(failed.status).toBe(1);
+    expect(reportLines(failed.stdout).slice(1)).toEqual([
+      'guardrails: src/a.test.ts - added or changed test file',
+      'guardrails: 1 file(s) need a ## Changed checks entry',
+    ]);
+    const errors = lines(failed.stdout).filter((line) => line.startsWith('::error::'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('src/a.test.ts');
+
+    const passed = box.runPr(pr('## Changed checks\n\n- `src/a.test.ts` - one more expect\n'));
+    expect(passed.status).toBe(0);
+    expect(lines(passed.stdout).at(-1)).toBe('guardrails: PASS (all reported files named)');
+  });
+
+  it('PR renaming a test needs both paths', () => {
+    const box = sandbox();
+    box.base({ 'old.test.ts': 'expect(1);\n' });
+    box.topic({ 'old.test.ts': null, 'new.test.ts': 'expect(1);\n' });
+    box.merge();
+    const failed = box.runPr(pr(''));
+    expect(failed.status).toBe(1);
+    const errors = lines(failed.stdout).filter((line) => line.startsWith('::error::'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('- old.test.ts');
+    expect(errors[0]).toContain('- new.test.ts');
+
+    const halfNamed = box.runPr(pr('## Changed checks\n\n- `new.test.ts` - renamed\n'));
+    expect(halfNamed.status).toBe(1);
+    const halfErrors = lines(halfNamed.stdout).filter((line) => line.startsWith('::error::'));
+    expect(halfErrors).toHaveLength(1);
+    expect(halfErrors[0]).toContain('- old.test.ts');
+    expect(halfErrors[0]).not.toContain('- new.test.ts');
+  });
+
+  it('PR without test changes passes with a "none" section', () => {
+    const box = sandbox();
+    box.base({ 'src/x.ts': 'export const x = 1;\n' });
+    box.topic({ 'src/x.ts': 'export const x = 2;\n' });
+    box.merge();
+    const result = box.runPr(pr('## Changed checks\n\nnone\n'));
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain('guardrails: report empty');
-    expect(result.stdout).toContain('guardrails: PASS (report empty)');
-    expect(result.stdout).not.toContain('::error::');
+    expect(lines(result.stdout).at(-1)).toBe('guardrails: PASS (report empty)');
+    expect(result.stdout).not.toContain('::warning::');
+  });
+
+  it('the failure lists missing and stale entries separately', () => {
+    const box = sandbox();
+    box.base({ 'README.md': 'x\n' });
+    box.topic({ 'a.test.ts': 'expect(1);\n' });
+    box.merge();
+    const result = box.runPr(pr('## Changed checks\n\n- `old.test.ts` - x\n'));
+    expect(result.status).toBe(1);
+    const errors = lines(result.stdout).filter((line) => line.startsWith('::error::'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('## Changed checks');
+    const parts = (errors[0] ?? '').split('%0A');
+    const at = (text: string) => parts.indexOf(text);
+    expect(at('Missing:')).toBeGreaterThan(-1);
+    expect(at('- a.test.ts')).toBe(at('Missing:') + 1);
+    expect(at('Named but not changed by this PR:')).toBeGreaterThan(at('- a.test.ts'));
+    expect(at('- old.test.ts')).toBe(at('Named but not changed by this PR:') + 1);
+    expect(lines(result.stdout).at(-1)).toBe('guardrails: FAIL');
+  });
+
+  it('a stale entry on a passing run only warns', () => {
+    const box = sandbox();
+    box.base({ 'README.md': 'x\n' });
+    box.topic({ 'a.test.ts': 'expect(1);\n' });
+    box.merge();
+    const body =
+      '## Changed checks\n\n- `a.test.ts` - new\n- `old.test.ts` - x\n- `x/old%0A.test.ts` - y\n';
+    const result = box.runPr(pr(body));
+    expect(result.status).toBe(0);
+    const all = [...lines(result.stdout), ...lines(result.stderr)];
+    expect(all.filter((line) => line.startsWith('::') && !line.startsWith('::warning::'))).toEqual(
+      [],
+    );
+    const warnings = all.filter((line) => line.startsWith('::warning::'));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('old.test.ts');
+    expect(warnings[0]).toContain('x/old%250A.test.ts');
+    expect(lines(result.stdout).at(-1)).toBe('guardrails: PASS (all reported files named)');
   });
 
   it('PR swapping toEqual for toMatchSnapshot with a new .snap fails', () => {
@@ -1000,7 +1196,7 @@ describe('guardrails.ts CLI', () => {
     expectNoPass(result);
   });
 
-  it('PR adding a new test with new fixtures passes without the section', () => {
+  it('PR adding a new test with new fixtures reports only the test', () => {
     const box = sandbox();
     box.base({ 'README.md': 'x\n' });
     box.topic({
@@ -1010,8 +1206,11 @@ describe('guardrails.ts CLI', () => {
     });
     box.merge();
     const result = box.runPr(pr(''));
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('guardrails: PASS (report empty)');
+    expect(result.status).toBe(1);
+    expect(reportLines(result.stdout).slice(1)).toEqual([
+      'guardrails: packages/x/test/a.test.ts - added or changed test file',
+      'guardrails: 1 file(s) need a ## Changed checks entry',
+    ]);
   });
 
   it('PR mode appends the report to GITHUB_STEP_SUMMARY', () => {
@@ -1322,6 +1521,7 @@ describe('guardrails.ts CLI', () => {
     const result = box.runLocal('main');
     expect(result.status).toBe(0);
     expect(reportLines(result.stdout).slice(1, -1)).toEqual([
+      'guardrails: [ab].test.ts - added or changed test file',
       'guardrails: a.test.ts - added eslint-disable, @ts-expect-error, @ts-ignore or as any',
     ]);
   });

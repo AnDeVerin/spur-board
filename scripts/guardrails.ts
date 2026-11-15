@@ -1,7 +1,9 @@
 // `pnpm guardrails [base]`: reports the changes to tests and checks a pull request must explain in
 // its `## Changed checks` section. Locally it compares committed HEAD with its merge base with
 // <base> (default origin/main). In a `pull_request` run it compares the merge ref with its first
-// parent and fails when a reported file is missing from the PR description.
+// parent and fails when a reported file is missing from the PR description. Every added or changed
+// test file with no other finding is reported as `test-file`. A path-like entry naming no changed
+// file is stale: listed in the failure, or a warning on a passing run.
 // Imports only `node:` builtins and ./check-plan.ts, so the CI job skips `pnpm install`.
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -15,6 +17,7 @@ export const RULE_IDS = [
   'config',
   'testkit',
   'added-escape',
+  'test-file',
 ] as const;
 
 type RuleId = (typeof RULE_IDS)[number];
@@ -27,6 +30,7 @@ const RULE_TEXT: Record<RuleId, string> = {
   config: 'changed test, lint, TypeScript or CI config',
   testkit: 'changed shared test kit',
   'added-escape': 'added eslint-disable, @ts-expect-error, @ts-ignore or as any',
+  'test-file': 'added or changed test file',
 };
 
 export interface Hunk {
@@ -348,6 +352,7 @@ function rulesFor(file: FileChange): RuleId[] {
   if (added.some((line) => ESCAPES.some((pattern) => pattern.test(line)))) {
     rules.push('added-escape');
   }
+  if (rules.length === 0 && isTest(path)) rules.push('test-file');
   return rules;
 }
 
@@ -423,6 +428,34 @@ function names(text: string, path: string): boolean {
 export function missingFromSection(body: string | null, paths: string[]): string[] {
   const section = changedChecksText(body ?? '');
   return paths.filter((path) => !names(section, path));
+}
+
+const LIST_ITEM = /^[ \t]{0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+(\S.*)$/;
+const PATH_LIKE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|json|ya?ml|md|snap|sh|toml)$/;
+
+/**
+ * The path-like leading tokens of the section's list items that name none of `changedPaths`, in
+ * order of first appearance. A token is the first backtick span or the first word; globs and
+ * words that are not paths are skipped. A folder token ending in `/` also matches a changed path
+ * it prefixes.
+ */
+export function staleInSection(body: string | null, changedPaths: string[]): string[] {
+  const stale = new Set<string>();
+  for (const line of changedChecksText(body ?? '').split('\n')) {
+    const item = LIST_ITEM.exec(line)?.[1];
+    if (item === undefined) continue;
+    const close = item.startsWith('`') ? item.indexOf('`', 1) : -1;
+    const token = close > 0 ? item.slice(1, close) : (item.split(/\s/)[0] ?? '');
+    const glob = token.replace(/^\*\*(.*)\*\*([^*]*)$/, '$1$2');
+    if (glob.includes('*')) continue;
+    const core = (/^[`"'(\[<]*([^`"'()\[\]<>:#,;]*)/.exec(glob)?.[1] ?? '').replace(/\.$/, '');
+    if (!core.includes('/') && !PATH_LIKE.test(core)) continue;
+    const named = changedPaths.some(
+      (path) => names(token, path) || (core.endsWith('/') && path.startsWith(core)),
+    );
+    if (!named) stale.add(core);
+  }
+  return [...stale];
 }
 
 const VERSION_MASKS = [
@@ -615,15 +648,36 @@ function run(argv: string[], env: NodeJS.ProcessEnv): number {
   if (request === null) return 0;
 
   const missing = missingFromSection(request.body, paths);
-  if (paths.length === 0) out('PASS (report empty)');
-  else if (missing.length === 0) out('PASS (all reported files named)');
+  const stale = staleInSection(
+    request.body,
+    files.map((file) => file.path),
+  );
+  const staleBlock =
+    stale.length === 0
+      ? []
+      : ['Named but not changed by this PR:', ...stale.map((path) => `- ${path}`)];
+  const pass = (reason: string) => {
+    if (stale.length > 0) {
+      const warning = [
+        'guardrails: the "## Changed checks" section names paths this PR does not change.',
+        ...staleBlock,
+      ].join('\n');
+      process.stdout.write(`::warning::${escapeCommand(warning)}\n`);
+    }
+    out(`PASS (${reason})`);
+  };
+  if (paths.length === 0) pass('report empty');
+  else if (missing.length === 0) pass('all reported files named');
   else if (isRenovateVersionOnly(request.user, files)) {
-    out('PASS (renovate[bot] version-only update)');
+    pass('renovate[bot] version-only update');
   } else {
-    const message =
-      `guardrails: add a "## Changed checks" section to the PR description naming: ` +
-      `${missing.join(', ')}. Editing the description re-runs this job; ` +
-      `"Re-run jobs" reuses the old description.`;
+    const message = [
+      'guardrails: add a "## Changed checks" section to the PR description naming each missing file.',
+      'Missing:',
+      ...missing.map((path) => `- ${path}`),
+      ...staleBlock,
+      'Editing the description re-runs this job; "Re-run jobs" reuses the old description.',
+    ].join('\n');
     process.stdout.write(`::error::${escapeCommand(message)}\n`);
     out('FAIL');
     return 1;
