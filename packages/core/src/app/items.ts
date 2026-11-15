@@ -4,7 +4,8 @@ import { isItemKind, ITEM_POLICY } from '../domain/fromYou.ts';
 import { parseJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import type { Trx } from './board-utils.ts';
-import { closeBlockIfOpen } from './blocks.ts';
+import type { ResolvedTarget } from './authorize.ts';
+import { authorizationTarget, closeBlockIfOpen } from './blocks.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { restartNotification, ringTask } from './doorbells.ts';
 import { clearItem, dismissItem } from './feed.ts';
@@ -58,6 +59,24 @@ async function deliveryTask(trx: Trx, item: Item): Promise<Row<'task'> | undefin
   const notificationId =
     typeof payload.notificationId === 'number' ? payload.notificationId : undefined;
   return ringTask(trx, notificationId, row.dedupe_key);
+}
+
+/**
+ * An item of a task is that task's project's; a board item or an unknown ID has no target, so
+ * only the board-wide operator or the token may act on it, and `run` raises the unknown ID.
+ */
+async function itemTarget(trx: Trx, input: { item: string }): Promise<readonly ResolvedTarget[]> {
+  const item = await trx
+    .selectFrom('operator_item')
+    .selectAll()
+    .where('id', '=', Number(input.item.slice(1)))
+    .executeTakeFirst();
+  if (item === undefined) return [];
+  const owner =
+    item.task_id === null
+      ? await deliveryTask(trx, item)
+      : await trx.selectFrom('task').selectAll().where('id', '=', item.task_id).executeTakeFirst();
+  return owner === undefined ? [] : [await authorizationTarget(trx, owner)];
 }
 
 function view(item: Item, task: Row<'task'> | undefined) {
@@ -133,7 +152,7 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
   return {
     retry: {
       id: 'item.retry',
-      resolveTargets: () => Promise.resolve([]),
+      resolveTargets: itemTarget,
       async run(trx, input, ctx) {
         const { item, task } = await loadItem(trx, input.item);
         const owner = task ?? (await deliveryTask(trx, item));
@@ -149,7 +168,7 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
     },
     close: {
       id: 'item.close',
-      resolveTargets: () => Promise.resolve([]),
+      resolveTargets: itemTarget,
       async run(trx, input, ctx) {
         const { item, task } = await loadItem(trx, input.item);
         if (item.cleared_at === null) {

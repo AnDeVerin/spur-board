@@ -2,6 +2,7 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import { OPERATIONS, configSchema, roleCanUseOperation } from '@spur-board/contracts';
 import { afterEach, expect, expectTypeOf, it } from 'vitest';
 import {
+  createApply,
   createObservationCore,
   createOperationRegistry,
   createQuery,
@@ -810,3 +811,87 @@ it('lists other projects operators for a project without one while no board-wide
     defaultAddressee: null,
   });
 });
+
+it.each([
+  ['restores its own project task', 'first-ops', 'add', 'o/first#1', 'allowed'],
+  ['restores another project task', 'first-ops', 'add', 'o/second#2', 'denied'],
+  ['adds a new key', 'first-ops', 'add', 'o/first#9', 'denied'],
+  ['adds a new key as board-wide operator', 'hq', 'add', 'o/first#9', 'allowed'],
+  ['closes its own project item', 'first-ops', 'close', 'I1', 'allowed'],
+  ['closes another project item', 'first-ops', 'close', 'I2', 'denied'],
+  ['closes a board item', 'first-ops', 'close', 'I3', 'denied'],
+  ['closes a board item as board-wide operator', 'hq', 'close', 'I3', 'allowed'],
+] as const)(
+  'scopes target-less operator operations to the owning project under a board-wide operator: %s',
+  async (_name, operator, op, target, status) => {
+    const store = openTempStore('board-registry-').store;
+    stores.push(store);
+    const boardWide = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) =>
+        project.id === 'first'
+          ? {
+              ...project,
+              spurProjects: [...project.spurProjects, { name: 'first-ops', role: 'operator' }],
+            }
+          : project,
+      ),
+      spurProjects: [{ name: 'hq', role: 'operator' }],
+    });
+    const at = new Date(clock.now());
+    await scanTransaction(store, boardWide, async (trx) => {
+      for (const [project, key, membership] of [
+        ['first', 'o/first#1', 'archived'],
+        ['second', 'o/second#2', 'archived'],
+        ['first', 'o/first#3', 'active'],
+        ['second', 'o/second#4', 'active'],
+      ] as const) {
+        await trx
+          .insertInto('task')
+          .values({
+            project,
+            tracker_kind: 'github-issues',
+            tracker_id: key,
+            key,
+            membership,
+            archive_reason: membership === 'archived' ? 'manual' : null,
+            column: 'todo',
+            shadow_column: null,
+            created_at: at.toISOString(),
+            last_change_at: null,
+            terminal_at: null,
+            archive_slot_at: null,
+          })
+          .execute();
+      }
+      for (const [itemKey, taskId] of [
+        ['inbound:failure:first', 3],
+        ['inbound:failure:second', 4],
+        ['inbound:failure:board', null],
+      ] as const) {
+        await raiseItem(trx, {
+          itemKey,
+          kind: 'inbound_failure',
+          text: 'An inbound reply failed',
+          url: '',
+          taskId,
+          blockId: null,
+          at,
+        });
+      }
+    });
+    const registry = createOperationRegistry({
+      config: boardWide,
+      clock,
+      completeSince: new Map(),
+    });
+    const apply = createApply({ store, clock, config: boardWide });
+    const actor = `agent:${operator}/session-1` as const;
+    const run =
+      op === 'add'
+        ? apply(registry['task.add'], { task: target }, actor, 'k-1')
+        : apply(registry['item.close'], { item: target }, actor, 'k-1');
+    if (status === 'allowed') await expect(run).resolves.toBeDefined();
+    else await expect(run).rejects.toMatchObject({ code: 'forbidden' });
+  },
+);
