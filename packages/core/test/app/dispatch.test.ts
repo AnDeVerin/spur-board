@@ -3289,7 +3289,7 @@ describe('design flows 2.5 and 2.10', () => {
         ).toEqual([
           {
             type: 'code',
-            reason: expect.stringContaining('Handle the empty list.'),
+            reason: 'Handle the empty list.',
             addressee_role: 'worker',
             state: 'open',
           },
