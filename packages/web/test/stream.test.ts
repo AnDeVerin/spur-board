@@ -1,3 +1,5 @@
+import { statusOutputSchema } from '@spur-board/contracts/browser';
+import { coordinateStatus } from '../src/lib/api.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { connectStream, type StreamState, type RefreshScope } from '../src/lib/stream.ts';
 function server() {
@@ -111,33 +113,116 @@ describe('stream client', () => {
     s.send('lo\r\nid: 12\r\ndata: {"head":1,"instance":"a"}\r');
     s.send('\n\r\n');
     await flush();
-    expect(refreshes).toEqual([]);
+    expect(refreshes).toEqual([null]);
     s.send(
       'event: invalidate\ndata: {"projects":["p"],"tasks":["a"]}\n\nevent: invalidate\ndata: {"projects":["q","p"],"tasks":["b"]}\n\n',
     );
     await flush();
     await vi.advanceTimersByTimeAsync(399);
-    expect(refreshes).toEqual([]);
+    expect(refreshes).toEqual([null]);
     await vi.advanceTimersByTimeAsync(1);
-    expect(refreshes).toEqual([{ projects: ['p', 'q'], tasks: ['a', 'b'] }]);
+    expect(refreshes).toEqual([null, { projects: ['p', 'q'], tasks: ['a', 'b'] }]);
     s.eof();
     await flush();
     await vi.advanceTimersByTimeAsync(500);
     expect(s.headers.at(-1)?.get('Last-Event-ID')).toBe('12');
     s.send('event: hello\ndata: {"head":1,"instance":"a"}\n\n');
     await flush();
-    expect(refreshes).toHaveLength(1);
+    expect(refreshes).toHaveLength(2);
     s.send(
       'event: hello\ndata: {"head":2,"instance":"a"}\n\nevent: hello\ndata: {"head":2,"instance":"b"}\n\n',
     );
     await flush();
-    expect(refreshes).toEqual([{ projects: ['p', 'q'], tasks: ['a', 'b'] }, null, null]);
+    expect(refreshes).toEqual([null, { projects: ['p', 'q'], tasks: ['a', 'b'] }, null, null]);
     s.send(
       'event: invalidate\ndata: {"tasks":["c"]}\n\nevent: reset\ndata: {}\n\nevent: status\ndata: unspecified\n\n',
     );
     await flush();
     await vi.advanceTimersByTimeAsync(400);
-    expect(refreshes).toHaveLength(5);
+    expect(refreshes).toHaveLength(6);
+    stream.stop();
+  });
+  it.each(['completed', 'pending'])(
+    'refreshes on the first valid hello after a %s initial status read',
+    async (state) => {
+      vi.useFakeTimers();
+      const snapshot = (warmingUp: boolean) =>
+        statusOutputSchema.parse({
+          items: [],
+          warmingUp,
+          spurUnavailable: null,
+          hostLoad: null,
+          transport: [],
+          sources: [],
+          tasks: [],
+          projectBlocks: [],
+          unlinkedPrs: [],
+          unlinkedSessions: [],
+          hiddenUnlinkedPrs: 0,
+          hiddenUnlinkedSessions: 0,
+          bindings: { columns: [], operators: [], defaultAddressee: null },
+        });
+      let release!: (value: ReturnType<typeof snapshot>) => void;
+      const pending = new Promise<ReturnType<typeof snapshot>>((resolve) => {
+        release = resolve;
+      });
+      let reads = 0;
+      const published: boolean[] = [];
+      const coordinator = coordinateStatus(
+        () => {
+          reads++;
+          return reads === 1
+            ? state === 'pending'
+              ? pending
+              : Promise.resolve(snapshot(false))
+            : Promise.resolve(snapshot(true));
+        },
+        (value) => {
+          if (value) published.push(value.warmingUp);
+        },
+      );
+      coordinator.refresh();
+      const s = server();
+      const stream = connectStream({
+        fetch: s.fetcher,
+        state() {},
+        refresh() {
+          coordinator.refresh();
+        },
+      });
+      await flush();
+      expect(reads).toBe(1);
+      s.send('event: hello\ndata: {"head":5,"instance":"current"}\n\n');
+      await flush();
+      if (state === 'pending') {
+        expect(reads).toBe(1);
+        release(snapshot(false));
+        await flush();
+        await flush();
+      }
+      expect(reads).toBe(2);
+      expect(published).toEqual([false, true]);
+      stream.stop();
+      coordinator.dispose();
+    },
+  );
+  it('retains ID-only records, ignores NUL IDs and clears an empty cursor', async () => {
+    vi.useFakeTimers();
+    const s = server();
+    const stream = connectStream({ fetch: s.fetcher, state() {}, refresh() {} });
+    await flush();
+    s.send('id: 13\n\nid: bad\0cursor\n\n');
+    await flush();
+    s.eof();
+    await flush();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(s.headers.at(-1)?.get('Last-Event-ID')).toBe('13');
+    s.send('id:\n\n');
+    await flush();
+    s.eof();
+    await flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(s.headers.at(-1)?.has('Last-Event-ID')).toBe(false);
     stream.stop();
   });
   it.each(['connected', 'reconnecting', 'debouncing'])('stops all work while %s', async (state) => {

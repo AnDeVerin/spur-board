@@ -38,9 +38,8 @@ export function connectStream(options: StreamOptions) {
     clearScopes();
     options.refresh(null);
   };
-  const message = (event: string, data: string, id: string | undefined) => {
+  const message = (event: string, data: string) => {
     if (stopped) return;
-    if (id !== undefined && !id.includes('\0')) lastId = id;
     if (event === 'reset') {
       fullRefresh();
       return;
@@ -58,7 +57,7 @@ export function connectStream(options: StreamOptions) {
     if (event === 'hello') {
       const parsed = helloSchema.safeParse(payload);
       if (!parsed.success) return;
-      if (hello && (hello.head !== parsed.data.head || hello.instance !== parsed.data.instance))
+      if (!hello || hello.head !== parsed.data.head || hello.instance !== parsed.data.instance)
         fullRefresh();
       hello = parsed.data;
       failures = 0;
@@ -95,13 +94,11 @@ export function connectStream(options: StreamOptions) {
       let buffer = '';
       let event = 'message';
       let data: string[] = [];
-      let id: string | undefined;
       const line = (value: string) => {
         if (value === '') {
-          if (data.length > 0) message(event, data.join('\n'), id);
+          if (data.length > 0) message(event, data.join('\n'));
           event = 'message';
           data = [];
-          id = undefined;
           return;
         }
         if (value.startsWith(':')) return;
@@ -110,7 +107,7 @@ export function connectStream(options: StreamOptions) {
         const content = colon < 0 ? '' : value.slice(colon + 1).replace(/^ /, '');
         if (field === 'event') event = content;
         if (field === 'data') data.push(content);
-        if (field === 'id') id = content;
+        if (field === 'id' && !content.includes('\0')) lastId = content;
       };
       while (!isStopped()) {
         const chunk = await reader.read();

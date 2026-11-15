@@ -38,7 +38,9 @@ The private web package builds an empty desktop shell with task count, named sou
 stream state, a persistent Light/Dark/Auto theme choice and the packaged version in its footer.
 It uses local JetBrains Mono fonts and the V1 prototype tokens. Read failures retain previous
 status as stale; stream failures reconnect with capped backoff and show offline after five
-failed attempts while continuing recovery.
+failed attempts while continuing recovery. The first valid stream handshake refreshes status
+to close the startup read race; later changes to the stream head or instance also refresh it.
+Reconnects retain valid SSE cursors, including ID-only records, until the server clears them.
 
 The daemon will serve the packaged SPA when the separate web listener (#530) lands; the stream
 server is #533. This package supplies clients and installed assets only. The existing agent
