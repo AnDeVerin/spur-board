@@ -94,11 +94,23 @@ function onKeyDown(event: KeyboardEvent): void {
 }
 
 /**
- * Marks every element child of `body` except the top layer's root `inert`, and gives each element
- * that leaves that set its own earlier state back. With no layer open it restores everything,
- * releases the scroll lock and drops the key listener. Only the attribute is written.
+ * Keeps the layer roots in `body` in stack order, so that paint order (document order within one
+ * z level) equals the stack: walking down from the top, a root found after the root above it
+ * moves right before that root. The top root never moves; React inserts a nested layer's root
+ * before its parent's in one commit, and only then does a lower root land out of order.
+ *
+ * Then marks every element child of `body` except the top layer's root `inert`, and gives each
+ * element that leaves that set its own earlier state back. With no layer open it restores
+ * everything, releases the scroll lock and drops the key listener. Only the attribute is written.
  */
 function sync(): void {
+  for (let index = stack.length - 2; index >= 0; index--) {
+    const { root } = stack[index] as Entry;
+    const above = (stack[index + 1] as Entry).root;
+    const inBody = root.parentNode === document.body && above.parentNode === document.body;
+    if (inBody && root.compareDocumentPosition(above) & Node.DOCUMENT_POSITION_PRECEDING)
+      document.body.insertBefore(root, above);
+  }
   const top = stack.at(-1);
   const targets = new Set<Element>(
     top ? [...document.body.children].filter((element) => element !== top.root) : [],
@@ -160,6 +172,9 @@ function remove(entry: Entry): boolean {
  * layer (`--z-modal` over `--z-panel`); within one level a layer rendered inside another sits
  * above it, even when both mount in one commit, where React runs the inner effect first; other
  * layers of one level stack in mount order, so siblings mounting in one commit keep render order.
+ * Paint order equals stack order: the layer roots stay in `body` in stack order (`sync` moves a
+ * lower root that React inserted after a higher one), so a layer above another of the same level
+ * also paints above it.
  *
  * Mounted means open. On mount it records the focused element as the opener, joins the layer
  * stack in that order (the first layer locks `<html>` scrolling), makes everything outside the

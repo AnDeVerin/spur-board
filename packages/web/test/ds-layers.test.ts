@@ -268,15 +268,20 @@ describe('Modal and SidePanel', () => {
       expect(document.activeElement).toBe(opener);
     });
 
-    // The inbox panel (or an outer modal) and the task modal, nested or as a sibling before it.
-    type Layout = { nested?: boolean; Outer?: typeof Modal };
-    function Stack({ nested = true, Outer = SidePanel }: Layout) {
+    // The inbox panel (or an outer modal) and the task layer (a modal unless `Inner` says
+    // otherwise), nested in the inbox or as a sibling rendered before or after it.
+    type Layout = {
+      place?: 'inside' | 'before' | 'after';
+      Outer?: typeof Modal;
+      Inner?: typeof Modal;
+    };
+    function Stack({ place = 'inside', Outer = SidePanel, Inner = Modal }: Layout) {
       const [shown, setShown] = useState({ inbox: false, task: false });
       // Each handler is one state update: "Open both" mounts both layers in one commit.
       const set = (change: Partial<typeof shown>) => () => {
         setShown((now) => ({ ...now, ...change }));
       };
-      const modal = createElement(Modal, {
+      const modal = createElement(Inner, {
         open: shown.task,
         onClose: set({ task: false }),
         title: 'Task',
@@ -287,7 +292,7 @@ describe('Modal and SidePanel', () => {
         null,
         createElement('button', { onClick: set({ inbox: true }) }, 'Open inbox'),
         createElement('button', { onClick: set({ inbox: true, task: true }) }, 'Open both'),
-        nested ? null : modal,
+        place === 'before' ? modal : null,
         createElement(Outer, {
           open: shown.inbox,
           onClose: set({ inbox: false }),
@@ -296,9 +301,10 @@ describe('Modal and SidePanel', () => {
             Fragment,
             null,
             createElement('button', { onClick: set({ task: true }) }, 'Open task'),
-            nested ? modal : null,
+            place === 'inside' ? modal : null,
           ),
         }),
+        place === 'after' ? modal : null,
       );
     }
     const titleOf = (dialog: Element | null) =>
@@ -315,7 +321,8 @@ describe('Modal and SidePanel', () => {
         .filter((element) => element.hasAttribute('inert'))
         .map((element) => element.id || titleOf(element.querySelector('[role="dialog"]')))
         .sort();
-    const open = () => dialogs().map(titleOf).sort();
+    // Layer roots in document order, which is their paint order within one z level: bottom first.
+    const open = () => dialogs().map(titleOf);
 
     type Case = Layout & { name: string; clicks: string[]; strict?: boolean };
     const apart = ['Task Close', 'Inbox Open task', 'Open inbox'];
@@ -325,13 +332,27 @@ describe('Modal and SidePanel', () => {
       { name: 'panel, then its modal', clicks: ['Open inbox', 'Open task'], focus: apart },
       { name: 'panel and nested modal in one commit', clicks: both, focus: together },
       { name: 'the same under StrictMode', clicks: both, strict: true, focus: together },
-      { name: 'sibling modal first, one commit', clicks: both, nested: false, focus: together },
+      { name: 'sibling modal first, one commit', clicks: both, place: 'before', focus: together },
       { name: 'modal nested in a modal, one commit', clicks: both, Outer: Modal, focus: together },
+      {
+        name: 'panel nested in a panel, one commit',
+        clicks: both,
+        Inner: SidePanel,
+        focus: together,
+      },
+      {
+        name: 'sibling modal after a modal, one commit',
+        clicks: both,
+        place: 'after',
+        Outer: Modal,
+        focus: together,
+      },
     ])('stacks layers in visual order: $name', ({ clicks, strict, focus, ...layout }) => {
       const stack = createElement(Stack, layout);
       render(strict ? createElement(StrictMode, null, stack) : stack);
       for (const name of clicks) press(button(name));
-      // The modal is on top (page and outer layer inert); each Escape closes the top layer.
+      // Task is on top (page and outer layer inert) and its root is the last layer root, so it
+      // also paints on top; each Escape closes the top layer.
       const after = [
         { open: ['Inbox', 'Task'], inert: ['Inbox', 'root'] },
         { open: ['Inbox'], inert: ['root'] },
