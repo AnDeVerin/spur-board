@@ -2,8 +2,14 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, inject, it } from 'vitest';
 import type {} from '../packages/testkit/src/global-setup.ts';
-import { createShellQaServer, shellFixture, shellScenarios } from './web-shell-qa.ts';
-import { statusOutputSchema } from '../packages/contracts/src/browser.ts';
+import {
+  createShellQaServer,
+  shellConfig,
+  shellFixture,
+  shellInbox,
+  shellScenarios,
+} from './web-shell-qa.ts';
+import { browserOperations, statusOutputSchema } from '../packages/contracts/src/browser.ts';
 
 const root = join(import.meta.dirname, '../packages/web');
 const webAssetsRoot = inject('webAssetsRoot');
@@ -344,6 +350,13 @@ describe('shell QA scenarios', () => {
   it.each(shellScenarios)('%s fixture conforms to the production status shape', (name) => {
     expect(statusOutputSchema.safeParse(shellFixture(name)).success).toBe(true);
   });
+  it('config and inbox fixtures conform to the browser read shapes', () => {
+    expect(browserOperations['config.get'].output.safeParse(shellConfig()).success).toBe(true);
+    expect(browserOperations['inbox.operator'].output.safeParse(shellInbox()).success).toBe(true);
+    expect(shellConfig().projects.map((project) => project.id)).toEqual([
+      ...new Set(shellFixture('healthy').tasks.map((task) => task.project)),
+    ]);
+  });
   it('provides empty, mixed-health long-name and recovery data', () => {
     expect(shellFixture('empty').tasks).toHaveLength(0);
     const mixed = shellFixture('mixed').sources;
@@ -364,16 +377,46 @@ it('serves built assets and controlled status/error/recovery fixtures on loopbac
     if (!address || typeof address === 'string') throw new Error('Missing fixture address');
     const origin = `http://127.0.0.1:${String(address.port)}`;
     expect((await fetch(origin)).status).toBe(200);
+    const queries = Object.values(browserOperations).filter((op) => op.kind === 'query');
+    for (const op of queries) {
+      const response = await fetch(`${origin}/v1/ops/${op.id}`, { method: 'POST' });
+      expect(response.status, op.id).toBe(200);
+      await response.body?.cancel();
+    }
     for (const name of ['empty', 'mixed', 'read-error', 'recovered']) {
       expect((await fetch(`${origin}/__qa/scenario/${name}`, { method: 'POST' })).status).toBe(204);
       const response = await fetch(`${origin}/v1/ops/status.get`, { method: 'POST' });
-      if (name === 'read-error') expect(response.status).toBe(500);
-      else {
+      const config = await fetch(`${origin}/v1/ops/config.get`, { method: 'POST' });
+      const inbox = await fetch(`${origin}/v1/ops/inbox.operator`, { method: 'POST' });
+      if (name === 'read-error') {
+        expect([response.status, config.status, inbox.status]).toEqual([500, 500, 500]);
+        await Promise.all([response, config, inbox].map((answer) => answer.text()));
+      } else {
         const body = (await response.json()) as { value: unknown };
         expect(statusOutputSchema.parse(body.value)).toEqual(
           shellFixture(name === 'empty' ? 'empty' : name === 'mixed' ? 'mixed' : 'recovered'),
         );
+        const configBody = (await config.json()) as { value: unknown };
+        expect(browserOperations['config.get'].output.parse(configBody.value)).toEqual(
+          shellConfig(),
+        );
+        const inboxBody = (await inbox.json()) as { value: unknown };
+        expect(browserOperations['inbox.operator'].output.parse(inboxBody.value)).toEqual(
+          shellInbox(),
+        );
       }
+    }
+    expect((await fetch(`${origin}/__qa/scenario/loading`, { method: 'POST' })).status).toBe(204);
+    const pending = queries.map((op) => fetch(`${origin}/v1/ops/${op.id}`, { method: 'POST' }));
+    const early = await Promise.race([
+      Promise.all(pending).then(() => 'answered'),
+      new Promise((resolve) => setTimeout(resolve, 100, 'held')),
+    ]);
+    expect(early).toBe('held');
+    expect((await fetch(`${origin}/__qa/release`, { method: 'POST' })).status).toBe(204);
+    for (const response of await Promise.all(pending)) {
+      expect(response.status).toBe(200);
+      await response.body?.cancel();
     }
     const events = await fetch(`${origin}/v1/events`);
     expect(events.status).toBe(200);
