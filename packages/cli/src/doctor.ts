@@ -583,7 +583,7 @@ export async function runDoctor(
       ? result('stand.port_range', true, '')
       : warning(
           'stand.port_range',
-          `Implicit stand port range ${String(range.min)}..${String(range.max)} overlaps ${overlaps.join(', ')}. Set a nonoverlapping stand.portRange. Range allocation and exclusions are deferred to #534; current stand behavior is unchanged.`,
+          `Implicit stand port range ${String(range.min)}..${String(range.max)} overlaps ${overlaps.join(', ')}. Set a nonoverlapping stand.portRange. The stand refuses the overlapping ports.`,
         ),
   );
   if (options.offline) return checks;

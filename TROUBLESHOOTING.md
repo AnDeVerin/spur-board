@@ -41,8 +41,8 @@ remain usable. See [Security](SECURITY.md) before enabling anonymous operator ac
 Reports the effective stand port range, including offline. Omission uses 4780..4799 and preserves
 legacy configs: overlap with `http.port` or `web.port` produces a nonblocking warning naming
 each port. Set a nonoverlapping `stand.portRange` to clear it. Explicit ranges, including `{}`
-with default endpoints, reject overlaps during config validation. Range allocation and exclusions
-are deferred to #534; current stand allocation and guards are unchanged.
+with default endpoints, reject overlaps during config validation. The stand takes its API and web
+ports from this range and refuses `http.port` and `web.port`.
 
 ### service.installed
 
