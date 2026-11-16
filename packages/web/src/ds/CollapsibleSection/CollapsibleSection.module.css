@@ -1,0 +1,72 @@
+.root {
+  min-width: 0;
+}
+/* Sticks to the top of the scrolling parent until the end of its own section pushes it away. */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--size-section-header);
+  background: var(--color-bg-base);
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+  color: var(--color-text-secondary);
+  cursor: default;
+  user-select: none;
+}
+/* Count, summary and the resting chevron read tertiary, so the quiet root brightens them. */
+.chevron {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-chevron);
+  height: var(--size-chevron);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.chevron:hover {
+  color: var(--color-text-primary);
+}
+.chevron:focus-visible {
+  outline: var(--size-hairline) solid var(--color-status-working);
+  outline-offset: var(--offset-ring);
+}
+.chevron[aria-expanded='false'] svg {
+  transform: rotate(var(--rotate-collapsed));
+}
+.title,
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.title {
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-secondary);
+}
+.count {
+  flex-shrink: 0;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.summary {
+  margin-left: auto;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+/* No display rule: the hidden attribute hides the collapsed body. */
+.body {
+  padding: var(--space-2) 0 var(--space-4);
+}

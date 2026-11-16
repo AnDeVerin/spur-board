@@ -1,0 +1,67 @@
+.tablist {
+  display: flex;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab:focus-visible {
+  outline: var(--size-hairline) solid var(--color-status-working);
+  outline-offset: var(--offset-ring);
+}
+.count {
+  color: var(--color-text-tertiary);
+}
+
+/* underline: a view switch that stretches to the height of its header row */
+.underline {
+  align-self: stretch;
+}
+.underline .tab {
+  flex-shrink: 0;
+  padding: 0 var(--space-3);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  color: var(--color-text-tertiary);
+  border-bottom: var(--size-hairline) solid transparent;
+  /* The underline sits on the header row's bottom border. */
+  margin-bottom: calc(-1 * var(--space-0-25));
+}
+.underline .tab:hover {
+  color: var(--color-text-secondary);
+}
+.underline .tab[aria-selected='true'] {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-text-primary);
+}
+
+/* segmented: a boxed filter row that wraps on a narrow screen */
+.segmented {
+  flex-wrap: wrap;
+  align-self: flex-start;
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.segmented .tab {
+  height: var(--size-icon-button);
+  padding: 0 var(--space-2-5);
+  letter-spacing: var(--tracking-bar);
+  color: var(--color-text-secondary);
+}
+.segmented .tab + .tab {
+  border-left: var(--size-hairline) solid var(--color-border-default);
+}
+.segmented .tab[aria-selected='true'] {
+  color: var(--color-text-primary);
+  background: var(--color-row-hover);
+  box-shadow: inset 0 calc(-1 * var(--size-hairline)) 0 var(--color-text-primary);
+}
