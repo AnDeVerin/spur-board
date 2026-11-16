@@ -1,0 +1,29 @@
+.dot {
+  display: inline-block;
+  flex: none;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: 50%;
+  vertical-align: middle;
+  background: var(--c);
+  box-shadow: 0 0 4px var(--c);
+}
+.ok {
+  --c: var(--color-status-ready);
+}
+.warn {
+  --c: var(--color-status-attention);
+}
+.error {
+  --c: var(--color-status-error);
+}
+/* No status known yet: a neutral hollow dot that brightens under the quiet class. */
+.unknown {
+  --c: var(--color-text-tertiary);
+}
+.hollow,
+.unknown {
+  background: transparent;
+  box-shadow: none;
+  border: 1px solid var(--c);
+}

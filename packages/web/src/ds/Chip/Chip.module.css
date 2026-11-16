@@ -1,0 +1,25 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-border-default);
+  padding: 1px 6px;
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.warn {
+  color: var(--color-status-attention);
+  border-color: var(--color-status-attention);
+  background: var(--color-fill-attention);
+}
+.you {
+  background: var(--color-you-bg);
+  color: var(--color-you-text);
+  border-color: var(--color-you-bg);
+  font-weight: 700;
+}
+.ghost {
+  border-style: dashed;
+  color: var(--color-text-tertiary);
+}

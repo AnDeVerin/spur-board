@@ -1,4 +1,6 @@
-export type ThemePreference = 'light' | 'dark' | 'auto';
+import type { ThemePreference } from '../ds/index.ts';
+
+export type { ThemePreference };
 interface Media {
   readonly matches: boolean;
   addEventListener(type: 'change', callback: () => void): void;

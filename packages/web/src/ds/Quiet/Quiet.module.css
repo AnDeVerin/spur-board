@@ -1,0 +1,10 @@
+/* Tertiary text turns secondary while a quiet container is hovered or holds focus. */
+.quiet:is(:hover, :focus-within) {
+  --color-text-tertiary: var(--color-text-secondary);
+}
+/* Without hover, quiet containers always read secondary. */
+@media (hover: none) {
+  .quiet {
+    --color-text-tertiary: var(--color-text-secondary);
+  }
+}
