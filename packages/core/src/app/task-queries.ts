@@ -15,7 +15,7 @@ import { dispatchHolds } from '../domain/dispatch.ts';
 import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../domain/gates.ts';
 import type { TaskTable } from '../store/schema.ts';
 import { authorize, projectTarget } from './authorize.ts';
-import { blockView, commentView, subjectTarget, taskTarget } from './blocks.ts';
+import { blockView, commentView, subjectTarget, taskBlockViews, taskTarget } from './blocks.ts';
 import { eventActor, linkView, moveViews, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
@@ -320,7 +320,7 @@ export function createTaskQueries(deps: {
     async run(trx, input) {
       const task = await taskByKey(trx, taskKey(input.task));
       const [blocks, comments, links] = await Promise.all([
-        trx.selectFrom('block').selectAll().where('task_id', '=', task.id).orderBy('id').execute(),
+        taskBlockViews(trx, task),
         trx
           .selectFrom('comment')
           .selectAll()
@@ -350,7 +350,7 @@ export function createTaskQueries(deps: {
           const observed = PR_STATES.find((value) => value === state);
           return { ...linkView(link), ...(observed === undefined ? {} : { state: observed }) };
         }),
-        blocks: blocks.map((block) => blockView(block, subject)),
+        blocks,
         comments: comments.map((comment) => commentView(comment, subject)),
         ...(input.why === true ? { why: await why(trx, task) } : {}),
       };

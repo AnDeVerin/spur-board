@@ -1,5 +1,5 @@
 {
-  "version": "a9cac938a05f859cfcd0334855836d2aa445a49c225bd15d1a36e12c13174e02",
+  "version": "b54e40f57bb9e45eec356e7ac19b395b24ae38f75f158c4c265185df5f4a9207",
   "grants": [
     "operator",
     "project-agent",
@@ -3196,7 +3196,8 @@
                 "outcome": null,
                 "outcomeReason": null,
                 "unblockedBy": null,
-                "unblockedAt": null
+                "unblockedAt": null,
+                "answeredVia": null
               },
               {
                 "id": "B13",
@@ -3210,7 +3211,8 @@
                 "outcome": null,
                 "outcomeReason": null,
                 "unblockedBy": null,
-                "unblockedAt": null
+                "unblockedAt": null,
+                "answeredVia": null
               }
             ],
             "comments": [
@@ -4313,6 +4315,10 @@
                     { "type": "null" }
                   ],
                   "description": "When the block was unblocked; null while open."
+                },
+                "answeredVia": {
+                  "anyOf": [{ "type": "string", "enum": ["web", "slack"] }, { "type": "null" }],
+                  "description": "Channel the closing write arrived through: web or slack; null while open or when it came through the CLI, MCP or the board itself."
                 }
               },
               "required": [
@@ -4327,10 +4333,11 @@
                 "outcome",
                 "outcomeReason",
                 "unblockedBy",
-                "unblockedAt"
+                "unblockedAt",
+                "answeredVia"
               ],
               "additionalProperties": false,
-              "description": "A block on a task."
+              "description": "A block on a task, with the channel that closed it."
             },
             "description": "Blocks on the task, open and unblocked."
           },
@@ -6092,6 +6099,319 @@
           }
         },
         "required": ["comments", "blocks", "turns"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "inbox.operator",
+      "kind": "query",
+      "description": "List what waits for the operator and what was handled in the last 24 hours; a project's own operator session sees only its operator projects, and _board entries only when no board-wide operator is configured.",
+      "grants": [{ "grant": "operator" }],
+      "preconditions": null,
+      "errors": [
+        "usage",
+        "forbidden",
+        "not_implemented",
+        "identity_unavailable",
+        "starting",
+        "stopping"
+      ],
+      "cli": { "command": "inbox operator", "args": [], "modes": null, "key": null },
+      "mcp": {
+        "name": "inbox_operator",
+        "key": null,
+        "whenToUse": "As the operator, review every open operator item, block and turn across projects in one list.",
+        "whenNotToUse": "Use inbox_get for the comments, blocks and turns addressed to an agent.",
+        "destructive": false
+      },
+      "slack": null,
+      "web": true,
+      "examples": [
+        {
+          "summary": "Read the operator inbox",
+          "input": {},
+          "output": {
+            "items": [
+              {
+                "id": "B12",
+                "project": "web",
+                "kind": "block",
+                "severity": "attention",
+                "text": "Which API version should the client target?",
+                "at": "2026-01-05T10:15:00.000Z",
+                "task": "PROJ-123",
+                "answeredVia": null
+              },
+              {
+                "id": "I9",
+                "project": "_board",
+                "kind": "transport_health",
+                "severity": "failure",
+                "text": "slack delivery down since 2026-01-05T09:30:00.000Z (connection lost): check the Slack app tokens",
+                "at": "2026-01-05T09:30:00.000Z",
+                "task": null
+              },
+              {
+                "id": "T5",
+                "project": "web",
+                "kind": "turn",
+                "severity": "attention",
+                "text": "Your turn T5: The pull request is ready to merge.",
+                "at": "2026-01-05T09:30:00.000Z",
+                "task": "PROJ-124",
+                "column": "ready-to-merge"
+              }
+            ],
+            "handled": [
+              {
+                "id": "B11",
+                "project": "web",
+                "kind": "block",
+                "severity": "attention",
+                "text": "May the client drop v1?",
+                "at": "2026-01-05T09:30:00.000Z",
+                "task": "PROJ-123",
+                "answeredVia": "slack",
+                "handledAt": "2026-01-05T10:15:00.000Z"
+              }
+            ]
+          }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^I[1-9]\\d{0,14}$",
+                      "description": "Item ID: I followed by a number, e.g. I7."
+                    },
+                    {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^B[1-9]\\d{0,14}$",
+                      "description": "Block ID: B followed by a number, e.g. B12."
+                    },
+                    {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^T[1-9]\\d{0,14}$",
+                      "description": "Turn ID: T followed by a number, e.g. T4."
+                    }
+                  ],
+                  "description": "Item (I), block (B) or turn (T) ID; stable while the entry exists."
+                },
+                "project": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Board project the entry belongs to; _board for a board-wide one."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "block",
+                    "token_request",
+                    "post_blocked",
+                    "post_failed",
+                    "transport_health",
+                    "answer_undelivered",
+                    "worker_not_reading",
+                    "answer_author_unavailable",
+                    "inbound_failure",
+                    "inbound_gap",
+                    "board_observation",
+                    "worker_ended",
+                    "turn",
+                    "anomaly",
+                    "cycle_limit",
+                    "course_check",
+                    "conversation_waiting"
+                  ],
+                  "description": "block for a block addressed to the operator, turn for a turn, else the item kind."
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": ["attention", "failure"],
+                  "description": "failure: something broke and the text says what to check; attention: a decision or answer is wanted."
+                },
+                "text": {
+                  "type": "string",
+                  "description": "What needs the operator, in one line."
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When the entry was raised or opened, ISO 8601 UTC."
+                },
+                "task": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                      "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Task the entry is about; null when it has none."
+                },
+                "column": {
+                  "description": "Column of a turn; absent on other entries.",
+                  "type": "string",
+                  "enum": [
+                    "todo",
+                    "ready-for-dev",
+                    "dev",
+                    "review",
+                    "product-review",
+                    "external-review",
+                    "qa",
+                    "ready-to-merge",
+                    "done"
+                  ]
+                },
+                "answeredVia": {
+                  "description": "On a block: web or slack when the closing write arrived that way, else null; absent on other entries.",
+                  "anyOf": [{ "type": "string", "enum": ["web", "slack"] }, { "type": "null" }]
+                }
+              },
+              "required": ["id", "project", "kind", "severity", "text", "at", "task"],
+              "additionalProperties": false,
+              "description": "One entry of the operator inbox."
+            },
+            "description": "Open operator items, blocks addressed to the operator and operator turns, newest first; a block or turn is listed once, not with its items."
+          },
+          "handled": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^I[1-9]\\d{0,14}$",
+                      "description": "Item ID: I followed by a number, e.g. I7."
+                    },
+                    {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^B[1-9]\\d{0,14}$",
+                      "description": "Block ID: B followed by a number, e.g. B12."
+                    },
+                    {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^T[1-9]\\d{0,14}$",
+                      "description": "Turn ID: T followed by a number, e.g. T4."
+                    }
+                  ],
+                  "description": "Item (I), block (B) or turn (T) ID; stable while the entry exists."
+                },
+                "project": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Board project the entry belongs to; _board for a board-wide one."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "block",
+                    "token_request",
+                    "post_blocked",
+                    "post_failed",
+                    "transport_health",
+                    "answer_undelivered",
+                    "worker_not_reading",
+                    "answer_author_unavailable",
+                    "inbound_failure",
+                    "inbound_gap",
+                    "board_observation",
+                    "worker_ended",
+                    "turn",
+                    "anomaly",
+                    "cycle_limit",
+                    "course_check",
+                    "conversation_waiting"
+                  ],
+                  "description": "block for a block addressed to the operator, turn for a turn, else the item kind."
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": ["attention", "failure"],
+                  "description": "failure: something broke and the text says what to check; attention: a decision or answer is wanted."
+                },
+                "text": {
+                  "type": "string",
+                  "description": "What needs the operator, in one line."
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When the entry was raised or opened, ISO 8601 UTC."
+                },
+                "task": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                      "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Task the entry is about; null when it has none."
+                },
+                "column": {
+                  "description": "Column of a turn; absent on other entries.",
+                  "type": "string",
+                  "enum": [
+                    "todo",
+                    "ready-for-dev",
+                    "dev",
+                    "review",
+                    "product-review",
+                    "external-review",
+                    "qa",
+                    "ready-to-merge",
+                    "done"
+                  ]
+                },
+                "answeredVia": {
+                  "description": "On a block: web or slack when the closing write arrived that way, else null; absent on other entries.",
+                  "anyOf": [{ "type": "string", "enum": ["web", "slack"] }, { "type": "null" }]
+                },
+                "handledAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When it was cleared, answered or closed, ISO 8601 UTC."
+                }
+              },
+              "required": ["id", "project", "kind", "severity", "text", "at", "task", "handledAt"],
+              "additionalProperties": false,
+              "description": "An operator inbox entry handled in the last 24 hours."
+            },
+            "description": "At most 20 entries handled in the last 24 hours, newest first."
+          }
+        },
+        "required": ["items", "handled"],
         "additionalProperties": false
       }
     },

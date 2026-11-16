@@ -10,6 +10,7 @@ import {
   GATE_CONDITION_STATES,
   MEMBERSHIPS,
   TASK_HOLDS,
+  VIAS,
 } from '../enums.ts';
 import { GATE_REASONS, MOVE_REASONS } from '../events.ts';
 import {
@@ -102,6 +103,18 @@ export const blockViewSchema = z
       .describe('When the block was unblocked; null while open.'),
   })
   .describe('A block on a task.');
+
+/** A block as `task.get` lists it: with the channel its closing answer arrived through. */
+export const taskBlockViewSchema = blockViewSchema
+  .extend({
+    answeredVia: z
+      .enum(VIAS)
+      .nullable()
+      .describe(
+        'Channel the closing write arrived through: web or slack; null while open or when it came through the CLI, MCP or the board itself.',
+      ),
+  })
+  .describe('A block on a task, with the channel that closed it.');
 
 /** One column move from the journal: a dispatcher move, a return to Dev or a correction. */
 export const moveViewSchema = z

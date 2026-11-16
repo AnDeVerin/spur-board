@@ -131,6 +131,32 @@ export const TASK_HOLDS = [
 ] as const;
 export type TaskHold = (typeof TASK_HOLDS)[number];
 
+/** Every operator item kind; core's `ITEM_POLICY` gives each one a policy. */
+export const ITEM_KINDS = [
+  'token_request',
+  'post_blocked',
+  'post_failed',
+  'transport_health',
+  'answer_undelivered',
+  'worker_not_reading',
+  'answer_author_unavailable',
+  'inbound_failure',
+  'inbound_gap',
+  'board_observation',
+  'worker_ended',
+  'turn',
+  'anomaly',
+  'cycle_limit',
+  'course_check',
+  'conversation_waiting',
+] as const;
+
+/** What an `inbox.operator` entry is: a block addressed to the operator, else an item kind. */
+export const INBOX_KINDS = ['block', ...ITEM_KINDS] as const;
+
+/** `failure`: something the board or a connection broke; `attention`: a decision or answer. */
+export const INBOX_SEVERITIES = ['attention', 'failure'] as const;
+
 /** Who caused a journal event. */
 export const ACTORS = ['operator', 'agent', 'system'] as const;
 export type Actor = (typeof ACTORS)[number];
