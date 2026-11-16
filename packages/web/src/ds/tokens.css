@@ -84,6 +84,7 @@
   --space-3: 12px;
   --space-4: 16px;
   --space-6: 24px;
+  --space-8: 32px;
 
   /* sizes */
   --size-header: 42px;
@@ -103,6 +104,9 @@
   --size-skeleton-line: 8px;
   --size-menu-min: 112px;
   --size-menu-trigger: 22px;
+  --size-modal: 760px;
+  --size-modal-header: 44px;
+  --size-panel: 480px;
   --stroke-icon: 1.6;
 
   /* lines and states */
@@ -119,6 +123,8 @@
 
   /* stacking */
   --z-sticky: 1;
+  --z-panel: 6;
+  --z-modal: 7;
 
   --radius: 0;
 }

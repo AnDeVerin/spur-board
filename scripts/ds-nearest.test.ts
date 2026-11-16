@@ -90,9 +90,11 @@ describe('nearest size', () => {
     expect(out.at(-1)).toBe('verdict: in --text-body, --space-3, --size-icon');
   });
 
-  it('puts 34px out against --size-section-header at 2px', () => {
+  it('puts 34px out against the 32px tokens at 2px', () => {
     const out = lines(['34px']);
-    expect(line(out, 'dark')).toBe('dark  34px: --size-section-header 32px - Δ 2px - out');
+    expect(line(out, 'dark')).toBe(
+      'dark  34px: --space-8 32px, --size-section-header 32px - Δ 2px - out',
+    );
     expect(out.at(-1)).toBe('verdict: out');
   });
 
