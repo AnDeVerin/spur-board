@@ -87,8 +87,10 @@
   --size-control: 28px;
   --size-icon-button: 24px;
   --size-icon: 12px;
+  --size-logo: 20px;
   --size-dot: 6px;
   --size-column: 248px;
+  --stroke-icon: 1.6;
 
   --radius: 0;
 }
