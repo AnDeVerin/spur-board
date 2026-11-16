@@ -27,7 +27,7 @@ const refsPath = fileURLToPath(new URL('../spur-board/references/', import.meta.
 const docsPath = fileURLToPath(new URL('../../../docs/', import.meta.url));
 const guideNames = ['', '-columns', '-turns', '-blocks', '-slack', '-done']
   .map((topic) => `how-board-works${topic}.md`)
-  .concat('web-ui.md');
+  .concat('web-ui.md', 'web-ui-task-view.md');
 const guideDocs = guideNames.map((name) => readFileSync(`${docsPath}/${name}`, 'utf8'));
 const guideTexts = guideNames.map((name) => readFileSync(`${refsPath}/${name}`, 'utf8'));
 const skill = readFileSync(skillPath, 'utf8');
@@ -222,7 +222,9 @@ describe('product skill sync', () => {
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
     const guides = readdirSync(docsPath).filter((name) => /^how-board-works.*\.md$/.test(name));
-    expect(guides.sort()).toEqual(guideNames.slice(0, -1).sort());
+    expect(guides.sort()).toEqual(
+      guideNames.filter((name) => name.startsWith('how-board-works')).sort(),
+    );
     for (const [index, reference] of guideTexts.entries()) {
       expect(reference).toBe(guideDocs[index]);
       expect(Buffer.byteLength(reference)).toBeLessThan(8192);
