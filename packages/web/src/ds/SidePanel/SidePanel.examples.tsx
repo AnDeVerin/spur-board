@@ -8,20 +8,20 @@ function Demo({
   icon,
   title,
   detail,
+  caption = `Open it: the ${side} panel and its scrim sit between the header band and the status bar band; those bands stay undimmed but inert, so a click or Tab there reaches nothing. At the narrow breakpoint it fills the screen.`,
   children,
 }: {
   side: SidePanelSide;
   icon: IconName;
   title: string;
   detail: string;
+  caption?: string;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
-      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
-        {`Open it: the ${side} panel and its scrim sit between the header band and the status bar band; those bands stay undimmed but inert, so a click or Tab there reaches nothing. At the narrow breakpoint it fills the screen.`}
-      </p>
+      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>{caption}</p>
       <Button
         onClick={() => {
           setOpen(true);
@@ -45,9 +45,9 @@ function Demo({
   );
 }
 
-export function Right() {
+function Inbox() {
   return (
-    <Demo side="right" icon="inbox" title="Inbox" detail="3 wait for you">
+    <>
       <div>
         <Button>Mark all read</Button>
       </div>
@@ -56,6 +56,28 @@ export function Right() {
           <p key={index} style={{ margin: 0 }}>{`Inbox item, line ${String(index + 1)}`}</p>
         ))}
       </div>
+    </>
+  );
+}
+
+export function Right() {
+  return (
+    <Demo side="right" icon="inbox" title="Inbox" detail="3 wait for you">
+      <Inbox />
+    </Demo>
+  );
+}
+
+export function Focused() {
+  return (
+    <Demo
+      side="right"
+      icon="inbox"
+      title="Inbox"
+      detail="3 wait for you"
+      caption="Press Tab to reach the button and Enter to open the panel: focus lands on Close. Tab moves to the body, then Mark all read, each with the focus ring; Shift+Tab goes back and Escape closes it."
+    >
+      <Inbox />
     </Demo>
   );
 }

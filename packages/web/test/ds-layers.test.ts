@@ -397,8 +397,8 @@ describe('Modal and SidePanel', () => {
   it('has the examples the gallery shows', () => {
     const names = (folder: string) =>
       Object.keys(examples[`../src/ds/${folder}/${folder}.examples.tsx`] ?? {}).sort();
-    expect(names('Modal')).toEqual(['Default', 'OverPanel']);
-    expect(names('SidePanel')).toEqual(['Left', 'Right']);
+    expect(names('Modal')).toEqual(['Default', 'Focused', 'OverPanel']);
+    expect(names('SidePanel')).toEqual(['Focused', 'Left', 'Right']);
     expect(names('Scrim')).toEqual(['Default']);
   });
 

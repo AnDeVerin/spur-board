@@ -58,12 +58,11 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   box-sizing: border-box;
-}
-/* The ds focus ring mirrored inward: the body is flush with the surface, so an outward ring
-   would be clipped. */
-.body:focus-visible {
-  outline: var(--width-ring) solid var(--color-status-working);
-  outline-offset: calc(-1 * (var(--width-ring) + var(--offset-ring)));
+  /* One ring of margin on the sides and bottom keeps the focused body's outward ring inside the
+     surface where the surface meets the viewport edge; above it the ring falls on the header.
+     Modal and SidePanel take the same amount off their side and bottom paddings. */
+  margin: 0 calc(var(--width-ring) + var(--offset-ring))
+    calc(var(--width-ring) + var(--offset-ring));
 }
 
 /* breakpoints.narrow */

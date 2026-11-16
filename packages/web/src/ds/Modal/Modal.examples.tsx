@@ -48,14 +48,11 @@ function TaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
-export function Default() {
+function Demo({ children }: { children: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
-      <p style={caption}>
-        Open it: focus lands on Close, Tab wraps inside, the page behind does not scroll; Escape,
-        Close or a scrim click closes it and focus returns to the button.
-      </p>
+      <p style={caption}>{children}</p>
       <Button
         onClick={() => {
           setOpen(true);
@@ -70,6 +67,25 @@ export function Default() {
         }}
       />
     </div>
+  );
+}
+
+export function Default() {
+  return (
+    <Demo>
+      Open it: focus lands on Close, Tab wraps inside, the page behind does not scroll; Escape,
+      Close or a scrim click closes it and focus returns to the button.
+    </Demo>
+  );
+}
+
+export function Focused() {
+  return (
+    <Demo>
+      Press Tab to reach the button and Enter to open the modal: focus lands on Close. Tab moves to
+      the body and the tab panel, then wraps to the selected tab, where the arrow keys switch tabs;
+      each stop shows the focus ring. Escape closes it.
+    </Demo>
   );
 }
 
