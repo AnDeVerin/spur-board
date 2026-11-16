@@ -8,6 +8,8 @@ import appSource from '../../../design/prototypes/board-v1/app.js?raw';
 import baseSource from '../../../design/prototypes/board-v1/base.js?raw';
 import {
   Button,
+  Chip,
+  focusRing,
   FormRow,
   Icon,
   IconButton,
@@ -476,5 +478,40 @@ describe('KeyValueBox', () => {
     expect(render([{ key: 'CPU', value: '—' }])).not.toContain('github');
     expect(render([], 'github pull requests')).toContain('github pull requests');
     expect(render([])).toBe('');
+  });
+});
+
+describe('Chip', () => {
+  it('with href renders a new-tab link named from its visible text and keeps the plain span', () => {
+    const plain = markup(createElement(Chip, { children: 'session s1' }));
+    expect(plain).toMatch(/^<span class="[^"]+">session s1<\/span>$/);
+    expect(markup(createElement(Chip, { label: 'ignored', children: 'session s1' }))).toBe(plain);
+    const link = markup(
+      createElement(Chip, {
+        href: 'https://github.com/o/r/pull/12',
+        label: 'PR #12, o/r',
+        children: 'PR #12',
+      }),
+    );
+    expect(link).toMatch(/^<a /);
+    expect(link).toContain('href="https://github.com/o/r/pull/12"');
+    expect(link).toContain('target="_blank"');
+    expect(link).toContain('rel="noopener noreferrer"');
+    expect(link).toContain('aria-label="PR #12, o/r"');
+    expect(attribute(link, 'class')?.split(' ')).toContain(focusRing);
+    expect(Object.keys(controlExamples('Chip'))).toEqual([
+      'Default',
+      'Warn',
+      'You',
+      'Ghost',
+      'Link',
+      'LinkFocused',
+    ]);
+    for (const name of ['Link', 'LinkFocused']) {
+      const html = markup(createElement(controlExamples('Chip')[name] as ComponentType));
+      const text = /<a [^>]*>([^<]+)<\/a>/.exec(html)?.[1] ?? '';
+      expect(text).not.toBe('');
+      expect(attribute(html, 'aria-label')?.startsWith(text)).toBe(true);
+    }
   });
 });

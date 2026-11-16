@@ -76,6 +76,7 @@
   --tracking-bar: 0.08em;
   --weight-medium: 500;
   --weight-bold: 700;
+  --leading-title: 1.4;
 
   /* spacing, 4px step; 0-25 is a quarter step, 1-5 and 2-5 are half steps */
   --space-0-25: 1px;

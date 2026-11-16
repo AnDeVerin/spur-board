@@ -24,3 +24,12 @@
   border-style: dashed;
   color: var(--color-text-tertiary);
 }
+/* The link form: external, opens a new tab. */
+.link {
+  text-decoration: none;
+  border-radius: var(--radius);
+}
+.link:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+}
