@@ -69,10 +69,12 @@
   --text-micro: 10px;
   --text-small: 11px;
   --text-body: 12px;
+  --text-lead: 14px;
   --text-title: 16px;
   --tracking-body: 0.02em;
   --tracking-label: 0.14em;
   --tracking-bar: 0.08em;
+  --weight-medium: 500;
   --weight-bold: 700;
 
   /* spacing, 4px step; 0-25 is a quarter step, 1-5 and 2-5 are half steps */
@@ -96,6 +98,8 @@
   --size-dot: 6px;
   --size-chevron: 16px;
   --size-column: 248px;
+  --size-spine: 34px;
+  --size-measure: 420px;
   --size-hairline: 1px;
   --size-meter: 60px;
   --size-meter-height: 4px;
@@ -111,6 +115,10 @@
   --opacity-disabled: 0.4;
   --opacity-skeleton: 0.6;
   --opacity-skeleton-pulse: 0.25;
+  /* the filter dim; equal to the skeleton pulse by chance, kept apart on purpose */
+  --opacity-dimmed: 0.25;
+  --opacity-stale: 0.55;
+  --lines-title: 3;
   --duration-pulse: 2s;
   --z-menu: 5;
 
