@@ -1,10 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Board } from '../src/board/Board.tsx';
-import { createBoardData, type BoardData } from '../src/board/data.ts';
+import { describe, expect, it, vi } from 'vitest';
 import { boardColumns } from '../src/board/model.ts';
 import { Chip, focusRing, quiet } from '../src/ds/index.ts';
 import {
@@ -21,72 +18,23 @@ import {
   source,
   status,
   parsed,
-  type Daemon,
 } from './board-fixtures.ts';
+import {
+  all,
+  container,
+  goOffline,
+  linkedRows,
+  mount,
+  mountEachTest,
+  one,
+  press,
+  serve,
+  settle,
+  withSpur,
+} from './board-harness.ts';
 
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+mountEachTest();
 
-let container: HTMLDivElement;
-let root: Root;
-const started: BoardData[] = [];
-beforeEach(() => {
-  container = document.createElement('div');
-  document.body.append(container);
-  root = createRoot(container);
-});
-afterEach(() => {
-  act(() => {
-    root.unmount();
-  });
-  container.remove();
-  for (const data of started.splice(0)) data.stop();
-  vi.useRealTimers();
-  history.replaceState(null, '', '/');
-});
-
-function mount(d: Daemon, storage: Record<string, string> = {}, now = () => 0) {
-  const values = new Map(Object.entries(storage));
-  const data = createBoardData({
-    fetch: d.fetcher,
-    storage: () => ({
-      getItem: (key) => values.get(key) ?? null,
-      setItem: (key, value) => {
-        values.set(key, value);
-      },
-    }),
-    now,
-  });
-  started.push(data);
-  act(() => {
-    root.render(createElement(Board, { data }));
-    data.start();
-  });
-  return values;
-}
-/** Body reads and parsing cross a few macrotasks; fake timers leave setImmediate real. */
-async function settle() {
-  await act(async () => {
-    for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
-  });
-}
-/** Five failed connections: 0.5, 1, 2 and 4 s of backoff, then offline. */
-async function goOffline(d: Daemon) {
-  d.send(hello);
-  await settle();
-  d.failStream();
-  d.endStream();
-  await settle();
-  for (const delay of [500, 1000, 2000, 4000]) {
-    await act(() => vi.advanceTimersByTimeAsync(delay));
-    await settle();
-  }
-}
-const all = (selector: string) => [...container.querySelectorAll<HTMLElement>(selector)];
-const one = (selector: string) => {
-  const found = container.querySelector<HTMLElement>(selector);
-  if (!found) throw new Error(`no ${selector}`);
-  return found;
-};
 const button = (text: string) => {
   const found = all('button').find((b) => b.textContent.includes(text));
   if (!(found instanceof HTMLButtonElement)) throw new Error(`no button ${text}`);
@@ -100,15 +48,6 @@ const trigger = () => {
 const indicator = () => one('[title="Live updates"]').textContent;
 const banners = () => all('[role="alert"], [role="status"]');
 const links = () => all('main a');
-const press = (target: Element, type: string, init: Record<string, unknown> = {}) => {
-  act(() => {
-    target.dispatchEvent(
-      type === 'keydown'
-        ? new KeyboardEvent(type, { bubbles: true, ...init })
-        : new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...init }),
-    );
-  });
-};
 const type = (value: string) => {
   const input = one('input');
   act(() => {
@@ -116,9 +55,11 @@ const type = (value: string) => {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 };
+/** Card links and done rows by task key; a dimmed card dims its wrapper. */
+const tasks = () => all('main a[href^="?open="]');
 const dimmed = () =>
-  links()
-    .filter((link) => link.hasAttribute('data-dimmed'))
+  tasks()
+    .filter((link) => link.closest('[data-dimmed]') !== null)
     .map((l) => l.title);
 
 describe('board screen', () => {
@@ -224,9 +165,11 @@ describe('board screen', () => {
     const card = one('main a[title="ex/repo#7"]');
     expect(card.getAttribute('href')).toBe('?open=ex%2Frepo%237');
     expect(card.getAttribute('aria-label')).toBe('ex/repo#7 Fix login');
-    expect(card.textContent).toBe('#7Fix login');
+    expect(card.textContent).toBe('#7Fix loginB12 → you');
+    expect(card.querySelector('a, button, input, [tabindex]')).toBeNull();
     const bare = one('main a[title="ABC-3"]');
     expect([bare.getAttribute('aria-label'), bare.textContent]).toEqual(['ABC-3', 'ABC-3']);
+    expect(bare.hasAttribute('aria-describedby')).toBe(false);
     press(card, 'click');
     expect(location.search).toBe('?open=ex%2Frepo%237');
   });
@@ -242,7 +185,7 @@ describe('board screen', () => {
     expect(indicator()).toBe('connecting');
     expect(button('inbox').textContent).toBe('inbox–');
     expect([trigger().disabled, trigger().textContent]).toEqual([true, '–']);
-    expect(container.querySelector('[title="Dispatcher mode"]')).toBeNull();
+    expect(container().querySelector('[title="Dispatcher mode"]')).toBeNull();
   });
 
   it('first-load failure shows the banner without columns', async () => {
@@ -355,7 +298,7 @@ describe('board screen', () => {
     expect(button('Retrying').getAttribute('aria-busy')).toBe('true');
     reads.status.resolve(envelope(status()));
     await settle();
-    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(container().querySelector('[aria-busy="true"]')).toBeNull();
   });
 
   it('quiet on column headers, spines and the done list', async () => {
@@ -368,19 +311,28 @@ describe('board screen', () => {
     expect(all('main section[title]').every((spine) => spine.classList.contains(quiet))).toBe(true);
     expect(one('main ul').classList.contains(quiet)).toBe(true);
     expect(links()).toHaveLength(9);
-    for (const link of links()) {
-      expect(link.classList.contains(quiet)).toBe(true);
-      expect(link.classList.contains(focusRing)).toBe(true);
+    for (const link of links()) expect(link.classList.contains(focusRing)).toBe(true);
+    for (const link of all('main ul a')) expect(link.classList.contains(quiet)).toBe(true);
+    const cards = all('main a[title="ex/repo#7"], main a[title="ABC-3"]');
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      expect(card.parentElement?.classList.contains(quiet)).toBe(true);
+      expect(card.parentElement?.hasAttribute('data-turn')).toBe(true);
     }
+    // The operator's block is the you chip, and nothing in the card overrides its colours.
+    const you = all('main span').find((span) => span.textContent === 'B12 → you');
+    const chip = renderToStaticMarkup(createElement(Chip, { tone: 'you', children: 'x' }));
+    expect(you?.className).toBe(/class="([^"]+)"/.exec(chip)?.[1]);
   });
 
   it('tab order follows reading order', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const d = daemon();
+    serve(d, linkedRows(), withSpur);
     mount(d);
     await settle();
     await goOffline(d);
-    const focusable = all('a[href], button:not([disabled]), input').filter(
+    const focusable = all('a[href], button:not([disabled]), input, [tabindex]').filter(
       (element) => element.closest('[hidden]') === null,
     );
     expect(focusable).toEqual([
@@ -390,13 +342,20 @@ describe('board screen', () => {
       button('Retry now'),
       ...links(),
     ]);
-    expect(links().map((link) => link.title)).toEqual(['ex/repo#7', 'ABC-3', ...DONE]);
+    expect(links().map((link) => link.getAttribute('aria-label') ?? link.title)).toEqual([
+      'ex/repo#7 Title ex/repo#7',
+      'Ticket ex/repo#7, opens in a new tab',
+      'PR #4, opens in a new tab',
+      'Spur session sess-9, opens in a new tab',
+      'ABC-3',
+      ...DONE.map((key) => `${key} Title ${key}`),
+    ]);
   });
 
   it('filter dims and never removes cards', async () => {
     mount(daemon());
     await settle();
-    const everyKey = links().map((link) => link.title);
+    const everyKey = tasks().map((link) => link.title);
     const others = (...keys: string[]) => everyKey.filter((key) => !keys.includes(key));
     for (const [text, matches] of [
       ['B12', ['ex/repo#7']],
@@ -406,7 +365,7 @@ describe('board screen', () => {
       ['repo#2', DONE],
     ] as const) {
       type(text);
-      expect(links()).toHaveLength(everyKey.length);
+      expect(tasks()).toHaveLength(everyKey.length);
       expect(dimmed()).toEqual(others(...matches));
     }
     press(one('button[aria-label="Clear"]'), 'click');

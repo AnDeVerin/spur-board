@@ -44,6 +44,25 @@ Below the header come the columns of the chosen project, in configuration order:
 - A card shows the short key and the ticket title, or the key alone when there is no ticket.
   Hovering shows the full key. A card is a link: a click or Enter sets the address to
   `?open=<task key>`, and a modified click opens a new tab. This version has no task panel yet.
+- Beside the key sit quick links to the ticket, the first pull request and the Spur session.
+  Each opens in a new tab and never opens the task; Tab reaches them right after their card.
+  The session link needs `web.spurUiOrigin`; without it the session shows as a plain
+  `session <id>` chip in the markers row, cut at 20 characters with the full id on hover.
+- Under the title, four PR status cells describe the first pull request: checks, merge
+  conflicts, resolved review threads and reviews on the head. Red means failed, conflicting or
+  changes requested; yellow means pending or unresolved; a green glyph means passed, no
+  conflicts or approved; a dash means nothing reported. `+N` counts the other pull requests.
+  Cells without fill mean the facts are not confirmed because the GitHub source is stale or
+  blind. Four dashes mean the pull request is linked but not observed yet. A card with an open
+  turn and no pull request shows a dashed `no PR yet`.
+- Markers follow: `B<n> → you` for a block waiting for you (`+N` for its other blocks), the
+  count of blocks for agents, `returned` with the number of review findings, `draft`, and in
+  shadow mode the dispatcher's column next to the tracker's.
+- The turn line at the bottom names the open turn, its executor and its age, and the rail on
+  the card's left edge takes its colour: blue while an agent works on a taken turn; yellow when
+  the turn is yours, or not taken yet, which also draws a dashed rail and a hollow dot; red when
+  the executor has stalled. A card with no open turn has no turn line and no rail. Ages count
+  to the time of the last good read, so they stop while the data is stale.
 - A task whose column the project's configuration does not list is not shown.
 
 On a narrow screen the columns scroll sideways, and the mode and the filter are hidden.

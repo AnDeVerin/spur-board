@@ -1,6 +1,7 @@
-import type { MouseEvent, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { focusRing, Icon, quiet, Skeleton } from '../ds/index.ts';
 import { matchesFilter, openHref, shortKey, type BoardColumn, type BoardRow } from './model.ts';
+import { Card, open } from './Card.tsx';
 import styles from './Columns.module.css';
 
 /** What the board area shows; a first-load failure shows nothing here, only its banner. */
@@ -13,15 +14,7 @@ export type ColumnsView =
 
 const classes = (...names: (string | undefined)[]) => names.filter(Boolean).join(' ');
 
-/** A plain left click opens the task in place; modified clicks keep the browser's new tab. */
-function open(event: MouseEvent<HTMLAnchorElement>) {
-  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-    return;
-  event.preventDefault();
-  history.pushState(null, '', event.currentTarget.getAttribute('href'));
-}
-
-/** A card or done row: a link to `?open=<key>`, dimmed, never removed, when the filter misses. */
+/** A done row: a link to `?open=<key>`, dimmed, never removed, when the filter misses. */
 function TaskLink({
   row,
   filter,
@@ -52,10 +45,14 @@ function Column({
   column,
   filter,
   stale,
+  now,
+  spurUiOrigin,
 }: {
   column: BoardColumn;
   filter: string;
   stale: boolean;
+  now: number | undefined;
+  spurUiOrigin: string | null;
 }) {
   if (column.rows.length === 0)
     return (
@@ -94,10 +91,7 @@ function Column({
       ) : (
         <div className={styles.body}>
           {column.rows.map((row) => (
-            <TaskLink key={row.key} row={row} filter={filter} className={styles.card}>
-              <span className={styles.key}>{shortKey(row.key)}</span>
-              {row.ticket && <span className={styles.title}>{row.ticket.title}</span>}
-            </TaskLink>
+            <Card key={row.key} row={row} filter={filter} now={now} spurUiOrigin={spurUiOrigin} />
           ))}
         </div>
       )}
@@ -105,15 +99,22 @@ function Column({
   );
 }
 
-/** The board area inside `main`: skeleton columns, the empty message, or the columns. */
+/**
+ * The board area inside `main`: skeleton columns, the empty message, or the columns. Ages count
+ * to `now`, the time of the last good read; session links start at `spurUiOrigin`.
+ */
 export function Columns({
   view,
   filter,
   stale,
+  now,
+  spurUiOrigin,
 }: {
   view: ColumnsView;
   filter: string;
   stale: boolean;
+  now: number | undefined;
+  spurUiOrigin: string | null;
 }) {
   switch (view.kind) {
     case 'failed':
@@ -147,7 +148,14 @@ export function Columns({
       );
     case 'columns':
       return view.columns.map((column) => (
-        <Column key={column.id} column={column} filter={filter} stale={stale} />
+        <Column
+          key={column.id}
+          column={column}
+          filter={filter}
+          stale={stale}
+          now={now}
+          spurUiOrigin={spurUiOrigin}
+        />
       ));
   }
 }

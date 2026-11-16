@@ -69,7 +69,13 @@ export function Board({ data }: { data: BoardData }) {
         aria-label="Board"
         aria-busy={view.kind === 'loading' || undefined}
       >
-        <Columns view={view} filter={filter} stale={list[0]?.variant === 'error'} />
+        <Columns
+          view={view}
+          filter={filter}
+          stale={list[0]?.variant === 'error'}
+          now={snapshot.lastGoodAt}
+          spurUiOrigin={snapshot.config?.web.spurUiOrigin ?? null}
+        />
       </main>
     </>
   );
