@@ -26,6 +26,14 @@
     },
     {
       "description": [
+        "@semantic-release/release-notes-generator 14.1.1 depends on conventional-changelog-writer@^8; conventional-changelog-conventionalcommits 10 needs writer 9.",
+        "Remove this hold once a @semantic-release/release-notes-generator release depends on conventional-changelog-writer@9. scripts/renovate.test.ts fails when the installed generator leaves writer 8."
+      ],
+      "matchPackageNames": ["conventional-changelog-conventionalcommits"],
+      "allowedVersions": "<10"
+    },
+    {
+      "description": [
         "Runner image majors (ubuntu-24.04 to ubuntu-26.04) are a separate decision, not a weekly update.",
         "The github-actions manager extracts runners under the github-runners datasource; there is no github-runners manager to match."
       ],

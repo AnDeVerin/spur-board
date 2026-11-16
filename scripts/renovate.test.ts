@@ -231,6 +231,24 @@ describe('renovate.json', () => {
     }
   });
 
+  it('holds conventional-changelog-conventionalcommits below 10 while the generator uses writer 8', () => {
+    const preset = 'conventional-changelog-conventionalcommits';
+    const holds = renovate.packageRules.filter(
+      (rule) => rule.matchPackageNames?.includes(preset) && rule.allowedVersions !== undefined,
+    );
+    expect(holds).toHaveLength(1);
+    const hold = holds[0];
+    expect(hold?.allowedVersions).toBe('<10');
+    expect(renovate.packageRules.at(-1)).not.toBe(hold);
+    expect(catalog).toContain(preset);
+
+    // Lift the hold when this fails: the generator then depends on a writer that preset 10 needs.
+    const generator = readJson(
+      'node_modules/@semantic-release/release-notes-generator/package.json',
+    ) as Manifest;
+    expect(generator.dependencies?.['conventional-changelog-writer']).toMatch(/^\^8\./);
+  });
+
   it('keeps each NOT_SHIPPED entry true to its importers', () => {
     const { dirs, thirdParty } = closure();
     const files = sourceFiles(dirs);
