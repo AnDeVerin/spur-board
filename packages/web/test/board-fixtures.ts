@@ -1,0 +1,176 @@
+import { browserOperations } from '@spur-board/contracts/browser';
+
+/** Board screen fixtures: config, `status.get` rows and a fake daemon with its event stream. */
+type OpId = 'config.get' | 'status.get' | 'inbox.operator';
+type Route = (input: Record<string, unknown>) => Promise<Response>;
+
+export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
+export const failure = () => Promise.resolve(Response.json({ broken: true }, { status: 500 }));
+export const never = () => new Promise<Response>(() => undefined);
+export function deferred() {
+  let resolve!: (value: Response) => void;
+  const promise = new Promise<Response>((yes) => {
+    resolve = yes;
+  });
+  return { promise, resolve };
+}
+const column = (id: string, kind = 'dispatcher', name: string | null = null) => ({
+  id,
+  executor: { kind, name },
+});
+const project = (id: string, mode: 'on' | 'shadow', columns: ReturnType<typeof column>[]) => ({
+  id,
+  columns,
+  dispatcher: { mode },
+  spurProjects: [],
+});
+export const config = {
+  projects: [
+    project('a', 'on', [
+      column('todo'),
+      column('dev', 'worker', 'stand-worker'),
+      column('review'),
+      column('done'),
+    ]),
+    project('b', 'shadow', [column('todo'), column('done')]),
+  ],
+  web: { publicOrigin: null, spurUiOrigin: null },
+};
+const ticket = (key: string, title: string) => ({
+  trackerId: 'gh',
+  id: key,
+  key,
+  title,
+  status: 'Open',
+  assignee: null,
+  sprint: null,
+  labels: [],
+  inFilter: true,
+  url: 'https://example.test/ticket',
+  updatedAt: '2026-11-15T14:00:00.000Z',
+});
+const row = (key: string, columnId: string, extra: Record<string, unknown> = {}) => ({
+  key,
+  project: 'a',
+  column: columnId,
+  membership: 'active',
+  state: 'open',
+  prCount: 0,
+  sessionCount: 0,
+  openBlocks: 0,
+  blocks: [],
+  turn: null,
+  prSummary: null,
+  links: { ticket: null, prs: [], sessions: [] },
+  ticket: ticket(key, `Title ${key}`),
+  ...extra,
+});
+export const DONE = [20, 21, 22, 23, 24, 25, 26].map((n) => `ex/repo#${String(n)}`);
+// Done first and a row in a column config lacks: the screen orders by config and drops it.
+export const ROWS = [
+  ...DONE.map((key) =>
+    row(
+      key,
+      'done',
+      key.endsWith('#21') ? { links: { ticket: null, prs: [], sessions: [{ id: 'sess-9' }] } } : {},
+    ),
+  ),
+  row('ex/repo#99', 'qa'),
+  row('ex/repo#7', 'dev', {
+    ticket: ticket('ex/repo#7', 'Fix login'),
+    blocks: [{ id: 'B12', addressee: 'operator', session: null }],
+  }),
+  row('ABC-3', 'dev', { ticket: null }),
+];
+export const source = (name: string, extra: Record<string, unknown> = {}) => ({
+  source: name,
+  observedAt: null,
+  lastCompleteAt: null,
+  blindReason: null,
+  message: null,
+  budget: null,
+  stale: false,
+  healthySince: null,
+  warmingUp: false,
+  ...extra,
+});
+/** The fixtures typed as the screen reads them. */
+export const parsed = () => ({
+  columns: browserOperations['config.get'].output.parse(config).projects[0]?.columns ?? [],
+  rows: browserOperations['status.get'].output.parse(status()).tasks,
+});
+export const status = (tasks: unknown[] = ROWS, sources: unknown[] = []) => ({
+  items: [],
+  warmingUp: false,
+  spurUnavailable: null,
+  hostLoad: null,
+  host: null,
+  services: [],
+  transport: [],
+  sources,
+  tasks,
+  projectBlocks: [],
+  unlinkedPrs: [],
+  unlinkedSessions: [],
+  hiddenUnlinkedPrs: 0,
+  hiddenUnlinkedSessions: 0,
+  bindings: { columns: [], operators: [], defaultAddressee: null },
+  daemon: { version: '0.4.0', startedAt: '2026-01-05T08:00:00.000Z', lastDispatchAt: null },
+});
+export const inbox = (count: number) => ({
+  items: Array.from({ length: count }, (_, i) => ({
+    id: `B${String(i + 1)}`,
+    project: 'a',
+    kind: 'block',
+    severity: 'attention',
+    text: 'Pick one',
+    at: '2026-11-15T14:00:00.000Z',
+    task: null,
+  })),
+  handled: [],
+});
+
+/** Fake daemon: the three reads by route and an event stream the test writes to. */
+export function daemon() {
+  const routes: Record<OpId, Route> = {
+    'config.get': () => Promise.resolve(envelope(config)),
+    'status.get': () => Promise.resolve(envelope(status())),
+    'inbox.operator': () => Promise.resolve(envelope(inbox(2))),
+  };
+  let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+  let streamFails = false;
+  const fetcher: typeof fetch = (url, init) => {
+    const path = url instanceof Request ? url.url : url.toString();
+    if (path === '/v1/events') {
+      if (streamFails) return Promise.resolve(new Response(null, { status: 502 }));
+      return Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(value) {
+              stream = value;
+            },
+          }),
+        ),
+      );
+    }
+    const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+      input: Record<string, unknown>;
+    };
+    return routes[path.replace('/v1/ops/', '') as OpId](body.input);
+  };
+  return {
+    fetcher,
+    routes,
+    send(value: string) {
+      stream?.enqueue(new TextEncoder().encode(value));
+    },
+    endStream() {
+      stream?.close();
+    },
+    failStream() {
+      streamFails = true;
+    },
+  };
+}
+export type Daemon = ReturnType<typeof daemon>;
+export const hello = 'event: hello\ndata: {"head":1,"instance":"one"}\n\n';

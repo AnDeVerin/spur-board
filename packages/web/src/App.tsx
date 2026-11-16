@@ -1,18 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import type { z } from 'zod';
-import type { statusOutputSchema } from '@spur-board/contracts/browser';
-import { coordinateRead, createApi } from './lib/api.ts';
-import { connectStream, type StreamState } from './lib/stream.ts';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Board } from './board/Board.tsx';
+import { createBoardData } from './board/data.ts';
 import { createTheme, type ThemePreference } from './lib/theme.ts';
-import { Chip, StatusDot, ThemeSwitch, type StatusDotTone } from './ds/index.ts';
+import { Chip, StatusDot, ThemeSwitch } from './ds/index.ts';
 import { footerVersion } from './lib/version.ts';
 import styles from './App.module.css';
 
-const streamTone: Record<StreamState, StatusDotTone> = {
-  live: 'ok',
-  reconnecting: 'warn',
-  offline: 'error',
-};
 const stale = (
   <>
     {' '}
@@ -20,9 +13,14 @@ const stale = (
   </>
 );
 export function App() {
-  const [status, setStatus] = useState<z.output<typeof statusOutputSchema>>();
-  const [readError, setReadError] = useState(false);
-  const [stream, setStream] = useState<StreamState>('reconnecting');
+  const [data] = useState(() =>
+    createBoardData({
+      fetch: (input, init) => fetch(input, init),
+      storage: () => localStorage,
+      now: () => Date.now(),
+    }),
+  );
+  const { status, readFailed } = useSyncExternalStore(data.subscribe, data.snapshot);
   const [preference, setPreference] = useState<ThemePreference>('dark');
   const theme = useRef<ReturnType<typeof createTheme>>(null);
   useEffect(() => {
@@ -34,37 +32,22 @@ export function App() {
         setPreference(selected);
       },
     });
-    const api = createApi();
-    const coordinator = coordinateRead(
-      (signal) => api('status.get', {}, { signal }),
-      (value, error) => {
-        if (value) setStatus(value);
-        setReadError(error);
-      },
-    );
-    coordinator.refresh();
-    const connection = connectStream({
-      state: setStream,
-      refresh: () => {
-        coordinator.refresh();
-      },
-    });
+    data.start();
     return () => {
-      connection.stop();
-      coordinator.dispose();
+      data.stop();
       theme.current?.dispose();
     };
-  }, []);
+  }, [data]);
   const version = footerVersion(status);
   return (
     <div className={styles.shell}>
-      <main className={styles.main} aria-label="Board" />
+      <Board data={data} />
       <footer className={styles.footer} aria-label="Board status">
         <div className={styles.status} aria-live="polite">
           <span>
             {status
               ? `${String(status.tasks.length)} tasks`
-              : readError
+              : readFailed
                 ? 'Status unavailable'
                 : 'Loading status…'}
           </span>
@@ -84,12 +67,6 @@ export function App() {
                   ))}
             </span>
           )}
-          {readError && status && <span>Status stale — refresh failed</span>}
-          <span className={styles.item}>
-            <StatusDot tone={streamTone[stream]} />
-            Stream: {stream}
-            {stream !== 'live' && stale}
-          </span>
         </div>
         <div className={styles.controls}>
           <ThemeSwitch value={preference} onChange={(value) => theme.current?.set(value)} />

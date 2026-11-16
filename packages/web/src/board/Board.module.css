@@ -1,0 +1,19 @@
+.banners {
+  flex: none;
+}
+/* The board scrolls sideways; columns scroll their own bodies. */
+.main {
+  flex: 1;
+  display: flex;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: var(--space-4) var(--space-6);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* breakpoints.narrow */
+@media (max-width: 760px) {
+  .main {
+    padding: var(--space-3);
+  }
+}

@@ -160,7 +160,8 @@ export function createBoardData(options: BoardDataOptions) {
   let stopped = false;
 
   return {
-    subscribe(listener: () => void) {
+    /** An arrow, so `useSyncExternalStore(data.subscribe, ...)` can pass it unbound. */
+    subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
