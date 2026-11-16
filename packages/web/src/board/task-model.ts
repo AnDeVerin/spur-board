@@ -57,13 +57,16 @@ function currentGate(why: TaskWhy | undefined): TaskGate | undefined {
   return why?.gates.find((gate) => gate.column === why.column);
 }
 
-/** The column after `why.column` when every one of its exit conditions is met; else none. */
+/**
+ * The column after `why.column` when every one of its exit conditions is met, a known gate with
+ * no conditions included; none when the gate is unknown.
+ */
 export function nextColumn(
   why: TaskWhy | undefined,
   columns: readonly string[],
 ): string | undefined {
   const gate = currentGate(why);
-  if (!why || !gate || gate.conditions.length === 0) return undefined;
+  if (!why || !gate) return undefined;
   if (!gate.conditions.every((condition) => condition.state === 'met')) return undefined;
   const index = columns.indexOf(why.column);
   return index === -1 ? undefined : columns[index + 1];

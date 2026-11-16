@@ -84,7 +84,7 @@ describe('why rows', () => {
     expect(whySummary(none)).toBe('unknown');
   });
 
-  it('gates [] or no why is unknown; a gate without conditions says so; neither has a next row', () => {
+  it('gates [] or no why is unknown; a gate without conditions says so and has a next row', () => {
     for (const value of [task({ gates: [] }), task({}, { why: undefined })]) {
       expect(rows(value)[0]).toEqual({ key: 'Exit conditions unknown', status: 'unchecked' });
       expect(rows(value).some((row) => row.key.startsWith('When'))).toBe(false);
@@ -92,7 +92,7 @@ describe('why rows', () => {
     }
     const empty = task({ gates: [gate('dev', [])] });
     expect(rows(empty)[0]).toEqual({ key: 'No exit conditions in dev' });
-    expect(rows(empty).some((row) => row.key.startsWith('When'))).toBe(false);
+    expect(rows(empty).at(-1)).toEqual({ key: 'When dev exit conditions pass', value: '→ review' });
     expect(whySummary(empty)).toBe('all pass');
   });
 
@@ -174,7 +174,7 @@ describe('next column', () => {
       expect(nextColumn(why('dev', gates), COLUMNS)).toBeUndefined();
     }
     expect(nextColumn(why('dev', []), COLUMNS)).toBeUndefined();
-    expect(nextColumn(why('dev', [gate('dev', [])]), COLUMNS)).toBeUndefined();
+    expect(nextColumn(why('dev', [gate('review', [])]), COLUMNS)).toBeUndefined();
     expect(nextColumn(undefined, COLUMNS)).toBeUndefined();
   });
 
@@ -183,6 +183,10 @@ describe('next column', () => {
     expect(nextColumn(why('done', [doneMet]), COLUMNS)).toBeUndefined();
     const qaMet = gate('qa', [condition('submit_on_head', 'met')]);
     expect(nextColumn(why('qa', [qaMet]), COLUMNS)).toBeUndefined();
+  });
+
+  it('shows it for a known gate with no exit conditions', () => {
+    expect(nextColumn(why('dev', [gate('dev', [])]), COLUMNS)).toBe('review');
   });
 
   it('follows the shadow column in shadow mode', () => {

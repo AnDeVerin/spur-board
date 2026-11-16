@@ -75,8 +75,8 @@ open no task view.
   or not checked. A column without exit conditions reads `No exit conditions in <column>`; when
   the conditions are unknown (an unconfigured project, or missing pull request facts) the row
   reads `Exit conditions unknown`. Then each hold, the open turn (its id, who executes it, who
-  took it and how long ago), and the open blocks. When every exit condition is met, a last row
-  names the next column: `When dev exit conditions pass → review`. The section header sums up
+  took it and how long ago), and the open blocks. When every exit condition is met, or the column has none, a
+  last row names the next column: `When dev exit conditions pass → review`. The section header sums up
   the failed and waiting conditions and the open blocks, or reads `all pass` or `unknown`.
 - `History` says that history arrives in a later version.
 - A key the daemon does not know, or a value that is not a task key such as `?open=509`, shows
