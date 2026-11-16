@@ -25,11 +25,18 @@ const light = {
   ...dark,
   ...declarations(tokens.split(":root[data-theme='light'] {")[1]?.split('}')[0] ?? ''),
 };
-function luminance(hex: string): number {
-  const rgb = (hex.match(/[\da-f]{2}/gi) ?? [])
-    .map((value) => parseInt(value, 16) / 255)
+function rgb(color: string): number[] {
+  if (/^#[\da-f]{6}$/i.test(color))
+    return (color.slice(1).match(/../g) ?? []).map((value) => parseInt(value, 16));
+  const rgba = /^rgba\(([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)$/.exec(color);
+  if (!rgba) throw new Error(`Unsupported color: ${color}`);
+  return rgba.slice(1).map(Number);
+}
+function luminance(color: string | number[]): number {
+  const channels = (typeof color === 'string' ? rgb(color) : color)
+    .map((value) => value / 255)
     .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
-  return (rgb[0] ?? 0) * 0.2126 + (rgb[1] ?? 0) * 0.7152 + (rgb[2] ?? 0) * 0.0722;
+  return (channels[0] ?? 0) * 0.2126 + (channels[1] ?? 0) * 0.7152 + (channels[2] ?? 0) * 0.0722;
 }
 function rawColor(source: string): boolean {
   return /#[\da-f]{3,8}\b|\brgba?\s*\(/i.test(source);
@@ -100,7 +107,15 @@ function outlineViolations(file: string, css: string): string[] {
 }
 describe('web design assets and policy', () => {
   it('preserves every prototype token and inherited scale byte for byte', () => {
-    expect(tokens).toBe(
+    // Issue 590 authorizes only these two additions; all remaining bytes must match.
+    expect(tokens.match(/--color-text-attention:/g)).toHaveLength(2);
+    let original = tokens;
+    for (const value of ['#ffd700', '#7d4e00']) {
+      const line = `  --color-text-attention: ${value};\n`;
+      expect((value === '#ffd700' ? dark : light)['--color-text-attention']).toBe(value);
+      original = original.replace(line, '');
+    }
+    expect(original).toBe(
       readFileSync(join(import.meta.dirname, '../design/prototypes/board-v1/tokens.css'), 'utf8'),
     );
     expect(Object.keys(light).sort()).toEqual(Object.keys(dark).sort());
@@ -113,7 +128,27 @@ describe('web design assets and policy', () => {
   it.each([
     ['dark', dark],
     ['light', light],
-  ] as const)('%s primary/secondary/status text meets 4.5 on base and elevated', (_name, theme) => {
+  ] as const)('%s text meets 4.5 on base, elevated and Banner fills', (_name, theme) => {
+    const rules = cssRules(read('src/ds/Banner/Banner.module.css'));
+    const binding = (selector: string, property: string) =>
+      new RegExp(`\\b${property}: var\\((--[\\w-]+)\\);`).exec(
+        rules.find((rule) => rule.selector === selector)?.body ?? '',
+      )?.[1] ?? '';
+    for (const variant of ['error', 'warning', 'info']) {
+      const selector = `.root[data-variant='${variant}']`;
+      const main = binding(`${selector} .main`, 'color') || binding(selector, 'color');
+      const fill = rgb(theme[binding(selector, 'background')] ?? '');
+      const alpha = fill[3] ?? 1;
+      // Composite in sRGB, retaining fractional channels before luminance conversion.
+      const base = rgb(theme['--color-bg-base'] ?? '');
+      const b = luminance(base.map((v, i) => (fill[i] ?? 0) * alpha + v * (1 - alpha)));
+      for (const token of [main, binding('.detail', 'color')]) {
+        const a = luminance(theme[token] ?? '');
+        expect((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05), variant).toBeGreaterThanOrEqual(
+          4.5,
+        );
+      }
+    }
     for (const fg of [
       '--color-text-primary',
       '--color-text-secondary',
@@ -125,10 +160,8 @@ describe('web design assets and policy', () => {
       for (const bg of ['--color-bg-base', '--color-bg-elevated']) {
         const a = luminance(theme[fg] ?? '');
         const b = luminance(theme[bg] ?? '');
-        expect(
-          (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05),
-          `${fg} on ${bg}`,
-        ).toBeGreaterThanOrEqual(4.5);
+        const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        expect(ratio, `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
       }
     }
   });

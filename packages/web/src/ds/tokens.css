@@ -43,6 +43,7 @@
   --color-text-secondary: #a1a1a1;
   --color-text-tertiary: #6b6b70;
   --color-text-inverse: #0d0d0e;
+  --color-text-attention: #ffd700;
 
   /* accent */
   --color-accent: #ffffff;
@@ -155,6 +156,7 @@
   --color-text-secondary: #59636e;
   --color-text-tertiary: #818b98;
   --color-text-inverse: #ffffff;
+  --color-text-attention: #7d4e00;
 
   --color-accent: #0969da;
   --color-accent-violet: #8250df;

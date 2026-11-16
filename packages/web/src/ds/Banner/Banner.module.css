@@ -48,6 +48,9 @@
 .root[data-variant='info'] .main {
   color: var(--color-text-primary);
 }
+.root[data-variant='warning'] .main {
+  color: var(--color-text-attention);
+}
 .detail {
   color: var(--color-text-secondary);
 }
