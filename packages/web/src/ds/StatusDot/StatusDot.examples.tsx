@@ -33,6 +33,14 @@ export function Error() {
     </Labeled>
   );
 }
+export function Working() {
+  return (
+    <Labeled>
+      <StatusDot tone="working" />
+      working
+    </Labeled>
+  );
+}
 export function Unknown() {
   return (
     <Labeled>

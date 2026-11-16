@@ -1,6 +1,7 @@
 import styles from './StatusDot.module.css';
 
-export type StatusDotTone = 'ok' | 'warn' | 'error' | 'unknown';
+/** `working`: an agent is on it, the blue of the working status. */
+export type StatusDotTone = 'ok' | 'warn' | 'error' | 'unknown' | 'working';
 
 /** A decorative status light. Always place it next to the word it stands for. */
 export function StatusDot({ tone, hollow = false }: { tone: StatusDotTone; hollow?: boolean }) {

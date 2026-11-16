@@ -8,11 +8,13 @@ import appSource from '../../../design/prototypes/board-v1/app.js?raw';
 import baseSource from '../../../design/prototypes/board-v1/base.js?raw';
 import {
   Button,
+  Chip,
   FormRow,
   Icon,
   IconButton,
   KeyValueBox,
   Logo,
+  StatusDot,
   TextArea,
   TextInput,
   type IconName,
@@ -263,6 +265,25 @@ describe('Icon and Logo', () => {
         expect(svg).toContain('stroke="currentColor"');
       }
     }
+  });
+});
+
+describe('StatusDot and Chip', () => {
+  it('StatusDot working and Chip title render; defaults unchanged', () => {
+    const dot = (tone: ComponentProps<typeof StatusDot>['tone']) =>
+      markup(createElement(StatusDot, { tone }));
+    const working = dot('working');
+    expect(working).toContain('aria-hidden="true"');
+    expect(new Set([working, dot('ok'), dot('warn'), dot('error'), dot('unknown')]).size).toBe(5);
+    expect(markup(createElement(Chip, { children: 'draft' }))).not.toContain('title=');
+    expect(markup(createElement(Chip, { tone: 'you', children: 'B1' }))).not.toContain('title=');
+    expect(markup(createElement(Chip, { title: 'Open blocks: B7', children: '+1' }))).toContain(
+      'title="Open blocks: B7"',
+    );
+    expect(Object.keys(examples['../src/ds/StatusDot/StatusDot.examples.tsx'] ?? {})).toContain(
+      'Working',
+    );
+    expect(Object.keys(examples['../src/ds/Chip/Chip.examples.tsx'] ?? {})).toContain('Titled');
   });
 });
 

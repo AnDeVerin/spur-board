@@ -12,3 +12,6 @@ export function You() {
 export function Ghost() {
   return <Chip tone="ghost">no owner</Chip>;
 }
+export function Titled() {
+  return <Chip title="Other open blocks: B7, B9">+2</Chip>;
+}

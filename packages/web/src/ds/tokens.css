@@ -122,6 +122,8 @@
   /* the filter dim; equal to the skeleton pulse by chance, kept apart on purpose */
   --opacity-dimmed: 0.25;
   --opacity-stale: 0.55;
+  /* the turn rail; equal to --opacity-stale by chance, kept apart on purpose */
+  --opacity-rail: 0.55;
   --lines-title: 3;
   --duration-pulse: 2s;
   --z-menu: 5;
