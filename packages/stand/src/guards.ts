@@ -1,12 +1,20 @@
 import { realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import { DEFAULT_HTTP_PORT } from '@spur-board/contracts';
-import { resolvePaths } from '@spur-board/daemon/in-process';
+import { DEFAULT_STAND_PORT_RANGE, resolveWebOrigin, type Config } from '@spur-board/contracts';
+import { readConfig, resolvePaths } from '@spur-board/daemon/in-process';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
 export type RefusalReason =
-  'live_home' | 'live_port' | 'port_range' | 'external_secrets' | 'env_proxy' | 'unsafe_root';
+  | 'live_home'
+  | 'live_config'
+  | 'live_port'
+  | 'port_clash'
+  | 'port_range'
+  | 'web_origin'
+  | 'external_secrets'
+  | 'env_proxy'
+  | 'unsafe_root';
 
 export interface StandRefusal {
   reason: RefusalReason;
@@ -23,10 +31,6 @@ export class StandRefusedError extends Error {
     this.reason = refusal.reason;
   }
 }
-
-/** Stand ports; 0 lets the kernel pick a free one. */
-const STAND_PORT_MIN = 4780;
-const STAND_PORT_MAX = 4799;
 
 const SECRET_PREFIXES = ['SLACK_', 'JIRA_'];
 const SECRET_NAMES = new Set([
@@ -112,12 +116,39 @@ function unsafeRoot(root: string): string | undefined {
 }
 
 /**
- * Why a stand must not start: a root inside the live board's home, the live port, a port outside
- * the stand range, or real external credentials in the environment.
+ * The live board's config, the one `resolvePaths` names for `env`, validated by this checkout's
+ * schema. Any failure to read or validate it is a `live_config` refusal naming the file.
+ */
+export function readLiveBoard(
+  env: Env,
+  osHome: string,
+): { ok: true; file: string; config: Config } | { ok: false; refusal: StandRefusal } {
+  const file = resolvePaths(env, osHome).configFile;
+  try {
+    return { ok: true, file, config: readConfig(file) };
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return {
+      ok: false,
+      refusal: {
+        reason: 'live_config',
+        message: `Cannot use the live board config ${file}: ${error.message}. The stand checks its ports against it: fix the file, or point BOARD_HOME or XDG_CONFIG_HOME at the live board. A file the installed board accepts but this checkout rejects means the checkout's schema differs from the installed version.`,
+      },
+    };
+  }
+}
+
+/**
+ * Why a stand must not start: a root inside the live board's home, a live config it cannot read,
+ * equal API and web ports, a live port, a port outside the live `stand.portRange`, a web port
+ * without a live `web.publicOrigin` holding `{port}`, or real external credentials in the
+ * environment. The directory checks come first and need no config. API port 0 lets the kernel
+ * pick; a web port must be a range port, since the public origin maps `{port}`.
  */
 export function refusal(input: {
   root: string;
   port: number;
+  webPort?: number | undefined;
   env: Env;
   osHome: string;
 }): StandRefusal | undefined {
@@ -130,16 +161,55 @@ export function refusal(input: {
     };
   const unsafe = unsafeRoot(root);
   if (unsafe !== undefined) return { reason: 'unsafe_root', message: unsafe };
-  if (input.port === DEFAULT_HTTP_PORT)
+  const live = readLiveBoard(input.env, input.osHome);
+  if (!live.ok) return live.refusal;
+  const { file, config } = live;
+  const { port, webPort } = input;
+  if (webPort !== undefined && webPort !== 0 && webPort === port)
     return {
-      reason: 'live_port',
-      message: `Port ${String(DEFAULT_HTTP_PORT)} belongs to the live board. Use 0 or a port from ${String(STAND_PORT_MIN)} to ${String(STAND_PORT_MAX)}.`,
+      reason: 'port_clash',
+      message: `The stand API port and web port are both ${String(port)}. Use two different ports.`,
     };
-  if (input.port !== 0 && (input.port < STAND_PORT_MIN || input.port > STAND_PORT_MAX))
+  const range = config.stand.portRange ?? DEFAULT_STAND_PORT_RANGE;
+  const rangeText = `${String(range.min)} to ${String(range.max)}`;
+  for (const standPort of [port, webPort]) {
+    if (standPort === undefined || standPort === 0) continue;
+    for (const [field, livePort] of [
+      ['http.port', config.http.port],
+      ['web.port', config.web.port],
+    ] as const) {
+      if (livePort !== undefined && livePort !== 0 && livePort === standPort)
+        return {
+          reason: 'live_port',
+          message: `Port ${String(standPort)} is the live board's ${field} in ${file}. Use a port from ${rangeText}.`,
+        };
+    }
+  }
+  const outside = (value: number): boolean => value < range.min || value > range.max;
+  if (port !== 0 && outside(port))
     return {
       reason: 'port_range',
-      message: `Port ${String(input.port)} is outside the stand range. Use 0 or a port from ${String(STAND_PORT_MIN)} to ${String(STAND_PORT_MAX)}.`,
+      message: `Port ${String(port)} is outside the stand range ${rangeText} (stand.portRange in ${file}). Use 0 or a port from that range.`,
     };
+  if (webPort !== undefined && outside(webPort))
+    return {
+      reason: 'port_range',
+      message: `Web port ${String(webPort)} is outside the stand range ${rangeText} (stand.portRange in ${file}). Use a port from that range.`,
+    };
+  if (webPort !== undefined) {
+    const template = config.web.publicOrigin;
+    if (template === undefined || !template.includes('{port}'))
+      return {
+        reason: 'web_origin',
+        message: `The stand web URL needs web.publicOrigin with {port} in the live config ${file}; it has ${template === undefined ? 'none' : 'a fixed origin'}.`,
+      };
+    const standOrigin = resolveWebOrigin(config.web, webPort);
+    if (standOrigin === undefined || standOrigin === resolveWebOrigin(config.web))
+      return {
+        reason: 'web_origin',
+        message: `The live web.publicOrigin in ${file} gives web port ${String(webPort)} ${standOrigin === undefined ? 'no valid origin' : "the live board's own origin"}.`,
+      };
+  }
   const names = externalSecretNames(input.env);
   if (names.length > 0)
     return {

@@ -16,13 +16,16 @@ import {
 } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startAdapters, type AdapterRunner } from '@spur-board/adapters';
 import {
   COLUMN_IDS,
   configSchema,
   DEFAULT_SLACK_COMMAND,
+  DEFAULT_STAND_PORT_RANGE,
   err,
   prSourceId,
+  resolveWebOrigin,
   trackerSourceId,
   userIdSchema,
   type Config,
@@ -53,7 +56,7 @@ import { createFakes, type FakesState } from './fakes/fetch.ts';
 import { createGithubIssuesFake } from './fakes/github-issues.ts';
 import { createGithubPrFake } from './fakes/github-pr.ts';
 import { createJiraFake } from './fakes/jira.ts';
-import { proxyRefusal, refusal, StandRefusedError } from './guards.ts';
+import { proxyRefusal, readLiveBoard, refusal, StandRefusedError } from './guards.ts';
 import {
   isStandDir,
   procStat,
@@ -99,6 +102,8 @@ const ROLE_PROJECTS = {
 };
 const SESSION_ROLES = ['worker', 'orchestrator', 'curator'] as const;
 const SPUR_BASE_URL = 'http://spur.stand.invalid';
+/** The web package's build output: the stand's default web root. */
+export const WEB_DIST = fileURLToPath(new URL('../../web/dist/', import.meta.url));
 const SECRETS = {
   GITHUB_TOKEN: 'stand-dummy-github',
   JIRA_EMAIL: 'stand@stand.invalid',
@@ -129,6 +134,7 @@ const SEED_FAILED_NOTE =
 export function standConfig(
   port: number,
   spurBaseUrl: string = SPUR_BASE_URL,
+  web?: { port: number; publicOrigin: string },
 ): Record<string, unknown> {
   return {
     projects: [
@@ -162,6 +168,7 @@ export function standConfig(
     slack: { channels: STAND_CHANNELS },
     digest: { tz: 'UTC' },
     http: { port },
+    ...(web === undefined ? {} : { web }),
     adapters: {
       spur: { baseUrl: spurBaseUrl, intervalMs: 2_000 },
       github: { intervalMs: 5_000 },
@@ -330,6 +337,10 @@ export interface StandOptions {
   /** A home `up` created; it must pass `isStandDir` and hold no manifest yet. */
   home?: string | undefined;
   port: number;
+  /** The web listener port, from the live `stand.portRange`; no web listener when undefined. */
+  webPort?: number | undefined;
+  /** Replaces `WEB_DIST` as the web listener's root; a test seam. */
+  webRoot?: string;
   env: Env;
   execArgv?: readonly string[];
   osHome: string;
@@ -414,6 +425,40 @@ async function checkPortFree(port: number): Promise<void> {
   });
 }
 
+/** Whether `port` is free on 127.0.0.1 right now. */
+async function portFree(port: number): Promise<boolean> {
+  try {
+    await checkPortFree(port);
+    return true;
+  } catch (err) {
+    if ((err as { cause?: NodeJS.ErrnoException }).cause?.code === 'EADDRINUSE') return false;
+    throw err;
+  }
+}
+
+/**
+ * The stand web port when none was given: the first free port of the live `stand.portRange` that
+ * is neither `port` nor a live board port. Undefined when the live `web.publicOrigin` has no
+ * `{port}`, so the stand has no web URL; an unreadable live config is a `live_config` refusal.
+ */
+export async function pickWebPort(input: {
+  port: number;
+  env: Env;
+  osHome: string;
+}): Promise<number | undefined> {
+  const live = readLiveBoard(input.env, input.osHome);
+  if (!live.ok) throw new StandRefusedError(live.refusal);
+  const { http, web, stand } = live.config;
+  if (web.publicOrigin?.includes('{port}') !== true) return undefined;
+  const range = stand.portRange ?? DEFAULT_STAND_PORT_RANGE;
+  const taken = new Set([input.port, http.port, web.port]);
+  for (let candidate = range.min; candidate <= range.max; candidate += 1) {
+    // One at a time: the first free port wins.
+    if (!taken.has(candidate) && (await portFree(candidate))) return candidate;
+  }
+  throw new Error(`No free stand web port in ${String(range.min)}..${String(range.max)}`);
+}
+
 /**
  * Starts a stand: an in-process daemon on a generated home with dummy secrets, the loopback-only
  * network guard and a control endpoint. Every refusal happens before anything is created.
@@ -421,7 +466,13 @@ async function checkPortFree(port: number): Promise<void> {
 export async function startStand(options: StandOptions): Promise<Stand> {
   const refused =
     proxyRefusal({ env: options.env, execArgv: options.execArgv ?? [] }) ??
-    refusal({ root: options.root, port: options.port, env: options.env, osHome: options.osHome });
+    refusal({
+      root: options.root,
+      port: options.port,
+      webPort: options.webPort,
+      env: options.env,
+      osHome: options.osHome,
+    });
   if (refused !== undefined) throw new StandRefusedError(refused);
   const scenarios = options.scenarios ?? SCENARIOS;
   const findScenario = (name: string): Scenario | undefined =>
@@ -434,7 +485,17 @@ export async function startStand(options: StandOptions): Promise<Stand> {
 
   const root = realpathSync(options.root);
   const spurBaseUrl = options.spurBaseUrl ?? SPUR_BASE_URL;
-  const config = standConfig(options.port, spurBaseUrl);
+  const { webPort } = options;
+  let web: { port: number; publicOrigin: string } | undefined;
+  if (webPort !== undefined) {
+    // The refusal above checked the template; the stand origin is the live template's own.
+    const live = readLiveBoard(options.env, options.osHome);
+    if (!live.ok) throw new StandRefusedError(live.refusal);
+    const { publicOrigin } = live.config.web;
+    if (publicOrigin === undefined) throw new Error('The live web.publicOrigin disappeared.');
+    web = { port: webPort, publicOrigin };
+  }
+  const config = standConfig(options.port, spurBaseUrl, web);
   const parsedConfig = configSchema.parse(config);
   const required = requiredSources(parsedConfig);
   let home: string;
@@ -454,6 +515,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   const homeRefused = refusal({
     root: home,
     port: options.port,
+    webPort,
     env: options.env,
     osHome: options.osHome,
   });
@@ -577,6 +639,10 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     resolveExited = resolve;
   });
 
+  /** The origin of the current daemon's web listener, set once it bound. */
+  let webUrl: string | undefined;
+  // A function, so the check after the daemon's start reads the listener's write.
+  const boundWebUrl = (): string | undefined => webUrl;
   /** Starts a daemon with a new fake Spur, holding `spurState` when a snapshot is restored. */
   async function startDaemon(spurState?: FakeSpurState): Promise<NonNullable<typeof current>> {
     const spur = createFakeSpur({
@@ -597,6 +663,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     // Only the runner reaches the GitHub and Jira fakes. `sessionFetcher` also carries doctor, its
     // link sample and Jira `/myself`, which no fake models.
     const runner = runnerController(fakes.wrap(standFetch));
+    webUrl = undefined;
     const daemon = await startInProcessDaemon({
       ...(options.shutdownTimeoutMs === undefined
         ? {}
@@ -612,11 +679,23 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         sessionFetcher: standFetch,
         spur: createSpurPort({ baseUrl: spurBaseUrl, fetch: standFetch }),
         ...(options.tick === undefined ? {} : { tick: options.tick }),
+        webRoot: options.webRoot ?? WEB_DIST,
+        onWebListening: (address) => {
+          webUrl = resolveWebOrigin(parsedConfig.web, Number(new URL(address).port));
+        },
       },
       registerFatal: (handler) => {
         fatal = handler;
       },
     });
+    // The daemon logs a failed web bind and runs on; a stand asked for a web port must not.
+    if (webPort !== undefined && boundWebUrl() === undefined) {
+      await daemon.stop();
+      await daemon.teardown;
+      throw new Error(
+        `The stand web listener did not bind port ${String(webPort)}; see pnpm stand logs`,
+      );
+    }
     const started = { daemon, runner, spur };
     // A daemon that exits outside reset and stop takes the stand down with it.
     void daemon.exited.then((code) => {
@@ -680,6 +759,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       controlToken,
       tokenPath,
       roles,
+      ...(webUrl === undefined ? {} : { webUrl }),
       ...(scenario?.entities === undefined
         ? {}
         : { scenario: { name: scenario.name, ...scenario.entities } }),
@@ -1221,6 +1301,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
 
   try {
     await checkPortFree(options.port);
+    if (webPort !== undefined) await checkPortFree(webPort);
     fake = await startFake();
     await writeHome(fake.url, options.scenario);
     current = await startDaemon();

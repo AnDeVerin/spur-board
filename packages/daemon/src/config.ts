@@ -55,7 +55,11 @@ function isNotFound(err: unknown): boolean {
   return err instanceof Error && 'code' in err && err.code === 'ENOENT';
 }
 
-function readConfig(file: string): Config {
+/**
+ * Reads and validates config.yaml alone. A missing or invalid file throws `ConfigError`; any
+ * other read error is rethrown as it is.
+ */
+export function readConfig(file: string): Config {
   let text: string;
   try {
     text = readFileSync(file, 'utf8');

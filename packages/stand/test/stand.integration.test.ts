@@ -22,12 +22,15 @@ import { openStore } from '@spur-board/core';
 import { isScrubbed } from '@spur-board/testkit';
 import { acquireLock } from '@spur-board/daemon/in-process';
 import { sql } from 'kysely';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import YAML from 'yaml';
 import { runCli, type CliIo } from '../../cli/src/cli.ts';
+// Types `inject('webAssetsRoot')`.
+import type {} from '../../testkit/src/global-setup.ts';
 import { readManifest, standManifest, type StandManifest } from '../src/manifest.ts';
 import { roleEnv, type StandRole } from '../src/roles.ts';
-import { startStand, StandRefusedError, type Stand } from '../src/stand.ts';
+import { pickWebPort, startStand, StandRefusedError, WEB_DIST, type Stand } from '../src/stand.ts';
+import { liveConfigDir, writeLiveConfig } from './live-config.ts';
 
 const SOURCES = [
   'spur',
@@ -56,7 +59,32 @@ beforeEach(() => {
   chmodSync(root, 0o700);
   mkdirSync(osHome);
   root = realpathSync(root);
+  writeLiveConfig(liveConfigDir(osHome));
 });
+
+/** A live web template whose `{port}` the stand web port fills. */
+const LIVE_WEB = { port: 4778, publicOrigin: 'https://{port}.local.example' };
+
+/** The status and body of a GET to the stand web listener on `port` with `host` as Host. */
+function webGet(port: number, host: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      { host: '127.0.0.1', port, path: '/', method: 'GET', headers: { host } },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          body += chunk;
+        });
+        res.on('end', () => {
+          resolve({ status: res.statusCode ?? 0, body });
+        });
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 afterEach(async () => {
   let log: { status: number; body: unknown } | undefined;
@@ -500,6 +528,15 @@ describe('stand', () => {
     ['live_home', () => ({ env: { BOARD_HOME: root }, port: 0 })],
     ['live_port', () => ({ env: {}, port: 4777 })],
     ['port_range', () => ({ env: {}, port: 4800 })],
+    ['port_clash', () => ({ env: {}, port: 4781, webPort: 4781 })],
+    ['web_origin', () => ({ env: {}, port: 0, webPort: 4781 })],
+    [
+      'live_config',
+      () => {
+        rmSync(join(liveConfigDir(osHome), 'config.yaml'));
+        return { env: {}, port: 0 };
+      },
+    ],
     ['external_secrets', () => ({ env: { GITHUB_TOKEN: 'real' }, port: 0 })],
     ['env_proxy', () => ({ env: { NODE_USE_ENV_PROXY: '1' }, port: 0 })],
     [
@@ -553,6 +590,9 @@ describe('stand', () => {
       HTTP_PROXY: 'http://127.0.0.1:9',
       NO_PROXY: 'example.invalid',
     };
+    // The only live config is under BOARD_HOME: the detached child starts only if it got it.
+    writeLiveConfig(host.BOARD_HOME);
+    rmSync(join(liveConfigDir(osHome), 'config.yaml'));
     const refused = await standCli(['up'], { ...host, SLACK_BOT_TOKEN: 'xoxb-host' });
     expect(refused.code, refused.stderr).toBe(3);
     expect(refused.stderr).toContain('stand refused (external_secrets)');
@@ -617,6 +657,8 @@ describe('stand', () => {
 
   it('refuses a passed home that is the live board home', async () => {
     const home = mkdtempSync(join(root, 'spur-board-stand.'));
+    // The live board's own config; the stand writes nothing beside it.
+    writeLiveConfig(home);
     const error: unknown = await startStand({
       root,
       home,
@@ -626,8 +668,90 @@ describe('stand', () => {
     }).catch((err: unknown) => err);
     expect(error).toBeInstanceOf(StandRefusedError);
     expect((error as StandRefusedError).reason).toBe('live_home');
-    expect(readdirSync(home)).toEqual([]);
+    expect(readdirSync(home)).toEqual(['config.yaml']);
   });
+
+  it('points WEB_DIST at the web package build directory', () => {
+    expect(basename(WEB_DIST)).toBe('dist');
+    const pkg = JSON.parse(readFileSync(join(WEB_DIST, '..', 'package.json'), 'utf8')) as {
+      name: string;
+    };
+    expect(pkg.name).toBe('@spur-board/web');
+  });
+
+  it('up prints the webUrl built from the live publicOrigin template', async () => {
+    writeLiveConfig(liveConfigDir(osHome), { web: LIVE_WEB });
+    const started = await standCli(['up']);
+    expect(started.code, started.stderr).toBe(0);
+    const shown = JSON.parse(started.stdout) as {
+      home: string;
+      daemonUrl: string;
+      webUrl?: string;
+    };
+    try {
+      const match = /^https:\/\/(\d+)\.local\.example$/.exec(shown.webUrl ?? '');
+      expect(match, started.stdout).not.toBeNull();
+      const webPort = Number(match?.[1]);
+      expect(webPort).toBeGreaterThanOrEqual(4780);
+      expect(webPort).toBeLessThanOrEqual(4799);
+      expect(webPort).not.toBe(Number(new URL(shown.daemonUrl).port));
+      expect(readManifest(shown.home)?.webUrl).toBe(shown.webUrl);
+      expect((await webGet(webPort, `${String(webPort)}.local.example`)).status).not.toBe(403);
+      expect((await webGet(webPort, `127.0.0.1:${String(webPort)}`)).status).toBe(403);
+    } finally {
+      const downed = await standCli(['down', '--home', shown.home]);
+      expect(downed.code, downed.stderr).toBe(0);
+    }
+  }, 60_000);
+
+  it('serves the 503 hint without a built SPA and the SPA when built', async () => {
+    writeLiveConfig(liveConfigDir(osHome), { web: LIVE_WEB });
+    const webPort = await pickWebPort({ port: 0, env: {}, osHome });
+    if (webPort === undefined) throw new Error('no web port picked');
+    const host = `${String(webPort)}.local.example`;
+    stand = await startStand({
+      root,
+      port: 0,
+      webPort,
+      env: {},
+      osHome,
+      webRoot: join(base, 'no-web'),
+    });
+    expect(stand.manifest().webUrl).toBe(`https://${host}`);
+    const missing = await webGet(webPort, host);
+    expect(missing.status).toBe(503);
+    expect(missing.body).toContain('UI is not built');
+    await stand.stop();
+    stand = undefined;
+
+    stand = await startStand({
+      root,
+      port: 0,
+      webPort,
+      env: {},
+      osHome,
+      webRoot: inject('webAssetsRoot'),
+    });
+    checked = stand.manifest();
+    const built = await new Promise<{ status: number; type: string | undefined }>(
+      (resolve, reject) => {
+        request({ host: '127.0.0.1', port: webPort, path: '/', headers: { host } }, (res) => {
+          res.resume();
+          resolve({ status: res.statusCode ?? 0, type: res.headers['content-type'] });
+        })
+          .on('error', reject)
+          .end();
+      },
+    );
+    expect(built.status).toBe(200);
+    expect(built.type).toContain('text/html');
+    const before = readManifest(checked.home)?.webUrl;
+    expect(before).toBe(`https://${host}`);
+    const reset = await control(checked, '/reset');
+    expect(reset.status, JSON.stringify(reset.body)).toBe(200);
+    expect(readManifest(checked.home)?.webUrl).toBe(before);
+    expect((await webGet(webPort, host)).status).toBe(200);
+  }, 60_000);
 
   it('starts on a passed home that holds only its spawn log', async () => {
     const home = mkdtempSync(join(root, 'spur-board-stand.'));

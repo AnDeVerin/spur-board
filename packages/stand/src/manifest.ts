@@ -31,6 +31,8 @@ export const standManifest = z.strictObject({
   /** Field 22 of `/proc/<pid>/stat`: tells a live stand from a reused pid. */
   pidStartTime: z.int().nonnegative(),
   daemonUrl: z.url(),
+  /** The web listener's public origin, built from the live `web.publicOrigin`; absent without. */
+  webUrl: z.url().optional(),
   controlUrl: z.url(),
   controlToken: z.string().min(1),
   tokenPath: z.string().min(1),

@@ -25,6 +25,7 @@ import YAML from 'yaml';
 import { MANIFEST_FILE, readManifest, STAND_PREFIX, type StandManifest } from '../src/manifest.ts';
 import { SCENARIOS, scenarioNames, type Scenario } from '../src/scenarios/index.ts';
 import { startStand, type Stand, type StandOptions } from '../src/stand.ts';
+import { liveConfigDir, writeLiveConfig } from './live-config.ts';
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const SEED_WAIT = { condition: 'scenario', timeoutMs: 30_000 };
@@ -44,6 +45,7 @@ beforeEach(() => {
   chmodSync(root, 0o700);
   mkdirSync(osHome);
   root = realpathSync(root);
+  writeLiveConfig(liveConfigDir(osHome));
 });
 
 afterEach(async () => {
@@ -317,6 +319,8 @@ describe('scenarios', () => {
       expect(started.code, started.stderr).toBe(0);
       home = (JSON.parse(started.stdout) as { home: string; scenario?: { name: string } }).home;
       expect(JSON.parse(started.stdout)).toMatchObject({ scenario: { name: 'empty' } });
+      expect(JSON.parse(started.stdout)).not.toHaveProperty('webUrl');
+      expect(started.stderr).toContain('needs web.publicOrigin with {port}');
       const shown = await standCli(['status', '--home', home, '--json']);
       expect(shown.code, shown.stderr).toBe(0);
       expect(JSON.parse(shown.stdout)).toMatchObject({

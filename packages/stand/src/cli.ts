@@ -13,6 +13,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { resolvePaths } from '@spur-board/daemon/in-process';
 import { scrubEnv } from '@spur-board/testkit';
 import { z } from 'zod';
 import { callLocal, MAX_SHIFT_MS } from './control.ts';
@@ -42,7 +43,7 @@ import {
 } from './roles.ts';
 import { foregroundStop } from './foreground.ts';
 import { scenarioNames } from './scenarios/index.ts';
-import { startStand, WAIT_CONDITIONS } from './stand.ts';
+import { pickWebPort, startStand, WAIT_CONDITIONS } from './stand.ts';
 
 const SELF = fileURLToPath(import.meta.url);
 // Read as soon as this module runs: a parent that exits while the stand starts must still stop
@@ -61,10 +62,13 @@ const JIRA_KEY = /^[A-Z][A-Z0-9_]*-[1-9]\d*$/;
 
 const USAGE = `Usage: pnpm stand <command>
 
-  up [--port N] [--scenario S] [--foreground [--watch-pid PID]]
-                                  start a stand (port 0 or 4780-4799; default 0), seeded with
-                                  scenario S when given. In the foreground it stops with its
-                                  parent; a launcher that may exit first passes itself:
+  up [--port N] [--web-port N] [--scenario S] [--foreground [--watch-pid PID]]
+                                  start a stand, seeded with scenario S when given. The API port
+                                  is 0 or a port from the live stand.portRange (default 0). When
+                                  the live web.publicOrigin has {port}, the web port comes from
+                                  that range, by default the first free one, and up prints the
+                                  webUrl. In the foreground it stops with its parent; a launcher
+                                  that may exit first passes itself:
                                   pnpm stand up --foreground --watch-pid $$
   down                            stop the stand and remove its home
   status [--json]                 show the stand and whether its API answers
@@ -199,9 +203,9 @@ function root(): string {
   return realpathSync(tmpdir());
 }
 
-function parsePort(value: string | undefined): number {
+function parsePort(value: string | undefined, name: string): number {
   if (value === undefined) return 0;
-  if (!/^\d+$/.test(value)) throw new UsageError(`--port must be a number, got ${value}`);
+  if (!/^\d+$/.test(value)) throw new UsageError(`${name} must be a number, got ${value}`);
   return Number(value);
 }
 
@@ -228,8 +232,16 @@ function target(home: string | undefined): StandManifest {
 }
 
 function publicView(manifest: StandManifest): Record<string, unknown> {
-  const { id, home, pid, daemonUrl, controlUrl, scenario } = manifest;
-  return { id, home, pid, daemonUrl, controlUrl, ...(scenario === undefined ? {} : { scenario }) };
+  const { id, home, pid, daemonUrl, webUrl, controlUrl, scenario } = manifest;
+  return {
+    id,
+    home,
+    pid,
+    daemonUrl,
+    ...(webUrl === undefined ? {} : { webUrl }),
+    controlUrl,
+    ...(scenario === undefined ? {} : { scenario }),
+  };
 }
 
 /** The name, after checking it is a known scenario. */
@@ -262,8 +274,27 @@ function pruneDead(): void {
     if (result === 'removed') err(`removed dead stand ${dir}\n`);
 }
 
+/**
+ * The first free stand web port, or undefined with a note on stderr when the live
+ * `web.publicOrigin` has no `{port}`: the stand then runs API-only.
+ */
+async function defaultWebPort(
+  port: number,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<number | undefined> {
+  const webPort = await pickWebPort({ port, env, osHome: homedir() });
+  if (webPort === undefined)
+    err(
+      `No stand web URL: it needs web.publicOrigin with {port} in the live config ${resolvePaths(env, homedir()).configFile}. The stand runs API-only.\n`,
+    );
+  return webPort;
+}
+
 async function upForeground(options: {
   port: number;
+  webPort?: number;
+  /** The live BOARD_HOME of the `up` that spawned this detached child. */
+  liveHome?: string;
   scenario?: string;
   home?: string;
   detached: boolean;
@@ -277,12 +308,25 @@ async function upForeground(options: {
       throw new Error(`The watched process ${String(options.watchPid)} is already gone.`);
     parentGone = watch;
   }
-  const env = { ...process.env };
+  // The live BOARD_HOME reaches a detached child through argv, never its environment.
+  const env = {
+    ...process.env,
+    ...(options.liveHome === undefined ? {} : { BOARD_HOME: options.liveHome }),
+  };
   const execArgv = [...process.execArgv];
   const refused =
     proxyRefusal({ env, execArgv }) ??
-    refusal({ root: root(), port: options.port, env, osHome: homedir() });
+    refusal({
+      root: root(),
+      port: options.port,
+      webPort: options.webPort,
+      env,
+      osHome: homedir(),
+    });
   if (refused !== undefined) throw new StandRefusedError(refused);
+  // A detached child takes the port its `up` picked, or none.
+  const webPort =
+    options.webPort ?? (options.detached ? undefined : await defaultWebPort(options.port, env));
   // A detached child was spawned by an `up` that already pruned.
   if (!options.detached) pruneDead();
   scrubEnv(process.env);
@@ -308,6 +352,7 @@ async function upForeground(options: {
       root: root(),
       home: options.home,
       port: options.port,
+      webPort,
       scenario: options.scenario,
       env,
       execArgv,
@@ -325,10 +370,22 @@ async function upForeground(options: {
   return stopper.attach(result);
 }
 
-async function up(port: number, scenario: string | undefined): Promise<number> {
+async function up(
+  port: number,
+  requestedWebPort: number | undefined,
+  scenario: string | undefined,
+): Promise<number> {
   const dir = root();
-  const refused = refusal({ root: dir, port, env: process.env, osHome: homedir() });
+  const refused = refusal({
+    root: dir,
+    port,
+    webPort: requestedWebPort,
+    env: process.env,
+    osHome: homedir(),
+  });
   if (refused !== undefined) throw new StandRefusedError(refused);
+  const webPort = requestedWebPort ?? (await defaultWebPort(port, process.env));
+  const liveHome = process.env['BOARD_HOME'] ?? '';
   pruneDead();
   const home = mkdtempSync(join(dir, STAND_PREFIX));
   mkdirSync(join(home, 'logs'), { mode: 0o700 });
@@ -345,6 +402,8 @@ async function up(port: number, scenario: string | undefined): Promise<number> {
       home,
       '--port',
       String(port),
+      ...(webPort === undefined ? [] : ['--web-port', String(webPort)]),
+      ...(liveHome === '' ? [] : ['--live-home', liveHome]),
       ...(scenario === undefined ? [] : ['--scenario', scenario]),
     ],
     { detached: true, env: standEnv(process.env), stdio: ['ignore', log, log] },
@@ -824,8 +883,10 @@ async function main(argv: string[]): Promise<number> {
     options: {
       home: { type: 'string' },
       port: { type: 'string' },
+      'web-port': { type: 'string' },
       foreground: { type: 'boolean' },
       detached: { type: 'boolean' },
+      'live-home': { type: 'string' },
       json: { type: 'boolean' },
       stand: { type: 'boolean' },
       timeout: { type: 'string' },
@@ -837,21 +898,34 @@ async function main(argv: string[]): Promise<number> {
     throw new UsageError('--scenario goes only with up; seed takes the name itself');
   switch (command) {
     case 'up': {
-      const port = parsePort(values.port);
+      const port = parsePort(values.port, '--port');
+      const rawWebPort = values['web-port'];
+      const webPort = rawWebPort === undefined ? undefined : parsePort(rawWebPort, '--web-port');
+      const liveHome = values['live-home'];
       const scenario = values.scenario === undefined ? undefined : scenarioName(values.scenario);
       if (!values.foreground) {
-        if (values.home !== undefined || values.detached || values['watch-pid'] !== undefined)
+        if (
+          values.home !== undefined ||
+          values.detached ||
+          values['watch-pid'] !== undefined ||
+          liveHome !== undefined
+        )
           throw new UsageError(
-            'up takes --home, --detached and --watch-pid only with --foreground',
+            'up takes --home, --detached, --watch-pid and --live-home only with --foreground',
           );
-        return up(port, scenario);
+        return up(port, webPort, scenario);
       }
+      if (liveHome !== undefined && !values.detached)
+        throw new UsageError('--live-home goes only with --detached');
+      if (liveHome === '') throw new UsageError('--live-home needs a path');
       const watch = values['watch-pid'];
       if (watch !== undefined && (!/^[1-9]\d*$/.test(watch) || values.detached))
         throw new UsageError('--watch-pid takes a process id and only goes with --foreground');
       return upForeground({
         ...(watch === undefined ? {} : { watchPid: Number(watch) }),
         port,
+        ...(webPort === undefined ? {} : { webPort }),
+        ...(liveHome === undefined ? {} : { liveHome }),
         ...(scenario === undefined ? {} : { scenario }),
         ...(values.home === undefined ? {} : { home: values.home }),
         detached: values.detached ?? false,

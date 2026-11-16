@@ -192,6 +192,19 @@ describe('stand usage errors', () => {
     const result = await runCli(['help']);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('Usage: pnpm stand <command>');
+    expect(result.stdout).toContain('--web-port');
+    expect(result.stdout).not.toContain('--live-home');
+  });
+
+  it.each([
+    [['up', '--live-home', '/x'], 'only with --foreground'],
+    [['up', '--foreground', '--live-home', '/x'], '--live-home goes only with --detached'],
+    [['up', '--web-port', 'abc'], '--web-port must be a number'],
+  ])('refuses %j as a usage error', async (args, reason) => {
+    const result = await runCli(args);
+    expect(result.code, result.stderr).toBe(2);
+    expect(result.stderr).toContain(reason);
+    expect(result.stderr).toContain('pnpm stand help');
   });
 });
 

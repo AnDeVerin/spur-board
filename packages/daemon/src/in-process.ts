@@ -6,7 +6,7 @@ import type { Paths } from './config.ts';
 import { runDaemon, type ProcessPort } from './lifecycle.ts';
 import type { Clock } from './logger.ts';
 
-export { loadConfig, resolvePaths, type Paths } from './config.ts';
+export { loadConfig, readConfig, resolvePaths, type Paths } from './config.ts';
 export { acquireLock } from './lock.ts';
 export { createSpurPort } from './spur-port.ts';
 

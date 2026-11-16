@@ -1,8 +1,9 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { proxyRefusal, refusal } from '../src/guards.ts';
+import { liveConfigDir, writeLiveConfig } from './live-config.ts';
 
 let base: string;
 let root: string;
@@ -16,6 +17,7 @@ beforeEach(() => {
   mkdirSync(root, { mode: 0o700 });
   chmodSync(root, 0o700);
   mkdirSync(osHome);
+  writeLiveConfig(liveConfigDir(osHome));
 });
 
 afterEach(() => {
@@ -98,6 +100,119 @@ describe('refusal', () => {
 
   it.each([0, 4780, 4799])('allows port %i', (port) => {
     expect(refusal({ root, port, env: {}, osHome })).toBeUndefined();
+  });
+
+  it.each([
+    ['port 4785', 4785, { port: 4785 }],
+    ['port 4786', 4786, { port: 4786 }],
+    ['web port 4785', 4785, { port: 0, webPort: 4785 }],
+    ['web port 4786', 4786, { port: 4781, webPort: 4786 }],
+  ])('refuses live_port for %s', (_name, live, ports) => {
+    writeLiveConfig(liveConfigDir(osHome), {
+      httpPort: 4785,
+      web: { port: 4786, publicOrigin: 'https://{port}.local.example' },
+    });
+    const result = refusal({ root, ...ports, env: {}, osHome });
+    expect(result?.reason).toBe('live_port');
+    expect(result?.message).toContain(`Port ${String(live)} is the live board's`);
+  });
+
+  it('refuses port_range, not live_port, for 4777 when the live board listens on 4785', () => {
+    writeLiveConfig(liveConfigDir(osHome), { httpPort: 4785 });
+    expect(refusal({ root, port: 4777, env: {}, osHome })?.reason).toBe('port_range');
+  });
+
+  it.each([
+    [
+      'missing',
+      (dir: string) => {
+        rmSync(join(dir, 'config.yaml'));
+      },
+    ],
+    [
+      'a directory',
+      (dir: string) => {
+        rmSync(join(dir, 'config.yaml'));
+        mkdirSync(join(dir, 'config.yaml'));
+      },
+    ],
+    [
+      'bad YAML',
+      (dir: string) => {
+        writeFileSync(join(dir, 'config.yaml'), 'projects: [\n');
+      },
+    ],
+    [
+      'schema-invalid',
+      (dir: string) => {
+        writeFileSync(join(dir, 'config.yaml'), 'http: { port: -1 }\n');
+      },
+    ],
+  ])('refuses live_config when the live config is %s', (_name, spoil) => {
+    const dir = liveConfigDir(osHome);
+    spoil(dir);
+    const result = refusal({ root, port: 0, env: {}, osHome });
+    expect(result?.reason).toBe('live_config');
+    expect(result?.message).toContain(join(dir, 'config.yaml'));
+  });
+
+  it('refuses live_config when BOARD_HOME holds no config', () => {
+    const empty = join(base, 'empty-live');
+    mkdirSync(empty);
+    const result = refusal({ root, port: 0, env: { BOARD_HOME: empty }, osHome });
+    expect(result?.reason).toBe('live_config');
+    expect(result?.message).toContain(join(empty, 'config.yaml'));
+  });
+
+  it('takes the stand range from the live stand.portRange', () => {
+    writeLiveConfig(liveConfigDir(osHome), {
+      portRange: { min: 5000, max: 5009 },
+      web: { port: 4778, publicOrigin: 'https://{port}.local.example' },
+    });
+    const port4780 = refusal({ root, port: 4780, env: {}, osHome });
+    expect(port4780?.reason).toBe('port_range');
+    expect(port4780?.message).toContain('5000 to 5009');
+    expect(refusal({ root, port: 5000, env: {}, osHome })).toBeUndefined();
+    expect(refusal({ root, port: 0, webPort: 4780, env: {}, osHome })?.reason).toBe('port_range');
+    expect(refusal({ root, port: 0, webPort: 5001, env: {}, osHome })).toBeUndefined();
+  });
+
+  it('refuses port_range, not port_clash, for web port 0 with API port 0', () => {
+    writeLiveConfig(liveConfigDir(osHome), {
+      web: { port: 4778, publicOrigin: 'https://{port}.local.example' },
+    });
+    expect(refusal({ root, port: 0, webPort: 0, env: {}, osHome })?.reason).toBe('port_range');
+  });
+
+  it('refuses port_clash for equal API and web ports', () => {
+    writeLiveConfig(liveConfigDir(osHome), {
+      web: { port: 4778, publicOrigin: 'https://{port}.local.example' },
+    });
+    expect(refusal({ root, port: 4781, webPort: 4781, env: {}, osHome })?.reason).toBe(
+      'port_clash',
+    );
+  });
+
+  it.each([
+    ['no web section', undefined, 'it has none'],
+    [
+      'a fixed origin',
+      { port: 4778, publicOrigin: 'https://board.local.example' },
+      'it has a fixed origin',
+    ],
+  ])('refuses web_origin for a web port when the live config has %s', (_name, web, has) => {
+    writeLiveConfig(liveConfigDir(osHome), web === undefined ? {} : { web });
+    const result = refusal({ root, port: 0, webPort: 4781, env: {}, osHome });
+    expect(result?.reason).toBe('web_origin');
+    expect(result?.message).toContain('needs web.publicOrigin with {port}');
+    expect(result?.message).toContain(has);
+  });
+
+  it('allows a web port when the live publicOrigin has {port}', () => {
+    writeLiveConfig(liveConfigDir(osHome), {
+      web: { port: 4778, publicOrigin: 'https://{port}.local.example' },
+    });
+    expect(refusal({ root, port: 0, webPort: 4781, env: {}, osHome })).toBeUndefined();
   });
 
   it.each([
