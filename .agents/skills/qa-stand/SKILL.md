@@ -1,6 +1,6 @@
 ---
 name: qa-stand
-description: Run a disposable board stand for QA - up, down, status, logs, roles, refusals and cleanup, reached only through pnpm stand board|mcp. Use when you test board behaviour on a stand or run pnpm stand. Don't use for seeding state or fakes (use qa-seed) or evidence and outcome (use qa-report).
+description: Run a disposable board stand for QA - up, down, status, logs, roles, refusals, cleanup; reached only by pnpm stand board|mcp and its webUrl. Use when you test board behaviour on a stand or run pnpm stand. Don't use for seeding state or fakes (use qa-seed) or evidence and outcome (use qa-report).
 ---
 
 # QA stand
@@ -14,6 +14,9 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
   checkout's code.
 - `pnpm stand up [--scenario <name>]` detaches and prints one JSON line with `home`, `daemonUrl`,
   `controlUrl` and the seeded `scenario`. Keep `home`.
+- The JSON adds `webUrl` when the live `web.publicOrigin` has `{port}`; otherwise `up` says so
+  on stderr and the stand is API-only. Build the UI first and `reset` after a rebuild
+  (`docs/qa-stand.md`, Browser QA).
 - Commands find stands under the real path of `TMPDIR`: run them all with one `TMPDIR`. One live
   stand is picked by itself; several need `--home <dir>`.
 - Check the stand with `pnpm stand status` and read its logs with `pnpm stand logs`.
@@ -46,7 +49,8 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
 
 ## Live board
 
-- `pnpm stand board` and `pnpm stand mcp` are the only ways to reach a stand.
+- `pnpm stand board` and `pnpm stand mcp` are the only ways to reach a stand; a browser opens
+  only the `webUrl` that `up` printed, never the live board's web address.
 - A bare `board` command reaches the live board, not the stand. Use it only for the outcome on
   the live task in a board QA round (`qa-report`); never to drive a scenario.
 
@@ -58,8 +62,11 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
 |---|---|---|
 | `live_home` | stand root inside the live board's home | set `TMPDIR` elsewhere |
 | `unsafe_root` | `TMPDIR` or a parent owned by another user, or group- or world-writable without the sticky bit | `TMPDIR` = a private directory, mode 700 |
-| `live_port` | the live board's port | `--port 0` or 4780-4799 |
-| `port_range` | port outside the stand range | `--port 0` or 4780-4799 |
+| `live_config` | the live config is missing, unreadable or invalid, or this checkout's schema rejects it (e.g. an older A/B base) | fix it or set `BOARD_HOME`; for schema skew, run the stand from a checkout whose schema accepts the live config |
+| `live_port` | the live config's `http.port` or `web.port` | `--port 0` or a port from the live `stand.portRange` |
+| `port_range` | port outside the live `stand.portRange` | `--port 0` or a port from the live `stand.portRange` |
+| `port_clash` | `--port` equals `--web-port` | two different ports |
+| `web_origin` | `--web-port` given, but the live `web.publicOrigin` has no `{port}` | omit `--web-port` |
 | `external_secrets` | real credential variables in the environment | rerun the printed `env -u <NAME> ... pnpm stand up` with your `--scenario` and `--port` added |
 | `env_proxy` | the Node env proxy is on | start without it |
 

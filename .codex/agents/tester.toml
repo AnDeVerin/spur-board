@@ -52,9 +52,11 @@ FINDING: <non-obvious fact> - <file:line or command>
 - Evidence files (screenshots, logs) go outside the repo, or in the session's artifacts directory
   when it has one (`qa-report`).
 - Test only: never edit code or other tracked files, commit, `git fetch` or move refs.
-- Reach a stand only through `pnpm stand board` or `pnpm stand mcp`. Bare `board` reaches the
-  live board: use it only for the outcome on the live task in a board QA round. In a manager run
-  post nothing to the live board.
+- Reach a stand only through `pnpm stand board` or `pnpm stand mcp`, and its UI only at the
+  `webUrl` that `pnpm stand up` printed, in your browser tool; never open the live board's web
+  address. Screenshots go to the round directory (`qa-report`). Bare `board` reaches the live
+  board: use it only for the outcome on the live task in a board QA round. In a manager run post
+  nothing to the live board.
 - Stand roles for `--as` are operator, worker, orchestrator and curator (`qa-stand`).
 - Never act on the machine's real systemd user manager (`AGENTS.md`, Workflow); leave such a
   scenario out and name it under `Errors` as an operator step.

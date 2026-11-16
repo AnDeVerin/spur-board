@@ -29,6 +29,7 @@ qa/<task>/<sha8>/r<N>/
   fakes-outbox.json  pnpm stand fake slack outbox > "$R/fakes-outbox.json"
   fakes-spur.json    pnpm stand fake spur inspect > "$R/fakes-spur.json"
   daemon.log         pnpm stand logs > "$R/daemon.log"
+  <name>.png         browser-tool screenshots of the stand webUrl, never the live board
   board.sqlite       node --input-type=module -e 'import { copyDatabase } from
                        "./packages/core/src/store/copy.ts";
                        copyDatabase(process.argv[1], process.argv[2]);' \

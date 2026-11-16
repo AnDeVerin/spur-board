@@ -87,7 +87,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
     metadata; use before M1 acceptance, after Slack SDK updates and before releases.
 - `pnpm stand up|down|status|logs|board|mcp|wait|poll|reset|seed|clock|fake|violations` - run a stand under `$TMPDIR`;
   `pnpm stand` prints the commands. `up` refuses real external credentials in the environment,
-  the live board's home and port 4777.
+  the live board's home, a live config it cannot read, and the live config's `http.port` and
+  `web.port`, and prints a `webUrl` when the live `web.publicOrigin` has `{port}`.
 - `pnpm stand:scenarios <name>...` - run the stand tests of the named scenarios only; an unknown
   name or a name that ran no test fails (`packages/stand/src/run-scenarios.ts`).
 - `pnpm record:fakes [--check]` - record one read-only poll of the live GitHub, Jira and Spur
@@ -139,7 +140,7 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
 | [pr-comments-fix](.agents/skills/pr-comments-fix/SKILL.md) | skill | Answer feedback on your own PR - collect unresolved review threads and new comments, fix or reply with a reason, push once, sign each post |
 | [qa-report](.agents/skills/qa-report/SKILL.md) | skill | Plan, evidence and outcome of a QA round - the qa/<task>/<sha8>/r<N>/ layout, the report and what goes to the live board on pass or fail |
 | [qa-seed](.agents/skills/qa-seed/SKILL.md) | skill | Put a stand into a known state - scenarios, fakes, the stand clock, wait, poll, reset and the violation log |
-| [qa-stand](.agents/skills/qa-stand/SKILL.md) | skill | Run a disposable board stand for QA - up, down, status, logs, roles, refusals and cleanup, reached only through pnpm stand board\|mcp |
+| [qa-stand](.agents/skills/qa-stand/SKILL.md) | skill | Run a disposable board stand for QA - up, down, status, logs, roles, refusals, cleanup; reached only by pnpm stand board\|mcp and its webUrl |
 | [running-the-daemon](.agents/skills/running-the-daemon/SKILL.md) | skill | Rules for packages/daemon/ - modules, config and secrets, logging and redaction, pollers, shutdown, the lock |
 | [skill-writer](.agents/skills/skill-writer/SKILL.md) | skill | Rules for writing and changing skills, role agents and AGENTS.md - format, frontmatter, triggers, size budgets, copies |
 | [testing-and-ci](.agents/skills/testing-and-ci/SKILL.md) | skill | Tests, fakes, clocks, flaky quarantine, checks and CI |

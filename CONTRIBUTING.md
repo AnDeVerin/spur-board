@@ -68,7 +68,8 @@ narrow `@spur-board/contracts/browser` entry; the build rejects server/catalog m
 `pnpm package:build` builds web, runs the CLI clean build, then copies web output and verifies
 its asset graph. React and React DOM ship in those assets; Vite remains build tooling.
 The daemon loads `web/` next to its bundle at startup. Use the assembled/installed package
-for daemon-backed serving; a source daemon does not read `packages/web/dist` directly.
+for daemon-backed serving; a source daemon does not read `packages/web/dist` directly, except a
+stand, which passes it as its web root (`docs/qa-stand.md`).
 
 For controlled shell states while the stream server (#533) is pending, exercise the shell with
 `node scripts/web-shell-qa.ts --port 4780` through a disposable session sidecar after building.
