@@ -1,5 +1,5 @@
 {
-  "version": "9384ee42f7e86c48bbb9ee98513ec433035fe8c78d846467f44f802fbf9902d3",
+  "version": "2684969f98a45af9a7e511991fc95101c4c2d6366abf83d823ad924b5b9884c5",
   "grants": [
     "operator",
     "project-agent",
@@ -912,7 +912,7 @@
     {
       "id": "status.get",
       "kind": "query",
-      "description": "List items, freshness and tasks with turns, PR summaries and navigation; detail adds full facts.",
+      "description": "List items, freshness, service health, host metrics, tasks with turns and PRs; detail adds facts.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -943,6 +943,29 @@
             "warmingUp": true,
             "spurUnavailable": null,
             "hostLoad": null,
+            "host": {
+              "sampledAt": "2026-01-05T09:30:00.000Z",
+              "cpuPercent": 12.5,
+              "memory": {
+                "totalBytes": 17179869184,
+                "availableBytes": 8589934592,
+                "usedPercent": 50
+              },
+              "disk": {
+                "totalBytes": 107374182400,
+                "availableBytes": 64424509440,
+                "usedPercent": 40
+              }
+            },
+            "services": [
+              {
+                "service": "daemon",
+                "state": "healthy",
+                "since": "2026-01-05T08:00:00.000Z",
+                "lastGoodAt": "2026-01-05T09:30:00.000Z",
+                "reason": null
+              }
+            ],
             "transport": [],
             "sources": [],
             "tasks": [
@@ -993,6 +1016,16 @@
             "warmingUp": false,
             "spurUnavailable": null,
             "hostLoad": null,
+            "host": null,
+            "services": [
+              {
+                "service": "daemon",
+                "state": "healthy",
+                "since": "2026-01-05T08:00:00.000Z",
+                "lastGoodAt": "2026-01-05T09:30:00.000Z",
+                "reason": null
+              }
+            ],
             "transport": [],
             "sources": [],
             "tasks": [
@@ -1119,6 +1152,138 @@
           "hostLoad": {
             "description": "Host-load episode line, or null when absent.",
             "type": ["string", "null"]
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "sampledAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "description": "When the daemon took this sample, ISO 8601 UTC. It samples every 30 seconds; reads never take a new sample, so an old value means sampling is stuck."
+                  },
+                  "cpuPercent": {
+                    "anyOf": [
+                      { "type": "number", "minimum": 0, "maximum": 100 },
+                      { "type": "null" }
+                    ],
+                    "description": "Host CPU busy percent over all cores since the previous sample, one decimal; null on the first sample or when unreadable."
+                  },
+                  "memory": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "totalBytes": {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "Total host memory in bytes."
+                          },
+                          "availableBytes": {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "Host memory available for new work without swapping, in bytes."
+                          },
+                          "usedPercent": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Percent of host memory in use: total minus available, over total; one decimal."
+                          }
+                        },
+                        "required": ["totalBytes", "availableBytes", "usedPercent"],
+                        "additionalProperties": false
+                      },
+                      { "type": "null" }
+                    ],
+                    "description": "Host memory; null when unreadable."
+                  },
+                  "disk": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "totalBytes": {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "Size of the volume in bytes, root-reserved blocks included."
+                          },
+                          "availableBytes": {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "Free bytes an unprivileged user can still write, without root-reserved blocks."
+                          },
+                          "usedPercent": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Percent of the volume in use, as df shows it: used over used plus available, without root-reserved blocks; one decimal."
+                          }
+                        },
+                        "required": ["totalBytes", "availableBytes", "usedPercent"],
+                        "additionalProperties": false
+                      },
+                      { "type": "null" }
+                    ],
+                    "description": "The volume holding the board data; null when unreadable."
+                  }
+                },
+                "required": ["sampledAt", "cpuPercent", "memory", "disk"],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ],
+            "description": "Host CPU, memory and data-volume disk usage from the last sample of the daemon; null before the first sample."
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "service": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "daemon, github, jira, spur, or a chat gateway kind such as slack."
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["healthy", "degraded", "failing"],
+                  "description": "failing: a blind source or a gateway that is down; degraded: a source that never completed, is stale, warms up or waits for its rate budget, or a daemon with no completed board tick for over 120 seconds; else healthy. A source service takes its worst source."
+                },
+                "since": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Healthy: since when the service has been usable in this daemon run. That is daemon.startedAt for the daemon, the latest healthySince of its sources for github, jira and spur, and for a gateway the end of its last recorded outage or daemon.startedAt, whichever is later. Failing gateway: when the outage started. Otherwise null."
+                },
+                "lastGoodAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Last sign of work: the last completed board tick for the daemon, the oldest latest observation of its sources for github, jira and spur (null when one has none); null for a gateway."
+                },
+                "reason": {
+                  "description": "Why the service is not healthy, from its first worst source for github, jira and spur; null when healthy.",
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["service", "state", "since", "lastGoodAt", "reason"],
+              "additionalProperties": false,
+              "description": "Health of one service."
+            },
+            "description": "One health row per service: daemon, each chat gateway, then github, spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up only the sources listed."
           },
           "transport": {
             "type": "array",
@@ -1251,6 +1416,17 @@
                   "type": "boolean",
                   "description": "Whether facts from this source exceed their freshness threshold."
                 },
+                "healthySince": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "When this source became usable (not blind) in this daemon run: its first non-blind observation since daemon start or since it was last blind. Stale, warming-up or budget-wait spells that did not make it blind do not move it. Null while blind or before that observation. Resets when the daemon restarts; compare with daemon.startedAt."
+                },
                 "warmingUp": {
                   "type": "boolean",
                   "description": "Whether this source needs a complete poll in this daemon run."
@@ -1264,6 +1440,7 @@
                 "message",
                 "budget",
                 "stale",
+                "healthySince",
                 "warmingUp"
               ],
               "additionalProperties": false,
@@ -3244,6 +3421,8 @@
           "warmingUp",
           "spurUnavailable",
           "hostLoad",
+          "host",
+          "services",
           "transport",
           "sources",
           "tasks",

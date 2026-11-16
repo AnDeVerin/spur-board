@@ -4505,6 +4505,69 @@ describe('persisted PR eligibility and source points', () => {
     expect(await budgets(reopened)).toEqual(expected);
     expect(await columns(reopened)).toEqual(stored);
   });
+  it('sets healthySince on the first usable observe and clears it when blind', async () => {
+    const { store, core } = setup();
+    const poll = (complete: boolean, blind?: { reason: 'stale'; message: string }) =>
+      core.observe(prSource, {
+        batch: {
+          source: prSource,
+          observedAt: new Date(now).toISOString(),
+          complete,
+          items: [],
+          entities: [],
+        },
+        effectiveComplete: complete,
+        state: {
+          lastCompleteAt: at,
+          gone: [],
+          ...(blind === undefined ? {} : { blind }),
+        },
+        outcomes: [],
+      });
+    const row = async () =>
+      (
+        await getStatus({
+          store,
+          config,
+          clock,
+          completeSince: core.completeSince,
+          healthySince: core.healthySince,
+        })
+      ).sources.find((entry) => entry.source === prSource)?.healthySince;
+
+    await core.reportSourceState(prSource, { gone: [] });
+    expect(core.healthySince.has(prSource)).toBe(false);
+    expect(await row()).toBeNull();
+
+    const first = new Date(now).toISOString();
+    await poll(true);
+    expect(core.healthySince.get(prSource)).toBe(first);
+    now += 60_000;
+    await poll(true);
+    now += 60_000;
+    await poll(false);
+    await core.reportSourceState(prSource, { gone: [] });
+    expect(await row()).toBe(first);
+
+    now += 60_000;
+    await poll(true, { reason: 'stale', message: 'Polls keep failing' });
+    expect(await row()).toBeNull();
+    now += 60_000;
+    const second = new Date(now).toISOString();
+    await poll(true);
+    expect(await row()).toBe(second);
+
+    await core.reportSourceState(prSource, {
+      gone: [],
+      blind: { reason: 'auth', message: 'Bad credentials' },
+    });
+    expect(await row()).toBeNull();
+    now += 60_000;
+    await poll(false);
+    expect(await row()).toBe(new Date(now).toISOString());
+
+    expect(createObservationCore({ store, config, clock }).healthySince.size).toBe(0);
+  });
 });
 
 describe('source-specific terminal PR processing', () => {

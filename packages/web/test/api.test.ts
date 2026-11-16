@@ -7,6 +7,8 @@ const status = statusOutputSchema.parse({
   warmingUp: false,
   spurUnavailable: null,
   hostLoad: null,
+  host: null,
+  services: [],
   transport: [],
   sources: [],
   tasks: [],

@@ -177,7 +177,7 @@ Exit codes: see the table above; setup errors are reported by the CLI.
 
 ### `board status`
 
-List items, freshness and tasks with turns, PR summaries and navigation; detail adds full facts.
+List items, freshness, service health, host metrics, tasks with turns and PRs; detail adds facts.
 
 Arguments: none.
 

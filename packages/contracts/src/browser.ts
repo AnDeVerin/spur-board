@@ -85,6 +85,78 @@ const statusBindingsSchema = z
   })
   .describe('Effective column orchestrators, operators and default Slack addressee.');
 
+const hostUsageSchema = (total: string, available: string, used: string) =>
+  z
+    .strictObject({
+      totalBytes: z.number().nonnegative().describe(total),
+      availableBytes: z.number().nonnegative().describe(available),
+      usedPercent: z.number().min(0).max(100).describe(used),
+    })
+    .nullable();
+
+const hostSchema = z
+  .strictObject({
+    sampledAt: z.iso
+      .datetime()
+      .describe(
+        'When the daemon took this sample, ISO 8601 UTC. It samples every 30 seconds; reads never take a new sample, so an old value means sampling is stuck.',
+      ),
+    cpuPercent: z
+      .number()
+      .min(0)
+      .max(100)
+      .nullable()
+      .describe(
+        'Host CPU busy percent over all cores since the previous sample, one decimal; null on the first sample or when unreadable.',
+      ),
+    memory: hostUsageSchema(
+      'Total host memory in bytes.',
+      'Host memory available for new work without swapping, in bytes.',
+      'Percent of host memory in use: total minus available, over total; one decimal.',
+    ).describe('Host memory; null when unreadable.'),
+    disk: hostUsageSchema(
+      'Size of the volume in bytes, root-reserved blocks included.',
+      'Free bytes an unprivileged user can still write, without root-reserved blocks.',
+      'Percent of the volume in use, as df shows it: used over used plus available, without root-reserved blocks; one decimal.',
+    ).describe('The volume holding the board data; null when unreadable.'),
+  })
+  .nullable()
+  .describe(
+    'Host CPU, memory and data-volume disk usage from the last sample of the daemon; null before the first sample.',
+  );
+
+const serviceSchema = z
+  .strictObject({
+    service: z
+      .string()
+      .min(1)
+      .describe('daemon, github, jira, spur, or a chat gateway kind such as slack.'),
+    state: z
+      .enum(['healthy', 'degraded', 'failing'])
+      .describe(
+        'failing: a blind source or a gateway that is down; degraded: a source that never completed, is stale, warms up or waits for its rate budget, or a daemon with no completed board tick for over 120 seconds; else healthy. A source service takes its worst source.',
+      ),
+    since: z.iso
+      .datetime()
+      .nullable()
+      .describe(
+        'Healthy: since when the service has been usable in this daemon run. That is daemon.startedAt for the daemon, the latest healthySince of its sources for github, jira and spur, and for a gateway the end of its last recorded outage or daemon.startedAt, whichever is later. Failing gateway: when the outage started. Otherwise null.',
+      ),
+    lastGoodAt: z.iso
+      .datetime()
+      .nullable()
+      .describe(
+        'Last sign of work: the last completed board tick for the daemon, the oldest latest observation of its sources for github, jira and spur (null when one has none); null for a gateway.',
+      ),
+    reason: z
+      .string()
+      .nullable()
+      .describe(
+        'Why the service is not healthy, from its first worst source for github, jira and spur; null when healthy.',
+      ),
+  })
+  .describe('Health of one service.');
+
 export const statusInputSchema = z.strictObject({
   project,
   detail: z
@@ -100,6 +172,12 @@ export const statusOutputSchema = z.strictObject({
     .nullable()
     .describe('One combined Spur availability line, or null when available.'),
   hostLoad: z.string().nullable().describe('Host-load episode line, or null when absent.'),
+  host: hostSchema,
+  services: z
+    .array(serviceSchema)
+    .describe(
+      'One health row per service: daemon, each chat gateway, then github, spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up only the sources listed.',
+    ),
   transport: z
     .array(
       z

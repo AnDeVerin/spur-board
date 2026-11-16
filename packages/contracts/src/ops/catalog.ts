@@ -88,6 +88,13 @@ const linkModes = [
 
 const at = '2026-01-05T09:30:00.000Z';
 const daemon = { version: '0.4.0', startedAt: '2026-01-05T08:00:00.000Z', lastDispatchAt: at };
+const daemonService = {
+  service: 'daemon',
+  state: 'healthy',
+  since: daemon.startedAt,
+  lastGoodAt: at,
+  reason: null,
+} as const;
 const task = {
   key: 'PROJ-123',
   project: 'web',
@@ -262,7 +269,7 @@ export const OPERATIONS = [
     web: true,
     kind: 'query',
     description:
-      'List items, freshness and tasks with turns, PR summaries and navigation; detail adds full facts.',
+      'List items, freshness, service health, host metrics, tasks with turns and PRs; detail adds facts.',
     mcp: {
       whenToUse: 'Get a board overview.',
       whenNotToUse: 'Use task_get for one task.',
@@ -282,6 +289,13 @@ export const OPERATIONS = [
           warmingUp: true,
           spurUnavailable: null,
           hostLoad: null,
+          host: {
+            sampledAt: at,
+            cpuPercent: 12.5,
+            memory: { totalBytes: 17179869184, availableBytes: 8589934592, usedPercent: 50 },
+            disk: { totalBytes: 107374182400, availableBytes: 64424509440, usedPercent: 40 },
+          },
+          services: [daemonService],
           transport: [],
           sources: [],
           tasks: [
@@ -320,6 +334,8 @@ export const OPERATIONS = [
           warmingUp: false,
           spurUnavailable: null,
           hostLoad: null,
+          host: null,
+          services: [daemonService],
           transport: [],
           sources: [],
           tasks: [

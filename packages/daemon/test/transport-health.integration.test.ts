@@ -31,9 +31,18 @@ interface TransportView {
   spaces: string[];
 }
 
+interface ServiceView {
+  service: string;
+  state: 'healthy' | 'degraded' | 'failing';
+  since: string | null;
+  lastGoodAt: string | null;
+  reason: string | null;
+}
+
 interface StatusView {
   items: { key: string }[];
   transport: TransportView[];
+  services: ServiceView[];
 }
 
 async function status(h: Harness, operator: boolean): Promise<StatusView> {
@@ -106,8 +115,17 @@ describe('transport outage', () => {
       },
     ]);
     expect(operator.items.map((item) => item.key)).toContain(itemKey);
+    const failing = {
+      service: h.gateway.kind,
+      state: 'failing',
+      since: droppedAt,
+      lastGoodAt: null,
+      reason: 'down',
+    };
+    expect(operator.services.find((row) => row.service === h.gateway.kind)).toEqual(failing);
     const agent = await status(h, false);
     expect(agent.transport).toEqual(operator.transport);
+    expect(agent.services.find((row) => row.service === h.gateway.kind)).toEqual(failing);
     expect(agent.items.map((item) => item.key)).not.toContain(itemKey);
     const text = await h.cli(['status'], { operator: true, tty: true });
     expect(text.code, text.stderr).toBe(0);
@@ -117,6 +135,7 @@ describe('transport outage', () => {
     ).toEqual([]);
     expect(posted()).toEqual([]);
 
+    const restoredAt = platform.now().toISOString();
     platform.restoreConnection();
     await platform.settle();
     expect(await h.store.db.selectFrom('transport_health').select('space').execute()).toEqual([]);
@@ -126,10 +145,18 @@ describe('transport outage', () => {
         .select(['cleared_at', 'line_outbox_id'])
         .where('item_key', '=', itemKey)
         .execute(),
-    ).toEqual([{ cleared_at: expect.any(String) as unknown, line_outbox_id: null }]);
-    expect((await status(h, true)).transport).toEqual([
+    ).toEqual([{ cleared_at: restoredAt, line_outbox_id: null }]);
+    const restored = await status(h, true);
+    expect(restored.transport).toEqual([
       { gateway: h.gateway.kind, state: 'up', since: null, reason: null, spaces: [] },
     ]);
+    expect(restored.services.find((row) => row.service === h.gateway.kind)).toEqual({
+      service: h.gateway.kind,
+      state: 'healthy',
+      since: restoredAt,
+      lastGoodAt: null,
+      reason: null,
+    });
 
     h.advance(60_000);
     await h.pulse();

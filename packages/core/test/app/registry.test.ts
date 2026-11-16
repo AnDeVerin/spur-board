@@ -12,7 +12,7 @@ import {
   createQuery,
   type Store,
 } from '../../src/index.ts';
-import { raiseItem } from '../../src/app/feed.ts';
+import { clearItem, raiseItem } from '../../src/app/feed.ts';
 import type { OperationHandlers } from '../../src/app/operations.ts';
 import { openTempStore } from '../support/store.ts';
 
@@ -214,11 +214,248 @@ it('reports transport state per gateway and keeps the health item board-wide', a
   const agent = await query(status, {}, 'agent:first-worker/session-1');
   expect(agent.transport).toEqual([down]);
   expect(agent.items).toEqual([]);
+  const slackRow = (output: { services: { service: string }[] }) =>
+    output.services.find((row) => row.service === 'slack');
+  const failing = {
+    service: 'slack',
+    state: 'failing',
+    since,
+    lastGoodAt: null,
+    reason: 'down',
+  };
+  expect(slackRow(operator)).toEqual(failing);
+  expect(slackRow(agent)).toEqual(failing);
+  expect(operator.services.map((row) => row.service)).toEqual([
+    'daemon',
+    'slack',
+    'github',
+    'spur',
+  ]);
 
+  const startedAt = new Date(clock.now()).toISOString();
+  const healthy = (at: string) => ({
+    service: 'slack',
+    state: 'healthy',
+    since: at,
+    lastGoodAt: null,
+    reason: null,
+  });
   await scanTransaction(store, config, (trx) => trx.deleteFrom('transport_health').execute());
   expect((await query(status, {}, 'operator')).transport).toEqual([
     { gateway: 'slack', state: 'up', since: null, reason: null, spaces: [] },
   ]);
+  expect(slackRow(await query(status, {}, 'operator'))).toEqual(healthy(startedAt));
+  const clearedAt = '2026-11-04T08:05:00.000Z';
+  await scanTransaction(store, config, async (trx) => {
+    const item = await trx
+      .selectFrom('operator_item')
+      .select('id')
+      .where('item_key', '=', 'transport:slack')
+      .executeTakeFirstOrThrow();
+    await clearItem(trx, item.id, new Date(clearedAt));
+  });
+  expect(slackRow(await query(status, {}, 'agent:first-worker/session-1'))).toEqual(
+    healthy(clearedAt),
+  );
+  await scanTransaction(store, config, (trx) =>
+    trx.updateTable('operator_item').set({ cleared_at: '2026-11-04T07:55:00.000Z' }).execute(),
+  );
+  expect(slackRow(await query(status, {}, 'operator'))).toEqual(healthy(startedAt));
+  await scanTransaction(store, config, (trx) => trx.deleteFrom('operator_item').execute());
+  expect(slackRow(await query(status, {}, 'operator'))).toEqual(healthy(startedAt));
+});
+
+it('rolls sources and the daemon into one health row per service', async () => {
+  const healthConfig = configSchema.parse({
+    projects: [
+      {
+        id: 'alpha',
+        tracker: {
+          type: 'jira',
+          baseUrl: 'https://jira.example.test',
+          jql: 'project = ALPHA',
+          doneStatuses: ['Done'],
+          readyStatuses: ['Ready'],
+          projectKeys: ['ALPHA'],
+        },
+        repos: ['o/a'],
+        operatorGithubLogin: 'operator',
+        spurProjects: [{ name: 'alpha-worker', role: 'worker' }],
+      },
+      {
+        id: 'beta',
+        tracker: { type: 'github-issues', repo: 'o/b', label: 'board' },
+        repos: ['o/b'],
+        operatorGithubLogin: 'operator',
+        spurProjects: [{ name: 'beta-worker', role: 'worker' }],
+      },
+    ],
+    operator: { slack: 'operator' },
+    digest: { tz: 'UTC' },
+    thresholds: { staleMultiplier: 10 },
+  });
+  let now = Date.parse('2026-11-04T08:00:00.000Z');
+  const movingClock = { now: () => now };
+  const iso = () => new Date(now).toISOString();
+  const startedAt = iso();
+  let lastDispatchAt: string | null = startedAt;
+  const store = openTempStore('board-registry-').store;
+  stores.push(store);
+  const core = createObservationCore({ store, config: healthConfig, clock: movingClock });
+  const registry = createOperationRegistry({
+    config: healthConfig,
+    clock: movingClock,
+    completeSince: core.completeSince,
+    healthySince: core.healthySince,
+    lastDispatchAt: () => lastDispatchAt,
+  });
+  const query = createQuery({ store, config: healthConfig, clock: movingClock });
+  const status = (actor: 'operator' | `agent:${string}/${string}` = 'operator') =>
+    query(registry['status.get'], {}, actor);
+  const row = async (service: string, actor?: `agent:${string}/${string}`) =>
+    (await status(actor)).services.find((entry) => entry.service === service);
+  const githubAlpha = 'github:alpha:o/a';
+  const issuesBeta = 'github-issues:beta:o/b';
+  const githubBeta = 'github:beta:o/b';
+  const sources = ['spur', 'jira:alpha', githubAlpha, issuesBeta, githubBeta];
+  const observe = (
+    source: string,
+    options: {
+      lastCompleteAt?: string;
+      blind?: { reason: 'stale'; message: string };
+      budget?: { remaining: number; limit: number; resetAt: string };
+    } = {},
+  ) =>
+    core.observe(source, {
+      batch: {
+        source,
+        observedAt: iso(),
+        complete: true,
+        items: [],
+        entities: [],
+        ...(options.budget === undefined ? {} : { budget: options.budget }),
+      },
+      effectiveComplete: true,
+      state: {
+        lastCompleteAt: options.lastCompleteAt ?? iso(),
+        gone: [],
+        ...(options.blind === undefined ? {} : { blind: options.blind }),
+      },
+      outcomes: [],
+    });
+
+  expect(await row('github')).toEqual({
+    service: 'github',
+    state: 'degraded',
+    since: null,
+    lastGoodAt: null,
+    reason: `${githubAlpha} never completed`,
+  });
+
+  for (const source of sources) await observe(source);
+  const healthy = (service: string, since: string, lastGoodAt: string | null = since) => ({
+    service,
+    state: 'healthy',
+    since,
+    lastGoodAt,
+    reason: null,
+  });
+  expect((await status()).services).toEqual([
+    healthy('daemon', startedAt),
+    healthy('github', startedAt),
+    healthy('spur', startedAt),
+    healthy('jira', startedAt),
+  ]);
+
+  now += 30_000;
+  const later = iso();
+  await core.reportSourceState(githubAlpha, {
+    gone: [],
+    blind: { reason: 'auth', message: 'Bad credentials' },
+  });
+  expect(await row('github')).toEqual({
+    service: 'github',
+    state: 'failing',
+    since: null,
+    lastGoodAt: startedAt,
+    reason: `${githubAlpha} blind (auth): Bad credentials`,
+  });
+  // The rollup of a project agent covers only the sources it sees.
+  const agent = 'agent:beta-worker/session-1' as const;
+  const agentView = await status(agent);
+  expect(agentView.sources.map((entry) => entry.source)).toEqual(['spur', issuesBeta, githubBeta]);
+  expect(agentView.services).toEqual([
+    healthy('daemon', startedAt),
+    healthy('github', startedAt),
+    healthy('spur', startedAt),
+  ]);
+  expect(agentView.daemon.startedAt).toBe(startedAt);
+  await observe(githubAlpha);
+  expect(await row('github')).toEqual(healthy('github', later, startedAt));
+
+  now += 30_000;
+  const resetAt = new Date(now + 3_600_000).toISOString();
+  await observe(issuesBeta, { budget: { remaining: 999, limit: 5000, resetAt } });
+  expect(await row('github')).toEqual({
+    service: 'github',
+    state: 'degraded',
+    since: null,
+    lastGoodAt: startedAt,
+    reason: `${issuesBeta} waits for its rate budget until ${resetAt}`,
+  });
+  expect((await status()).sources.find((entry) => entry.source === issuesBeta)?.healthySince).toBe(
+    startedAt,
+  );
+  await observe(issuesBeta, {
+    budget: { remaining: 999, limit: 5000, resetAt: new Date(now - 1).toISOString() },
+  });
+  expect(await row('github')).toEqual(healthy('github', later, startedAt));
+  await observe(issuesBeta, { budget: { remaining: 5000, limit: 5000, resetAt } });
+  expect(await row('github')).toEqual(healthy('github', later, startedAt));
+
+  await core.reportSourceState('jira:alpha', {
+    lastCompleteAt: iso(),
+    gone: [],
+    blind: { reason: 'auth', message: 'Jira credential is missing' },
+  });
+  expect(await row('jira')).toEqual({
+    service: 'jira',
+    state: 'failing',
+    since: null,
+    lastGoodAt: startedAt,
+    reason: 'jira:alpha blind (auth): Jira credential is missing',
+  });
+  await observe('jira:alpha', { lastCompleteAt: new Date(now - 1_200_001).toISOString() });
+  expect(await row('jira')).toEqual({
+    service: 'jira',
+    state: 'degraded',
+    since: null,
+    lastGoodAt: iso(),
+    reason: 'jira:alpha stale',
+  });
+  await observe('jira:alpha');
+  expect(await row('jira')).toEqual(healthy('jira', iso()));
+
+  await observe('spur', { blind: { reason: 'stale', message: 'Spur polls keep failing' } });
+  expect(await row('spur')).toEqual({
+    service: 'spur',
+    state: 'failing',
+    since: null,
+    lastGoodAt: iso(),
+    reason: 'spur blind (stale): Spur polls keep failing',
+  });
+
+  lastDispatchAt = iso();
+  now += 120_001;
+  expect(await row('daemon')).toEqual({
+    service: 'daemon',
+    state: 'degraded',
+    since: null,
+    lastGoodAt: lastDispatchAt,
+    reason: `no board tick completed since ${lastDispatchAt}`,
+  });
+  now -= 1;
+  expect(await row('daemon')).toEqual(healthy('daemon', startedAt, lastDispatchAt));
 });
 
 it('keeps the default status for 100 tasks under the budget and lists every item', async () => {

@@ -886,6 +886,23 @@ describe('catalog commands', () => {
       warmingUp: true
       spurUnavailable: null
       hostLoad: null
+      host:
+        sampledAt: 2026-01-05T09:30:00.000Z
+        cpuPercent: 12.5
+        memory:
+          totalBytes: 17179869184
+          availableBytes: 8589934592
+          usedPercent: 50
+        disk:
+          totalBytes: 107374182400
+          availableBytes: 64424509440
+          usedPercent: 40
+      services:
+        - service: daemon
+          state: healthy
+          since: 2026-01-05T08:00:00.000Z
+          lastGoodAt: 2026-01-05T09:30:00.000Z
+          reason: null
       transport:
 
       sources:

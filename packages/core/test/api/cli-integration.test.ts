@@ -636,6 +636,8 @@ describe('CLI against the real HTTP API', () => {
             warmingUp: true,
             spurUnavailable: null,
             hostLoad: null,
+            host: null,
+            services: [],
             transport: [],
             bindings: { columns: [], operators: [], defaultAddressee: null },
             daemon: {
@@ -704,6 +706,8 @@ describe('CLI against the real HTTP API', () => {
         warmingUp: true,
         spurUnavailable: null,
         hostLoad: null,
+        host: null,
+        services: [],
         transport: [],
         bindings: { columns: [], operators: [], defaultAddressee: null },
         daemon: {

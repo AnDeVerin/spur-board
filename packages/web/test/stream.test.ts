@@ -181,6 +181,8 @@ describe('stream client', () => {
           warmingUp,
           spurUnavailable: null,
           hostLoad: null,
+          host: null,
+          services: [],
           transport: [],
           sources: [],
           tasks: [],

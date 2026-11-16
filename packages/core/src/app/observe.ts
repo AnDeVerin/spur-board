@@ -1140,14 +1140,22 @@ export function createObservationCore(deps: {
    * terminal and archive checks wait for a fresh complete poll after every restart.
    */
   completeSince: Map<string, string>;
+  /**
+   * When each source became usable (not blind) in this process: the `observedAt` of its first
+   * non-blind observation since start or since it was last blind. A blind observation or report
+   * removes it; a non-blind report and non-blind degraded spells (stale, budget wait) leave it.
+   */
+  healthySince: Map<string, string>;
   /** Reports a skipped malformed row; pass it to `tickBoard` so both share one dedupe set. */
   warnSkipped: WarnSkipped;
 } {
   const { store, config, clock } = deps;
   const completeSince = new Map<string, string>();
+  const healthySince = new Map<string, string>();
   const warnSkipped = warnSkippedOnce(deps.warn);
   return {
     completeSince,
+    healthySince,
     warnSkipped,
     async context(source) {
       const state = await store.db
@@ -1615,10 +1623,12 @@ export function createObservationCore(deps: {
           });
       });
       if (observation.effectiveComplete) completeSince.set(source, batch.observedAt);
+      if (observation.state.blind !== undefined) healthySince.delete(source);
+      else if (!healthySince.has(source)) healthySince.set(source, batch.observedAt);
     },
-    reportSourceState(source, state, usage) {
+    async reportSourceState(source, state, usage) {
       const now = clock.now();
-      return scanTransaction(store, config, async (trx) => {
+      await scanTransaction(store, config, async (trx) => {
         const wasBlind = await blindReason(trx, source);
         await sourceState(trx, source, state);
         await recordUsage(trx, source, usage, now);
@@ -1626,6 +1636,7 @@ export function createObservationCore(deps: {
           await dispatchSource(trx, source, { config, at: new Date(now), complete: completeSince });
         await reconcileItems(trx, config, now, completeSince.has('spur'), warnSkipped);
       });
+      if (state.blind !== undefined) healthySince.delete(source);
     },
     notice(kind, value) {
       const at = new Date(clock.now()).toISOString();

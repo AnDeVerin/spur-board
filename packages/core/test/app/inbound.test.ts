@@ -84,6 +84,8 @@ function emptyStatus() {
     warmingUp: true,
     spurUnavailable: null,
     hostLoad: null,
+    host: null,
+    services: [],
     transport: [],
     bindings: { columns: [], operators: [], defaultAddressee: null },
     daemon: { version: '0.0.0-test', startedAt: '2026-11-04T08:00:00.000Z', lastDispatchAt: null },

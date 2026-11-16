@@ -33,6 +33,12 @@ export const sourceViewSchema = z
         'Request budget from the last poll of this source that reported one, or null when none did.',
       ),
     stale: z.boolean().describe('Whether facts from this source exceed their freshness threshold.'),
+    healthySince: z.iso
+      .datetime()
+      .nullable()
+      .describe(
+        'When this source became usable (not blind) in this daemon run: its first non-blind observation since daemon start or since it was last blind. Stale, warming-up or budget-wait spells that did not make it blind do not move it. Null while blind or before that observation. Resets when the daemon restarts; compare with daemon.startedAt.',
+      ),
     warmingUp: z
       .boolean()
       .describe('Whether this source needs a complete poll in this daemon run.'),

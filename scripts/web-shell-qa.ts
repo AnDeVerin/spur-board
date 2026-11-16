@@ -25,6 +25,8 @@ export function shellFixture(scenario: Scenario) {
     warmingUp: false,
     spurUnavailable: null,
     hostLoad: null,
+    host: null,
+    services: [],
     transport: [],
     sources:
       count === 0
@@ -40,6 +42,7 @@ export function shellFixture(scenario: Scenario) {
             message: null,
             budget: null,
             stale: scenario === 'mixed' && i % 2 === 0,
+            healthySince: scenario === 'mixed' && i % 3 === 0 ? null : at,
             warmingUp: false,
           })),
     tasks: Array.from({ length: count }, (_, i) => ({

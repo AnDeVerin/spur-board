@@ -10,12 +10,15 @@ import {
   type SessionFacts,
   type TicketFacts,
 } from '@spur-board/contracts';
+import type { statusOutputSchema } from '@spur-board/contracts/browser';
 import { sql } from 'kysely';
+import type { z } from 'zod';
 import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
 import { projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
+import { readOutageEnds, services } from './status-services.ts';
 import {
   readStatusBlocks,
   readStatusReturns,
@@ -86,6 +89,8 @@ function interval(config: Config, source: string): number {
   return config.adapters.github.intervalMs;
 }
 
+type StatusOutput = z.output<typeof statusOutputSchema>;
+
 /** Reads the board's latest facts, items and source availability. */
 export async function getStatus(
   deps: {
@@ -97,6 +102,10 @@ export async function getStatus(
     gateways?: readonly string[] | undefined;
     /** The running daemon; defaults to an unknown version started now, before any tick. */
     daemon?: { version: string; startedAt: string; lastDispatchAt: string | null } | undefined;
+    /** When each source became usable in this daemon run; defaults to none. */
+    healthySince?: ReadonlyMap<string, string> | undefined;
+    /** The last host sample, or null before the first; never sampled here. */
+    host?: StatusOutput['host'] | undefined;
   },
   options: {
     project?: string | undefined;
@@ -112,6 +121,7 @@ export async function getStatus(
   } = {},
 ) {
   const { store, config, clock, completeSince, gateways = [] } = deps;
+  const healthySince = deps.healthySince ?? new Map<string, string>();
   const daemon = deps.daemon ?? {
     version: 'unknown',
     startedAt: new Date(clock.now()).toISOString(),
@@ -403,6 +413,7 @@ export async function getStatus(
         last === null ||
         clock.now() - Date.parse(last) >
           config.thresholds.staleMultiplier * interval(config, source),
+      healthySince: healthySince.get(source) ?? null,
       // `lastCompleteAt` is persisted across restarts; `completeSince` holds only polls since
       // this process started, so a source warms up until its first complete poll after a restart.
       warmingUp: !completeSince.has(source),
@@ -498,6 +509,15 @@ export async function getStatus(
         ? null
         : `Spur unavailable: ${spur.blind_message ?? spur.blind_reason}`,
     hostLoad: host?.value !== undefined && host.value !== 'null' ? 'Host under load' : null,
+    host: deps.host ?? null,
+    services: services({
+      config,
+      now: clock.now(),
+      daemon,
+      transport,
+      outageEnds: await readOutageEnds(store.db),
+      sources,
+    }),
     transport,
     sources,
     tasks,

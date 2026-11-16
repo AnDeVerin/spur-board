@@ -729,6 +729,7 @@ describe('comment shape', () => {
           'approvedAt',
           'lastUsedAt',
           'lastDispatchAt',
+          'lastGoodAt',
         ].some((name) => path.endsWith(name)) && !path.includes('.prSummary');
       expect(Array.isArray(node['anyOf']), path).toBe(nullable);
       const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];

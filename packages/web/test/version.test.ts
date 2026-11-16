@@ -8,6 +8,8 @@ const status = (version: string) =>
     warmingUp: false,
     spurUnavailable: null,
     hostLoad: null,
+    host: null,
+    services: [],
     transport: [],
     sources: [],
     tasks: [],

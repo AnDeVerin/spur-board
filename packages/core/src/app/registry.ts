@@ -6,6 +6,8 @@ import {
   type Config,
   type PrPoller,
 } from '@spur-board/contracts';
+import type { statusOutputSchema } from '@spur-board/contracts/browser';
+import type { z } from 'zod';
 import { authorize, projectTarget } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
 import { createItemMutations, type ReapplyInbound } from './items.ts';
@@ -26,6 +28,10 @@ export function createOperationRegistry(deps: {
   config: Config;
   clock: { now(): number };
   completeSince: ReadonlyMap<string, string>;
+  /** When each source became usable in this daemon run, reported by `status.get` `sources`. */
+  healthySince?: ReadonlyMap<string, string>;
+  /** Read at operation time: the last cached host sample, or null before the first. */
+  hostMetrics?: () => z.output<typeof statusOutputSchema>['host'];
   /** Configured chat gateway kinds, reported by `status.get` `transport`. */
   gateways?: readonly string[];
   /** Read at operation time: inbound is built after the registry and may be absent. */
@@ -163,6 +169,8 @@ export function createOperationRegistry(deps: {
           completeSince,
           gateways,
           daemon: { version: productVersion, startedAt, lastDispatchAt: lastDispatchAt() },
+          healthySince: deps.healthySince,
+          host: deps.hostMetrics?.() ?? null,
         },
         {
           project: input.project,
