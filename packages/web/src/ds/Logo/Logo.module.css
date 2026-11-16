@@ -1,0 +1,14 @@
+/* Paint comes from the fill and stroke attributes: the logo takes the current text colour. */
+.logo {
+  flex: none;
+  stroke-width: var(--stroke-icon);
+  stroke-linecap: square;
+}
+.header {
+  width: var(--size-logo);
+  height: var(--size-logo);
+}
+.small {
+  width: var(--size-icon);
+  height: var(--size-icon);
+}

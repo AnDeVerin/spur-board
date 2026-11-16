@@ -1,0 +1,9 @@
+/* Paint comes from the fill and stroke attributes: the glyph takes the current text colour. */
+.icon {
+  flex: none;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  stroke-width: var(--stroke-icon);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
