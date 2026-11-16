@@ -91,7 +91,7 @@ pnpm ds:nearest 13px
   on `verdict: out`, record `new token`.
 - The family rule holds for every verdict: a text size takes `--text-*`, spacing takes
   `--space-*`, an element size takes `--size-*`. When the verdict lists several tokens (`13px`
-  gives `--text-body, --space-3, --size-icon`), pick the one from the value's family; when it
+  gives `--text-body, --text-lead, --space-3, --size-icon`), pick one from the value's family; when it
   lists none from that family, record `new token`, even if a token of another family is nearer (a
   `42px` gap gives `in --size-header`: `new token`).
 - Exit 0 for any computed result, in or out; exit 2 for a refused value.

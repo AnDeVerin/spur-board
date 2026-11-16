@@ -78,21 +78,24 @@ describe('nearest colour', () => {
 });
 
 describe('nearest size', () => {
-  it('puts 13px in with the three 12px tokens on each theme', () => {
+  it('puts 13px in with the three 12px tokens and --text-lead on each theme', () => {
     const out = lines(['13px']);
     for (const theme of ['dark', 'light'] as const) {
       const themeLine = line(out, theme);
       for (const name of ['--size-icon', '--space-3', '--text-body']) {
         expect(themeLine).toContain(`${name} 12px`);
       }
+      expect(themeLine).toContain('--text-lead 14px');
       expect(themeLine).toMatch(/Δ 1px - in$/);
     }
-    expect(out.at(-1)).toBe('verdict: in --text-body, --space-3, --size-icon');
+    expect(out.at(-1)).toBe('verdict: in --text-body, --text-lead, --space-3, --size-icon');
   });
 
-  it('puts 34px out against --size-section-header at 2px', () => {
-    const out = lines(['34px']);
-    expect(line(out, 'dark')).toBe('dark  34px: --size-section-header 32px - Δ 2px - out');
+  it('puts 30px out against --size-section-header at 2px', () => {
+    const out = lines(['30px']);
+    expect(line(out, 'dark')).toBe(
+      'dark  30px: --size-section-header 32px, --size-control 28px - Δ 2px - out',
+    );
     expect(out.at(-1)).toBe('verdict: out');
   });
 
@@ -177,7 +180,7 @@ describe('ds:nearest CLI', () => {
   const run = (args: string[]) =>
     spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8' });
 
-  it.each([['#5aa8ff'], ['13px'], ['34px']])('exits 0 for %s', (value) => {
+  it.each([['#5aa8ff'], ['13px'], ['30px']])('exits 0 for %s', (value) => {
     const result = run([value]);
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/^verdict: (in|out)/m);
