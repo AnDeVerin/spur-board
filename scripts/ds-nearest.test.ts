@@ -109,7 +109,7 @@ describe('nearest size', () => {
     ['1.2e1px', 'in'],
     ['1.2E1px', 'in'],
     ['-12px', 'in'],
-    ['.5px', 'out'],
+    ['.5e2px', 'out'],
     ['12', 'no scale for this unit'],
     ['12 px', 'composite value'],
     ['1e', 'no scale for this unit'],
