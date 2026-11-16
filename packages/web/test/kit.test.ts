@@ -1,5 +1,13 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -15,11 +23,11 @@ const git = (...args: string[]) =>
   execFileSync('git', args, { cwd: repoDir, encoding: 'utf8' }).trim();
 const read = (dir: string, file: string) => readFileSync(join(dir, file), 'utf8');
 
+const runKit = (out: string) =>
+  spawnSync(process.execPath, ['kit/build.ts', '--out', out], { cwd: webDir, encoding: 'utf8' });
+
 function buildKit(out: string): void {
-  const result = spawnSync(process.execPath, ['kit/build.ts', '--out', out], {
-    cwd: webDir,
-    encoding: 'utf8',
-  });
+  const result = runKit(out);
   if (result.status !== 0)
     throw new Error(`kit build exited ${String(result.status)}:\n${result.stderr}`);
 }
@@ -114,4 +122,39 @@ describe('design system kit build', () => {
     for (const slice of slices)
       expect(read(first, `prototypes/${slice}/app.js`)).toContain('DS.React.createElement');
   });
+});
+
+describe('design system kit output guard', () => {
+  // Each case returns the --out path; its listing must stay the same.
+  it.each<[string, () => string, RegExp]>([
+    ['the repo root', () => repoDir, /it is or contains /],
+    ['design/', () => join(repoDir, 'design'), /it is or contains /],
+    ['design/prototypes', () => join(repoDir, 'design/prototypes'), /it is or contains /],
+    ['packages/web', () => webDir, /it is or contains /],
+    [
+      'a non-empty directory that is not a kit',
+      () => {
+        const dir = join(tempDir, 'unrelated');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, 'sentinel.txt'), 'keep');
+        return dir;
+      },
+      /not empty and holds no BUILD\.json/,
+    ],
+  ])('refuses %s without deleting anything', (_label, target, reason) => {
+    const out = target();
+    const before = readdirSync(out).sort();
+    const result = runKit(out);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/kit build: refusing to write to /);
+    expect(result.stderr).toMatch(reason);
+    expect(readdirSync(out).sort()).toEqual(before);
+  });
+
+  it('rebuilds into a previous kit directory', () => {
+    buildKit(second);
+    expect(readFileSync(join(second, 'ds.js')).equals(readFileSync(join(first, 'ds.js')))).toBe(
+      true,
+    );
+  }, 120_000);
 });

@@ -44,6 +44,11 @@ the slice, so the slice can reach `../../kit/`. No network and no daemon are nee
 - `BUILD.json` - `commit`, `commitDate`, `dirty` and `exports`, the sorted runtime exports of
   `DS` (types are erased). No build time, so two builds of one commit are byte-identical.
 
+The build empties its output folder first. `node packages/web/kit/build.ts --out <dir>` writes
+elsewhere, and refuses (exit 1, nothing deleted) a folder that is or contains the repo root,
+`design/`, `design/prototypes/`, `packages/`, `packages/web/` or `packages/web/src/`, and any
+non-empty folder without a `BUILD.json` from an earlier kit build.
+
 ## React
 
 React is bundled inside `ds.js`. The page and the kit share that one copy through `DS.React` and

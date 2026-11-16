@@ -2,8 +2,8 @@
 // Outputs ds.js (global DS with React bundled), ds.css (fonts inlined), gallery/,
 // prototypes/<slice>/app.js and BUILD.json. No timestamps, so two builds of a commit match.
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { build, transformWithOxc, type CSSOptions, type Rolldown } from 'vite';
 
@@ -11,6 +11,34 @@ const webDir = resolve(import.meta.dirname, '..');
 const repoDir = resolve(webDir, '../..');
 const { values } = parseArgs({ options: { out: { type: 'string' } } });
 const outDir = resolve(values.out ?? join(repoDir, 'design/kit'));
+
+// The build empties outDir, so refuse a directory that holds or contains sources, and any
+// non-empty directory that is not a previous kit.
+function refusal(dir: string): string | undefined {
+  const sources = [
+    '',
+    'design',
+    'design/prototypes',
+    'packages',
+    'packages/web',
+    'packages/web/src',
+  ];
+  for (const source of sources.map((path) => join(repoDir, path))) {
+    const rel = relative(dir, source);
+    if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)))
+      return `it is or contains ${source}`;
+  }
+  if (!existsSync(dir)) return undefined;
+  if (!statSync(dir).isDirectory()) return 'it is not a directory';
+  if (readdirSync(dir).length > 0 && !existsSync(join(dir, 'BUILD.json')))
+    return 'it is not empty and holds no BUILD.json from a previous kit build';
+  return undefined;
+}
+const refused = refusal(outDir);
+if (refused) {
+  console.error(`kit build: refusing to write to ${outDir}: ${refused}.`);
+  process.exit(1);
+}
 
 // Readable, stable class names, so prototypes and the gallery can be inspected by name.
 const css: CSSOptions = {
