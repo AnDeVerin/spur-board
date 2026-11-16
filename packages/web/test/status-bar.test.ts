@@ -404,6 +404,20 @@ describe('status bar', () => {
     expect(rowsOf(box(PR)).length).toBeGreaterThan(0);
   });
 
+  it('daemon down with the stream lost shows no data time', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], now: Date.parse(T) });
+    const d = daemon();
+    d.routes['status.get'] = () => Promise.resolve(envelope(healthy()));
+    mount(d, '/?open=services');
+    d.send(hello);
+    await settle();
+    d.routes['status.get'] = failure;
+    await goOffline(d);
+    expect(barLabels()[1]).toBe(`daemon: no answer since ${T_TEXT}`);
+    expect(panel().textContent).not.toContain('Data from');
+    expect(rowsOf(box('host'))).toEqual([['Unknown while the daemon does not answer.', '']]);
+  });
+
   it('source blind marks spur and its box', async () => {
     const d = daemon();
     d.routes['status.get'] = () => Promise.resolve(envelope(spurBlind()));

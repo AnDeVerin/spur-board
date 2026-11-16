@@ -93,7 +93,8 @@ export function ServicesPanel({
       icon="pulse"
       title="Services"
       detail={
-        snapshot.stream === 'offline' && snapshot.lastGoodAt !== undefined
+        // Only while live updates are lost and the daemon still answers, as the prototype.
+        snapshot.stream === 'offline' && !snapshot.readFailed && snapshot.lastGoodAt !== undefined
           ? `Data from ${formatDataTime(snapshot.lastGoodAt)}`
           : undefined
       }

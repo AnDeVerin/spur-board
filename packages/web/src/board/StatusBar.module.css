@@ -24,7 +24,8 @@
   background: none;
   font: inherit;
   letter-spacing: inherit;
-  text-transform: inherit;
+  /* As the prototype's buttons: the bar's uppercase does not reach them. */
+  text-transform: none;
   white-space: nowrap;
   color: inherit;
   cursor: pointer;
