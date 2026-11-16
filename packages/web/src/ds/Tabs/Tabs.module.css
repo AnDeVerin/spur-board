@@ -16,7 +16,7 @@
   cursor: pointer;
 }
 .tab:focus-visible {
-  outline: var(--size-hairline) solid var(--color-status-working);
+  outline: var(--width-ring) solid var(--color-status-working);
   outline-offset: var(--offset-ring);
 }
 .count {

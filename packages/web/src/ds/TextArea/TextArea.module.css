@@ -1,0 +1,28 @@
+/* The same field style as TextInput; the error state is the row's line, not the border.
+   Focus turns the border primary; the transparent outline shows only in forced colours mode. */
+.field {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  min-height: var(--size-textarea);
+  padding: var(--space-1-5) var(--space-2);
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+  border: var(--size-hairline) solid var(--color-border-default);
+  border-radius: var(--radius);
+  resize: vertical;
+}
+.field::placeholder {
+  color: var(--color-text-tertiary);
+}
+.field:focus {
+  outline: var(--width-ring) solid transparent;
+  border-color: var(--color-text-primary);
+}
+.field:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}

@@ -1,0 +1,59 @@
+/* The same field style as TextArea; the box draws the border, so its focus cue is focus-within.
+   Focus turns the border primary; the transparent outline shows only in forced colours mode. */
+.box {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--size-control);
+  padding: 0 var(--space-2-5);
+  border: var(--size-hairline) solid var(--color-border-default);
+  border-radius: var(--radius);
+  background: var(--color-bg-surface);
+  color: var(--color-text-tertiary);
+}
+.box:focus-within {
+  outline: var(--width-ring) solid transparent;
+  border-color: var(--color-text-primary);
+}
+.disabled {
+  opacity: var(--opacity-disabled);
+}
+.input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--color-text-primary);
+}
+.input::placeholder {
+  color: var(--color-text-tertiary);
+}
+.input:disabled {
+  cursor: default;
+}
+.clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin: 0;
+  padding: var(--space-1);
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.clear:hover {
+  color: var(--color-text-primary);
+}
+.clear:focus-visible {
+  outline: var(--width-ring) solid var(--color-status-working);
+  outline-offset: var(--offset-ring);
+}

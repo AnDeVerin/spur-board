@@ -79,6 +79,17 @@ describe('web design assets and policy', () => {
     }).filter((file) => /\.(?:css|ts|tsx)$/.test(file)))
       expect(rawColor(read(`gallery/${file}`)), `gallery/${file}`).toBe(false);
   });
+  // Forced colours mode replaces border colours, so a focused field needs an outline as well.
+  it.each([
+    ['TextArea', '.field:focus'],
+    ['TextInput', '.box:focus-within'],
+  ])('%s keeps an outline on %s for forced colours mode', (name, selector) => {
+    const css = read(`src/ds/${name}/${name}.module.css`);
+    const rule = css.split('\n' + selector + ' {')[1]?.split('}')[0];
+    expect(rule).toBeDefined();
+    expect(rule).toMatch(/^\s*outline: [^;]*\btransparent\b[^;]*;/m);
+    expect(rule).not.toMatch(/outline: none/);
+  });
   it('rejects raw color literals in prototype styles outside --proposed-* declarations', () => {
     expect(rawColor(withoutProposed(':root { --proposed-accent: #ff00aa; }'))).toBe(false);
     expect(

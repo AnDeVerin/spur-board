@@ -1,0 +1,36 @@
+/* Each control resets its own native button: ds has no global reset. */
+.iconButton {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border: var(--size-hairline) solid var(--color-border-default);
+  border-radius: var(--radius);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.small {
+  width: var(--size-icon-button);
+  height: var(--size-icon-button);
+}
+.control {
+  width: var(--size-control);
+  height: var(--size-control);
+}
+.iconButton:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+.iconButton:focus-visible {
+  outline: var(--width-ring) solid var(--color-status-working);
+  outline-offset: var(--offset-ring);
+}
+.iconButton:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}
