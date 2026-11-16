@@ -110,7 +110,7 @@ describe('why rows', () => {
       rows(task({}, { turn: value })).find((row) => row.key.startsWith('Open turn'));
     expect(turnRow(turn)).toEqual({
       key: 'Open turn T4',
-      value: 'worker unassigned · not taken · 2h 9m',
+      value: 'worker · not taken · 2h 9m',
       status: 'wait',
     });
     expect(

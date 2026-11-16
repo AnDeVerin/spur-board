@@ -129,7 +129,7 @@ describe('task view', () => {
     expect(section.textContent).toContain('1 failed');
     expect(section.textContent).toContain('Checks green');
     expect(section.textContent).toContain('checks red');
-    expect(section.textContent).toContain('worker unassigned · not taken · 1h');
+    expect(section.textContent).toContain('worker · not taken · 1h');
     expect(section.textContent).not.toContain('When dev');
     expect(document.activeElement).toBe(close().querySelector('button') ?? close());
     const tabs = [...(dialog()?.querySelectorAll('[role="tab"]') ?? [])];

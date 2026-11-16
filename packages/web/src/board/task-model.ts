@@ -113,7 +113,7 @@ function turnRow(turn: BoardTask['turn'], now: number): WhyRow {
       key,
       value: `${role} ${actorName(turn.taken.by)} · taken · ${age(turn.taken.at, now)}`,
     };
-  return { key, value: `${role} unassigned · not taken · ${age(turn.at, now)}`, status: 'wait' };
+  return { key, value: `${role} · not taken · ${age(turn.at, now)}`, status: 'wait' };
 }
 
 const openBlocks = (value: BoardTask) => value.blocks.filter((block) => block.state === 'open');
