@@ -1,5 +1,5 @@
 {
-  "version": "81d75a46dc0348baa5318cfc9ed7943b982dd1d40f37b68cd9789e6beb61e920",
+  "version": "b54e40f57bb9e45eec356e7ac19b395b24ae38f75f158c4c265185df5f4a9207",
   "grants": [
     "operator",
     "project-agent",
@@ -6105,7 +6105,7 @@
     {
       "id": "inbox.operator",
       "kind": "query",
-      "description": "List what waits for the operator and what was handled in the last 24 hours; a project operator session sees only its operator projects and no _board entries.",
+      "description": "List what waits for the operator and what was handled in the last 24 hours; a project's own operator session sees only its operator projects, and _board entries only when no board-wide operator is configured.",
       "grants": [{ "grant": "operator" }],
       "preconditions": null,
       "errors": [
