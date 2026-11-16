@@ -336,8 +336,9 @@ function returnFocus(entry: Entry): void {
  * The inert set is computed only when a layer opens or closes, so the kept element must be
  * attached when the layer mounts: mounted earlier, or rendered as an earlier sibling in the same
  * commit (its ref is attached before this layer's layout effect runs; a parent's is not). A kept
- * element mounted later stays `inert` until the next open or close. Tab skips what the candidate selector does not list but a browser may focus (a scroll container
- * Chrome makes focusable, `iframe`, media controls), and Tab inside an `iframe` is the frame's own.
+ * element mounted later stays `inert` until the next open or close. Tab skips what the candidate
+ * selector does not list but a browser may focus (a scroll container Chrome makes focusable,
+ * `iframe`, media controls), and Tab inside an `iframe` is the frame's own.
  */
 export function Layer({
   level,
