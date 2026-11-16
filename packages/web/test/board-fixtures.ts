@@ -99,7 +99,25 @@ export const parsed = () => ({
   columns: browserOperations['config.get'].output.parse(config).projects[0]?.columns ?? [],
   rows: browserOperations['status.get'].output.parse(status()).tasks,
 });
-export const status = (tasks: unknown[] = ROWS, sources: unknown[] = []) => ({
+/** One `services[]` row; `since` is set only for a healthy one, as core writes it. */
+export const service = (
+  name: string,
+  state: 'healthy' | 'degraded' | 'failing',
+  extra: Record<string, unknown> = {},
+) => ({
+  service: name,
+  state,
+  since: state === 'healthy' ? '2026-11-15T09:00:00.000Z' : null,
+  lastGoodAt: null,
+  reason: state === 'healthy' ? null : `${name} is ${state}`,
+  ...extra,
+});
+/** A `status.get` answer; `extra` replaces top-level fields such as services, transport or host. */
+export const status = (
+  tasks: unknown[] = ROWS,
+  sources: unknown[] = [],
+  extra: Record<string, unknown> = {},
+) => ({
   items: [],
   warmingUp: false,
   spurUnavailable: null,
@@ -116,6 +134,7 @@ export const status = (tasks: unknown[] = ROWS, sources: unknown[] = []) => ({
   hiddenUnlinkedSessions: 0,
   bindings: { columns: [], operators: [], defaultAddressee: null },
   daemon: { version: '0.4.0', startedAt: '2026-01-05T08:00:00.000Z', lastDispatchAt: null },
+  ...extra,
 });
 export const inbox = (count: number) => ({
   items: Array.from({ length: count }, (_, i) => ({
@@ -174,3 +193,37 @@ export function daemon() {
 }
 export type Daemon = ReturnType<typeof daemon>;
 export const hello = 'event: hello\ndata: {"head":1,"instance":"one"}\n\n';
+
+// Status bar and services panel fixtures.
+export const T = '2026-11-15T14:40:00.000Z';
+export const T_TEXT = '14:40 15/11/26';
+export const HEALTHY = [
+  service('daemon', 'healthy'),
+  service('slack', 'healthy'),
+  service('github', 'healthy'),
+  service('spur', 'healthy'),
+];
+export const SLACK_UP = { gateway: 'slack', state: 'up', since: null, reason: null, spaces: [] };
+export const polled = (name: string, extra: Record<string, unknown> = {}) =>
+  source(name, { observedAt: T, lastCompleteAt: T, healthySince: T, ...extra });
+export const PR = 'github:a:ex/repo';
+export const ISSUES = 'github-issues:a:ex/repo';
+export const SPUR_BLIND = polled('spur', {
+  blindReason: 'stale',
+  message: 'Spur has not answered',
+  stale: true,
+  healthySince: null,
+});
+export const SPUR_DOWN_LINE = 'Spur is unavailable: no answer for 40 minutes';
+/** Spur blind stale, with its services row failing and the Spur availability line set. */
+export const spurBlind = () =>
+  status(undefined, [polled(PR), SPUR_BLIND], {
+    services: [...HEALTHY.filter((row) => row.service !== 'spur'), service('spur', 'failing')],
+    transport: [SLACK_UP],
+    spurUnavailable: SPUR_DOWN_LINE,
+  });
+export const healthy = () =>
+  status(undefined, [polled(PR), polled(ISSUES), polled('spur')], {
+    services: HEALTHY,
+    transport: [SLACK_UP],
+  });

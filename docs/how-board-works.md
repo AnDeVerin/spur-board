@@ -72,8 +72,10 @@ The private web package builds the Board screen for one chosen project; the
 answers and comments stay in the CLI, MCP and Slack. The header holds the project switcher,
 dispatcher mode, a key, session and block filter that dims and never hides cards, the live
 indicator and the inbox count; columns follow configuration order, empty ones collapse and
-`done` lists every done task. The footer keeps task count, source health, the persistent
-Light/Dark/Auto theme choice and the daemon version. It uses local JetBrains Mono fonts and the
+`done` lists every done task. The status bar holds one health button per service (daemon,
+slack, github, spur, and jira when configured), coloured from the `services` rows of
+`status.get`, the persistent Light/Dark/Auto theme choice and the daemon version; its services
+panel (`?open=services`) shows daemon, host, gateway and per-source rows from the same read. It uses local JetBrains Mono fonts and the
 V1 prototype tokens. Failed reads keep the last good data on screen under an error banner with
 its time; stream failures reconnect with capped backoff and show offline after five failed
 attempts while continuing recovery. Reconnects retain valid SSE cursors, including ID-only
@@ -88,5 +90,5 @@ after a client fell behind, or when its last event ID is ahead of the journal. A
 every 30 seconds carries source and transport health and also triggers a full reread; a comment
 line every 15 seconds keeps proxies from closing the stream. The first `hello`, and a later one
 with a changed head or a new instance after a daemon restart, make the screen reread everything.
-The footer version is `daemon.version` from `status.get`, so a stale bundle never claims the
-daemon's version; it stays empty until the first status read.
+The status bar version is `daemon.version` from `status.get`, so a stale bundle never claims
+the daemon's version; it stays empty until the first status read.
