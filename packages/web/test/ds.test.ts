@@ -12,8 +12,9 @@ const examples: Record<string, Record<string, unknown>> = import.meta.glob(
 );
 
 /**
- * Every component that ds/index.ts re-exports by value from `./<Name>/<Name>.tsx` needs
- * `<Name>.module.css` and a `<Name>.examples.tsx` with at least one named export.
+ * ds/index.ts exports values only as `export { ... } from './<Name>/<Name>.tsx'`; type-only
+ * exports are free. Every component so re-exported needs `<Name>.module.css` and a
+ * `<Name>.examples.tsx` with at least one named export.
  */
 function checkDesignSystem(
   source: string,
@@ -23,12 +24,20 @@ function checkDesignSystem(
   const problems: string[] = [];
   const folders = new Set<string>();
   for (const node of parseSync('index.ts', source).program.body) {
+    const unsupported = () =>
+      problems.push(`unsupported export: ${source.slice(node.start, node.end)}`);
     if (node.type === 'ExportAllDeclaration') problems.push(`export * from ${node.source.value}`);
-    if (node.type !== 'ExportNamedDeclaration' || !node.source || node.exportKind === 'type')
+    if (node.type === 'ExportDefaultDeclaration' || node.type === 'TSExportAssignment')
+      unsupported();
+    if (node.type !== 'ExportNamedDeclaration' || node.exportKind === 'type') continue;
+    if (node.declaration) {
+      unsupported();
       continue;
-    const name = /^\.\/(\w+)\/\1\.tsx$/.exec(node.source.value)?.[1];
-    if (name && node.specifiers.some((specifier) => specifier.exportKind !== 'type'))
-      folders.add(name);
+    }
+    if (node.specifiers.every((specifier) => specifier.exportKind === 'type')) continue;
+    const name = node.source && /^\.\/(\w+)\/\1\.tsx$/.exec(node.source.value)?.[1];
+    if (name) folders.add(name);
+    else unsupported();
   }
   const sorted = [...folders].sort();
   for (const name of sorted) {
@@ -72,6 +81,26 @@ describe('design system examples rule', () => {
     expect(
       checkDesignSystem("export { type GhostTone } from './Ghost/Ghost.tsx';", [], {}),
     ).toEqual({ problems: [], folders: [] });
+  });
+
+  it.each([
+    [
+      "import { Ghost } from './Ghost/Ghost.tsx';\nexport { Ghost };",
+      ['unsupported export: export { Ghost };'],
+    ],
+    ['export const ghost = 1;', ['unsupported export: export const ghost = 1;']],
+    ['export function Ghost() {}', ['unsupported export: export function Ghost() {}']],
+    ['export default 1;', ['unsupported export: export default 1;']],
+    [
+      "export { ghost } from './ghost.ts';",
+      ["unsupported export: export { ghost } from './ghost.ts';"],
+    ],
+    ["import type { GhostTone } from './Ghost/Ghost.tsx';\nexport type { GhostTone };", []],
+    ["import type { GhostTone } from './Ghost/Ghost.tsx';\nexport { type GhostTone };", []],
+    ["export type GhostTone = 'a';", []],
+    ['export interface GhostProps {}', []],
+  ])('accepts only value re-exports from a component folder: %s', (source, problems) => {
+    expect(checkDesignSystem(source, [], {})).toEqual({ problems, folders: [] });
   });
 
   it('reports export star', () => {
