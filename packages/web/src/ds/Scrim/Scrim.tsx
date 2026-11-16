@@ -34,12 +34,17 @@ type Entry = {
   root: HTMLElement;
   surface: HTMLElement;
   close: HTMLElement | null;
-  opener: HTMLElement | null;
+  // Where focus goes when this layer closes on top: its own opener first, then the openers of
+  // layers under it that left the stack before it, in the order they left.
+  openers: HTMLElement[];
   onClose: { current: () => void };
 };
 
 // One stack for every open layer on the page, in visual order; the last entry is the top layer.
 const stack: Entry[] = [];
+// The roots of layers that left the stack and may still be in the document until React removes
+// their portals later in the same commit; focus never returns into one.
+const departed = new Set<HTMLElement>();
 // Each element this module made inert, with its own `inert` state from before.
 const priorInert = new Map<Element, boolean>();
 let priorOverflow = '';
@@ -56,9 +61,30 @@ const tabbableSelector = [
   '[tabindex]',
 ].join(', ');
 
+const formControls = 'button, input, select, textarea';
+
+/**
+ * A form control's real disabled state, as `:disabled` reads it: its own `disabled`, or a
+ * `fieldset[disabled]` ancestor unless the control sits in that fieldset's first `legend` child.
+ * Written out because happy-dom's `:disabled` checks only the attribute.
+ */
+function disabled(element: HTMLElement): boolean {
+  if (!element.matches(formControls)) return false;
+  if (element.hasAttribute('disabled')) return true;
+  for (
+    let fieldset = element.parentElement?.closest('fieldset[disabled]');
+    fieldset;
+    fieldset = fieldset.parentElement?.closest('fieldset[disabled]')
+  ) {
+    const legend = [...fieldset.children].find((child) => child.localName === 'legend');
+    if (!legend?.contains(element)) return true;
+  }
+  return false;
+}
+
 function tabbables(surface: HTMLElement): HTMLElement[] {
   return [...surface.querySelectorAll<HTMLElement>(tabbableSelector)].filter((element) => {
-    if (element.hasAttribute('disabled')) return false;
+    if (disabled(element)) return false;
     const index = element.getAttribute('tabindex');
     if (index !== null && Number(index) < 0) return false;
     return element.closest('[hidden], [inert]') === null;
@@ -75,22 +101,23 @@ function onKeyDown(event: KeyboardEvent): void {
     return;
   }
   if (event.key !== 'Tab') return;
-  const list = tabbables(top.surface);
-  const first = list[0];
-  const last = list.at(-1);
+  // The stops in the direction of travel: a wrap lands on the first of them that takes focus.
+  const stops = tabbables(top.surface);
+  if (event.shiftKey) stops.reverse();
   const active = document.activeElement;
   const outside = !(active instanceof Node) || !top.surface.contains(active);
-  if (!first || !last) {
-    event.preventDefault();
-    return;
+  if (stops.length > 0 && !outside && active !== stops.at(-1)) return;
+  event.preventDefault();
+  focusFirst(stops);
+}
+
+/** Focuses the first candidate that takes focus; tells whether one did. */
+function focusFirst(candidates: Iterable<HTMLElement>): boolean {
+  for (const candidate of candidates) {
+    candidate.focus();
+    if (document.activeElement === candidate) return true;
   }
-  if (event.shiftKey && (outside || active === first)) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && (outside || active === last)) {
-    event.preventDefault();
-    first.focus();
-  }
+  return false;
 }
 
 /**
@@ -145,6 +172,7 @@ function push(entry: Entry): Entry | undefined {
     document.documentElement.style.overflow = 'hidden';
     window.addEventListener('keydown', onKeyDown);
   }
+  departed.delete(entry.root);
   const index = stack.findIndex((other) => under(entry, other));
   if (index === -1) {
     stack.push(entry);
@@ -154,12 +182,33 @@ function push(entry: Entry): Entry | undefined {
   return stack[index + 1];
 }
 
-/** Removes the entry and tells whether it was the top layer. */
+/**
+ * Removes the entry and tells whether it was the top layer. A lower entry hands its openers to
+ * every entry above it: an opener of one of those may sit inside its root, which leaves with it.
+ */
 function remove(entry: Entry): boolean {
   const index = stack.indexOf(entry);
   if (index === -1) return false;
   stack.splice(index, 1);
+  departed.add(entry.root);
+  for (const other of stack.slice(index)) other.openers.push(...entry.openers);
   return index === stack.length;
+}
+
+/**
+ * Focus after the top entry left: the first of its openers that is in the document, not `inert`
+ * and not inside a layer root that left the stack, and that takes focus; else Close of the new
+ * top layer.
+ */
+function returnFocus(entry: Entry): void {
+  for (const root of departed) if (!root.isConnected) departed.delete(root);
+  const live = entry.openers.filter(
+    (opener) =>
+      opener.isConnected &&
+      !opener.closest('[inert]') &&
+      ![...departed].some((root) => root.contains(opener)),
+  );
+  if (!focusFirst(live)) stack.at(-1)?.close?.focus();
 }
 
 /**
@@ -183,13 +232,16 @@ function remove(entry: Entry): boolean {
  * opener of the layer right above it, which is what had focus before the commit, and moves no
  * focus. Escape (unless already handled or composing) and a scrim click call the latest
  * `onClose` of the top layer only. Tab and Shift+Tab wrap inside the top surface and pull focus
- * back in from outside. On unmount the top layer returns focus to its opener when the opener is
- * still in the document and not `inert`, otherwise to Close of the new top layer; a lower layer
- * moves no focus.
+ * back in from outside; a wrap skips disabled controls (a `disabled` fieldset included) and lands
+ * on the first stop that takes focus. On unmount a lower layer moves no focus and hands its opener
+ * to the layers above it, whose own opener may be inside it (a panel closed with its modal open,
+ * or both closed in one render). The top layer returns focus to the first of its openers, then
+ * the handed ones, that is still in the document, not `inert`, not inside a layer that left the
+ * stack and takes focus; otherwise to Close of the new top layer.
  *
  * Limits: elements added to `body` while a layer is open stay live until the next open or close;
- * the Tab wrap reads DOM attributes, so controls hidden only by CSS or a roving radio group can
- * break it.
+ * the Tab wrap finds the last stop from DOM attributes, so a last control hidden only by CSS lets
+ * Tab from the stop before it leave the layer once, and a roving radio group can break the wrap.
  */
 export function Layer({
   level,
@@ -238,11 +290,11 @@ export function Layer({
       root: root.current,
       surface: surface.current,
       close: close.current?.querySelector('button') ?? null,
-      opener: active instanceof HTMLElement && active !== document.body ? active : null,
+      openers: active instanceof HTMLElement && active !== document.body ? [active] : [],
       onClose: latest,
     };
     const above = push(entry);
-    if (above) entry.opener = above.opener;
+    if (above) entry.openers = [...above.openers];
     sync();
     if (!above) entry.close?.focus();
     return () => {
@@ -250,9 +302,7 @@ export function Layer({
       sync();
       if (!wasTop) return;
       // After the inert recompute: focus() on an inert element is ignored.
-      const { opener } = entry;
-      if (opener?.isConnected && !opener.closest('[inert]')) opener.focus();
-      else stack.at(-1)?.close?.focus();
+      returnFocus(entry);
     };
   }, []);
   const join = (...names: (string | undefined)[]) => names.filter(Boolean).join(' ');

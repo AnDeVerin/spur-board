@@ -1,113 +1,25 @@
 // @vitest-environment happy-dom
+import { act, createElement, StrictMode } from 'react';
+import { describe, expect, it, vi } from 'vitest';
+import { Modal } from '../src/ds/index.ts';
 import {
-  act,
-  createElement,
-  Fragment,
-  StrictMode,
-  useState,
-  type ComponentType,
-  type ReactNode,
-} from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Modal, SidePanel } from '../src/ds/index.ts';
+  button,
+  bodyOf,
+  container,
+  dialogs,
+  example,
+  examples,
+  key,
+  layerRoot,
+  mountEachTest,
+  openOverPanel,
+  panel,
+  press,
+  render,
+  top,
+} from './ds-layers-helpers.ts';
 
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-const examples: Record<string, Record<string, ComponentType>> = import.meta.glob(
-  [
-    '../src/ds/Modal/*.examples.tsx',
-    '../src/ds/SidePanel/*.examples.tsx',
-    '../src/ds/Scrim/*.examples.tsx',
-  ],
-  { eager: true },
-);
-const example = (folder: string, name: string): ComponentType => {
-  const found = examples[`../src/ds/${folder}/${folder}.examples.tsx`]?.[name];
-  if (!found) throw new Error(`no example ${folder} / ${name}`);
-  return found;
-};
-
-let container: HTMLDivElement;
-let root: Root;
-
-beforeEach(() => {
-  container = document.createElement('div');
-  container.id = 'root';
-  document.body.append(container);
-  root = createRoot(container);
-});
-afterEach(() => {
-  act(() => {
-    root.unmount();
-  });
-  vi.restoreAllMocks();
-  document.body.replaceChildren();
-  document.documentElement.style.overflow = '';
-});
-
-const render = (node: ReactNode) => {
-  act(() => {
-    root.render(node);
-  });
-};
-const dialogs = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"]')];
-const top = () => {
-  const found = dialogs().at(-1);
-  if (!found) throw new Error('no dialog');
-  return found;
-};
-const layerRoot = (dialog: HTMLElement) => {
-  const found = dialog.parentElement;
-  if (!found) throw new Error('no layer root');
-  return found;
-};
-const button = (name: string, scope: ParentNode = document) => {
-  const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(
-    (candidate) => (candidate.getAttribute('aria-label') ?? candidate.textContent) === name,
-  );
-  if (!found) throw new Error(`no button ${name}`);
-  return found;
-};
-const bodyOf = (dialog: HTMLElement) => {
-  const found = dialog.lastElementChild;
-  if (!(found instanceof HTMLElement)) throw new Error('no body');
-  return found;
-};
-// Focus first, as a mouse click in Chrome or a keyboard press does: the layer reads the opener.
-const press = (target: HTMLElement) => {
-  act(() => {
-    target.focus();
-    target.click();
-  });
-};
-const key = (name: string, init: KeyboardEventInit = {}) => {
-  const event = new KeyboardEvent('keydown', {
-    bubbles: true,
-    cancelable: true,
-    key: name,
-    ...init,
-  });
-  act(() => {
-    (document.activeElement ?? document.body).dispatchEvent(event);
-  });
-  return event;
-};
-const openOverPanel = () => {
-  render(createElement(example('Modal', 'OverPanel')));
-  press(button('Open inbox'));
-  const opener = button('Open task 509', top());
-  press(opener);
-  return opener;
-};
-const panel = (props: Partial<Parameters<typeof SidePanel>[0]> = {}) =>
-  createElement(SidePanel, {
-    open: true,
-    onClose: () => undefined,
-    title: 'Inbox',
-    children: 'Items',
-    ...props,
-  });
+mountEachTest();
 
 describe('Modal and SidePanel', () => {
   it('labels the dialog by its title', () => {
@@ -220,175 +132,6 @@ describe('Modal and SidePanel', () => {
     expect(second).toHaveBeenCalledTimes(2);
   });
 
-  describe('focus returns to the opener', () => {
-    // Emulates browser focus fixup: an element that turns inert loses focus to body.
-    beforeEach(() => {
-      // The originals, taken before the spies replace them.
-      type Method = (this: Element, ...args: unknown[]) => unknown;
-      const setAttribute = Reflect.get(Element.prototype, 'setAttribute') as Method;
-      const toggleAttribute = Reflect.get(Element.prototype, 'toggleAttribute') as Method;
-      const fixup = (element: Element, name: string) => {
-        const active = document.activeElement;
-        if (name === 'inert' && element.hasAttribute('inert') && active && element.contains(active))
-          (active as HTMLElement).blur();
-      };
-      vi.spyOn(Element.prototype, 'setAttribute').mockImplementation(function (
-        this: Element,
-        name: string,
-        value: string,
-      ) {
-        setAttribute.call(this, name, value);
-        fixup(this, name);
-      });
-      vi.spyOn(Element.prototype, 'toggleAttribute').mockImplementation(function (
-        this: Element,
-        name: string,
-        force?: boolean,
-      ) {
-        const result = toggleAttribute.call(this, name, force) as boolean;
-        fixup(this, name);
-        return result;
-      });
-    });
-
-    it('returns focus into the panel when the modal over it closes', () => {
-      const opener = openOverPanel();
-      expect(document.activeElement).toBe(button('Close', top()));
-      key('Escape');
-      expect(document.activeElement).toBe(opener);
-      key('Escape');
-      expect(document.activeElement).toBe(button('Open inbox'));
-    });
-
-    it('returns focus to the gallery opener of a single panel', () => {
-      render(createElement(example('SidePanel', 'Left')));
-      const opener = button('Open left panel');
-      press(opener);
-      key('Escape');
-      expect(document.activeElement).toBe(opener);
-    });
-
-    // The inbox panel (or an outer modal) and the task layer (a modal unless `Inner` says
-    // otherwise), nested in the inbox or as a sibling rendered before or after it.
-    type Layout = {
-      place?: 'inside' | 'before' | 'after';
-      Outer?: typeof Modal;
-      Inner?: typeof Modal;
-    };
-    function Stack({ place = 'inside', Outer = SidePanel, Inner = Modal }: Layout) {
-      const [shown, setShown] = useState({ inbox: false, task: false });
-      // Each handler is one state update: "Open both" mounts both layers in one commit.
-      const set = (change: Partial<typeof shown>) => () => {
-        setShown((now) => ({ ...now, ...change }));
-      };
-      const modal = createElement(Inner, {
-        open: shown.task,
-        onClose: set({ task: false }),
-        title: 'Task',
-        children: 'Body',
-      });
-      return createElement(
-        'div',
-        null,
-        createElement('button', { onClick: set({ inbox: true }) }, 'Open inbox'),
-        createElement('button', { onClick: set({ inbox: true, task: true }) }, 'Open both'),
-        place === 'before' ? modal : null,
-        createElement(Outer, {
-          open: shown.inbox,
-          onClose: set({ inbox: false }),
-          title: 'Inbox',
-          children: createElement(
-            Fragment,
-            null,
-            createElement('button', { onClick: set({ task: true }) }, 'Open task'),
-            place === 'inside' ? modal : null,
-          ),
-        }),
-        place === 'after' ? modal : null,
-      );
-    }
-    const titleOf = (dialog: Element | null) =>
-      document.getElementById(dialog?.getAttribute('aria-labelledby') ?? '')?.textContent ?? '';
-    const where = () => {
-      const active = document.activeElement;
-      if (!(active instanceof HTMLElement) || active === document.body) return 'body';
-      const dialog = active.closest<HTMLElement>('[role="dialog"]');
-      const name = active.getAttribute('aria-label') ?? active.textContent;
-      return dialog ? `${titleOf(dialog)} ${name}` : name;
-    };
-    const inert = () =>
-      [...document.body.children]
-        .filter((element) => element.hasAttribute('inert'))
-        .map((element) => element.id || titleOf(element.querySelector('[role="dialog"]')))
-        .sort();
-    // Layer roots in document order, which is their paint order within one z level: bottom first.
-    const open = () => dialogs().map(titleOf);
-
-    type Case = Layout & { name: string; clicks: string[]; strict?: boolean };
-    const apart = ['Task Close', 'Inbox Open task', 'Open inbox'];
-    const together = ['Task Close', 'Inbox Close', 'Open both'];
-    const both = ['Open both'];
-    it.each<Case & { focus: string[] }>([
-      { name: 'panel, then its modal', clicks: ['Open inbox', 'Open task'], focus: apart },
-      { name: 'panel and nested modal in one commit', clicks: both, focus: together },
-      { name: 'the same under StrictMode', clicks: both, strict: true, focus: together },
-      { name: 'sibling modal first, one commit', clicks: both, place: 'before', focus: together },
-      { name: 'modal nested in a modal, one commit', clicks: both, Outer: Modal, focus: together },
-      {
-        name: 'panel nested in a panel, one commit',
-        clicks: both,
-        Inner: SidePanel,
-        focus: together,
-      },
-      {
-        name: 'sibling modal after a modal, one commit',
-        clicks: both,
-        place: 'after',
-        Outer: Modal,
-        focus: together,
-      },
-    ])('stacks layers in visual order: $name', ({ clicks, strict, focus, ...layout }) => {
-      const stack = createElement(Stack, layout);
-      render(strict ? createElement(StrictMode, null, stack) : stack);
-      for (const name of clicks) press(button(name));
-      // Task is on top (page and outer layer inert) and its root is the last layer root, so it
-      // also paints on top; each Escape closes the top layer.
-      const after = [
-        { open: ['Inbox', 'Task'], inert: ['Inbox', 'root'] },
-        { open: ['Inbox'], inert: ['root'] },
-        { open: [], inert: [] },
-      ];
-      for (const [step, expected] of after.entries()) {
-        if (step > 0) key('Escape');
-        const seen = { open: open(), inert: inert(), focus: where() };
-        expect(seen).toEqual({ ...expected, focus: focus[step] });
-      }
-    });
-
-    it('leaves focus on the top layer when a lower layer closes', () => {
-      const lower = (open: boolean) =>
-        createElement(
-          'div',
-          null,
-          open ? panel({ title: 'Lower' }) : null,
-          createElement(Modal, {
-            open: true,
-            onClose: () => undefined,
-            title: 'Top',
-            children: 'x',
-          }),
-        );
-      render(createElement('button', null, 'Opener'));
-      button('Opener').focus();
-      render(lower(true));
-      const close = button('Close', top());
-      expect(document.activeElement).toBe(close);
-      render(lower(false));
-      expect(dialogs()).toHaveLength(1);
-      expect(document.activeElement).toBe(close);
-    });
-  });
-
   it('Tab cycles inside the open layer', () => {
     render(createElement(example('SidePanel', 'Left')));
     press(button('Open left panel'));
@@ -464,18 +207,18 @@ describe('Modal and SidePanel', () => {
     render(createElement(example('Modal', 'OverPanel')));
     press(button('Open inbox'));
     const panelRoot = layerRoot(top());
-    expect(container.hasAttribute('inert')).toBe(true);
+    expect(container().hasAttribute('inert')).toBe(true);
     expect(panelRoot.hasAttribute('inert')).toBe(false);
     press(button('Open task 509', top()));
     const modalRoot = layerRoot(top());
-    expect(container.hasAttribute('inert')).toBe(true);
+    expect(container().hasAttribute('inert')).toBe(true);
     expect(panelRoot.hasAttribute('inert')).toBe(true);
     expect(modalRoot.hasAttribute('inert')).toBe(false);
     key('Escape');
     expect(panelRoot.hasAttribute('inert')).toBe(false);
-    expect(container.hasAttribute('inert')).toBe(true);
+    expect(container().hasAttribute('inert')).toBe(true);
     key('Escape');
-    expect(container.hasAttribute('inert')).toBe(false);
+    expect(container().hasAttribute('inert')).toBe(false);
     expect(preset.hasAttribute('inert')).toBe(true);
   });
 
@@ -496,7 +239,7 @@ describe('Modal and SidePanel', () => {
     expect(dialogs()).toHaveLength(0);
     expect(keydowns(add) - keydowns(remove)).toBe(0);
     expect(document.documentElement.style.overflow).toBe('scroll');
-    expect(container.hasAttribute('inert')).toBe(false);
+    expect(container().hasAttribute('inert')).toBe(false);
   });
 
   it('has the examples the gallery shows', () => {
@@ -510,12 +253,12 @@ describe('Modal and SidePanel', () => {
   it('Scrim / Default covers its box and hides on click', () => {
     render(createElement(example('Scrim', 'Default')));
     press(button('Show scrim'));
-    const scrim = container.querySelector<HTMLElement>('[aria-hidden="true"]');
+    const scrim = container().querySelector<HTMLElement>('[aria-hidden="true"]');
     expect(scrim?.parentElement?.style.position).toBe('relative');
     act(() => {
       scrim?.click();
     });
-    expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
+    expect(container().querySelector('[aria-hidden="true"]')).toBeNull();
     expect(button('Show scrim')).toBeTruthy();
   });
 });
