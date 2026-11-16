@@ -138,6 +138,13 @@ export function connectStream(options: StreamOptions) {
   options.state('reconnecting');
   void run();
   return {
+    /** Reconnect now while a backoff is pending; otherwise a connection is open or starting. */
+    retry() {
+      if (stopped || retry === undefined) return;
+      clearTimeout(retry);
+      retry = undefined;
+      void run();
+    },
     stop() {
       stopped = true;
       connection?.abort();

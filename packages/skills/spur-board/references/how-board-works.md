@@ -66,20 +66,27 @@ Missing UI assets return a 503 build hint while health and operations remain ava
 
 ## Web shell
 
-The private web package builds an empty desktop shell with task count, named source health,
-stream state, a persistent Light/Dark/Auto theme choice and the daemon version in its footer.
-It uses local JetBrains Mono fonts and the V1 prototype tokens. Read failures retain previous
-status as stale; stream failures reconnect with capped backoff and show offline after five
-failed attempts while continuing recovery. The first valid stream handshake refreshes status
-to close the startup read race; later changes to the stream head or instance also refresh it.
-Reconnects retain valid SSE cursors, including ID-only records, until the server clears them.
+The private web package builds the Board screen for one chosen project; the
+[web UI](web-ui.md) guide describes what it shows and its states. It reads `config.get`,
+`status.get` with detail for the chosen project and `inbox.operator`, and never writes:
+answers and comments stay in the CLI, MCP and Slack. The header holds the project switcher,
+dispatcher mode, a key, session and block filter that dims and never hides cards, the live
+indicator and the inbox count; columns follow configuration order, empty ones collapse and
+`done` lists every done task. The footer keeps task count, source health, the persistent
+Light/Dark/Auto theme choice and the daemon version. It uses local JetBrains Mono fonts and the
+V1 prototype tokens. Failed reads keep the last good data on screen under an error banner with
+its time; stream failures reconnect with capped backoff and show offline after five failed
+attempts while continuing recovery. Reconnects retain valid SSE cursors, including ID-only
+records, until the server clears them.
 
 The configured daemon web listener serves the packaged SPA and its local assets, and streams
 live updates from `GET /v1/events` as server-sent events. The stream opens with `hello` (journal
 head and daemon instance), then sends one `invalidate` per committed batch of journal events,
-naming the projects and task keys it touched; the shell then rereads its status. A `reset` asks for
-a full reread: after a client fell behind, or when its last event ID is ahead of the journal.
-A `status` frame every 30 seconds carries source and transport health; a comment line every 15
-seconds keeps proxies from closing the stream. A restarted daemon sends a new instance in
-`hello`, which also makes the shell reread everything. The footer version is `daemon.version` from `status.get`, so a stale bundle never
-claims the daemon's version; it stays empty until the first status read.
+naming the projects and task keys it touched; the screen rereads configuration and status when
+the chosen project is named, and the inbox on every batch. A `reset` asks for a full reread:
+after a client fell behind, or when its last event ID is ahead of the journal. A `status` frame
+every 30 seconds carries source and transport health and also triggers a full reread; a comment
+line every 15 seconds keeps proxies from closing the stream. The first `hello`, and a later one
+with a changed head or a new instance after a daemon restart, make the screen reread everything.
+The footer version is `daemon.version` from `status.get`, so a stale bundle never claims the
+daemon's version; it stays empty until the first status read.

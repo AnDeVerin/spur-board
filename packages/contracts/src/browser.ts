@@ -8,6 +8,8 @@ import {
 } from './enums.ts';
 import { blockIdSchema, taskKeyInputSchema } from './ids.ts';
 import { SPACE_IDS } from './gateway/schemas.ts';
+import { configViewSchema } from './ops/config-view-schema.ts';
+import { inboxEntrySchema, inboxHandledSchema } from './ops/inbox-schemas.ts';
 import { sourceViewSchema } from './ops/source-view-schema.ts';
 import {
   blockViewSchema,
@@ -271,7 +273,33 @@ export const blockAnswerOutputSchema = z.strictObject({
   comment: commentSchema,
 });
 
+export const configGetInputSchema = z.strictObject({ project });
+
+export const inboxOperatorInputSchema = z.strictObject({});
+export const inboxOperatorOutputSchema = z.strictObject({
+  items: z
+    .array(inboxEntrySchema)
+    .describe(
+      'Open operator items, blocks addressed to the operator and operator turns, newest first; a block or turn is listed once, not with its items.',
+    ),
+  handled: z
+    .array(inboxHandledSchema)
+    .describe('At most 20 entries handled in the last 24 hours, newest first.'),
+});
+
 export const browserOperations = {
+  'config.get': {
+    id: 'config.get',
+    kind: 'query',
+    input: configGetInputSchema,
+    output: configViewSchema,
+  },
+  'inbox.operator': {
+    id: 'inbox.operator',
+    kind: 'query',
+    input: inboxOperatorInputSchema,
+    output: inboxOperatorOutputSchema,
+  },
   'status.get': {
     id: 'status.get',
     kind: 'query',

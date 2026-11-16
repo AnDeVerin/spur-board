@@ -1,0 +1,5 @@
+/* The one ds focus ring, for screen elements built outside ds. */
+.focusRing:focus-visible {
+  outline: var(--width-ring) solid var(--color-status-working);
+  outline-offset: var(--offset-ring);
+}

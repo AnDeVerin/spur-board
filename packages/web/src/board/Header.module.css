@@ -1,0 +1,111 @@
+.header {
+  box-sizing: border-box;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--size-header);
+  padding: 0 var(--space-6);
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+}
+.brand {
+  display: flex;
+  flex: none;
+}
+/* Icon, text and count inside a ds Button sit apart by one gap. */
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+/* A long project id truncates; the caret and the rest of the label stay. */
+.id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/*
+ * The switcher shrinks with the header. A grid track of minmax(0, auto) sizes the ds Button to
+ * the room left, below its nowrap min-content, so the id truncates instead of overflowing.
+ */
+.switcher {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, auto);
+}
+.list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: var(--z-menu);
+  box-sizing: border-box;
+  width: max-content;
+  max-width: var(--size-measure);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.item {
+  display: flex;
+  flex-direction: column;
+}
+.list[hidden] {
+  display: none;
+}
+.mode,
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-bar);
+  white-space: nowrap;
+}
+.mode[data-mode='shadow'],
+.live[data-tone='warn'] {
+  color: var(--color-status-attention);
+}
+.live[data-tone='error'] {
+  color: var(--color-status-error);
+}
+.filter {
+  flex: 1;
+  min-width: 0;
+  max-width: var(--size-measure);
+}
+.spacer {
+  flex: 1;
+}
+/* breakpoints.narrow: the mode and the filter hide, as in the prototype; the live word stays. */
+@media (max-width: 760px) {
+  .header {
+    position: relative;
+    gap: var(--space-2);
+    padding: 0 var(--space-3);
+  }
+  /* The list hangs from the header, inside its padding, so it never widens the page. */
+  .switcher {
+    position: static;
+  }
+  .list {
+    left: var(--space-3);
+    right: var(--space-3);
+    width: auto;
+    max-width: none;
+  }
+  .mode,
+  .filter {
+    display: none;
+  }
+}

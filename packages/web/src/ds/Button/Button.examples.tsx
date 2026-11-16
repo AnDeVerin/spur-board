@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { Button } from './Button.tsx';
 
 function Shown({ caption, children }: { caption: string; children: ReactNode }) {
@@ -47,6 +47,29 @@ export function Busy() {
         Retrying
       </Button>
       <span>clicks received: {clicks}</span>
+    </Shown>
+  );
+}
+export function Disclosure() {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <Shown caption="Disclosure: click it, or Tab to it and press Enter; aria-expanded follows the list">
+      <div style={{ display: 'grid', gap: 'var(--space-1)', justifyItems: 'start' }}>
+        <Button
+          expanded={open}
+          controls={id}
+          onClick={() => {
+            setOpen((value) => !value);
+          }}
+        >
+          stand
+        </Button>
+        <ul id={id} hidden={!open} style={{ margin: 0, paddingLeft: 'var(--space-4)' }}>
+          <li>stand · dispatcher on</li>
+          <li>stand-jira · dispatcher shadow</li>
+        </ul>
+      </div>
     </Shown>
   );
 }

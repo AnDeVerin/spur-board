@@ -1,0 +1,165 @@
+.column {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: var(--size-column);
+  min-height: 0;
+}
+.head {
+  flex: none;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+}
+.name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.label {
+  margin: 0;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+.count {
+  margin-left: auto;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.exec {
+  margin-top: var(--space-0-25);
+  overflow: hidden;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The body scrolls, so it pads by the ring width plus offset to keep the first and last
+   card's focus ring inside its clip. */
+.body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  margin: 0;
+  padding: calc(2 * var(--space-0-25));
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.column[data-stale],
+.spine[data-stale] {
+  opacity: var(--opacity-stale);
+}
+
+/* An empty column collapses to a spine. */
+.spine {
+  box-sizing: border-box;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: var(--size-spine);
+  padding: var(--space-2) 0;
+  border: var(--size-hairline) dashed var(--color-border-default);
+}
+.spine .count {
+  margin: 0 0 var(--space-2);
+}
+.spineName {
+  writing-mode: vertical-rl;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+/* Cards and done rows are links: they keep the text colour and drop the underline. */
+.card,
+.doneRow {
+  color: inherit;
+  text-decoration: none;
+}
+.card[data-dimmed],
+.doneRow[data-dimmed] {
+  opacity: var(--opacity-dimmed);
+}
+.card {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+  padding: var(--space-2) var(--space-2-5) var(--space-2) var(--space-3);
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.card:hover {
+  border-color: var(--color-border-strong);
+}
+.key {
+  font-size: var(--text-small);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--lines-title);
+}
+
+/* Done is a compact list of every done row. */
+.done {
+  gap: 0;
+  list-style: none;
+}
+.doneRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+  padding: var(--space-1-5) var(--space-0-25);
+  border-bottom: var(--size-hairline) solid var(--color-border-subtle);
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+}
+.check {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-status-ready);
+}
+.doneKey {
+  flex: none;
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+.doneTitle {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* An empty project: a message in place of the columns. */
+.blank {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: var(--size-measure);
+  margin: auto;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+.blankTitle,
+.blankText {
+  margin: 0;
+}
+.blankTitle {
+  font-size: var(--text-lead);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+}

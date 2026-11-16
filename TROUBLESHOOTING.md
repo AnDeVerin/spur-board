@@ -463,8 +463,8 @@ serves `/` and a referenced asset with HTTP 200.
 
 ### Live updates stuck on reconnecting
 
-The shell gets live updates from a server-sent event stream at `/v1/events` on the web
-listener. When the footer stays on reconnecting or offline:
+The web UI gets live updates from a server-sent event stream at `/v1/events` on the web
+listener. When the live indicator in the header stays on reconnecting or offline:
 
 - A reverse proxy that buffers responses holds the stream back. The daemon sends
   `X-Accel-Buffering: no`, which nginx honours; turn buffering off for `/v1/events` on other
@@ -479,7 +479,10 @@ listener. When the footer stays on reconnecting or offline:
 - A 403 means the request's Host or Origin differs from `web.publicOrigin`: open the shell at
   that origin.
 
-The footer distinguishes an initial unavailable status from a later stale read: refresh errors
-keep the last count and source names. Stream reconnecting/offline also marks data stale and
-continues recovery. Theme switching works independently of status reads and tolerates blocked
-browser storage. Auto follows the system; explicit Light/Dark choices stay fixed.
+Reconnecting changes only the header indicator. Once the stream is offline, or a configuration
+or status read fails, the columns dim under an error banner that gives the time of the data on
+screen and offers Retry now: it reconnects at once when the stream waits between attempts, and
+rereads. A failed read keeps the last data; a first load that fails shows the banner with no
+data and no columns. See the [web UI](docs/web-ui.md) guide for every state. The footer keeps
+the theme switch, which works independently of reads and tolerates blocked browser storage. Auto
+follows the system; explicit Light/Dark choices stay fixed.

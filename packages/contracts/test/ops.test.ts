@@ -13,6 +13,7 @@ import {
   errorCodeOf,
   roleCanUseOperation,
 } from '../src/index.ts';
+import { browserOperations } from '../src/browser.ts';
 import { defineOperation } from '../src/ops/define.ts';
 import { SCHEMA_ROLES } from '../src/ops/schemas.ts';
 import { catalogSnapshotBody, catalogVersion } from '../src/ops/snapshot.ts';
@@ -83,6 +84,16 @@ describe('catalog', () => {
     expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
       true,
     );
+  });
+
+  it('binds every browser operation to its web catalog op and shares browser schemas', () => {
+    for (const browserOp of Object.values(browserOperations)) {
+      const op = OPERATIONS.find((candidate) => candidate.id === browserOp.id);
+      expect(op?.web, browserOp.id).not.toBeNull();
+      expect(op?.kind, browserOp.id).toBe(browserOp.kind);
+      expect(op?.input, browserOp.id).toBe(browserOp.input);
+      expect(op?.output, browserOp.id).toBe(browserOp.output);
+    }
   });
 
   it('pins the explicit configuration output field allowlist', () => {

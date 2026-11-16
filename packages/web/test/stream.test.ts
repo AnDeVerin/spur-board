@@ -1,5 +1,5 @@
 import { statusOutputSchema } from '@spur-board/contracts/browser';
-import { coordinateStatus } from '../src/lib/api.ts';
+import { coordinateRead } from '../src/lib/api.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { connectStream, type StreamState, type RefreshScope } from '../src/lib/stream.ts';
 function server() {
@@ -128,6 +128,48 @@ describe('stream client', () => {
     expect(networkStates.at(-1)).toBe('reconnecting');
     network.stop();
   });
+  it('retry reconnects at once only while a backoff is pending', async () => {
+    vi.useFakeTimers();
+    const s = server();
+    const states: StreamState[] = [];
+    const stream = connectStream({
+      fetch: s.fetcher,
+      state: (value) => states.push(value),
+      refresh() {},
+    });
+    try {
+      await flush();
+      stream.retry();
+      await flush();
+      expect(s.calls()).toBe(1);
+      s.fail(true);
+      s.eof();
+      await flush();
+      expect(s.calls()).toBe(1);
+      for (let failures = 1; failures < 5; failures++) {
+        stream.retry();
+        stream.retry();
+        await flush();
+        expect(s.calls()).toBe(failures + 1);
+      }
+      expect(states.at(-1)).toBe('offline');
+      // The failure count is kept: the next backoff is the fifth failure's 8 s.
+      await vi.advanceTimersByTimeAsync(7999);
+      expect(s.calls()).toBe(5);
+      s.fail(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(s.calls()).toBe(6);
+      stream.retry();
+      await flush();
+      expect(s.calls()).toBe(6);
+      expect(states.at(-1)).toBe('offline');
+      s.send('event: hello\ndata: {"head":1,"instance":"a"}\n\n');
+      await flush();
+      expect(states.at(-1)).toBe('live');
+    } finally {
+      stream.stop();
+    }
+  });
   it('parses split chunks/comments, retains cursor, compares hello and merges scopes at exactly 400ms', async () => {
     vi.useFakeTimers();
     const s = server();
@@ -200,7 +242,7 @@ describe('stream client', () => {
       });
       let reads = 0;
       const published: boolean[] = [];
-      const coordinator = coordinateStatus(
+      const coordinator = coordinateRead(
         () => {
           reads++;
           return reads === 1

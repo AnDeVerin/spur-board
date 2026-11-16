@@ -7,7 +7,7 @@ import type { z } from 'zod';
 
 type OperationId = keyof typeof browserOperations;
 type Input<K extends OperationId> = z.input<(typeof browserOperations)[K]['input']>;
-type Output<K extends OperationId> = z.output<(typeof browserOperations)[K]['output']>;
+export type Output<K extends OperationId> = z.output<(typeof browserOperations)[K]['output']>;
 /** Schema validation belongs on both sides of the transport boundary. */
 export function createApi(fetcher: typeof fetch = fetch) {
   return async <K extends OperationId>(
@@ -56,10 +56,10 @@ export function createMutationIntent<K extends 'comment.add' | 'block.answer'>(
     },
   };
 }
-/** Serialize aggregate reads, retaining exactly one trailing refresh while a read is pending. */
-export function coordinateStatus(
-  read: (signal: AbortSignal) => Promise<Output<'status.get'>>,
-  publish: (value: Output<'status.get'> | undefined, error: boolean) => void,
+/** Serialize one read, retaining exactly one trailing refresh while a read is pending. */
+export function coordinateRead<T>(
+  read: (signal: AbortSignal) => Promise<T>,
+  publish: (value: T | undefined, error: boolean) => void,
 ) {
   let stopped = false;
   let active: AbortController | undefined;

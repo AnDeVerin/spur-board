@@ -25,11 +25,11 @@ const setupRefsPath = fileURLToPath(new URL('../setup/references/', import.meta.
 const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 const refsPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
 const docsPath = fileURLToPath(new URL('../../../docs/', import.meta.url));
-const manualNames = ['', '-columns', '-turns', '-blocks', '-slack', '-done'].map(
-  (topic) => `how-board-works${topic}.md`,
-);
-const manualGuides = manualNames.map((name) => readFileSync(`${docsPath}/${name}`, 'utf8'));
-const manualTexts = manualNames.map((name) => readFileSync(`${refsPath}/${name}`, 'utf8'));
+const guideNames = ['', '-columns', '-turns', '-blocks', '-slack', '-done']
+  .map((topic) => `how-board-works${topic}.md`)
+  .concat('web-ui.md');
+const guideDocs = guideNames.map((name) => readFileSync(`${docsPath}/${name}`, 'utf8'));
+const guideTexts = guideNames.map((name) => readFileSync(`${refsPath}/${name}`, 'utf8'));
 const skill = readFileSync(skillPath, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
 const publicGuides = [readmePath, setupGuidePath, troubleshootingPath, runbookPath].map((path) =>
@@ -42,7 +42,7 @@ const binarySource = readFileSync(binaryPath, 'utf8');
 const references = renderCommandReferences();
 const referenceTexts = references.map((r) => readFileSync(`${refsPath}/${r.fileName}`, 'utf8'));
 const referenceText = referenceTexts.join('\n');
-const fullText = [skill, ...referenceTexts, ...manualTexts].join('\n');
+const fullText = [skill, ...referenceTexts, ...guideTexts].join('\n');
 const operations = [...OPERATIONS].sort(
   (left, right) => right.cli.command.split(' ').length - left.cli.command.split(' ').length,
 );
@@ -212,7 +212,7 @@ describe('product skill sync', () => {
     expect(references.map((r) => r.fileName)).toEqual(['commands.md', 'config.md', 'errors.md']);
     expect(references[0]?.content).toContain('[errors.md](errors.md)');
     expect(readdirSync(refsPath).sort()).toEqual(
-      [...references.map((reference) => reference.fileName), ...manualNames].sort(),
+      [...references.map((reference) => reference.fileName), ...guideNames].sort(),
     );
     for (const [index, reference] of references.entries()) {
       expect(referenceTexts[index]).toBe(reference.content);
@@ -222,14 +222,14 @@ describe('product skill sync', () => {
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
     const guides = readdirSync(docsPath).filter((name) => /^how-board-works.*\.md$/.test(name));
-    expect(guides.sort()).toEqual([...manualNames].sort());
-    for (const [index, reference] of manualTexts.entries()) {
-      expect(reference).toBe(manualGuides[index]);
+    expect(guides.sort()).toEqual(guideNames.slice(0, -1).sort());
+    for (const [index, reference] of guideTexts.entries()) {
+      expect(reference).toBe(guideDocs[index]);
       expect(Buffer.byteLength(reference)).toBeLessThan(8192);
       expect(validateInvocations(reference)).toEqual([]);
     }
-    const links = [...(manualTexts[0]?.matchAll(/\]\(([^)]+)\)/g) ?? [])];
-    expect(links.map((match) => match[1]).sort()).toEqual(manualNames.slice(1).sort());
+    const links = [...(guideTexts[0]?.matchAll(/\]\(([^)]+)\)/g) ?? [])];
+    expect(links.map((match) => match[1]).sort()).toEqual(guideNames.slice(1).sort());
     expect(skill).toContain('[how the Board works](references/how-board-works.md)');
     expect(skill).toContain('untrusted: true');
   });

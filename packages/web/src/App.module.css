@@ -1,12 +1,11 @@
+/* The board fills the viewport between the header and the footer and scrolls inside. */
 .shell {
-  min-height: 100dvh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
-.main {
-  flex: 1;
-}
 .footer {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

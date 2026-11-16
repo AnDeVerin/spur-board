@@ -2,7 +2,7 @@
 import { createServer, type ServerResponse } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { statusOutputSchema } from '../packages/contracts/src/browser.ts';
+import { browserOperations, statusOutputSchema } from '../packages/contracts/src/browser.ts';
 import { renderHttpProblem } from '../packages/contracts/src/error-renderers.ts';
 
 export const shellScenarios = [
@@ -68,6 +68,33 @@ export function shellFixture(scenario: Scenario) {
     daemon: { version: '0.4.0', startedAt: at, lastDispatchAt: null },
   });
 }
+/** The one project the shell fixture's status rows belong to. */
+export function shellConfig() {
+  return browserOperations['config.get'].output.parse({
+    projects: [
+      {
+        id: 'web',
+        columns: [
+          { id: 'todo', executor: { kind: 'dispatcher', name: null } },
+          { id: 'dev', executor: { kind: 'worker', name: null } },
+          { id: 'done', executor: { kind: 'dispatcher', name: null } },
+        ],
+        dispatcher: { mode: 'on' },
+        spurProjects: [],
+      },
+    ],
+    web: { publicOrigin: null, spurUiOrigin: null },
+  });
+}
+export function shellInbox() {
+  return browserOperations['inbox.operator'].output.parse({ items: [], handled: [] });
+}
+const shellReads = {
+  'status.get': shellFixture,
+  'config.get': shellConfig,
+  'inbox.operator': shellInbox,
+} satisfies Record<string, (scenario: Scenario) => unknown>;
+type ShellRead = keyof typeof shellReads;
 export function createShellQaServer(
   webRoot = resolve(import.meta.dirname, '../packages/web/dist'),
 ) {
@@ -76,8 +103,8 @@ export function createShellQaServer(
   let scenario: Scenario = 'healthy';
   let head = 1;
   const streams = new Set<ServerResponse>();
-  const held = new Set<ServerResponse>();
-  const answer = (response: ServerResponse) => {
+  const held = new Map<ServerResponse, ShellRead>();
+  const answer = (response: ServerResponse, read: ShellRead) => {
     if (scenario === 'read-error' || scenario === 'refresh-error') {
       const problem = renderHttpProblem({ code: 'unexpected', requestId: 'fixture' });
       response
@@ -86,7 +113,7 @@ export function createShellQaServer(
     } else
       response
         .writeHead(200, { 'content-type': 'application/json' })
-        .end(JSON.stringify({ ok: true, requestId: 'fixture', value: shellFixture(scenario) }));
+        .end(JSON.stringify({ ok: true, requestId: 'fixture', value: shellReads[read](scenario) }));
   };
   const server = createServer((request, response) => {
     const path = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
@@ -106,17 +133,19 @@ export function createShellQaServer(
       return;
     }
     if (request.method === 'POST' && path === '/__qa/release') {
-      for (const pending of held) answer(pending);
+      for (const [pending, read] of held) answer(pending, read);
       held.clear();
       response.writeHead(204).end();
       return;
     }
-    if (request.method === 'POST' && path === '/v1/ops/status.get') {
+    const read = Object.keys(shellReads).find((id) => path === `/v1/ops/${id}`) as
+      ShellRead | undefined;
+    if (request.method === 'POST' && read) {
       request.resume();
       if (scenario === 'loading') {
-        held.add(response);
+        held.set(response, read);
         response.on('close', () => held.delete(response));
-      } else answer(response);
+      } else answer(response, read);
       return;
     }
     if (request.method === 'GET' && path === '/v1/events') {
@@ -150,7 +179,7 @@ export function createShellQaServer(
     response.writeHead(200, { 'content-type': mime }).end(readFileSync(target));
   });
   server.on('close', () => {
-    for (const response of [...streams, ...held]) response.destroy();
+    for (const response of [...streams, ...held.keys()]) response.destroy();
   });
   return server;
 }
