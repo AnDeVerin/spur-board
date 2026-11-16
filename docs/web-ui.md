@@ -51,9 +51,10 @@ Below the header come the columns of the chosen project, in configuration order:
 - Under the title, four PR status cells describe the first pull request: checks, merge
   conflicts, resolved review threads and reviews on the head. Red means failed, conflicting or
   changes requested; yellow means pending or unresolved; a green glyph means passed, no
-  conflicts or approved; a dash means nothing reported. `+N` counts the other pull requests.
-  Cells without fill mean the facts are not confirmed because the GitHub source is stale or
-  blind. Four dashes mean the pull request is linked but not observed yet. A card with an open
+  conflicts or approved; a dash means nothing reported, and `?` in the merge cell means
+  mergeability is unknown. `+N` counts the other pull requests. When the GitHub source is stale
+  or blind, the facts are not confirmed and all four cells turn grey: no colour and no green
+  glyph. Four dashes mean the pull request is linked but not observed yet. A card with an open
   turn and no pull request shows a dashed `no PR yet`.
 - Markers follow: `B<n> → you` for a block waiting for you (`+N` for its other blocks), the
   count of blocks for agents, `returned` with the number of review findings, `draft`, and in
