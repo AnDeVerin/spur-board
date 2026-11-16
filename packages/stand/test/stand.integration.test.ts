@@ -880,6 +880,9 @@ describe('stand', () => {
     );
     const config: unknown = YAML.parse(readFileSync(join(home, 'config.yaml'), 'utf8'));
     expect(configSchema.safeParse(config).success).toBe(true);
+    expect((config as { web?: { spurUiOrigin?: string } }).web?.spurUiOrigin).toBe(
+      'https://spur.stand.invalid',
+    );
     expect((await fetch(`${manifest.daemonUrl}/v1/schema`)).status).toBe(200);
   }, 60_000);
 

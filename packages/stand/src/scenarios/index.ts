@@ -13,6 +13,7 @@ import type { InProcessDaemon } from '@spur-board/daemon/in-process';
 import type { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
+import { cardLong } from './card.ts';
 import { columnsBasic, columnsBasicJira } from './columns-basic.ts';
 import { dispatchCourseCheck, dispatchCourseCheckTo } from './course-check.ts';
 import {
@@ -209,6 +210,7 @@ export const SCENARIOS: readonly Scenario[] = [
   spurTransitionsCursorExpired,
   spurTransitionsKilledHolder,
   spurTurnStall,
+  cardLong,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>

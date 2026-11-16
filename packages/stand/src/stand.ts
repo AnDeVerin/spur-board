@@ -112,6 +112,8 @@ const SECRETS = {
   SLACK_APP_TOKEN: 'stand-dummy-slack-app',
 };
 const OPERATOR_SLACK = 'U0STANDOP';
+/** The Spur UI origin of the stand's config; no request goes to it. */
+const SPUR_UI_ORIGIN = 'https://spur.stand.invalid';
 /** The stand's Slack channels; a message posted into a space lands in its channel. */
 const STAND_CHANNELS = { orchestrators: 'C0STANDORCH', feed: 'C0STANDFEED' };
 /** Stands for the thread reply that answers a question; Slack shows no button for it. */
@@ -168,7 +170,8 @@ export function standConfig(
     slack: { channels: STAND_CHANNELS },
     digest: { tz: 'UTC' },
     http: { port },
-    ...(web === undefined ? {} : { web }),
+    // Task cards link sessions under it; the host never resolves, so QA reads the href only.
+    web: { ...(web ?? {}), spurUiOrigin: SPUR_UI_ORIGIN },
     adapters: {
       spur: { baseUrl: spurBaseUrl, intervalMs: 2_000 },
       github: { intervalMs: 5_000 },
