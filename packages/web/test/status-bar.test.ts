@@ -297,6 +297,37 @@ describe('status bar', () => {
     expect(dialog()).toBeNull();
   });
 
+  it('closes the project switcher when services opens without a pointer', async () => {
+    const d = daemon();
+    d.routes['status.get'] = () => Promise.resolve(envelope(healthy()));
+    mount(d);
+    await settle();
+    const list = () => container.querySelector<HTMLElement>('ul[aria-label="Projects"]');
+    const openList = () => {
+      press(container.querySelector<HTMLElement>('header button[aria-controls]') as HTMLElement);
+      expect(list()?.hidden).toBe(false);
+    };
+    // Back to an entry with ?open=services.
+    openList();
+    act(() => {
+      history.replaceState(null, '', '/?open=services');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(dialog()).not.toBeNull();
+    expect(list()?.hidden).toBe(true);
+    escape();
+    expect(dialog()).toBeNull();
+    // Tab from the open list to the bar, then Enter on the services trigger.
+    openList();
+    act(() => {
+      barButton('services').focus();
+    });
+    expect(list()?.hidden).toBe(true);
+    press(barButton('services'));
+    expect(dialog()).not.toBeNull();
+    expect(list()?.hidden).toBe(true);
+  });
+
   it('the bar stays live while the panel is open', async () => {
     const d = daemon();
     d.routes['status.get'] = () => Promise.resolve(envelope(healthy()));
