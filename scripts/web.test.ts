@@ -70,6 +70,10 @@ function cssRules(css: string): { selector: string; body: string }[] {
 const ring = 'var(--width-ring) solid var(--color-status-working)';
 // Text fields show focus with their border; the transparent outline is for forced colours mode.
 const forcedColoursRing = 'var(--width-ring) solid transparent';
+const forcedColoursFields = new Set([
+  'src/ds/TextInput/TextInput.module.css .box:focus-within',
+  'src/ds/TextArea/TextArea.module.css .field:focus',
+]);
 // The TextInput box draws its focus cue, so the input inside it drops its own outline.
 const outlineNone = new Set(['src/ds/TextInput/TextInput.module.css .input']);
 /** Each `outline*` declaration in `css` that is not the one ds focus ring. */
@@ -81,7 +85,7 @@ function outlineViolations(file: string, css: string): string[] {
         if (property === 'outline-offset') return value !== 'var(--offset-ring)';
         if (property !== 'outline') return true;
         if (value === ring) return false;
-        if (value === forcedColoursRing) return !selector.includes(':focus');
+        if (value === forcedColoursRing) return !forcedColoursFields.has(`${file} ${selector}`);
         if (value === 'none') return !outlineNone.has(`${file} ${selector}`);
         return true;
       })
@@ -186,7 +190,6 @@ describe('web design assets and policy', () => {
     for (const ok of [
       rule('.a:focus-visible', 'outline: var(--width-ring) solid var(--color-status-working);'),
       rule('.a:focus-visible', 'outline-offset: var(--offset-ring);'),
-      rule('.a:focus-within', 'outline: var(--width-ring) solid transparent;'),
       '/* outline: 2px solid red; */',
     ])
       expect(outlineViolations('x.css', ok), ok).toEqual([]);
@@ -195,13 +198,25 @@ describe('web design assets and policy', () => {
       rule('.a:focus-visible', 'outline-offset: 2px;'),
       rule('.a:focus-visible', 'outline-color: var(--color-status-working);'),
       rule('.a', 'outline: var(--width-ring) solid transparent;'),
+      rule('.a:focus-visible', 'outline: var(--width-ring) solid transparent;'),
+      rule('.a:focus-within', 'outline: var(--width-ring) solid transparent;'),
+      rule('.box:focus-within', 'outline: var(--width-ring) solid transparent;'),
       rule('.input', 'outline: none;'),
       rule('.a:focus', 'outline: 0;'),
     ])
       expect(outlineViolations('x.css', bad), bad).toHaveLength(1);
-    expect(
-      outlineViolations('src/ds/TextInput/TextInput.module.css', rule('.input', 'outline: none;')),
-    ).toEqual([]);
+    for (const [file, ok] of [
+      ['src/ds/TextInput/TextInput.module.css', rule('.input', 'outline: none;')],
+      [
+        'src/ds/TextInput/TextInput.module.css',
+        rule('.box:focus-within', 'outline: var(--width-ring) solid transparent;'),
+      ],
+      [
+        'src/ds/TextArea/TextArea.module.css',
+        rule('.field:focus', 'outline: var(--width-ring) solid transparent;'),
+      ],
+    ] as const)
+      expect(outlineViolations(file, ok), ok).toEqual([]);
   });
   it('every outline in the web sources and the gallery is the ds ring', () => {
     const files = [
