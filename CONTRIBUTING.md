@@ -75,5 +75,5 @@ For controlled shell states while the stream server (#533) is pending, exercise 
 This loopback fixture serves controlled status/stream scenarios; it is never packaged.
 Installed package smoke separately exercises the real configured web listener and assets. POST to
 `/__qa/scenario/loading|empty|healthy|mixed|read-error|refresh-error|recovered|stream-drop`;
-POST `/__qa/release` releases held loading reads. The footer displays the CLI version embedded
-at build time; #547 will switch it to the daemon version without changing this shell's wire API.
+POST `/__qa/release` releases held loading reads. The footer shows `status.get`
+`daemon.version`, which the fixture's status scenarios supply; it stays empty until the first read.
