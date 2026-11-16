@@ -1,12 +1,14 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, statfsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { configSchema, doctorReportSchema, type Config } from '@spur-board/contracts';
+import { statusOutputSchema } from '@spur-board/contracts/browser';
 import { openStore, tickBoard } from '@spur-board/core';
 import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { acquireLock, startInProcessDaemon, type InProcessDaemon } from '../src/in-process.ts';
+import { countingHostProbe, readOp, webConfig } from './in-process-web.ts';
 
 const configFor = (port: number) =>
   configSchema.parse({
@@ -325,21 +327,7 @@ describe('web listener composition', () => {
   });
 
   it('reports the listener origin, daemon version and last tick through web reads', async () => {
-    const reservation = createServer();
-    await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve));
-    const reserved = reservation.address();
-    if (reserved === null || typeof reserved === 'string') throw new Error('Expected TCP address');
-    const httpPort = reserved.port;
-    await new Promise<void>((resolve, reject) =>
-      reservation.close((err) => {
-        if (err) reject(err);
-        else resolve();
-      }),
-    );
-    const config = configSchema.parse({
-      ...configFor(httpPort),
-      web: { port: 0, publicOrigin: 'http://127.0.0.1:{port}' },
-    });
+    const config = await webConfig(configFor);
     const startedAt = Date.parse('2026-03-04T05:06:07.000Z');
     let now = startedAt;
     // The tick moves the clock, so a stamp taken at tick start would differ from the one at its end.
@@ -351,6 +339,7 @@ describe('web listener composition', () => {
       config,
     });
     let webAddress = '';
+    const hostProbe = countingHostProbe();
     daemon = await startInProcessDaemon({
       ...input,
       clock: { now: () => now },
@@ -360,21 +349,14 @@ describe('web listener composition', () => {
         onWebListening: (address) => {
           webAddress = address;
         },
+        hostProbe,
       },
     });
     try {
       await daemon.tick();
       const origin = new URL(webAddress).origin;
       expect(new URL(webAddress).port).not.toBe('0');
-      const read = async (id: string) => {
-        const response = await fetch(`${webAddress}/v1/ops/${id}`, {
-          method: 'POST',
-          headers: { origin, 'content-type': 'application/json' },
-          body: JSON.stringify({ input: {} }),
-        });
-        expect(response.status).toBe(200);
-        return ((await response.json()) as { value: Record<string, unknown> }).value;
-      };
+      const read = (id: string) => readOp(webAddress, id);
       expect((await read('config.get'))['web']).toEqual({
         publicOrigin: origin,
         spurUiOrigin: null,
@@ -388,9 +370,75 @@ describe('web listener composition', () => {
       expect(running.startedAt).toBe(new Date(startedAt).toISOString());
       // Two ticks have completed: the one start runs in the background, then `daemon.tick()`.
       expect(running.lastDispatchAt).toBe(new Date(startedAt + 120_000).toISOString());
+
+      // Reads return the cached sample and never call the probe.
+      await vi.waitFor(() => {
+        expect(hostProbe.calls.disk).toBe(1);
+      });
+      const sampled = { ...hostProbe.calls };
+      for (let i = 0; i < 2; i += 1) await read('status.get');
+      const { host, services } = statusOutputSchema.parse(await read('status.get'));
+      expect(hostProbe.calls).toEqual(sampled);
+      expect(Date.parse(host?.sampledAt ?? '')).toBeGreaterThanOrEqual(startedAt);
+      expect(Date.parse(host?.sampledAt ?? '')).toBeLessThanOrEqual(now);
+      expect(host).toEqual({
+        sampledAt: host?.sampledAt,
+        cpuPercent: null,
+        memory: { totalBytes: 8000, availableBytes: 2000, usedPercent: 75 },
+        disk: { totalBytes: 4_096_000, availableBytes: 1_024_000, usedPercent: 73.7 },
+      });
+      expect(services[0]).toEqual({
+        service: 'daemon',
+        state: 'healthy',
+        since: new Date(startedAt).toISOString(),
+        lastGoodAt: new Date(startedAt + 120_000).toISOString(),
+        reason: null,
+      });
     } finally {
       await daemon.stop();
     }
+  });
+
+  it('reports host metrics of the data volume', async () => {
+    const hostOf = async (ports: { dataDir?: string }) => {
+      const input = optionsFor({
+        tick: () => Promise.resolve(),
+        config: await webConfig(configFor),
+      });
+      let webAddress = '';
+      daemon = await startInProcessDaemon({
+        ...input,
+        ports: {
+          ...input.ports,
+          ...ports,
+          onWebListening: (address) => {
+            webAddress = address;
+          },
+        },
+      });
+      try {
+        const read = async () =>
+          statusOutputSchema.parse(await readOp(webAddress, 'status.get')).host;
+        return await vi.waitFor(async () => {
+          const host = await read();
+          expect(host).not.toBeNull();
+          return host;
+        });
+      } finally {
+        await daemon.stop();
+        await daemon.teardown;
+      }
+    };
+
+    // The default data directory is the database's directory.
+    const volume = statfsSync(dirname(join(home, 'board.sqlite')));
+    const host = await hostOf({});
+    expect(host?.memory).not.toBeNull();
+    expect(host?.disk?.totalBytes).toBe(volume.blocks * volume.bsize);
+
+    const missing = await hostOf({ dataDir: join(home, 'missing') });
+    expect(missing?.memory?.totalBytes).toBeGreaterThan(0);
+    expect(missing?.disk).toBeNull();
   });
 
   it('starts a separate loopback listener and releases its socket on close', async () => {
@@ -441,20 +489,7 @@ describe('web listener composition', () => {
   });
 
   it('shares the instance with the event stream and stops with a stream open', async () => {
-    const reservation = createServer();
-    await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve));
-    const reserved = reservation.address();
-    if (reserved === null || typeof reserved === 'string') throw new Error('Expected TCP address');
-    await new Promise<void>((resolve, reject) =>
-      reservation.close((err) => {
-        if (err) reject(err);
-        else resolve();
-      }),
-    );
-    const config = configSchema.parse({
-      ...configFor(reserved.port),
-      web: { port: 0, publicOrigin: 'http://127.0.0.1:{port}' },
-    });
+    const config = await webConfig(configFor);
     const lines: string[] = [];
     const input = optionsFor({ tick: () => Promise.resolve(), config, lines });
     let webAddress = '';

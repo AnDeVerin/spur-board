@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { copyDatabase, openStore, type Store } from '@spur-board/core';
 import { z } from 'zod';
 import { loadConfig, resolvePaths } from './config.ts';
@@ -58,8 +58,9 @@ export async function main(): Promise<void> {
   // Keep the process alive when no gateway is configured.
   setInterval(() => undefined, KEEPALIVE_MS);
   const productVersion = publishedVersion();
+  const paths = resolvePaths(process.env, homedir());
   await runDaemon<Store>({
-    paths: resolvePaths(process.env, homedir()),
+    paths,
     acquireLock,
     loadConfig: (paths) => {
       const loaded = loadConfig(paths);
@@ -70,6 +71,7 @@ export async function main(): Promise<void> {
     modules: (ctxFor) =>
       createDaemonModules(ctxFor, {
         productVersion,
+        dataDir: dirname(paths.dbFile),
         systemd: { env: process.env, pid: process.pid },
       }).entries,
     port: processPort(),

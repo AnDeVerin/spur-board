@@ -1,3 +1,4 @@
+import { dirname } from 'node:path';
 import type { Config } from '@spur-board/contracts';
 import { openStore, type Store } from '@spur-board/core';
 import type { DestinationStream } from 'pino';
@@ -120,6 +121,7 @@ export async function startInProcessDaemon(options: InProcessOptions): Promise<I
     },
     modules: (ctxFor) => {
       composed = createDaemonModules(ctxFor, {
+        dataDir: dirname(options.paths.dbFile),
         ...options.ports,
         onListening: (bound) => {
           address = bound;

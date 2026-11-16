@@ -14,6 +14,7 @@ import {
 } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { createBoardModules } from './board-modules.ts';
+import { createHostProbe, createHostSampler, type HostProbe } from './host-metrics.ts';
 import { createHttpModule, createWebModule, listenerPort } from './http-module.ts';
 import { createInboundModule } from './inbound-module.ts';
 import type { ModuleContext, ModuleEntry } from './lifecycle.ts';
@@ -35,6 +36,10 @@ export interface DaemonModulePorts {
   onListening?: (address: string) => void;
   onWebListening?: (address: string) => void;
   webRoot?: string | URL;
+  /** Directory whose volume `status.get` `host.disk` measures: the database's directory. */
+  dataDir?: string;
+  /** Replaces the host probe; defaults to the real host and `dataDir`. */
+  hostProbe?: HostProbe;
   /** Without it the daemon sends no systemd notifications. */
   systemd?: { env: Readonly<Record<string, string | undefined>>; pid: number; send?: NotifySend };
 }
@@ -76,6 +81,12 @@ export function createDaemonModules(
             );
           },
         }));
+  const hostCtx = ctxFor('host-metrics');
+  const host = createHostSampler({
+    probe: ports.hostProbe ?? createHostProbe(ports.dataDir),
+    clock: hostCtx.clock,
+    log: hostCtx.log,
+  });
   // Set by the web listener once bound and by each completed tick; status.get and config.get read them.
   let webPort: number | undefined;
   let lastDispatchAt: string | null = null;
@@ -83,6 +94,8 @@ export function createDaemonModules(
     config: board.config,
     clock: board.clock,
     completeSince: core.completeSince,
+    healthySince: core.healthySince,
+    hostMetrics: () => host.read(),
     gateways: gateway === undefined ? [] : [gateway.kind],
     reapplyInbound: () => inbound?.reapply,
     prPoller: () => boardModules.pollPr,
@@ -130,6 +143,8 @@ export function createDaemonModules(
         },
       }),
     },
+    // Samples in the background; stop abandons a disk read that hangs.
+    { name: 'host-metrics', stopStage: 'pollers', module: host.module },
   ];
   const boardModules = createBoardModules(ctxFor, {
     core,
