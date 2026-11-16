@@ -84,6 +84,8 @@ Every test runs through the root config, so all of these hold:
   variables, points `HOME`, `TMPDIR` and the XDG directories at a fresh temporary root, and
   removes `DBUS_SESSION_BUS_ADDRESS` and `NOTIFY_SOCKET` so `systemctl --user` cannot reach the
   real user manager; a test that needs a user bus sets one explicitly.
+  It builds fresh production assets before workers in provided `webAssetsRoot`; tests inject
+  that path. Failure/teardown removes it. `packages/testkit/test/web-assets.test.ts` pins this.
 - `packages/testkit/src/setup.ts` installs the network guard in each worker: a connection to a
   non-local host throws.
 - Pinned by `packages/testkit/test/env.test.ts` and

@@ -42,7 +42,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   holds the live responses the fakes are checked against. Production packages never import it;
   the boundary lint is in `eslint.config.js`. Skills: `qa-stand`, `qa-seed` and `qa-report`;
   sidecar example in `docs/qa-stand.md`.
-- `packages/testkit` - the shared Vitest harness: environment scrub and network guard. Skill:
+- `packages/testkit` - the shared Vitest harness: environment scrub, network guard and fresh
+  production web assets for each run, prepared before workers. Skill:
   `testing-and-ci`.
 - `scripts/` - repo tooling, run as `node scripts/<name>.ts` through the pnpm scripts below. Check
   scripts and tests use `testing-and-ci`.
