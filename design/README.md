@@ -26,11 +26,11 @@ predates the kit: it is plain JavaScript with every part hand-built.
 
 ```bash
 pnpm ds:build
-python3 -m http.server 4781 --bind 127.0.0.1 --directory design
+python3 -m http.server 4391 --bind 127.0.0.1 --directory design
 ```
 
-Then open `http://127.0.0.1:4781/prototypes/<slice>/?state=<name>&theme=light` (or `dark`) and
-`http://127.0.0.1:4781/kit/gallery/` for the gallery. Any static server works; serve `design/`, not
+Then open `http://127.0.0.1:4391/prototypes/<slice>/?state=<name>&theme=light` (or `dark`) and
+`http://127.0.0.1:4391/kit/gallery/` for the gallery. Any static server works; serve `design/`, not
 the slice, so the slice can reach `../../kit/`. No network and no daemon are needed.
 
 `pnpm ds:build` writes the kit into `design/kit/`:

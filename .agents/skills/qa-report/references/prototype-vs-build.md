@@ -24,7 +24,7 @@ prototype state next to the built screen, in both themes, and give each pair a v
   tested checkout.
 - Bind 127.0.0.1 only.
 - Keep the README port unless it is 4777 or 7777 (the live board), inside the stand band
-  4780-4799 (e.g. the 4781 of `design/README.md`), or already in use. Otherwise use port 0
+  4780-4799, or already in use. Otherwise use port 0
   (`python3 -m http.server 0 --bind 127.0.0.1 ...`) and read the port the server prints.
 - Record the command, the actual port and the server PID in the plan.
 - Stop the server at round end, on pass, fail or error, and check that the port no longer

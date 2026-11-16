@@ -13,10 +13,10 @@ Built on the kit of commit `a7e2237` (`BUILD.json`: `"dirty": false`). Exports u
 
 ```bash
 pnpm ds:build
-python3 -m http.server 4781 --bind 127.0.0.1 --directory design
+python3 -m http.server 4391 --bind 127.0.0.1 --directory design
 ```
 
-Open `http://127.0.0.1:4781/prototypes/_sample/`. Stop the server when done.
+Open `http://127.0.0.1:4391/prototypes/_sample/`. Stop the server when done.
 
 ## States
 
