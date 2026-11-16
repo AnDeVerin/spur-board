@@ -23,6 +23,19 @@ or start a listener. Set `web.port` and `web.publicOrigin` together. Every `{por
 origin is replaced by the configured port. `web.spurUiOrigin` independently configures the UI
 origin; it accepts no placeholders.
 
+### web.listening
+
+The daemon reports whether its optional web listener is bound. A busy web port fails this
+check while the agent API continues running. Free `web.port` or select another port and restart
+the daemon. This differs from `web`, which checks configuration offline.
+
+For private-network access, set `web.port` and `web.publicOrigin` together and preserve `Host`
+through the reverse proxy. Origin must exactly match the resolved public origin. A 503 page
+saying "UI is not built" means the UI assets are absent: run
+`pnpm --filter @spur-board/web build` in a checkout, assemble with `pnpm package:build`, and
+restart the daemon to reload assets. Health and operations
+remain usable. See [Security](SECURITY.md) before enabling anonymous operator access.
+
 ### stand.port_range
 
 Reports the effective stand port range, including offline. Omission uses 4780..4799 and preserves
@@ -443,8 +456,10 @@ permissions may be an alternative in a future release.
 Build a checkout's UI with `pnpm --filter @spur-board/web build`, or assemble the published
 package with `pnpm package:build`. Packaging checks `dist/web/index.html`, every referenced
 JS/CSS/font, and the top-level `OFL.txt`; a missing asset fails the installed smoke test.
-A future “UI not built” 503 from the #530 listener calls for rebuilding/reinstalling those
-assets. This shell package does not yet add that listener or the #533 stream server.
+A “UI is not built” 503 from the configured web listener calls for rebuilding/reinstalling
+those assets and restarting the daemon. Installed smoke checks that the actual web listener
+serves `/` and a referenced asset with HTTP 200. The #533 stream server is still pending, so
+reconnecting followed by offline/stale is expected until that integration lands.
 
 The footer distinguishes an initial unavailable status from a later stale read: refresh errors
 keep the last count and source names. Stream reconnecting/offline also marks data stale and

@@ -39,7 +39,7 @@ path order. A PR that changes this path or these rules updates this skill in the
 
 ## 4. HTTP, CLI and MCP
 
-- No per-operation code. `/v1/ops/:id` in `packages/core/src/api/server.ts`, `createProgram` in
+- No per-operation code. `/v1/ops/:id` in `packages/core/src/api/ops-route.ts`, `createProgram` in
   `packages/cli/src/cli.ts` and `createMcpServer` in `packages/cli/src/mcp.ts` loop over the
   catalog. An operation that seems to need a special case there needs a catalog field instead;
   raise it in the issue before implementing.

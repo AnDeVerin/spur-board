@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema, type Config } from '@spur-board/contracts';
+import { configSchema, doctorReportSchema, type Config } from '@spur-board/contracts';
 import { openStore, tickBoard } from '@spur-board/core';
 import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -278,5 +278,96 @@ describe('startInProcessDaemon', () => {
     } finally {
       await fake.close();
     }
+  });
+});
+
+describe('web listener composition', () => {
+  it('omits the web module when disabled', async () => {
+    const lines: string[] = [];
+    daemon = await startInProcessDaemon(optionsFor({ tick: () => Promise.resolve(), lines }));
+    expect(lines.join('')).not.toContain('web listening');
+    expect(lines.join('')).not.toContain('web listener failed');
+    expect((await fetch(`${daemon.address}/v1/health`)).status).toBe(200);
+    await daemon.stop();
+  });
+
+  it('keeps the API ready on a busy web port and doctor reports the failed listener', async () => {
+    const taken = createServer();
+    await new Promise<void>((resolve) => taken.listen(0, '127.0.0.1', resolve));
+    const address = taken.address();
+    if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
+    const lines: string[] = [];
+    const config = configSchema.parse({
+      ...configFor(0),
+      web: { port: address.port, publicOrigin: 'http://127.0.0.1:{port}' },
+    });
+    try {
+      daemon = await startInProcessDaemon(
+        optionsFor({ tick: () => Promise.resolve(), config, lines }),
+      );
+      expect((await fetch(`${daemon.address}/v1/health`)).status).toBe(200);
+      const response = await fetch(`${daemon.address}/v1/doctor`);
+      const report = doctorReportSchema.parse(await response.json());
+      expect(report.checks.find((check) => check.id === 'web.listening')).toMatchObject({
+        status: 'fail',
+        blocking: true,
+      });
+      expect(lines.join('')).toContain('web listener failed');
+      await daemon.stop();
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        taken.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        }),
+      );
+    }
+  });
+
+  it('starts a separate loopback listener and releases its socket on close', async () => {
+    const reservation = createServer();
+    await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve));
+    const reserved = reservation.address();
+    if (reserved === null || typeof reserved === 'string') throw new Error('Expected TCP address');
+    const webPort = reserved.port;
+    await new Promise<void>((resolve, reject) =>
+      reservation.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      }),
+    );
+    const config = configSchema.parse({
+      ...configFor(0),
+      web: { port: webPort, publicOrigin: 'http://127.0.0.1:{port}' },
+    });
+    const input = optionsFor({ tick: () => Promise.resolve(), config });
+    let webAddress = '';
+    daemon = await startInProcessDaemon({
+      ...input,
+      ports: {
+        ...input.ports,
+        onWebListening: (address) => {
+          webAddress = address;
+        },
+      },
+    });
+    try {
+      expect(webAddress).toBe(`http://127.0.0.1:${String(webPort)}`);
+      expect((await fetch(`${webAddress}/v1/health`)).status).toBe(200);
+      expect((await fetch(`${webAddress}/v1/schema`)).status).toBe(404);
+      expect((await fetch(`${daemon.address}/v1/schema`)).status).toBe(200);
+    } finally {
+      await daemon.stop();
+    }
+    await daemon.teardown;
+    await expect(fetch(`${webAddress}/v1/health`)).rejects.toThrow();
+    const reused = createServer();
+    await new Promise<void>((resolve) => reused.listen(webPort, '127.0.0.1', resolve));
+    await new Promise<void>((resolve, reject) =>
+      reused.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      }),
+    );
   });
 });

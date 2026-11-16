@@ -13,7 +13,7 @@ import {
 } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { createBoardModules } from './board-modules.ts';
-import { createHttpModule } from './http-module.ts';
+import { createHttpModule, createWebModule } from './http-module.ts';
 import { createInboundModule } from './inbound-module.ts';
 import type { ModuleContext, ModuleEntry } from './lifecycle.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
@@ -32,6 +32,8 @@ export interface DaemonModulePorts {
   sessionFetcher?: typeof fetch;
   afterOperation?: (response: ServerResponse) => void | Promise<void>;
   onListening?: (address: string) => void;
+  onWebListening?: (address: string) => void;
+  webRoot?: string | URL;
   /** Without it the daemon sends no systemd notifications. */
   systemd?: { env: Readonly<Record<string, string | undefined>>; pid: number; send?: NotifySend };
 }
@@ -166,16 +168,33 @@ export function createDaemonModules(
   if (inbound !== undefined)
     entries.push({ name: 'inbound', stopStage: 'pollers', module: inbound });
   entries.push({ name: 'outbox', stopStage: 'outbox', module: outbox });
+  const runOperation: NonNullable<Parameters<typeof createHttpModule>[1]>['runOperation'] = (
+    id,
+    input,
+    run,
+  ) =>
+    id === 'item.retry' && inbound !== undefined && isItemInput(input)
+      ? inbound.retrying(input.item, run)
+      : run();
+  const web =
+    board.config.web.port === undefined
+      ? undefined
+      : createWebModule(ctxFor('web'), {
+          registry,
+          runOperation,
+          firstPollDone: () => firstPollDone(board.store.db, board.config, core.completeSince),
+          ...(ports.afterOperation === undefined ? {} : { afterOperation: ports.afterOperation }),
+          ...(ports.webRoot === undefined ? {} : { webRoot: ports.webRoot }),
+          ...(ports.onWebListening === undefined ? {} : { onListening: ports.onWebListening }),
+        });
+  if (web !== undefined) entries.push({ name: 'web', stopStage: 'final', module: web });
   entries.push({
     name: 'http',
     stopStage: 'final',
     module: createHttpModule(ctxFor('http'), {
       registry,
-      // A retry re-applies a stored Slack event, so it waits its turn behind inbound recovery.
-      runOperation: (id, input, run) =>
-        id === 'item.retry' && inbound !== undefined && isItemInput(input)
-          ? inbound.retrying(input.item, run)
-          : run(),
+      runOperation,
+      webListening: () => web?.listening() === true,
       firstPollDone: () => firstPollDone(board.store.db, board.config, core.completeSince),
       ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),
       ...(ports.sessionFetcher === undefined ? {} : { fetcher: ports.sessionFetcher }),

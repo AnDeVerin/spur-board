@@ -18,7 +18,7 @@ import {
 } from '@spur-board/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, resolvePaths } from '../src/config.ts';
-import { createHttpModule, lookupLiveSession } from '../src/http-module.ts';
+import { createHttpModule, createWebModule, lookupLiveSession } from '../src/http-module.ts';
 import { runDaemonDoctor } from '../src/doctor.ts';
 import type { DaemonState, ModuleContext } from '../src/lifecycle.ts';
 import { createLogger, logCall } from '../src/logger.ts';
@@ -1773,5 +1773,85 @@ describe('HTTP module', () => {
     } finally {
       await module.stop();
     }
+  });
+});
+
+describe('optional web module', () => {
+  it('resolves an ephemeral public origin, logs browser audit fields, reports state and closes', async () => {
+    const ctx = doctorContext({ issues: true });
+    const lines: string[] = [];
+    const config = configSchema.parse({
+      ...ctx.config,
+      http: { port: 4311 },
+      web: { port: 0, publicOrigin: 'http://127.0.0.1:{port}' },
+    });
+    const context = {
+      ...ctx,
+      config,
+      log: createLogger(
+        {
+          write: (line: string) => {
+            lines.push(line);
+          },
+        },
+        {},
+      ).child({ module: 'web' }),
+    };
+    let address = '';
+    const web = createWebModule(context, {
+      registry: createOperationRegistry({ config, clock: ctx.clock, completeSince: new Map() }),
+      onListening: (value) => {
+        address = value;
+      },
+      firstPollDone: () => Promise.resolve(true),
+      webRoot: join(makeHome(), 'missing'),
+    });
+    expect(web.listening()).toBe(false);
+    await web.start(new AbortController().signal);
+    try {
+      expect(web.listening()).toBe(true);
+      const response = await fetch(`${address}/v1/health?secret=hidden`, {
+        headers: { 'x-forwarded-for': '192.0.2.1', 'user-agent': 'Browser test' },
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ firstPollDone: true });
+      const accepted = await fetch(`${address}/v1/ops/status.get`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: address },
+        body: '{"input":{}}',
+      });
+      expect(accepted.status).toBe(200);
+      await accepted.body?.cancel();
+      const denied = await fetch(`${address}/v1/ops/status.get`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'null' },
+        body: '{"input":{}}',
+      });
+      expect(denied.status).toBe(403);
+      await denied.body?.cancel();
+      const report = await runDaemonDoctor(context, '1.2.3', doctorFetch(), {
+        webListening: () => web.listening(),
+      });
+      expect(report.checks.find((check) => check.id === 'web.listening')?.status).toBe('pass');
+      expect(lines.join('')).toContain('"via":"web"');
+      expect(lines.join('')).toContain('"forwardedFor":"192.0.2.1"');
+      expect(lines.join('')).toContain('"userAgent":"Browser test"');
+      expect(lines.join('')).toContain('"status":403');
+      expect(lines.join('')).not.toContain('secret=hidden');
+    } finally {
+      await web.stop();
+    }
+    expect(web.listening()).toBe(false);
+    await expect(fetch(`${address}/v1/health`)).rejects.toThrow();
+  });
+
+  it('leaves an aborted web start closed', async () => {
+    const ctx = doctorContext();
+    const controller = new AbortController();
+    controller.abort();
+    const web = createWebModule(ctx, { registry: {} });
+    await web.start(controller.signal);
+    expect(web.listening()).toBe(false);
+    await web.stop();
   });
 });

@@ -29,6 +29,7 @@ export function catalogSnapshotBody(operations: readonly Operation[]) {
         cli: op.cli,
         mcp: op.mcp,
         slack: op.slack,
+        web: op.web,
         examples: op.examples,
         input: z.toJSONSchema(op.input, { io: 'input' }),
         output: z.toJSONSchema(op.output, { io: 'output' }),

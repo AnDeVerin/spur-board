@@ -21,14 +21,13 @@ revoke it first; removing it from the history does not make it safe again.
 
 ## Trust model
 
-The board protects the operator's board from mistakes and from other unprivileged OS users on
-the same host. It does not protect it from the agents it serves, or from root and other
+The board protects the operator's board from mistakes within the transport boundaries below. It does not protect it from the agents it serves, or from root and other
 administrators of the host, who can read and change any of its files. A report that relies on
 one of the limits below is not a vulnerability; a way around a guarantee below is.
 
 - **Single-user host.** One operator runs one daemon under their own OS account. The daemon,
   the CLI, the MCP server and every agent session the board serves run as that user.
-- **Loopback API only.** The daemon listens on `127.0.0.1` (port 4777 by default, set by
+- **Agent API.** The daemon listens on `127.0.0.1` (port 4777 by default, set by
   `http.port`) and has no option to bind another address. It refuses a request whose `Host`
   header is not `127.0.0.1:<port>`, and any request that carries an `Origin` header, so a web
   page in a local browser cannot call it.
@@ -48,9 +47,26 @@ one of the limits below is not a vulnerability; a way around a guarantee below i
   [SETUP.md](SETUP.md) for the operator paths.
 - **The journal records the actor and the channel.** Each journal event records who acted (the
   operator, an agent and its session, or the board) and, in `via`, the channel the write arrived
-  through (`slack`, or `web` once the web listener of #530 ships), whoever the actor; writes from
+  through (`slack` or `web`), whoever the actor; writes from
   the CLI, MCP, agents and scheduled work have none. The channel is where the daemon received
   the write, not proof of who typed it.
+
+### Optional web listener
+
+Web is off by default. Setting both `web.port` and `web.publicOrigin` starts a separate
+`127.0.0.1` listener. A reverse proxy may expose it to the operator's private network and must
+preserve the original `Host`. Everyone who can reach that port can act as the operator through
+web-bound reads and the two writes, `comment.add` and `block.answer`, without a token.
+The private network is the boundary: it must contain only the operator and their devices.
+
+Exact Host and Origin checks, JSON POST bodies, cross-site fetch rejection and no CORS stop
+foreign browser pages and DNS rebinding. They do not authenticate network members or local OS
+users, who can supply these headers themselves. Token, skill, schema, doctor and event routes
+are absent on the web listener. CSP blocks inline scripts/styles and external resources.
+Request logs record `via: web`, forwarded client metadata and user agent alongside the request
+ID, method, path and status. Forwarded IP metadata is untrusted audit data, never identity.
+Journal events from web writes persist `via: web`. Task history keeps `actor: operator` and
+includes `via: web`, so clients can show `operator (web)` without changing actor IDs.
 
 ### Other OS users on the same host
 
@@ -66,8 +82,9 @@ connect to the loopback port. Without a credential they can:
 - for session ids they already know, read whether and when each got that message; the daemon
   never lists a session id the request does not name.
 
-They cannot run board operations without a live session id from a configured Spur project or an
-approved token. Treat both as secrets: a leaked session id or token file lets that user act as
+On the agent API they cannot run board operations without a live session id from a configured
+Spur project or an approved token. With web enabled, they can use its operator operations without
+either credential. Treat both as secrets: a leaked session id or token file lets that user act as
 its owner.
 
 File access depends on the modes below:

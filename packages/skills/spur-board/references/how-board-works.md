@@ -32,6 +32,22 @@ session navigation. This replaces the former detail-only association array; use 
 for the detailed association list. `board status --detail` adds full ticket, PR and session facts.
 The catalog version changes with these contracts; restart the daemon and live MCP sessions together.
 
+## Browser access
+
+With `web.port` and `web.publicOrigin` configured, a second loopback listener serves browser
+assets, health and catalog operations whose `web` binding is enabled. It uses the same registry,
+authorization, idempotency and operation hooks as the agent API, with the operator caller.
+Effective project configuration is available through `config.get`.
+Only `comment.add` and `block.answer` are enabled writes. Token and skill routes stay on the
+agent API. The web listener is off by default and a failed bind does not stop the agent API.
+
+A private-network proxy must preserve Host. Exact Origin, Host, JSON and fetch-metadata checks
+reject foreign browser pages; anyone with network or local access can still act as operator.
+Logs include the web channel and untrusted forwarded client/user-agent metadata. Web writes
+persist `via: web` in the journal; history returns `actor: operator` with `via: web`, allowing
+clients to show `operator (web)`.
+Missing UI assets return a 503 build hint while health and operations remain available.
+
 ## Web shell
 
 The private web package builds an empty desktop shell with task count, named source health,
@@ -42,7 +58,7 @@ failed attempts while continuing recovery. The first valid stream handshake refr
 to close the startup read race; later changes to the stream head or instance also refresh it.
 Reconnects retain valid SSE cursors, including ID-only records, until the server clears them.
 
-The daemon will serve the packaged SPA when the separate web listener (#530) lands; the stream
-server is #533. This package supplies clients and installed assets only. The existing agent
-API guards stay unchanged. Until #547 adds daemon version fields, the footer version comes
-from the CLI manifest at build time.
+The configured daemon web listener serves the packaged SPA and its local assets. The stream
+server remains pending in #533, so the shell currently reports reconnecting then offline/stale
+while status reads and theme controls remain available. Until #547 adds daemon version fields,
+the footer version comes from the CLI manifest at build time.

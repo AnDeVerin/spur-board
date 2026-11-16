@@ -126,6 +126,28 @@ board doctor --offline
 
 An offline pass checks configuration only; it cannot prove tokens or integrations work.
 
+### Optional browser access
+
+The optional web listener is off by default. Set `web.port` and `web.publicOrigin` together
+in config.yaml, for example:
+
+```yaml
+web:
+  port: 7777
+  publicOrigin: https://{port}.local.example
+```
+
+The daemon binds this separate listener to `127.0.0.1`; `{port}` resolves to the actual port.
+Configure the private-network reverse proxy to preserve `Host` and use the exact public origin.
+Anyone who reaches it can use the web-bound reads and `comment.add` / `block.answer` as operator
+without a token. Host/Origin guards protect against foreign browser pages, not network members
+or local users; keep the network limited to the operator's devices. See [Security](SECURITY.md).
+
+A busy web port leaves the agent API running; `board doctor --json` reports `web.listening`
+failed. Free the port or change the settings, then restart the daemon. Missing UI assets return
+503 with the hint ``UI is not built: run `pnpm --filter @spur-board/web build` ``; health and
+operations still work. The UI build is supplied separately from this listener.
+
 ## 4. Install the service and choose operator access
 
 Check the service first, then install it if missing:
@@ -247,8 +269,10 @@ build. The installed assets include local fonts and their OFL license. Dark is t
 fallback; the footer offers Light, Dark and Auto, remembers the preference when browser storage
 is available, and Auto follows the system appearance.
 
-The shell package can be built before the daemon web listener (#530) and stream server (#533)
-land. Web settings alone do not start a listener in this version. Once #530 supplies serving,
-the daemon will serve the SPA on the configured web port; its planned “UI not built” 503 means
-the assets need building/packaging. The agent API port remains separate. No production HTTP or
-SSE integration is claimed by the shell build.
+With `web.port` and `web.publicOrigin` configured, the daemon serves the packaged SPA and local
+assets on its separate loopback web listener. A “UI is not built” 503 means assets need
+building/packaging; restart the daemon after rebuilding because it loads assets at startup.
+`pnpm package:smoke` verifies installed `GET /` and a referenced asset on an isolated listener.
+The stream server remains pending in #533: status reads work, while the shell's stream indicator
+will reconnect and eventually show offline/stale. The footer embeds the CLI manifest version
+until #547 supplies daemon version fields.

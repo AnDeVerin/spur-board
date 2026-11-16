@@ -27,7 +27,7 @@ description: Rules for errors - Result vs throw, retries, the ERRORS catalog, hi
 
 ## Catch at boundaries
 
-- Catch only at a boundary: HTTP `setErrorHandler` (`packages/core/src/api/server.ts`), CLI
+- Catch only at a boundary: HTTP `setErrorHandler` (`packages/core/src/api/ops-route.ts`), CLI
   `runCli` (`packages/cli/src/cli.ts`), the MCP tool callback (`packages/cli/src/mcp.ts`),
   `runDaemon` (`packages/daemon/src/lifecycle.ts`), and background loops: the adapter runner,
   purge `onError` (`packages/daemon/src/composition.ts`), inbound dispatch, Socket Mode `track`

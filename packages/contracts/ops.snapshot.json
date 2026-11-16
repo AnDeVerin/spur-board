@@ -1,5 +1,5 @@
 {
-  "version": "b3cdd8c32b130f64bad0cda8eaa2c1dfd3fd724eafcce3c727a8d98d1bc0ec75",
+  "version": "a9cac938a05f859cfcd0334855836d2aa445a49c225bd15d1a36e12c13174e02",
   "grants": [
     "operator",
     "project-agent",
@@ -933,6 +933,7 @@
         "destructive": false
       },
       "slack": { "kind": "slash-command", "usage": "/board status" },
+      "web": true,
       "examples": [
         {
           "summary": "Show the board",
@@ -3137,6 +3138,7 @@
         "destructive": false
       },
       "slack": { "kind": "slash-command", "usage": "/board task <KEY> [why]" },
+      "web": true,
       "examples": [
         {
           "summary": "Show one task",
@@ -5066,6 +5068,7 @@
         "destructive": false
       },
       "slack": { "kind": "slash-command", "usage": "/board task <KEY> history" },
+      "web": true,
       "examples": [
         {
           "summary": "Show task history",
@@ -5255,6 +5258,7 @@
         "destructive": false
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Describe the operations a worker may call",
@@ -5517,6 +5521,7 @@
         "destructive": false
       },
       "slack": null,
+      "web": true,
       "examples": [
         {
           "summary": "Read the inbox",
@@ -6117,6 +6122,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Acknowledge a comment revision",
@@ -6316,6 +6322,7 @@
         "destructive": false
       },
       "slack": { "kind": "slash-command", "usage": "/board tokens" },
+      "web": null,
       "examples": [
         {
           "summary": "List operator tokens",
@@ -6428,6 +6435,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Revoke an operator token",
@@ -6494,6 +6502,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Add a task",
@@ -6591,6 +6600,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Archive a task",
@@ -6704,6 +6714,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Link a pull request",
@@ -6862,6 +6873,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Unlink a session",
@@ -7012,6 +7024,7 @@
         "destructive": true
       },
       "slack": { "kind": "button", "label": "Retry" },
+      "web": null,
       "examples": [
         {
           "summary": "Retry a failed deploy",
@@ -7110,6 +7123,7 @@
         "destructive": true
       },
       "slack": { "kind": "button", "label": "Close" },
+      "web": null,
       "examples": [
         {
           "summary": "Close a board-wide item",
@@ -7209,6 +7223,7 @@
         "destructive": false
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Ask which API version to target",
@@ -7418,6 +7433,7 @@
         "destructive": false
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Ask to restart",
@@ -7630,6 +7646,7 @@
         "destructive": false
       },
       "slack": null,
+      "web": true,
       "examples": [
         {
           "summary": "Leave a note on a task",
@@ -7796,6 +7813,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Correct a comment",
@@ -7951,6 +7969,7 @@
         "destructive": false
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Wait for another task",
@@ -8167,6 +8186,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Escalate a failing build",
@@ -8395,6 +8415,7 @@
         "destructive": true
       },
       "slack": { "kind": "thread-reply" },
+      "web": true,
       "examples": [
         {
           "summary": "Answer a question",
@@ -8745,6 +8766,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Unblock after a fix",
@@ -9055,6 +9077,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Submit the pull request head",
@@ -9233,6 +9256,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Return a reviewed task to Dev",
@@ -9489,6 +9513,7 @@
         "destructive": true
       },
       "slack": null,
+      "web": null,
       "examples": [
         {
           "summary": "Correct a task the board put in Done by mistake",
@@ -9804,6 +9829,7 @@
         "destructive": false
       },
       "slack": null,
+      "web": true,
       "examples": [
         {
           "summary": "Show effective configuration",

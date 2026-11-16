@@ -35,7 +35,7 @@ const setupSkill = readFileSync(setupSkillPath, 'utf8');
 const publicGuides = [readmePath, setupGuidePath, troubleshootingPath, runbookPath].map((path) =>
   readFileSync(path, 'utf8'),
 );
-const setupNames = ['secrets.md', 'slack.md', 'update.md', 'worker-links.md'];
+const setupNames = ['secrets.md', 'slack.md', 'update.md', 'web.md', 'worker-links.md'];
 const setupTexts = setupNames.map((name) => readFileSync(`${setupRefsPath}/${name}`, 'utf8'));
 const setupFullText = [setupSkill, ...setupTexts].join('\n');
 const binarySource = readFileSync(binaryPath, 'utf8');

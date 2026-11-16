@@ -61,10 +61,13 @@ the published package. No external font requests or HTML injection. Browser code
 narrow `@spur-board/contracts/browser` entry; the build rejects server/catalog modules.
 `pnpm package:build` builds web, runs the CLI clean build, then copies web output and verifies
 its asset graph. React and React DOM ship in those assets; Vite remains build tooling.
+The daemon loads `web/` next to its bundle at startup. Use the assembled/installed package
+for daemon-backed serving; a source daemon does not read `packages/web/dist` directly.
 
-Before the production web listener (#530) and stream server (#533) land, exercise the shell with
+For controlled shell states while the stream server (#533) is pending, exercise the shell with
 `node scripts/web-shell-qa.ts --port 4780` through a disposable session sidecar after building.
-This loopback fixture serves controlled status/stream scenarios; it is never packaged. POST to
+This loopback fixture serves controlled status/stream scenarios; it is never packaged.
+Installed package smoke separately exercises the real configured web listener and assets. POST to
 `/__qa/scenario/loading|empty|healthy|mixed|read-error|refresh-error|recovered|stream-drop`;
 POST `/__qa/release` releases held loading reads. The footer displays the CLI version embedded
 at build time; #547 will switch it to the daemon version without changing this shell's wire API.

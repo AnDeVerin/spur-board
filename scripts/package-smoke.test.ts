@@ -15,6 +15,7 @@ import {
   smokeInstalled,
   smokeSteps,
   verifySchema,
+  verifyServedWeb,
   verifyVersion,
 } from './package-smoke.ts';
 import { smokeUpgrade } from './upgrade-smoke.ts';
@@ -115,6 +116,7 @@ describe('packed smoke steps', () => {
       'version',
       'web assets',
       'daemon',
+      'web HTTP',
       'schema',
       'status',
       'mcp',
@@ -372,4 +374,52 @@ describe('installed web smoke', () => {
       verifyWebAssets(web, join(root, 'OFL.txt'));
     }).toThrow(/Missing web asset|license/);
   });
+});
+
+describe('installed web HTTP smoke', () => {
+  it.each(['healthy', 'page-status', 'asset-status', 'page-body', 'asset-body'])(
+    'requires actual HTTP 200 and installed bytes: %s',
+    async (mode) => {
+      const web = mkdtempSync(join(tmpdir(), 'board-served-web-'));
+      mkdirSync(join(web, 'assets'));
+      const index = '<script src="/assets/main-abcdefgh.js"></script>';
+      const asset = 'console.log("ready");';
+      writeFileSync(join(web, 'index.html'), index);
+      writeFileSync(join(web, 'assets/main-abcdefgh.js'), asset);
+      const calls: string[] = [];
+      const fetcher: typeof fetch = (url, init) => {
+        calls.push(typeof url === 'string' ? url : url instanceof URL ? url.href : url.url);
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
+        const page = url === 'http://127.0.0.1:4789/';
+        return Promise.resolve(
+          new Response(
+            page
+              ? mode === 'page-body'
+                ? 'wrong page'
+                : index
+              : mode === 'asset-body'
+                ? index
+                : asset,
+            {
+              status: page
+                ? mode === 'page-status'
+                  ? 503
+                  : 200
+                : mode === 'asset-status'
+                  ? 404
+                  : 200,
+            },
+          ),
+        );
+      };
+      const result = verifyServedWeb(web, 'http://127.0.0.1:4789', fetcher);
+      if (mode === 'healthy') {
+        await expect(result).resolves.toBeUndefined();
+        expect(calls).toEqual([
+          'http://127.0.0.1:4789/',
+          'http://127.0.0.1:4789/assets/main-abcdefgh.js',
+        ]);
+      } else await expect(result).rejects.toThrow(/HTTP 200/);
+    },
+  );
 });

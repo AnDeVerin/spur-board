@@ -7,7 +7,7 @@ description: Rules for what agents see from the board - MCP tool names, descript
 
 The CLI (`packages/cli/src/cli.ts`) and the MCP server (`packages/cli/src/mcp.ts`) are generated
 from the catalog in `packages/contracts/src/ops/catalog.ts` and call `/v1/ops/:id` in
-`packages/core/src/api/server.ts`. Fix a surface in the catalog entry or the generator, never
+`packages/core/src/api/ops-route.ts`. Fix a surface in the catalog entry or the generator, never
 per operation. Errors, `usage`, hints and exit codes on every surface: `handling-errors`. A PR
 that changes these rules updates this skill in the same PR.
 

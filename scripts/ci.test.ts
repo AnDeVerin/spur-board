@@ -504,17 +504,42 @@ describe('ci.ts CLI', () => {
   });
 });
 
-describe('web CI build prerequisites', () => {
-  it.each(['quality', 'test', 'package-smoke'])(
-    '%s builds web after installing dependencies',
-    (name) => {
-      const source = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-      const job =
-        source.slice(source.indexOf(`\n  ${name}:`) + 1).split(/\n  [a-z][a-z-]*:/)[0] ?? '';
-      expect(job.indexOf('pnpm install --frozen-lockfile')).toBeGreaterThan(-1);
-      expect(job.indexOf('pnpm --filter @spur-board/web build')).toBeGreaterThan(
-        job.indexOf('pnpm install --frozen-lockfile'),
+describe('web workflow build prerequisites', () => {
+  it.each([
+    ['ci.yml', 'quality', 'pnpm check:full --only format,lint,types,knip,agents', 'build'],
+    ['ci.yml', 'test', 'pnpm check:full --only test', 'build'],
+    ['ci.yml', 'stand', 'pnpm check:full --only stand', 'build'],
+    ['ci.yml', 'package-smoke', 'pnpm package:smoke', 'build'],
+    ['nightly-tests.yml', 'test', 'pnpm exec vitest run --project unit', 'build'],
+    ['mutation.yml', 'mutation', 'pnpm exec stryker run', 'build'],
+    ['ci.yml', 'release-build', 'node scripts/release-candidate.ts', 'self-build'],
+    ['ci.yml', 'release-smoke', 'pnpm package:smoke', 'tarball'],
+  ] as const)('%s/%s prepares web assets before its consumer', (file, name, command, mode) => {
+    const source = readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), 'utf8');
+    const jobs = (parse(source) as { jobs: Record<string, WorkflowJob> }).jobs;
+    const steps = jobs[name]?.steps ?? [];
+    const install = steps.findIndex((step) => step.run === 'pnpm install --frozen-lockfile');
+    const consumer = steps.findIndex((step) => step.run?.includes(command));
+    expect(install).toBeGreaterThanOrEqual(0);
+    expect(consumer).toBeGreaterThan(install);
+    if (mode === 'build') {
+      const build = steps.findIndex((step) => step.run === 'pnpm --filter @spur-board/web build');
+      expect(build).toBeGreaterThan(install);
+      expect(build).toBeLessThan(consumer);
+    } else if (mode === 'tarball') {
+      const download = steps.findIndex((step) =>
+        step.uses?.startsWith('actions/download-artifact@'),
       );
-    },
-  );
+      expect(download).toBeGreaterThan(install);
+      expect(download).toBeLessThan(consumer);
+      expect(steps[consumer]?.run).toContain('.tgz');
+    } else {
+      // Release candidates call the package assembler, which builds web before CLI clean/copy.
+      expect(readFileSync(new URL('./release-candidate.ts', import.meta.url), 'utf8')).toContain(
+        'packPackage(',
+      );
+      const assembler = readFileSync(new URL('./package.ts', import.meta.url), 'utf8');
+      expect(assembler).toContain("run('pnpm', ['--filter', '@spur-board/web', 'build'])");
+    }
+  });
 });

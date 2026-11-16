@@ -173,7 +173,28 @@ async function fakeSessionApi(): Promise<{ server: Server; port: number }> {
   return { server, port: address.port };
 }
 
-function config(port: number): string {
+/** Reserve an OS-selected loopback port briefly; the candidate listener binds it next. */
+async function unusedLoopbackPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  try {
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('No smoke web port.');
+    return address.port;
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      }),
+    );
+  }
+}
+
+function config(port: number, webPort?: number): string {
   return `projects:
   - id: board
     tracker:
@@ -194,20 +215,23 @@ adapters:
     baseUrl: http://127.0.0.1:${String(port)}
 http:
   port: 0
-`;
+${webPort === undefined ? '' : `web:\n  port: ${String(webPort)}\n  publicOrigin: 'http://127.0.0.1:{port}'\n`}`;
 }
 
 function startDaemon(
   binary: string,
   env: NodeJS.ProcessEnv,
-): Promise<{ child: ChildProcess; port: number }> {
+  requireWeb = false,
+): Promise<{ child: ChildProcess; port: number; webPort?: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, ['daemon'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let buffer = '';
     let stderr = '';
     let settled = false;
+    let httpPort: number | undefined;
+    let webPort: number | undefined;
     const timer = setTimeout(() => {
-      fail('Timed out waiting for packed daemon HTTP listener.');
+      fail('Timed out waiting for packed daemon listeners.');
     }, 15_000);
     const fail = (message: string): void => {
       if (settled) return;
@@ -227,10 +251,14 @@ function startDaemon(
         buffer = buffer.slice(index + 1);
         try {
           const record = JSON.parse(line) as Record<string, unknown>;
-          if (record['msg'] === 'http listening' && typeof record['port'] === 'number') {
+          if (record['msg'] === 'http listening' && typeof record['port'] === 'number')
+            httpPort = record['port'];
+          if (record['msg'] === 'web listening' && typeof record['port'] === 'number')
+            webPort = record['port'];
+          if (httpPort !== undefined && (!requireWeb || webPort !== undefined)) {
             settled = true;
             clearTimeout(timer);
-            resolve({ child, port: record['port'] });
+            resolve({ child, port: httpPort, ...(webPort === undefined ? {} : { webPort }) });
             return;
           }
         } catch {
@@ -328,6 +356,30 @@ export function prepareSkillsForSmoke(packageRoot: string): void {
   }
 }
 
+/** Check the actual installed listener, including bytes so an index fallback cannot fake an asset. */
+export async function verifyServedWeb(
+  webRoot: string,
+  origin: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const index = readFileSync(join(webRoot, 'index.html'), 'utf8');
+  const asset =
+    /(?:src|href)=["'](\/assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}\.(?:js|css))["']/.exec(
+      index,
+    )?.[1];
+  if (asset === undefined)
+    throw new Error('Installed web index references no script or stylesheet.');
+  const page = await fetcher(`${origin}/`, { signal: AbortSignal.timeout(5000) });
+  if (page.status !== 200 || (await page.text()) !== index)
+    throw new Error('Installed web GET / did not serve index with HTTP 200.');
+  const response = await fetcher(`${origin}${asset}`, { signal: AbortSignal.timeout(5000) });
+  if (
+    response.status !== 200 ||
+    !Buffer.from(await response.arrayBuffer()).equals(readFileSync(join(webRoot, asset.slice(1))))
+  )
+    throw new Error('Installed referenced web asset did not match with HTTP 200.');
+}
+
 interface SmokeContext {
   binary: string;
   expectedVersion: string;
@@ -338,6 +390,7 @@ interface SmokeContext {
   baselineOnly?: boolean;
   daemon?: ChildProcess;
   port?: number;
+  webPort?: number;
 }
 
 interface SmokeStep {
@@ -365,9 +418,20 @@ export const smokeSteps: readonly SmokeStep[] = [
     name: 'daemon',
     baseline: true,
     async run(ctx) {
-      const started = await startDaemon(ctx.binary, ctx.env);
+      const started = await startDaemon(ctx.binary, ctx.env, !ctx.baselineOnly);
       ctx.daemon = started.child;
       ctx.port = started.port;
+      if (started.webPort !== undefined) ctx.webPort = started.webPort;
+    },
+  },
+  {
+    name: 'web HTTP',
+    async run(ctx) {
+      if (ctx.webPort === undefined) throw new Error('Packed daemon has no web port.');
+      await verifyServedWeb(
+        join(ctx.packageRoot, 'dist/web'),
+        `http://127.0.0.1:${String(ctx.webPort)}`,
+      );
     },
   },
   {
@@ -560,7 +624,10 @@ export async function smokeInstalled(
         SPUR_SESSION: 'smoke-1',
       },
     };
-    writeFileSync(join(home, 'config.yaml'), config(fake.port));
+    writeFileSync(
+      join(home, 'config.yaml'),
+      config(fake.port, baselineOnly ? undefined : await unusedLoopbackPort()),
+    );
     await runSmokeSteps(
       ctx,
       baselineOnly ? smokeSteps.filter((step) => step.baseline) : smokeSteps,

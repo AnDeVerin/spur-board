@@ -124,6 +124,23 @@ const boardTarget = {
 };
 
 describe('catalog HTTP API', () => {
+  it('rejects a wildcard reverse-proxy Host on the agent API', async () => {
+    const app = await server(newStore());
+    try {
+      expect(
+        (
+          await app.inject({
+            method: 'GET',
+            url: '/v1/schema',
+            headers: { host: '4777.local.example' },
+          })
+        ).statusCode,
+      ).toBe(403);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('serves the generated catalog snapshot without identity', async () => {
     const app = await server(newStore());
     try {

@@ -4,20 +4,17 @@ import {
   OPERATIONS,
   buildCatalogSnapshot,
   doctorReportSchema,
-  errorCodeOf,
-  renderHttpProblem,
   successEnvelopeSchema,
   tokenRequestResultSchema,
   tokenRequestSchema,
   tokenRequestStatusSchema,
   type DoctorReport,
   type OperationId,
-  type ServerErrorCode,
 } from '@spur-board/contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { CommandError } from '../app/commands.ts';
-import { dispatchOperation, type OperationRegistry } from '../app/operations.ts';
+import { type OperationRegistry } from '../app/operations.ts';
 import {
   RELOAD_SESSIONS,
   SKILL_VERSION,
@@ -25,6 +22,7 @@ import {
   skillReloads,
 } from '../app/skill-reload.ts';
 import { requestToken, tokenStatusByHash } from '../app/tokens.ts';
+import { createOpsRoute, installOperationErrors } from './ops-route.ts';
 import { identifyCaller, type IdentifiedCaller, type IdentityPorts } from './identity.ts';
 
 export type { OperationRegistry } from '../app/operations.ts';
@@ -64,21 +62,6 @@ const skillReloadsSchema = z.strictObject({ version: SKILL_VERSION, sessions: RE
 
 function header(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? undefined : value;
-}
-
-function inputBody(body: unknown): { input: unknown; key: string | undefined } {
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-    throw new CommandError('usage', 'Send a JSON object with input and optional key.');
-  }
-  const record = body as Record<string, unknown>;
-  if (
-    !Object.hasOwn(record, 'input') ||
-    Object.keys(record).some((name) => name !== 'input' && name !== 'key') ||
-    (record['key'] !== undefined && typeof record['key'] !== 'string')
-  ) {
-    throw new CommandError('usage', 'Send a JSON object with input and optional key.');
-  }
-  return { input: record['input'], key: record['key'] };
 }
 
 /** Construct the local HTTP transport; the caller owns listen and close. */
@@ -129,23 +112,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     done();
   });
 
-  app.setErrorHandler((error, request, reply) => {
-    let code: ServerErrorCode = 'unexpected';
-    let hint: string | undefined;
-    if (error instanceof CommandError) {
-      code = error.code;
-      hint = error.hint;
-    } else if (error instanceof Error && 'statusCode' in error) {
-      if (error.statusCode === 400 || error.statusCode === 413) code = 'usage';
-      if (error.statusCode === 413) hint = 'Send a smaller JSON body.';
-    }
-    if (code === 'unexpected') options.logError?.({ requestId: request.id, err: error });
-    const problem = renderHttpProblem({ code, requestId: request.id });
-    reply
-      .code(problem.status)
-      .type('application/problem+json')
-      .send(hint === undefined ? problem.body : { ...problem.body, hint });
-  });
+  installOperationErrors(app, options);
 
   app.setNotFoundHandler(() => {
     throw new CommandError('not_found', 'This API route is not available.');
@@ -269,49 +236,21 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     );
   });
 
-  app.post<{ Params: { id: string } }>(
-    '/v1/ops/:id',
+  createOpsRoute(
+    app,
     {
-      onRequest: async (request) => {
-        if (!options.ready()) throw notReady();
+      ...options,
+      identify: async (request) => {
         const sessionHeader = request.headers['x-board-session'];
-        if (Array.isArray(sessionHeader)) {
+        if (Array.isArray(sessionHeader))
           throw new CommandError('forbidden', 'Use one session identity header.');
-        }
-        callers.set(
-          request,
-          await identifyCaller(options, {
-            session: sessionHeader,
-            authorization: header(request.headers.authorization),
-          }),
-        );
+        return identifyCaller(options, {
+          session: sessionHeader,
+          authorization: header(request.headers.authorization),
+        });
       },
     },
-    async (request, reply) => {
-      const caller = callers.get(request);
-      if (caller === undefined) throw new Error('Operation identity was not resolved.');
-      const operation = OPERATIONS.find((entry) => entry.id === request.params.id);
-      if (operation === undefined) {
-        throw new CommandError(
-          'version_mismatch',
-          'This daemon does not know the operation. Run `board service restart` to update the daemon, then retry.',
-        );
-      }
-      const body = inputBody(request.body);
-      const parsed = operation.input.safeParse(body.input);
-      if (!parsed.success) {
-        throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
-      }
-      const dispatch = () =>
-        dispatchOperation(options, operation.id, parsed.data, caller.actor, body.key);
-      const result = await (options.runOperation === undefined
-        ? dispatch()
-        : options.runOperation(operation.id, parsed.data, dispatch));
-      await options.afterOperation?.(reply.raw);
-      return reply.send(
-        successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: result }),
-      );
-    },
+    callers,
   );
 
   return app;

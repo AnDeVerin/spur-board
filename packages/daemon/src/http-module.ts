@@ -2,6 +2,7 @@ import { SESSION_STATUSES, apiBaseUrl } from '@spur-board/contracts';
 import type { ServerResponse } from 'node:http';
 import {
   createApiServer,
+  createWebServer,
   listenApiServer,
   verifyOperatorToken,
   type LiveSession,
@@ -46,6 +47,7 @@ export function createHttpModule(
     onListening?: (address: string) => void;
     productVersion?: string;
     doctor?: ApiOptions['doctor'];
+    webListening?: () => boolean;
     firstPollDone?: ApiOptions['firstPollDone'];
   } = {},
 ): Module {
@@ -74,7 +76,10 @@ export function createHttpModule(
         ...(options.runOperation === undefined ? {} : { runOperation: options.runOperation }),
         doctor:
           options.doctor ??
-          (() => runDaemonDoctor(ctx, options.productVersion ?? 'unknown', options.fetcher)),
+          (() =>
+            runDaemonDoctor(ctx, options.productVersion ?? 'unknown', options.fetcher, {
+              webListening: options.webListening,
+            })),
         ...(options.firstPollDone === undefined ? {} : { firstPollDone: options.firstPollDone }),
         ...(options.productVersion === undefined ? {} : { productVersion: options.productVersion }),
         logRequest: ({ requestId, method, url, status, tokenName }) => {
@@ -103,6 +108,66 @@ export function createHttpModule(
       const server = app;
       app = undefined;
       if (server !== undefined) await server.close();
+    },
+  };
+}
+
+/** Optional browser listener: a bind failure must not take down the agent API. */
+export function createWebModule(
+  ctx: ModuleContext<Store>,
+  options: {
+    registry: OperationRegistry;
+    runOperation?: ApiOptions['runOperation'];
+    afterOperation?: ApiOptions['afterOperation'];
+    firstPollDone?: ApiOptions['firstPollDone'];
+    webRoot?: string | URL;
+    onListening?: (address: string) => void;
+  },
+): Module & { listening(): boolean } {
+  let app: Awaited<ReturnType<typeof createWebServer>> | undefined;
+  return {
+    listening: () => app !== undefined,
+    async start(signal) {
+      const aborted = (): boolean => signal.aborted;
+      if (aborted()) return;
+      let server: Awaited<ReturnType<typeof createWebServer>> | undefined;
+      try {
+        server = await createWebServer({
+          store: ctx.store,
+          config: ctx.config,
+          clock: ctx.clock,
+          registry: options.registry,
+          ready: () => ctx.state() === 'ready',
+          stopping: () => ctx.state() === 'stopping',
+          ...(options.runOperation === undefined ? {} : { runOperation: options.runOperation }),
+          ...(options.afterOperation === undefined
+            ? {}
+            : { afterOperation: options.afterOperation }),
+          ...(options.firstPollDone === undefined ? {} : { firstPollDone: options.firstPollDone }),
+          webRoot: options.webRoot ?? new URL('./web/', import.meta.url),
+          logRequest: (entry) => {
+            ctx.log.info(entry, 'web request');
+          },
+          logError: ({ requestId, err }) => {
+            ctx.log.error({ requestId, err }, 'web request failed');
+          },
+        });
+        if (aborted()) return;
+        const address = await server.listen({ host: '127.0.0.1', port: ctx.config.web.port ?? 0 });
+        if (aborted()) return;
+        options.onListening?.(address);
+        app = server;
+        ctx.log.info({ port: Number(new URL(address).port) }, 'web listening');
+      } catch (err) {
+        ctx.log.error({ err, port: ctx.config.web.port }, 'web listener failed');
+      } finally {
+        if (server !== undefined && app !== server) await server.close();
+      }
+    },
+    async stop() {
+      const server = app;
+      app = undefined;
+      await server?.close();
     },
   };
 }
