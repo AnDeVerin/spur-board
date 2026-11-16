@@ -24,7 +24,8 @@ The header, from left to right:
 - The project switcher: the chosen project's id. It opens a plain list of every configured
   project as `<id> · dispatcher <mode>`, with the current one checked. Escape or a click outside
   closes the list. The browser remembers the choice across reloads; a project that is no longer
-  configured falls back to the first one.
+  configured falls back to the first one. A long id that does not fit ends in `…`, in the
+  switcher and in the list.
 - The dispatcher mode of the chosen project: `dispatcher on` or `dispatcher shadow`.
 - The filter. It matches the full task key, the short key (`#12`), a session id or a block id,
   ignoring case. Cards that do not match are dimmed, never hidden, and stay reachable with Tab.

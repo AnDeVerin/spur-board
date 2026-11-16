@@ -146,9 +146,17 @@ describe('board screen', () => {
     const storage = mount(d);
     await settle();
     expect(trigger().getAttribute('aria-expanded')).toBe('false');
+    // The id sits alone in the span that truncates it; the trigger's text, its name, stays whole.
+    const idSpan = (button: Element) => button.firstElementChild?.firstElementChild;
+    expect(idSpan(trigger())?.outerHTML).toMatch(/^<span class="[^"]+">a<\/span>$/);
+    expect(trigger().textContent).toBe('a');
     press(trigger(), 'click');
     expect(trigger().getAttribute('aria-expanded')).toBe('true');
     const list = one(`[id="${String(trigger().getAttribute('aria-controls'))}"]`);
+    expect([...list.querySelectorAll('button')].map((item) => idSpan(item)?.textContent)).toEqual([
+      'a',
+      'b',
+    ]);
     expect([...list.querySelectorAll('li')].map((item) => item.textContent)).toEqual([
       'a · dispatcher on',
       'b · dispatcher shadow',

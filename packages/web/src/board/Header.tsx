@@ -51,7 +51,7 @@ function Switcher({
         }}
       >
         <span className={styles.label}>
-          {project?.id ?? '–'}
+          <span className={styles.id}>{project?.id ?? '–'}</span>
           <Icon name="caret" />
         </span>
       </Button>
@@ -66,7 +66,8 @@ function Switcher({
               }}
             >
               <span className={styles.label}>
-                {`${candidate.id} · dispatcher ${candidate.dispatcher.mode}`}
+                <span className={styles.id}>{candidate.id}</span>
+                {` · dispatcher ${candidate.dispatcher.mode}`}
                 {candidate.id === project?.id && <Icon name="check" label="current" />}
               </span>
             </Button>
