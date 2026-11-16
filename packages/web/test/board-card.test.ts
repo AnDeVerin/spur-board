@@ -139,6 +139,32 @@ describe('board task cards', () => {
     expect(card('ABC-4').parentElement?.getAttribute('data-turn')).toBe('you');
   });
 
+  it('a not-observed first PR keeps +N for the other linked PRs in the description', async () => {
+    const d = daemon();
+    serve(d, [
+      row('ex/repo#7', 'dev', {
+        links: { ticket: null, prs: [prLink(6), prLink(7)], sessions: [] },
+        // Only the second linked PR is observed: the first one's status is unknown.
+        prSummary: [prSummary({ number: 7, mergeable: 'conflicting' })],
+        turn: turn(taken),
+      }),
+    ]);
+    mount(d, {}, () => NOW);
+    await settle();
+    const card = one('main a[title="ex/repo#7"]');
+    const more = (card.getAttribute('aria-describedby') ?? '')
+      .split(' ')
+      .find((id) => id.endsWith('-more'));
+    expect(more).toBeDefined();
+    const element = document.getElementById(more ?? '');
+    expect(element?.textContent).toBe('+1');
+    expect(element?.title).toBe('1 more pull request: #7');
+    expect(all('main [role="img"]')).toHaveLength(0);
+    expect(description(card)).toBe(
+      ['PR status: not observed yet', '+1', 'T3 worker crew-ada taken · 5m'].join(' | '),
+    );
+  });
+
   it('rendering cards requests only the four paths', async () => {
     const d = daemon();
     serve(d, linkedRows(), withSpur);
