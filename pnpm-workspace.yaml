@@ -52,7 +52,7 @@ catalog:
   '@semantic-release/release-notes-generator': 14.1.1
   '@stryker-mutator/core': 10.1.1
   '@stryker-mutator/vitest-runner': 10.1.1
-  conventional-changelog-conventionalcommits: 9.3.1
+  conventional-changelog-conventionalcommits: 10.4.1
   semantic-release: 25.0.9
 
 # eslint 10, typescript-eslint 8 and @stryker-mutator/core 10.1.1 still ask for
