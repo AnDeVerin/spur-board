@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { act, createElement, StrictMode } from 'react';
+import { act, createElement, StrictMode, useRef, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { Modal } from '../src/ds/index.ts';
+import { Modal, SidePanel } from '../src/ds/index.ts';
 import {
   button,
   bodyOf,
@@ -223,6 +223,62 @@ describe('Modal and SidePanel', () => {
     expect(preset.hasAttribute('inert')).toBe(true);
   });
 
+  it('keepLive keeps an earlier sibling mounted in the same commit live and restores', () => {
+    const preset = document.createElement('div');
+    preset.setAttribute('inert', '');
+    const outside = document.createElement('div');
+    document.body.append(preset, outside);
+    function Host() {
+      const [open, setOpen] = useState(true);
+      const kept = useRef<HTMLDivElement>(null);
+      return createElement(
+        'div',
+        { 'data-testid': 'shell' },
+        createElement('div', { 'data-testid': 'before' }, 'Header'),
+        createElement(
+          'div',
+          { ref: kept, 'data-testid': 'kept' },
+          createElement('button', { type: 'button' }, 'Bar'),
+        ),
+        createElement(SidePanel, {
+          open,
+          onClose: () => {
+            setOpen(false);
+          },
+          side: 'left',
+          title: 'Services',
+          keepLive: kept,
+          children: 'Body',
+        }),
+        createElement('div', { 'data-testid': 'after' }, 'Board'),
+      );
+    }
+    render(createElement(Host));
+    const part = (id: string) =>
+      container().querySelector<HTMLElement>(`[data-testid="${id}"]`) as HTMLElement;
+    for (const live of [container(), part('shell'), part('kept'), layerRoot(top())])
+      expect(live.hasAttribute('inert')).toBe(false);
+    for (const dead of [part('before'), part('after'), outside, preset])
+      expect(dead.hasAttribute('inert')).toBe(true);
+    key('Escape');
+    expect(dialogs()).toHaveLength(0);
+    for (const element of [part('before'), part('after'), part('kept'), outside])
+      expect(element.hasAttribute('inert')).toBe(false);
+    expect(preset.hasAttribute('inert')).toBe(true);
+  });
+
+  it('SidePanel / LiveBar closes from its bar while open', () => {
+    render(createElement(example('SidePanel', 'LiveBar')));
+    press(button('Services'));
+    expect(dialogs()).toHaveLength(1);
+    const bar = button('Services').parentElement as HTMLElement;
+    expect(bar.closest('[inert]')).toBeNull();
+    expect(container().querySelector('p')?.hasAttribute('inert')).toBe(true);
+    press(button('Services'));
+    expect(dialogs()).toHaveLength(0);
+    expect(container().querySelector('[inert]')).toBeNull();
+  });
+
   it('StrictMode keeps one entry per layer', () => {
     const add = vi.spyOn(window, 'addEventListener');
     const remove = vi.spyOn(window, 'removeEventListener');
@@ -247,7 +303,7 @@ describe('Modal and SidePanel', () => {
     const names = (folder: string) =>
       Object.keys(examples[`../src/ds/${folder}/${folder}.examples.tsx`] ?? {}).sort();
     expect(names('Modal')).toEqual(['Default', 'Focused', 'OverPanel']);
-    expect(names('SidePanel')).toEqual(['Focused', 'Left', 'Right']);
+    expect(names('SidePanel')).toEqual(['Focused', 'Left', 'LiveBar', 'Right']);
     expect(names('Scrim')).toEqual(['Default']);
   });
 
