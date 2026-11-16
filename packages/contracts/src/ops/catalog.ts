@@ -5,6 +5,9 @@ import {
   commentAddOutputSchema,
   blockAnswerInputSchema,
   blockAnswerOutputSchema,
+  configGetInputSchema,
+  inboxOperatorInputSchema,
+  inboxOperatorOutputSchema,
 } from '../browser.ts';
 import { z } from 'zod';
 import { configViewSchema } from './config-view-schema.ts';
@@ -22,7 +25,6 @@ import {
 } from '../ids.ts';
 import { commitShaSchema } from '../facts.ts';
 import { defineOperation } from './define.ts';
-import { inboxEntrySchema, inboxHandledSchema } from './inbox-schemas.ts';
 import {
   SCHEMA_ROLES,
   blockViewSchema,
@@ -637,17 +639,8 @@ export const OPERATIONS = [
         'As the operator, review every open operator item, block and turn across projects in one list.',
       whenNotToUse: 'Use inbox_get for the comments, blocks and turns addressed to an agent.',
     },
-    input: z.strictObject({}),
-    output: z.strictObject({
-      items: z
-        .array(inboxEntrySchema)
-        .describe(
-          'Open operator items, blocks addressed to the operator and operator turns, newest first; a block or turn is listed once, not with its items.',
-        ),
-      handled: z
-        .array(inboxHandledSchema)
-        .describe('At most 20 entries handled in the last 24 hours, newest first.'),
-    }),
+    input: inboxOperatorInputSchema,
+    output: inboxOperatorOutputSchema,
     grants: operatorOnly,
     errors: [],
     cli: { command: 'inbox operator', args: [] },
@@ -1526,7 +1519,7 @@ export const OPERATIONS = [
       whenToUse: 'Read configuration before rendering the Board overview.',
       whenNotToUse: 'Use status_get for task state and freshness.',
     },
-    input: z.strictObject({ project }),
+    input: configGetInputSchema,
     output: configViewSchema,
     grants: operatorOrProjectAgent,
     errors: ['not_found'],
