@@ -1,0 +1,15 @@
+{
+  "title": "Sample queue",
+  "items": [
+    { "key": "demo-101", "title": "Rename the export button", "tone": "default", "label": "todo" },
+    {
+      "key": "demo-102",
+      "title": "Fix the empty search result",
+      "tone": "warn",
+      "label": "blocked"
+    },
+    { "key": "demo-103", "title": "Draft the release note", "tone": "you", "label": "yours" },
+    { "key": "demo-104", "title": "Retire the old banner", "tone": "ghost", "label": "later" }
+  ],
+  "summary": { "open": 4, "done": 9 }
+}

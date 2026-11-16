@@ -1,0 +1,93 @@
+/* Values with no token yet, declared before use. */
+:root {
+  --proposed-outline-dash: 1px dashed var(--color-border-strong);
+}
+
+.sample {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.sample h1 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-title);
+  font-weight: 500;
+}
+
+.proposed-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-block-end: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  outline: var(--proposed-outline-dash);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+}
+
+.proposed-label {
+  padding: 0 var(--space-1);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius);
+  color: var(--color-text-secondary);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.sample-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius);
+}
+
+.sample-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-block-end: 1px solid var(--color-border-subtle);
+}
+
+.sample-item:last-child {
+  border-block-end: none;
+}
+
+.sample-item:hover {
+  background: var(--color-row-hover);
+}
+
+.sample-key {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-small);
+}
+
+.sample-title {
+  flex: 1;
+}
+
+.sample-empty {
+  padding: var(--space-6) var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.sample-footer {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: var(--size-statusbar);
+  padding: var(--space-1) var(--space-4);
+  border-block-start: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+}
