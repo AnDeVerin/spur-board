@@ -216,6 +216,13 @@ describe('web design assets and policy', () => {
     expect(lifts).toHaveLength(1);
     expect(dark['--z-focus']).toBe('1');
   });
+  it('stacks menus above panels and below modals', () => {
+    // A menu kept live beside an open panel, such as the status bar theme menu, must open over
+    // it; a modal covers both.
+    const z = (name: string) => Number(dark[name]);
+    expect(z('--z-panel')).toBeLessThan(z('--z-menu'));
+    expect(z('--z-menu')).toBeLessThan(z('--z-modal'));
+  });
   it('outlineViolations accepts only the ds ring, including negative fixtures', () => {
     const rule = (selector: string, body: string) => `${selector} {\n  ${body}\n}\n`;
     for (const ok of [

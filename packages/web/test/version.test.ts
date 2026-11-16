@@ -24,7 +24,7 @@ const status = (version: string) =>
 
 describe('footer version', () => {
   it('shows the version the daemon reports in status.get', () => {
-    expect(footerVersion(status('9.8.7-rc.1'))).toBe('v9.8.7-rc.1');
+    expect(footerVersion(status('9.8.7-rc.1'))).toBe('board 9.8.7-rc.1');
   });
   it('shows nothing before the first status read', () => {
     expect(footerVersion(undefined)).toBeNull();

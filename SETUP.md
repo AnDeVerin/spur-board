@@ -266,7 +266,7 @@ links it to that task again; `board link` restores it with its original role.
 From a repository checkout run `pnpm install`, then `pnpm --filter @spur-board/web build`.
 `pnpm package:build` also builds and assembles the UI into the CLI package after its clean
 build. The installed assets include local fonts and their OFL license. Dark is the initial
-fallback; the footer offers Light, Dark and Auto, remembers the preference when browser storage
+fallback; the status bar theme menu offers Light, Dark and Auto, remembers the preference when browser storage
 is available, and Auto follows the system appearance.
 
 With `web.port` and `web.publicOrigin` configured, the daemon serves the packaged SPA and local
@@ -274,5 +274,5 @@ assets on its separate loopback web listener. A “UI is not built” 503 means 
 building/packaging; restart the daemon after rebuilding because it loads assets at startup.
 `pnpm package:smoke` verifies installed `GET /` and a referenced asset on an isolated listener.
 The shell gets live updates from `GET /v1/events` on the same listener; behind a reverse proxy,
-turn response buffering off for that path and keep the read timeout above 15 seconds. The footer shows the daemon version from
+turn response buffering off for that path and keep the read timeout above 15 seconds. The status bar shows the daemon version from
 `status.get` `daemon.version` and stays empty until the first status read.
