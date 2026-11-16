@@ -20,6 +20,12 @@
   padding: 0 var(--space-4);
   gap: var(--space-3);
 }
+/* A tab stretched to the header starts one ring below the surface edge, so its outward ring
+   stays on screen when the modal sits at the top of the viewport; its underline still meets
+   the header border. Title and Close stay centred in the full header. */
+.actions {
+  padding-top: calc(var(--width-ring) + var(--offset-ring));
+}
 /* The top padding keeps the ring of the first focusable child inside the scrolling body. */
 .body {
   padding: calc(var(--width-ring) + var(--offset-ring)) var(--space-4) var(--space-4);

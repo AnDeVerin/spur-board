@@ -144,7 +144,13 @@ export function Layer({
   onClose,
   children,
 }: {
-  classNames: { root?: string; surface?: string; header?: string; body?: string };
+  classNames: {
+    root?: string;
+    surface?: string;
+    header?: string;
+    actions?: string;
+    body?: string;
+  };
   side?: string | undefined;
   icon?: IconName | undefined;
   title: ReactNode;
@@ -199,7 +205,9 @@ export function Layer({
             {title}
           </span>
           {detail !== undefined && <span className={styles.detail}>{detail}</span>}
-          {actions !== undefined && <span className={styles.actions}>{actions}</span>}
+          {actions !== undefined && (
+            <span className={join(styles.actions, classNames.actions)}>{actions}</span>
+          )}
           <span ref={close} className={styles.close}>
             <IconButton
               icon="x"

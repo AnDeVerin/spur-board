@@ -19,8 +19,8 @@ export function Default() {
       <div
         style={{
           position: 'relative',
-          width: 'var(--size-panel)',
-          maxWidth: '100%',
+          justifySelf: 'stretch',
+          maxWidth: 'var(--size-panel)',
           padding: 'var(--space-4)',
           boxSizing: 'border-box',
           border: 'var(--size-hairline) solid var(--color-border-default)',

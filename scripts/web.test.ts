@@ -144,6 +144,12 @@ describe('web design assets and policy', () => {
         expect(rule).toContain('background: var(--color-row-hover);');
     },
   );
+  it('Modal insets its header actions by one ring so a stretched tab ring stays on screen', () => {
+    const css = read('src/ds/Modal/Modal.module.css');
+    const rule = css.split('\n.actions {')[1]?.split('}')[0];
+    expect(rule).toBeDefined();
+    expect(rule).toContain('padding-top: calc(var(--width-ring) + var(--offset-ring));');
+  });
   it('unlistedMediaWidths reports widths outside the list', () => {
     const allowed = ['(max-width: 760px)'];
     for (const ok of [
