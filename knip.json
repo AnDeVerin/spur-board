@@ -5,9 +5,14 @@
   "ignoreBinaries": ["flock", "systemd-notify", "systemd-analyze"],
   "workspaces": {
     "packages/web": {
-      "entry": ["test/**/*.test.ts"],
-      "project": ["src/**/*.{ts,tsx}", "test/**/*.ts"],
-      "ignoreFiles": ["src/ds/index.ts"]
+      "entry": [
+        "test/**/*.test.ts",
+        "src/ds/index.ts",
+        "src/ds/*/*.examples.tsx",
+        "gallery/main.tsx",
+        "kit/entry.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.ts", "gallery/**/*.{ts,tsx}", "kit/**/*.ts"]
     }
   }
 }

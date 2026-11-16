@@ -35,7 +35,8 @@
     "update:smoke": "node scripts/update-smoke.ts",
     "prepare": "node scripts/hooks.ts install",
     "typecheck": "tsc --noEmit -p . && pnpm -r typecheck",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ds:build": "pnpm --filter @spur-board/web ds:build"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "catalog:",
