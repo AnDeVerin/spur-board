@@ -13,6 +13,8 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 - Screen components (task card, task panel) live outside `ds/` and are built from it.
 - Prototypes mount the same components from the kit as `DS.<Name>`; layout and rules:
   `design/README.md`.
+- Building a screen from a prototype: `prototype` skill; prototype vs `ds/` differences and reason
+  codes: `docs/design-system-decisions.md`.
 
 ## Component rules
 

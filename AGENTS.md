@@ -54,7 +54,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   `testing-and-ci`.
 - `design/` - screen prototypes, never built into the app or packed: `prototypes/<slice>/` mounts
   design system components from the git-ignored kit that `pnpm ds:build` writes; layout and rules
-  in `design/README.md`, a minimal slice in `design/prototypes/_sample/`.
+  in `design/README.md`, a minimal slice in `design/prototypes/_sample/`; building a screen from
+  one: skill `prototype`, decisions in `docs/design-system-decisions.md`.
 - A PR that adds a package or a root script updates this map. Adding a package, a dependency
   or a cross-package import: skill `working-in-the-monorepo`.
 
@@ -85,6 +86,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   `agents` step of `pnpm check`, pre-push and `check:full` runs it.
 - `pnpm ds:build` - build the design system kit (script, stylesheet, gallery, compiled prototypes
   and build info) into the git-ignored kit folder under design/; see `design/README.md`.
+- `pnpm ds:nearest '<hex>' ['<light hex>'] | <n>px` - nearest design token per theme and an
+  in/out verdict; thresholds and reason codes in `docs/design-system-decisions.md`.
 - `pnpm package:build` - build the web shell, bundle the CLI and daemon, then copy the binary,
   migrations and web assets.
 - `pnpm package:pack [directory]` - build, pack, and validate the npm tarball.
@@ -147,6 +150,7 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
 | [handling-errors](.agents/skills/handling-errors/SKILL.md) | skill | Rules for errors - Result vs throw, retries, the ERRORS catalog, hints, exit codes, boundary catches, one shape over HTTP, CLI and MCP |
 | [manager](.agents/skills/manager/SKILL.md) | skill | Run a GitHub issue through tiered gates of role agents - plan, spec check, one Clarify round, implement, review, PR, close-out |
 | [pr-comments-fix](.agents/skills/pr-comments-fix/SKILL.md) | skill | Answer feedback on your own PR - collect unresolved review threads and new comments, fix or reply with a reason, push once, sign each post |
+| [prototype](.agents/skills/prototype/SKILL.md) | skill | Build a screen from a prototype in design/prototypes/ - read and run it, map its parts to the design system, place proposed values, fill the Design System decisions PR section |
 | [qa-report](.agents/skills/qa-report/SKILL.md) | skill | Plan, evidence and outcome of a QA round - the qa/<task>/<sha8>/r<N>/ layout, the report and what goes to the live board on pass or fail |
 | [qa-seed](.agents/skills/qa-seed/SKILL.md) | skill | Put a stand into a known state - scenarios, fakes, the stand clock, wait, poll, reset and the violation log |
 | [qa-stand](.agents/skills/qa-stand/SKILL.md) | skill | Run a disposable board stand for QA - up, down, status, logs, roles, refusals, cleanup; reached only by pnpm stand board\|mcp and its webUrl |
