@@ -58,16 +58,17 @@ running daemon, empty until the first status read.
 A service button shows a dot coloured from the service's health row in `status.get`: green
 healthy, amber degraded, red failing. Its name reads `<service>: <word>`:
 
-- daemon: `running`, `stalled` after 120 seconds without a completed tick, or
-  `no answer since <time>` when the UI cannot read it.
+- daemon: `running`, `stalled` after 120 seconds without a completed tick,
+  `no answer since <time>` when the UI cannot read it, or `no answer` when the very first read
+  fails.
 - slack: `up` or `down`.
 - github, spur and jira: `polling` when healthy. GitHub covers the pull request and issue
   sources of every repository and takes its worst source. Otherwise the word is that of the
   first source, in status order, whose own state has the service's colour: `blind: <reason>`,
   `never completed`, `warming up` or `stale`. Else it is `waits for rate budget`: a GitHub
   budget fell to the configured reserve; hover for the reason.
-- `unknown`, with a hollow dot, for a service with no health row, for all before the first
-  status read, and for all but the daemon while the daemon does not answer.
+- `unknown`, with a hollow dot, for a service with no health row, for all while the first
+  status read is pending, and for all but the daemon while the daemon does not answer.
 
 The bar follows each `status` message of the event stream, about every 30 seconds, and makes
 no reads of its own.
