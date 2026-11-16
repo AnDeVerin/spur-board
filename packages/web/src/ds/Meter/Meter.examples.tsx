@@ -16,7 +16,7 @@ function Keyed({ name, children }: { name: string; children: ReactNode }) {
         width: 'var(--size-column)',
       }}
     >
-      <span style={{ color: 'var(--color-text-secondary)' }}>{name}</span>
+      <span style={{ flex: 'none', color: 'var(--color-text-secondary)' }}>{name}</span>
       {children}
     </div>
   );

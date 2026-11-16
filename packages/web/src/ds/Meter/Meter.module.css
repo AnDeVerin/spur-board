@@ -1,7 +1,9 @@
-/* The ok fill is neutral; a status colour shows only next to its visible word. */
+/* The ok fill is neutral; a status colour shows only next to its visible word. The label drops
+   under the track when the line runs out of room. */
 .root {
   --meter-colour: var(--color-text-secondary);
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1-5);
   flex: 1 1 var(--size-meter);

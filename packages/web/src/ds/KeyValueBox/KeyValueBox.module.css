@@ -22,14 +22,16 @@
   padding: var(--space-1-5) var(--space-2-5);
   min-height: var(--size-control);
 }
-/* Keys and values wrap: long text takes free width and never overflows the box. */
+/* A key breaks only at spaces, so the value takes the squeeze. The cap bounds the key's
+   minimum, so a key word wider than the cap breaks and nothing overflows the box. */
 .key {
   flex: 1 1 auto;
-  min-width: 0;
-  overflow-wrap: anywhere;
+  max-width: 75%;
+  overflow-wrap: break-word;
   color: var(--color-text-secondary);
 }
 .value {
+  margin-left: auto;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
