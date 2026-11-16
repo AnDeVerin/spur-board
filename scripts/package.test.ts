@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, inject, it } from 'vitest';
+import type {} from '../packages/testkit/src/global-setup.ts';
 import { assembleSkills, assembleWeb, verifyWebAssets, validateTarball } from './package.ts';
 
 const manifest = {
@@ -141,7 +142,7 @@ describe('web assembly', () => {
     const target = join(root, 'target');
     mkdirSync(target);
     writeFileSync(join(target, 'stale.js'), 'old');
-    assembleWeb(join(import.meta.dirname, '../packages/web/dist'), target, join(root, 'OFL.txt'));
+    assembleWeb(inject('webAssetsRoot'), target, join(root, 'OFL.txt'));
     expect(existsSync(join(target, 'stale.js'))).toBe(false);
     expect(() => {
       verifyWebAssets(target, join(root, 'OFL.txt'));

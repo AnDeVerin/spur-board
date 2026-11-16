@@ -48,7 +48,13 @@ changes go in new commits; never force-push a pushed branch.
 
 Build the private React/Vite package with `pnpm --filter @spur-board/web build`; typecheck with
 `pnpm --filter @spur-board/web typecheck`. Unit tests run through the root Vitest unit project:
-`pnpm exec vitest run --project unit packages/web/test scripts/web.test.ts` (build first).
+`pnpm exec vitest run --project unit packages/web/test scripts/web.test.ts`.
+The shared Vitest root setup builds fresh web assets once before any selected project's workers
+start, into the run's temporary harness directory. Asset tests consume that provided directory;
+they neither require nor clean `packages/web/dist`. This applies to direct Vitest, local checks,
+pre-push, CI and mutation runs. Existing workflow builds remain explicit build coverage; test
+preparation independently rebuilds fresh assets for isolation. A standalone build is still
+needed for serving or assembling output outside tests.
 Components use CSS Modules and custom properties from `packages/web/src/ds/tokens.css`; the
 empty `ds/index.ts` is reserved for the design system. Keep prototype token names and values.
 Raw hex/RGB literals outside the token file fail the style policy test. Primary, secondary and

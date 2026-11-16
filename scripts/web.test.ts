@@ -1,10 +1,12 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, inject, it } from 'vitest';
+import type {} from '../packages/testkit/src/global-setup.ts';
 import { createShellQaServer, shellFixture, shellScenarios } from './web-shell-qa.ts';
 import { statusOutputSchema } from '../packages/contracts/src/browser.ts';
 
 const root = join(import.meta.dirname, '../packages/web');
+const webAssetsRoot = inject('webAssetsRoot');
 const read = (file: string) => readFileSync(join(root, file), 'utf8');
 const tokens = read('src/ds/tokens.css');
 function declarations(block: string): Record<string, string> {
@@ -69,10 +71,10 @@ describe('web design assets and policy', () => {
       expect(rawColor(read(`src/${file}`)), file).toBe(false);
   });
   it('ships only local hashed fonts with the original bytes and license', () => {
-    const assets = readdirSync(join(root, 'dist/assets'));
+    const assets = readdirSync(join(webAssetsRoot, 'assets'));
     const css = assets
       .filter((file) => file.endsWith('.css'))
-      .map((file) => read(`dist/assets/${file}`))
+      .map((file) => readFileSync(join(webAssetsRoot, 'assets', file), 'utf8'))
       .join('\n');
     expect(css).not.toMatch(/https?:|fonts\.google/i);
     for (const weight of ['Regular', 'Medium', 'Bold']) {
@@ -81,7 +83,7 @@ describe('web design assets and policy', () => {
       );
       expect(font).toBeDefined();
       expect(css).toContain(font);
-      expect(readFileSync(join(root, 'dist/assets', font ?? 'missing'))).toEqual(
+      expect(readFileSync(join(webAssetsRoot, 'assets', font ?? 'missing'))).toEqual(
         readFileSync(
           join(
             import.meta.dirname,
@@ -96,7 +98,7 @@ describe('web design assets and policy', () => {
         'utf8',
       ).replace(/[ \t]+$/gm, ''),
     );
-    expect(existsSync(join(root, 'dist/index.html'))).toBe(true);
+    expect(existsSync(join(webAssetsRoot, 'index.html'))).toBe(true);
   });
 });
 describe('shell QA scenarios', () => {
@@ -114,7 +116,7 @@ describe('shell QA scenarios', () => {
 });
 
 it('serves built assets and controlled status/error/recovery fixtures on loopback', async () => {
-  const server = createShellQaServer();
+  const server = createShellQaServer(webAssetsRoot);
   await new Promise<void>((resolve) => {
     server.listen(0, '127.0.0.1', resolve);
   });
