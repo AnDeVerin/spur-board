@@ -30,14 +30,15 @@ function checkDesignSystem(
     if (name && node.specifiers.some((specifier) => specifier.exportKind !== 'type'))
       folders.add(name);
   }
-  for (const name of [...folders].sort()) {
+  const sorted = [...folders].sort();
+  for (const name of sorted) {
     const base = `../src/ds/${name}/${name}`;
     if (!paths.includes(`${base}.examples.tsx`)) problems.push(`${name}: missing examples`);
     else if (Object.keys(modules[`${base}.examples.tsx`] ?? {}).length === 0)
       problems.push(`${name}: no examples`);
     if (!paths.includes(`${base}.module.css`)) problems.push(`${name}: missing css`);
   }
-  return { problems, folders: [...folders].sort() };
+  return { problems, folders: sorted };
 }
 
 describe('design system examples rule', () => {

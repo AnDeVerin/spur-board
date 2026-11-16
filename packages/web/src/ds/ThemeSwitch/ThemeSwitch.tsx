@@ -64,10 +64,7 @@ export function ThemeSwitch({
       event.preventDefault();
       close();
     }
-    if (event.key === 'Tab') {
-      trigger.current?.focus();
-      setOpen(false);
-    }
+    if (event.key === 'Tab') close();
   };
   return (
     <div className={styles.root} ref={root}>
