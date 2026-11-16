@@ -32,3 +32,6 @@ pnpm-debug.log*
 # Local agent scratch space
 .scratch/
 .gstack/
+
+# Design system kit output (pnpm ds:build)
+design/kit/
