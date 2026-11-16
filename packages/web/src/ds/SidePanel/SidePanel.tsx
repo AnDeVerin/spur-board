@@ -14,8 +14,9 @@ export type SidePanelSide = 'right' | 'left';
  * focus returns to the element that opened it.
  *
  * `icon` and `title` lead the header and `title` labels the dialog; `detail` is a secondary
- * label beside it. A `Modal` may open from inside the panel; a panel opened over an open
- * `Modal` is unsupported.
+ * label beside it. A `Modal` may open from inside the panel, also in the same render as the
+ * panel; the modal is the top layer either way. A panel opened over an open `Modal` is
+ * unsupported: it stacks under the modal.
  */
 export function SidePanel({
   open,
@@ -37,6 +38,7 @@ export function SidePanel({
   if (!open) return null;
   return (
     <Layer
+      level="panel"
       classNames={styles}
       side={side}
       icon={icon}

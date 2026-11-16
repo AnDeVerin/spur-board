@@ -15,7 +15,9 @@ import styles from './Modal.module.css';
  * the title and detail ellipsize first; content wider than about 200px pushes the title to
  * nothing.
  *
- * A modal may open over a `SidePanel`; a `SidePanel` opened over an open modal is unsupported.
+ * A modal may open over a `SidePanel`, also in the same render as a panel it is nested in (a deep
+ * link): it is the top layer either way. A `SidePanel` opened over an open modal is unsupported:
+ * it stacks under the modal.
  */
 export function Modal({
   open,
@@ -34,7 +36,14 @@ export function Modal({
 }) {
   if (!open) return null;
   return (
-    <Layer classNames={styles} title={title} detail={detail} actions={actions} onClose={onClose}>
+    <Layer
+      level="modal"
+      classNames={styles}
+      title={title}
+      detail={detail}
+      actions={actions}
+      onClose={onClose}
+    >
       {children}
     </Layer>
   );

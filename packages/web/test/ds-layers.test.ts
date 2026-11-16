@@ -1,5 +1,13 @@
 // @vitest-environment happy-dom
-import { act, createElement, StrictMode, type ComponentType, type ReactNode } from 'react';
+import {
+  act,
+  createElement,
+  Fragment,
+  StrictMode,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Modal, SidePanel } from '../src/ds/index.ts';
@@ -258,6 +266,81 @@ describe('Modal and SidePanel', () => {
       press(opener);
       key('Escape');
       expect(document.activeElement).toBe(opener);
+    });
+
+    // The inbox panel and the task modal, opened one after the other or both in one commit (a deep
+    // link), with the modal nested in the panel or rendered as its sibling before it.
+    function Stack({ nested }: { nested: boolean }) {
+      const [shown, setShown] = useState({ inbox: false, task: false });
+      // Each handler is one state update: "Open both" mounts both layers in one commit.
+      const set = (change: Partial<typeof shown>) => () => {
+        setShown((now) => ({ ...now, ...change }));
+      };
+      const modal = createElement(Modal, {
+        open: shown.task,
+        onClose: set({ task: false }),
+        title: 'Task',
+        children: 'Body',
+      });
+      return createElement(
+        'div',
+        null,
+        createElement('button', { onClick: set({ inbox: true }) }, 'Open inbox'),
+        createElement('button', { onClick: set({ inbox: true, task: true }) }, 'Open both'),
+        nested ? null : modal,
+        createElement(SidePanel, {
+          open: shown.inbox,
+          onClose: set({ inbox: false }),
+          title: 'Inbox',
+          children: createElement(
+            Fragment,
+            null,
+            createElement('button', { onClick: set({ task: true }) }, 'Open task'),
+            nested ? modal : null,
+          ),
+        }),
+      );
+    }
+    const titleOf = (dialog: Element | null) =>
+      document.getElementById(dialog?.getAttribute('aria-labelledby') ?? '')?.textContent ?? '';
+    const where = () => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || active === document.body) return 'body';
+      const dialog = active.closest<HTMLElement>('[role="dialog"]');
+      const name = active.getAttribute('aria-label') ?? active.textContent;
+      return dialog ? `${titleOf(dialog)} ${name}` : name;
+    };
+    const inert = () =>
+      [...document.body.children]
+        .filter((element) => element.hasAttribute('inert'))
+        .map((element) => element.id || titleOf(element.querySelector('[role="dialog"]')))
+        .sort();
+    const open = () => dialogs().map(titleOf).sort();
+
+    type Case = { name: string; clicks: string[]; nested?: boolean; strict?: boolean };
+    const apart = ['Task Close', 'Inbox Open task', 'Open inbox'];
+    const together = ['Task Close', 'Inbox Close', 'Open both'];
+    const both = ['Open both'];
+    it.each<Case & { focus: string[] }>([
+      { name: 'panel, then its modal', clicks: ['Open inbox', 'Open task'], focus: apart },
+      { name: 'panel and nested modal in one commit', clicks: both, focus: together },
+      { name: 'the same under StrictMode', clicks: both, strict: true, focus: together },
+      { name: 'sibling modal first, one commit', clicks: both, nested: false, focus: together },
+    ])('stacks layers in visual order: $name', ({ clicks, nested = true, strict, focus }) => {
+      const stack = createElement(Stack, { nested });
+      render(strict ? createElement(StrictMode, null, stack) : stack);
+      for (const name of clicks) press(button(name));
+      // The modal is on top (page and panel inert); each Escape closes the top layer.
+      const after = [
+        { open: ['Inbox', 'Task'], inert: ['Inbox', 'root'] },
+        { open: ['Inbox'], inert: ['root'] },
+        { open: [], inert: [] },
+      ];
+      for (const [step, expected] of after.entries()) {
+        if (step > 0) key('Escape');
+        const seen = { open: open(), inert: inert(), focus: where() };
+        expect(seen).toEqual({ ...expected, focus: focus[step] });
+      }
     });
 
     it('leaves focus on the top layer when a lower layer closes', () => {
