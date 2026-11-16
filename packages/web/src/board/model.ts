@@ -63,13 +63,12 @@ function formatDataTime(ms: number): string {
   )}/${pad(date.getUTCFullYear() % 100)}`;
 }
 
+/** An error banner offers Retry now. */
 interface BoardBanner {
   variant: BannerVariant;
   icon: IconName;
   text: string;
   detail?: string;
-  /** The banner offers Retry now. */
-  retry: boolean;
 }
 
 const sourceName = (source: BoardSource) => (source.source === 'spur' ? 'Spur' : source.source);
@@ -93,7 +92,6 @@ function blindBanner(sources: readonly BoardSource[]): BoardBanner | undefined {
         first.source === 'spur'
           ? 'Session states may be out of date.'
           : 'Its facts may be out of date.',
-      retry: false,
     };
   const times = blind.flatMap((source) =>
     source.lastCompleteAt === null ? [] : [Date.parse(source.lastCompleteAt)],
@@ -106,7 +104,6 @@ function blindBanner(sources: readonly BoardSource[]): BoardBanner | undefined {
       times.length === 0
         ? 'None has completed a poll.'
         : `The oldest answer is from ${formatDataTime(Math.min(...times))}.`,
-    retry: false,
   };
 }
 
@@ -127,16 +124,9 @@ export function banners(snapshot: BoardSnapshot): BoardBanner[] {
       icon: 'x',
       text: 'The board daemon does not answer.',
       detail: `${data} Answers and comments cannot be sent.`,
-      retry: true,
     });
   else if (snapshot.stream === 'offline')
-    list.push({
-      variant: 'error',
-      icon: 'x',
-      text: 'Live updates are lost.',
-      detail: data,
-      retry: true,
-    });
+    list.push({ variant: 'error', icon: 'x', text: 'Live updates are lost.', detail: data });
   const blind = blindBanner(snapshot.status?.sources ?? []);
   if (blind) list.push(blind);
   if (chosenProject(snapshot)?.dispatcher.mode === 'shadow')
@@ -144,7 +134,6 @@ export function banners(snapshot: BoardSnapshot): BoardBanner[] {
       variant: 'info',
       icon: 'shadow',
       text: 'Shadow mode: the board computes columns and turns but does not act.',
-      retry: false,
     });
   return list;
 }

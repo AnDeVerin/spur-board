@@ -68,19 +68,16 @@ function Column({
         <h2 className={classes(styles.label, styles.spineName)}>{column.id}</h2>
       </section>
     );
-  const head = (
-    <div className={classes(styles.head, quiet)}>
-      <div className={styles.name}>
-        <h2 className={styles.label}>{column.id}</h2>
-        <span className={styles.count}>{column.rows.length}</span>
+  return (
+    <section className={styles.column} data-stale={stale ? '' : undefined}>
+      <div className={classes(styles.head, quiet)}>
+        <div className={styles.name}>
+          <h2 className={styles.label}>{column.id}</h2>
+          <span className={styles.count}>{column.rows.length}</span>
+        </div>
+        <div className={styles.exec}>{column.executor}</div>
       </div>
-      <div className={styles.exec}>{column.executor}</div>
-    </div>
-  );
-  if (column.id === 'done')
-    return (
-      <section className={styles.column} data-stale={stale ? '' : undefined}>
-        {head}
+      {column.id === 'done' ? (
         <ul className={classes(styles.body, styles.done, quiet)}>
           {column.rows.map((row) => (
             <li key={row.key}>
@@ -94,19 +91,16 @@ function Column({
             </li>
           ))}
         </ul>
-      </section>
-    );
-  return (
-    <section className={styles.column} data-stale={stale ? '' : undefined}>
-      {head}
-      <div className={styles.body}>
-        {column.rows.map((row) => (
-          <TaskLink key={row.key} row={row} filter={filter} className={styles.card}>
-            <span className={styles.key}>{shortKey(row.key)}</span>
-            {row.ticket && <span className={styles.title}>{row.ticket.title}</span>}
-          </TaskLink>
-        ))}
-      </div>
+      ) : (
+        <div className={styles.body}>
+          {column.rows.map((row) => (
+            <TaskLink key={row.key} row={row} filter={filter} className={styles.card}>
+              <span className={styles.key}>{shortKey(row.key)}</span>
+              {row.ticket && <span className={styles.title}>{row.ticket.title}</span>}
+            </TaskLink>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

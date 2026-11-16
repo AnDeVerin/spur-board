@@ -47,7 +47,7 @@ export function Board({ data }: { data: BoardData }) {
               icon={banner.icon}
               detail={banner.detail}
               action={
-                banner.retry ? (
+                banner.variant === 'error' ? (
                   <Button
                     busy={snapshot.retrying}
                     onClick={() => {
