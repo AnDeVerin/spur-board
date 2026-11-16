@@ -37,7 +37,8 @@ Six passes on the spec, no mockups:
    `packages/web/src/ds/index.ts` or has a `screen-local` row. Flag copied prototype markup or CSS:
    `proto.css` class names, `proposed-` or `data-proposed`, imports from `design/`. A visible
    difference with no row in the decisions section, or a row with an invalid reason code, is
-   MUST FIX. The containers the README names carry the `quiet` class.
+   MUST FIX. The containers the handoff names from the issue, and any the slice README names,
+   carry the `quiet` class.
 
 ## Output
 ```

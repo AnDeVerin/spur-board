@@ -42,8 +42,9 @@ prototype state next to the built screen, in both themes, and give each pair a v
 
 - For each state, take a prototype and a build screenshot at the same viewport and theme.
 - Wide: 1440x900, dark and light.
-- Narrow: 390x844, dark and light, for each modal or side-panel state, i.e. each state whose URL
-  has `open=`.
+- Narrow: 390x844, dark and light, for each state that renders a modal or a side panel. Judge by
+  what the prototype shows, not by the URL: board-v1 `/?state=block-failed` opens a task without
+  `open=`. The plan lists the narrow states.
 - Theme: the prototype gets `theme=<theme>` in its URL; the build switches with the shell's theme
   switch.
 

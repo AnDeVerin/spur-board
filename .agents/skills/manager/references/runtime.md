@@ -38,7 +38,7 @@ Every spawn gets, and only gets:
 - `designer` code only: the changed files from `git diff --name-only <sha>...HEAD`, the
   screenshots the run already has and the step 11 report path and screenshot names; for an issue
   naming `design/prototypes/<slice>/`, also the prototype folder, the listed states, the quiet
-  containers the README names and the decisions section the `developer` returned;
+  containers the issue names and the decisions section the `developer` returned;
 - `tester` on a UI change whose issue names `design/prototypes/<slice>/`: the prototype folder,
   the listed states and the decisions section;
 - `tester` and `doc-reviewer`: `Head: <sha>`, from `git rev-parse HEAD` run right before each
