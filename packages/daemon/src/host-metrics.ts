@@ -112,19 +112,13 @@ export function createHostSampler(options: {
     const cpu = attempt('cpu', () => probe.cpuTimes());
     const before = previousCpu;
     previousCpu = cpu ?? undefined;
-    const elapsed = cpu === null || before === undefined ? 0 : cpu.total - before.total;
     const cpuPercent =
-      cpu === null || before === undefined || elapsed <= 0
+      cpu === null || before === undefined || cpu.total <= before.total
         ? null
-        : percent(100 * (1 - (cpu.idle - before.idle) / elapsed));
+        : percent(100 * (1 - (cpu.idle - before.idle) / (cpu.total - before.total)));
     const mem = attempt('memory', () => probe.memory());
-    let pending: ReturnType<HostProbe['disk']>;
-    try {
-      pending = probe.disk();
-    } catch (err) {
-      pending = Promise.reject(err instanceof Error ? err : new Error(String(err)));
-    }
-    const read = await untilAborted(pending, signal);
+    // The async wrapper turns a probe that throws synchronously into a rejected read.
+    const read = await untilAborted((async () => probe.disk())(), signal);
     if (read === ABORTED) return;
     if ('error' in read) failed('disk', read.error);
     const fs = 'value' in read ? read.value : null;

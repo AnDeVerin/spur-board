@@ -121,7 +121,6 @@ export async function getStatus(
   } = {},
 ) {
   const { store, config, clock, completeSince, gateways = [] } = deps;
-  const healthySince = deps.healthySince ?? new Map<string, string>();
   const daemon = deps.daemon ?? {
     version: 'unknown',
     startedAt: new Date(clock.now()).toISOString(),
@@ -413,7 +412,7 @@ export async function getStatus(
         last === null ||
         clock.now() - Date.parse(last) >
           config.thresholds.staleMultiplier * interval(config, source),
-      healthySince: healthySince.get(source) ?? null,
+      healthySince: deps.healthySince?.get(source) ?? null,
       // `lastCompleteAt` is persisted across restarts; `completeSince` holds only polls since
       // this process started, so a source warms up until its first complete poll after a restart.
       warmingUp: !completeSince.has(source),

@@ -170,7 +170,7 @@ export function createOperationRegistry(deps: {
           gateways,
           daemon: { version: productVersion, startedAt, lastDispatchAt: lastDispatchAt() },
           healthySince: deps.healthySince,
-          host: deps.hostMetrics?.() ?? null,
+          host: deps.hostMetrics?.(),
         },
         {
           project: input.project,
