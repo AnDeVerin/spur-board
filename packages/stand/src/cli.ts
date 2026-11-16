@@ -43,7 +43,13 @@ import {
 } from './roles.ts';
 import { foregroundStop } from './foreground.ts';
 import { scenarioNames } from './scenarios/index.ts';
-import { pickWebPort, startStand, WAIT_CONDITIONS } from './stand.ts';
+import {
+  pickWebPort,
+  retryWebPort,
+  startStand,
+  WAIT_CONDITIONS,
+  WebPortTakenError,
+} from './stand.ts';
 
 const SELF = fileURLToPath(import.meta.url);
 // Read as soon as this module runs: a parent that exits while the stand starts must still stop
@@ -59,6 +65,8 @@ const WAIT_MAX_S = 600;
 const FAKE_TIMEOUT_MS = 10_000;
 const DEFAULT_FAKE_REPO = 'stand-org/board';
 const JIRA_KEY = /^[A-Z][A-Z0-9_]*-[1-9]\d*$/;
+/** A detached child's exit when its web port was taken; its `up` then picks another (EX_TEMPFAIL). */
+const WEB_PORT_TAKEN_EXIT = 75;
 
 const USAGE = `Usage: pnpm stand <command>
 
@@ -66,8 +74,9 @@ const USAGE = `Usage: pnpm stand <command>
                                   start a stand, seeded with scenario S when given. The API port
                                   is 0 or a port from the live stand.portRange (default 0). When
                                   the live web.publicOrigin has {port}, the web port comes from
-                                  that range, by default the first free one, and up prints the
-                                  webUrl. In the foreground it stops with its parent; a launcher
+                                  that range, by default the first free one (the next one when
+                                  another stand binds it first), and up prints the webUrl. In
+                                  the foreground it stops with its parent; a launcher
                                   that may exit first passes itself:
                                   pnpm stand up --foreground --watch-pid $$
   down                            stop the stand and remove its home
@@ -347,24 +356,45 @@ async function upForeground(options: {
     process.on(signal, stopper.request);
   stopper.checkParent();
   if (!options.detached) setInterval(stopper.checkParent, PARENT_CHECK_MS).unref();
-  const result = await Promise.race([
+  // Installed once; a start that retries on another web port replaces the handler.
+  let fatal: ((err: unknown) => void) | undefined;
+  const start = (port: number | undefined) =>
     startStand({
       root: root(),
       home: options.home,
       port: options.port,
-      webPort,
+      webPort: port,
       scenario: options.scenario,
       env,
       execArgv,
       osHome: homedir(),
       registerFatal: (handler) => {
-        const fatal = stopper.fatal(handler);
-        process.on('uncaughtException', fatal);
-        process.on('unhandledRejection', fatal);
+        if (fatal === undefined) {
+          const onFatal = (err: unknown): void => {
+            fatal?.(err);
+          };
+          process.on('uncaughtException', onFatal);
+          process.on('unhandledRejection', onFatal);
+        }
+        fatal = stopper.fatal(handler);
       },
-    }),
-    stopper.expired,
-  ]);
+    });
+  // Only a port this process picked moves; a failed start keeps a passed home, so it cannot retry.
+  const starting =
+    options.webPort === undefined && webPort !== undefined && options.home === undefined
+      ? retryWebPort({ port: options.port, env, osHome: homedir() }, webPort, start)
+      : start(webPort);
+  let result: Awaited<typeof starting> | number;
+  try {
+    result = await Promise.race([starting, stopper.expired]);
+  } catch (error) {
+    // The `up` that spawned this child picked the port; this exit tells it to pick another.
+    if (options.detached && error instanceof WebPortTakenError) {
+      err(`${error.message}\n`);
+      return WEB_PORT_TAKEN_EXIT;
+    }
+    throw error;
+  }
   if (typeof result === 'number') return result;
   out(`${JSON.stringify(publicView(result.manifest()))}\n`);
   return stopper.attach(result);
@@ -385,8 +415,26 @@ async function up(
   });
   if (refused !== undefined) throw new StandRefusedError(refused);
   const webPort = requestedWebPort ?? (await defaultWebPort(port, process.env));
-  const liveHome = process.env['BOARD_HOME'] ?? '';
   pruneDead();
+  const spawnOn = (web: number | undefined): Promise<number> =>
+    spawnStand(dir, port, web, scenario);
+  // Only a port `up` picked moves to the next free one; a requested port that is taken fails.
+  return requestedWebPort === undefined && webPort !== undefined
+    ? retryWebPort({ port, env: process.env, osHome: homedir() }, webPort, spawnOn)
+    : spawnOn(webPort);
+}
+
+/**
+ * Spawns the detached stand on a new home and waits for its manifest. Throws `WebPortTakenError`
+ * when the child found `webPort` taken; any other failed start prints the log and returns 1.
+ */
+async function spawnStand(
+  dir: string,
+  port: number,
+  webPort: number | undefined,
+  scenario: string | undefined,
+): Promise<number> {
+  const liveHome = process.env['BOARD_HOME'] ?? '';
   const home = mkdtempSync(join(dir, STAND_PREFIX));
   mkdirSync(join(home, 'logs'), { mode: 0o700 });
   const logFile = join(home, 'logs', 'stand.log');
@@ -409,10 +457,13 @@ async function up(
     { detached: true, env: standEnv(process.env), stdio: ['ignore', log, log] },
   );
   let exitSeen = false;
+  let exitCode: number | null = null;
   // A function, so each check after an await reads the flag anew.
   const exited = (): boolean => exitSeen;
+  const exitedWith = (): number | null => exitCode;
   const exit = new Promise<void>((resolve) => {
-    child.once('exit', () => {
+    child.once('exit', (code) => {
+      exitCode = code;
       exitSeen = true;
       resolve();
     });
@@ -426,6 +477,11 @@ async function up(
       return 0;
     }
     await sleep(100);
+  }
+  // The child exited on its own here, so its home can go at once.
+  if (webPort !== undefined && exitedWith() === WEB_PORT_TAKEN_EXIT) {
+    if (isStandDir(home, dir)) rmSync(home, { recursive: true, force: true });
+    throw new WebPortTakenError(webPort);
   }
   err(`The stand did not start${exited() ? '' : ' in time'}. Log:\n`);
   err(`${readFileSync(logFile, 'utf8').split('\n').slice(-30).join('\n')}\n`);

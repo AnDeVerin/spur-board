@@ -96,5 +96,7 @@ A stand serves the web UI from `packages/web/dist` of the checkout it runs from.
 - The stand reads the UI files when it starts: after a rebuild, run `pnpm stand reset`.
 - `pnpm stand up` prints `webUrl` when the live board's `web.publicOrigin` has `{port}`, e.g.
   `https://{port}.<domain>`. The stand fills `{port}` with its own web port from the live
-  `stand.portRange`. Without such a template `up` says so on stderr and the stand runs API-only.
+  `stand.portRange`: the first free one, or the next free one when a concurrent stand binds it
+  first. A `--web-port` you pass is never moved: when it is taken, `up` fails. Without such a
+  template `up` says so on stderr and the stand runs API-only.
 - Open only that `webUrl` in the browser; never the live board's web address.

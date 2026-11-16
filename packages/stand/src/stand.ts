@@ -341,6 +341,8 @@ export interface StandOptions {
   webPort?: number | undefined;
   /** Replaces `WEB_DIST` as the web listener's root; a test seam. */
   webRoot?: string;
+  /** Runs after the start's port checks, before the daemon binds; a test seam. */
+  afterPortCheck?: () => Promise<void>;
   env: Env;
   execArgv?: readonly string[];
   osHome: string;
@@ -436,27 +438,67 @@ async function portFree(port: number): Promise<boolean> {
   }
 }
 
+/** Another process holds the stand web port, at the start's check or at the listener's bind. */
+export class WebPortTakenError extends Error {
+  override name = 'WebPortTakenError';
+  readonly port: number;
+
+  constructor(port: number) {
+    super(
+      `Port ${String(port)} on 127.0.0.1 is in use; the stand web listener cannot take it. Omit --web-port to take a free port from the live stand.portRange.`,
+    );
+    this.port = port;
+  }
+}
+
 /**
  * The stand web port when none was given: the first free port of the live `stand.portRange` that
- * is neither `port` nor a live board port. Undefined when the live `web.publicOrigin` has no
- * `{port}`, so the stand has no web URL; an unreadable live config is a `live_config` refusal.
+ * is neither `port`, a live board port nor in `exclude`. Undefined when the live
+ * `web.publicOrigin` has no `{port}`, so the stand has no web URL; an unreadable live config is a
+ * `live_config` refusal.
  */
 export async function pickWebPort(input: {
   port: number;
   env: Env;
   osHome: string;
+  exclude?: ReadonlySet<number>;
 }): Promise<number | undefined> {
   const live = readLiveBoard(input.env, input.osHome);
   if (!live.ok) throw new StandRefusedError(live.refusal);
   const { http, web, stand } = live.config;
   if (web.publicOrigin?.includes('{port}') !== true) return undefined;
   const range = stand.portRange ?? DEFAULT_STAND_PORT_RANGE;
-  const taken = new Set([input.port, http.port, web.port]);
+  const taken = new Set([input.port, http.port, web.port, ...(input.exclude ?? [])]);
   for (let candidate = range.min; candidate <= range.max; candidate += 1) {
     // One at a time: the first free port wins.
     if (!taken.has(candidate) && (await portFree(candidate))) return candidate;
   }
   throw new Error(`No free stand web port in ${String(range.min)}..${String(range.max)}`);
+}
+
+/**
+ * Starts on `first`, a web port `pickWebPort` chose, and again on the next free range port each
+ * time `start` finds its port taken: the pick only probes, so a concurrent stand can bind the
+ * port first. Every other outcome ends it; so does a range with no untried free port.
+ */
+export async function retryWebPort<T>(
+  input: { port: number; env: Env; osHome: string },
+  first: number,
+  start: (webPort: number) => Promise<T>,
+): Promise<T> {
+  const tried = new Set<number>();
+  let webPort = first;
+  for (;;) {
+    try {
+      return await start(webPort);
+    } catch (err) {
+      if (!(err instanceof WebPortTakenError) || err.port !== webPort) throw err;
+      tried.add(webPort);
+      const next = await pickWebPort({ ...input, exclude: tried });
+      if (next === undefined) throw err;
+      webPort = next;
+    }
+  }
 }
 
 /**
@@ -692,6 +734,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     if (webPort !== undefined && boundWebUrl() === undefined) {
       await daemon.stop();
       await daemon.teardown;
+      // The daemon does not say why; a port someone else holds now is the one a retry can fix.
+      if (!(await portFree(webPort))) throw new WebPortTakenError(webPort);
       throw new Error(
         `The stand web listener did not bind port ${String(webPort)}; see pnpm stand logs`,
       );
@@ -1301,7 +1345,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
 
   try {
     await checkPortFree(options.port);
-    if (webPort !== undefined) await checkPortFree(webPort);
+    if (webPort !== undefined && !(await portFree(webPort))) throw new WebPortTakenError(webPort);
+    await options.afterPortCheck?.();
     fake = await startFake();
     await writeHome(fake.url, options.scenario);
     current = await startDaemon();

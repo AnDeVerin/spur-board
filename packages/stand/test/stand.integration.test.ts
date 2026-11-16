@@ -29,7 +29,14 @@ import { runCli, type CliIo } from '../../cli/src/cli.ts';
 import type {} from '../../testkit/src/global-setup.ts';
 import { readManifest, standManifest, type StandManifest } from '../src/manifest.ts';
 import { roleEnv, type StandRole } from '../src/roles.ts';
-import { pickWebPort, startStand, StandRefusedError, WEB_DIST, type Stand } from '../src/stand.ts';
+import {
+  pickWebPort,
+  retryWebPort,
+  startStand,
+  StandRefusedError,
+  WEB_DIST,
+  type Stand,
+} from '../src/stand.ts';
 import { liveConfigDir, writeLiveConfig } from './live-config.ts';
 
 const SOURCES = [
@@ -701,6 +708,105 @@ describe('stand', () => {
     } finally {
       const downed = await standCli(['down', '--home', shown.home]);
       expect(downed.code, downed.stderr).toBe(0);
+    }
+  }, 60_000);
+
+  it.each<[string, (first: number, hold: () => Promise<void>) => Promise<string | undefined>]>([
+    [
+      'a foreground start, at the start check',
+      async (first, hold) => {
+        stand = await retryWebPort({ port: 0, env: {}, osHome }, first, async (webPort) => {
+          if (webPort === first) await hold();
+          return startStand({ root, port: 0, webPort, env: {}, osHome, webRoot: base });
+        });
+        return stand.manifest().webUrl;
+      },
+    ],
+    [
+      'a foreground start, at the web bind',
+      async (first, hold) => {
+        stand = await retryWebPort({ port: 0, env: {}, osHome }, first, (webPort) =>
+          startStand({
+            root,
+            port: 0,
+            webPort,
+            env: {},
+            osHome,
+            webRoot: base,
+            ...(webPort === first ? { afterPortCheck: hold } : {}),
+          }),
+        );
+        return stand.manifest().webUrl;
+      },
+    ],
+    [
+      'up, before its detached child starts',
+      async (_first, hold) => {
+        // `up` creates the home right before it spawns the child, which takes the port later.
+        const holding = vi.waitFor(
+          async () => {
+            expect(readdirSync(root).some((name) => name.startsWith('spur-board-stand.'))).toBe(
+              true,
+            );
+            await hold();
+          },
+          { timeout: 30_000, interval: 5 },
+        );
+        const started = await standCli(['up']);
+        await holding;
+        expect(started.code, started.stderr).toBe(0);
+        const shown = JSON.parse(started.stdout) as { home: string; webUrl?: string };
+        const downed = await standCli(['down', '--home', shown.home]);
+        expect(downed.code, downed.stderr).toBe(0);
+        return shown.webUrl;
+      },
+    ],
+  ])(
+    'takes the next free web port when the picked one is taken in %s',
+    async (_name, run) => {
+      writeLiveConfig(liveConfigDir(osHome), { web: LIVE_WEB });
+      const first = await pickWebPort({ port: 0, env: {}, osHome });
+      if (first === undefined) throw new Error('no web port picked');
+      const held = createServer();
+      const hold = (): Promise<void> =>
+        new Promise((resolve, reject) => {
+          held.once('error', reject);
+          held.listen(first, '127.0.0.1', resolve);
+        });
+      try {
+        const webUrl = await run(first, hold);
+        expect(held.listening).toBe(true);
+        const match = /^https:\/\/(\d+)\.local\.example$/.exec(webUrl ?? '');
+        expect(match, webUrl).not.toBeNull();
+        const webPort = Number(match?.[1]);
+        expect(webPort).not.toBe(first);
+        expect(webPort).toBeGreaterThanOrEqual(4780);
+        expect(webPort).toBeLessThanOrEqual(4799);
+        // The attempt on the taken port left no home behind.
+        expect(readdirSync(root).filter((name) => name.startsWith('spur-board-stand.'))).toEqual(
+          stand === undefined ? [] : [basename(stand.manifest().home)],
+        );
+      } finally {
+        await new Promise<void>((resolve) => {
+          held.close(() => {
+            resolve();
+          });
+        });
+      }
+    },
+    90_000,
+  );
+
+  it('fails without a retry when a requested web port is taken', async () => {
+    writeLiveConfig(liveConfigDir(osHome), { web: LIVE_WEB });
+    const taken = await occupyStandPort();
+    try {
+      const started = await standCli(['up', '--web-port', String(taken.port)]);
+      expect(started.code).toBe(1);
+      expect(started.stderr).toContain(`Port ${String(taken.port)} on 127.0.0.1 is in use`);
+      expect(readdirSync(root).filter((name) => name.startsWith('spur-board-stand.'))).toEqual([]);
+    } finally {
+      await taken.close();
     }
   }, 60_000);
 
