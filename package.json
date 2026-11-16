@@ -36,7 +36,8 @@
     "prepare": "node scripts/hooks.ts install",
     "typecheck": "tsc --noEmit -p . && pnpm -r typecheck",
     "test": "vitest run",
-    "ds:build": "pnpm --filter @spur-board/web ds:build"
+    "ds:build": "pnpm --filter @spur-board/web ds:build",
+    "ds:nearest": "node scripts/ds-nearest.ts"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "catalog:",
