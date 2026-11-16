@@ -191,9 +191,49 @@ describe('design system kit output guard', () => {
     const result = runKit(out, '--prototypes', prototypes);
     expect(result.status).not.toBe(0);
     expect(snapshot(out)).toEqual(kit);
-    expect(existsSync(`${out}.partial`)).toBe(false);
+    expect(readdirSync(tempDir).filter((name) => name.startsWith('kept.partial'))).toEqual([]);
     writeFileSync(app, source);
     buildKit(out, '--prototypes', prototypes);
     expect(snapshot(out)).toEqual(kit);
   }, 180_000);
+
+  // Directories next to --out that the build did not create must survive any build.
+  it.each<[string, { foreign: string[]; kit: boolean; broken: boolean }]>([
+    ['an unrelated <out>.partial', { foreign: ['kit.partial'], kit: false, broken: false }],
+    [
+      'a stale <out>.partial-* from a crash',
+      { foreign: ['kit.partial-stale'], kit: false, broken: false },
+    ],
+    [
+      'staging dirs around a failed build over a kit',
+      { foreign: ['kit.partial', 'kit.partial-stale'], kit: true, broken: true },
+    ],
+  ])(
+    'leaves %s untouched',
+    (label, { foreign, kit, broken }) => {
+      const parent = join(tempDir, `owned-${label.replace(/\W+/g, '-')}`);
+      const out = join(parent, 'kit');
+      const prototypes = join(parent, 'prototypes');
+      cpSync(join(repoDir, 'design/prototypes/_sample'), join(prototypes, '_sample'), {
+        recursive: true,
+      });
+      if (kit) buildKit(out, '--prototypes', prototypes);
+      for (const dir of foreign) {
+        mkdirSync(join(parent, dir));
+        writeFileSync(join(parent, dir, 'sentinel.txt'), 'keep');
+      }
+      const kept = foreign.map((dir) => snapshot(join(parent, dir)));
+      const kitBefore = kit ? snapshot(out) : undefined;
+      const listing = readdirSync(parent).sort();
+      if (broken) writeFileSync(join(prototypes, '_sample/app.jsx'), '<broken');
+      const result = runKit(out, '--prototypes', prototypes);
+      expect(result.status === 0, result.stderr).toBe(!broken);
+      expect(foreign.map((dir) => snapshot(join(parent, dir)))).toEqual(kept);
+      expect(readdirSync(parent).sort()).toEqual(
+        kit || broken ? listing : [...listing, 'kit'].sort(),
+      );
+      if (kitBefore) expect(snapshot(out)).toEqual(kitBefore);
+    },
+    180_000,
+  );
 });

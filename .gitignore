@@ -35,4 +35,4 @@ pnpm-debug.log*
 
 # Design system kit output (pnpm ds:build)
 design/kit/
-design/kit.partial/
+design/kit.partial-*/

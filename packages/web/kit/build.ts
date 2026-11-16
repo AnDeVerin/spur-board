@@ -1,13 +1,15 @@
 // Builds the design system kit: `node kit/build.ts [--out <dir>]` (default `<repo>/design/kit`).
-// `--prototypes <dir>` (default `<repo>/design/prototypes`) is for tests. Every step writes to
-// `<out>.partial`, which replaces the kit only when all steps pass, so a failed build leaves the
-// previous kit as it was.
+// `--prototypes <dir>` (default `<repo>/design/prototypes`) is for tests. Every step writes to a
+// fresh `<out>.partial-*` beside the kit, which replaces the kit only when all steps pass, so a
+// failed build leaves the previous kit as it was. The build deletes only that fresh directory and
+// an out directory that passed the guard below.
 // Outputs ds.js (global DS with React bundled), ds.css (fonts inlined), gallery/,
 // prototypes/<slice>/app.js and BUILD.json. No timestamps, so two builds of a commit match.
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -15,7 +17,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { build, transformWithOxc, type CSSOptions, type Rolldown } from 'vite';
 
@@ -26,11 +28,10 @@ const { values } = parseArgs({
 });
 const outDir = resolve(values.out ?? join(repoDir, 'design/kit'));
 const prototypesDir = resolve(values.prototypes ?? join(repoDir, 'design/prototypes'));
-const stagingDir = `${outDir}.partial`;
 
-// The build replaces outDir and clears stagingDir, so refuse either when it is or contains a
-// source directory, and refuse an outDir that is non-empty and not a previous kit.
-function sourceRefusal(dir: string): string | undefined {
+// The build replaces outDir, so refuse one that is or contains a source directory, or that is
+// non-empty and not a previous kit.
+function refusal(): string | undefined {
   const sources = [
     '',
     'design',
@@ -40,15 +41,10 @@ function sourceRefusal(dir: string): string | undefined {
     'packages/web/src',
   ];
   for (const source of sources.map((path) => join(repoDir, path))) {
-    const rel = relative(dir, source);
+    const rel = relative(outDir, source);
     if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)))
       return `it is or contains ${source}`;
   }
-  return undefined;
-}
-function refusal(): string | undefined {
-  const source = sourceRefusal(outDir) ?? sourceRefusal(stagingDir);
-  if (source) return source;
   if (!existsSync(outDir)) return undefined;
   if (!statSync(outDir).isDirectory()) return 'it is not a directory';
   if (readdirSync(outDir).length > 0 && !existsSync(join(outDir, 'BUILD.json')))
@@ -60,6 +56,9 @@ if (refused) {
   console.error(`kit build: refusing to write to ${outDir}: ${refused}.`);
   process.exit(1);
 }
+mkdirSync(dirname(outDir), { recursive: true });
+// Same parent as outDir, so the final rename stays on one filesystem.
+const stagingDir = mkdtempSync(`${outDir}.partial-`);
 
 // Readable, stable class names, so prototypes and the gallery can be inspected by name.
 const css: CSSOptions = {
@@ -140,7 +139,6 @@ function git(...args: string[]): string {
   return execFileSync('git', args, { cwd: repoDir, encoding: 'utf8' }).trim();
 }
 
-rmSync(stagingDir, { recursive: true, force: true });
 try {
   const exports = await buildLibrary();
   await buildGallery();
