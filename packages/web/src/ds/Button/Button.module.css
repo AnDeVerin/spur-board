@@ -1,0 +1,45 @@
+/* Each control resets its own native button: ds has no global reset. */
+.button {
+  box-sizing: border-box;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--size-control);
+  padding: 0 var(--space-3);
+  border: var(--width-border) solid var(--color-border-strong);
+  border-radius: var(--radius);
+  color: var(--color-text-primary);
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+.button:hover:not(:disabled):not([aria-busy='true']) {
+  border-color: var(--color-text-primary);
+}
+.primary:hover:not(:disabled):not([aria-busy='true']) {
+  background: transparent;
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.button:focus-visible {
+  outline: var(--width-ring) solid var(--color-status-working);
+  outline-offset: var(--offset-ring);
+}
+.button:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}
+.button[aria-busy='true'] {
+  opacity: var(--opacity-disabled);
+  cursor: progress;
+}

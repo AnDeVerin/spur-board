@@ -1,8 +1,13 @@
 import './tokens.css';
 
+export { Button, type ButtonVariant } from './Button/Button.tsx';
 export { Chip, type ChipTone } from './Chip/Chip.tsx';
+export { FormRow } from './FormRow/FormRow.tsx';
 export { Icon, type IconName } from './Icon/Icon.tsx';
+export { IconButton, type IconButtonSize } from './IconButton/IconButton.tsx';
 export { Logo, type LogoSize } from './Logo/Logo.tsx';
 export { quiet } from './Quiet/Quiet.tsx';
 export { StatusDot, type StatusDotTone } from './StatusDot/StatusDot.tsx';
+export { TextArea } from './TextArea/TextArea.tsx';
+export { TextInput } from './TextInput/TextInput.tsx';
 export { ThemeSwitch, type ThemePreference } from './ThemeSwitch/ThemeSwitch.tsx';

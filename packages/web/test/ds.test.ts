@@ -1,12 +1,21 @@
-import { createElement, type ComponentType } from 'react';
+import { createElement, type ComponentProps, type ComponentType, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseSync } from 'vite';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 // eslint-disable-next-line local/web-import-boundary -- prototype source as text, for glyph parity
 import appSource from '../../../design/prototypes/board-v1/app.js?raw';
 // eslint-disable-next-line local/web-import-boundary -- prototype source as text, for glyph parity
 import baseSource from '../../../design/prototypes/board-v1/base.js?raw';
-import { Icon, Logo, type IconName } from '../src/ds/index.ts';
+import {
+  Button,
+  FormRow,
+  Icon,
+  IconButton,
+  Logo,
+  TextArea,
+  TextInput,
+  type IconName,
+} from '../src/ds/index.ts';
 import indexSource from '../src/ds/index.ts?raw';
 
 // Keys only: Vitest returns an empty string for CSS read through a query.
@@ -59,7 +68,19 @@ describe('design system examples rule', () => {
   it('passes on the real tree and counts each value-exported component', () => {
     expect(checkDesignSystem(indexSource, files, examples)).toEqual({
       problems: [],
-      folders: ['Chip', 'Icon', 'Logo', 'Quiet', 'StatusDot', 'ThemeSwitch'],
+      folders: [
+        'Button',
+        'Chip',
+        'FormRow',
+        'Icon',
+        'IconButton',
+        'Logo',
+        'Quiet',
+        'StatusDot',
+        'TextArea',
+        'TextInput',
+        'ThemeSwitch',
+      ],
     });
     for (const module of Object.values(examples))
       expect(Object.keys(module).length).toBeGreaterThan(0);
@@ -228,6 +249,144 @@ describe('Icon and Logo', () => {
         expect(svg).toContain('stroke="currentColor"');
       }
     }
+  });
+});
+
+const controlFolders = ['Button', 'FormRow', 'IconButton', 'TextArea', 'TextInput'];
+const controlExamples = (folder: string) =>
+  examples[`../src/ds/${folder}/${folder}.examples.tsx`] ?? {};
+const markup = (element: ReactElement) => renderToStaticMarkup(element);
+const attribute = (html: string, name: string) => new RegExp(`${name}="([^"]+)"`).exec(html)?.[1];
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+describe('controls and form fields', () => {
+  it('has the examples the gallery shows', () => {
+    expect(
+      Object.fromEntries(controlFolders.map((f) => [f, Object.keys(controlExamples(f))])),
+    ).toEqual({
+      Button: ['Primary', 'Outlined', 'Disabled', 'Busy'],
+      FormRow: ['Answer', 'Error', 'Sending', 'Disabled', 'SendFails', 'NarrowActions'],
+      IconButton: ['Close', 'InActions', 'Disabled'],
+      TextArea: ['Empty', 'Typing', 'Disabled'],
+      TextInput: ['Empty', 'WithValue', 'Disabled'],
+    });
+  });
+
+  it('busy button stays focusable, exposes aria-busy and ignores clicks', () => {
+    const busy = markup(createElement(Button, { busy: true, children: 'Sending' }));
+    expect(busy).toContain('aria-busy="true"');
+    expect(busy).toContain('aria-disabled="true"');
+    expect(busy).not.toContain(' disabled=""');
+    const disabled = markup(createElement(Button, { disabled: true, children: 'Send' }));
+    expect(disabled).toContain(' disabled=""');
+    expect(disabled).not.toContain('aria-busy');
+    const [primary, outlined] = (['primary', 'outlined'] as const).map((variant) =>
+      markup(createElement(Button, { variant, children: 'Send' })),
+    );
+    for (const html of [primary, outlined]) expect(html).toMatch(/^<button[^>]*type="button"/);
+    expect(primary).not.toBe(outlined);
+
+    // Button has no hooks, so calling it reads the click handler it renders.
+    const click = (busyNow: boolean) => {
+      const onClick = vi.fn();
+      const preventDefault = vi.fn();
+      const element = Button({ busy: busyNow, onClick, children: 'Send' }) as ReactElement<{
+        onClick: (event: { preventDefault: () => void }) => void;
+      }>;
+      element.props.onClick({ preventDefault });
+      return {
+        onClick: onClick.mock.calls.length,
+        preventDefault: preventDefault.mock.calls.length,
+      };
+    };
+    expect(click(true)).toEqual({ onClick: 0, preventDefault: 1 });
+    expect(click(false)).toEqual({ onClick: 1, preventDefault: 0 });
+  });
+
+  it('icon button names itself from label and hides its icon', () => {
+    const html = markup(createElement(IconButton, { icon: 'x', label: 'Close' }));
+    expect(html).toMatch(/^<button[^>]*type="button"/);
+    expect(html).toContain('aria-label="Close"');
+    expect(html).toContain('title="Close"');
+    expect(/<svg[^>]*>/.exec(html)?.[0]).toContain('aria-hidden="true"');
+    expectTypeOf<{ icon: 'x' }>().not.toExtend<ComponentProps<typeof IconButton>>();
+  });
+
+  it('form row links label, hint and error to the field', () => {
+    const hint = 'The agent reads it on its next turn';
+    const error = 'Not sent: the daemon did not answer.';
+    const row = (note: { hint: string } | { hint: string; error: string }) =>
+      markup(
+        createElement(FormRow, {
+          label: 'Answer B89',
+          ...note,
+          actions: createElement(Button, { children: 'Send' }),
+          children: createElement(TextArea, { value: 'draft', onChange: () => undefined }),
+        }),
+      );
+    for (const [html, text] of [
+      [row({ hint }), hint],
+      [row({ hint, error }), error],
+    ] as const) {
+      const id = attribute(html, 'for');
+      expect(id).toBeDefined();
+      expect(attribute(/<textarea[^>]*>/.exec(html)?.[0] ?? '', 'id')).toBe(id);
+      const describedBy = attribute(html, 'aria-describedby') ?? '';
+      expect(html).toMatch(
+        new RegExp(`<p[^>]*id="${escapeRegExp(describedBy)}"[^>]*>${escapeRegExp(text)}</p>`),
+      );
+      expect(html).toContain('>draft</textarea>');
+      const order = ['<label', '<textarea', text, '<button'].map((part) => html.indexOf(part));
+      expect(
+        order.every((at, index) => at >= 0 && (index === 0 || at > (order[index - 1] ?? 0))),
+      ).toBe(true);
+    }
+    const plain = row({ hint });
+    expect(plain).not.toContain('aria-invalid');
+    expect(plain).not.toContain('role="alert"');
+    const failed = row({ hint, error });
+    expect(failed).toContain('aria-invalid="true"');
+    expect(failed).toContain('role="alert"');
+    expect(failed).not.toContain(hint);
+  });
+
+  it('text input shows the clear action only with a value', () => {
+    const input = (value: string, disabled = false) =>
+      markup(
+        createElement(TextInput, {
+          value,
+          onChange: () => undefined,
+          label: 'Filter tasks',
+          placeholder: 'Task key, session or block id',
+          icon: 'search',
+          disabled,
+        }),
+      );
+    const empty = input('');
+    expect(empty).not.toContain('aria-label="Clear"');
+    expect(empty).toContain('aria-label="Filter tasks"');
+    expect(empty).toContain('placeholder="Task key, session or block id"');
+    expect(empty).toMatch(/<svg[^>]*aria-hidden="true"[^>]*>.*<input/s);
+    expect(input('B89')).toContain('aria-label="Clear"');
+    const disabled = input('B89', true);
+    expect(disabled).not.toContain('aria-label="Clear"');
+    expect(/<input[^>]*>/.exec(disabled)?.[0]).toContain('disabled=""');
+  });
+
+  it('every field in the new examples has an accessible name and no tabindex', () => {
+    for (const folder of controlFolders)
+      for (const [name, example] of Object.entries(controlExamples(folder))) {
+        const html = render(example);
+        expect(html, `${folder} / ${name}`).not.toMatch(/tabindex/i);
+        for (const tag of html.match(/<(?:textarea|input)[^>]*>/g) ?? []) {
+          const label = attribute(tag, 'aria-label');
+          const id = attribute(tag, 'id');
+          const named =
+            (label !== undefined && label.trim() !== '') ||
+            (id !== undefined && html.includes(`for="${id}"`));
+          expect(named, `${folder} / ${name}: ${tag}`).toBe(true);
+        }
+      }
   });
 });
 

@@ -1,0 +1,29 @@
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+.label {
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.hint,
+.error {
+  margin: 0;
+  font-size: var(--text-micro);
+}
+.hint {
+  color: var(--color-text-tertiary);
+}
+.error {
+  color: var(--color-status-error);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
