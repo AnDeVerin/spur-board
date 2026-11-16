@@ -178,7 +178,7 @@ export function refusal(input: {
       ['http.port', config.http.port],
       ['web.port', config.web.port],
     ] as const) {
-      if (livePort !== undefined && livePort !== 0 && livePort === standPort)
+      if (livePort === standPort)
         return {
           reason: 'live_port',
           message: `Port ${String(standPort)} is the live board's ${field} in ${file}. Use a port from ${rangeText}.`,
