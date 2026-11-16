@@ -50,7 +50,9 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
 ## Live board
 
 - `pnpm stand board` and `pnpm stand mcp` are the only ways to reach a stand; a browser opens
-  only the `webUrl` that `up` printed, never the live board's web address.
+  the build only at the `webUrl` that `up` printed, never the live board's web address;
+  prototype static files may use a loopback static server
+  (`.agents/skills/qa-report/references/prototype-vs-build.md`).
 - A bare `board` command reaches the live board, not the stand. Use it only for the outcome on
   the live task in a board QA round (`qa-report`); never to drive a scenario.
 

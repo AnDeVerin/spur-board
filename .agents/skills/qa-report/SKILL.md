@@ -30,6 +30,7 @@ qa/<task>/<sha8>/r<N>/
   fakes-spur.json    pnpm stand fake spur inspect > "$R/fakes-spur.json"
   daemon.log         pnpm stand logs > "$R/daemon.log"
   <name>.png         browser-tool screenshots of the stand webUrl, never the live board
+  screens/           prototype and build pairs (references/prototype-vs-build.md)
   board.sqlite       node --input-type=module -e 'import { copyDatabase } from
                        "./packages/core/src/store/copy.ts";
                        copyDatabase(process.argv[1], process.argv[2]);' \
@@ -62,6 +63,8 @@ qa/<task>/<sha8>/r<N>/
 - Name each uncovered criterion as one of: not reproduced (the attempts made), unreachable (the
   search command and the SHA it ran on), or pre-existing (shown on the A/B base, with
   `<main-sha>`).
+- A prototype round adds the State | Theme | Verdict table after the coverage line
+  (`references/prototype-vs-build.md`).
 
 ## Outcome on the live board
 

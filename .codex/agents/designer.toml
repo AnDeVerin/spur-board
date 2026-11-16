@@ -29,6 +29,12 @@ Six passes on the spec, no mockups:
    loading.
 3. Layout - alignment, no overflow or clipping, works at narrow widths; changed controls reachable
    by keyboard with visible focus.
+4. Prototype - only when the handoff names `design/prototypes/<slice>/`. Read the slice README
+   and `docs/design-system-decisions.md`. Each part comes from an export of
+   `packages/web/src/ds/index.ts` or has a `screen-local` row. Flag copied prototype markup or CSS:
+   `proto.css` class names, `proposed-` or `data-proposed`, imports from `design/`. A visible
+   difference with no row in the decisions section, or a row with an invalid reason code, is
+   MUST FIX. The containers the README names carry the `quiet` class.
 
 ## Output
 ```
@@ -46,7 +52,8 @@ FINDING: <non-obvious fact> - <file:line or command>
 ```
 
 ## Rules
-- Never APPROVE with a token violation, a missing required state or a broken layout.
+- Never APPROVE with a token violation, a missing required state, a broken layout or a missing
+  decision row.
 - Taste alone is not a finding unless it breaks consistency with the project.
 - Plan-mode gaps go to the plan's author (architect; tier 3: developer), never to code.
 - Read-only: never edit files or commit.

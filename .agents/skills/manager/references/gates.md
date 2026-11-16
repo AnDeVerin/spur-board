@@ -31,17 +31,25 @@ The numbers are the canonical gate order.
 10. Docs - `git rev-parse HEAD`, then `doc-reviewer` with the spec, every `developer` output of
     the run and its `Head:` line (`references/runtime.md`, Handoff). Skip a test or CI diff
     (modifier in `.agents/skills/manager/SKILL.md`) and record `SKIPPED - <reason>`.
-11. Review - a PR exists: push, and bring its `## Changed checks` section up to date with the
+11. Browser QA (UI) - a visible web UI change only: `tester` with its `Head:` line at the stand
+    webUrl, never the live board. It runs the modifier scenarios; an issue naming
+    `design/prototypes/<slice>/` adds the pairs of
+    `.agents/skills/qa-report/references/prototype-vs-build.md`. A FAIL for no stand webUrl, or
+    because the browser tool cannot run or cannot reach 127.0.0.1, is an external blocker:
+    `Missing: tester - external blocker: <reason>`, no `developer` fix, no rerun; the run goes on.
+12. Design review (UI) - `designer` (code) with the changed files, the step 11 screenshots and
+    report path, and the decisions section the `developer` returned.
+13. Review - a PR exists: push, and bring its `## Changed checks` section up to date with the
     developer's output per `gitflow`. Then `reviewer` with the spec, every `developer` output of
     the run and `PR: <url> | none`.
-12. Design review (UI) - `designer` (code) with the changed files and any screenshots the run
-    already has.
-13. Validate - `tester` when a modifier asks for it, with its `Head:` line (`references/runtime.md`,
-    Handoff), recorded right before each spawn.
-14. PR - follow `gitflow`: push, then open the PR or update its body from the spec, the gate
-    outputs and the developer's `Changed checks`. Skip only without commits or when the issue
-    says no PR.
-15. Close-out - one evidence line per acceptance criterion, taken from a gate output (a reviewer
+14. Validate - `tester` when a modifier asks for it and step 11 did not run, with its `Head:` line
+    (`references/runtime.md`, Handoff), recorded right before each spawn.
+15. PR - follow `gitflow`: push, then open the PR or update its body from the spec, the gate
+    outputs and the developer's `Changed checks`. After step 11, Testing gets a `<details>` block
+    with the report table, the screenshot names and the round path relative to the artifacts
+    directory; a prototype run fills `## Design System decisions` from the `developer` output.
+    Skip only without commits or when the issue says no PR.
+16. Close-out - one evidence line per acceptance criterion, taken from a gate output (a reviewer
     Requirements row, a command with its observed result, a tester scenario). Work is committed;
     the PR exists or the reason it does not is named. A required gate whose verdict is older than
     the last code change reruns once; still missing -> `Missing: <gate or evidence>`. Never claim
@@ -67,7 +75,7 @@ update rules are in `.agents/skills/manager/references/runtime.md`.
 | doc-reviewer | DOCS_APPROVED, DOCS_CHANGES_REQUESTED |
 
 - Code gate CHANGES_REQUESTED, DOCS_CHANGES_REQUESTED or FAIL -> `developer` with the findings ->
-  the same gate reruns.
+  the same gate reruns. Exception: a step 11 external blocker goes under Missing with no fix.
 - Spec gap (SPEC_CHANGES_REQUESTED, SPEC_REJECTED, tier 1-2 designer plan CHANGES_REQUESTED) ->
   `architect`, never `developer` -> the same gate reruns.
 - A reviewer MUST FIX only about the PR body -> the manager fixes it with `gh pr edit`, never
@@ -76,13 +84,14 @@ update rules are in `.agents/skills/manager/references/runtime.md`.
   (the third returns BLOCKED_REVIEW) -> open the PR and report it; `tester` 2; `designer` 2 per
   mode -> `BLOCKED_DESIGN`, listed under Missing, and the run goes on (tier 3: step 8);
   `doc-reviewer` 2 -> the second run's DOCS_CHANGES_REQUESTED is `BLOCKED_DOCS`, its findings go
-  under Missing with no fix, and the run goes on to `reviewer`.
+  under Missing with no fix, and the run goes on to the next step.
 - A `developer` fix after `reviewer` APPROVED reruns `reviewer` before the PR. Other downstream
   gates rerun only when their input changed.
-- Docs reruns: before a `developer` fix for `reviewer` or `tester`, record `git rev-parse HEAD`.
-  A fix whose `git diff --name-only <recorded>..HEAD` is not a test or CI diff reruns
-  `doc-reviewer` first, then `reviewer`. Each rerun counts toward the cap; at the cap there is no
-  rerun.
+- Fix reruns: before a `developer` fix for `reviewer`, `tester` or `designer` (code), record
+  `git rev-parse HEAD`. A fix whose `git diff --name-only <recorded>..HEAD` is not a test or CI
+  diff reruns, in step order, `doc-reviewer`, then for a UI change `tester` (step 11) and
+  `designer` (code), then `reviewer`; the gate that asked reruns in its place. Each rerun counts
+  toward its cap; at the cap there is no rerun and the gate goes under Missing.
 - Close-out and `doc-reviewer`: a stale verdict reruns once only while under the cap. That run's
   DOCS_CHANGES_REQUESTED is `BLOCKED_DOCS` with its findings under Missing, no fix. At the cap ->
   `Missing: doc-reviewer - verdict older than <sha>`.

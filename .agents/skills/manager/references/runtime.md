@@ -35,8 +35,12 @@ Every spawn gets, and only gets:
 - the cycle as `N/cap`;
 - `reviewer` only: `PR: <url> | none`;
 - `reviewer` and `doc-reviewer`: every `developer` output of the run, not only the last;
-- `designer` code only: the changed files from `git diff --name-only <sha>...HEAD` and the
-  screenshots the run already has;
+- `designer` code only: the changed files from `git diff --name-only <sha>...HEAD`, the
+  screenshots the run already has and the step 11 report path and screenshot names; for an issue
+  naming `design/prototypes/<slice>/`, also the prototype folder, the listed states, the quiet
+  containers the README names and the decisions section the `developer` returned;
+- `tester` on a UI change whose issue names `design/prototypes/<slice>/`: the prototype folder,
+  the listed states and the decisions section;
 - `tester` and `doc-reviewer`: `Head: <sha>`, from `git rev-parse HEAD` run right before each
   spawn - the last `developer` or fix commit, since no other role commits.
 

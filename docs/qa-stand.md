@@ -99,4 +99,6 @@ A stand serves the web UI from `packages/web/dist` of the checkout it runs from.
   `stand.portRange`: the first free one, or the next free one when a concurrent stand binds it
   first. A `--web-port` you pass is never moved: when it is taken, `up` fails. Without such a
   template `up` says so on stderr and the stand runs API-only.
-- Open only that `webUrl` in the browser; never the live board's web address.
+- Open the build only at that `webUrl`; never the live board's web address. Prototype static
+  files may use a loopback static server
+  (`.agents/skills/qa-report/references/prototype-vs-build.md`).

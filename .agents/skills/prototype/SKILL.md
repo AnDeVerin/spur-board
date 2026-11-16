@@ -51,3 +51,6 @@ prototype and the design system differ, the reason codes and the PR section form
 - Fill `## Design System decisions` in the PR body: one row per difference with its reason code
   and evidence, or the single line `None`. The format and a filled example are in
   `docs/design-system-decisions.md`.
+- In a manager run, `tester` takes the pairs
+  (`.agents/skills/qa-report/references/prototype-vs-build.md`); return the filled section after
+  your output block.
