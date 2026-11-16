@@ -28,6 +28,10 @@ function luminance(hex: string): number {
 function rawColor(source: string): boolean {
   return /#[\da-f]{3,8}\b|\brgba?\s*\(/i.test(source);
 }
+// Prototypes may declare a proposed token with a raw value before it joins tokens.css.
+function withoutProposed(source: string): string {
+  return source.replace(/--proposed-[\w-]+:[^;]+;/g, '');
+}
 describe('web design assets and policy', () => {
   it('preserves every prototype token and inherited scale byte for byte', () => {
     expect(tokens).toBe(
@@ -69,6 +73,24 @@ describe('web design assets and policy', () => {
       (file) => /\.(?:css|ts|tsx)$/.test(file) && file !== 'ds/tokens.css',
     ))
       expect(rawColor(read(`src/${file}`)), file).toBe(false);
+    for (const file of readdirSync(join(root, 'gallery'), {
+      recursive: true,
+      encoding: 'utf8',
+    }).filter((file) => /\.(?:css|ts|tsx)$/.test(file)))
+      expect(rawColor(read(`gallery/${file}`)), `gallery/${file}`).toBe(false);
+  });
+  it('rejects raw color literals in prototype styles outside --proposed-* declarations', () => {
+    expect(rawColor(withoutProposed(':root { --proposed-accent: #ff00aa; }'))).toBe(false);
+    expect(
+      rawColor(withoutProposed(':root { --proposed-accent: #ff00aa; } a { color: #abc; }')),
+    ).toBe(true);
+    const prototypes = join(import.meta.dirname, '../design/prototypes');
+    const sheets = readdirSync(prototypes)
+      .map((slice) => join(prototypes, slice, 'proto.css'))
+      .filter((file) => existsSync(file));
+    expect(sheets.length).toBeGreaterThan(0);
+    for (const file of sheets)
+      expect(rawColor(withoutProposed(readFileSync(file, 'utf8'))), file).toBe(false);
   });
   it('ships only local hashed fonts with the original bytes and license', () => {
     const assets = readdirSync(join(webAssetsRoot, 'assets'));

@@ -61,6 +61,22 @@ describe('package tarball allowlist', () => {
     }).toThrow(/outside the allowlist/);
   });
 
+  it.each([
+    'package/design/README.md',
+    'package/design/prototypes/_sample/index.html',
+    'package/design/kit/ds.js',
+    'package/dist/web/ds.js',
+    'package/dist/web/ds.css',
+    'package/dist/web/BUILD.json',
+    'package/dist/web/gallery/index.html',
+    'package/dist/web/gallery/assets/index-abcdefgh.js',
+    'package/dist/web/prototypes/_sample/app.js',
+  ])('rejects design and kit output %s', (file) => {
+    expect(() => {
+      validateTarball([...files, file], manifest);
+    }).toThrow(/outside the allowlist/);
+  });
+
   it('rejects a missing board binary', () => {
     expect(() => {
       validateTarball(
