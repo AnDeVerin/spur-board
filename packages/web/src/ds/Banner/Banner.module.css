@@ -1,8 +1,10 @@
 /* Content-box: the content row is one control tall and the ds Button fills it exactly, so an
-   action never changes the height. */
+   action never changes the height. Items sit at the top: the icon box and the action are one
+   control tall and the text's block padding centres its first line in that height, so wrapped
+   text keeps the icon and the action on its first line. */
 .root {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   min-height: var(--size-control);
   padding-block: 0;
@@ -25,17 +27,23 @@
 .icon {
   display: inline-flex;
   flex: none;
+  align-items: center;
+  height: var(--size-control);
 }
+/* The block padding is half of what is left of the control height after one line of
+   --text-small at the body line-height, so one line is centred in that height and never makes
+   the banner taller. */
 .text {
   display: flex;
   flex-wrap: wrap;
-  column-gap: var(--space-2);
+  gap: var(--space-1) var(--space-2);
   min-width: 0;
+  padding-block: var(--space-1-5);
 }
 .main,
 .detail {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .root[data-variant='info'] .main {
   color: var(--color-text-primary);

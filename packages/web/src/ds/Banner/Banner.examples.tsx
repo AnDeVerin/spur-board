@@ -52,7 +52,7 @@ export function InfoWithAction() {
 }
 export function LongText() {
   return (
-    <div style={{ maxWidth: 'var(--size-column)' }}>
+    <div style={{ maxWidth: 'calc(var(--size-column) * 2)' }}>
       <Banner
         variant="error"
         icon="x"
