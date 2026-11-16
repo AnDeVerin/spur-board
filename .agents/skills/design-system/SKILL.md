@@ -23,7 +23,10 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 - A component knows nothing about board data: no `@spur-board/*` import, no API client, no
   `__BOARD_VERSION__`. The app passes data in as props.
 - `ds/` files import only their own `ds/` files, `tokens.css` and browser packages such as
-  `react`. The rest of `packages/web` imports `ds/` only through `index.ts`.
+  `react`. Other code in `packages/web/src` and `packages/web/test` imports `ds/` only through
+  `index.ts`.
+- `packages/web/gallery/` and `packages/web/kit/` read `ds/` directly on purpose (the gallery
+  reads `tokens.css` as raw text and globs the examples files); lint does not check them.
 - Enforced by `eslint/ds-import-boundary.ts` (cases in `packages/testkit/test/lint-rules.test.ts`
   `describe('design system boundary'`) and `packages/web/test/ds.test.ts`.
 - Each status color sits next to a visible word; a decorative dot is `aria-hidden`.

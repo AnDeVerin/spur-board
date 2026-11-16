@@ -26,8 +26,9 @@ description: Package map, allowed dependencies, PR order, new packages, catalog 
   production `src` does not import the Slack fake; `packages/core/src/domain/` imports no store,
   app, api, Kysely or Node IO module; `packages/core/src` imports no gateway package; browser code
   in web imports only its own files and the narrow contracts browser entry, with no Node
-  builtins; `packages/web/src/ds/` imports only its own files, and the rest of web reaches it only
-  through `ds/index.ts`. Every other edge is held by `package.json` alone, so check the direction yourself.
+  builtins; `packages/web/src/ds/` imports only its own files, and the rest of `packages/web/src`
+  and `packages/web/test` reaches it only through `ds/index.ts` (`gallery/` and `kit/` read it
+  directly and lint does not check them). Every other edge is held by `package.json` alone, so check the direction yourself.
 
 ## PR order
 

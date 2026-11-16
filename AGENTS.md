@@ -23,9 +23,10 @@ A map of the repo for agents and contributors. The rules live in the files and s
   `pnpm --filter @spur-board/web build`; `pnpm package:build` copies assets after the CLI clean
   build. `scripts/web-shell-qa.ts` is a test-only loopback fixture for controlled sidecar QA
   scenarios. Browser code imports only `@spur-board/contracts/browser` among workspace
-  packages; the boundary lint is in `eslint.config.js`. The design system lives in `src/ds/`,
-  reached only through `src/ds/index.ts`; `gallery/` is its example page and `kit/` builds the
-  kit for prototypes. Skill: `design-system`.
+  packages; the boundary lint is in `eslint.config.js`. The design system lives in `src/ds/`;
+  `src/` and `test/` reach it only through `src/ds/index.ts`. `gallery/` (its example page) and
+  `kit/` (the kit build for prototypes) read `src/ds/` directly on purpose, and lint does not
+  check them. Skill: `design-system`.
 - `packages/skills` - the product skills that `board skills install` ships; not a workspace
   package.
 - `packages/adapters` - the adapter runner in `src/runner/`: per-source schedule, backoff,
