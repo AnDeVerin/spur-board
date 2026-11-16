@@ -1,4 +1,5 @@
-/* The same field style as TextInput; the error state is the row's line, not the border. */
+/* The same field style as TextInput; the error state is the row's line, not the border.
+   Focus turns the border primary; the transparent outline shows only in forced colours mode. */
 .field {
   display: block;
   box-sizing: border-box;
@@ -18,7 +19,7 @@
   color: var(--color-text-tertiary);
 }
 .field:focus {
-  outline: none;
+  outline: var(--width-ring) solid transparent;
   border-color: var(--color-text-primary);
 }
 .field:disabled {

@@ -1,4 +1,5 @@
-/* The same field style as TextArea; the box draws the border, so its focus cue is focus-within. */
+/* The same field style as TextArea; the box draws the border, so its focus cue is focus-within.
+   Focus turns the border primary; the transparent outline shows only in forced colours mode. */
 .box {
   box-sizing: border-box;
   display: flex;
@@ -12,6 +13,7 @@
   color: var(--color-text-tertiary);
 }
 .box:focus-within {
+  outline: var(--width-ring) solid transparent;
   border-color: var(--color-text-primary);
 }
 .disabled {
