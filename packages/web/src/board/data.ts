@@ -2,8 +2,8 @@ import { coordinateRead, createApi, type Output } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 
 export type BoardConfig = Output<'config.get'>;
-export type BoardStatus = Output<'status.get'>;
-export type BoardInbox = Output<'inbox.operator'>;
+type BoardStatus = Output<'status.get'>;
+type BoardInbox = Output<'inbox.operator'>;
 
 /** The facts the board screen derives its state from; a new object on every change. */
 export interface BoardSnapshot {
