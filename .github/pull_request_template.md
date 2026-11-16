@@ -33,6 +33,14 @@
 
 - <high | medium | low> - <reason>
 
+## Design System decisions
+
+<!--- UI change only: one row per difference between the prototype and the build, or the single line "None" when there is none; reason codes and rules in docs/design-system-decisions.md. Delete this section when the PR changes no UI. -->
+
+| Part   | Case   | Decision   | Reason code   | Evidence            |
+| ------ | ------ | ---------- | ------------- | ------------------- |
+| <part> | <case> | <decision> | <reason code> | <state URL or file> |
+
 ## Changed checks
 
 <!--- Required when this PR adds, changes or deletes a test file: one line per file; CI guardrails fails until each has one. Also required when it deletes, skips or weakens a test, a snapshot, or a lint, TypeScript or CI setting: one line each, what changed and why. Otherwise delete this section. -->
