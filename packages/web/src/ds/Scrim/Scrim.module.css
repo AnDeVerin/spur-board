@@ -1,0 +1,74 @@
+/* The backdrop fills its positioned ancestor: a layer root or the caller's own box. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--color-modal-backdrop);
+}
+
+/* The shell Modal and SidePanel share. Position, size, border and paddings are the caller's. */
+.surface {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: var(--color-bg-base);
+}
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+}
+/* Title and detail shrink and ellipsize first, so Close is never pushed out. */
+.title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  color: var(--color-text-primary);
+}
+.detail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-bar);
+  color: var(--color-text-secondary);
+}
+/* Stretched to the header height, so an underline tablist sits on the header border. */
+.actions {
+  display: flex;
+  align-self: stretch;
+  flex: none;
+  margin-left: var(--space-3);
+}
+.close {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+}
+/* The ds focus ring mirrored inward: the body is flush with the surface, so an outward ring
+   would be clipped. */
+.body:focus-visible {
+  outline: var(--width-ring) solid var(--color-status-working);
+  outline-offset: calc(-1 * (var(--width-ring) + var(--offset-ring)));
+}
+
+/* breakpoints.narrow */
+@media (max-width: 760px) {
+  .actions {
+    margin-left: 0;
+  }
+}
