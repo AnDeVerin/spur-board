@@ -144,6 +144,7 @@ describe('web listener', () => {
             spurProjects: [],
           },
         ],
+        web: { publicOrigin: 'https://web.example.test', spurUiOrigin: null },
       },
     });
     await store.db

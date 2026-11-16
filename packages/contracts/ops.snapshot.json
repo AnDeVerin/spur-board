@@ -1,5 +1,5 @@
 {
-  "version": "a9cac938a05f859cfcd0334855836d2aa445a49c225bd15d1a36e12c13174e02",
+  "version": "6d87463adb2412a8c7e9899860e7c9ae0eee8975b61a1e0dae6cdc74cf44a863",
   "grants": [
     "operator",
     "project-agent",
@@ -955,6 +955,7 @@
                 "prCount": 0,
                 "sessionCount": 0,
                 "openBlocks": 0,
+                "blocks": [],
                 "turn": null,
                 "prSummary": null,
                 "links": { "ticket": null, "prs": [], "sessions": [] }
@@ -976,6 +977,11 @@
               ],
               "operators": [{ "project": "web", "operator": "hq", "source": "board-wide" }],
               "defaultAddressee": { "spurProject": "hq", "source": "board-wide" }
+            },
+            "daemon": {
+              "version": "0.4.0",
+              "startedAt": "2026-01-05T08:00:00.000Z",
+              "lastDispatchAt": "2026-01-05T09:30:00.000Z"
             }
           }
         },
@@ -999,6 +1005,7 @@
                 "prCount": 0,
                 "sessionCount": 0,
                 "openBlocks": 0,
+                "blocks": [],
                 "turn": null,
                 "prSummary": null,
                 "links": { "ticket": null, "prs": [], "sessions": [] },
@@ -1012,7 +1019,12 @@
             "unlinkedSessions": [],
             "hiddenUnlinkedPrs": 0,
             "hiddenUnlinkedSessions": 0,
-            "bindings": { "columns": [], "operators": [], "defaultAddressee": null }
+            "bindings": { "columns": [], "operators": [], "defaultAddressee": null },
+            "daemon": {
+              "version": "0.4.0",
+              "startedAt": "2026-01-05T08:00:00.000Z",
+              "lastDispatchAt": "2026-01-05T09:30:00.000Z"
+            }
           }
         }
       ],
@@ -1335,6 +1347,96 @@
                   "minimum": 0,
                   "maximum": 9007199254740991,
                   "description": "Number of open blocks on the task."
+                },
+                "blocks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "maxLength": 16,
+                        "pattern": "^B[1-9]\\d{0,14}$",
+                        "description": "Block ID: B followed by a number, e.g. B12."
+                      },
+                      "addressee": {
+                        "type": "string",
+                        "enum": [
+                          "operator",
+                          "curator",
+                          "orchestrator:todo",
+                          "orchestrator:ready-for-dev",
+                          "orchestrator:dev",
+                          "orchestrator:review",
+                          "orchestrator:product-review",
+                          "orchestrator:external-review",
+                          "orchestrator:qa",
+                          "orchestrator:ready-to-merge",
+                          "orchestrator:done",
+                          "worker"
+                        ],
+                        "description": "Who is expected to resolve the block."
+                      },
+                      "session": {
+                        "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }],
+                        "description": "Session the newest block notification for the addressee went to; null for the operator or before assignment."
+                      }
+                    },
+                    "required": ["id", "addressee", "session"],
+                    "additionalProperties": false,
+                    "description": "One open block."
+                  },
+                  "description": "Open blocks on the task, oldest first, without their text."
+                },
+                "returned": {
+                  "description": "The return that put the task in Dev. Present only while the task stays in Dev after the return and before its next submit.",
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "enum": [
+                        "todo",
+                        "ready-for-dev",
+                        "dev",
+                        "review",
+                        "product-review",
+                        "external-review",
+                        "qa",
+                        "ready-to-merge",
+                        "done"
+                      ],
+                      "description": "Column the task was returned from."
+                    },
+                    "at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the task was returned, ISO 8601 UTC."
+                    },
+                    "by": {
+                      "anyOf": [
+                        { "type": "string", "const": "operator" },
+                        { "type": "string", "const": "system" },
+                        { "type": "string", "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$" }
+                      ],
+                      "description": "Who returned the task to Dev."
+                    },
+                    "block": {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^B[1-9]\\d{0,14}$",
+                      "description": "The code block the return opened."
+                    },
+                    "findings": {
+                      "anyOf": [
+                        { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        { "type": "null" }
+                      ],
+                      "description": "Number of review findings the return sent; null when not given."
+                    }
+                  },
+                  "required": ["from", "at", "by", "block", "findings"],
+                  "additionalProperties": false
                 },
                 "ticket": {
                   "description": "Latest ticket facts, or null before observation. Present only with detail.",
@@ -2177,6 +2279,17 @@
                         "addressedTo": {
                           "description": "Newest assigned recipient session of an untaken turn; null when taken or unassigned.",
                           "type": ["string", "null"]
+                        },
+                        "stalledSince": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            { "type": "null" }
+                          ],
+                          "description": "When the executor stall on this turn began, ISO 8601 UTC, while its stall block is open; null otherwise."
                         }
                       },
                       "required": [
@@ -2188,7 +2301,8 @@
                         "head",
                         "at",
                         "taken",
-                        "addressedTo"
+                        "addressedTo",
+                        "stalledSince"
                       ],
                       "additionalProperties": false,
                       "description": "Unclosed turn without feedback, return context or thread details."
@@ -2389,6 +2503,7 @@
                 "prCount",
                 "sessionCount",
                 "openBlocks",
+                "blocks",
                 "turn",
                 "prSummary",
                 "links"
@@ -3092,6 +3207,36 @@
             "required": ["columns", "operators", "defaultAddressee"],
             "additionalProperties": false,
             "description": "Effective column orchestrators, operators and default Slack addressee."
+          },
+          "daemon": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Product version of the running daemon."
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "When the daemon started, ISO 8601 UTC."
+              },
+              "lastDispatchAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  { "type": "null" }
+                ],
+                "description": "When the last completed board tick (dispatch pass) ended, ISO 8601 UTC; null until the first tick after start."
+              }
+            },
+            "required": ["version", "startedAt", "lastDispatchAt"],
+            "additionalProperties": false,
+            "description": "The running daemon: version, start time and last completed tick."
           }
         },
         "required": [
@@ -3107,7 +3252,8 @@
           "unlinkedSessions",
           "hiddenUnlinkedPrs",
           "hiddenUnlinkedSessions",
-          "bindings"
+          "bindings",
+          "daemon"
         ],
         "additionalProperties": false
       }
@@ -9229,7 +9375,7 @@
     {
       "id": "task.return",
       "kind": "mutation",
-      "description": "Return the task of a turn this session took to Dev, opening a code block on the worker with the reason.",
+      "description": "Return the task of a turn this session took to Dev; the reason opens a worker code block.",
       "grants": [{ "grant": "task-worker" }, { "grant": "column-orchestrator" }],
       "preconditions": null,
       "errors": [
@@ -9251,7 +9397,7 @@
       "mcp": {
         "name": "task_return",
         "key": "idempotencyKey",
-        "whenToUse": "Send the task back to Dev because the work needs code changes.",
+        "whenToUse": "Send the task back to Dev when the work needs code changes.",
         "whenNotToUse": "Use task_submit to hand in the work instead.",
         "destructive": true
       },
@@ -9283,6 +9429,32 @@
               "unblockedAt": null
             }
           }
+        },
+        {
+          "summary": "Return a reviewed task to Dev with the number of findings",
+          "input": { "turn": "T4", "reason": "Fix the two review findings.", "findings": 2 },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "dev",
+              "membership": "active"
+            },
+            "block": {
+              "id": "B14",
+              "task": "PROJ-123",
+              "type": "code",
+              "state": "open",
+              "author": "agent:rev/rev-1",
+              "addressee": "worker",
+              "reason": "Fix the two review findings.",
+              "at": "2026-01-05T09:30:00.000Z",
+              "outcome": null,
+              "outcomeReason": null,
+              "unblockedBy": null,
+              "unblockedAt": null
+            }
+          }
         }
       ],
       "input": {
@@ -9300,6 +9472,12 @@
             "minLength": 1,
             "maxLength": 20000,
             "description": "What the worker must change, sent to the worker as a code block."
+          },
+          "findings": {
+            "description": "Number of review findings the return sends; shown on the task's status row.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           }
         },
         "required": ["turn", "reason"],
@@ -9808,7 +9986,7 @@
     {
       "id": "config.get",
       "kind": "query",
-      "description": "Show effective project columns, executors and Spur bindings.",
+      "description": "Show effective project columns, executors, Spur bindings and web origins.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -9844,7 +10022,8 @@
                   { "name": "web-worker", "role": "worker", "displayName": "web-worker" }
                 ]
               }
-            ]
+            ],
+            "web": { "publicOrigin": "http://127.0.0.1:4778", "spurUiOrigin": null }
           }
         }
       ],
@@ -9958,9 +10137,25 @@
               "additionalProperties": false
             },
             "description": "Effective projects visible to this caller."
+          },
+          "web": {
+            "type": "object",
+            "properties": {
+              "publicOrigin": {
+                "anyOf": [{ "type": "string", "format": "uri" }, { "type": "null" }],
+                "description": "Origin the board web listener answers on; null when the listener is off or not bound yet."
+              },
+              "spurUiOrigin": {
+                "anyOf": [{ "type": "string", "format": "uri" }, { "type": "null" }],
+                "description": "Origin of the Spur web UI clients link sessions to; null when not configured."
+              }
+            },
+            "required": ["publicOrigin", "spurUiOrigin"],
+            "additionalProperties": false,
+            "description": "Web origins of the board listener and the Spur UI."
           }
         },
-        "required": ["projects"],
+        "required": ["projects", "web"],
         "additionalProperties": false,
         "description": "Allowlisted effective configuration without credentials or adapter settings."
       }

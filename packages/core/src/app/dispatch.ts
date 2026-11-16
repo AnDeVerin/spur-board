@@ -174,9 +174,11 @@ export async function moveLeft(
     block?: string;
     reason?: MoveReason;
     gate?: readonly GateReason[];
+    /** Number of review findings a return sends; journaled only when given. */
+    findings?: number | undefined;
   },
 ): Promise<{ task: Task; limitReached: boolean }> {
-  const { task, to, at, actor, config, turn, block, reason, gate } = input;
+  const { task, to, at, actor, config, turn, block, reason, gate, findings } = input;
   const moved = await trx
     .updateTable('task')
     .set({
@@ -203,6 +205,7 @@ export async function moveLeft(
       ...(block === undefined ? {} : { block }),
       ...(reason === undefined ? {} : { reason }),
       ...(gate === undefined ? {} : { gate: [...gate] }),
+      ...(findings === undefined ? {} : { findings }),
     },
     actor,
   );

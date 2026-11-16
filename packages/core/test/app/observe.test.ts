@@ -2492,6 +2492,39 @@ describe('anomaly blocks', () => {
     },
   );
 
+  it('mirrors the open stall block in status.get turn.stalledSince', async () => {
+    const b = await board();
+    const turnOf = async () =>
+      (
+        await getStatus({
+          store: b.store,
+          config: b.config,
+          clock,
+          completeSince: b.core.completeSince,
+        })
+      ).tasks[0]?.turn;
+    await spur(b, [session('worker-1', 'working')]);
+    await heldTurn(b);
+    await tick(b);
+    expect((await turnOf())?.stalledSince).toBeNull();
+    const since = iso();
+    await spur(b, [session('worker-1', 'needs_input')]);
+    now += b.config.health.turnStallAfterMs - 1;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect((await turnOf())?.stalledSince).toBeNull();
+    now += 1;
+    await tick(b);
+    expect(await openLedger(b)).toHaveLength(1);
+    expect((await turnOf())?.stalledSince).toBe(since);
+    await spur(b, [session('worker-1', 'working')]);
+    await tick(b);
+    expect((await turnOf())?.stalledSince).toBeNull();
+    await closeTurn(b);
+    await tick(b);
+    expect(await turnOf()).toBeNull();
+  });
+
   it.each(
     (['needs_input', 'error', 'rate_limited', 'stopped'] as const).flatMap((health) =>
       [

@@ -27,7 +27,7 @@ import {
   ticketFactsSchema,
 } from '../facts.ts';
 import { OPERATION_KINDS, cliModeSchema, grantRuleSchema } from './define.ts';
-import { turnViewSchema } from './turn-schemas.ts';
+import { statusTurnSchema, turnViewSchema } from './turn-schemas.ts';
 
 // Shapes several operations return. Every object is strict and every field is described, so the
 // generated CLI help, MCP tool schemas and `board schema` carry the same text.
@@ -272,23 +272,6 @@ export const linkViewSchema = z
 const detailOnly = 'Present only with detail.';
 const count = (what: string) => z.int().min(0).describe(what);
 
-const omittedTurnDetail =
-  'Always omitted by status.get, even with detail=true; use task.get --why or inbox.get for details.';
-
-const statusTurnSchema = turnViewSchema
-  .omit({ handed: true })
-  .extend({
-    returned: turnViewSchema.shape.returned.describe(omittedTurnDetail),
-    threads: turnViewSchema.shape.threads.describe(omittedTurnDetail),
-    addressedTo: z
-      .string()
-      .nullable()
-      .describe(
-        'Newest assigned recipient session of an untaken turn; null when taken or unassigned.',
-      ),
-  })
-  .describe('Unclosed turn without feedback, return context or thread details.');
-
 const prSummarySchema = z
   .strictObject({
     repo: prFactsSchema.shape.repo,
@@ -348,6 +331,39 @@ export const statusTaskSchema = taskViewSchema
     prCount: count('Number of effective pull request links.'),
     sessionCount: count('Number of effective session links.'),
     openBlocks: count('Number of open blocks on the task.'),
+    blocks: z
+      .array(
+        z
+          .strictObject({
+            id: blockIdSchema,
+            addressee: blockViewSchema.shape.addressee,
+            session: z
+              .string()
+              .min(1)
+              .nullable()
+              .describe(
+                'Session the newest block notification for the addressee went to; null for the operator or before assignment.',
+              ),
+          })
+          .describe('One open block.'),
+      )
+      .describe('Open blocks on the task, oldest first, without their text.'),
+    returned: z
+      .strictObject({
+        from: z.enum(COLUMN_IDS).describe('Column the task was returned from.'),
+        at: z.iso.datetime().describe('When the task was returned, ISO 8601 UTC.'),
+        by: actorIdSchema.describe('Who returned the task to Dev.'),
+        block: blockIdSchema.describe('The code block the return opened.'),
+        findings: z
+          .int()
+          .min(0)
+          .nullable()
+          .describe('Number of review findings the return sent; null when not given.'),
+      })
+      .optional()
+      .describe(
+        'The return that put the task in Dev. Present only while the task stays in Dev after the return and before its next submit.',
+      ),
     ticket: ticketFactsSchema
       .nullable()
       .optional()

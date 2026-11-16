@@ -1,6 +1,6 @@
 import type { ServerResponse } from 'node:http';
 import { startAdapters } from '@spur-board/adapters';
-import type { Gateway } from '@spur-board/contracts';
+import { resolveWebOrigin, type Gateway } from '@spur-board/contracts';
 import {
   createObservationCore,
   createOperationRegistry,
@@ -75,6 +75,9 @@ export function createDaemonModules(
             );
           },
         }));
+  // Set by the web listener once bound and by each completed tick; status.get and config.get read them.
+  let webPort: number | undefined;
+  let lastDispatchAt: string | null = null;
   const registry = createOperationRegistry({
     config: board.config,
     clock: board.clock,
@@ -82,6 +85,10 @@ export function createDaemonModules(
     gateways: gateway === undefined ? [] : [gateway.kind],
     reapplyInbound: () => inbound?.reapply,
     prPoller: () => boardModules.pollPr,
+    ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),
+    lastDispatchAt: () => lastDispatchAt,
+    webOrigin: () =>
+      webPort === undefined ? undefined : resolveWebOrigin(board.config.web, webPort),
   });
   const notifier = createSystemdNotifier({
     log: ctxFor('systemd').log,
@@ -128,6 +135,7 @@ export function createDaemonModules(
     ...(ports.startAdapters === undefined ? {} : { startAdapters: ports.startAdapters }),
     ...(ports.tick === undefined ? {} : { tick: ports.tick }),
     onTick: () => {
+      lastDispatchAt = new Date(board.clock.now()).toISOString();
       notifier.watchdog();
     },
   });
@@ -185,7 +193,10 @@ export function createDaemonModules(
           firstPollDone: () => firstPollDone(board.store.db, board.config, core.completeSince),
           ...(ports.afterOperation === undefined ? {} : { afterOperation: ports.afterOperation }),
           ...(ports.webRoot === undefined ? {} : { webRoot: ports.webRoot }),
-          ...(ports.onWebListening === undefined ? {} : { onListening: ports.onWebListening }),
+          onListening: (address: string) => {
+            webPort = Number(new URL(address).port);
+            ports.onWebListening?.(address);
+          },
         });
   if (web !== undefined) entries.push({ name: 'web', stopStage: 'final', module: web });
   entries.push({

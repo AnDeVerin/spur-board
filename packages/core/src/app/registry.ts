@@ -1,6 +1,7 @@
 import {
   buildCatalogSnapshot,
   OPERATIONS,
+  resolveWebOrigin,
   roleCanUseOperation,
   type Config,
   type PrPoller,
@@ -30,8 +31,22 @@ export function createOperationRegistry(deps: {
   reapplyInbound?: () => ReapplyInbound | undefined;
   /** Read at operation time: the adapter runner starts after the registry and may be absent. */
   prPoller?: () => PrPoller['pollPr'] | undefined;
+  /** Product version of the running daemon, reported by `status.get` `daemon`. */
+  productVersion?: string;
+  /** Read at operation time: when the last board tick completed, or null before the first. */
+  lastDispatchAt?: () => string | null;
+  /**
+   * Read at operation time: the origin the bound web listener answers on. Absent means resolve it
+   * from config, which knows no origin for `web.port: 0`.
+   */
+  webOrigin?: () => string | undefined;
 }): OperationHandlers {
   const { config, clock, completeSince, gateways } = deps;
+  const startedAt = new Date(clock.now()).toISOString();
+  const productVersion = deps.productVersion ?? 'unknown';
+  const lastDispatchAt = deps.lastDispatchAt ?? (() => null);
+  const webOrigin =
+    deps.webOrigin ?? (() => (config.web.port === 0 ? undefined : resolveWebOrigin(config.web)));
   const items = createItemMutations(deps);
   const membership = createMembershipMutations(config);
   const links = createLinkMutations(config, { prPoller: deps.prPoller });
@@ -126,6 +141,10 @@ export function createOperationRegistry(deps: {
               displayName: spur.displayName ?? spur.name,
             })),
           })),
+        web: {
+          publicOrigin: webOrigin() ?? null,
+          spurUiOrigin: config.web.spurUiOrigin ?? null,
+        },
       });
     },
   };
@@ -136,7 +155,14 @@ export function createOperationRegistry(deps: {
     },
     run(trx, input, actor) {
       return getStatus(
-        { store: { db: trx }, config, clock, completeSince, gateways },
+        {
+          store: { db: trx },
+          config,
+          clock,
+          completeSince,
+          gateways,
+          daemon: { version: productVersion, startedAt, lastDispatchAt: lastDispatchAt() },
+        },
         {
           project: input.project,
           visibleProjects: visibleProjects(config, actor),

@@ -101,6 +101,9 @@ describe('catalog', () => {
         ".projects[].spurProjects[].name",
         ".projects[].spurProjects[].role",
         ".projects[].spurProjects[].displayName",
+        ".web",
+        ".web.publicOrigin",
+        ".web.spurUiOrigin",
       ]
     `);
   });
@@ -723,6 +726,7 @@ describe('comment shape', () => {
           'lastCompleteAt',
           'approvedAt',
           'lastUsedAt',
+          'lastDispatchAt',
         ].some((name) => path.endsWith(name)) && !path.includes('.prSummary');
       expect(Array.isArray(node['anyOf']), path).toBe(nullable);
       const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];

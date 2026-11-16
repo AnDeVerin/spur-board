@@ -309,8 +309,13 @@ async function setup(
     /** A submit through its own `createApply`, as each daemon request builds one. */
     submitAlone: (actor: ActorId, sha: string, key: string, turn = 'T1') =>
       createApply({ store, clock, config })(registry['task.submit'], { turn, sha }, actor, key),
-    return: (actor: ActorId, key: string, turn = 'T1') =>
-      apply(registry['task.return'], { turn, reason: 'Handle the empty list.' }, actor, key),
+    return: (actor: ActorId, key: string, turn = 'T1', findings?: number) =>
+      apply(
+        registry['task.return'],
+        { turn, reason: 'Handle the empty list.', ...(findings === undefined ? {} : { findings }) },
+        actor,
+        key,
+      ),
     move: (column: Exclude<ColumnId, 'done'>, actor: ActorId = 'operator', key = 'move-1') =>
       apply(
         registry['task.move'],
@@ -1257,6 +1262,71 @@ describe('task.return', () => {
     expect(turn).not.toBeNull();
     expect(turn?.id).not.toBe('T2');
     expect(turn).not.toHaveProperty('returned');
+  });
+
+  it('status.get marks a returned Dev task until it leaves Dev or the next submit', async () => {
+    const green = { name: 'ci', state: 'success' as const, completedAt: AT };
+    const returned = async () => {
+      const ctx = await taken({
+        mode: 'on',
+        complete: true,
+        pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
+      });
+      const registry = createOperationRegistry({
+        config: ctx.config,
+        clock: { now: () => Date.parse(AT) },
+        completeSince: new Map([
+          [SOURCE, AT],
+          ['spur', AT],
+        ]),
+      });
+      const query = createQuery({
+        store: ctx.store,
+        clock: { now: () => Date.parse(AT) },
+        config: ctx.config,
+      });
+      const row = async () =>
+        (await query(registry['status.get'], {}, 'operator')).tasks.find(
+          (task) => task.key === 'o/r#9',
+        );
+      return { ctx, row };
+    };
+
+    const counted = await returned();
+    await counted.ctx.return(REV_1, 'return-1', 'T1', 3);
+    expect((await counted.row())?.returned).toEqual({
+      from: 'review',
+      at: AT,
+      by: REV_1,
+      block: 'B1',
+      findings: 3,
+    });
+    expect(
+      (await counted.ctx.events()).filter((event) => event.kind === 'task_moved').at(-1)?.payload,
+    ).toEqual({ from: 'review', to: 'dev', turn: 'T1', block: 'B1', findings: 3 });
+
+    // Without findings the marker says null; a submit that leaves the task in Dev clears it.
+    const submitted = await returned();
+    await submitted.ctx.return(REV_1, 'return-1');
+    expect((await submitted.row())?.returned).toMatchObject({ block: 'B1', findings: null });
+    await unlinkAll(submitted.ctx);
+    await submitted.ctx.ack(WORKER_1, 'T2');
+    await expect(submitted.ctx.submit(WORKER_1, A, 'submit-1', 'T2')).resolves.toMatchObject({
+      status: 'pending',
+    });
+    const pending = await submitted.row();
+    expect(pending?.column).toBe('dev');
+    expect(pending).not.toHaveProperty('returned');
+
+    // Leaving Dev clears it, and a correction back into Dev does not bring it back.
+    const moved = await returned();
+    await moved.ctx.return(REV_1, 'return-1');
+    await moved.ctx.move('review');
+    expect(await moved.row()).not.toHaveProperty('returned');
+    await moved.ctx.move('dev', 'operator', 'move-2');
+    const corrected = await moved.row();
+    expect(corrected?.column).toBe('dev');
+    expect(corrected).not.toHaveProperty('returned');
   });
 
   it.each(['dev', 'done'] as const)('refuses a return from %s', async (column) => {

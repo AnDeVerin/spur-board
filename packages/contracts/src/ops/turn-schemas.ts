@@ -1,5 +1,5 @@
 // The turn shapes operations return: the handed feedback, the return that opened a Dev visit, the
-// turn as its executor reads it and as `task.get` lists it.
+// turn as its executor reads it, as `task.get` lists it and as a `status.get` row shows it.
 import { z } from 'zod';
 import { ADDRESSEE_ROLES, COLUMN_IDS, TURN_OUTCOMES } from '../enums.ts';
 import { FEEDBACK_KINDS, commitShaSchema, feedbackLinkShape, prRefSchema } from '../facts.ts';
@@ -100,3 +100,27 @@ export const taskTurnSchema = turnViewSchema
       .describe('How and when the turn closed; null while it is open.'),
   })
   .describe("A task's turn: the executor of a column is asked to act on it.");
+
+const omittedTurnDetail =
+  'Always omitted by status.get, even with detail=true; use task.get --why or inbox.get for details.';
+
+/** A turn as a `status.get` row shows it: no feedback, return context or threads. */
+export const statusTurnSchema = turnViewSchema
+  .omit({ handed: true })
+  .extend({
+    returned: turnViewSchema.shape.returned.describe(omittedTurnDetail),
+    threads: turnViewSchema.shape.threads.describe(omittedTurnDetail),
+    addressedTo: z
+      .string()
+      .nullable()
+      .describe(
+        'Newest assigned recipient session of an untaken turn; null when taken or unassigned.',
+      ),
+    stalledSince: z.iso
+      .datetime()
+      .nullable()
+      .describe(
+        'When the executor stall on this turn began, ISO 8601 UTC, while its stall block is open; null otherwise.',
+      ),
+  })
+  .describe('Unclosed turn without feedback, return context or thread details.');
