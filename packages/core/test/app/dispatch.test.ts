@@ -1517,6 +1517,7 @@ describe('shadow mode', () => {
       prCount: 0,
       sessionCount: 0,
       openBlocks: 0,
+      blocks: [],
       turn: null,
       prSummary: null,
       links: { ticket: 'https://github.com/o/r/issues/9', prs: [], sessions: [] },
@@ -1538,6 +1539,7 @@ describe('shadow mode', () => {
       prCount: 1,
       sessionCount: 1,
       openBlocks: 0,
+      blocks: [],
       turn: null,
       prSummary: [
         {
@@ -2537,6 +2539,7 @@ describe('mode switch', () => {
       'prCount',
       'sessionCount',
       'openBlocks',
+      'blocks',
       'turn',
       'prSummary',
       'links',
@@ -2550,6 +2553,7 @@ describe('mode switch', () => {
       prCount: 0,
       sessionCount: 1,
       openBlocks: 0,
+      blocks: [],
       turn: {
         id: 'T1',
         task: KEY,
@@ -2560,6 +2564,7 @@ describe('mode switch', () => {
         at: on.at(),
         taken: null,
         addressedTo: null,
+        stalledSince: null,
       },
       prSummary: null,
       links: { ticket: 'https://github.com/o/r/issues/9', prs: [], sessions: [{ id: 'worker-1' }] },

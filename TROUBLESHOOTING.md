@@ -459,8 +459,25 @@ package with `pnpm package:build`. Packaging checks `dist/web/index.html`, every
 JS/CSS/font, and the top-level `OFL.txt`; a missing asset fails the installed smoke test.
 A “UI is not built” 503 from the configured web listener calls for rebuilding/reinstalling
 those assets and restarting the daemon. Installed smoke checks that the actual web listener
-serves `/` and a referenced asset with HTTP 200. The #533 stream server is still pending, so
-reconnecting followed by offline/stale is expected until that integration lands.
+serves `/` and a referenced asset with HTTP 200.
+
+### Live updates stuck on reconnecting
+
+The shell gets live updates from a server-sent event stream at `/v1/events` on the web
+listener. When the footer stays on reconnecting or offline:
+
+- A reverse proxy that buffers responses holds the stream back. The daemon sends
+  `X-Accel-Buffering: no`, which nginx honours; turn buffering off for `/v1/events` on other
+  proxies.
+- The proxy's read timeout must exceed 15 seconds: the daemon sends a heartbeat comment every
+  15 seconds and nothing else on a quiet board.
+- A 502 or a dropped stream while the daemon restarts is expected; the shell reconnects with
+  backoff and rereads everything once the new daemon answers.
+- A 503 with `Retry-After: 5` and a plain-text body means 32 streams are already open, one per
+  browser tab. Close unused tabs of the shell. A client that stops reading keeps its slot until it
+  disconnects.
+- A 403 means the request's Host or Origin differs from `web.publicOrigin`: open the shell at
+  that origin.
 
 The footer distinguishes an initial unavailable status from a later stale read: refresh errors
 keep the last count and source names. Stream reconnecting/offline also marks data stale and

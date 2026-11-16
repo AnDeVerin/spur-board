@@ -188,8 +188,8 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "task_submit",
   },
   {
-    "description": "Return the task of a turn this session took to Dev, opening a code block on the worker with the reason.
-Use when: Send the task back to Dev because the work needs code changes.
+    "description": "Return the task of a turn this session took to Dev; the reason opens a worker code block.
+Use when: Send the task back to Dev when the work needs code changes.
 When not to use: Use task_submit to hand in the work instead.
 Example: {"turn":"T4","reason":"Handle the empty list in the parser.","idempotencyKey":"task_return-example-001"}
 Choose a unique idempotencyKey for each action; reuse it on retries.",
@@ -204,7 +204,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "task_move",
   },
   {
-    "description": "Show effective project columns, executors and Spur bindings.
+    "description": "Show effective project columns, executors, Spur bindings and web origins.
 Use when: Read configuration before rendering the Board overview.
 When not to use: Use status_get for task state and freshness.
 Example: {}",

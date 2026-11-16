@@ -51,6 +51,7 @@ export function shellFixture(scenario: Scenario) {
       prCount: 0,
       sessionCount: 0,
       openBlocks: 0,
+      blocks: [],
       turn: null,
       prSummary: null,
       links: { ticket: null, prs: [], sessions: [] },
@@ -61,6 +62,7 @@ export function shellFixture(scenario: Scenario) {
     hiddenUnlinkedPrs: 0,
     hiddenUnlinkedSessions: 0,
     bindings: { columns: [], operators: [], defaultAddressee: null },
+    daemon: { version: '0.4.0', startedAt: at, lastDispatchAt: null },
   });
 }
 export function createShellQaServer(

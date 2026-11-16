@@ -29,6 +29,8 @@ export type { OperationRegistry } from '../app/operations.ts';
 
 export interface ApiOptions extends IdentityPorts {
   readonly port: number;
+  /** Sent as `x-board-instance`; the daemon shares it with the web listener. Default: random. */
+  readonly instance?: string;
   readonly ready: () => boolean;
   /** Whether the daemon is shutting down; read only when `ready()` is false. Absent: starting. */
   readonly stopping?: () => boolean;
@@ -69,7 +71,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   const app = Fastify({ logger: false, genReqId: () => randomUUID(), trustProxy: false });
   const snapshot = await buildCatalogSnapshot(OPERATIONS);
   /** Lets clients notice a daemon restart and check its catalog again. */
-  const instance = randomUUID();
+  const instance = options.instance ?? randomUUID();
   const callers = new WeakMap<object, IdentifiedCaller>();
   let doctorInFlight: Promise<DoctorReport> | null = null;
   let doctorCached: DoctorReport | null = null;

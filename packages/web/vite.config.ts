@@ -1,11 +1,6 @@
-import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 
-const manifest = JSON.parse(
-  readFileSync(new URL('../cli/package.json', import.meta.url), 'utf8'),
-) as { version: string };
 export default defineConfig({
-  define: { __BOARD_VERSION__: JSON.stringify(manifest.version) },
   build: {
     sourcemap: false,
     assetsInlineLimit: 0,

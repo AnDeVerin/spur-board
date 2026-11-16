@@ -448,6 +448,7 @@ it('keeps the default status for 100 tasks under the budget and lists every item
     items.toSorted((a, b) => a.priority - b.priority).map((item) => item.key),
   );
   const compact = [
+    'blocks',
     'column',
     'key',
     'links',
@@ -491,6 +492,7 @@ it('keeps the default status for 100 tasks under the budget and lists every item
     prCount: 1,
     sessionCount: 1,
     openBlocks: 1,
+    blocks: [{ id: 'B1', addressee: 'operator', session: null }],
     turn: null,
     prSummary: [
       {
@@ -1160,6 +1162,7 @@ it('allowlists effective configuration and applies status project visibility', a
         ],
       },
     ],
+    web: { publicOrigin: null, spurUiOrigin: null },
   });
   for (const sentinel of [
     'credential-sentinel',
@@ -1186,10 +1189,127 @@ it('allowlists effective configuration and applies status project visibility', a
   ).toEqual({ kind: 'worker', name: null });
 });
 
+it('config.get reports resolved web origins', async () => {
+  const store = openTempStore('board-config-web-').store;
+  stores.push(store);
+  const read = async (
+    web: Record<string, unknown> | undefined,
+    webOrigin?: () => string | undefined,
+  ) => {
+    const effective = configSchema.parse({
+      projects: [config.projects[0]],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+      ...(web === undefined ? {} : { web }),
+    });
+    const registry = createOperationRegistry({
+      config: effective,
+      clock,
+      completeSince: new Map(),
+      ...(webOrigin === undefined ? {} : { webOrigin }),
+    });
+    return (
+      await createQuery({ store, config: effective, clock })(registry['config.get'], {}, 'operator')
+    ).web;
+  };
+  expect(await read(undefined)).toEqual({ publicOrigin: null, spurUiOrigin: null });
+  expect(
+    await read({
+      port: 4312,
+      publicOrigin: 'https://{port}.x.test',
+      spurUiOrigin: 'https://spur.x.test',
+    }),
+  ).toEqual({ publicOrigin: 'https://4312.x.test', spurUiOrigin: 'https://spur.x.test' });
+  const unbound = { port: 0, publicOrigin: 'http://127.0.0.1:{port}' };
+  expect(await read(unbound)).toEqual({ publicOrigin: null, spurUiOrigin: null });
+  expect(await read(unbound, () => 'http://127.0.0.1:45678')).toEqual({
+    publicOrigin: 'http://127.0.0.1:45678',
+    spurUiOrigin: null,
+  });
+});
+
+it('lists open task blocks with addressee and assigned session', async () => {
+  const store = openTempStore('board-status-blocks-').store;
+  stores.push(store);
+  const at = new Date(clock.now()).toISOString();
+  const task = await store.db
+    .insertInto('task')
+    .values({
+      project: 'first',
+      tracker_kind: 'github-issues',
+      tracker_id: '1',
+      key: 'o/first#1',
+      membership: 'active',
+      column: 'dev',
+      created_at: at,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  const block = async (
+    addressee: 'operator' | 'worker' | 'curator',
+    closed?: 'reason' | 'withdrawn',
+  ) =>
+    (
+      await store.db
+        .insertInto('block')
+        .values({
+          task_id: task.id,
+          type: 'needs_input',
+          reason: 'Which API?',
+          author: 'agent:first-worker/session-1',
+          addressee_role: addressee,
+          state: closed === undefined ? 'open' : 'unblocked',
+          outcome: closed ?? null,
+          created_at: at,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+    ).id;
+  const notify = async (blockId: number, role: 'worker' | 'curator', recipient: string) => {
+    await store.db
+      .insertInto('notification')
+      .values({
+        task_id: task.id,
+        block_id: blockId,
+        source_key: `block:${String(blockId)}:${role}:${recipient}`,
+        kind: 'block',
+        role,
+        recipient_session: recipient,
+        next_at: at,
+        created_at: at,
+      })
+      .execute();
+  };
+  await block('operator');
+  const b2 = await block('worker');
+  await notify(b2, 'worker', 'old');
+  await notify(b2, 'worker', 'latest');
+  // Escalated from the worker to the curator: the curator's notice names the session.
+  const b3 = await block('curator');
+  await notify(b3, 'worker', 'w');
+  await notify(b3, 'curator', 'c');
+  await notify(await block('worker', 'reason'), 'worker', 'answered');
+  await notify(await block('worker', 'withdrawn'), 'worker', 'withdrawn');
+  const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+  const result = await createQuery({ store, config, clock })(
+    registry['status.get'],
+    {},
+    'operator',
+  );
+  const row = result.tasks.find((entry) => entry.key === 'o/first#1');
+  expect(row?.blocks).toEqual([
+    { id: 'B1', addressee: 'operator', session: null },
+    { id: 'B2', addressee: 'worker', session: 'latest' },
+    { id: 'B3', addressee: 'curator', session: 'c' },
+  ]);
+  expect(row?.openBlocks).toBe(3);
+});
+
 it('loads compact turns once per page with newest turn notices and unchanged task read slope', async () => {
   const { store, file } = openTempStore('board-status-turns-');
   stores.push(store);
   const at = new Date(clock.now()).toISOString();
+  const stalledAt = new Date(clock.now() - 600_000).toISOString();
   const addTasks = async (from: number, to: number) => {
     for (let n = from; n <= to; n += 1) {
       const task = await store.db
@@ -1205,6 +1325,51 @@ it('loads compact turns once per page with newest turn notices and unchanged tas
         })
         .returning('id')
         .executeTakeFirstOrThrow();
+      // Open blocks, their notifications and a return on every task keep the read count flat.
+      const blockValues = {
+        task_id: task.id,
+        type: 'needs_input',
+        reason: 'Which API?',
+        author: 'agent:first-worker/session-1',
+        state: 'open',
+        created_at: at,
+      } as const;
+      const workerBlock = await store.db
+        .insertInto('block')
+        .values({ ...blockValues, addressee_role: 'worker' })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      await store.db
+        .insertInto('block')
+        .values({ ...blockValues, addressee_role: 'operator' })
+        .execute();
+      await store.db
+        .insertInto('notification')
+        .values({
+          task_id: task.id,
+          block_id: workerBlock.id,
+          source_key: `block:${String(workerBlock.id)}:worker`,
+          kind: 'block',
+          role: 'worker',
+          recipient_session: `blocked-${String(n)}`,
+          next_at: at,
+          created_at: at,
+        })
+        .execute();
+      await store.db
+        .insertInto('event')
+        .values({
+          at,
+          project: 'first',
+          task_id: task.id,
+          kind: 'task_moved',
+          actor: 'agent',
+          actor_ref: JSON.stringify({ project: 'first-reviewer', session: 'rev-1' }),
+          payload: JSON.stringify({ from: 'review', to: 'dev', turn: 'T900', block: 'B900' }),
+          v: 1,
+          request_id: null,
+        })
+        .execute();
       if (n === 4) continue;
       const turn = await store.db
         .insertInto('turn')
@@ -1225,6 +1390,24 @@ it('loads compact turns once per page with newest turn notices and unchanged tas
         })
         .returning('id')
         .executeTakeFirstOrThrow();
+      if (n === 1)
+        await store.db
+          .insertInto('operator_item')
+          .values({
+            item_key: `turn-stall:${String(turn.id)}:worker-1:needs_input:${stalledAt}:1`,
+            raise_no: 1,
+            kind: 'anomaly',
+            text: 'Worker stalled',
+            url: 'https://example.com/stall',
+            task_id: task.id,
+            block_id: null,
+            raised_at: at,
+            cleared_at: null,
+            line_outbox_id: null,
+            fact_at: stalledAt,
+            inbound_event_json: null,
+          })
+          .execute();
       if (n === 3 || n > 5) continue;
       for (const [kind, recipient] of [
         ['turn', 'old'],
@@ -1261,7 +1444,11 @@ it('loads compact turns once per page with newest turn notices and unchanged tas
     const read = () => getStatus({ store: { db }, config, clock, completeSince: new Map() });
     const small = await read();
     const smallQueries = statements.splice(0);
-    expect(small.tasks[0]?.turn).toMatchObject({ taken: null, addressedTo: 'latest' });
+    expect(small.tasks[0]?.turn).toMatchObject({
+      taken: null,
+      addressedTo: 'latest',
+      stalledSince: stalledAt,
+    });
     await addTasks(2, 40);
     const many = await read();
     const manyQueries = statements.splice(0);
@@ -1271,8 +1458,19 @@ it('loads compact turns once per page with newest turn notices and unchanged tas
     expect(turnQueries(manyQueries)).toHaveLength(1);
     // Existing ticket and link reads remain two per added task; enrichment adds no slope.
     expect(manyQueries.length - smallQueries.length).toBe(39 * 2);
-    expect(manyQueries.filter((query) => query.includes('notification'))).toHaveLength(1);
+    // One turn query and one block query read notifications, whatever the task count.
+    expect(manyQueries.filter((query) => query.includes('notification'))).toHaveLength(2);
+    const count = (queries: string[], text: string) =>
+      queries.filter((query) => query.includes(text)).length;
+    expect(count(manyQueries, '"event"')).toBe(count(smallQueries, '"event"'));
+    expect(count(manyQueries, 'from "block"')).toBe(count(smallQueries, 'from "block"'));
     expect(many.tasks).toHaveLength(40);
+    expect(many.tasks[1]?.turn?.stalledSince).toBeNull();
+    for (const row of many.tasks) {
+      expect(row.blocks).toHaveLength(2);
+      expect(row.openBlocks).toBe(2);
+      expect(row.returned).toMatchObject({ from: 'review', block: 'B900', findings: null });
+    }
     expect(many.tasks[1]?.turn).toMatchObject({
       taken: { by: 'agent:first-worker/holder', at },
       addressedTo: null,
@@ -1295,6 +1493,7 @@ it('loads compact turns once per page with newest turn notices and unchanged tas
           'head',
           'id',
           'reason',
+          'stalledSince',
           'taken',
           'task',
         ]);

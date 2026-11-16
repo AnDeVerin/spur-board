@@ -206,6 +206,11 @@ Anyone who reaches it can use the web-bound reads and `comment.add` / `block.ans
 without a token. Host/Origin guards protect against foreign browser pages, not network members
 or local users; keep the network limited to the operator's devices. See [Security](../SECURITY.md).
 
+The shell gets live updates from `GET /v1/events` on the same listener. Turn response buffering
+off for that path in the proxy: the stream sends `X-Accel-Buffering: no`, which nginx honours,
+and other proxies need buffering disabled in their own config. Keep the proxy read timeout above
+15 seconds, the stream's heartbeat interval.
+
 A busy web port leaves the agent API running; `board doctor --json` reports `web.listening`
 failed. Free the port or change the settings, then restart the daemon. Missing UI assets return
 503 with the hint ``UI is not built: run `pnpm --filter @spur-board/web build` ``; health and

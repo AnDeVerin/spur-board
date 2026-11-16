@@ -144,6 +144,7 @@ describe('web listener', () => {
             spurProjects: [],
           },
         ],
+        web: { publicOrigin: 'https://web.example.test', spurUiOrigin: null },
       },
     });
     await store.db
@@ -269,7 +270,6 @@ describe('web listener', () => {
     '/v1/skills/reloads',
     '/v1/schema',
     '/v1/doctor',
-    '/v1/events',
     '/v1/x',
     '/v1',
   ])('keeps privileged and future routes absent: %s', async (url) => {

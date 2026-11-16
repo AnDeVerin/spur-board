@@ -21,6 +21,11 @@ const sessionDetailWire = z.object({
   status: z.enum(SESSION_STATUSES),
 });
 
+/** Port of an http listener address; URL parsing drops the default port 80, so restore it. */
+export function listenerPort(address: string): number {
+  return Number(new URL(address).port || 80);
+}
+
 /** Fetch one session after a snapshot miss; 404 is a confirmed unknown session. */
 export async function lookupLiveSession(
   baseUrl: string,
@@ -49,6 +54,7 @@ export function createHttpModule(
     doctor?: ApiOptions['doctor'];
     webListening?: () => boolean;
     firstPollDone?: ApiOptions['firstPollDone'];
+    instance?: string;
   } = {},
 ): Module {
   let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
@@ -60,6 +66,7 @@ export function createHttpModule(
         store: ctx.store,
         config: ctx.config,
         port: ctx.config.http.port,
+        ...(options.instance === undefined ? {} : { instance: options.instance }),
         ready: () => ctx.state() === 'ready',
         stopping: () => ctx.state() === 'stopping',
         clock: ctx.clock,
@@ -99,7 +106,7 @@ export function createHttpModule(
         if (aborted()) return;
         options.onListening?.(address);
         app = server;
-        ctx.log.info({ port: Number(new URL(address).port) }, 'http listening');
+        ctx.log.info({ port: listenerPort(address) }, 'http listening');
       } finally {
         if (app !== server) await server.close();
       }
@@ -122,6 +129,7 @@ export function createWebModule(
     firstPollDone?: ApiOptions['firstPollDone'];
     webRoot?: string | URL;
     onListening?: (address: string) => void;
+    instance?: string;
   },
 ): Module & { listening(): boolean } {
   let app: Awaited<ReturnType<typeof createWebServer>> | undefined;
@@ -151,13 +159,17 @@ export function createWebModule(
           logError: ({ requestId, err }) => {
             ctx.log.error({ requestId, err }, 'web request failed');
           },
+          logStreamError: ({ err, step }) => {
+            ctx.log.warn({ err, step }, 'event stream read failed');
+          },
+          ...(options.instance === undefined ? {} : { instance: options.instance }),
         });
         if (aborted()) return;
         const address = await server.listen({ host: '127.0.0.1', port: ctx.config.web.port ?? 0 });
         if (aborted()) return;
         options.onListening?.(address);
         app = server;
-        ctx.log.info({ port: Number(new URL(address).port) }, 'web listening');
+        ctx.log.info({ port: listenerPort(address) }, 'web listening');
       } catch (err) {
         ctx.log.error({ err, port: ctx.config.web.port }, 'web listener failed');
       } finally {

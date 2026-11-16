@@ -529,6 +529,8 @@ describe('catalog HTTP API', () => {
         headers: { host, origin: 'https://outside.example' },
       });
       expectProblem(guarded, 'forbidden', 'Browser origins are not accepted.');
+      const events = await app.inject({ method: 'GET', url: '/v1/events', headers: { host } });
+      expectProblem(events, 'not_found', 'This API route is not available.');
     } finally {
       await app.close();
     }
@@ -731,6 +733,11 @@ describe('catalog HTTP API', () => {
           hostLoad: null,
           transport: [],
           bindings: { columns: [], operators: [], defaultAddressee: null },
+          daemon: {
+            version: '0.0.0-test',
+            startedAt: '2026-11-04T08:00:00.000Z',
+            lastDispatchAt: null,
+          },
         });
       },
     };

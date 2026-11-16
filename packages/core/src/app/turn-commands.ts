@@ -487,12 +487,11 @@ export function createTurnMutations(deps: {
     resolveTargets: (trx, input) => turnVisitTarget(trx, input.turn),
     async run(trx, input, ctx) {
       const { turn, task } = await takenTurn(trx, input.turn, ctx);
-      if (!RETURNABLE.includes(task.column)) {
+      if (!RETURNABLE.includes(task.column))
         throw new CommandError(
           'return_not_allowed',
           `The task is in ${task.column}; only a task right of Dev returns to Dev.`,
         );
-      }
       // Routed and rung from the pre-move column, so the block reaches the worker.
       const block = await openBlock(trx, taskSubject(task), 'code', input.reason, ctx, config);
       await queueBlockOpen(trx, taskSubject(task), block, ctx, config);
@@ -504,6 +503,7 @@ export function createTurnMutations(deps: {
         config,
         turn: turnLabel(turn.id),
         block: `B${String(block.id)}`,
+        findings: input.findings,
       });
       const moved = await dispatched(trx, task.id, ctx.at, ctx.actor);
       return { task: taskView(moved), block: blockView(block, taskSubject(moved)) };

@@ -2,7 +2,7 @@
 
 ### `board config get`
 
-Purpose: Show effective project columns, executors and Spur bindings.
+Purpose: Show effective project columns, executors, Spur bindings and web origins.
 Arguments: none.
 Flags: `--project <value>`, `--json`.
 Use when: Read configuration before rendering the Board overview.

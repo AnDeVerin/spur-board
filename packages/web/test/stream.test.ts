@@ -190,6 +190,7 @@ describe('stream client', () => {
           hiddenUnlinkedPrs: 0,
           hiddenUnlinkedSessions: 0,
           bindings: { columns: [], operators: [], defaultAddressee: null },
+          daemon: { version: '0.4.0', startedAt: '2026-01-05T08:00:00.000Z', lastDispatchAt: null },
         });
       let release!: (value: ReturnType<typeof snapshot>) => void;
       const pending = new Promise<ReturnType<typeof snapshot>>((resolve) => {

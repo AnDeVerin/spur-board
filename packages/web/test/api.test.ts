@@ -16,6 +16,7 @@ const status = statusOutputSchema.parse({
   hiddenUnlinkedPrs: 0,
   hiddenUnlinkedSessions: 0,
   bindings: { columns: [], operators: [], defaultAddressee: null },
+  daemon: { version: '0.4.0', startedAt: '2026-01-05T08:00:00.000Z', lastDispatchAt: null },
 });
 const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
 function deferred<T>() {
