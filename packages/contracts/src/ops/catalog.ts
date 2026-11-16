@@ -23,6 +23,7 @@ import {
 } from '../ids.ts';
 import { commitShaSchema } from '../facts.ts';
 import { defineOperation } from './define.ts';
+import { inboxEntrySchema, inboxHandledSchema } from './inbox-schemas.ts';
 import {
   SCHEMA_ROLES,
   blockViewSchema,
@@ -735,6 +736,85 @@ export const OPERATIONS = [
           comments: [comment],
           blocks: [codeBlock],
           turns: [{ ...reviewTurn, handed: [handedReview] }],
+        },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'inbox.operator',
+    web: true,
+    kind: 'query',
+    description:
+      'List what waits for the operator and what was handled in the last 24 hours; a project operator session sees only its operator projects and no _board entries.',
+    mcp: {
+      whenToUse:
+        'As the operator, review every open operator item, block and turn across projects in one list.',
+      whenNotToUse: 'Use inbox_get for the comments, blocks and turns addressed to an agent.',
+    },
+    input: z.strictObject({}),
+    output: z.strictObject({
+      items: z
+        .array(inboxEntrySchema)
+        .describe(
+          'Open operator items, blocks addressed to the operator and operator turns, newest first; a block or turn is listed once, not with its items.',
+        ),
+      handled: z
+        .array(inboxHandledSchema)
+        .describe('At most 20 entries handled in the last 24 hours, newest first.'),
+    }),
+    grants: operatorOnly,
+    errors: [],
+    cli: { command: 'inbox operator', args: [] },
+    slack: null,
+    examples: [
+      {
+        summary: 'Read the operator inbox',
+        input: {},
+        output: {
+          items: [
+            {
+              id: 'B12',
+              project: 'web',
+              kind: 'block',
+              severity: 'attention',
+              text: question.reason,
+              at: later,
+              task: 'PROJ-123',
+              answeredVia: null,
+            },
+            {
+              id: 'I9',
+              project: '_board',
+              kind: 'transport_health',
+              severity: 'failure',
+              text: `slack delivery down since ${at} (connection lost): check the Slack app tokens`,
+              at,
+              task: null,
+            },
+            {
+              id: 'T5',
+              project: 'web',
+              kind: 'turn',
+              severity: 'attention',
+              text: 'Your turn T5: The pull request is ready to merge.',
+              at,
+              task: 'PROJ-124',
+              column: 'ready-to-merge',
+            },
+          ],
+          handled: [
+            {
+              id: 'B11',
+              project: 'web',
+              kind: 'block',
+              severity: 'attention',
+              text: 'May the client drop v1?',
+              at,
+              task: 'PROJ-123',
+              answeredVia: 'slack',
+              handledAt: later,
+            },
+          ],
         },
       },
     ],

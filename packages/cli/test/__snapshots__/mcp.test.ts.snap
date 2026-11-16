@@ -38,6 +38,13 @@ Example: {}",
     "name": "inbox_get",
   },
   {
+    "description": "List what waits for the operator and what was handled in the last 24 hours; a project operator session sees only its operator projects and no _board entries.
+Use when: As the operator, review every open operator item, block and turn across projects in one list.
+When not to use: Use inbox_get for the comments, blocks and turns addressed to an agent.
+Example: {}",
+    "name": "inbox_operator",
+  },
+  {
     "description": "Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.
 Use when: Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled.
 When not to use: Use inbox_get to inspect them first.

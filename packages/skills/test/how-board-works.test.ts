@@ -209,6 +209,18 @@ describe('how the Board works guide', () => {
       ],
     },
     {
+      section: 'Operator inbox',
+      topic: 'blocks',
+      clauses: [
+        /operator grant/,
+        /listed once/,
+        /`attention`[\s\S]*`failure`/,
+        /last 24 h[\s\S]*at most 20/,
+        /`answeredVia`/,
+      ],
+      keys: ['board inbox operator'],
+    },
+    {
       section: 'Done follows the ticket',
       topic: 'done',
       clauses: [

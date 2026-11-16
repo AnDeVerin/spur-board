@@ -237,7 +237,7 @@ export async function taskBlockViews(trx: Trx, task: Task) {
  * journals it at the block's `unblocked_at`, so the `event_at` index finds it. Select it from a
  * query over `block` and read the value with `answeredVia`.
  */
-const answeredViaColumn = sql<string | null>`(
+export const answeredViaColumn = sql<string | null>`(
   select event.via from event
   where event.kind = 'block_unblocked'
     and event.at = block.unblocked_at
@@ -246,7 +246,7 @@ const answeredViaColumn = sql<string | null>`(
 )`.as('answered_via');
 
 /** The `via` of a block's closing write; null while open or when it came another way. */
-function answeredVia(value: string | null): Via | null {
+export function answeredVia(value: string | null): Via | null {
   return VIAS.find((via) => via === value) ?? null;
 }
 

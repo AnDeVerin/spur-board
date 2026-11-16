@@ -19,3 +19,14 @@ from there, else null.
 
 `projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
 `operator.slack`.
+
+## Operator inbox
+
+`board inbox operator` needs the operator grant: the token, the web screen or
+an operator Spur session. It lists open operator items, blocks to `operator`
+and operator turns of the caller's operator projects; `_board` entries only
+for the token and the board-wide operator, or any operator project when there
+is none. A block or turn is listed once, not
+with its items. Each entry is `attention` or `failure`; a failure says what
+to check. `handled` keeps the last 24 h, at most 20, newest first; handled
+blocks carry `answeredVia`. Archived tasks are left out.
