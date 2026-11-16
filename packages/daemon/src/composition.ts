@@ -13,7 +13,7 @@ import {
 } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { createBoardModules } from './board-modules.ts';
-import { createHttpModule, createWebModule } from './http-module.ts';
+import { createHttpModule, createWebModule, listenerPort } from './http-module.ts';
 import { createInboundModule } from './inbound-module.ts';
 import type { ModuleContext, ModuleEntry } from './lifecycle.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
@@ -194,7 +194,7 @@ export function createDaemonModules(
           ...(ports.afterOperation === undefined ? {} : { afterOperation: ports.afterOperation }),
           ...(ports.webRoot === undefined ? {} : { webRoot: ports.webRoot }),
           onListening: (address: string) => {
-            webPort = Number(new URL(address).port);
+            webPort = listenerPort(address);
             ports.onWebListening?.(address);
           },
         });

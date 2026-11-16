@@ -21,6 +21,11 @@ const sessionDetailWire = z.object({
   status: z.enum(SESSION_STATUSES),
 });
 
+/** Port of an http listener address; URL parsing drops the default port 80, so restore it. */
+export function listenerPort(address: string): number {
+  return Number(new URL(address).port || 80);
+}
+
 /** Fetch one session after a snapshot miss; 404 is a confirmed unknown session. */
 export async function lookupLiveSession(
   baseUrl: string,
@@ -99,7 +104,7 @@ export function createHttpModule(
         if (aborted()) return;
         options.onListening?.(address);
         app = server;
-        ctx.log.info({ port: Number(new URL(address).port) }, 'http listening');
+        ctx.log.info({ port: listenerPort(address) }, 'http listening');
       } finally {
         if (app !== server) await server.close();
       }
@@ -157,7 +162,7 @@ export function createWebModule(
         if (aborted()) return;
         options.onListening?.(address);
         app = server;
-        ctx.log.info({ port: Number(new URL(address).port) }, 'web listening');
+        ctx.log.info({ port: listenerPort(address) }, 'web listening');
       } catch (err) {
         ctx.log.error({ err, port: ctx.config.web.port }, 'web listener failed');
       } finally {
