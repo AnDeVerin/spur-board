@@ -340,10 +340,20 @@ describe('web listener composition', () => {
       ...configFor(httpPort),
       web: { port: 0, publicOrigin: 'http://127.0.0.1:{port}' },
     });
-    const input = optionsFor({ tick: () => Promise.resolve(), config });
+    const startedAt = Date.parse('2026-03-04T05:06:07.000Z');
+    let now = startedAt;
+    // The tick moves the clock, so a stamp taken at tick start would differ from the one at its end.
+    const input = optionsFor({
+      tick: () => {
+        now += 60_000;
+        return Promise.resolve();
+      },
+      config,
+    });
     let webAddress = '';
     daemon = await startInProcessDaemon({
       ...input,
+      clock: { now: () => now },
       ports: {
         ...input.ports,
         productVersion: '9.9.9-test',
@@ -375,12 +385,9 @@ describe('web listener composition', () => {
         lastDispatchAt: string | null;
       };
       expect(running.version).toBe('9.9.9-test');
-      expect(new Date(running.startedAt).toISOString()).toBe(running.startedAt);
-      expect(running.lastDispatchAt).not.toBeNull();
-      expect(new Date(running.lastDispatchAt ?? '').toISOString()).toBe(running.lastDispatchAt);
-      expect(Date.parse(running.lastDispatchAt ?? '')).toBeGreaterThanOrEqual(
-        Date.parse(running.startedAt),
-      );
+      expect(running.startedAt).toBe(new Date(startedAt).toISOString());
+      // Two ticks have completed: the one start runs in the background, then `daemon.tick()`.
+      expect(running.lastDispatchAt).toBe(new Date(startedAt + 120_000).toISOString());
     } finally {
       await daemon.stop();
     }
