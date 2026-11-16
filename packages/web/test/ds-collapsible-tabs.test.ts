@@ -100,9 +100,16 @@ describe('Tabs', () => {
     expect(tags.filter((tag) => tag.includes('tabindex="-1"'))).toHaveLength(2);
     expect(html.match(/aria-controls=/g)).toHaveLength(1);
     expect(selected[0]).toContain('aria-controls="f-panel-spur-board"');
-    expect(html).toContain(
-      '<div id="f-panel-spur-board" role="tabpanel" aria-labelledby="f-tab-spur-board">List</div>',
-    );
+    const panel = html.match(/<div[^>]*role="tabpanel"[^>]*>List<\/div>/g) ?? [];
+    expect(panel).toHaveLength(1);
+    expect(panel[0]).toContain('id="f-panel-spur-board"');
+    expect(panel[0]).toContain('aria-labelledby="f-tab-spur-board"');
+  });
+
+  it('puts the tab panel in the tab order, so Tab reaches content with no control', () => {
+    const panel = render('spur-board').match(/<div[^>]*role="tabpanel"[^>]*>/g) ?? [];
+    expect(panel).toHaveLength(1);
+    expect(panel[0]).toContain('tabindex="0"');
   });
 
   it('shows a count and names the tab with it', () => {

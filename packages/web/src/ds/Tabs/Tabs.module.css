@@ -15,7 +15,8 @@
   white-space: nowrap;
   cursor: pointer;
 }
-.tab:focus-visible {
+.tab:focus-visible,
+.panel:focus-visible {
   outline: var(--width-ring) solid var(--color-status-working);
   outline-offset: var(--offset-ring);
 }

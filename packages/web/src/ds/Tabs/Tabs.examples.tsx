@@ -59,7 +59,8 @@ export function Focused() {
   return (
     <div>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
-        Press Tab to reach the selected tab, then the arrow keys, Home and End.
+        Press Tab to reach the selected tab, then the arrow keys, Home and End; Tab again reaches
+        the panel.
       </p>
       <Controlled variant="underline" label="Task view" tabs={views} initial="history" />
       <Controlled variant="segmented" label="Filter" tabs={filters} initial="all" />

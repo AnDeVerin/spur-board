@@ -86,7 +86,8 @@ export function Tabs({
 /**
  * The panel of the selected tab, labelled by it. It lives with `Tabs` because both build their
  * ids from the same `Tabs` `id`. A filter screen renders one `TabPanel` around the filtered list,
- * with the selected value.
+ * with the selected value. The panel is a tab stop, as the WAI-ARIA tabs pattern asks, so Tab from
+ * the selected tab reaches panel content that holds no control of its own.
  */
 export function TabPanel({
   tabsId,
@@ -98,7 +99,13 @@ export function TabPanel({
   children: ReactNode;
 }) {
   return (
-    <div id={panelId(tabsId, value)} role="tabpanel" aria-labelledby={tabId(tabsId, value)}>
+    <div
+      id={panelId(tabsId, value)}
+      role="tabpanel"
+      aria-labelledby={tabId(tabsId, value)}
+      tabIndex={0}
+      className={styles.panel}
+    >
       {children}
     </div>
   );
