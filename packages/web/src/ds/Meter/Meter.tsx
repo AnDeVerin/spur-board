@@ -18,8 +18,9 @@ function levelOf(ratio: number, thresholds: MeterThresholds | undefined): Level 
 }
 
 /**
- * A thin bar with a `value / limit` label. `name` is the visible key it sits next to. A null
- * value or a limit of 0 or less is unknown: an empty track and `— / limit`, never a reading.
+ * A thin bar with a `value / limit` label. `name` is the visible key it sits next to. A null or
+ * non-finite value, or a limit that is not a finite number above 0, is unknown: an empty track and
+ * `— / limit` (`— / —` for a non-finite limit), never a reading.
  */
 export function Meter({
   name,
@@ -32,16 +33,17 @@ export function Meter({
   limit: number;
   thresholds?: MeterThresholds | undefined;
 }) {
-  if (value === null || !(limit > 0)) {
+  if (value === null || !Number.isFinite(value) || !Number.isFinite(limit) || !(limit > 0)) {
+    const max = Number.isFinite(limit) ? String(limit) : '—';
     return (
       <span
         className={styles.root}
         role="img"
-        aria-label={`${name}: unknown / ${String(limit)}`}
+        aria-label={`${name}: unknown / ${max}`}
         data-level="unknown"
       >
         <span className={styles.track} />
-        <span className={styles.label}>— / {String(limit)}</span>
+        <span className={styles.label}>— / {max}</span>
       </span>
     );
   }

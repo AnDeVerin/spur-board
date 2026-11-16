@@ -363,16 +363,22 @@ describe('Meter', () => {
   });
 
   it.each([
-    ['a null value', null, 5000],
-    ['a zero limit', 10, 0],
-  ])('draws no reading for %s', (_, value, limit) => {
+    ['a null value', null, 5000, '5000'],
+    ['a zero limit', 10, 0, '0'],
+    ['a NaN value', Number.NaN, 5000, '5000'],
+    ['an infinite value', Number.POSITIVE_INFINITY, 5000, '5000'],
+    ['a NaN limit', 10, Number.NaN, '—'],
+    ['an infinite limit', 10, Number.POSITIVE_INFINITY, '—'],
+  ])('draws no reading for %s', (_, value, limit, max) => {
     const html = render(value, limit);
     expect(html).toContain('data-level="unknown"');
     expect(html).toContain('role="img"');
     expect(html).not.toContain('role="meter"');
     expect(html).not.toContain('aria-valuenow');
     expect(html).not.toContain('width:');
-    expect(html).toContain(`— / ${String(limit)}`);
-    expect(html).toContain(`aria-label="Budget: unknown / ${String(limit)}"`);
+    expect(html).not.toContain('NaN');
+    expect(html).not.toContain('Infinity');
+    expect(html).toContain(`— / ${max}`);
+    expect(html).toContain(`aria-label="Budget: unknown / ${max}"`);
   });
 });
