@@ -5,8 +5,10 @@ import { resolveWebOrigin } from '@spur-board/contracts';
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { CommandError } from '../app/commands.ts';
 import { withVia } from '../app/board-utils.ts';
+import { dispatchOperation } from '../app/operations.ts';
 import { createOpsRoute, installOperationErrors } from './ops-route.ts';
 import type { ApiOptions } from './server.ts';
+import { createEventHub, installEventStream } from './sse.ts';
 
 export interface WebOptions extends Pick<
   ApiOptions,
@@ -20,8 +22,11 @@ export interface WebOptions extends Pick<
   | 'afterOperation'
   | 'firstPollDone'
   | 'logError'
+  | 'instance'
 > {
   readonly webRoot: string | URL;
+  /** Called when an event stream poll or status read fails; the next round retries. */
+  readonly logStreamError?: (entry: { err: unknown; step: 'poll' | 'status' }) => void;
   readonly logRequest: (entry: {
     requestId: string;
     method: string;
@@ -101,13 +106,16 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
     },
   });
   const errorHandler = installOperationErrors(app, options);
-  function guard(request: FastifyRequest, reply: FastifyReply): void {
-    reply.header('x-request-id', request.id);
+  function resolvedOrigin(): string | undefined {
     const address = app.server.address();
-    const origin = resolveWebOrigin(
+    return resolveWebOrigin(
       options.config.web,
       address !== null && typeof address === 'object' ? address.port : undefined,
     );
+  }
+  function guard(request: FastifyRequest, reply: FastifyReply): void {
+    reply.header('x-request-id', request.id);
+    const origin = resolvedOrigin();
     if (origin === undefined || request.headers.host !== new URL(origin).host)
       throw new CommandError('forbidden', 'Use the configured web host.');
     if (request.headers['sec-fetch-site'] === 'cross-site')
@@ -135,7 +143,11 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
     reply.header('x-content-type-options', 'nosniff');
     reply.header('referrer-policy', 'no-referrer');
   }
+  // An aborted event stream never reaches `onResponse`; its close listener audits it instead.
+  const audited = new WeakSet<FastifyRequest>();
   function audit(request: FastifyRequest, reply: FastifyReply): void {
+    if (audited.has(request)) return;
+    audited.add(request);
     const forwardedFor = request.headers['x-forwarded-for'];
     const userAgent = request.headers['user-agent'];
     options.logRequest({
@@ -177,6 +189,25 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
       throw new CommandError('not_found', 'Health is unavailable.');
     return { firstPollDone: await options.firstPollDone() };
   });
+  const hub = createEventHub({
+    db: options.store.db,
+    config: options.config,
+    instance: options.instance ?? randomUUID(),
+    readStatus: (caller) =>
+      dispatchOperation(options, 'status.get', {}, caller) as ReturnType<
+        Parameters<typeof createEventHub>[0]['readStatus']
+      >,
+    onError: options.logStreamError,
+  });
+  installEventStream(app, {
+    hub,
+    ready: options.ready,
+    stopping: options.stopping,
+    origin: resolvedOrigin,
+    audit,
+  });
+  // Runs before the server closes: open streams would otherwise hold `close` open.
+  app.addHook('preClose', () => hub.close());
   app.setNotFoundHandler(async (request, reply) => {
     const path = request.url.split('?', 1)[0] ?? '/';
     if (

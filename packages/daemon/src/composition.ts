@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
 import { startAdapters } from '@spur-board/adapters';
 import { resolveWebOrigin, type Gateway } from '@spur-board/contracts';
@@ -184,12 +185,15 @@ export function createDaemonModules(
     id === 'item.retry' && inbound !== undefined && isItemInput(input)
       ? inbound.retrying(input.item, run)
       : run();
+  // One daemon instance ID: the API's `x-board-instance` and the web stream's `hello`.
+  const instance = randomUUID();
   const web =
     board.config.web.port === undefined
       ? undefined
       : createWebModule(ctxFor('web'), {
           registry,
           runOperation,
+          instance,
           firstPollDone: () => firstPollDone(board.store.db, board.config, core.completeSince),
           ...(ports.afterOperation === undefined ? {} : { afterOperation: ports.afterOperation }),
           ...(ports.webRoot === undefined ? {} : { webRoot: ports.webRoot }),
@@ -205,6 +209,7 @@ export function createDaemonModules(
     module: createHttpModule(ctxFor('http'), {
       registry,
       runOperation,
+      instance,
       webListening: () => web?.listening() === true,
       firstPollDone: () => firstPollDone(board.store.db, board.config, core.completeSince),
       ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),

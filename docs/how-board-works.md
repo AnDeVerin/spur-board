@@ -65,8 +65,12 @@ failed attempts while continuing recovery. The first valid stream handshake refr
 to close the startup read race; later changes to the stream head or instance also refresh it.
 Reconnects retain valid SSE cursors, including ID-only records, until the server clears them.
 
-The configured daemon web listener serves the packaged SPA and its local assets. The stream
-client connects with `GET /v1/events`, as specified by #533. That server remains pending, so
-the shell currently reports reconnecting then offline/stale while status reads and theme controls
-remain available. The footer version is `daemon.version` from `status.get`, so a stale bundle never
+The configured daemon web listener serves the packaged SPA and its local assets, and streams
+live updates from `GET /v1/events` as server-sent events. The stream opens with `hello` (journal
+head and daemon instance), then sends one `invalidate` per committed batch of journal events,
+naming the projects and task keys it touched, so the shell rereads only those. A `reset` asks for
+a full reread: after a client fell behind, or when its last event ID is ahead of the journal.
+A `status` frame every 30 seconds carries source and transport health; a comment line every 15
+seconds keeps proxies from closing the stream. A restarted daemon sends a new instance in
+`hello`, which also makes the shell reread everything. The footer version is `daemon.version` from `status.get`, so a stale bundle never
 claims the daemon's version; it stays empty until the first status read.

@@ -439,4 +439,51 @@ describe('web listener composition', () => {
       }),
     );
   });
+
+  it('shares the instance with the event stream and stops with a stream open', async () => {
+    const reservation = createServer();
+    await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve));
+    const reserved = reservation.address();
+    if (reserved === null || typeof reserved === 'string') throw new Error('Expected TCP address');
+    await new Promise<void>((resolve, reject) =>
+      reservation.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      }),
+    );
+    const config = configSchema.parse({
+      ...configFor(reserved.port),
+      web: { port: 0, publicOrigin: 'http://127.0.0.1:{port}' },
+    });
+    const lines: string[] = [];
+    const input = optionsFor({ tick: () => Promise.resolve(), config, lines });
+    let webAddress = '';
+    daemon = await startInProcessDaemon({
+      ...input,
+      ports: {
+        ...input.ports,
+        onWebListening: (address) => {
+          webAddress = address;
+        },
+      },
+    });
+    const response = await fetch(`${webAddress}/v1/events`, {
+      headers: { accept: 'text/event-stream' },
+    });
+    expect(response.status).toBe(200);
+    const reader = response.body?.getReader();
+    if (reader === undefined) throw new Error('Expected a stream body');
+    const first = await reader.read();
+    const hello = new TextDecoder().decode(first.value);
+    const data = /^data: (.*)$/m.exec(hello)?.[1] ?? '';
+    const { instance } = JSON.parse(data) as { instance: string };
+    const api = await fetch(`${daemon.address}/v1/health`);
+    expect(instance).toBe(api.headers.get('x-board-instance'));
+    const drained = (async () => {
+      for (;;) if ((await reader.read()).done) return 'done';
+    })();
+    expect(await daemon.stop()).toBe(0);
+    expect(await drained).toBe('done');
+    expect(lines.join('')).not.toContain('shutdown timed out');
+  });
 });
