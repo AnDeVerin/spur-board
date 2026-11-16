@@ -85,7 +85,7 @@ function outlineViolations(file: string, css: string): string[] {
         if (value === 'none') return !outlineNone.has(`${file} ${selector}`);
         return true;
       })
-      .map(([declaration]) => `${file} ${selector}: ${declaration ?? ''}`),
+      .map(([declaration]) => `${file} ${selector}: ${declaration}`),
   );
 }
 describe('web design assets and policy', () => {
