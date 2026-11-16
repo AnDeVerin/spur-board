@@ -73,8 +73,9 @@
   --tracking-body: 0.02em;
   --tracking-label: 0.14em;
   --tracking-bar: 0.08em;
+  --weight-bold: 700;
 
-  /* spacing: a 4px step plus the 6px and 10px half steps */
+  /* spacing, 4px step; 1-5 and 2-5 are half steps */
   --space-1: 4px;
   --space-1-5: 6px;
   --space-2: 8px;
@@ -92,6 +93,9 @@
   --size-logo: 20px;
   --size-dot: 6px;
   --size-column: 248px;
+  --size-hairline: 1px;
+  --size-meter: 60px;
+  --size-meter-height: 4px;
   --size-textarea: 56px;
   --stroke-icon: 1.6;
 

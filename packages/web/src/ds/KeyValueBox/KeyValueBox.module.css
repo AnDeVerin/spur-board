@@ -1,0 +1,76 @@
+.root {
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.root > * + * {
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+}
+.title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2-5);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-bar);
+  font-size: var(--text-small);
+}
+.row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-2-5);
+  min-height: var(--size-control);
+}
+/* A key breaks only at spaces, so the value takes the squeeze. The cap bounds the key's
+   minimum, so a key word wider than the cap breaks and nothing overflows the box. */
+.key {
+  flex: 1 1 auto;
+  max-width: 75%;
+  overflow-wrap: break-word;
+  color: var(--color-text-secondary);
+}
+.value {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  color: var(--color-text-primary);
+}
+.row[data-status='wait'] {
+  background: var(--color-fill-attention);
+}
+.row[data-status='wait'] .value {
+  color: var(--color-status-attention);
+}
+.row[data-status='fail'] {
+  background: var(--color-fill-error);
+}
+.row[data-status='fail'] .value,
+.row[data-status='fail'] .message {
+  color: var(--color-status-error);
+}
+.row[data-status='fail'] .value {
+  font-weight: var(--weight-bold);
+}
+/* Muted rows: tertiary, so a quiet container lifts them to secondary. */
+.row:is([data-status='pass'], [data-status='unchecked']) :is(.key, .value) {
+  color: var(--color-text-tertiary);
+}
+/* Visually hidden: the status word for a screen reader when the row shows a value. */
+.hidden {
+  position: absolute;
+  width: var(--size-hairline);
+  height: var(--size-hairline);
+  margin: calc(-1 * var(--size-hairline));
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

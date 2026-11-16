@@ -1,0 +1,34 @@
+/* The ok fill is neutral; a status colour shows only next to its visible word. The label drops
+   under the track when the line runs out of room. */
+.root {
+  --meter-colour: var(--color-text-secondary);
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+  flex: 1 1 var(--size-meter);
+}
+.root[data-level='warning'] {
+  --meter-colour: var(--color-status-attention);
+}
+.root[data-level='error'] {
+  --meter-colour: var(--color-status-error);
+}
+.track {
+  display: block;
+  flex: 1;
+  min-width: var(--size-meter);
+  height: var(--size-meter-height);
+  background: var(--color-border-default);
+}
+.fill {
+  display: block;
+  height: 100%;
+  background: var(--meter-colour);
+}
+.label {
+  white-space: nowrap;
+}
+.word {
+  color: var(--meter-colour);
+}
