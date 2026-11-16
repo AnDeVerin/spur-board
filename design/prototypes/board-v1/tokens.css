@@ -119,6 +119,7 @@
 
   /* stacking */
   --z-sticky: 1;
+  --z-focus: 1;
 
   --radius: 0;
 }

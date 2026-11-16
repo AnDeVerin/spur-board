@@ -171,6 +171,16 @@ describe('web design assets and policy', () => {
         expect(rule).toContain('background: var(--color-row-hover);');
     },
   );
+  it('ThemeSwitch lifts a focused item so the next item cannot cover its ring', () => {
+    const lifts = cssRules(read('src/ds/ThemeSwitch/ThemeSwitch.module.css')).filter(
+      ({ selector, body }) =>
+        selector.split(',').some((part) => part.trim() === '.item:focus-visible') &&
+        body.includes('position: relative;') &&
+        body.includes('z-index: var(--z-focus);'),
+    );
+    expect(lifts).toHaveLength(1);
+    expect(dark['--z-focus']).toBe('1');
+  });
   it('outlineViolations accepts only the ds ring, including negative fixtures', () => {
     const rule = (selector: string, body: string) => `${selector} {\n  ${body}\n}\n`;
     for (const ok of [
