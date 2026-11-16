@@ -268,9 +268,9 @@ describe('Modal and SidePanel', () => {
       expect(document.activeElement).toBe(opener);
     });
 
-    // The inbox panel and the task modal, opened one after the other or both in one commit (a deep
-    // link), with the modal nested in the panel or rendered as its sibling before it.
-    function Stack({ nested }: { nested: boolean }) {
+    // The inbox panel (or an outer modal) and the task modal, nested or as a sibling before it.
+    type Layout = { nested?: boolean; Outer?: typeof Modal };
+    function Stack({ nested = true, Outer = SidePanel }: Layout) {
       const [shown, setShown] = useState({ inbox: false, task: false });
       // Each handler is one state update: "Open both" mounts both layers in one commit.
       const set = (change: Partial<typeof shown>) => () => {
@@ -288,7 +288,7 @@ describe('Modal and SidePanel', () => {
         createElement('button', { onClick: set({ inbox: true }) }, 'Open inbox'),
         createElement('button', { onClick: set({ inbox: true, task: true }) }, 'Open both'),
         nested ? null : modal,
-        createElement(SidePanel, {
+        createElement(Outer, {
           open: shown.inbox,
           onClose: set({ inbox: false }),
           title: 'Inbox',
@@ -317,7 +317,7 @@ describe('Modal and SidePanel', () => {
         .sort();
     const open = () => dialogs().map(titleOf).sort();
 
-    type Case = { name: string; clicks: string[]; nested?: boolean; strict?: boolean };
+    type Case = Layout & { name: string; clicks: string[]; strict?: boolean };
     const apart = ['Task Close', 'Inbox Open task', 'Open inbox'];
     const together = ['Task Close', 'Inbox Close', 'Open both'];
     const both = ['Open both'];
@@ -326,11 +326,12 @@ describe('Modal and SidePanel', () => {
       { name: 'panel and nested modal in one commit', clicks: both, focus: together },
       { name: 'the same under StrictMode', clicks: both, strict: true, focus: together },
       { name: 'sibling modal first, one commit', clicks: both, nested: false, focus: together },
-    ])('stacks layers in visual order: $name', ({ clicks, nested = true, strict, focus }) => {
-      const stack = createElement(Stack, { nested });
+      { name: 'modal nested in a modal, one commit', clicks: both, Outer: Modal, focus: together },
+    ])('stacks layers in visual order: $name', ({ clicks, strict, focus, ...layout }) => {
+      const stack = createElement(Stack, layout);
       render(strict ? createElement(StrictMode, null, stack) : stack);
       for (const name of clicks) press(button(name));
-      // The modal is on top (page and panel inert); each Escape closes the top layer.
+      // The modal is on top (page and outer layer inert); each Escape closes the top layer.
       const after = [
         { open: ['Inbox', 'Task'], inert: ['Inbox', 'root'] },
         { open: ['Inbox'], inert: ['root'] },
