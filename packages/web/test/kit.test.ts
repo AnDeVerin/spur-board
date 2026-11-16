@@ -1,5 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -22,12 +24,29 @@ let second = '';
 const git = (...args: string[]) =>
   execFileSync('git', args, { cwd: repoDir, encoding: 'utf8' }).trim();
 const read = (dir: string, file: string) => readFileSync(join(dir, file), 'utf8');
+// Every file under dir with a hash of its bytes, so two snapshots compare byte for byte.
+const snapshot = (dir: string) =>
+  Object.fromEntries(
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry): [string, string] => {
+        const file = join(entry.parentPath, entry.name);
+        return [
+          file.slice(dir.length),
+          createHash('sha256').update(readFileSync(file)).digest('hex'),
+        ];
+      })
+      .sort(([a], [b]) => (a < b ? -1 : 1)),
+  );
 
-const runKit = (out: string) =>
-  spawnSync(process.execPath, ['kit/build.ts', '--out', out], { cwd: webDir, encoding: 'utf8' });
+const runKit = (out: string, ...args: string[]) =>
+  spawnSync(process.execPath, ['kit/build.ts', '--out', out, ...args], {
+    cwd: webDir,
+    encoding: 'utf8',
+  });
 
-function buildKit(out: string): void {
-  const result = runKit(out);
+function buildKit(out: string, ...args: string[]): void {
+  const result = runKit(out, ...args);
   if (result.status !== 0)
     throw new Error(`kit build exited ${String(result.status)}:\n${result.stderr}`);
 }
@@ -157,4 +176,24 @@ describe('design system kit output guard', () => {
       true,
     );
   }, 120_000);
+
+  it('keeps the previous kit when a step fails, then builds once the step is fixed', () => {
+    const out = join(tempDir, 'kept');
+    const prototypes = join(tempDir, 'prototypes');
+    const app = join(prototypes, '_sample/app.jsx');
+    cpSync(join(repoDir, 'design/prototypes/_sample'), join(prototypes, '_sample'), {
+      recursive: true,
+    });
+    buildKit(out, '--prototypes', prototypes);
+    const kit = snapshot(out);
+    const source = readFileSync(app, 'utf8');
+    writeFileSync(app, `${source}\n<broken`);
+    const result = runKit(out, '--prototypes', prototypes);
+    expect(result.status).not.toBe(0);
+    expect(snapshot(out)).toEqual(kit);
+    expect(existsSync(`${out}.partial`)).toBe(false);
+    writeFileSync(app, source);
+    buildKit(out, '--prototypes', prototypes);
+    expect(snapshot(out)).toEqual(kit);
+  }, 180_000);
 });

@@ -1,20 +1,36 @@
 // Builds the design system kit: `node kit/build.ts [--out <dir>]` (default `<repo>/design/kit`).
+// `--prototypes <dir>` (default `<repo>/design/prototypes`) is for tests. Every step writes to
+// `<out>.partial`, which replaces the kit only when all steps pass, so a failed build leaves the
+// previous kit as it was.
 // Outputs ds.js (global DS with React bundled), ds.css (fonts inlined), gallery/,
 // prototypes/<slice>/app.js and BUILD.json. No timestamps, so two builds of a commit match.
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { build, transformWithOxc, type CSSOptions, type Rolldown } from 'vite';
 
 const webDir = resolve(import.meta.dirname, '..');
 const repoDir = resolve(webDir, '../..');
-const { values } = parseArgs({ options: { out: { type: 'string' } } });
+const { values } = parseArgs({
+  options: { out: { type: 'string' }, prototypes: { type: 'string' } },
+});
 const outDir = resolve(values.out ?? join(repoDir, 'design/kit'));
+const prototypesDir = resolve(values.prototypes ?? join(repoDir, 'design/prototypes'));
+const stagingDir = `${outDir}.partial`;
 
-// The build empties outDir, so refuse a directory that holds or contains sources, and any
-// non-empty directory that is not a previous kit.
-function refusal(dir: string): string | undefined {
+// The build replaces outDir and clears stagingDir, so refuse either when it is or contains a
+// source directory, and refuse an outDir that is non-empty and not a previous kit.
+function sourceRefusal(dir: string): string | undefined {
   const sources = [
     '',
     'design',
@@ -28,13 +44,18 @@ function refusal(dir: string): string | undefined {
     if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)))
       return `it is or contains ${source}`;
   }
-  if (!existsSync(dir)) return undefined;
-  if (!statSync(dir).isDirectory()) return 'it is not a directory';
-  if (readdirSync(dir).length > 0 && !existsSync(join(dir, 'BUILD.json')))
+  return undefined;
+}
+function refusal(): string | undefined {
+  const source = sourceRefusal(outDir) ?? sourceRefusal(stagingDir);
+  if (source) return source;
+  if (!existsSync(outDir)) return undefined;
+  if (!statSync(outDir).isDirectory()) return 'it is not a directory';
+  if (readdirSync(outDir).length > 0 && !existsSync(join(outDir, 'BUILD.json')))
     return 'it is not empty and holds no BUILD.json from a previous kit build';
   return undefined;
 }
-const refused = refusal(outDir);
+const refused = refusal();
 if (refused) {
   console.error(`kit build: refusing to write to ${outDir}: ${refused}.`);
   process.exit(1);
@@ -62,7 +83,7 @@ async function buildLibrary(): Promise<string[]> {
     define: { 'process.env.NODE_ENV': JSON.stringify('production') },
     css,
     build: {
-      outDir,
+      outDir: stagingDir,
       emptyOutDir: true,
       sourcemap: false,
       lib: {
@@ -89,13 +110,12 @@ async function buildGallery(): Promise<void> {
     base: './',
     logLevel: 'warn',
     css,
-    build: { outDir: join(outDir, 'gallery'), emptyOutDir: true, sourcemap: false },
+    build: { outDir: join(stagingDir, 'gallery'), emptyOutDir: true, sourcemap: false },
   });
 }
 
 // Prototype JSX calls the kit's React, so prototypes need no React of their own.
 async function compilePrototypes(): Promise<void> {
-  const prototypesDir = join(repoDir, 'design/prototypes');
   const slices = existsSync(prototypesDir)
     ? readdirSync(prototypesDir).filter((slice) =>
         existsSync(join(prototypesDir, slice, 'app.jsx')),
@@ -111,8 +131,8 @@ async function compilePrototypes(): Promise<void> {
         pragmaFrag: 'DS.React.Fragment',
       },
     });
-    mkdirSync(join(outDir, 'prototypes', slice), { recursive: true });
-    writeFileSync(join(outDir, 'prototypes', slice, 'app.js'), result.code);
+    mkdirSync(join(stagingDir, 'prototypes', slice), { recursive: true });
+    writeFileSync(join(stagingDir, 'prototypes', slice, 'app.js'), result.code);
   }
 }
 
@@ -120,14 +140,22 @@ function git(...args: string[]): string {
   return execFileSync('git', args, { cwd: repoDir, encoding: 'utf8' }).trim();
 }
 
-const exports = await buildLibrary();
-await buildGallery();
-await compilePrototypes();
-const info = {
-  commit: git('rev-parse', 'HEAD'),
-  commitDate: git('show', '-s', '--format=%cI', 'HEAD'),
-  dirty: git('status', '--porcelain') !== '',
-  exports,
-};
-writeFileSync(join(outDir, 'BUILD.json'), `${JSON.stringify(info, null, 2)}\n`);
+rmSync(stagingDir, { recursive: true, force: true });
+try {
+  const exports = await buildLibrary();
+  await buildGallery();
+  await compilePrototypes();
+  const info = {
+    commit: git('rev-parse', 'HEAD'),
+    commitDate: git('show', '-s', '--format=%cI', 'HEAD'),
+    dirty: git('status', '--porcelain') !== '',
+    exports,
+  };
+  writeFileSync(join(stagingDir, 'BUILD.json'), `${JSON.stringify(info, null, 2)}\n`);
+} catch (error) {
+  rmSync(stagingDir, { recursive: true, force: true });
+  throw error;
+}
+rmSync(outDir, { recursive: true, force: true });
+renameSync(stagingDir, outDir);
 console.log(`Design system kit written to ${outDir}`);
