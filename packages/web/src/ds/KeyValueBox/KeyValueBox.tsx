@@ -4,7 +4,7 @@ import styles from './KeyValueBox.module.css';
 
 export type KeyValueStatus = 'pass' | 'wait' | 'fail' | 'unchecked';
 
-/** One row. A row with a status and no value is a message row: its status word is the value. */
+/** One row. A status row with a null or undefined value is a message row: its word is the value. */
 export type KeyValueRow = {
   key: ReactNode;
   value?: ReactNode | undefined;
@@ -19,14 +19,14 @@ const STATUS: Record<KeyValueStatus, { word: string; tone: StatusDotTone }> = {
 };
 
 function Value({ value, status }: Pick<KeyValueRow, 'value' | 'status'>) {
-  if (!status) return value === undefined ? null : <span className={styles.value}>{value}</span>;
+  if (!status) return value == null ? null : <span className={styles.value}>{value}</span>;
   const { word, tone } = STATUS[status];
   // The word is in the DOM once: visible when there is no value, hidden unless the value says it.
   const saysWord = typeof value === 'string' && value.trim().toLowerCase() === word;
   return (
     <span className={styles.value}>
       <StatusDot tone={tone} />
-      {value === undefined ? (
+      {value == null ? (
         word
       ) : (
         <>
@@ -58,7 +58,7 @@ export function KeyValueBox({
         <div key={index} className={styles.row} data-status={status}>
           <span
             className={
-              status === 'fail' && value === undefined
+              status === 'fail' && value == null
                 ? `${styles.key ?? ''} ${styles.message ?? ''}`
                 : styles.key
             }

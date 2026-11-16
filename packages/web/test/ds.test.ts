@@ -159,6 +159,11 @@ describe('KeyValueBox', () => {
     ]);
     expect(count(html, 'not checked')).toBe(1);
     expect(count(html, 'failed')).toBe(1);
+    // A null value is no value: the same visible word and message key as an omitted one.
+    const message = render([{ key: 'Spur unavailable', status: 'fail' }]);
+    const nullValue = render([{ key: 'Spur unavailable', value: null, status: 'fail' }]);
+    expect(count(nullValue, 'failed')).toBe(1);
+    expect(nullValue).toBe(message);
   });
 
   it('renders the title only when given, and nothing for no rows and no title', () => {
