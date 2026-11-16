@@ -26,7 +26,7 @@ export function Scrim({ onClick }: { onClick?: (() => void) | undefined }) {
 type LayerNode = { parent: LayerNode | null };
 const LayerContext = createContext<LayerNode | null>(null);
 
-// The z order of the layer roots: `--z-panel` under `--z-modal`.
+// The z order of the layer roots: `--z-panel` under `--z-modal`, with `--z-menu` between them.
 const levels = { panel: 0, modal: 1 };
 
 type Entry = {
@@ -294,9 +294,10 @@ function returnFocus(entry: Entry): void {
  * actions, and Close, then a scrolling body that is a tab stop.
  *
  * The stack follows visual order, not effect order: a `modal` layer sits above every `panel`
- * layer (`--z-modal` over `--z-panel`); within one level a layer rendered inside another sits
- * above it, even when both mount in one commit, where React runs the inner effect first; other
- * layers of one level stack in mount order, so siblings mounting in one commit keep render order.
+ * layer (`--z-modal` over `--z-panel`, with menus at `--z-menu` between them); within one level
+ * a layer rendered inside another sits above it, even when both mount in one commit, where React
+ * runs the inner effect first; other layers of one level stack in mount order, so siblings
+ * mounting in one commit keep render order.
  * Paint order equals stack order: the layer roots stay in `body` in stack order (`sync` moves a
  * lower root that React inserted after a higher one), so a layer above another of the same level
  * also paints above it.
