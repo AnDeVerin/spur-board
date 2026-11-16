@@ -1,5 +1,5 @@
 {
-  "version": "a9cac938a05f859cfcd0334855836d2aa445a49c225bd15d1a36e12c13174e02",
+  "version": "b44cd2c9602ee02fbb3c09788974f6df5fdf43b1bd5fa250d7443d1d3c9205f6",
   "grants": [
     "operator",
     "project-agent",
@@ -3196,7 +3196,8 @@
                 "outcome": null,
                 "outcomeReason": null,
                 "unblockedBy": null,
-                "unblockedAt": null
+                "unblockedAt": null,
+                "answeredVia": null
               },
               {
                 "id": "B13",
@@ -3210,7 +3211,8 @@
                 "outcome": null,
                 "outcomeReason": null,
                 "unblockedBy": null,
-                "unblockedAt": null
+                "unblockedAt": null,
+                "answeredVia": null
               }
             ],
             "comments": [
@@ -4313,6 +4315,10 @@
                     { "type": "null" }
                   ],
                   "description": "When the block was unblocked; null while open."
+                },
+                "answeredVia": {
+                  "anyOf": [{ "type": "string", "enum": ["web", "slack"] }, { "type": "null" }],
+                  "description": "Channel the closing write arrived through: web or slack; null while open or when it came through the CLI, MCP or the board itself."
                 }
               },
               "required": [
@@ -4327,10 +4333,11 @@
                 "outcome",
                 "outcomeReason",
                 "unblockedBy",
-                "unblockedAt"
+                "unblockedAt",
+                "answeredVia"
               ],
               "additionalProperties": false,
-              "description": "A block on a task."
+              "description": "A block on a task, with the channel that closed it."
             },
             "description": "Blocks on the task, open and unblocked."
           },

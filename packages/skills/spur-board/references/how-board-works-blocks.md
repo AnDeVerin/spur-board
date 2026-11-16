@@ -14,6 +14,8 @@ Taskless: all roles, operator only:
 `board project ask <project> <text> --to operator --key <key>`.
 Project `needs_input` blocks get Slack threads except operator-agent asks;
 operator: `board inbox`, keyed `board answer`. Answers reach a current curator session; other roles use the asking session.
+A task's blocks (`task.get`) carry `answeredVia`: `web` or `slack` for an answer
+from there, else null.
 
 `projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
 `operator.slack`.

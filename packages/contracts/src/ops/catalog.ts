@@ -36,6 +36,7 @@ import {
   statusTaskSchema,
   statusUnlinkedPrSchema,
   statusUnlinkedSessionSchema,
+  taskBlockViewSchema,
   taskViewSchema,
   taskWhySchema,
 } from './schemas.ts';
@@ -517,7 +518,7 @@ export const OPERATIONS = [
         .array(statusSessionFactsSchema)
         .optional()
         .describe('Current facts of effective linked sessions.'),
-      blocks: z.array(blockViewSchema).describe('Blocks on the task, open and unblocked.'),
+      blocks: z.array(taskBlockViewSchema).describe('Blocks on the task, open and unblocked.'),
       comments: z.array(commentSchema).describe('Comments on the task, oldest first.'),
       why: taskWhySchema.optional().describe('Present only with why.'),
     }),
@@ -533,7 +534,10 @@ export const OPERATIONS = [
           task,
           turn: { ...devTurn, handed: [handedReview], returned: returnFromReview },
           links: [],
-          blocks: [question, codeBlock],
+          blocks: [
+            { ...question, answeredVia: null },
+            { ...codeBlock, answeredVia: null },
+          ],
           comments: [comment],
         },
       },
