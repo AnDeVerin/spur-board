@@ -39,7 +39,9 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-function mount(d: Daemon) {
+/** `appOrder`: the board's effects run before `start`, as in `App`, where the child effect
+ * runs first. */
+function mount(d: Daemon, appOrder = false) {
   const data = createBoardData({
     fetch: (url, init) => {
       const path = url instanceof Request ? url.url : url.toString();
@@ -55,8 +57,12 @@ function mount(d: Daemon) {
   started.push(data);
   act(() => {
     root.render(createElement(Board, { data }));
-    data.start();
+    if (!appOrder) data.start();
   });
+  if (appOrder)
+    act(() => {
+      data.start();
+    });
   return data;
 }
 /** Body reads and parsing cross a few macrotasks; fake timers leave setImmediate real. */
@@ -206,6 +212,14 @@ describe('task view', () => {
     key('Escape');
     await settle();
     expect(document.activeElement).toBe(card());
+  });
+
+  it('a deep link read before start issues one task.get', async () => {
+    history.replaceState(null, '', '/?open=ex%2Frepo%237');
+    mount(daemon(), true);
+    await settle();
+    expect(dialog()).not.toBeNull();
+    expect(taskCalls().map(({ input }) => input)).toEqual([{ task: 'ex/repo#7', why: true }]);
   });
 
   it('an unknown key and a non-task key show "Task not found."; close leaves focus on body', async () => {

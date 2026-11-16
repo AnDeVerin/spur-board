@@ -229,7 +229,9 @@ export function createBoardData(options: BoardDataOptions) {
     snapshot: () => state,
     start() {
       if (stream || stopped) return;
-      readAll();
+      // A task opened before start already issued its read in `open`.
+      config.refresh();
+      inbox.refresh();
       stream = connectStream({ fetch: options.fetch, state: onStream, refresh });
     },
     /** End the controller for good: the stream closes and no read publishes again. */
