@@ -17,7 +17,9 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 ## Component rules
 
 - One folder per component: `<Name>/<Name>.tsx`, `<Name>.module.css`, `<Name>.examples.tsx`.
-- Re-export each component by name from `index.ts`; no `export *`.
+- Re-export each component by name from `index.ts` as `export { ... } from './<Name>/<Name>.tsx'`;
+  no other value export (`export *`, local `export { x }`, `export const`, `export default`).
+  Type-only exports are free. `packages/web/test/ds.test.ts` enforces it.
 - `<Name>.examples.tsx` exports named zero-prop components, one per state or variant. The gallery
   shows each as `<Name> / <export>`.
 - A component knows nothing about board data: no `@spur-board/*` import and no API client. The
