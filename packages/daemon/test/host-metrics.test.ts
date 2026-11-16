@@ -1,4 +1,4 @@
-import { mkdtempSync, statfsSync } from 'node:fs';
+import { mkdtempSync, rmSync, statfsSync } from 'node:fs';
 import { totalmem, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { statusOutputSchema } from '@spur-board/contracts/browser';
@@ -145,17 +145,24 @@ describe('host sampler', () => {
 });
 
 describe('host probe', () => {
+  let tmp: string | undefined;
+  afterEach(() => {
+    if (tmp !== undefined) rmSync(tmp, { recursive: true, force: true });
+    tmp = undefined;
+  });
+
   it('reads raw figures of the given directory volume through createHostProbe', async () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'board-host-'));
-    const probe = createHostProbe(tmp);
+    const dir = mkdtempSync(join(tmpdir(), 'board-host-'));
+    tmp = dir;
+    const probe = createHostProbe(dir);
     const disk = await probe.disk();
-    const expected = statfsSync(tmp);
+    const expected = statfsSync(dir);
     expect(disk.blocks).toBe(expected.blocks);
     expect(disk.bsize).toBe(expected.bsize);
     expect(disk.bavail).toBeGreaterThanOrEqual(0);
     expect(disk.bavail).toBeLessThanOrEqual(disk.bfree);
     expect(disk.bfree).toBeLessThanOrEqual(disk.blocks);
-    await expect(createHostProbe(join(tmp, 'missing')).disk()).rejects.toMatchObject({
+    await expect(createHostProbe(join(dir, 'missing')).disk()).rejects.toMatchObject({
       code: 'ENOENT',
     });
     await expect(createHostProbe(undefined).disk()).rejects.toThrow();

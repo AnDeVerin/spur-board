@@ -349,7 +349,7 @@ it('rolls sources and the daemon into one health row per service', async () => {
     state: 'degraded',
     since: null,
     lastGoodAt: null,
-    reason: `${githubAlpha} never completed`,
+    reason: `${githubAlpha} warming up`,
   });
 
   for (const source of sources) await observe(source);
@@ -456,6 +456,32 @@ it('rolls sources and the daemon into one health row per service', async () => {
   });
   now -= 1;
   expect(await row('daemon')).toEqual(healthy('daemon', startedAt, lastDispatchAt));
+
+  // After a restart the runner has not loaded lastCompleteAt, so its first report clears the
+  // stored one; the source still reads as warming up, not as never completed.
+  const restarted = createObservationCore({ store, config: healthConfig, clock: movingClock });
+  const restartedRegistry = createOperationRegistry({
+    config: healthConfig,
+    clock: movingClock,
+    completeSince: restarted.completeSince,
+    healthySince: restarted.healthySince,
+    lastDispatchAt: () => lastDispatchAt,
+  });
+  const restartedGithub = async () =>
+    (await query(restartedRegistry['status.get'], {}, 'operator')).services.find(
+      (entry) => entry.service === 'github',
+    );
+  expect((await restartedGithub())?.reason).toBe(`${githubAlpha} warming up`);
+  await restarted.reportSourceState(githubAlpha, { gone: [] });
+  expect(
+    (await query(restartedRegistry['status.get'], {}, 'operator')).sources.find(
+      (entry) => entry.source === githubAlpha,
+    )?.lastCompleteAt,
+  ).toBeNull();
+  expect(await restartedGithub()).toMatchObject({
+    state: 'degraded',
+    reason: `${githubAlpha} warming up`,
+  });
 });
 
 it('keeps the default status for 100 tasks under the budget and lists every item', async () => {

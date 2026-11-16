@@ -46,7 +46,10 @@ function sourceHealth(
     };
   }
   const degraded = (reason: string) => ({ state: 'degraded' as const, reason });
-  if (source.lastCompleteAt === null) return degraded(`${source.source} never completed`);
+  // The runner does not reload lastCompleteAt, so a restarted source can read null while it
+  // completed in an earlier run: name it warming up until its first complete poll.
+  if (source.lastCompleteAt === null)
+    return degraded(`${source.source} ${source.warmingUp ? 'warming up' : 'never completed'}`);
   if (source.stale) return degraded(`${source.source} stale`);
   if (source.warmingUp) return degraded(`${source.source} warming up`);
   const { budget } = source;

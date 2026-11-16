@@ -413,7 +413,8 @@ export async function getStatus(
         clock.now() - Date.parse(last) >
           config.thresholds.staleMultiplier * interval(config, source),
       healthySince: deps.healthySince?.get(source) ?? null,
-      // `lastCompleteAt` is persisted across restarts; `completeSince` holds only polls since
+      // `lastCompleteAt` is stored, but the runner does not reload it, so the first report or
+      // incomplete observe after a restart can clear it. `completeSince` holds only polls since
       // this process started, so a source warms up until its first complete poll after a restart.
       warmingUp: !completeSince.has(source),
     };
