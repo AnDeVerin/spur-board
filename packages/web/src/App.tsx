@@ -4,9 +4,9 @@ import type { statusOutputSchema } from '@spur-board/contracts/browser';
 import { coordinateStatus, createApi } from './lib/api.ts';
 import { connectStream, type StreamState } from './lib/stream.ts';
 import { createTheme, type ThemePreference } from './lib/theme.ts';
+import { footerVersion } from './lib/version.ts';
 import styles from './App.module.css';
 
-declare const __BOARD_VERSION__: string;
 const preferences = ['light', 'dark', 'auto'] as const;
 export function App() {
   const [status, setStatus] = useState<z.output<typeof statusOutputSchema>>();
@@ -59,6 +59,7 @@ export function App() {
       document.removeEventListener('pointerdown', outside);
     };
   }, [open]);
+  const version = footerVersion(status);
   const close = () => {
     setOpen(false);
     trigger.current?.focus();
@@ -161,7 +162,7 @@ export function App() {
               ))}
             </div>
           )}
-          <span>v{__BOARD_VERSION__}</span>
+          {version && <span>{version}</span>}
         </div>
       </footer>
     </div>

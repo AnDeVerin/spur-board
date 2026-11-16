@@ -58,7 +58,7 @@ Missing UI assets return a 503 build hint while health and operations remain ava
 ## Web shell
 
 The private web package builds an empty desktop shell with task count, named source health,
-stream state, a persistent Light/Dark/Auto theme choice and the packaged version in its footer.
+stream state, a persistent Light/Dark/Auto theme choice and the daemon version in its footer.
 It uses local JetBrains Mono fonts and the V1 prototype tokens. Read failures retain previous
 status as stale; stream failures reconnect with capped backoff and show offline after five
 failed attempts while continuing recovery. The first valid stream handshake refreshes status
@@ -68,5 +68,5 @@ Reconnects retain valid SSE cursors, including ID-only records, until the server
 The configured daemon web listener serves the packaged SPA and its local assets. The stream
 client connects with `GET /v1/events`, as specified by #533. That server remains pending, so
 the shell currently reports reconnecting then offline/stale while status reads and theme controls
-remain available. Until #547 adds daemon version fields, the footer version comes from the CLI
-manifest at build time.
+remain available. The footer version is `daemon.version` from `status.get`, so a stale bundle never
+claims the daemon's version; it stays empty until the first status read.
