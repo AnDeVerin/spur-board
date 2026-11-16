@@ -1,4 +1,4 @@
-import { Fragment, useId, type MouseEvent } from 'react';
+import { Fragment, useId, type MouseEvent, type ReactNode } from 'react';
 import { Chip, focusRing, Icon, quiet, StatusDot } from '../ds/index.ts';
 import { markers, prStatus, quickLinks, turnView, type PrStatus } from './card.ts';
 import { matchesFilter, openHref, shortKey, type BoardRow } from './model.ts';
@@ -14,7 +14,21 @@ export function open(event: MouseEvent<HTMLAnchorElement>) {
   history.pushState(null, '', event.currentTarget.getAttribute('href'));
 }
 
-/** PR status: four cells of the first PR and `+N`, the not-observed cells, or `no PR yet`. */
+/** `+N` beside the cells: the other linked PRs. */
+function WithMore({ status, id, children }: { status: PrStatus; id: string; children: ReactNode }) {
+  if ((status.kind !== 'cells' && status.kind !== 'unobserved') || status.more === null)
+    return children;
+  return (
+    <div className={styles.prRow}>
+      {children}
+      <span id={`${id}-more`} className={styles.more} title={status.more.title}>
+        +{status.more.count}
+      </span>
+    </div>
+  );
+}
+
+/** PR status: four cells of the first linked PR, the not-observed cells, or `no PR yet`. */
 function PrArea({ status, id }: { status: PrStatus; id: string }) {
   switch (status.kind) {
     case 'none':
@@ -27,58 +41,52 @@ function PrArea({ status, id }: { status: PrStatus; id: string }) {
       );
     case 'unobserved':
       return (
-        <div
-          id={`${id}-pr`}
-          className={styles.cells}
-          role="group"
-          aria-label="PR status: not observed yet"
-          title="The pull request is linked but not observed yet"
-        >
-          {[0, 1, 2, 3].map((cell) => (
-            <span key={cell} className={styles.cell} aria-hidden="true">
-              —
-            </span>
-          ))}
-        </div>
+        <WithMore status={status} id={id}>
+          <div
+            id={`${id}-pr`}
+            className={styles.cells}
+            role="group"
+            aria-label="PR status: not observed yet"
+            title="The pull request is linked but not observed yet"
+          >
+            {[0, 1, 2, 3].map((cell) => (
+              <span key={cell} className={styles.cell} aria-hidden="true">
+                —
+              </span>
+            ))}
+          </div>
+        </WithMore>
       );
-    case 'cells': {
-      const cells = (
-        <div
-          className={styles.cells}
-          role="group"
-          aria-label="PR status"
-          title={
-            status.unconfirmed ? 'Not confirmed: the GitHub source is stale or blind' : undefined
-          }
-        >
-          {status.cells.map((cell, index) => (
-            <span
-              // The four cells are fixed: checks, merge, threads, reviews.
-              key={index}
-              id={`${id}-cell${String(index)}`}
-              className={styles.cell}
-              data-tone={cell.tone}
-              role="img"
-              aria-label={cell.label}
-            >
-              {cell.icons.map((icon) => (
-                <Icon key={icon} name={icon} />
-              ))}
-              {cell.text}
-            </span>
-          ))}
-        </div>
-      );
-      if (status.more === null) return cells;
+    case 'cells':
       return (
-        <div className={styles.prRow}>
-          {cells}
-          <span id={`${id}-more`} className={styles.more} title={status.more.title}>
-            +{status.more.count}
-          </span>
-        </div>
+        <WithMore status={status} id={id}>
+          <div
+            className={styles.cells}
+            role="group"
+            aria-label="PR status"
+            title={
+              status.unconfirmed ? 'Not confirmed: the GitHub source is stale or blind' : undefined
+            }
+          >
+            {status.cells.map((cell, index) => (
+              <span
+                // The four cells are fixed: checks, merge, threads, reviews.
+                key={index}
+                id={`${id}-cell${String(index)}`}
+                className={styles.cell}
+                data-tone={cell.tone}
+                role="img"
+                aria-label={cell.label}
+              >
+                {cell.icons.map((icon) => (
+                  <Icon key={icon} name={icon} />
+                ))}
+                {cell.text}
+              </span>
+            ))}
+          </div>
+        </WithMore>
       );
-    }
   }
 }
 
@@ -86,10 +94,10 @@ function PrArea({ status, id }: { status: PrStatus; id: string }) {
 function describedBy(status: PrStatus, id: string, hasMarkers: boolean, hasTurn: boolean) {
   const ids: string[] = [];
   if (status.kind === 'placeholder' || status.kind === 'unobserved') ids.push(`${id}-pr`);
-  if (status.kind === 'cells') {
+  if (status.kind === 'cells')
     ids.push(...status.cells.map((_, index) => `${id}-cell${String(index)}`));
-    if (status.more !== null) ids.push(`${id}-more`);
-  }
+  if ((status.kind === 'cells' || status.kind === 'unobserved') && status.more !== null)
+    ids.push(`${id}-more`);
   if (hasMarkers) ids.push(`${id}-markers`);
   if (hasTurn) ids.push(`${id}-turn`);
   return ids.length === 0 ? undefined : ids.join(' ');

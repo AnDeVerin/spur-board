@@ -170,8 +170,11 @@ describe('task card', () => {
     ]);
     expect(prStatus(card())).toEqual({ kind: 'none' });
     expect(prStatus(card({ turn: turn() }))).toEqual({ kind: 'placeholder' });
-    expect(prStatus(card({ links: links([1]) }))).toEqual({ kind: 'unobserved' });
-    expect(prStatus(card({ links: links([1]), prSummary: [] }))).toEqual({ kind: 'unobserved' });
+    expect(prStatus(card({ links: links([1]) }))).toEqual({ kind: 'unobserved', more: null });
+    expect(prStatus(card({ links: links([1]), prSummary: [] }))).toEqual({
+      kind: 'unobserved',
+      more: null,
+    });
     const several = prStatus(
       card({
         links: links([1, 2, 3]),
@@ -182,6 +185,49 @@ describe('task card', () => {
       count: 2,
       title: '2 more pull requests: #2, #3',
     });
+  });
+
+  it.each([
+    {
+      name: 'one link observed',
+      prs: [1],
+      summaries: [{ number: 1 }],
+      expected: ['cells', 1, null],
+    },
+    {
+      name: 'two links, both observed',
+      prs: [1, 2],
+      summaries: [{ number: 1 }, { number: 2 }],
+      expected: ['cells', 1, '1 more pull request: #2'],
+    },
+    {
+      name: 'two links, only the second observed',
+      prs: [1, 2],
+      summaries: [{ number: 2, mergeable: 'conflicting' }],
+      expected: ['unobserved', undefined, '1 more pull request: #2'],
+    },
+    {
+      name: 'summaries in another order than the links',
+      prs: [1, 2],
+      summaries: [{ number: 2, mergeable: 'conflicting' }, { number: 1 }],
+      expected: ['cells', 1, '1 more pull request: #2'],
+    },
+    {
+      name: 'same number in another repo',
+      prs: [1],
+      summaries: [{ repo: 'ex/other', number: 1, mergeable: 'conflicting' }],
+      expected: ['unobserved', undefined, null],
+    },
+  ])('PR status follows the first linked PR: $name', ({ prs, summaries, expected }) => {
+    const view = prStatus(
+      card({ links: links(prs), prSummary: summaries.map((extra) => prSummary(extra)) }),
+    );
+    const merge = view.kind === 'cells' ? view.cells[1].label : undefined;
+    expect([
+      view.kind,
+      merge === undefined ? undefined : merge === 'Merge: no conflicts' ? 1 : 2,
+      view.kind === 'cells' || view.kind === 'unobserved' ? (view.more?.title ?? null) : null,
+    ]).toEqual(expected);
   });
 
   it('draft and shadow markers, and the order of the markers row', () => {

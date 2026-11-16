@@ -192,15 +192,17 @@ export type PrStatus =
   | { kind: 'none' }
   /** A turn is open and no PR is linked yet. */
   | { kind: 'placeholder' }
-  /** PRs are linked, none observed yet. */
-  | { kind: 'unobserved' }
+  /** The first linked PR is not observed yet. */
+  | { kind: 'unobserved'; more: MorePrs }
   | {
       kind: 'cells';
       cells: [PrCell, PrCell, PrCell, PrCell];
       unconfirmed: boolean;
-      /** The other observed PRs, after the first. */
-      more: { count: number; title: string } | null;
+      more: MorePrs;
     };
+
+/** The linked PRs after the first one, observed or not; null when there are none. */
+type MorePrs = { count: number; title: string } | null;
 
 const NONE = '–';
 
@@ -262,25 +264,27 @@ function prCells(pr: PrSummary): [PrCell, PrCell, PrCell, PrCell] {
   })) as [PrCell, PrCell, PrCell, PrCell];
 }
 
-/** PR status cells of the first observed PR, with `+N` for the rest. */
+/**
+ * PR status of the first linked PR, the one the PR quick link opens: its summary's cells, or the
+ * not-observed cells, with `+N` for the other linked PRs.
+ */
 export function prStatus(row: BoardRow): PrStatus {
-  if (row.links.prs.length === 0) return { kind: row.turn === null ? 'none' : 'placeholder' };
-  const [first, ...rest] = row.prSummary ?? [];
-  if (first === undefined) return { kind: 'unobserved' };
-  return {
-    kind: 'cells',
-    cells: prCells(first),
-    unconfirmed: first.unconfirmed,
-    more:
-      rest.length === 0
-        ? null
-        : {
-            count: rest.length,
-            title: `${String(rest.length)} more pull request${rest.length === 1 ? '' : 's'}: ${rest
-              .map(({ number }) => `#${String(number)}`)
-              .join(', ')}`,
-          },
-  };
+  const [first, ...rest] = row.links.prs;
+  if (first === undefined) return { kind: row.turn === null ? 'none' : 'placeholder' };
+  const more: MorePrs =
+    rest.length === 0
+      ? null
+      : {
+          count: rest.length,
+          title: `${String(rest.length)} more pull request${rest.length === 1 ? '' : 's'}: ${rest
+            .map(({ number }) => `#${String(number)}`)
+            .join(', ')}`,
+        };
+  const summary = row.prSummary?.find(
+    ({ repo, number }) => repo === first.repo && number === first.number,
+  );
+  if (summary === undefined) return { kind: 'unobserved', more };
+  return { kind: 'cells', cells: prCells(summary), unconfirmed: summary.unconfirmed, more };
 }
 
 /** A link beside the card that opens in a new tab. */
