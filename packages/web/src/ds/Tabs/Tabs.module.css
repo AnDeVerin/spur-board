@@ -45,10 +45,13 @@
   border-bottom-color: var(--color-text-primary);
 }
 
-/* segmented: a boxed filter row that wraps on a narrow screen */
+/* segmented: a boxed filter row that shrink-wraps its tabs in any parent and
+   wraps on a narrow screen */
 .segmented {
   flex-wrap: wrap;
   align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
   border: var(--size-hairline) solid var(--color-border-default);
 }
 .segmented .tab {
