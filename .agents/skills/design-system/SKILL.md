@@ -33,7 +33,8 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
   reads `tokens.css` as raw text and globs the examples files); lint does not check them.
 - Enforced by `eslint/ds-import-boundary.ts` (cases in `packages/testkit/test/lint-rules.test.ts`
   `describe('design system boundary'`) and `packages/web/test/ds.test.ts`.
-- Each status color sits next to a visible word; a decorative dot is `aria-hidden`.
+- Each status color sits next to a visible word, or next to its own value text with the word
+  visually hidden; a decorative dot is `aria-hidden`.
 
 ## Tokens and themes
 
