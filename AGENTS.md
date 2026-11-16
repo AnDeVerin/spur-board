@@ -23,7 +23,9 @@ A map of the repo for agents and contributors. The rules live in the files and s
   `pnpm --filter @spur-board/web build`; `pnpm package:build` copies assets after the CLI clean
   build. `scripts/web-shell-qa.ts` is a test-only loopback fixture for controlled sidecar QA
   scenarios. Browser code imports only `@spur-board/contracts/browser` among workspace
-  packages; the boundary lint is in `eslint.config.js`.
+  packages; the boundary lint is in `eslint.config.js`. The design system lives in `src/ds/`,
+  reached only through `src/ds/index.ts`; `gallery/` is its example page and `kit/` builds the
+  kit for prototypes. Skill: `design-system`.
 - `packages/skills` - the product skills that `board skills install` ships; not a workspace
   package.
 - `packages/adapters` - the adapter runner in `src/runner/`: per-source schedule, backoff,
@@ -49,6 +51,9 @@ A map of the repo for agents and contributors. The rules live in the files and s
   scripts and tests use `testing-and-ci`.
 - `.github/` - CI workflows, the PR template and the issue forms. CI workflows use
   `testing-and-ci`.
+- `design/` - screen prototypes, never built into the app or packed: `prototypes/<slice>/` mounts
+  design system components from the git-ignored kit that `pnpm ds:build` writes; layout and rules
+  in `design/README.md`, a minimal slice in `design/prototypes/_sample/`.
 - A PR that adds a package or a root script updates this map. Adding a package, a dependency
   or a cross-package import: skill `working-in-the-monorepo`.
 
@@ -77,6 +82,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   link and the skills and roles table from `.agents/`; `--check` reports drift without writing.
 - `pnpm lint:agents` - check agent files against `skill-writer` and run `agents:sync --check`; the
   `agents` step of `pnpm check`, pre-push and `check:full` runs it.
+- `pnpm ds:build` - build the design system kit (script, stylesheet, gallery, compiled prototypes
+  and build info) into the git-ignored kit folder under design/; see `design/README.md`.
 - `pnpm package:build` - build the web shell, bundle the CLI and daemon, then copy the binary,
   migrations and web assets.
 - `pnpm package:pack [directory]` - build, pack, and validate the npm tarball.
@@ -132,6 +139,7 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
 | [adding-an-operation](.agents/skills/adding-an-operation/SKILL.md) | skill | Path of an operation from catalog to handler, store, CLI, MCP, generated files and tests |
 | [building-messenger-connectors](.agents/skills/building-messenger-connectors/SKILL.md) | skill | Messenger gateway rules - obligations, conformance, inbound ack and dedupe, recover and gap, outbound results |
 | [code-simplifier](.agents/skills/code-simplifier/SKILL.md) | skill | Simplify the branch diff without changing behaviour - remove duplication, dead code and needless layers |
+| [design-system](.agents/skills/design-system/SKILL.md) | skill | Rules for packages/web/src/ds/ - components, examples, tokens, themes, the quiet class, the kit and gallery |
 | [designing-agent-surfaces](.agents/skills/designing-agent-surfaces/SKILL.md) | skill | Rules for what agents see from the board - MCP tool names, descriptions, schemas and annotations, and CLI output, stdout and help |
 | [gitflow](.agents/skills/gitflow/SKILL.md) | skill | Branches, commits, pushes and pull requests for this repo - naming, history rules, the PR title and a body filled from the PR template and the spec |
 | [handling-errors](.agents/skills/handling-errors/SKILL.md) | skill | Rules for errors - Result vs throw, retries, the ERRORS catalog, hints, exit codes, boundary catches, one shape over HTTP, CLI and MCP |
