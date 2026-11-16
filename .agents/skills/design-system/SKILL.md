@@ -20,8 +20,8 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 - Re-export each component by name from `index.ts`; no `export *`.
 - `<Name>.examples.tsx` exports named zero-prop components, one per state or variant. The gallery
   shows each as `<Name> / <export>`.
-- A component knows nothing about board data: no `@spur-board/*` import, no API client, no
-  `__BOARD_VERSION__`. The app passes data in as props.
+- A component knows nothing about board data: no `@spur-board/*` import and no API client. The
+  app passes data in as props.
 - `ds/` files import only their own `ds/` files, `tokens.css` and browser packages such as
   `react`. Other code in `packages/web/src` and `packages/web/test` imports `ds/` only through
   `index.ts`.
