@@ -215,6 +215,17 @@ describe('refusal', () => {
     expect(refusal({ root, port: 0, webPort: 4781, env: {}, osHome })).toBeUndefined();
   });
 
+  it('refuses web_origin when the live publicOrigin gives the web port no valid origin', () => {
+    // 4778 fills to port 47780, a valid live origin; 6554 fills to 65540, past 65535.
+    writeLiveConfig(liveConfigDir(osHome), {
+      portRange: { min: 6550, max: 6560 },
+      web: { port: 4778, publicOrigin: 'http://127.0.0.1:{port}0' },
+    });
+    const result = refusal({ root, port: 0, webPort: 6554, env: {}, osHome });
+    expect(result?.reason).toBe('web_origin');
+    expect(result?.message).toContain('gives web port 6554 no valid origin');
+  });
+
   it.each([
     'SLACK_BOT_TOKEN',
     'JIRA_API_TOKEN',
