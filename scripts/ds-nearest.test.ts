@@ -22,6 +22,8 @@ function refused(args: string[], css = TOKENS): string {
   return result.error;
 }
 
+const NEGATIVE_NOTE =
+  'in (a negative value is compared by its size; write it as calc(-1 * var(--token)))';
 const line = (all: string[], theme: 'dark' | 'light') =>
   all.find((l) => l.startsWith(`${theme} `)) ?? '';
 
@@ -97,6 +99,37 @@ describe('nearest size', () => {
   it(`counts ${String(SIZE_LIMIT_PX)}px as in and a little more as out`, () => {
     expect(lines(['29px']).at(-1)).toBe('verdict: in --size-control');
     expect(lines(['29.5px']).at(-1)).toBe('verdict: out');
+  });
+
+  it.each([
+    ['12px', 'in'],
+    ['12PX', 'in'],
+    ['12.0px', 'in'],
+    ['+12px', 'in'],
+    ['1.2e1px', 'in'],
+    ['1.2E1px', 'in'],
+    ['-12px', 'in'],
+    ['.5px', 'out'],
+    ['12', 'no scale for this unit'],
+    ['12 px', 'composite value'],
+    ['1e', 'no scale for this unit'],
+    ['px', 'no scale for this unit'],
+    ['12pxx', 'no scale for this unit'],
+    ['--12px', 'no scale for this unit'],
+    ['1e999px', 'not a finite number'],
+  ])('reads %s as a CSS px length: %s', (value, expected) => {
+    const result = nearest(TOKENS, [value]);
+    if (expected === 'in' || expected === 'out') {
+      if (!result.ok) throw new Error(result.error);
+      const verdict =
+        expected === 'in' ? 'verdict: in --text-body, --space-3, --size-icon' : 'verdict: out';
+      expect(result.lines.at(-1)).toBe(verdict);
+      expect(
+        line(result.lines, 'dark').endsWith(value.startsWith('-') ? NEGATIVE_NOTE : expected),
+      ).toBe(true);
+    } else {
+      expect(result.ok ? result.lines : result.error).toContain(expected);
+    }
   });
 
   it('refuses a second argument after a size', () => {

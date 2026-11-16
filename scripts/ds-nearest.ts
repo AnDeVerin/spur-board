@@ -21,6 +21,7 @@ const USAGE =
   "usage: pnpm ds:nearest '<hex>' ['<light hex>'] | <n>px - quote a hex: an unquoted # starts a shell comment";
 const ALPHA = `alpha colours are not compared - decide it as \`new token\`, or \`operator decision\` to keep it (${DOC})`;
 const COMPOSITE = `composite value - run each colour or px part on its own; keywords and \`var()\` parts need no check (${DOC})`;
+const NOT_FINITE = `not a finite number - ${USAGE}`;
 const NO_SCALE = `no scale for this unit - decide it as \`new token\`, or \`operator decision\` to keep the literal (${DOC})`;
 
 type Lab = readonly [number, number, number];
@@ -123,14 +124,25 @@ function themeTokens(css: string): Record<Theme, [string, string][]> | undefined
 
 const OPAQUE_HEX = /^#(?:[\da-f]{3}|[\da-f]{6})$/i;
 const ALPHA_HEX = /^#(?:[\da-f]{4}|[\da-f]{8})$/i;
-const PX = /^(\d+(?:\.\d+)?)px$/;
+// A CSS <number> followed by `px`, any case: sign, digits or a leading-dot fraction, exponent.
+const PX = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)px$/i;
+const NEGATIVE_NOTE =
+  'a negative value is compared by its size; write it as calc(-1 * var(--token))';
+
+/** The px value of a CSS length such as `1.2e1px`, or undefined when it is not one. */
+function pxValue(value: string): number | undefined {
+  const match = PX.exec(value);
+  return match === null ? undefined : Number(match[1]);
+}
 
 /** Refusal for one argument, or undefined when it is an opaque hex or a px size. */
 function refusal(arg: string): string | undefined {
   if (ALPHA_HEX.test(arg) || /^rgba\s*\(/i.test(arg)) return ALPHA;
   if (/\s/.test(arg)) return COMPOSITE;
-  if (OPAQUE_HEX.test(arg) || PX.test(arg)) return undefined;
-  return NO_SCALE;
+  if (OPAQUE_HEX.test(arg)) return undefined;
+  const px = pxValue(arg);
+  if (px === undefined) return NO_SCALE;
+  return Number.isFinite(px) ? undefined : NOT_FINITE;
 }
 
 interface ThemeMatch {
@@ -201,12 +213,15 @@ export function nearest(tokensCss: string, args: readonly string[]): NearestResu
         ...closest(candidates, (v) => deltaE2000(lab, hexToLab(v)), COLOUR_LIMIT),
       };
     }
-    const px = Number(PX.exec(input)?.[1]);
-    const candidates = tokens[theme].filter(([, v]) => PX.test(v));
+    const px = Math.abs(pxValue(input) ?? NaN);
+    const candidates = tokens[theme].flatMap(([name, v]): [string, string][] => {
+      const tokenPx = pxValue(v);
+      return tokenPx !== undefined && Number.isFinite(tokenPx) ? [[name, v]] : [];
+    });
     return {
       theme,
       input,
-      ...closest(candidates, (v) => Math.abs(Number(PX.exec(v)?.[1]) - px), SIZE_LIMIT_PX),
+      ...closest(candidates, (v) => Math.abs((pxValue(v) ?? NaN) - px), SIZE_LIMIT_PX),
     };
   });
 
@@ -220,7 +235,8 @@ export function nearest(tokensCss: string, args: readonly string[]): NearestResu
     ...matches.map((m) => {
       const set = m.names.map((n, i) => `${n} ${m.values[i] ?? ''}`).join(', ');
       const distance = isColour ? `ΔE00 ${m.distance.toFixed(2)}` : `Δ ${String(m.distance)}px`;
-      return `${m.theme.padEnd(5)} ${m.input}: ${set} - ${distance} - ${m.within ? 'in' : 'out'}`;
+      const negative = !isColour && (pxValue(m.input) ?? 0) < 0 ? ` (${NEGATIVE_NOTE})` : '';
+      return `${m.theme.padEnd(5)} ${m.input}: ${set} - ${distance} - ${m.within ? 'in' : 'out'}${negative}`;
     }),
     both.length > 0 ? `verdict: in ${both.join(', ')}` : 'verdict: out',
   ];

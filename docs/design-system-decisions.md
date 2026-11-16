@@ -76,7 +76,8 @@ pnpm ds:nearest 13px
   white point, with no chromatic adaptation. A colour is in when ΔE00 ≤ 5.
 - Candidates are the opaque hex tokens of each theme; alpha tokens are never candidates.
 - Sizes are compared by the absolute px difference against the `px` tokens. A size is in when the
-  difference is ≤ 1px.
+  difference is ≤ 1px. A size is any CSS number with `px`, in any case (`12px`, `.5px`,
+  `1.2e1px`). A negative value is compared by its size; write it as `calc(-1 * var(--token))`.
 - Both limits are inclusive. When several tokens share the minimum distance, the line lists all
   of them.
 - `verdict: in <tokens>` lists every token that is nearest and within the limit in both themes:
