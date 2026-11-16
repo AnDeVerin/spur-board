@@ -154,6 +154,7 @@ describe('refused values', () => {
 
   it.each(['0.02em', '0', '50%'])('routes %s to new token', (value) => {
     expect(refused([value])).toContain('no scale for this unit - decide it as `new token`');
+    expect(refused([value])).toContain('keep a `structural literal`');
   });
 
   it('asks to split a composite value into its parts', () => {

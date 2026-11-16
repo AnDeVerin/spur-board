@@ -33,6 +33,8 @@ Each difference between the prototype and the build gets exactly one code.
 | `nearest token`             | `pnpm ds:nearest` gives a `--proposed-*` value or a literal `verdict: in` with a token of the value's family. | Use that token of the value's family.                                                              | `pnpm ds:nearest` output with `verdict: in` listing a token of the value's family.                                         |
 | `new token`                 | A value gets `verdict: out`, a `verdict: in` that lists no token of its family, or a refusal from the script. | Name it in `tokens.css` with a value in both themes, per the `design-system` skill's tokens rules. | `pnpm ds:nearest` output with `verdict: out` or with `verdict: in` listing no token of the value's family, or the refusal. |
 | `default change avoided`    | The prototype needs a ds component to look different from its default.                                        | Keep the default and pass a prop at the call site; changing a default needs `operator decision`.   | The prop passed at the call site.                                                                                          |
+| `structural literal`        | A value places or sizes a box to its container (list below).                                                  | Keep the literal.                                                                                  | The property and value, e.g. `.menu bottom: 100%`.                                                                         |
+| `breakpoint`                | A viewport width in a media query (below).                                                                    | Use an entry of `breakpoints`, written as the same literal.                                        | The entry name, e.g. `breakpoints.narrow`.                                                                                 |
 | `ticket over prototype`     | The ticket and the prototype disagree.                                                                        | Build what the ticket says.                                                                        | A quote of the ticket.                                                                                                     |
 | `operator decision`         | The operator decided the case.                                                                                | Follow the decision.                                                                               | Session and date of the decision.                                                                                          |
 
@@ -104,8 +106,26 @@ verdict: out
   `operator decision` to keep it.
 - A composite value such as `1px dashed var(--color-border-strong)`: run each colour or px part on
   its own; keywords such as `dashed` and `var()` parts need no check.
-- Any other unit or a unitless value (`em`, `%`, `0`): decide it as `new token`, or record
-  `operator decision` to keep the literal.
+- A structural literal (`0`, `100%`, a keyframe stop, below) stays literal: record
+  `structural literal`. Any other unit or unitless value (`em`, `%`, `0.6`): decide it as
+  `new token`, or record `operator decision` to keep the literal.
+
+## Structural literals and breakpoints
+
+Both codes apply rule 3 of [Who is right](#who-is-right): the prototype is the source of visual
+values, and these values carry none. Neither is an operator decision.
+
+- A structural literal places or sizes a box to its container and carries no visual choice:
+  `0`, `100%` and `50%` (`right: 0; bottom: 100%` puts a menu above its trigger, `width: 100%`
+  fills a row), `auto`, keyframe stops (`0%`, `50%`, `100%`), and `1` or `-1` as a multiplier.
+  The one case relative to the box itself is centring with `translate: -50%` (`50%` times `-1`).
+  Spacing, sizes, colours, radii, durations, opacities and z-indexes never qualify; they follow
+  the token rules and `pnpm ds:nearest`.
+- A breakpoint is a viewport width in a media query, where a custom property cannot be read. The
+  list is `breakpoints` in `packages/web/src/ds/Breakpoints/Breakpoints.tsx`, exported from
+  `ds/index.ts`; `narrow` is `(max-width: 760px)`. CSS writes the same literal after `@media`,
+  and TS passes the entry to `matchMedia`. A new width adds an entry there first.
+  `scripts/web.test.ts` fails on any other `@media` width in `packages/web/src`.
 
 ## PR section
 

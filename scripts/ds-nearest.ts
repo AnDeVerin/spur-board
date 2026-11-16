@@ -22,7 +22,7 @@ const USAGE =
 const ALPHA = `alpha colours are not compared - decide it as \`new token\`, or \`operator decision\` to keep it (${DOC})`;
 const COMPOSITE = `composite value - run each colour or px part on its own; keywords and \`var()\` parts need no check (${DOC})`;
 const NOT_FINITE = `not a finite number - ${USAGE}`;
-const NO_SCALE = `no scale for this unit - decide it as \`new token\`, or \`operator decision\` to keep the literal (${DOC})`;
+const NO_SCALE = `no scale for this unit - decide it as \`new token\`, keep a \`structural literal\`, or \`operator decision\` to keep the literal (${DOC})`;
 
 type Lab = readonly [number, number, number];
 type Theme = 'dark' | 'light';
