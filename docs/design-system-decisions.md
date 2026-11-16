@@ -30,7 +30,7 @@ Each difference between the prototype and the build gets exactly one code.
 | `DS override → new variant` | The prototype restyles a ds component with screen CSS.                                                 | Add a variant prop and an example to the component; never override it from screen CSS.             | The new prop and its gallery example.                         |
 | `functional gap → prop`     | A ds component lacks behaviour the screen needs.                                                       | Add a prop; the default behaviour stays unchanged.                                                 | The new prop and its gallery example.                         |
 | `older kit (<commit>)`      | The prototype mounts a kit older than the current `ds/`, and the component changed since.              | Follow the current `ds/`.                                                                          | Output of the older kit command below.                        |
-| `nearest token`             | A `--proposed-*` value or a literal lands within the threshold of an existing token in both themes.    | Use that token.                                                                                    | `pnpm ds:nearest` output with `verdict: in`.                  |
+| `nearest token`             | A `--proposed-*` value or a literal lands within the threshold of an existing token in both themes.    | Use the token from `verdict: in`; when it lists several, the one from the value's family.          | `pnpm ds:nearest` output with `verdict: in`.                  |
 | `new token`                 | A value has no token within the threshold, or the script refuses it.                                   | Name it in `tokens.css` with a value in both themes, per the `design-system` skill's tokens rules. | `pnpm ds:nearest` output with `verdict: out`, or the refusal. |
 | `default change avoided`    | The prototype needs a ds component to look different from its default.                                 | Keep the default and pass a prop at the call site; changing a default needs `operator decision`.   | The prop passed at the call site.                             |
 | `ticket over prototype`     | The ticket and the prototype disagree.                                                                 | Build what the ticket says.                                                                        | A quote of the ticket.                                        |
@@ -79,8 +79,11 @@ pnpm ds:nearest 13px
   difference is ≤ 1px.
 - Both limits are inclusive. When several tokens share the minimum distance, the line lists all
   of them.
-- `verdict: in <token>` when one token is nearest and within the limit in both themes: record
-  `nearest token`. Otherwise `verdict: out`: record `new token`.
+- `verdict: in <tokens>` lists every token that is nearest and within the limit in both themes:
+  record `nearest token`. Otherwise `verdict: out`: record `new token`.
+- The verdict can list several tokens: `13px` gives `--text-body, --space-3, --size-icon`. Pick
+  the one from the value's family: a text size takes `--text-*`, spacing takes `--space-*`, an
+  element size takes `--size-*`.
 - Exit 0 for any computed result, in or out; exit 2 for a refused value.
 
 ```text
