@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createApi, createMutationIntent, coordinateStatus } from '../src/lib/api.ts';
+import { createApi, createMutationIntent, coordinateRead } from '../src/lib/api.ts';
 import { statusOutputSchema } from '@spur-board/contracts/browser';
 
 const status = statusOutputSchema.parse({
@@ -134,7 +134,7 @@ describe('status read coordination', () => {
     const b = deferred<typeof status>();
     let calls = 0;
     const publications: boolean[] = [];
-    const coordinator = coordinateStatus(
+    const coordinator = coordinateRead(
       () => (++calls === 1 ? a.promise : b.promise),
       (_value, error) => publications.push(error),
     );
@@ -157,7 +157,7 @@ describe('status read coordination', () => {
     let calls = 0;
     let published = 0;
     let signal: AbortSignal | undefined;
-    const coordinator = coordinateStatus(
+    const coordinator = coordinateRead(
       (value) => {
         signal = value;
         calls++;

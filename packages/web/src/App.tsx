@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
 import type { statusOutputSchema } from '@spur-board/contracts/browser';
-import { coordinateStatus, createApi } from './lib/api.ts';
+import { coordinateRead, createApi } from './lib/api.ts';
 import { connectStream, type StreamState } from './lib/stream.ts';
 import { createTheme, type ThemePreference } from './lib/theme.ts';
 import { Chip, StatusDot, ThemeSwitch, type StatusDotTone } from './ds/index.ts';
@@ -35,7 +35,7 @@ export function App() {
       },
     });
     const api = createApi();
-    const coordinator = coordinateStatus(
+    const coordinator = coordinateRead(
       (signal) => api('status.get', {}, { signal }),
       (value, error) => {
         if (value) setStatus(value);

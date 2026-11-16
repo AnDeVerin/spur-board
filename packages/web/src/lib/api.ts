@@ -56,10 +56,10 @@ export function createMutationIntent<K extends 'comment.add' | 'block.answer'>(
     },
   };
 }
-/** Serialize aggregate reads, retaining exactly one trailing refresh while a read is pending. */
-export function coordinateStatus(
-  read: (signal: AbortSignal) => Promise<Output<'status.get'>>,
-  publish: (value: Output<'status.get'> | undefined, error: boolean) => void,
+/** Serialize one read, retaining exactly one trailing refresh while a read is pending. */
+export function coordinateRead<T>(
+  read: (signal: AbortSignal) => Promise<T>,
+  publish: (value: T | undefined, error: boolean) => void,
 ) {
   let stopped = false;
   let active: AbortController | undefined;
