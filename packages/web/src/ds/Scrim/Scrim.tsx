@@ -82,33 +82,86 @@ function disabled(element: HTMLElement): boolean {
   return false;
 }
 
+/**
+ * The `tabindex` of a candidate: its attribute, or 0 when absent or not an integer. Read from the
+ * attribute because happy-dom's `tabIndex` is -1 for a button with none.
+ */
+function tabOrder(element: Element): number {
+  const index = Number.parseInt(element.getAttribute('tabindex') ?? '', 10);
+  return Number.isNaN(index) ? 0 : index;
+}
+
+/** The name of the radio group an element belongs to, or null; `sameGroup` adds the form. */
+function radioGroup(element: Element): string | null {
+  if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name)
+    return null;
+  return element.name;
+}
+
+const sameGroup = (one: Element, other: Element) =>
+  radioGroup(one) !== null &&
+  radioGroup(one) === radioGroup(other) &&
+  (one as HTMLInputElement).form === (other as HTMLInputElement).form;
+
+/**
+ * The candidate stops of the surface in sequential order: positive `tabindex` ascending, then the
+ * rest in document order. Only DOM attributes decide; whether a candidate takes focus (CSS can hide
+ * it) is found by focusing it. A radio group with a checked radio offers only that radio.
+ */
 function tabbables(surface: HTMLElement): HTMLElement[] {
-  return [...surface.querySelectorAll<HTMLElement>(tabbableSelector)].filter((element) => {
+  const found = [...surface.querySelectorAll<HTMLElement>(tabbableSelector)].filter((element) => {
     if (disabled(element)) return false;
-    const index = element.getAttribute('tabindex');
-    if (index !== null && Number(index) < 0) return false;
-    return element.closest('[hidden], [inert]') === null;
+    if (radioGroup(element) && !(element as HTMLInputElement).checked) {
+      const checked = [...surface.querySelectorAll<HTMLInputElement>('input[type=radio]')].some(
+        (other) => other.checked && sameGroup(element, other),
+      );
+      if (checked) return false;
+    }
+    return tabOrder(element) >= 0 && element.closest('[hidden], [inert]') === null;
   });
+  const positive = found.filter((element) => tabOrder(element) > 0);
+  positive.sort((one, other) => tabOrder(one) - tabOrder(other));
+  return [...positive, ...found.filter((element) => tabOrder(element) === 0)];
+}
+
+/**
+ * Tab and Shift+Tab in the top layer: the layer always moves focus itself, to the next candidate
+ * in the direction of travel that takes focus, wrapping at the ends. From focus outside the
+ * surface, Tab starts at the first candidate and Shift+Tab at the last; from an element that is
+ * not a candidate, at the first candidate past it in document order. The rest of the active
+ * element's radio group is skipped. When no other candidate takes focus, focus stays put.
+ */
+function moveFocus(surface: HTMLElement, back: boolean): void {
+  const stops = tabbables(surface);
+  if (back) stops.reverse();
+  const active = document.activeElement;
+  let start = 0;
+  if (active instanceof HTMLElement && surface.contains(active)) {
+    const index = stops.indexOf(active);
+    const past = back ? Node.DOCUMENT_POSITION_PRECEDING : Node.DOCUMENT_POSITION_FOLLOWING;
+    start =
+      index === -1
+        ? stops.findIndex((stop) => active.compareDocumentPosition(stop) & past)
+        : index + 1;
+    if (start === -1) start = 0;
+  }
+  const order = [...stops.slice(start), ...stops.slice(0, start)].filter(
+    (stop) => stop !== active && !(active && sameGroup(stop, active)),
+  );
+  focusFirst(order);
 }
 
 function onKeyDown(event: KeyboardEvent): void {
   const top = stack.at(-1);
-  if (!top || event.defaultPrevented) return;
+  if (!top || event.defaultPrevented || event.isComposing) return;
   if (event.key === 'Escape') {
-    if (event.isComposing) return;
     event.preventDefault();
     top.onClose.current();
     return;
   }
-  if (event.key !== 'Tab') return;
-  // The stops in the direction of travel: a wrap lands on the first of them that takes focus.
-  const stops = tabbables(top.surface);
-  if (event.shiftKey) stops.reverse();
-  const active = document.activeElement;
-  const outside = !(active instanceof Node) || !top.surface.contains(active);
-  if (stops.length > 0 && !outside && active !== stops.at(-1)) return;
+  if (event.key !== 'Tab' || event.ctrlKey || event.altKey || event.metaKey) return;
   event.preventDefault();
-  focusFirst(stops);
+  moveFocus(top.surface, event.shiftKey);
 }
 
 /** Focuses the first candidate that takes focus; tells whether one did. */
@@ -225,23 +278,35 @@ function returnFocus(entry: Entry): void {
  * lower root that React inserted after a higher one), so a layer above another of the same level
  * also paints above it.
  *
- * Mounted means open. On mount it records the focused element as the opener, joins the layer
- * stack in that order (the first layer locks `<html>` scrolling), makes everything outside the
- * top layer `inert`, and focuses Close if it is the top layer. A layer that lands under another
- * (its nested layer from the same commit, whose effect ran first and took focus) takes the
- * opener of the layer right above it, which is what had focus before the commit, and moves no
- * focus. Escape (unless already handled or composing) and a scrim click call the latest
- * `onClose` of the top layer only. Tab and Shift+Tab wrap inside the top surface and pull focus
- * back in from outside; a wrap skips disabled controls (a `disabled` fieldset included) and lands
- * on the first stop that takes focus. On unmount a lower layer moves no focus and hands its opener
- * to the layers above it, whose own opener may be inside it (a panel closed with its modal open,
- * or both closed in one render). The top layer returns focus to the first of its openers, then
- * the handed ones, that is still in the document, not `inert`, not inside a layer that left the
- * stack and takes focus; otherwise to Close of the new top layer.
+ * Mounted means open. The opener is the element focused at the layer's first render: before the
+ * commit, so a descendant's `autoFocus` or mount layout effect, which run before the layer's
+ * effect, is never taken for it. On mount the layer joins the stack in that order (the first layer
+ * locks `<html>` scrolling), makes everything outside the top layer `inert`, and, if it is the top
+ * layer, focuses Close unless a descendant already took focus inside its surface (`autoFocus`
+ * wins). A layer that lands under another (its nested layer from the same commit, whose effect
+ * ran first) takes the openers of the layer right above it and moves no focus. Escape (unless
+ * already handled or composing) and a scrim click call the latest `onClose` of the top layer only.
  *
- * Limits: elements added to `body` while a layer is open stay live until the next open or close;
- * the Tab wrap finds the last stop from DOM attributes, so a last control hidden only by CSS lets
- * Tab from the stop before it leave the layer once, and a roving radio group can break the wrap.
+ * The top layer moves every Tab and Shift+Tab itself (unless already handled, composing, or with
+ * Ctrl, Alt or Meta): to the next candidate in tab order (positive `tabindex` first, then document
+ * order) that actually takes focus, wrapping at the ends; focus outside the surface comes back to
+ * the first or last candidate. Candidates come from DOM attributes (disabled controls, a
+ * `disabled` fieldset, `hidden`, `inert` and negative `tabindex` are left out; a radio group with
+ * a checked radio offers only that one, and the rest of the focused radio's group is skipped), and
+ * each is focused and checked, so a control hidden by CSS or otherwise refusing focus is passed
+ * over and focus never leaves the layer. Moving focus itself, not trusting the browser to move it
+ * when the active element is not the last stop, is what keeps a CSS-hidden control from letting
+ * focus out: attributes cannot tell what CSS hides, and the browser would skip it.
+ *
+ * On unmount a lower layer moves no focus and hands its openers to the layers above it, whose
+ * own opener may be inside it (a panel closed with its modal open, or both closed in one render).
+ * The top layer returns focus to the first of its openers, then the handed ones, that is still in
+ * the document, not `inert`, not inside a layer that left the stack and takes focus; otherwise to
+ * Close of the new top layer.
+ *
+ * Limits: elements added to `body` while a layer is open stay live until the next open or close.
+ * Tab skips what the candidate selector does not list but a browser may focus (a scroll container
+ * Chrome makes focusable, `iframe`, media controls), and Tab inside an `iframe` is the frame's own.
  */
 export function Layer({
   level,
@@ -277,12 +342,16 @@ export function Layer({
   const latest = useRef(onClose);
   const parent = useContext(LayerContext);
   const [node] = useState<LayerNode>(() => ({ parent }));
+  // Read in the first render, before the commit: a descendant's `autoFocus` or mount layout
+  // effect runs before this layer's effect and would otherwise be read as the opener.
+  const [opener] = useState(() => {
+    const active = document.activeElement;
+    return active instanceof HTMLElement && active !== document.body ? active : null;
+  });
   useLayoutEffect(() => {
     latest.current = onClose;
   });
   useLayoutEffect(() => {
-    // Read the opener before any inert write: browser focus fixup would move focus to body.
-    const active = document.activeElement;
     if (!root.current || !surface.current) return;
     const entry: Entry = {
       node,
@@ -290,13 +359,15 @@ export function Layer({
       root: root.current,
       surface: surface.current,
       close: close.current?.querySelector('button') ?? null,
-      openers: active instanceof HTMLElement && active !== document.body ? [active] : [],
+      openers: opener ? [opener] : [],
       onClose: latest,
     };
     const above = push(entry);
     if (above) entry.openers = [...above.openers];
     sync();
-    if (!above) entry.close?.focus();
+    // A descendant that took focus on mount keeps it.
+    const active = document.activeElement;
+    if (!above && !(active && entry.surface.contains(active))) entry.close?.focus();
     return () => {
       const wasTop = remove(entry);
       sync();

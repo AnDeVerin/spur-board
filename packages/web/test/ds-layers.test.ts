@@ -145,11 +145,12 @@ describe('Modal and SidePanel', () => {
     expect(document.activeElement).toBe(close);
     expect(key('Tab', { shiftKey: true }).defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(body);
-    // Close to the body is the browser's own move.
+    // Close to the body is the layer's own move too.
     act(() => {
       close.focus();
     });
-    expect(key('Tab').defaultPrevented).toBe(false);
+    expect(key('Tab').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(body);
     // Focus outside the layer: Tab pulls it to the first stop, Shift+Tab to the last.
     act(() => {
       (document.activeElement as HTMLElement).blur();

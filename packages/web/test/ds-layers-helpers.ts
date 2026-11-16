@@ -1,9 +1,10 @@
-import { act, createElement, type ComponentType, type ReactNode } from 'react';
+import { act, createElement, type ComponentType, type CSSProperties, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { SidePanel } from '../src/ds/index.ts';
 
-// Shared by the happy-dom layer tests: ds-layers.test.ts and ds-layers-focus.test.ts.
+// Shared by the happy-dom layer tests: ds-layers.test.ts, ds-layers-focus.test.ts and
+// ds-layers-tab.test.ts.
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -79,6 +80,21 @@ export function emulateFocusFixup(): void {
     });
   });
 }
+
+/**
+ * A button styled `style` that refuses focus. happy-dom has no layout, so it would focus a button
+ * hidden by CSS; in a browser `focus()` on an element that is not rendered (`display: none`,
+ * `visibility: hidden`, inside `content-visibility: hidden` or a closed `<details>`) does nothing,
+ * which the no-op `focus` emulates.
+ */
+export const cssHidden = (name: string, style: CSSProperties = { display: 'none' }) =>
+  createElement('button', {
+    style,
+    ref: (element: HTMLButtonElement | null) => {
+      if (element) element.focus = () => undefined;
+    },
+    children: name,
+  });
 
 export const render = (node: ReactNode) => {
   act(() => {

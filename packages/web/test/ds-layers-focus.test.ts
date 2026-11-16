@@ -1,9 +1,8 @@
 // @vitest-environment happy-dom
-import { act, createElement, Fragment, StrictMode, useState, type ReactNode } from 'react';
+import { createElement, Fragment, StrictMode, useLayoutEffect, useRef, useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import { Modal, SidePanel } from '../src/ds/index.ts';
 import {
-  bodyOf,
   button,
   dialogs,
   emulateFocusFixup,
@@ -16,6 +15,17 @@ import {
   render,
   top,
 } from './ds-layers-helpers.ts';
+
+type By = 'autoFocus' | 'effect';
+// A field that takes focus on mount: through `autoFocus`, or from its own layout effect, which
+// runs before the layer's.
+function Field({ by }: { by: By }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    if (by === 'effect') ref.current?.focus();
+  }, [by]);
+  return createElement('input', { ref, 'aria-label': 'Field', autoFocus: by === 'autoFocus' });
+}
 
 mountEachTest();
 
@@ -40,19 +50,23 @@ describe('focus returns to the opener', () => {
   });
 
   // The inbox panel (or an outer modal) and the task layer (a modal unless `Inner` says
-  // otherwise), nested in the inbox or as a sibling rendered before or after it.
+  // otherwise), nested in the inbox or as a sibling rendered before or after it. `field` puts a
+  // `Field` first in the inbox or the task layer.
   type Layout = {
     place?: 'inside' | 'before' | 'after';
     Outer?: typeof Modal;
     Inner?: typeof Modal;
+    field?: { layer: 'inbox' | 'task'; by: By };
   };
-  function Stack({ place = 'inside', Outer = SidePanel, Inner = Modal }: Layout) {
+  function Stack({ place = 'inside', Outer = SidePanel, Inner = Modal, field }: Layout) {
     const [shown, setShown] = useState({ inbox: false, task: false });
     // Each handler is one state update: "Open both" mounts both layers in one commit, and
     // "Close both" unmounts them in one commit.
     const set = (change: Partial<typeof shown>) => () => {
       setShown((now) => ({ ...now, ...change }));
     };
+    const fieldIn = (layer: 'inbox' | 'task') =>
+      field?.layer === layer ? createElement(Field, { by: field.by }) : null;
     const modal = createElement(Inner, {
       open: shown.task,
       onClose: set({ task: false }),
@@ -60,6 +74,7 @@ describe('focus returns to the opener', () => {
       children: createElement(
         Fragment,
         null,
+        fieldIn('task'),
         createElement('button', { onClick: set({ inbox: false }) }, 'Close inbox'),
         createElement('button', { onClick: set({ inbox: false, task: false }) }, 'Close both'),
       ),
@@ -77,6 +92,7 @@ describe('focus returns to the opener', () => {
         children: createElement(
           Fragment,
           null,
+          fieldIn('inbox'),
           createElement('button', { onClick: set({ task: true }) }, 'Open task'),
           place === 'inside' ? modal : null,
         ),
@@ -148,7 +164,7 @@ describe('focus returns to the opener', () => {
   // Task opened from "Open task" inside the outer layer, which "Open inbox" opened from the page.
   // Each step is a button in the top layer or Escape; after each, the open layers and the focus.
   const sequential = ['Open inbox', 'Open task'];
-  it.each<Case & { steps: [string, string[], string][] }>([
+  it.each<Case & { steps: [string, string[], string][]; opened?: string }>([
     {
       name: 'Escape twice',
       clicks: sequential,
@@ -199,15 +215,89 @@ describe('focus returns to the opener', () => {
       clicks: both,
       steps: [['Close inbox', [], 'Open both']],
     },
-  ])('returns focus after teardown: $name', ({ clicks, strict, steps, ...layout }) => {
+    // A field that takes focus on mount keeps it, and is never the opener focus returns to.
+    {
+      name: 'an autoFocus field in the panel, then its modal',
+      clicks: sequential,
+      field: { layer: 'inbox', by: 'autoFocus' },
+      steps: [
+        ['Escape', ['Inbox'], 'Inbox Open task'],
+        ['Escape', [], 'Open inbox'],
+      ],
+    },
+    {
+      name: 'a field the panel focuses in a mount layout effect, then its modal',
+      clicks: sequential,
+      field: { layer: 'inbox', by: 'effect' },
+      steps: [['Close inbox', [], 'Open inbox']],
+    },
+    {
+      name: 'an autoFocus field in the modal over the panel',
+      clicks: sequential,
+      field: { layer: 'task', by: 'autoFocus' },
+      opened: 'Task Field',
+      steps: [
+        ['Escape', ['Inbox'], 'Inbox Open task'],
+        ['Escape', [], 'Open inbox'],
+      ],
+    },
+    {
+      name: 'a field focused in a mount layout effect in the modal over the panel',
+      clicks: sequential,
+      field: { layer: 'task', by: 'effect' },
+      opened: 'Task Field',
+      steps: [
+        ['Escape', ['Inbox'], 'Inbox Open task'],
+        ['Escape', [], 'Open inbox'],
+      ],
+    },
+    {
+      name: 'an autoFocus field in a panel over a panel',
+      clicks: sequential,
+      Inner: SidePanel,
+      field: { layer: 'task', by: 'autoFocus' },
+      opened: 'Task Field',
+      steps: [
+        ['Escape', ['Inbox'], 'Inbox Open task'],
+        ['Escape', [], 'Open inbox'],
+      ],
+    },
+    {
+      name: 'panel and nested modal with an autoFocus field opened in one commit',
+      clicks: both,
+      field: { layer: 'task', by: 'autoFocus' },
+      opened: 'Task Field',
+      steps: [
+        ['Escape', ['Inbox'], 'Inbox Close'],
+        ['Escape', [], 'Open both'],
+      ],
+    },
+  ])('returns focus after teardown: $name', ({ clicks, strict, steps, opened, ...layout }) => {
     mount(layout, strict);
     for (const name of clicks) press(button(name));
-    expect(open()).toEqual(['Inbox', 'Task']);
+    expect({ open: open(), focus: where() }).toEqual({
+      open: ['Inbox', 'Task'],
+      focus: opened ?? 'Task Close',
+    });
     for (const [step, layers, focus] of steps) {
       if (step === 'Escape') key('Escape');
       else press(button(step, top()));
       expect({ step, open: open(), focus: where() }).toEqual({ step, open: layers, focus });
     }
+  });
+
+  // One layer opened from a page button, with a field that takes focus on mount.
+  it.each<{ name: string; Outer: typeof Modal; by: By }>([
+    { name: 'a modal with an autoFocus field', Outer: Modal, by: 'autoFocus' },
+    { name: 'a modal focusing a field in a mount layout effect', Outer: Modal, by: 'effect' },
+    { name: 'a panel with an autoFocus field', Outer: SidePanel, by: 'autoFocus' },
+    { name: 'a panel focusing a field in a mount layout effect', Outer: SidePanel, by: 'effect' },
+  ])('the field keeps focus and the page opener gets it back: $name', ({ Outer, by }) => {
+    mount({ Outer, field: { layer: 'inbox', by } });
+    press(button('Open inbox'));
+    expect(where()).toBe('Inbox Field');
+    key('Escape');
+    expect({ open: open(), focus: where() }).toEqual({ open: [], focus: 'Open inbox' });
   });
 
   it('leaves focus on the top layer when a lower layer closes', () => {
@@ -231,99 +321,5 @@ describe('focus returns to the opener', () => {
     render(lower(false));
     expect(dialogs()).toHaveLength(1);
     expect(document.activeElement).toBe(close);
-  });
-});
-
-describe('Tab wraps past controls that cannot take focus', () => {
-  const h = createElement;
-  // A control that refuses focus, as one hidden only by CSS does in a browser.
-  const refusing = h('button', {
-    ref: (element: HTMLButtonElement | null) => {
-      if (element) element.focus = () => undefined;
-    },
-    children: 'Hidden by CSS',
-  });
-  const where = () => {
-    const active = document.activeElement;
-    if (active === bodyOf(top())) return 'body';
-    if (!(active instanceof HTMLElement) || active === document.body) return 'page';
-    return active.getAttribute('aria-label') ?? active.textContent;
-  };
-  // `last` is the last stop of the surface: Shift+Tab from Close lands there, Tab from it wraps
-  // to Close (unless `forward` is false: a refusing control after it is still the last in DOM).
-  it.each<{ name: string; content: ReactNode; last: string; forward?: boolean }>([
-    {
-      name: 'a control in a disabled fieldset',
-      content: h('fieldset', { disabled: true }, h('button', null, 'Save')),
-      last: 'body',
-    },
-    {
-      name: 'a control in the first legend of a disabled fieldset stays',
-      content: h(
-        'fieldset',
-        { disabled: true },
-        h('legend', null, h('button', null, 'Help')),
-        h('button', null, 'Save'),
-      ),
-      last: 'Help',
-    },
-    {
-      name: 'a control in a second legend of a disabled fieldset',
-      content: h(
-        'fieldset',
-        { disabled: true },
-        h('legend', null, 'Title'),
-        h('legend', null, h('button', null, 'Help')),
-      ),
-      last: 'body',
-    },
-    {
-      name: 'a legend control in a fieldset nested in a disabled one',
-      content: h(
-        'fieldset',
-        { disabled: true },
-        h('fieldset', null, h('legend', null, h('button', null, 'Help'))),
-      ),
-      last: 'body',
-    },
-    {
-      name: 'a link in a disabled fieldset stays',
-      content: h('fieldset', { disabled: true }, h('a', { href: '#top' }, 'Link')),
-      last: 'Link',
-    },
-    {
-      name: 'disabled, hidden, inert and tabindex=-1 controls',
-      content: h(
-        Fragment,
-        null,
-        h('button', { disabled: true }, 'Disabled'),
-        h('button', { hidden: true }, 'Hidden'),
-        h('div', { inert: true }, h('button', null, 'Inert')),
-        h('button', { tabIndex: -1 }, 'Skipped'),
-      ),
-      last: 'body',
-    },
-    {
-      name: 'a last control that refuses focus',
-      content: refusing,
-      last: 'body',
-      forward: false,
-    },
-  ])('$name', ({ content, last, forward = true }) => {
-    render(h(Modal, { open: true, onClose: () => undefined, title: 'T', children: content }));
-    const close = button('Close', top());
-    expect(where()).toBe('Close');
-    expect(key('Tab', { shiftKey: true }).defaultPrevented).toBe(true);
-    expect(where()).toBe(last);
-    if (forward) {
-      expect(key('Tab').defaultPrevented).toBe(true);
-      expect(document.activeElement).toBe(close);
-    }
-    // Focus outside the layer: Shift+Tab pulls it back to the same last stop.
-    act(() => {
-      (document.activeElement as HTMLElement).blur();
-    });
-    key('Tab', { shiftKey: true });
-    expect(where()).toBe(last);
   });
 });
