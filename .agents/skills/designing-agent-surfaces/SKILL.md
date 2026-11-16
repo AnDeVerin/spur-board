@@ -27,7 +27,9 @@ that changes these rules updates this skill in the same PR.
   The `status.get` default size budget is pinned in `packages/core/test/app/registry.test.ts`.
 - No operation has a limit, cursor or pagination; the unlinked rows of `status.get` have no
   count cap, but finished rows older than 7 days are left out and counted in its
-  `hiddenUnlinkedPrs` and `hiddenUnlinkedSessions` (`packages/core/src/app/status.ts`). A new
+  `hiddenUnlinkedPrs` and `hiddenUnlinkedSessions` (`packages/core/src/app/status.ts`).
+  `inbox.operator` keeps at most 20 `handled` entries from the last 24 h
+  (`packages/core/src/app/operator-inbox.ts`). A new
   list operation that can grow without bound states its bound or its paging shape in its issue
   before implementation.
 - Tests: `describe('board mcp')` in `packages/cli/test/mcp.test.ts` and its snapshot.
