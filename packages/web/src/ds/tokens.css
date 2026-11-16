@@ -1,0 +1,143 @@
+/*
+ * spur-board design tokens, first version.
+ * Dark is the default (:root); light is :root[data-theme="light"].
+ * Color names follow the Spur web UI. Every color token has a value in both themes.
+ */
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('fonts/JetBrainsMono-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('fonts/JetBrainsMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* surfaces */
+  --color-bg-base: #0d0d0e;
+  --color-bg-surface: rgba(17, 17, 18, 0.8);
+  --color-bg-elevated: #17171a;
+  --color-row-hover: rgba(255, 255, 255, 0.03);
+  --color-modal-backdrop: rgba(0, 0, 0, 0.6);
+
+  /* borders */
+  --color-border-subtle: rgba(35, 35, 38, 0.6);
+  --color-border-default: #232326;
+  --color-border-strong: #323236;
+
+  /* text */
+  --color-text-primary: #e1e1e1;
+  --color-text-secondary: #a1a1a1;
+  --color-text-tertiary: #6b6b70;
+  --color-text-inverse: #0d0d0e;
+
+  /* accent */
+  --color-accent: #ffffff;
+  --color-accent-violet: #a371f7;
+
+  /* status */
+  --color-status-working: #58a6ff;
+  --color-status-ready: #3fb950;
+  --color-status-attention: #ffd700;
+  --color-status-error: #ff4d4d;
+
+  /* tinted fills behind a status, for cells and chips */
+  --color-fill-working: rgba(88, 166, 255, 0.1);
+  --color-fill-ready: rgba(63, 185, 80, 0.1);
+  --color-fill-attention: rgba(255, 215, 0, 0.1);
+  --color-fill-error: rgba(255, 77, 77, 0.12);
+
+  /* the one filled marker: something waits for the operator */
+  --color-you-bg: #c9a227;
+  --color-you-text: #0d0d0e;
+
+  /* type */
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --text-micro: 10px;
+  --text-small: 11px;
+  --text-body: 12px;
+  --text-title: 16px;
+  --tracking-body: 0.02em;
+  --tracking-label: 0.14em;
+  --tracking-bar: 0.08em;
+
+  /* spacing, 4px step */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  /* sizes */
+  --size-header: 42px;
+  --size-statusbar: 24px;
+  --size-control: 28px;
+  --size-icon-button: 24px;
+  --size-icon: 12px;
+  --size-dot: 6px;
+  --size-column: 248px;
+
+  --radius: 0;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-bg-base: #ffffff;
+  --color-bg-surface: rgba(246, 248, 250, 0.85);
+  --color-bg-elevated: #ffffff;
+  --color-row-hover: rgba(31, 35, 40, 0.03);
+  --color-modal-backdrop: rgba(31, 35, 40, 0.4);
+
+  --color-border-subtle: rgba(209, 217, 224, 0.6);
+  --color-border-default: #d1d9e0;
+  --color-border-strong: #b7c0c9;
+
+  --color-text-primary: #1f2328;
+  --color-text-secondary: #59636e;
+  --color-text-tertiary: #818b98;
+  --color-text-inverse: #ffffff;
+
+  --color-accent: #0969da;
+  --color-accent-violet: #8250df;
+
+  --color-status-working: #0969da;
+  --color-status-ready: #1a7f37;
+  --color-status-attention: #9a6700;
+  --color-status-error: #cf222e;
+
+  --color-fill-working: rgba(9, 105, 218, 0.08);
+  --color-fill-ready: rgba(26, 127, 55, 0.08);
+  --color-fill-attention: rgba(191, 135, 0, 0.12);
+  --color-fill-error: rgba(207, 34, 46, 0.08);
+
+  --color-you-bg: #bf8700;
+  --color-you-text: #ffffff;
+}
+
+html {
+  background: var(--color-bg-base);
+}
+body {
+  margin: 0;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}

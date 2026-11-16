@@ -163,6 +163,7 @@ jobs:
           node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @spur-board/web build
       - run: pnpm gen
       - run: git diff --exit-code -- packages/contracts/config.schema.json packages/contracts/ops.snapshot.json packages/skills/spur-board/SKILL.md packages/skills/spur-board/references docs/cli.md docs/configuration.md
       - name: Check generated command pages are tracked
@@ -190,6 +191,7 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @spur-board/web build
       - run: pnpm check:full --only test
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -219,6 +221,7 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @spur-board/web build
       - run: pnpm check:full --only stand
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -248,6 +251,7 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @spur-board/web build
       # On push and dispatch, release-smoke smokes the release candidate instead.
       - if: github.event_name == 'pull_request'
         run: pnpm package:smoke

@@ -1,15 +1,14 @@
-import { z } from 'zod';
-import { sourceViewSchema } from './source-view-schema.ts';
-import { configViewSchema } from './config-view-schema.ts';
 import {
-  ADDRESSEE_SOURCES,
-  BLOCK_TYPES,
-  COLUMN_BINDING_SOURCES,
-  COLUMN_IDS,
-  OPERATOR_BINDING_SOURCES,
-  TOKEN_STATUSES,
-  VIAS,
-} from '../enums.ts';
+  statusInputSchema,
+  statusOutputSchema,
+  commentAddInputSchema,
+  commentAddOutputSchema,
+  blockAnswerInputSchema,
+  blockAnswerOutputSchema,
+} from '../browser.ts';
+import { z } from 'zod';
+import { configViewSchema } from './config-view-schema.ts';
+import { BLOCK_TYPES, COLUMN_IDS, TOKEN_STATUSES, VIAS } from '../enums.ts';
 import { EVENT_KINDS } from '../events.ts';
 import {
   actorIdSchema,
@@ -32,17 +31,12 @@ import {
   linkViewSchema,
   moveViewSchema,
   schemaGetOutputSchema,
-  statusItemSchema,
   statusSessionFactsSchema,
-  statusTaskSchema,
-  statusUnlinkedPrSchema,
-  statusUnlinkedSessionSchema,
   taskBlockViewSchema,
   taskViewSchema,
   taskWhySchema,
 } from './schemas.ts';
 import { taskTurnSchema, type turnHandedSchema, turnViewSchema } from './turn-schemas.ts';
-import { SPACE_IDS } from '../gateway/schemas.ts';
 
 /** Longest free text an input takes: comments, questions, answers and reasons. */
 const TEXT_MAX = 20_000;
@@ -251,59 +245,6 @@ const reviewGates: GateView[] = [
   { column: 'done', enabled: true, ok: true, blockedIn: 'review', conditions: [] },
 ];
 
-/** The effective column orchestrators and operators of the requested projects (`configBindings`). */
-const statusBindingsSchema = z
-  .strictObject({
-    columns: z
-      .array(
-        z
-          .strictObject({
-            project: z.string().min(1).describe('Board project.'),
-            column: z.enum(COLUMN_IDS).describe('Enabled column with an orchestrator.'),
-            orchestrator: z
-              .string()
-              .min(1)
-              .describe('Spur project, or operator, that takes the column turns.'),
-            source: z
-              .enum(COLUMN_BINDING_SOURCES)
-              .describe(
-                'project: set in projects[].columns; board-wide: filled from top-level spurProjects.',
-              ),
-          })
-          .describe('One column binding.'),
-      )
-      .describe('Column orchestrators of each requested project; columns left at none are absent.'),
-    operators: z
-      .array(
-        z
-          .strictObject({
-            project: z.string().min(1).describe('Board project.'),
-            operator: z.string().min(1).describe('Spur project acting as operator there.'),
-            source: z
-              .enum(OPERATOR_BINDING_SOURCES)
-              .describe(
-                "project: its own spurProjects; board-wide: top-level spurProjects; other-project: another project's operator, without a board-wide one.",
-              ),
-          })
-          .describe('One operator binding.'),
-      )
-      .describe('Operator Spur projects of each requested project.'),
-    defaultAddressee: z
-      .strictObject({
-        spurProject: z.string().min(1).describe('Spur project the message goes to.'),
-        source: z
-          .enum(ADDRESSEE_SOURCES)
-          .describe(
-            'config: slack.defaultAddressee; board-wide: the board-wide operator; project: the operator of the first board project, in config order, that lists one.',
-          ),
-      })
-      .nullable()
-      .describe(
-        'Who an orchestrators-channel message without a known @shortName goes to; null when it is left unhandled or answered with the prefixes.',
-      ),
-  })
-  .describe('Effective column orchestrators, operators and default Slack addressee.');
-
 const taskOutput = z.strictObject({ task: taskViewSchema });
 const blockOutput = z.strictObject({ block: blockViewSchema });
 const itemOutput = z.strictObject({ item: itemViewSchema });
@@ -326,96 +267,8 @@ export const OPERATIONS = [
       whenToUse: 'Get a board overview.',
       whenNotToUse: 'Use task_get for one task.',
     },
-    input: z.strictObject({
-      project,
-      detail: z
-        .boolean()
-        .optional()
-        .describe(
-          'Include full ticket, pull request and session facts; absent means compact rows.',
-        ),
-    }),
-    output: z.strictObject({
-      items: z.array(statusItemSchema).describe('Actionable items in priority order.'),
-      warmingUp: z.boolean().describe('Whether required sources still need a complete poll.'),
-      spurUnavailable: z
-        .string()
-        .nullable()
-        .describe('One combined Spur availability line, or null when available.'),
-      hostLoad: z.string().nullable().describe('Host-load episode line, or null when absent.'),
-      transport: z
-        .array(
-          z
-            .strictObject({
-              gateway: z.string().min(1).describe('Chat gateway kind.'),
-              state: z
-                .enum(['up', 'down'])
-                .describe('down while delivery to any space of the gateway is suspended.'),
-              since: z.iso
-                .datetime()
-                .nullable()
-                .describe('When the earliest outage started, ISO 8601 UTC, or null when up.'),
-              reason: z
-                .string()
-                .nullable()
-                .describe('Reason of the earliest outage, or null when up.'),
-              spaces: z.array(z.enum(SPACE_IDS)).describe('Spaces whose delivery is suspended.'),
-            })
-            .describe('Transport health of one gateway.'),
-        )
-        .describe('Transport health of each chat gateway.'),
-      sources: z.array(sourceViewSchema).describe('Freshness and availability of each source.'),
-      tasks: z
-        .array(statusTaskSchema)
-        .describe(
-          'Tasks with state, turn, PR summary arrays and navigation; full facts with detail.',
-        ),
-      projectBlocks: z
-        .array(
-          z
-            .strictObject({
-              project: z.string().min(1).describe('Board project.'),
-              openBlocks: z.int().min(0).describe('Open project-level blocks, without a task.'),
-            })
-            .describe('Open project-level blocks of one project.'),
-        )
-        .describe('Open project-level blocks of each requested project.'),
-      unlinkedPrs: z
-        .array(statusUnlinkedPrSchema)
-        .describe(
-          'Observed pull requests without a task link; merged or closed ones with no change for over 7 days are left out.',
-        ),
-      unlinkedSessions: z
-        .array(statusUnlinkedSessionSchema)
-        .describe(
-          "Observed sessions without a task link; ones ended, or gone from Spur's session list, for over 7 days are left out.",
-        ),
-      hiddenUnlinkedPrs: z
-        .int()
-        .min(0)
-        .describe(
-          'Unlinked pull requests not listed: merged or closed, with no change for over 7 days. Counted within the requested projects; detail does not list them.',
-        ),
-      hiddenUnlinkedSessions: z
-        .int()
-        .min(0)
-        .describe(
-          "Unlinked sessions not listed: ended, or gone from Spur's session list, for over 7 days. Counted within the requested projects; detail does not list them.",
-        ),
-      bindings: statusBindingsSchema,
-      daemon: z
-        .strictObject({
-          version: z.string().min(1).describe('Product version of the running daemon.'),
-          startedAt: z.iso.datetime().describe('When the daemon started, ISO 8601 UTC.'),
-          lastDispatchAt: z.iso
-            .datetime()
-            .nullable()
-            .describe(
-              'When the last completed board tick (dispatch pass) ended, ISO 8601 UTC; null until the first tick after start.',
-            ),
-        })
-        .describe('The running daemon: version, start time and last completed tick.'),
-    }),
+    input: statusInputSchema,
+    output: statusOutputSchema,
     grants: operatorOrProjectAgent,
     errors: ['not_found'],
     cli: { command: 'status', args: [] },
@@ -1173,12 +1026,8 @@ export const OPERATIONS = [
       whenNotToUse: 'Use comment_edit to revise your comment.',
       destructive: false,
     },
-    input: z.strictObject({
-      task: taskKeyInputSchema,
-      block: blockIdSchema.optional().describe('Block conversation to join, if any.'),
-      text: text('Comment text.', TEXT_MAX),
-    }),
-    output: z.strictObject({ comment: commentSchema }),
+    input: commentAddInputSchema,
+    output: commentAddOutputSchema,
     grants: [{ grant: 'project-agent' }, { grant: 'operator' }],
     errors: ['wrong_id_kind', 'not_found', 'task_archived'],
     cli: { command: 'comment', args: ['task', 'text'] },
@@ -1295,19 +1144,8 @@ export const OPERATIONS = [
       whenToUse: 'Answer an open question.',
       whenNotToUse: 'Use block_unblock to close without an answer.',
     },
-    input: z.strictObject({
-      block: blockIdSchema,
-      text: text('The answer.', TEXT_MAX),
-      note: z
-        .string()
-        .min(1)
-        .max(TEXT_MAX)
-        .optional()
-        .describe(
-          'Your own comment on the answer, kept apart from it: stored as a second comment and shown on the curator feed line.',
-        ),
-    }),
-    output: z.strictObject({ block: blockViewSchema, comment: commentSchema }),
+    input: blockAnswerInputSchema,
+    output: blockAnswerOutputSchema,
     grants: [{ grant: 'block-addressee' }, { grant: 'operator' }],
     preconditions: { blockTypes: ['needs_input'] },
     errors: ['wrong_id_kind', 'not_found', 'block_not_open', 'wrong_block_type', 'task_archived'],

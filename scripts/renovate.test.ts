@@ -120,7 +120,7 @@ function rootDirs(): string[] {
   const config = read('packages/cli/tsdown.config.ts');
   const entries = [...config.matchAll(/'\.\.\/([\w-]+)\/src\//g)].map((match) => match[1] ?? '');
   expect(entries.length).toBeGreaterThan(0);
-  return ['cli', ...entries];
+  return ['cli', 'web', ...entries];
 }
 
 function closure(): { dirs: Set<string>; thirdParty: Set<string> } {
@@ -147,6 +147,13 @@ function closure(): { dirs: Set<string>; thirdParty: Set<string> } {
     // tsdown inlines every @spur-board/* package (alwaysBundle), so cli's workspace devDependencies
     // ship too; its third-party devDependencies do not.
     if (dir === 'cli') follow(manifest.devDependencies, false);
+    // React is emitted into copied web assets, despite living in devDependencies.
+    if (dir === 'web') {
+      for (const name of ['react', 'react-dom']) {
+        expect(manifest.devDependencies?.[name]).toBe('catalog:');
+        thirdParty.add(name);
+      }
+    }
   }
   return { dirs: seen, thirdParty };
 }
@@ -186,6 +193,8 @@ describe('renovate.json', () => {
     const shipped = new Set(shippedSet());
     const others = catalog.filter((name) => !shipped.has(name));
     expect(others).toContain('ws');
+    expect(others).toContain('vite');
+    expect(shippedSet()).toEqual(expect.arrayContaining(['react', 'react-dom']));
     for (const packageName of others) {
       for (const updateType of UPDATE_TYPES) {
         expect(resolve({ packageName, updateType }), `${packageName} ${updateType}`).toEqual({

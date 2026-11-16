@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { assembleSkills, validateTarball } from './package.ts';
+import { describe, expect, inject, it } from 'vitest';
+import type {} from '../packages/testkit/src/global-setup.ts';
+import { assembleSkills, assembleWeb, verifyWebAssets, validateTarball } from './package.ts';
 
 const manifest = {
   name: 'spur-board',
@@ -15,6 +16,11 @@ const files = [
   'package/package.json',
   'package/README.md',
   'package/LICENSE',
+  'package/OFL.txt',
+  'package/dist/web/index.html',
+  'package/dist/web/assets/index-abcdefgh.js',
+  'package/dist/web/assets/index-abcdefgh.css',
+  'package/dist/web/assets/JetBrainsMono-Regular-abcdefgh.woff2',
   'package/dist/bin.mjs',
   'package/dist/cli.mjs',
   'package/dist/mcp.mjs',
@@ -39,6 +45,10 @@ describe('package tarball allowlist', () => {
   });
 
   it.each([
+    'package/dist/web/assets/index-abcdefgh.js.map',
+    'package/dist/web/credentials.pem',
+    'package/dist/web/assets/index-short.js',
+    'package/dist/web/assets/random.txt',
     'package/dist/credentials.pem',
     'package/dist/cli.mjs.map',
     'package/dist/migrations/seed.sql',
@@ -120,5 +130,26 @@ describe('product skill assembly', () => {
     expect(() => {
       assembleSkills(source, join(root, 'destination'));
     }).toThrow('has no SKILL.md');
+  });
+});
+
+describe('web assembly', () => {
+  it('fails when output is absent, and replaces old assets after a clean build', () => {
+    const root = mkdtempSync(join(tmpdir(), 'board-web-'));
+    expect(() => {
+      assembleWeb(join(root, 'absent'), join(root, 'target'), join(root, 'OFL.txt'));
+    }).toThrow(/Missing web asset/);
+    const target = join(root, 'target');
+    mkdirSync(target);
+    writeFileSync(join(target, 'stale.js'), 'old');
+    assembleWeb(inject('webAssetsRoot'), target, join(root, 'OFL.txt'));
+    expect(existsSync(join(target, 'stale.js'))).toBe(false);
+    expect(() => {
+      verifyWebAssets(target, join(root, 'OFL.txt'));
+    }).not.toThrow();
+    const build = readFileSync(new URL('./package.ts', import.meta.url), 'utf8');
+    expect(build.indexOf("run('pnpm', ['build'], packageRoot)")).toBeLessThan(
+      build.indexOf('  assembleWeb();'),
+    );
   });
 });

@@ -260,3 +260,19 @@ task has none, unless it sets `board-other` to the task's URL before its `pr` li
 label changes nothing, because a link keeps its first role; the operator then removes the link
 with `board unlink <task> --session <session> --reason <value> --key <key>`. No automatic rule
 links it to that task again; `board link` restores it with its original role.
+
+## Building the web UI
+
+From a repository checkout run `pnpm install`, then `pnpm --filter @spur-board/web build`.
+`pnpm package:build` also builds and assembles the UI into the CLI package after its clean
+build. The installed assets include local fonts and their OFL license. Dark is the initial
+fallback; the footer offers Light, Dark and Auto, remembers the preference when browser storage
+is available, and Auto follows the system appearance.
+
+With `web.port` and `web.publicOrigin` configured, the daemon serves the packaged SPA and local
+assets on its separate loopback web listener. A “UI is not built” 503 means assets need
+building/packaging; restart the daemon after rebuilding because it loads assets at startup.
+`pnpm package:smoke` verifies installed `GET /` and a referenced asset on an isolated listener.
+The stream server remains pending in #533: status reads work, while the shell's stream indicator
+will reconnect and eventually show offline/stale. The footer embeds the CLI manifest version
+until #547 supplies daemon version fields.

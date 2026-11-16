@@ -29,6 +29,7 @@ export default defineConfig({
             '**/*.integration.test.ts',
             'packages/cli/test/startup.test.ts',
             'scripts/hooks.test.ts',
+            'packages/testkit/test/web-assets.test.ts',
             'packages/daemon/test/main.test.ts',
             'packages/daemon/test/single-instance.test.ts',
             'packages/stand/test/fake-cli.test.ts',
@@ -63,6 +64,7 @@ export default defineConfig({
           name: 'process',
           include: [
             'scripts/hooks.test.ts',
+            'packages/testkit/test/web-assets.test.ts',
             'packages/daemon/test/main.test.ts',
             'packages/daemon/test/single-instance.test.ts',
             'packages/stand/test/fake-cli.test.ts',

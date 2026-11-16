@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +8,7 @@ import { scrubEnv } from './env.ts';
 declare module 'vitest' {
   interface ProvidedContext {
     harnessRoot: string;
+    webAssetsRoot: string;
   }
 }
 
@@ -39,8 +41,33 @@ export default function setup(project: TestProject): () => void {
     process.env[name] = dir;
   }
 
-  project.provide('harnessRoot', root);
-  return () => {
+  const cleanup = () => {
     rmSync(root, { recursive: true, force: true });
   };
+  const webRoot = join(project.config.root, 'packages/web');
+  const webAssetsRoot = join(root, 'web');
+  // Vitest runs root global setup once, before any selected project's worker pool.
+  // Always rebuild into this run's owned directory; never clean shared workspace assets.
+  const built = spawnSync(
+    process.execPath,
+    [
+      join(webRoot, 'node_modules/vite/bin/vite.js'),
+      'build',
+      '--outDir',
+      webAssetsRoot,
+      '--emptyOutDir',
+    ],
+    { cwd: webRoot, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'production' } },
+  );
+  if (built.status !== 0) {
+    cleanup();
+    const message = `Test web asset build failed: ${built.stderr || built.stdout}`;
+    process.stderr.write(`${message}\n`);
+    throw new Error(message, {
+      cause: built.error,
+    });
+  }
+  project.provide('harnessRoot', root);
+  project.provide('webAssetsRoot', webAssetsRoot);
+  return cleanup;
 }

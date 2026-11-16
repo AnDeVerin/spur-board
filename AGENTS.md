@@ -18,6 +18,12 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `packages/gateway-testkit` - the gateway conformance suite, its case registry for fake and live
   targets, and an in-memory fake gateway with `slack-like` and `telegram-like` profiles. Skill:
   `building-messenger-connectors`.
+- `packages/web` - private React/Vite desktop shell, browser-safe API and stream clients,
+  theme preferences and CSS Module styles using prototype tokens. Build with
+  `pnpm --filter @spur-board/web build`; `pnpm package:build` copies assets after the CLI clean
+  build. `scripts/web-shell-qa.ts` is a test-only loopback fixture for controlled sidecar QA
+  scenarios. Browser code imports only `@spur-board/contracts/browser` among workspace
+  packages; the boundary lint is in `eslint.config.js`.
 - `packages/skills` - the product skills that `board skills install` ships; not a workspace
   package.
 - `packages/adapters` - the adapter runner in `src/runner/`: per-source schedule, backoff,
@@ -36,7 +42,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   holds the live responses the fakes are checked against. Production packages never import it;
   the boundary lint is in `eslint.config.js`. Skills: `qa-stand`, `qa-seed` and `qa-report`;
   sidecar example in `docs/qa-stand.md`.
-- `packages/testkit` - the shared Vitest harness: environment scrub and network guard. Skill:
+- `packages/testkit` - the shared Vitest harness: environment scrub, network guard and fresh
+  production web assets for each run, prepared before workers. Skill:
   `testing-and-ci`.
 - `scripts/` - repo tooling, run as `node scripts/<name>.ts` through the pnpm scripts below. Check
   scripts and tests use `testing-and-ci`.
@@ -70,7 +77,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   link and the skills and roles table from `.agents/`; `--check` reports drift without writing.
 - `pnpm lint:agents` - check agent files against `skill-writer` and run `agents:sync --check`; the
   `agents` step of `pnpm check`, pre-push and `check:full` runs it.
-- `pnpm package:build` - bundle the CLI and daemon and copy the binary and migrations.
+- `pnpm package:build` - build the web shell, bundle the CLI and daemon, then copy the binary,
+  migrations and web assets.
 - `pnpm package:pack [directory]` - build, pack, and validate the npm tarball.
 - `pnpm package:check <tarball>` - reject files outside the package allowlist or a missing binary.
 - `pnpm package:smoke [tarball]` - install and exercise the packed CLI and daemon.

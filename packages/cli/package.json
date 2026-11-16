@@ -20,7 +20,8 @@
     "dist",
     "skills",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "OFL.txt"
   ],
   "scripts": {
     "build": "tsdown",
