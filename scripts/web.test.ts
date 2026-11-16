@@ -236,6 +236,20 @@ describe('web design assets and policy', () => {
     expect(files).toContain('gallery/Gallery.module.css');
     expect(files.flatMap((file) => outlineViolations(file, read(file)))).toEqual([]);
   });
+  it('no web source outside src/ds/ declares an outline; screens take the ds focusRing', () => {
+    const files = readdirSync(join(root, 'src'), { recursive: true, encoding: 'utf8' })
+      .map((file) => `src/${file}`)
+      .filter((file) => file.endsWith('.css') && !file.startsWith('src/ds/'));
+    expect(files).toContain('src/App.module.css');
+    const outlines = files.flatMap((file) =>
+      cssRules(read(file)).flatMap(({ selector, body }) =>
+        [...body.matchAll(/\boutline(?:-[\w-]+)?\s*:[^;]*;/g)].map(
+          ([declaration]) => `${file} ${selector}: ${declaration}`,
+        ),
+      ),
+    );
+    expect(outlines).toEqual([]);
+  });
   it('every ds component with a focus outline has a Focused example', () => {
     const folders = readdirSync(join(root, 'src/ds'), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -252,6 +266,7 @@ describe('web design assets and policy', () => {
     expect(focusable.sort()).toEqual([
       'Button',
       'CollapsibleSection',
+      'FocusRing',
       'HoverMenu',
       'IconButton',
       'Tabs',

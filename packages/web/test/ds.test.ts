@@ -78,6 +78,7 @@ describe('design system examples rule', () => {
         'Button',
         'Chip',
         'CollapsibleSection',
+        'FocusRing',
         'FormRow',
         'HoverMenu',
         'Icon',

@@ -5,6 +5,7 @@ export { breakpoints } from './Breakpoints/Breakpoints.tsx';
 export { Button, type ButtonVariant } from './Button/Button.tsx';
 export { Chip, type ChipTone } from './Chip/Chip.tsx';
 export { CollapsibleSection } from './CollapsibleSection/CollapsibleSection.tsx';
+export { focusRing } from './FocusRing/FocusRing.tsx';
 export { FormRow } from './FormRow/FormRow.tsx';
 export { HoverMenu, type HoverMenuItem } from './HoverMenu/HoverMenu.tsx';
 export { Icon, type IconName } from './Icon/Icon.tsx';
