@@ -43,8 +43,9 @@ type Entry = {
 // One stack for every open layer on the page, in visual order; the last entry is the top layer.
 const stack: Entry[] = [];
 // The roots of layers that left the stack and may still be in the document until React removes
-// their portals later in the same commit; focus never returns into one.
-const departed = new Set<HTMLElement>();
+// their portals later in the same commit; focus never returns into one. Held weakly, so a removed
+// root and its subtree can be collected.
+const departed = new WeakSet<HTMLElement>();
 // Each element this module made inert, with its own `inert` state from before.
 const priorInert = new Map<Element, boolean>();
 let priorOverflow = '';
@@ -248,18 +249,22 @@ function remove(entry: Entry): boolean {
   return index === stack.length;
 }
 
+/** Whether the element or one of its ancestors is a layer root that left the stack. */
+function insideDeparted(element: HTMLElement): boolean {
+  for (let node: HTMLElement | null = element; node; node = node.parentElement) {
+    if (departed.has(node)) return true;
+  }
+  return false;
+}
+
 /**
  * Focus after the top entry left: the first of its openers that is in the document, not `inert`
  * and not inside a layer root that left the stack, and that takes focus; else Close of the new
  * top layer.
  */
 function returnFocus(entry: Entry): void {
-  for (const root of departed) if (!root.isConnected) departed.delete(root);
   const live = entry.openers.filter(
-    (opener) =>
-      opener.isConnected &&
-      !opener.closest('[inert]') &&
-      ![...departed].some((root) => root.contains(opener)),
+    (opener) => opener.isConnected && !opener.closest('[inert]') && !insideDeparted(opener),
   );
   if (!focusFirst(live)) stack.at(-1)?.close?.focus();
 }
