@@ -88,9 +88,10 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
   box adds the Spur availability line while Spur is unavailable.
 
 No healthy service shows since when it is healthy. Before the first status the panel waits for
-it; while the daemon does not answer, the boxes read unknown; once live updates are lost the
-header reads `Data from <time>` and the boxes keep the last data. Close, Escape, the dimmed area
-and the services button close it; focus returns to the opener, or to services after a link.
+it; while the daemon does not answer, the boxes read unknown; once live updates are lost while
+the daemon still answers, the header reads `Data from <time>` and the boxes keep the last data.
+Close, Escape, the dimmed area and the services button close it; focus returns to the opener, or
+to services after a link.
 
 Limits: the header and columns are inert while the panel is open, and the bar stays live for the
 pointer only (Tab stays in the panel). On a narrow screen the panel covers the bar; Close or
