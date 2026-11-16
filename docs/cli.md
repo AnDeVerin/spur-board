@@ -570,12 +570,13 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board return`
 
-Return the task of a turn this session took to Dev, opening a code block on the worker with the reason.
+Return the task of a turn this session took to Dev; the reason opens a worker code block.
 
 Arguments: `<turn> <reason>`.
 
 Flags:
 
+`--findings <value>` — Number of review findings the return sends; shown on the task's status row.
 `--key <key>` — Idempotency key for this action.
 `--json` — Print JSON output or a JSON error.
 
@@ -602,7 +603,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board config get`
 
-Show effective project columns, executors and Spur bindings.
+Show effective project columns, executors, Spur bindings and web origins.
 
 Arguments: none.
 

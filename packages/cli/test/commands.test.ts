@@ -596,6 +596,7 @@ describe('catalog commands', () => {
       ['answer', 'B12', 'Target v2.', '--note', 'Checked the release plan.', '--key', 'answer-1'],
       ['submit', 'T4', '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4', '--key', 'submit-1'],
       ['return', 'T4', 'Handle the empty list', '--key', 'return-1'],
+      ['return', 'T4', 'Handle the empty list', '--findings', '3', '--key', 'return-2'],
       ['task', 'PROJ-123', '--why'],
       ['task', 'PROJ-123', '--detail'],
       ['move', 'PROJ-123', 'dev', '--correct', '--reason', 'Wrong PR', '--key', 'move-1'],
@@ -636,6 +637,10 @@ describe('catalog commands', () => {
       },
       { id: 'task.submit', input: { turn: 'T4', sha: '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4' } },
       { id: 'task.return', input: { turn: 'T4', reason: 'Handle the empty list' } },
+      {
+        id: 'task.return',
+        input: { turn: 'T4', reason: 'Handle the empty list', findings: 3 },
+      },
       { id: 'task.get', input: { task: 'PROJ-123', why: true } },
       { id: 'task.get', input: { task: 'PROJ-123', detail: true } },
       {
@@ -894,6 +899,8 @@ describe('catalog commands', () => {
           prCount: 0
           sessionCount: 0
           openBlocks: 0
+          blocks:
+
           turn: null
           prSummary: null
           links:
@@ -924,6 +931,10 @@ describe('catalog commands', () => {
         defaultAddressee:
           spurProject: hq
           source: board-wide
+      daemon:
+        version: 0.4.0
+        startedAt: 2026-01-05T08:00:00.000Z
+        lastDispatchAt: 2026-01-05T09:30:00.000Z
       "
     `);
   });

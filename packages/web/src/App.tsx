@@ -5,9 +5,9 @@ import { coordinateStatus, createApi } from './lib/api.ts';
 import { connectStream, type StreamState } from './lib/stream.ts';
 import { createTheme, type ThemePreference } from './lib/theme.ts';
 import { Chip, StatusDot, ThemeSwitch, type StatusDotTone } from './ds/index.ts';
+import { footerVersion } from './lib/version.ts';
 import styles from './App.module.css';
 
-declare const __BOARD_VERSION__: string;
 const streamTone: Record<StreamState, StatusDotTone> = {
   live: 'ok',
   reconnecting: 'warn',
@@ -55,6 +55,7 @@ export function App() {
       theme.current?.dispose();
     };
   }, []);
+  const version = footerVersion(status);
   return (
     <div className={styles.shell}>
       <main className={styles.main} aria-label="Board" />
@@ -92,7 +93,7 @@ export function App() {
         </div>
         <div className={styles.controls}>
           <ThemeSwitch value={preference} onChange={(value) => theme.current?.set(value)} />
-          <span>v{__BOARD_VERSION__}</span>
+          {version && <span>{version}</span>}
         </div>
       </footer>
     </div>

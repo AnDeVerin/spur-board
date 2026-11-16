@@ -16,7 +16,12 @@ import type { Store } from '../store/store.ts';
 import { projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
-import { readStatusTurns, summarizePr } from './status-views.ts';
+import {
+  readStatusBlocks,
+  readStatusReturns,
+  readStatusTurns,
+  summarizePr,
+} from './status-views.ts';
 
 function sessionView(fact: SessionFacts) {
   return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
@@ -90,6 +95,8 @@ export async function getStatus(
     completeSince: ReadonlyMap<string, string>;
     /** Configured chat gateway kinds; each is reported even with no health rows. */
     gateways?: readonly string[] | undefined;
+    /** The running daemon; defaults to an unknown version started now, before any tick. */
+    daemon?: { version: string; startedAt: string; lastDispatchAt: string | null } | undefined;
   },
   options: {
     project?: string | undefined;
@@ -105,6 +112,11 @@ export async function getStatus(
   } = {},
 ) {
   const { store, config, clock, completeSince, gateways = [] } = deps;
+  const daemon = deps.daemon ?? {
+    version: 'unknown',
+    startedAt: new Date(clock.now()).toISOString(),
+    lastDispatchAt: null,
+  };
   const { project: projectId, visibleProjects, detail = false } = options;
   const includeBoardItems = options.includeBoardItems ?? visibleProjects === undefined;
   const operatorProjects = options.operatorProjects ?? new Set<string>();
@@ -125,13 +137,7 @@ export async function getStatus(
     .selectAll()
     .where('membership', '!=', 'archived')
     .execute();
-  const blockRows = await store.db
-    .selectFrom('block')
-    .select(['task_id', (eb) => eb.fn.countAll<number>().as('open')])
-    .where('state', '=', 'open')
-    .groupBy('task_id')
-    .execute();
-  const openBlocks = new Map(blockRows.map((row) => [row.task_id, row.open]));
+  const openBlocks = await readStatusBlocks(store.db, projectIds);
   // Project-level blocks have no task row to count on: one entry per requested project.
   const projectBlockRows = await store.db
     .selectFrom('block')
@@ -148,6 +154,7 @@ export async function getStatus(
   const sourceRows = await store.db.selectFrom('source_state').selectAll().execute();
   const sourceById = new Map(sourceRows.map((row) => [row.source, row]));
   const turns = await readStatusTurns(store.db, projectIds);
+  const returns = await readStatusReturns(store.db, projectIds);
   const tasks = [];
   for (const task of rows) {
     if (!projectIds.has(task.project)) continue;
@@ -226,6 +233,8 @@ export async function getStatus(
         `Session ${session.id} has PR ${pr.repo}#${String(pr.number)}, but the link rules give it no link to this task; check projects[].link in config.yaml.`,
       );
     }
+    const blocks = openBlocks.get(task.id) ?? [];
+    const returned = returns.get(task.id);
     tasks.push({
       key: task.key,
       project: task.project,
@@ -240,7 +249,9 @@ export async function getStatus(
       state: taskState(ticketFacts, prs, sessionStates),
       prCount: links.filter((link) => link.entity === 'pr').length,
       sessionCount: links.filter((link) => link.entity === 'session').length,
-      openBlocks: openBlocks.get(task.id) ?? 0,
+      openBlocks: blocks.length,
+      blocks,
+      ...(returned === undefined ? {} : { returned }),
       turn: turns.get(task.id) ?? null,
       prSummary: summaries.length === 0 ? null : summaries,
       links: {
@@ -496,5 +507,6 @@ export async function getStatus(
     hiddenUnlinkedPrs: prRows.length - unlinkedPrs.length,
     hiddenUnlinkedSessions: sessionRows.length - unlinkedSessions.length,
     bindings: configBindings(config, projectIds),
+    daemon,
   };
 }

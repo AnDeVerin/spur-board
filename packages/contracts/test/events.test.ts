@@ -288,6 +288,13 @@ describe('parseEvent', () => {
         payload: { from: 'review', to: 'dev', reason: 'gate_broken', gate: ['conflict'] },
       }).status,
     ).toBe('ok');
+    const returned = { from: 'review', to: 'dev', turn: 'T4', block: 'B14' };
+    expect(
+      parseEvent({ ...base, kind: 'task_moved', payload: { ...returned, findings: 3 } }).status,
+    ).toBe('ok');
+    expect(
+      parseEvent({ ...base, kind: 'task_moved', payload: { ...returned, findings: -1 } }).status,
+    ).toBe('invalid');
     expect(
       parseEvent({
         ...base,

@@ -18,7 +18,12 @@ import {
 } from '@spur-board/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, resolvePaths } from '../src/config.ts';
-import { createHttpModule, createWebModule, lookupLiveSession } from '../src/http-module.ts';
+import {
+  createHttpModule,
+  createWebModule,
+  listenerPort,
+  lookupLiveSession,
+} from '../src/http-module.ts';
 import { runDaemonDoctor } from '../src/doctor.ts';
 import type { DaemonState, ModuleContext } from '../src/lifecycle.ts';
 import { createLogger, logCall } from '../src/logger.ts';
@@ -357,6 +362,18 @@ function doctorFetch(fail?: string, prs: readonly unknown[] = []): typeof fetch 
     throw new Error('Unexpected diagnostic URL');
   });
 }
+
+describe('listenerPort', () => {
+  it.each([
+    ['http://127.0.0.1:80', 80],
+    ['http://127.0.0.1:80/', 80],
+    ['http://127.0.0.1:4777', 4777],
+    ['http://127.0.0.1:4780/', 4780],
+    ['http://[::1]:8080', 8080],
+  ])('reads the port of %s as %i', (address, port) => {
+    expect(listenerPort(address)).toBe(port);
+  });
+});
 
 describe('daemon doctor checks', () => {
   it('rejects a token denied access to CheckRun data after repository access succeeds', async () => {

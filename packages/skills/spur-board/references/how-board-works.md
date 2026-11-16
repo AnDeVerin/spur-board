@@ -10,7 +10,9 @@ Choose the topic for the decision or action in front of you:
 
 Read effective project configuration with `board config get`, then the current overview with
 `board status`. Configuration lists enabled columns in order, their executors, dispatcher mode
-and effective Spur projects with display names. It excludes credentials and adapter settings.
+and effective Spur projects with display names, plus `web.publicOrigin` (the listener's origin,
+null when off or not bound yet) and `web.spurUiOrigin` (null when not configured). It excludes
+credentials and adapter settings.
 A worker executor falls back to the operator when no live worker exists; unbound external review
 is handled by the dispatcher.
 Column bindings `none` and `operator` keep their routing meaning even when a Spur project has the
@@ -18,7 +20,12 @@ same name.
 
 Compact status rows include the unclosed `turn` (or null), `prSummary` and navigation `links`.
 An untaken turn names its last assigned recipient session in `addressedTo`; a taken turn names
-its holder and time in `taken`. Feedback, return context and thread details stay in task/inbox views.
+its holder and time in `taken`. `turn.stalledSince` is the executor stall start while its stall
+block is open, else null. `blocks` lists open blocks as `{id, addressee, session}`; `session` is
+the assigned session, null for the operator. A task returned to Dev has `returned`
+`{from, at, by, block, findings}` until it leaves Dev or its next submit. A turn's feedback,
+return context and thread details stay in task/inbox views. Top-level `daemon` gives `version`,
+`startedAt` and `lastDispatchAt`, the last completed tick (null until the first).
 `prSummary` is an array with one entry per observed effective PR, or null when none is observed.
 It counts required checks when present, otherwise all reported checks: success and neutral pass,
 expected and pending wait, and every other state, including skipped, fails. It preserves unknown
@@ -51,7 +58,7 @@ Missing UI assets return a 503 build hint while health and operations remain ava
 ## Web shell
 
 The private web package builds an empty desktop shell with task count, named source health,
-stream state, a persistent Light/Dark/Auto theme choice and the packaged version in its footer.
+stream state, a persistent Light/Dark/Auto theme choice and the daemon version in its footer.
 It uses local JetBrains Mono fonts and the V1 prototype tokens. Read failures retain previous
 status as stale; stream failures reconnect with capped backoff and show offline after five
 failed attempts while continuing recovery. The first valid stream handshake refreshes status
@@ -61,5 +68,5 @@ Reconnects retain valid SSE cursors, including ID-only records, until the server
 The configured daemon web listener serves the packaged SPA and its local assets. The stream
 client connects with `GET /v1/events`, as specified by #533. That server remains pending, so
 the shell currently reports reconnecting then offline/stale while status reads and theme controls
-remain available. Until #547 adds daemon version fields, the footer version comes from the CLI
-manifest at build time.
+remain available. The footer version is `daemon.version` from `status.get`, so a stale bundle never
+claims the daemon's version; it stays empty until the first status read.

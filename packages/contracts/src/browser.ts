@@ -155,6 +155,18 @@ export const statusOutputSchema = z.strictObject({
       "Unlinked sessions not listed: ended, or gone from Spur's session list, for over 7 days. Counted within the requested projects; detail does not list them.",
     ),
   bindings: statusBindingsSchema,
+  daemon: z
+    .strictObject({
+      version: z.string().min(1).describe('Product version of the running daemon.'),
+      startedAt: z.iso.datetime().describe('When the daemon started, ISO 8601 UTC.'),
+      lastDispatchAt: z.iso
+        .datetime()
+        .nullable()
+        .describe(
+          'When the last completed board tick (dispatch pass) ended, ISO 8601 UTC; null until the first tick after start.',
+        ),
+    })
+    .describe('The running daemon: version, start time and last completed tick.'),
 });
 
 export const commentAddInputSchema = z.strictObject({

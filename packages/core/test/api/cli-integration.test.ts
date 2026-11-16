@@ -638,6 +638,11 @@ describe('CLI against the real HTTP API', () => {
             hostLoad: null,
             transport: [],
             bindings: { columns: [], operators: [], defaultAddressee: null },
+            daemon: {
+              version: '0.0.0-test',
+              startedAt: '2026-11-04T08:00:00.000Z',
+              lastDispatchAt: null,
+            },
           });
         },
       };
@@ -701,6 +706,11 @@ describe('CLI against the real HTTP API', () => {
         hostLoad: null,
         transport: [],
         bindings: { columns: [], operators: [], defaultAddressee: null },
+        daemon: {
+          version: '0.0.0-test',
+          startedAt: '2026-11-04T08:00:00.000Z',
+          lastDispatchAt: null,
+        },
       });
       expect(success.stderr).toBe('');
 

@@ -5,7 +5,8 @@
 A turn `T<number>`: keyed `board inbox ack <entries>`.
 Only the acknowledging session may submit or return: keyed
 `board submit <turn> <sha>` accepts the head; keyed
-`board return <turn> <reason>` sends findings to Dev. In
+`board return <turn> <reason>` sends findings to Dev; a review orchestrator adds
+`--findings <n>` and `board status` shows the count in the row's `returned`. In
 shadow mode, use keyed `board submit <task> <sha>`.
 Unseen heads answer `pending`: that submit is final; do not resubmit or raise a
 block. Confirm timeout: `projects[].dispatcher.submitConfirmMs`.

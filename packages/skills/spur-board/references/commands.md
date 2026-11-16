@@ -157,10 +157,10 @@ Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `he
 
 ### `board return`
 
-Purpose: Return the task of a turn this session took to Dev, opening a code block on the worker with the reason.
+Purpose: Return the task of a turn this session took to Dev; the reason opens a worker code block.
 Arguments: `<turn>`, `<reason>`.
-Flags: `--key <key>`, `--json`.
-Use when: Send the task back to Dev because the work needs code changes.
+Flags: `--findings <value>`, `--key <key>`, `--json`.
+Use when: Send the task back to Dev when the work needs code changes.
 Avoid when: Use `board submit <turn> <sha>` to hand in the work instead.
 Example: `board return T4 "Handle the empty list in the parser." --key return-PROJ-123-return-reviewed-1432` — Return a reviewed task to Dev.
 Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `return_not_allowed`, `task_archived`, `idempotency_key_mismatch`.

@@ -47,5 +47,21 @@ export const configViewSchema = z
         }),
       )
       .describe('Effective projects visible to this caller.'),
+    web: z
+      .strictObject({
+        publicOrigin: z
+          .url({ protocol: /^https?$/ })
+          .nullable()
+          .describe(
+            'Origin the board web listener answers on; null when the listener is off or not bound yet.',
+          ),
+        spurUiOrigin: z
+          .url({ protocol: /^https?$/ })
+          .nullable()
+          .describe(
+            'Origin of the Spur web UI clients link sessions to; null when not configured.',
+          ),
+      })
+      .describe('Web origins of the board listener and the Spur UI.'),
   })
   .describe('Allowlisted effective configuration without credentials or adapter settings.');

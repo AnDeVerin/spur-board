@@ -324,6 +324,75 @@ describe('web listener composition', () => {
     }
   });
 
+  it('reports the listener origin, daemon version and last tick through web reads', async () => {
+    const reservation = createServer();
+    await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve));
+    const reserved = reservation.address();
+    if (reserved === null || typeof reserved === 'string') throw new Error('Expected TCP address');
+    const httpPort = reserved.port;
+    await new Promise<void>((resolve, reject) =>
+      reservation.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      }),
+    );
+    const config = configSchema.parse({
+      ...configFor(httpPort),
+      web: { port: 0, publicOrigin: 'http://127.0.0.1:{port}' },
+    });
+    const startedAt = Date.parse('2026-03-04T05:06:07.000Z');
+    let now = startedAt;
+    // The tick moves the clock, so a stamp taken at tick start would differ from the one at its end.
+    const input = optionsFor({
+      tick: () => {
+        now += 60_000;
+        return Promise.resolve();
+      },
+      config,
+    });
+    let webAddress = '';
+    daemon = await startInProcessDaemon({
+      ...input,
+      clock: { now: () => now },
+      ports: {
+        ...input.ports,
+        productVersion: '9.9.9-test',
+        onWebListening: (address) => {
+          webAddress = address;
+        },
+      },
+    });
+    try {
+      await daemon.tick();
+      const origin = new URL(webAddress).origin;
+      expect(new URL(webAddress).port).not.toBe('0');
+      const read = async (id: string) => {
+        const response = await fetch(`${webAddress}/v1/ops/${id}`, {
+          method: 'POST',
+          headers: { origin, 'content-type': 'application/json' },
+          body: JSON.stringify({ input: {} }),
+        });
+        expect(response.status).toBe(200);
+        return ((await response.json()) as { value: Record<string, unknown> }).value;
+      };
+      expect((await read('config.get'))['web']).toEqual({
+        publicOrigin: origin,
+        spurUiOrigin: null,
+      });
+      const running = (await read('status.get'))['daemon'] as {
+        version: string;
+        startedAt: string;
+        lastDispatchAt: string | null;
+      };
+      expect(running.version).toBe('9.9.9-test');
+      expect(running.startedAt).toBe(new Date(startedAt).toISOString());
+      // Two ticks have completed: the one start runs in the background, then `daemon.tick()`.
+      expect(running.lastDispatchAt).toBe(new Date(startedAt + 120_000).toISOString());
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it('starts a separate loopback listener and releases its socket on close', async () => {
     const reservation = createServer();
     await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve));

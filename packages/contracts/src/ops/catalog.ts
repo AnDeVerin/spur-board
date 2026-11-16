@@ -87,6 +87,7 @@ const linkModes = [
 ] as const;
 
 const at = '2026-01-05T09:30:00.000Z';
+const daemon = { version: '0.4.0', startedAt: '2026-01-05T08:00:00.000Z', lastDispatchAt: at };
 const task = {
   key: 'PROJ-123',
   project: 'web',
@@ -290,6 +291,7 @@ export const OPERATIONS = [
               prCount: 0,
               sessionCount: 0,
               openBlocks: 0,
+              blocks: [],
               turn: null,
               prSummary: null,
               links: { ticket: null, prs: [], sessions: [] },
@@ -307,6 +309,7 @@ export const OPERATIONS = [
             operators: [{ project: 'web', operator: 'hq', source: 'board-wide' }],
             defaultAddressee: { spurProject: 'hq', source: 'board-wide' },
           },
+          daemon,
         },
       },
       {
@@ -326,6 +329,7 @@ export const OPERATIONS = [
               prCount: 0,
               sessionCount: 0,
               openBlocks: 0,
+              blocks: [],
               turn: null,
               prSummary: null,
               links: { ticket: null, prs: [], sessions: [] },
@@ -340,6 +344,7 @@ export const OPERATIONS = [
           hiddenUnlinkedPrs: 0,
           hiddenUnlinkedSessions: 0,
           bindings: { columns: [], operators: [], defaultAddressee: null },
+          daemon,
         },
       },
     ],
@@ -1359,14 +1364,19 @@ export const OPERATIONS = [
     id: 'task.return',
     kind: 'mutation',
     description:
-      'Return the task of a turn this session took to Dev, opening a code block on the worker with the reason.',
+      'Return the task of a turn this session took to Dev; the reason opens a worker code block.',
     mcp: {
-      whenToUse: 'Send the task back to Dev because the work needs code changes.',
+      whenToUse: 'Send the task back to Dev when the work needs code changes.',
       whenNotToUse: 'Use task_submit to hand in the work instead.',
     },
     input: z.strictObject({
       turn: turnIdSchema,
       reason: text('What the worker must change, sent to the worker as a code block.', TEXT_MAX),
+      findings: z
+        .int()
+        .min(0)
+        .optional()
+        .describe("Number of review findings the return sends; shown on the task's status row."),
     }),
     output: z.strictObject({ task: taskViewSchema, block: blockViewSchema }),
     grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
@@ -1391,6 +1401,19 @@ export const OPERATIONS = [
             id: 'B14',
             author: 'agent:rev/rev-1',
             reason: 'Handle the empty list in the parser.',
+          },
+        },
+      },
+      {
+        summary: 'Return a reviewed task to Dev with the number of findings',
+        input: { turn: 'T4', reason: 'Fix the two review findings.', findings: 2 },
+        output: {
+          task,
+          block: {
+            ...codeBlock,
+            id: 'B14',
+            author: 'agent:rev/rev-1',
+            reason: 'Fix the two review findings.',
           },
         },
       },
@@ -1482,7 +1505,7 @@ export const OPERATIONS = [
     id: 'config.get',
     web: true,
     kind: 'query',
-    description: 'Show effective project columns, executors and Spur bindings.',
+    description: 'Show effective project columns, executors, Spur bindings and web origins.',
     mcp: {
       whenToUse: 'Read configuration before rendering the Board overview.',
       whenNotToUse: 'Use status_get for task state and freshness.',
@@ -1506,6 +1529,7 @@ export const OPERATIONS = [
               spurProjects: [{ name: 'web-worker', role: 'worker', displayName: 'web-worker' }],
             },
           ],
+          web: { publicOrigin: 'http://127.0.0.1:4778', spurUiOrigin: null },
         },
       },
     ],

@@ -274,5 +274,5 @@ assets on its separate loopback web listener. A “UI is not built” 503 means 
 building/packaging; restart the daemon after rebuilding because it loads assets at startup.
 `pnpm package:smoke` verifies installed `GET /` and a referenced asset on an isolated listener.
 The stream server remains pending in #533: status reads work, while the shell's stream indicator
-will reconnect and eventually show offline/stale. The footer embeds the CLI manifest version
-until #547 supplies daemon version fields.
+will reconnect and eventually show offline/stale. The footer shows the daemon version from
+`status.get` `daemon.version` and stays empty until the first status read.
