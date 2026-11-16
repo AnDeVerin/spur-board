@@ -13,8 +13,8 @@ prototype and the design system differ, the reason codes and the PR section form
 
 - Read the prototype README: the kit commit, the states with their URLs, the proposed parts and
   the data the screen shows.
-- Run it as `design/README.md` `## Run` says, on a loopback port in 4780-4799, and open every
-  state in the dark and the light theme. Stop the server when done.
+- Run it as the `## Run` section of `design/README.md` says, and open every state in the dark and
+  the light theme.
 - `design/prototypes/board-v1/` has no kit: every part is hand-built
   (`design/prototypes/board-v1/README.md`), so `older kit` never applies to it.
 
@@ -45,7 +45,9 @@ prototype and the design system differ, the reason codes and the PR section form
 
 ## PR
 
-- Show each prototype state next to the built screen, in both themes.
+- Show each prototype state next to the built screen, in both themes. Open the build on a stand
+  through the board-stand Sidecar (`qa-stand` skill) at the `webUrl` that `pnpm stand up`
+  prints, never through a direct loopback server.
 - Fill `## Design System decisions` in the PR body: one row per difference with its reason code
   and evidence, or the single line `None`. The format and a filled example are in
   `docs/design-system-decisions.md`.
