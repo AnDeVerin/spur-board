@@ -277,7 +277,7 @@ describe('controls and form fields', () => {
     expect(
       Object.fromEntries(controlFolders.map((f) => [f, Object.keys(controlExamples(f))])),
     ).toEqual({
-      Button: ['Primary', 'Outlined', 'Disabled', 'Busy', 'Focused'],
+      Button: ['Primary', 'Outlined', 'Disabled', 'Busy', 'Disclosure', 'Focused'],
       FormRow: ['Answer', 'Error', 'Sending', 'Disabled', 'SendFails', 'NarrowActions'],
       IconButton: ['Close', 'InActions', 'Disabled', 'Focused'],
       TextArea: ['Empty', 'Typing', 'Disabled', 'Focused'],
@@ -314,6 +314,16 @@ describe('controls and form fields', () => {
     };
     expect(click(true)).toEqual({ onClick: 0, preventDefault: 1 });
     expect(click(false)).toEqual({ onClick: 1, preventDefault: 0 });
+  });
+
+  it('button renders aria-expanded and aria-controls only when passed', () => {
+    const html = (props: Partial<ComponentProps<typeof Button>>) =>
+      markup(createElement(Button, { ...props, children: 'stand' }));
+    expect(html({})).not.toMatch(/aria-(expanded|controls)/);
+    expect(html({ expanded: false, controls: 'list' })).toMatch(
+      / aria-expanded="false" aria-controls="list"/,
+    );
+    expect(html({ expanded: true })).toMatch(/^<button[^>]* aria-expanded="true">/);
   });
 
   it('icon button names itself from label and hides its icon', () => {
