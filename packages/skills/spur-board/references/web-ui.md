@@ -67,8 +67,9 @@ open no task view.
   no title line.
 - Below the title come chips for the task's links: tickets, then pull requests, then sessions.
   A pull request or a GitHub issue ticket written `<owner>/<repo>#<n>` is a link that opens
-  GitHub in a new tab. A Jira ticket and a session are plain text: the UI knows no Jira or Spur
-  session address. Hovering a session chip shows its id.
+  GitHub in a new tab. A session is a link to its Spur UI page,
+  `<web.spurUiOrigin>/sessions/<session id>`, also in a new tab; when `web.spurUiOrigin` is not
+  set it is plain text `session <id>`. A Jira ticket is plain text: the UI knows no Jira address.
 - **Why it is here** lists the exit conditions of the column the dispatcher works from (the
   shadow column in shadow mode): each one met, failed with its reason, waiting with its reason,
   or not checked. A column without exit conditions reads `No exit conditions in <column>`; when

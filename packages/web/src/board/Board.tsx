@@ -136,6 +136,7 @@ export function Board({ data }: { data: BoardData }) {
           task={task}
           title={taskTitle(snapshot, task)}
           columns={project?.columns.map(({ id }) => id) ?? []}
+          spurUiOrigin={snapshot.config?.web.spurUiOrigin ?? null}
           now={data.now()}
           offline={snapshot.stream === 'offline'}
           onClose={() => {

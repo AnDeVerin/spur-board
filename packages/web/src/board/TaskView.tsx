@@ -33,6 +33,7 @@ export function TaskView({
   task,
   title,
   columns,
+  spurUiOrigin,
   now,
   offline,
   onClose,
@@ -42,6 +43,8 @@ export function TaskView({
   title: TaskTitle;
   /** Enabled column ids of the task's project in `config.get` order. */
   columns: readonly string[];
+  /** `config.get` `web.spurUiOrigin`: session chips link there; null keeps them plain. */
+  spurUiOrigin: string | null;
   now: number;
   /** Live updates are lost: the board banner says so, so kept data shows no modal banner. */
   offline: boolean;
@@ -97,12 +100,10 @@ export function TaskView({
                 ? task.state === 'loading' && <Skeleton />
                 : value.links.length > 0 && (
                     <div className={styles.links}>
-                      {linkChips(value.links).map((chip, index) =>
+                      {linkChips(value.links, spurUiOrigin).map((chip, index) =>
+                        // A link has no id of its own; its position in the list stays put.
                         chip.href === null ? (
-                          // A link has no id of its own; its position in the list stays put.
-                          <span key={index} title={chip.title}>
-                            <Chip>{chip.text}</Chip>
-                          </span>
+                          <Chip key={index}>{chip.text}</Chip>
                         ) : (
                           <Chip key={index} href={chip.href} label={chip.label}>
                             {chip.text}

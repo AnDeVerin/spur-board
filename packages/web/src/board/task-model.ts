@@ -1,5 +1,5 @@
 import type { KeyValueStatus } from '../ds/index.ts';
-import { githubRef, taskLinkHref } from '../lib/links.ts';
+import { githubRef, sessionLinkHref, taskLinkHref } from '../lib/links.ts';
 import type { BoardTask } from './data.ts';
 import { shortKey } from './model.ts';
 
@@ -18,10 +18,8 @@ export interface WhyRow {
 export interface LinkChip {
   text: string;
   href: string | null;
-  /** Accessible name of a link chip: the visible text, then the owner and repo. */
+  /** Accessible name of a link chip: the visible text, then the owner and repo or `Spur session`. */
   label: string | undefined;
-  /** Tooltip of a plain chip. */
-  title: string | undefined;
 }
 
 /** `?open=` names a task; empty, absent, `inbox` and `services` name none. */
@@ -162,26 +160,33 @@ export function whySummary(value: BoardTask): string {
 
 const KIND_ORDER: readonly TaskLink['kind'][] = ['ticket', 'pr', 'session'];
 
-function linkChip(link: TaskLink): LinkChip {
+function linkChip(link: TaskLink, spurUiOrigin: string | null): LinkChip {
+  if (link.kind === 'session') {
+    const text = `session ${link.ref}`;
+    const href = sessionLinkHref(spurUiOrigin, link.ref);
+    return { text, href, label: href === null ? undefined : `${text}, Spur session` };
+  }
   const href = taskLinkHref(link);
   const ref = githubRef(link.ref);
   const text =
     link.kind === 'ticket'
       ? `ticket ${shortKey(link.ref)}`
-      : link.kind === 'pr'
-        ? ref
-          ? `PR #${ref.number}`
-          : `PR ${link.ref}`
-        : `session ${link.ref}`;
+      : ref
+        ? `PR #${ref.number}`
+        : `PR ${link.ref}`;
   return {
     text,
     href,
     label: href !== null && ref ? `${text}, ${ref.owner}/${ref.repo}` : undefined,
-    title: link.kind === 'session' ? `Spur session ${link.ref}` : undefined,
   };
 }
 
-/** One chip per `task.get` link: tickets, then pull requests, then sessions, each kind in order. */
-export function linkChips(links: readonly TaskLink[]): LinkChip[] {
-  return KIND_ORDER.flatMap((kind) => links.filter((link) => link.kind === kind)).map(linkChip);
+/**
+ * One chip per `task.get` link: tickets, then pull requests, then sessions, each kind in order.
+ * A session links to the Spur UI at `spurUiOrigin` (`config.get` `web.spurUiOrigin`).
+ */
+export function linkChips(links: readonly TaskLink[], spurUiOrigin: string | null): LinkChip[] {
+  return KIND_ORDER.flatMap((kind) => links.filter((link) => link.kind === kind)).map((link) =>
+    linkChip(link, spurUiOrigin),
+  );
 }

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { safeExternalUrl, taskLinkHref } from '../src/lib/links.ts';
+import { safeExternalUrl, sessionLinkHref, taskLinkHref } from '../src/lib/links.ts';
 it.each(['https://example.org/a', 'http://example.org/'])('accepts external URL %s', (url) => {
   expect(safeExternalUrl(url)).toBe(url);
 });
@@ -26,3 +26,16 @@ it.each([
 ])('builds no URL for a %s link %s', (kind, ref) => {
   expect(taskLinkHref({ kind, ref })).toBeNull();
 });
+it.each([
+  ['https://spur.example', 'sb-1234', 'https://spur.example/sessions/sb-1234'],
+  ['https://spur.example/', 'sb-1234', 'https://spur.example/sessions/sb-1234'],
+  ['http://127.0.0.1:7777', 'a/b ?#', 'http://127.0.0.1:7777/sessions/a%2Fb%20%3F%23'],
+])('builds the Spur session URL from origin %s and id %s', (origin, id, url) => {
+  expect(sessionLinkHref(origin, id)).toBe(url);
+});
+it.each([null, 'javascript:alert(1)', '//spur.example', 'spur.example'])(
+  'builds no Spur session URL from origin %s',
+  (origin) => {
+    expect(sessionLinkHref(origin, 'sb-1234')).toBeNull();
+  },
+);

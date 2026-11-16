@@ -233,7 +233,7 @@ describe('header facts', () => {
 });
 
 describe('link chips', () => {
-  it('groups ticket, pr, session; links GitHub refs, keeps Jira and sessions plain', () => {
+  it('groups ticket, pr, session; links GitHub refs, keeps Jira plain, sessions plain without an origin', () => {
     const link = (kind: string, ref: string) => ({
       kind,
       ref,
@@ -251,22 +251,30 @@ describe('link chips', () => {
         ],
       },
     );
-    expect(linkChips(value.links)).toEqual([
-      { text: 'ticket ABC-3', href: null, label: undefined, title: undefined },
+    expect(linkChips(value.links, null)).toEqual([
+      { text: 'ticket ABC-3', href: null, label: undefined },
       {
         text: 'ticket #5',
         href: 'https://github.com/ex/repo/issues/5',
         label: 'ticket #5, ex/repo',
-        title: undefined,
       },
       {
         text: 'PR #7',
         href: 'https://github.com/ex/repo/pull/7',
         label: 'PR #7, ex/repo',
-        title: undefined,
       },
-      { text: 'PR repo#8', href: null, label: undefined, title: undefined },
-      { text: 'session s1', href: null, label: undefined, title: 'Spur session s1' },
+      { text: 'PR repo#8', href: null, label: undefined },
+      { text: 'session s1', href: null, label: undefined },
+    ]);
+  });
+  it('links a session to the Spur UI when the origin is set', () => {
+    const value = task({}, { links: [{ kind: 'session', ref: 'sb-1234', role: 'worker' }] });
+    expect(linkChips(value.links, 'https://spur.example')).toEqual([
+      {
+        text: 'session sb-1234',
+        href: 'https://spur.example/sessions/sb-1234',
+        label: 'session sb-1234, Spur session',
+      },
     ]);
   });
 });

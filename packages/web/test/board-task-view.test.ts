@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Board } from '../src/board/Board.tsx';
 import { createBoardData, type BoardData } from '../src/board/data.ts';
 import {
+  config,
   daemon,
   deferred,
   envelope,
@@ -122,7 +123,9 @@ describe('task view', () => {
     expect(pr.textContent).toBe('PR #7');
     expect(pr.getAttribute('href')).toBe('https://github.com/ex/repo/pull/7');
     expect(pr.getAttribute('aria-label')?.startsWith(pr.textContent)).toBe(true);
-    expect(inDialog('span[title="Spur session s1"]').textContent).toBe('session s1');
+    const chips = [...(dialog()?.querySelectorAll('span') ?? [])];
+    expect(chips.some((chip) => chip.textContent === 'session s1')).toBe(true);
+    // web.spurUiOrigin is null: the session chip stays plain.
     expect(dialog()?.querySelectorAll('a')).toHaveLength(1);
     const section = inDialog('section');
     expect(section.textContent).toContain('Why it is here');
@@ -136,6 +139,24 @@ describe('task view', () => {
     expect(tabs.map((tab) => tab.textContent)).toEqual(['Now', 'History']);
     click(tabs[1] ?? close());
     expect(inDialog('[role="tabpanel"]').textContent).toBe('History arrives in a later version.');
+  });
+
+  it('links the session chip to the Spur UI when web.spurUiOrigin is set', async () => {
+    const d = daemon();
+    d.routes['config.get'] = () =>
+      Promise.resolve(
+        envelope({ ...config, web: { publicOrigin: null, spurUiOrigin: 'https://spur.example' } }),
+      );
+    mount(d);
+    await settle();
+    click(card());
+    await settle();
+    const session = inDialog(
+      'a[aria-label="session s1, Spur session"][rel="noopener noreferrer"][target="_blank"]',
+    );
+    expect(session.textContent).toBe('session s1');
+    expect(session.getAttribute('href')).toBe('https://spur.example/sessions/s1');
+    expect(dialog()?.querySelectorAll('a')).toHaveLength(2);
   });
 
   it('a click on an unfocused card opens it; Escape closes, drops open and focuses the card', async () => {
