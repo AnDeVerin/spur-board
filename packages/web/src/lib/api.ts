@@ -7,7 +7,7 @@ import type { z } from 'zod';
 
 type OperationId = keyof typeof browserOperations;
 type Input<K extends OperationId> = z.input<(typeof browserOperations)[K]['input']>;
-type Output<K extends OperationId> = z.output<(typeof browserOperations)[K]['output']>;
+export type Output<K extends OperationId> = z.output<(typeof browserOperations)[K]['output']>;
 /** Schema validation belongs on both sides of the transport boundary. */
 export function createApi(fetcher: typeof fetch = fetch) {
   return async <K extends OperationId>(
