@@ -5,6 +5,10 @@ dummy secrets, fake Slack, Spur and GitHub APIs, a network guard and a control e
 talks to a real service and is removed by `pnpm stand down`. `pnpm stand help` lists every
 command.
 
+Every stand needs a readable, valid live board `config.yaml`: `pnpm stand` finds it through
+`BOARD_HOME`, else `XDG_CONFIG_HOME` (default `~/.config`), checks its ports against it, and
+refuses with `live_config` when it is missing, unreadable or invalid.
+
 Agents read the skills `qa-stand`, `qa-seed` and `qa-report` before a QA round.
 
 ## Driving pnpm stand mcp from a shell

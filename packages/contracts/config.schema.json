@@ -596,7 +596,7 @@
       "type": "object",
       "properties": {
         "portRange": {
-          "description": "Optional stand port range, effectively 4780..4799 when omitted. An explicit range (including {}) must exclude http.port and web.port; an omitted range preserves legacy configs and doctor warns on overlaps. pnpm stand takes its API and web ports from this range and refuses http.port and web.port.",
+          "description": "Optional stand port range, effectively 4780..4799 when omitted. An explicit range (including {}) must exclude http.port and web.port; an omitted range preserves legacy configs and doctor warns on overlaps. pnpm stand takes its web port, and an explicit API port, from this range and refuses http.port and web.port.",
           "type": "object",
           "properties": {
             "min": {

@@ -899,7 +899,7 @@ const configObject = z.strictObject({
         })
         .optional()
         .describe(
-          'Optional stand port range, effectively 4780..4799 when omitted. An explicit range (including {}) must exclude http.port and web.port; an omitted range preserves legacy configs and doctor warns on overlaps. pnpm stand takes its API and web ports from this range and refuses http.port and web.port.',
+          'Optional stand port range, effectively 4780..4799 when omitted. An explicit range (including {}) must exclude http.port and web.port; an omitted range preserves legacy configs and doctor warns on overlaps. pnpm stand takes its web port, and an explicit API port, from this range and refuses http.port and web.port.',
         ),
     })
     .prefault({}),
