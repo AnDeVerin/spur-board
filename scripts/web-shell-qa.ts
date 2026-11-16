@@ -89,10 +89,50 @@ export function shellConfig() {
 export function shellInbox() {
   return browserOperations['inbox.operator'].output.parse({ items: [], handled: [] });
 }
+/** The first status row of the fixture as task.get answers it, with why. */
+export function shellTask() {
+  const at = '2026-01-05T09:30:00.000Z';
+  return browserOperations['task.get'].output.parse({
+    task: { key: 'PROJ-1', project: 'web', column: 'dev', membership: 'active' },
+    turn: null,
+    links: [],
+    blocks: [],
+    comments: [],
+    why: {
+      column: 'dev',
+      dispatcher: 'on',
+      holds: [],
+      gates: [
+        {
+          column: 'dev',
+          enabled: true,
+          ok: false,
+          blockedIn: 'dev',
+          conditions: [{ condition: 'pr_open', state: 'failed', reason: 'no_pr' }],
+        },
+      ],
+      checksWaivedBy: null,
+      turn: null,
+      moves: [
+        {
+          at,
+          kind: 'task_moved',
+          actor: 'system',
+          from: 'todo',
+          to: 'dev',
+          reason: 'gate_passed',
+          gate: [],
+          text: null,
+        },
+      ],
+    },
+  });
+}
 const shellReads = {
   'status.get': shellFixture,
   'config.get': shellConfig,
   'inbox.operator': shellInbox,
+  'task.get': shellTask,
 } satisfies Record<string, (scenario: Scenario) => unknown>;
 type ShellRead = keyof typeof shellReads;
 export function createShellQaServer(

@@ -8,6 +8,8 @@ import {
   configGetInputSchema,
   inboxOperatorInputSchema,
   inboxOperatorOutputSchema,
+  taskGetInputSchema,
+  taskGetOutputSchema,
 } from '../browser.ts';
 import { z } from 'zod';
 import { configViewSchema } from './config-view-schema.ts';
@@ -30,15 +32,12 @@ import {
   blockViewSchema,
   commentSchema,
   itemViewSchema,
-  linkViewSchema,
   moveViewSchema,
   schemaGetOutputSchema,
-  statusSessionFactsSchema,
-  taskBlockViewSchema,
   taskViewSchema,
   taskWhySchema,
 } from './schemas.ts';
-import { taskTurnSchema, type turnHandedSchema, turnViewSchema } from './turn-schemas.ts';
+import { type turnHandedSchema, turnViewSchema } from './turn-schemas.ts';
 
 /** Longest free text an input takes: comments, questions, answers and reasons. */
 const TEXT_MAX = 20_000;
@@ -376,41 +375,8 @@ export const OPERATIONS = [
       whenToUse: 'Inspect a task; detail adds closed turns.',
       whenNotToUse: 'Use task_history for past events.',
     },
-    input: z.strictObject({
-      task: taskKeyInputSchema,
-      refresh: z
-        .boolean()
-        .optional()
-        .describe(
-          'Read every linked pull request from GitHub before showing the task; unavailable reads fail visibly.',
-        ),
-      detail: z
-        .boolean()
-        .optional()
-        .describe('Also list the last 5 closed turns, newest first; absent means none.'),
-      why: z
-        .boolean()
-        .optional()
-        .describe(
-          'Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.',
-        ),
-    }),
-    output: z.strictObject({
-      task: taskViewSchema,
-      turn: taskTurnSchema.nullable().describe("The task's unclosed turn; null when none is open."),
-      turns: z
-        .array(taskTurnSchema)
-        .optional()
-        .describe('Present only with detail: the last 5 closed turns, newest first.'),
-      links: z.array(linkViewSchema).describe('Effective pull request, session, and ticket links.'),
-      sessions: z
-        .array(statusSessionFactsSchema)
-        .optional()
-        .describe('Current facts of effective linked sessions.'),
-      blocks: z.array(taskBlockViewSchema).describe('Blocks on the task, open and unblocked.'),
-      comments: z.array(commentSchema).describe('Comments on the task, oldest first.'),
-      why: taskWhySchema.optional().describe('Present only with why.'),
-    }),
+    input: taskGetInputSchema,
+    output: taskGetOutputSchema,
     grants: operatorOrProjectAgent,
     errors: ['wrong_id_kind', 'not_found', 'github_unavailable'],
     cli: { command: 'task', args: ['task'] },
