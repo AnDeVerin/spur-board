@@ -7,7 +7,7 @@ type ServiceRow = BoardStatus['services'][number];
 export type BoardSourceView = BoardStatus['sources'][number];
 
 /** A tone and the word that names it, as the prototype writes them. */
-export interface Health {
+interface Health {
   tone: StatusDotTone;
   word: string;
 }
@@ -23,7 +23,7 @@ export interface Indicator extends Health {
   title: string;
 }
 
-export const ICONS: Record<ServiceName, IconName> = {
+const ICONS: Record<ServiceName, IconName> = {
   daemon: 'pulse',
   slack: 'hash',
   github: 'pr',
@@ -31,7 +31,7 @@ export const ICONS: Record<ServiceName, IconName> = {
   jira: 'diamond',
 };
 
-export const UNKNOWN: Health = { tone: 'unknown', word: 'unknown' };
+const UNKNOWN: Health = { tone: 'unknown', word: 'unknown' };
 
 const TONES: Record<ServiceRow['state'], StatusDotTone> = {
   healthy: 'ok',
@@ -40,7 +40,7 @@ const TONES: Record<ServiceRow['state'], StatusDotTone> = {
 };
 
 /** Service of a source id, by its prefix as core rolls it up; null for any other source. */
-export function serviceOf(source: string): 'github' | 'spur' | 'jira' | null {
+function serviceOf(source: string): 'github' | 'spur' | 'jira' | null {
   const prefix = source.split(':')[0];
   if (prefix === 'github' || prefix === 'github-issues') return 'github';
   if (prefix === 'spur' || prefix === 'jira') return prefix;
@@ -48,7 +48,7 @@ export function serviceOf(source: string): 'github' | 'spur' | 'jira' | null {
 }
 
 /** Health of one source from its own fields, in core's order of reasons. */
-export function sourceState(source: BoardSourceView): Health {
+function sourceState(source: BoardSourceView): Health {
   if (source.blindReason !== null) return { tone: 'error', word: `blind: ${source.blindReason}` };
   if (source.lastCompleteAt === null)
     return { tone: 'warn', word: source.warmingUp ? 'warming up' : 'never completed' };
@@ -75,7 +75,7 @@ function serviceHealth(name: ServiceName, row: ServiceRow, sources: readonly Boa
 
 const pad = (value: number) => String(value).padStart(2, '0');
 /** UTC `hh:mm`, as the prototype writes a budget reset. */
-export function clockTime(iso: string): string {
+function clockTime(iso: string): string {
   const date = new Date(iso);
   return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
 }

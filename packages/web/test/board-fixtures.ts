@@ -208,7 +208,7 @@ export const polled = (name: string, extra: Record<string, unknown> = {}) =>
   source(name, { observedAt: T, lastCompleteAt: T, healthySince: T, ...extra });
 export const PR = 'github:a:ex/repo';
 export const ISSUES = 'github-issues:a:ex/repo';
-export const SPUR_BLIND = polled('spur', {
+const SPUR_BLIND = polled('spur', {
   blindReason: 'stale',
   message: 'Spur has not answered',
   stale: true,
