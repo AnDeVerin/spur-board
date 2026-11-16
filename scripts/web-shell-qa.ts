@@ -114,7 +114,7 @@ export function createShellQaServer(
       } else answer(response);
       return;
     }
-    if (request.method === 'GET' && path === '/v1/stream') {
+    if (request.method === 'GET' && path === '/v1/events') {
       if (scenario === 'stream-drop') {
         response.writeHead(502).end();
         return;

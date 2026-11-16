@@ -83,7 +83,7 @@ export function connectStream(options: StreamOptions) {
     connection = controller;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
-      const response = await fetcher('/v1/stream', {
+      const response = await fetcher('/v1/events', {
         credentials: 'same-origin',
         signal: controller.signal,
         headers: { accept: 'text/event-stream', ...(lastId ? { 'Last-Event-ID': lastId } : {}) },

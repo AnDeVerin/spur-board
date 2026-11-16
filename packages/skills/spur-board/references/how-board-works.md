@@ -59,6 +59,7 @@ to close the startup read race; later changes to the stream head or instance als
 Reconnects retain valid SSE cursors, including ID-only records, until the server clears them.
 
 The configured daemon web listener serves the packaged SPA and its local assets. The stream
-server remains pending in #533, so the shell currently reports reconnecting then offline/stale
-while status reads and theme controls remain available. Until #547 adds daemon version fields,
-the footer version comes from the CLI manifest at build time.
+client connects with `GET /v1/events`, as specified by #533. That server remains pending, so
+the shell currently reports reconnecting then offline/stale while status reads and theme controls
+remain available. Until #547 adds daemon version fields, the footer version comes from the CLI
+manifest at build time.

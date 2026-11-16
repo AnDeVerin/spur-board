@@ -134,8 +134,18 @@ it('serves built assets and controlled status/error/recovery fixtures on loopbac
         );
       }
     }
+    const events = await fetch(`${origin}/v1/events`);
+    expect(events.status).toBe(200);
+    expect(events.headers.get('content-type')).toBe('text/event-stream');
+    const reader = events.body?.getReader();
+    if (!reader) throw new Error('Missing fixture event stream');
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('event: hello');
+    await reader.cancel();
+    const legacy = await fetch(`${origin}/v1/stream`);
+    expect(legacy.status).toBe(404);
+    expect(await legacy.text()).toBe('');
     await fetch(`${origin}/__qa/scenario/stream-drop`, { method: 'POST' });
-    expect((await fetch(`${origin}/v1/stream`)).status).toBe(502);
+    expect((await fetch(`${origin}/v1/events`)).status).toBe(502);
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => {

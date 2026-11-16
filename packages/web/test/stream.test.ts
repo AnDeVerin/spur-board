@@ -8,7 +8,9 @@ function server() {
   let fail = false;
   let signal: AbortSignal | null | undefined;
   const headers: Headers[] = [];
-  const fetcher: typeof fetch = (_url, init) => {
+  const urls: (RequestInfo | URL)[] = [];
+  const fetcher: typeof fetch = (url, init) => {
+    urls.push(url);
     calls++;
     signal = init?.signal;
     headers.push(new Headers(init?.headers));
@@ -28,6 +30,7 @@ function server() {
     fetcher,
     calls: () => calls,
     headers,
+    urls,
     signal: () => signal,
     fail(value: boolean) {
       fail = value;
@@ -50,6 +53,32 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('stream client', () => {
+  it.each(['initial', 'reconnect', 'cursor'])(
+    'requests /v1/events for the %s connection',
+    async (phase) => {
+      vi.useFakeTimers();
+      const s = server();
+      const stream = connectStream({ fetch: s.fetcher, state() {}, refresh() {} });
+      try {
+        await flush();
+        if (phase !== 'initial') {
+          if (phase === 'cursor') {
+            s.send('id: route-cursor\n\n');
+            await flush();
+          }
+          s.eof();
+          await flush();
+          await vi.advanceTimersByTimeAsync(500);
+        }
+        expect(s.urls).toEqual(phase === 'initial' ? ['/v1/events'] : ['/v1/events', '/v1/events']);
+        expect(s.headers.at(-1)?.get('Last-Event-ID')).toBe(
+          phase === 'cursor' ? 'route-cursor' : null,
+        );
+      } finally {
+        stream.stop();
+      }
+    },
+  );
   it('retries 502/network/EOF with capped backoff and recovers only on valid hello', async () => {
     vi.useFakeTimers();
     const s = server();
