@@ -166,7 +166,7 @@ catalogs:
   default:
     '@commander-js/extra-typings':
       specifier: ^15.0.0
-      version: 15.0.0
+      version: 15.1.0
     '@eslint-community/eslint-plugin-eslint-comments':
       specifier: ^4.8.1
       version: 4.8.1
@@ -232,7 +232,7 @@ catalogs:
       version: 13.0.3
     commander:
       specifier: ^15.0.0
-      version: 15.0.0
+      version: 15.1.0
     conventional-changelog-conventionalcommits:
       specifier: 9.1.0
       version: 9.1.0
@@ -241,7 +241,7 @@ catalogs:
       version: 10.13.0
     fastify:
       specifier: ^5.12.2
-      version: 5.12.7
+      version: 5.12.8
     graphql:
       specifier: ^17.0.2
       version: 17.0.2
@@ -250,7 +250,7 @@ catalogs:
       version: 6.43.0
     kysely:
       specifier: ^0.29.7
-      version: 0.29.7
+      version: 0.29.8
     pino:
       specifier: ^10.4.0
       version: 10.4.0
@@ -367,7 +367,7 @@ importers:
     dependencies:
       '@commander-js/extra-typings':
         specifier: 'catalog:'
-        version: 15.0.0(commander@15.0.0)
+        version: 15.1.0(commander@15.1.0)
       '@modelcontextprotocol/server':
         specifier: 'catalog:'
         version: 2.4.0
@@ -382,13 +382,13 @@ importers:
         version: 13.0.3
       commander:
         specifier: 'catalog:'
-        version: 15.0.0
+        version: 15.1.0
       fastify:
         specifier: 'catalog:'
-        version: 5.12.7
+        version: 5.12.8
       kysely:
         specifier: 'catalog:'
-        version: 0.29.7
+        version: 0.29.8
       pino:
         specifier: 'catalog:'
         version: 10.4.0
@@ -438,10 +438,10 @@ importers:
         version: 13.0.3
       fastify:
         specifier: 'catalog:'
-        version: 5.12.7
+        version: 5.12.8
       kysely:
         specifier: 'catalog:'
-        version: 0.29.7
+        version: 0.29.8
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -550,7 +550,7 @@ importers:
     devDependencies:
       kysely:
         specifier: 'catalog:'
-        version: 0.29.7
+        version: 0.29.8
 
   packages/testkit: {}
 
@@ -784,10 +784,10 @@ packages:
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
     engines: {node: '>=0.1.90'}
 
-  '@commander-js/extra-typings@15.0.0':
-    resolution: {integrity: sha512-yeJlba62xqmkgELUsn7356MEnzLLu/fw2x4lofFqGnXh6YysRdEs2BaLeLtg1+KU0AXvMeqQvTTp+3hBEBK+EA==}
+  '@commander-js/extra-typings@15.1.0':
+    resolution: {integrity: sha512-FsI7l5tFON52RyyDKyCkvwFl+peHZuP5TZ7AhxbDFGo/5T6KQd4+KE48aJ8jrDSSAQDvZ8hYKX47fmwZ5bGFNw==}
     peerDependencies:
-      commander: ~15.0.0
+      commander: ~15.1.0
 
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
@@ -2180,8 +2180,8 @@ packages:
     resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
     engines: {node: '>=20'}
 
-  commander@15.0.0:
-    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
+  commander@15.1.0:
+    resolution: {integrity: sha512-cgnQ88TRrWcC7pVq46RzJVRMktu3W2RcbnoidnfBsl1bmDCBwJS/udcIZpKoCrbAYYaCqsz1yZCVIgbIaU3ddQ==}
     engines: {node: '>=22.12.0'}
 
   compare-func@2.0.0:
@@ -2482,8 +2482,8 @@ packages:
   fast-wrap-ansi@0.2.2:
     resolution: {integrity: sha512-7F2Fl+TjRSenLqlU3UjSH0iyqopqoZIu7eZVpEirP2g1GtWa2G/ecEmBdgz31+Mxr+ELclgg6sokpSFIQiZ02Q==}
 
-  fastify@5.12.7:
-    resolution: {integrity: sha512-v4pEPsTRPuqlDIYiQFB+BHjVN4SdHX9u0ABk0ZDUKbbdY1vsNryUd1j4Z+jQEZajvYIVk047Kimva9/AJ79GYw==}
+  fastify@5.12.8:
+    resolution: {integrity: sha512-moP8exb2sCHLUbJkwp+I6C0padhy4D8lp0SdmzY7HhSdZuqm7O/u3o2aq7u8okaQ//33QDzj3G/u+FsSdB8Qzw==}
 
   fastq@1.20.3:
     resolution: {integrity: sha512-XKv5nnLs6nLF71NgiKJLIZFLkPyIEuOselLG7ujZnGrRfQK8HpvY+WqKhAJUAdLomwVHErVS4LfxFlPq0/FTAw==}
@@ -2865,8 +2865,8 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
-  kysely@0.29.7:
-    resolution: {integrity: sha512-fmIq+7kv4WbFm2tcfznRzikqB4cuNpgZ40PSU2fAJ2/OO5XhojqnTPrmgrCjYSRJVwBln03XcRXJGnw9H099IQ==}
+  kysely@0.29.8:
+    resolution: {integrity: sha512-ixHU1H4R+LeC5Y0nAhYgiGRFpFRHm2DXKEmJSs/vbes9sKXyssyzxzE/NYiOJX5fY0BL28biCre3GqlCqUwyXQ==}
     engines: {node: '>=22.0.0'}
 
   levn@0.4.1:
@@ -4396,9 +4396,9 @@ snapshots:
   '@colors/colors@1.5.0':
     optional: true
 
-  '@commander-js/extra-typings@15.0.0(commander@15.0.0)':
+  '@commander-js/extra-typings@15.1.0(commander@15.1.0)':
     dependencies:
-      commander: 15.0.0
+      commander: 15.1.0
 
   '@emnapi/core@1.11.1':
     dependencies:
@@ -5666,7 +5666,7 @@ snapshots:
 
   commander@14.0.3: {}
 
-  commander@15.0.0: {}
+  commander@15.1.0: {}
 
   compare-func@2.0.0:
     dependencies:
@@ -5970,7 +5970,7 @@ snapshots:
     dependencies:
       fast-string-width: 3.0.2
 
-  fastify@5.12.7:
+  fastify@5.12.8:
     dependencies:
       '@fastify/ajv-compiler': 4.0.7
       '@fastify/error': 4.2.1
@@ -6328,7 +6328,7 @@ snapshots:
       yaml: 2.9.1
       zod: 4.6.7
 
-  kysely@0.29.7: {}
+  kysely@0.29.8: {}
 
   levn@0.4.1:
     dependencies:
