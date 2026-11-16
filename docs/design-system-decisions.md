@@ -36,6 +36,10 @@ Each difference between the prototype and the build gets exactly one code.
 | `ticket over prototype`     | The ticket and the prototype disagree.                                                                        | Build what the ticket says.                                                                        | A quote of the ticket.                                                                                                     |
 | `operator decision`         | The operator decided the case.                                                                                | Follow the decision.                                                                               | Session and date of the decision.                                                                                          |
 
+Record `operator decision` only for a decision the operator made in person, named in the task or
+answered by the operator; an answer from the curator or a reviewer applies an existing rule, so its
+row takes that rule's code (`nearest token`, `new token`, `ticket over prototype`, ...).
+
 ## Older kit
 
 The prototype README names the kit commit from `BUILD.json`. List the changes to a component
