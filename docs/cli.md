@@ -282,6 +282,20 @@ Example: `board inbox`
 
 Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.).
 
+### `board inbox operator`
+
+List what waits for the operator and what was handled in the last 24 hours; a project's own operator session sees only its operator projects, and _board entries only when no board-wide operator is configured.
+
+Arguments: none.
+
+Flags:
+
+`--json` — Print JSON output or a JSON error.
+
+Example: `board inbox operator`
+
+Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.).
+
 ### `board inbox ack`
 
 Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.

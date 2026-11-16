@@ -2,11 +2,13 @@ import {
   eventPayloadSchemas,
   parseActorId,
   ticketFactsSchema,
+  VIAS,
   type ActorId,
   type AddresseeRole,
   type Config,
   type EventKind,
   type EventPayload,
+  type Via,
 } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
 import type { BlockTable, CommentTable, NotificationTable, TaskTable } from '../store/schema.ts';
@@ -212,6 +214,40 @@ export function blockView(block: Block, subject: BlockSubject) {
     unblockedBy: block.unblocked_by,
     unblockedAt: block.unblocked_at,
   };
+}
+
+/** A task's blocks, oldest first, each with the `via` of its closing write. */
+export async function taskBlockViews(trx: Trx, task: Task) {
+  const subject = taskSubject(task);
+  const rows = await trx
+    .selectFrom('block')
+    .selectAll()
+    .select(answeredViaColumn)
+    .where('task_id', '=', task.id)
+    .orderBy('id')
+    .execute();
+  return rows.map(({ answered_via, ...block }) => ({
+    ...blockView(block, subject),
+    answeredVia: answeredVia(answered_via),
+  }));
+}
+
+/**
+ * The `via` of the `block_unblocked` event that closed the `block` row in scope: `closeOpenBlock`
+ * journals it at the block's `unblocked_at`, so the `event_at` index finds it. Select it from a
+ * query over `block` and read the value with `answeredVia`.
+ */
+export const answeredViaColumn = sql<string | null>`(
+  select event.via from event
+  where event.kind = 'block_unblocked'
+    and event.at = block.unblocked_at
+    and json_extract(event.payload, '$.block') = 'B' || block.id
+  order by event.id desc limit 1
+)`.as('answered_via');
+
+/** The `via` of a block's closing write; null while open or when it came another way. */
+export function answeredVia(value: string | null): Via | null {
+  return VIAS.find((via) => via === value) ?? null;
 }
 
 export function commentView(comment: Comment, subject: BlockSubject) {

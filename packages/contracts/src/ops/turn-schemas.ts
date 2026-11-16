@@ -124,3 +124,16 @@ export const statusTurnSchema = turnViewSchema
       ),
   })
   .describe('Unclosed turn without feedback, return context or thread details.');
+
+/** The return a `status.get` task row shows while the task stays in Dev after it. */
+export const statusReturnedSchema = z.strictObject({
+  from: z.enum(COLUMN_IDS).describe('Column the task was returned from.'),
+  at: z.iso.datetime().describe('When the task was returned, ISO 8601 UTC.'),
+  by: actorIdSchema.describe('Who returned the task to Dev.'),
+  block: blockIdSchema.describe('The code block the return opened.'),
+  findings: z
+    .int()
+    .min(0)
+    .nullable()
+    .describe('Number of review findings the return sent; null when not given.'),
+});

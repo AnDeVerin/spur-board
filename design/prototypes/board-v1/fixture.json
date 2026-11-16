@@ -1,349 +1,1821 @@
 {
-  "config": {
-    "project": "spur-board",
-    "dispatcher": "on",
-    "version": "0.64.0",
-    "generatedAt": "15:00 15/11/26"
-  },
-  "columns": [
-    {
-      "name": "todo",
-      "exec": "dispatcher · next free worker",
-      "tasks": [
-        {
-          "key": "#513",
-          "title": "hand Dev turns direct comment links and re-hand edited comments",
-          "pr": null,
-          "turn": null
-        },
-        {
-          "key": "#516",
-          "title": "Weekly mutation run failed",
-          "pr": null,
-          "held": true,
-          "turn": null
-        },
-        {
-          "key": "#520",
-          "title": "docs: Slack persona icon fallback follows the author's role",
-          "pr": null,
-          "turn": null
-        }
-      ]
-    },
-    {
-      "name": "dev",
-      "exec": "worker",
-      "tasks": [
-        {
-          "key": "#509",
-          "title": "bind column orchestrators and operators board-wide or per project",
-          "pr": {
-            "n": 522,
-            "ci": ["pend", 9, 14],
-            "conflict": false,
-            "threads": [0, 0],
-            "review": ["none", 0]
+  "config.get": {
+    "projects": [
+      {
+        "id": "spur-board",
+        "columns": [
+          {
+            "id": "todo",
+            "executor": {
+              "kind": "worker",
+              "name": null
+            }
           },
-          "block": "B89",
-          "turn": {
-            "id": "T42",
-            "role": "worker",
-            "who": "sb-0ead",
-            "kind": "agent",
-            "age": "14m"
-          }
-        },
-        {
-          "key": "#511",
-          "title": "raise a block when the executor of an open turn is stuck",
-          "pr": {
-            "n": 518,
-            "ci": ["ok", 12, 12],
-            "conflict": false,
-            "threads": [0, 3],
-            "review": ["changes", 1]
+          {
+            "id": "dev",
+            "executor": {
+              "kind": "worker",
+              "name": null
+            }
           },
-          "returned": 3,
-          "turn": {
-            "id": "T51",
-            "role": "worker",
-            "who": "sb-49bf",
-            "kind": "agent",
-            "age": "2h"
-          }
-        },
-        {
-          "key": "#523",
-          "title": "persist the GitHub rate budget per source",
-          "pr": {
-            "n": 529,
-            "ci": ["bad", 2, 14],
-            "conflict": true,
-            "threads": [1, 1],
-            "review": ["none", 0]
+          {
+            "id": "review",
+            "executor": {
+              "kind": "orchestrator",
+              "name": "review-desk"
+            }
           },
-          "turn": {
-            "id": "T53",
-            "role": "worker",
-            "who": "sb-77c1",
-            "kind": "agent",
-            "age": "1h"
-          }
-        },
-        {
-          "key": "#512",
-          "title": "unresolved review threads as a gate fact",
-          "pr": null,
-          "turn": {
-            "id": "T49",
-            "role": "worker",
-            "who": "sb-649b",
-            "kind": "agent",
-            "age": "38m"
-          }
-        },
-        {
-          "key": "#515",
-          "title": "docs: return to Dev on PR comments",
-          "pr": null,
-          "turn": {
-            "id": "T50",
-            "role": "worker",
-            "who": "sb-a8c6",
-            "kind": "wait",
-            "age": "6m"
-          }
-        }
-      ]
-    },
-    {
-      "name": "review",
-      "exec": "orchestrator br",
-      "tasks": [
-        {
-          "key": "#508",
-          "title": "journal events for turn open, take and close",
-          "pr": {
-            "n": 526,
-            "ci": ["ok", 14, 14],
-            "conflict": false,
-            "threads": [4, 4],
-            "review": ["none", 0]
+          {
+            "id": "product-review",
+            "executor": {
+              "kind": "orchestrator",
+              "name": "product-desk"
+            }
           },
-          "turn": {
-            "id": "T47",
-            "role": "orchestrator",
-            "who": "br",
-            "kind": "stall",
-            "age": "47m"
-          }
-        }
-      ]
-    },
-    {
-      "name": "product-review",
-      "exec": "curator bn",
-      "tasks": []
-    },
-    {
-      "name": "external-review",
-      "exec": "external reviewer",
-      "tasks": []
-    },
-    {
-      "name": "qa",
-      "exec": "orchestrator qa",
-      "tasks": []
-    },
-    {
-      "name": "ready-to-merge",
-      "exec": "operator",
-      "tasks": [
-        {
-          "key": "#510",
-          "title": "check the PR's Changed checks section against changed test files",
-          "pr": {
-            "n": 517,
-            "ci": ["ok", 14, 14],
-            "conflict": false,
-            "threads": [2, 2],
-            "review": ["ok", 1]
+          {
+            "id": "external-review",
+            "executor": {
+              "kind": "dispatcher",
+              "name": null
+            }
           },
-          "turn": {
-            "id": "T55",
-            "role": "operator",
-            "who": "you",
-            "kind": "you",
-            "age": "3h"
+          {
+            "id": "qa",
+            "executor": {
+              "kind": "orchestrator",
+              "name": "qa-desk"
+            }
+          },
+          {
+            "id": "ready-to-merge",
+            "executor": {
+              "kind": "operator",
+              "name": null
+            }
+          },
+          {
+            "id": "done",
+            "executor": {
+              "kind": "worker",
+              "name": null
+            }
           }
-        }
-      ]
-    }
-  ],
-  "done": {
-    "total": 31,
-    "last": [
-      ["#514", "doc freshness gate in the worker cycle"],
-      ["#507", "stand guard reads the live config"],
-      ["#502", "Slack thread replies reach the task"]
+        ],
+        "dispatcher": {
+          "mode": "on"
+        },
+        "spurProjects": [
+          {
+            "name": "crew",
+            "role": "worker"
+          },
+          {
+            "name": "review-desk",
+            "role": "orchestrator"
+          },
+          {
+            "name": "product-desk",
+            "role": "orchestrator"
+          },
+          {
+            "name": "qa-desk",
+            "role": "orchestrator"
+          },
+          {
+            "name": "ops",
+            "role": "operator"
+          }
+        ]
+      }
     ]
   },
-  "tasks": {
-    "#509": {
-      "since": "2h 10m",
+  "status.get": {
+    "daemon": {
+      "version": "0.64.0",
+      "startedAt": "2026-11-14T09:12:00Z"
+    },
+    "sources": [
+      {
+        "source": "github:spur-board:example-org/spur-board",
+        "lastCompleteAt": "2026-11-15T14:58:00Z",
+        "blindReason": null,
+        "message": null,
+        "budget": {
+          "remaining": 4210,
+          "limit": 5000,
+          "resetAt": "2026-11-15T15:40:00Z"
+        },
+        "stale": false,
+        "warmingUp": false
+      },
+      {
+        "source": "github-issues:spur-board:example-org/spur-board",
+        "lastCompleteAt": "2026-11-15T14:55:00Z",
+        "blindReason": null,
+        "message": null,
+        "budget": {
+          "remaining": 812,
+          "limit": null,
+          "resetAt": "2026-11-15T15:40:00Z"
+        },
+        "stale": false,
+        "warmingUp": false
+      },
+      {
+        "source": "spur",
+        "lastCompleteAt": "2026-11-15T14:59:00Z",
+        "blindReason": null,
+        "message": null,
+        "budget": null,
+        "stale": false,
+        "warmingUp": false
+      }
+    ],
+    "transport": [
+      {
+        "gateway": "slack",
+        "state": "down",
+        "since": "2026-11-15T14:30:00Z",
+        "reason": "Slack rejected the app token",
+        "spaces": ["orchestrators", "feed"]
+      }
+    ],
+    "hostLoad": null,
+    "spurUnavailable": null,
+    "tasks": [
+      {
+        "key": "example-org/spur-board#513",
+        "project": "spur-board",
+        "column": "todo",
+        "ticket": {
+          "title": "hand Dev turns direct comment links and re-hand edited comments"
+        },
+        "openBlocks": 0,
+        "turn": null,
+        "prSummary": null,
+        "links": {
+          "ticket": "https://github.example/example-org/spur-board/issues/513",
+          "prs": [],
+          "sessions": []
+        },
+        "blocks": []
+      },
+      {
+        "key": "example-org/spur-board#516",
+        "project": "spur-board",
+        "column": "todo",
+        "ticket": {
+          "title": "Weekly mutation run failed"
+        },
+        "openBlocks": 0,
+        "turn": null,
+        "prSummary": null,
+        "links": {
+          "ticket": "https://github.example/example-org/spur-board/issues/516",
+          "prs": [],
+          "sessions": []
+        },
+        "blocks": []
+      },
+      {
+        "key": "example-org/spur-board#520",
+        "project": "spur-board",
+        "column": "todo",
+        "ticket": {
+          "title": "docs: Slack persona icon fallback follows the author's role"
+        },
+        "openBlocks": 0,
+        "turn": null,
+        "prSummary": null,
+        "links": {
+          "ticket": "https://github.example/example-org/spur-board/issues/520",
+          "prs": [],
+          "sessions": []
+        },
+        "blocks": []
+      },
+      {
+        "key": "example-org/spur-board#509",
+        "project": "spur-board",
+        "column": "dev",
+        "ticket": {
+          "title": "bind column orchestrators and operators board-wide or per project"
+        },
+        "openBlocks": 1,
+        "turn": {
+          "id": "T42",
+          "addressee": "worker",
+          "at": "2026-11-15T12:50:00Z",
+          "taken": {
+            "by": "agent:crew/crew-ada",
+            "at": "2026-11-15T12:51:00Z"
+          },
+          "addressedTo": null
+        },
+        "prSummary": [
+          {
+            "repo": "example-org/spur-board",
+            "number": 522,
+            "checks": {
+              "pass": 9,
+              "fail": 0,
+              "pending": 5
+            },
+            "mergeable": "mergeable",
+            "threads": {
+              "unresolved": 0,
+              "total": 0
+            },
+            "reviewsOnHead": {
+              "approved": [],
+              "changesRequested": []
+            },
+            "draft": false,
+            "unconfirmed": false
+          }
+        ],
+        "links": {
+          "ticket": "https://github.example/example-org/spur-board/issues/509",
+          "prs": [
+            {
+              "repo": "example-org/spur-board",
+              "number": 522,
+              "url": "https://github.example/example-org/spur-board/pull/522"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "crew-ada"
+            }
+          ]
+        },
+        "blocks": [
+          {
+            "id": "B89",
+            "addressee": "operator"
+          }
+        ]
+      },
+      {
+        "key": "example-org/spur-board#511",
+        "project": "spur-board",
+        "column": "dev",
+        "ticket": {
+          "title": "raise a block when the executor of an open turn is stuck"
+        },
+        "openBlocks": 1,
+        "turn": {
+          "id": "T51",
+          "addressee": "worker",
+          "at": "2026-11-15T12:58:00Z",
+          "taken": {
+            "by": "agent:crew/crew-bo",
+            "at": "2026-11-15T13:00:00Z"
+          },
+          "addressedTo": null
+        },
+        "prSummary": [
+          {
+            "repo": "example-org/spur-board",
+            "number": 518,
+            "checks": {
+              "pass": 12,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": "mergeable",
+            "threads": {
+              "unresolved": 3,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": [],
+              "changesRequested": ["reviewer-one"]
+            },
+            "draft": false,
+            "unconfirmed": false
+          }
+        ],
+        "links": {
+          "ticket": "https://github.example/example-org/spur-board/issues/511",
+          "prs": [
+            {
+              "repo": "example-org/spur-board",
+              "number": 518,
+              "url": "https://github.example/example-org/spur-board/pull/518"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "crew-bo"
+            }
+          ]
+        },
+        "blocks": [
+          {
+            "id": "B88",
+            "addressee": "worker"
+          }
+        ],
+        "returned": {
+          "from": "review",
+          "at": "2026-11-15T12:58:00Z",
+          "by": "agent:review-desk/review-desk-1",
+          "block": "B88",
+          "findings": 3
+        }
+      },
+      {
+        "key": "example-org/spur-board#523",
+        "project": "spur-board",
+        "column": "dev",
+        "ticket": {
+          "title": "persist the GitHub rate budget per source"
+        },
+        "openBlocks": 0,
+        "turn": {
+          "id": "T53",
+          "addressee": "worker",
+          "at": "2026-11-15T13:58:00Z",
+          "taken": {
+            "by": "agent:crew/crew-cy",
+            "at": "2026-11-15T14:00:00Z"
+          },
+          "addressedTo": null
+        },
+        "prSummary": [
+          {
+            "repo": "example-org/spur-board",
+            "number": 529,
+            "checks": {
+              "pass": 2,
+              "fail": 12,
+              "pending": 0
+            },
+            "mergeable": "conflicting",
+            "threads": {
+              "unresolved": 0,
+              "total": 1
+            },
+            "reviewsOnHead": {
+              "approved": [],
+              "changesRequested": []
+            },
+            "draft": true,
+            "unconfirmed": false
+          }
+        ],
+        "links": {
+          "ticket": "https://github.example/example-org/spur-board/issues/523",
+          "prs": [
+            {
+              "repo": "example-org/spur-board",
+              "number": 529,
+              "url": "https://github.example/example-org/spur-board/pull/529"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "crew-cy"
+            }
+          ]
+        },
+        "blocks": []
+      },
+      {
+        "key": "example-org/spur-board#512",
+        "project": "spur-board",
+        "column": "dev",
+        "ticket": {
+          "title": "unresolved review threads as a gate fact"
+        },
+        "openBlocks": 1,
+        "turn": {
+          "id": "T49",
+          "addressee": "worker",
+          "at": "2026-11-15T14:20:00Z",
+          "taken": {
+            "by": "agent:crew/crew-dee",
+            "at": "2026-11-15T14:22:00Z"
+          },
+          "addressedTo": null
+        },
+        "prSummary": null,
+        "links": {
+          "ticket": "https://github.example/example-org/spur-board/issues/512",
+          "prs": [],
+          "sessions": [
+            {
+              "id": "crew-dee"
+            }
+          ]
+        },
+        "blocks": [
+          {
+            "id": "B91",
+            "addressee": "worker"
+          }
+        ]
+      },
+      {
+        "key": "example-org/spur-board#515",
+        "project": "spur-board",
+        "column": "dev",
+        "ticket": {
+          "title": "docs: return to Dev on PR comments"
+        },
+        "openBlocks": 0,
+        "turn": {
+          "id": "T50",
+          "addressee": "worker",
+          "at": "2026-11-15T14:54:00Z",
+          "taken": null,
+          "addressedTo": "crew-eli"
+        },
+        "prSummary": null,
+        "links": {
+          "ticket": "https://github.example/example-org/spur-board/issues/515",
+          "prs": [
+            {
+              "repo": "example-org/spur-board",
+              "number": 531,
+              "url": "https://github.example/example-org/spur-board/pull/531"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "crew-eli"
+            }
+          ]
+        },
+        "blocks": []
+      },
+      {
+        "key": "example-org/spur-board#508",
+        "project": "spur-board",
+        "column": "review",
+        "ticket": {
+          "title": "journal events for turn open, take and close"
+        },
+        "openBlocks": 1,
+        "turn": {
+          "id": "T47",
+          "addressee": "orchestrator:review",
+          "at": "2026-11-15T13:28:00Z",
+          "taken": {
+            "by": "agent:review-desk/review-desk-1",
+            "at": "2026-11-15T13:30:00Z"
+          },
+          "addressedTo": null,
+          "stalledSince": "2026-11-15T14:13:00Z"
+        },
+        "prSummary": [
+          {
+            "repo": "example-org/spur-board",
+            "number": 526,
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": "mergeable",
+            "threads": {
+              "unresolved": 0,
+              "total": 4
+            },
+            "reviewsOnHead": {
+              "approved": [],
+              "changesRequested": []
+            },
+            "draft": false,
+            "unconfirmed": false
+          }
+        ],
+        "links": {
+          "ticket": "https://github.example/example-org/spur-board/issues/508",
+          "prs": [
+            {
+              "repo": "example-org/spur-board",
+              "number": 526,
+              "url": "https://github.example/example-org/spur-board/pull/526"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "review-desk-1"
+            }
+          ]
+        },
+        "blocks": [
+          {
+            "id": "B90",
+            "addressee": "operator"
+          }
+        ]
+      },
+      {
+        "key": "example-org/spur-board#510",
+        "project": "spur-board",
+        "column": "ready-to-merge",
+        "ticket": {
+          "title": "check the PR's Changed checks section against changed test files"
+        },
+        "openBlocks": 0,
+        "turn": {
+          "id": "T55",
+          "addressee": "operator",
+          "at": "2026-11-15T12:00:00Z",
+          "taken": null,
+          "addressedTo": null
+        },
+        "prSummary": [
+          {
+            "repo": "example-org/spur-board",
+            "number": 517,
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": "unknown",
+            "threads": {
+              "unresolved": 0,
+              "total": 2
+            },
+            "reviewsOnHead": {
+              "approved": ["reviewer-two"],
+              "changesRequested": []
+            },
+            "draft": false,
+            "unconfirmed": false
+          }
+        ],
+        "links": {
+          "ticket": "https://github.example/example-org/spur-board/issues/510",
+          "prs": [
+            {
+              "repo": "example-org/spur-board",
+              "number": 517,
+              "url": "https://github.example/example-org/spur-board/pull/517"
+            }
+          ],
+          "sessions": []
+        },
+        "blocks": []
+      },
+      {
+        "key": "example-org/spur-board#514",
+        "project": "spur-board",
+        "column": "done",
+        "ticket": {
+          "title": "doc freshness gate in the worker cycle"
+        }
+      },
+      {
+        "key": "example-org/spur-board#507",
+        "project": "spur-board",
+        "column": "done",
+        "ticket": {
+          "title": "stand guard reads the live config"
+        }
+      },
+      {
+        "key": "example-org/spur-board#502",
+        "project": "spur-board",
+        "column": "done",
+        "ticket": {
+          "title": "Slack thread replies reach the task"
+        }
+      }
+    ]
+  },
+  "task.get": {
+    "example-org/spur-board#513": {
+      "task": {
+        "key": "example-org/spur-board#513",
+        "project": "spur-board",
+        "column": "todo"
+      },
+      "turn": null,
+      "blocks": [],
+      "comments": [],
+      "why": {
+        "column": "todo",
+        "gates": [
+          {
+            "column": "todo",
+            "conditions": []
+          }
+        ],
+        "holds": [],
+        "moves": []
+      }
+    },
+    "example-org/spur-board#516": {
+      "task": {
+        "key": "example-org/spur-board#516",
+        "project": "spur-board",
+        "column": "todo"
+      },
+      "turn": null,
+      "blocks": [],
+      "comments": [],
+      "why": {
+        "column": "todo",
+        "gates": [
+          {
+            "column": "todo",
+            "conditions": []
+          }
+        ],
+        "holds": [],
+        "moves": []
+      }
+    },
+    "example-org/spur-board#520": {
+      "task": {
+        "key": "example-org/spur-board#520",
+        "project": "spur-board",
+        "column": "todo"
+      },
+      "turn": null,
+      "blocks": [],
+      "comments": [],
+      "why": {
+        "column": "todo",
+        "gates": [
+          {
+            "column": "todo",
+            "conditions": []
+          }
+        ],
+        "holds": [],
+        "moves": []
+      }
+    },
+    "example-org/spur-board#509": {
+      "task": {
+        "key": "example-org/spur-board#509",
+        "project": "spur-board",
+        "column": "dev"
+      },
+      "turn": {
+        "id": "T42",
+        "addressee": "worker",
+        "at": "2026-11-15T12:50:00Z",
+        "taken": {
+          "by": "agent:crew/crew-ada",
+          "at": "2026-11-15T12:51:00Z"
+        }
+      },
       "blocks": [
         {
-          "id": "B89",
-          "from": "worker sb-0ead",
-          "to": "you",
-          "age": "14m",
-          "status": "open",
-          "text": "Should a board-wide orchestrator binding skip projects that set their own column executor, or override them?"
+          "id": "B84",
+          "author": "agent:crew/crew-ada",
+          "addressee": "operator",
+          "reason": "Is the config key `orchestrators` or `columnExecutors`?",
+          "at": "2026-11-14T15:02:00Z",
+          "state": "unblocked",
+          "outcome": "done",
+          "unblockedAt": "2026-11-14T16:20:00Z",
+          "answeredVia": "slack"
         },
         {
-          "id": "B84",
-          "from": "worker sb-0ead",
-          "to": "you",
-          "age": "1d",
-          "status": "slack",
-          "text": "Is the config key `orchestrators` or `columnExecutors`?",
-          "reply": "`columnExecutors`, as in the design note."
+          "id": "B89",
+          "author": "agent:crew/crew-ada",
+          "addressee": "operator",
+          "reason": "Should a board-wide orchestrator binding skip projects that set their own column executor, or override them?",
+          "at": "2026-11-15T14:46:00Z",
+          "state": "open",
+          "outcome": null,
+          "unblockedAt": null,
+          "answeredVia": null
         }
       ],
       "comments": [
         {
+          "id": "C28",
+          "block": "B84",
+          "author": "operator",
+          "at": "2026-11-14T16:20:00Z",
+          "text": "`columnExecutors`, as in the design note."
+        },
+        {
           "id": "C31",
-          "from": "curator bn",
-          "age": "1h",
+          "block": null,
+          "author": "operator",
+          "at": "2026-11-15T13:55:00Z",
           "text": "The spec covers both bindings. A project-level binding wins over the board-wide one."
         }
       ],
-      "history": [
-        ["14:46 15/11/26", "from_you_raised", "<b>B89</b> waits for the operator"],
-        [
-          "14:46 15/11/26",
-          "block_opened",
-          "worker <b>sb-0ead</b> opened <b>B89</b> for the operator"
+      "why": {
+        "column": "dev",
+        "gates": [
+          {
+            "column": "dev",
+            "conditions": [
+              {
+                "condition": "pr_open",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "not_draft",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "checks_green",
+                "state": "waiting",
+                "reason": "checks_pending"
+              },
+              {
+                "condition": "no_conflict",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "external_comments_handled",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "comment_history_read",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "threads_resolved",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "submit_on_head",
+                "state": "failed",
+                "reason": "no_submit_on_head"
+              }
+            ]
+          }
         ],
-        ["14:08 15/11/26", "checks_changed", "CI on <b>#522</b>: 9 of 14 done, running"],
-        ["14:07 15/11/26", "head_moved", "PR <b>#522</b> head is <b>a41c9e2</b>"],
-        ["14:07 15/11/26", "link_added", "PR <b>#522</b> linked to the task"],
-        ["12:51 15/11/26", "turn_acked", "worker <b>sb-0ead</b> acked <b>T42</b>"],
-        ["12:50 15/11/26", "doorbell_rung", "doorbell to worker <b>sb-0ead</b>"],
-        ["12:50 15/11/26", "turn_opened", "<b>T42</b> opened for a worker in <b>dev</b>"],
-        ["12:50 15/11/26", "task_moved", "dispatcher moved the task <b>todo → dev</b>"],
-        ["16:20 14/11/26", "block_unblocked", "operator answered <b>B84</b> in Slack"],
-        [
-          "15:02 14/11/26",
-          "block_opened",
-          "worker <b>sb-0ead</b> opened <b>B84</b> for the operator"
+        "holds": [],
+        "moves": [
+          {
+            "at": "2026-11-14T09:55:00Z",
+            "to": "dev"
+          }
+        ]
+      }
+    },
+    "example-org/spur-board#511": {
+      "task": {
+        "key": "example-org/spur-board#511",
+        "project": "spur-board",
+        "column": "dev"
+      },
+      "turn": {
+        "id": "T51",
+        "addressee": "worker",
+        "at": "2026-11-15T12:58:00Z",
+        "taken": {
+          "by": "agent:crew/crew-bo",
+          "at": "2026-11-15T13:00:00Z"
+        }
+      },
+      "blocks": [
+        {
+          "id": "B81",
+          "author": "agent:crew/crew-bo",
+          "addressee": "operator",
+          "reason": "May the stall check reuse the doorbell timer, or does it need its own?",
+          "at": "2026-11-13T10:40:00Z",
+          "state": "unblocked",
+          "outcome": "done",
+          "unblockedAt": "2026-11-13T11:02:00Z",
+          "answeredVia": "web"
+        },
+        {
+          "id": "B88",
+          "author": "agent:review-desk/review-desk-1",
+          "addressee": "worker",
+          "reason": "Three findings on the head: the stall timer ignores paused sessions, the block text names no session, and the test clock is not advanced.",
+          "at": "2026-11-15T12:58:00Z",
+          "state": "open",
+          "outcome": null,
+          "unblockedAt": null,
+          "answeredVia": null
+        }
+      ],
+      "comments": [
+        {
+          "id": "C25",
+          "block": "B81",
+          "author": "operator",
+          "at": "2026-11-13T11:02:00Z",
+          "text": "Use its own timer. A stall and a missed doorbell are different facts."
+        }
+      ],
+      "why": {
+        "column": "dev",
+        "gates": [
+          {
+            "column": "dev",
+            "conditions": [
+              {
+                "condition": "pr_open",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "not_draft",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "checks_green",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "no_conflict",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "external_comments_handled",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "comment_history_read",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "threads_resolved",
+                "state": "failed",
+                "reason": "unresolved_threads"
+              },
+              {
+                "condition": "submit_on_head",
+                "state": "failed",
+                "reason": "no_submit_on_head"
+              }
+            ]
+          },
+          {
+            "column": "review",
+            "conditions": [
+              {
+                "condition": "review_on_head",
+                "state": "failed",
+                "reason": "no_review_on_head"
+              }
+            ]
+          }
         ],
-        ["11:15 13/11/26", "task_added", "task added from ticket <b>#509</b>"]
+        "holds": [],
+        "moves": [
+          {
+            "at": "2026-11-13T09:10:00Z",
+            "to": "dev"
+          },
+          {
+            "at": "2026-11-15T09:30:00Z",
+            "to": "review"
+          },
+          {
+            "at": "2026-11-15T12:58:00Z",
+            "to": "dev"
+          }
+        ]
+      }
+    },
+    "example-org/spur-board#523": {
+      "task": {
+        "key": "example-org/spur-board#523",
+        "project": "spur-board",
+        "column": "dev"
+      },
+      "turn": {
+        "id": "T53",
+        "addressee": "worker",
+        "at": "2026-11-15T13:58:00Z",
+        "taken": {
+          "by": "agent:crew/crew-cy",
+          "at": "2026-11-15T14:00:00Z"
+        }
+      },
+      "blocks": [],
+      "comments": [],
+      "why": {
+        "column": "dev",
+        "gates": [
+          {
+            "column": "dev",
+            "conditions": [
+              {
+                "condition": "pr_open",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "not_draft",
+                "state": "failed",
+                "reason": "pr_draft"
+              },
+              {
+                "condition": "checks_green",
+                "state": "failed",
+                "reason": "checks_red"
+              },
+              {
+                "condition": "no_conflict",
+                "state": "failed",
+                "reason": "conflict"
+              },
+              {
+                "condition": "external_comments_handled",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "comment_history_read",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "threads_resolved",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "submit_on_head",
+                "state": "failed",
+                "reason": "no_submit_on_head"
+              }
+            ]
+          }
+        ],
+        "holds": [],
+        "moves": [
+          {
+            "at": "2026-11-15T13:55:00Z",
+            "to": "dev"
+          }
+        ]
+      }
+    },
+    "example-org/spur-board#512": {
+      "task": {
+        "key": "example-org/spur-board#512",
+        "project": "spur-board",
+        "column": "dev"
+      },
+      "turn": {
+        "id": "T49",
+        "addressee": "worker",
+        "at": "2026-11-15T14:20:00Z",
+        "taken": {
+          "by": "agent:crew/crew-dee",
+          "at": "2026-11-15T14:22:00Z"
+        }
+      },
+      "blocks": [
+        {
+          "id": "B91",
+          "author": "operator",
+          "addressee": "worker",
+          "reason": "Wait for #523 to merge: the gate fact reads the same table.",
+          "at": "2026-11-15T14:30:00Z",
+          "state": "open",
+          "outcome": null,
+          "unblockedAt": null,
+          "answeredVia": null
+        }
+      ],
+      "comments": [],
+      "why": {
+        "column": "dev",
+        "gates": [
+          {
+            "column": "dev",
+            "conditions": [
+              {
+                "condition": "pr_open",
+                "state": "failed",
+                "reason": "no_pr"
+              },
+              {
+                "condition": "not_draft",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "checks_green",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "no_conflict",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "external_comments_handled",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "comment_history_read",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "threads_resolved",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "submit_on_head",
+                "state": "unchecked",
+                "reason": null
+              }
+            ]
+          }
+        ],
+        "holds": [],
+        "moves": [
+          {
+            "at": "2026-11-15T14:18:00Z",
+            "to": "dev"
+          }
+        ]
+      }
+    },
+    "example-org/spur-board#515": {
+      "task": {
+        "key": "example-org/spur-board#515",
+        "project": "spur-board",
+        "column": "dev"
+      },
+      "turn": {
+        "id": "T50",
+        "addressee": "worker",
+        "at": "2026-11-15T14:54:00Z",
+        "taken": null
+      },
+      "blocks": [],
+      "comments": [],
+      "why": {
+        "column": "dev",
+        "gates": [
+          {
+            "column": "dev",
+            "conditions": [
+              {
+                "condition": "pr_open",
+                "state": "failed",
+                "reason": "no_pr"
+              },
+              {
+                "condition": "not_draft",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "checks_green",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "no_conflict",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "external_comments_handled",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "comment_history_read",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "threads_resolved",
+                "state": "unchecked",
+                "reason": null
+              },
+              {
+                "condition": "submit_on_head",
+                "state": "unchecked",
+                "reason": null
+              }
+            ]
+          }
+        ],
+        "holds": ["pr_snapshot_missing"],
+        "moves": [
+          {
+            "at": "2026-11-15T14:52:00Z",
+            "to": "dev"
+          }
+        ]
+      }
+    },
+    "example-org/spur-board#508": {
+      "task": {
+        "key": "example-org/spur-board#508",
+        "project": "spur-board",
+        "column": "review"
+      },
+      "turn": {
+        "id": "T47",
+        "addressee": "orchestrator:review",
+        "at": "2026-11-15T13:28:00Z",
+        "taken": {
+          "by": "agent:review-desk/review-desk-1",
+          "at": "2026-11-15T13:30:00Z"
+        }
+      },
+      "blocks": [
+        {
+          "id": "B90",
+          "author": "system",
+          "addressee": "operator",
+          "reason": "Turn T47 has not moved since 14:13: check the review-desk session.",
+          "at": "2026-11-15T14:15:00Z",
+          "state": "open",
+          "outcome": null,
+          "unblockedAt": null,
+          "answeredVia": null
+        }
+      ],
+      "comments": [],
+      "why": {
+        "column": "review",
+        "gates": [
+          {
+            "column": "review",
+            "conditions": [
+              {
+                "condition": "review_on_head",
+                "state": "failed",
+                "reason": "no_review_on_head"
+              }
+            ]
+          },
+          {
+            "column": "dev",
+            "conditions": [
+              {
+                "condition": "pr_open",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "not_draft",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "checks_green",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "no_conflict",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "external_comments_handled",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "comment_history_read",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "threads_resolved",
+                "state": "met",
+                "reason": null
+              },
+              {
+                "condition": "submit_on_head",
+                "state": "failed",
+                "reason": "no_submit_on_head"
+              }
+            ]
+          }
+        ],
+        "holds": [],
+        "moves": [
+          {
+            "at": "2026-11-14T15:00:00Z",
+            "to": "dev"
+          },
+          {
+            "at": "2026-11-15T13:26:00Z",
+            "to": "review"
+          }
+        ]
+      }
+    },
+    "example-org/spur-board#510": {
+      "task": {
+        "key": "example-org/spur-board#510",
+        "project": "spur-board",
+        "column": "ready-to-merge"
+      },
+      "turn": {
+        "id": "T55",
+        "addressee": "operator",
+        "at": "2026-11-15T12:00:00Z",
+        "taken": null
+      },
+      "blocks": [],
+      "comments": [],
+      "why": {
+        "column": "ready-to-merge",
+        "gates": [
+          {
+            "column": "ready-to-merge",
+            "conditions": [
+              {
+                "condition": "merged",
+                "state": "failed",
+                "reason": "not_merged"
+              }
+            ]
+          }
+        ],
+        "holds": [],
+        "moves": [
+          {
+            "at": "2026-11-15T11:58:00Z",
+            "to": "ready-to-merge"
+          }
+        ]
+      }
+    }
+  },
+  "task.history": {
+    "example-org/spur-board#513": {
+      "events": [
+        {
+          "at": "2026-11-13T11:15:00Z",
+          "kind": "task_added",
+          "actor": "system",
+          "summary": "Task added"
+        },
+        {
+          "at": "2026-11-13T11:15:00Z",
+          "kind": "link_added",
+          "actor": "system",
+          "summary": "Link added: ticket example-org/spur-board#513"
+        }
+      ]
+    },
+    "example-org/spur-board#516": {
+      "events": [
+        {
+          "at": "2026-11-14T08:30:00Z",
+          "kind": "task_added",
+          "actor": "system",
+          "summary": "Task added"
+        },
+        {
+          "at": "2026-11-14T08:30:00Z",
+          "kind": "link_added",
+          "actor": "system",
+          "summary": "Link added: ticket example-org/spur-board#516"
+        }
+      ]
+    },
+    "example-org/spur-board#520": {
+      "events": [
+        {
+          "at": "2026-11-15T09:05:00Z",
+          "kind": "task_added",
+          "actor": "system",
+          "summary": "Task added"
+        },
+        {
+          "at": "2026-11-15T09:05:00Z",
+          "kind": "link_added",
+          "actor": "system",
+          "summary": "Link added: ticket example-org/spur-board#520"
+        }
+      ]
+    },
+    "example-org/spur-board#509": {
+      "events": [
+        {
+          "at": "2026-11-13T11:15:00Z",
+          "kind": "task_added",
+          "actor": "system",
+          "summary": "Task added"
+        },
+        {
+          "at": "2026-11-13T11:15:00Z",
+          "kind": "link_added",
+          "actor": "system",
+          "summary": "Link added: ticket example-org/spur-board#509"
+        },
+        {
+          "at": "2026-11-14T09:55:00Z",
+          "kind": "task_moved",
+          "actor": "system",
+          "summary": "Task moved"
+        },
+        {
+          "at": "2026-11-14T10:00:00Z",
+          "kind": "turn_opened",
+          "actor": "system",
+          "summary": "Turn T41 opened in dev for worker: Dev"
+        },
+        {
+          "at": "2026-11-14T10:01:00Z",
+          "kind": "turn_taken",
+          "actor": "agent:crew/crew-bo",
+          "summary": "Turn T41 taken by agent:crew/crew-bo"
+        },
+        {
+          "at": "2026-11-14T15:02:00Z",
+          "kind": "block_opened",
+          "actor": "agent:crew/crew-ada",
+          "summary": "Block opened"
+        },
+        {
+          "at": "2026-11-14T15:02:00Z",
+          "kind": "from_you_raised",
+          "actor": "system",
+          "summary": "Operator item raised"
+        },
+        {
+          "at": "2026-11-14T16:20:00Z",
+          "kind": "comment_added",
+          "actor": "operator",
+          "summary": "Comment added"
+        },
+        {
+          "at": "2026-11-14T16:20:00Z",
+          "kind": "block_unblocked",
+          "actor": "operator",
+          "summary": "Block unblocked"
+        },
+        {
+          "at": "2026-11-15T12:49:00Z",
+          "kind": "turn_closed",
+          "actor": "system",
+          "summary": "Turn T41 closed: rerouted"
+        },
+        {
+          "at": "2026-11-15T12:50:00Z",
+          "kind": "turn_opened",
+          "actor": "system",
+          "summary": "Turn T42 opened in dev for worker: Dev"
+        },
+        {
+          "at": "2026-11-15T12:50:00Z",
+          "kind": "doorbell_rung",
+          "actor": "system",
+          "summary": "Doorbell rung"
+        },
+        {
+          "at": "2026-11-15T12:51:00Z",
+          "kind": "turn_taken",
+          "actor": "agent:crew/crew-ada",
+          "summary": "Turn T42 taken by agent:crew/crew-ada"
+        },
+        {
+          "at": "2026-11-15T14:07:00Z",
+          "kind": "link_added",
+          "actor": "agent:crew/crew-ada",
+          "summary": "Link added: pr example-org/spur-board#522"
+        },
+        {
+          "at": "2026-11-15T14:07:00Z",
+          "kind": "head_moved",
+          "actor": "system",
+          "summary": "Pull request head moved"
+        },
+        {
+          "at": "2026-11-15T14:08:00Z",
+          "kind": "checks_changed",
+          "actor": "system",
+          "summary": "Checks changed"
+        },
+        {
+          "at": "2026-11-15T14:46:00Z",
+          "kind": "block_opened",
+          "actor": "agent:crew/crew-ada",
+          "summary": "Block opened"
+        },
+        {
+          "at": "2026-11-15T14:46:00Z",
+          "kind": "from_you_raised",
+          "actor": "system",
+          "summary": "Operator item raised"
+        }
+      ]
+    },
+    "example-org/spur-board#511": {
+      "events": [
+        {
+          "at": "2026-11-12T16:00:00Z",
+          "kind": "task_added",
+          "actor": "system",
+          "summary": "Task added"
+        },
+        {
+          "at": "2026-11-12T16:00:00Z",
+          "kind": "link_added",
+          "actor": "system",
+          "summary": "Link added: ticket example-org/spur-board#511"
+        },
+        {
+          "at": "2026-11-13T09:10:00Z",
+          "kind": "task_moved",
+          "actor": "system",
+          "summary": "Task moved"
+        },
+        {
+          "at": "2026-11-13T09:12:00Z",
+          "kind": "turn_opened",
+          "actor": "system",
+          "summary": "Turn T44 opened in dev for worker: Dev"
+        },
+        {
+          "at": "2026-11-13T09:14:00Z",
+          "kind": "turn_taken",
+          "actor": "agent:crew/crew-bo",
+          "summary": "Turn T44 taken by agent:crew/crew-bo"
+        },
+        {
+          "at": "2026-11-13T10:40:00Z",
+          "kind": "block_opened",
+          "actor": "agent:crew/crew-bo",
+          "summary": "Block opened"
+        },
+        {
+          "at": "2026-11-13T11:02:00Z",
+          "kind": "block_unblocked",
+          "actor": "operator",
+          "summary": "Block unblocked"
+        },
+        {
+          "at": "2026-11-15T09:28:00Z",
+          "kind": "task_submitted",
+          "actor": "agent:crew/crew-bo",
+          "summary": "Turn submitted"
+        },
+        {
+          "at": "2026-11-15T09:28:00Z",
+          "kind": "turn_closed",
+          "actor": "system",
+          "summary": "Turn T44 closed: submitted"
+        },
+        {
+          "at": "2026-11-15T09:30:00Z",
+          "kind": "task_moved",
+          "actor": "system",
+          "summary": "Task moved"
+        },
+        {
+          "at": "2026-11-15T09:30:00Z",
+          "kind": "turn_opened",
+          "actor": "system",
+          "summary": "Turn T48 opened in review for orchestrator:review: Review"
+        },
+        {
+          "at": "2026-11-15T09:32:00Z",
+          "kind": "turn_taken",
+          "actor": "agent:review-desk/review-desk-1",
+          "summary": "Turn T48 taken by agent:review-desk/review-desk-1"
+        },
+        {
+          "at": "2026-11-15T12:58:00Z",
+          "kind": "block_opened",
+          "actor": "agent:review-desk/review-desk-1",
+          "summary": "Block opened"
+        },
+        {
+          "at": "2026-11-15T12:58:00Z",
+          "kind": "turn_closed",
+          "actor": "system",
+          "summary": "Turn T48 closed: returned"
+        },
+        {
+          "at": "2026-11-15T12:58:00Z",
+          "kind": "task_moved",
+          "actor": "system",
+          "summary": "Task moved"
+        },
+        {
+          "at": "2026-11-15T12:58:00Z",
+          "kind": "turn_opened",
+          "actor": "system",
+          "summary": "Turn T51 opened in dev for worker: Dev: answer B88"
+        },
+        {
+          "at": "2026-11-15T13:00:00Z",
+          "kind": "turn_taken",
+          "actor": "agent:crew/crew-bo",
+          "summary": "Turn T51 taken by agent:crew/crew-bo"
+        }
+      ]
+    },
+    "example-org/spur-board#523": {
+      "events": [
+        {
+          "at": "2026-11-15T13:40:00Z",
+          "kind": "task_added",
+          "actor": "system",
+          "summary": "Task added"
+        },
+        {
+          "at": "2026-11-15T13:40:00Z",
+          "kind": "link_added",
+          "actor": "system",
+          "summary": "Link added: ticket example-org/spur-board#523"
+        },
+        {
+          "at": "2026-11-15T13:55:00Z",
+          "kind": "task_moved",
+          "actor": "system",
+          "summary": "Task moved"
+        },
+        {
+          "at": "2026-11-15T13:58:00Z",
+          "kind": "turn_opened",
+          "actor": "system",
+          "summary": "Turn T53 opened in dev for worker: Dev"
+        },
+        {
+          "at": "2026-11-15T14:00:00Z",
+          "kind": "turn_taken",
+          "actor": "agent:crew/crew-cy",
+          "summary": "Turn T53 taken by agent:crew/crew-cy"
+        },
+        {
+          "at": "2026-11-15T14:20:00Z",
+          "kind": "link_added",
+          "actor": "agent:crew/crew-cy",
+          "summary": "Link added: pr example-org/spur-board#529"
+        },
+        {
+          "at": "2026-11-15T14:35:00Z",
+          "kind": "checks_changed",
+          "actor": "system",
+          "summary": "Checks changed"
+        },
+        {
+          "at": "2026-11-15T14:36:00Z",
+          "kind": "mergeable_changed",
+          "actor": "system",
+          "summary": "Mergeability changed"
+        }
+      ]
+    },
+    "example-org/spur-board#512": {
+      "events": [
+        {
+          "at": "2026-11-14T17:00:00Z",
+          "kind": "task_added",
+          "actor": "system",
+          "summary": "Task added"
+        },
+        {
+          "at": "2026-11-14T17:00:00Z",
+          "kind": "link_added",
+          "actor": "system",
+          "summary": "Link added: ticket example-org/spur-board#512"
+        },
+        {
+          "at": "2026-11-15T14:18:00Z",
+          "kind": "task_moved",
+          "actor": "system",
+          "summary": "Task moved"
+        },
+        {
+          "at": "2026-11-15T14:20:00Z",
+          "kind": "turn_opened",
+          "actor": "system",
+          "summary": "Turn T49 opened in dev for worker: Dev"
+        },
+        {
+          "at": "2026-11-15T14:22:00Z",
+          "kind": "turn_taken",
+          "actor": "agent:crew/crew-dee",
+          "summary": "Turn T49 taken by agent:crew/crew-dee"
+        },
+        {
+          "at": "2026-11-15T14:30:00Z",
+          "kind": "block_opened",
+          "actor": "operator",
+          "summary": "Block opened"
+        }
+      ]
+    },
+    "example-org/spur-board#515": {
+      "events": [
+        {
+          "at": "2026-11-15T10:10:00Z",
+          "kind": "task_added",
+          "actor": "system",
+          "summary": "Task added"
+        },
+        {
+          "at": "2026-11-15T10:10:00Z",
+          "kind": "link_added",
+          "actor": "system",
+          "summary": "Link added: ticket example-org/spur-board#515"
+        },
+        {
+          "at": "2026-11-15T14:52:00Z",
+          "kind": "task_moved",
+          "actor": "system",
+          "summary": "Task moved"
+        },
+        {
+          "at": "2026-11-15T14:54:00Z",
+          "kind": "turn_opened",
+          "actor": "system",
+          "summary": "Turn T50 opened in dev for worker: Dev"
+        },
+        {
+          "at": "2026-11-15T14:54:00Z",
+          "kind": "doorbell_rung",
+          "actor": "system",
+          "summary": "Doorbell rung"
+        },
+        {
+          "at": "2026-11-15T14:57:00Z",
+          "kind": "link_added",
+          "actor": "operator",
+          "summary": "Link added: pr example-org/spur-board#531"
+        }
+      ]
+    },
+    "example-org/spur-board#508": {
+      "events": [
+        {
+          "at": "2026-11-14T14:40:00Z",
+          "kind": "task_added",
+          "actor": "system",
+          "summary": "Task added"
+        },
+        {
+          "at": "2026-11-14T14:40:00Z",
+          "kind": "link_added",
+          "actor": "system",
+          "summary": "Link added: ticket example-org/spur-board#508"
+        },
+        {
+          "at": "2026-11-14T15:00:00Z",
+          "kind": "task_moved",
+          "actor": "system",
+          "summary": "Task moved"
+        },
+        {
+          "at": "2026-11-15T13:25:00Z",
+          "kind": "task_submitted",
+          "actor": "agent:crew/crew-ada",
+          "summary": "Turn submitted"
+        },
+        {
+          "at": "2026-11-15T13:26:00Z",
+          "kind": "task_moved",
+          "actor": "system",
+          "summary": "Task moved"
+        },
+        {
+          "at": "2026-11-15T13:28:00Z",
+          "kind": "turn_opened",
+          "actor": "system",
+          "summary": "Turn T47 opened in review for orchestrator:review: Review"
+        },
+        {
+          "at": "2026-11-15T13:30:00Z",
+          "kind": "turn_taken",
+          "actor": "agent:review-desk/review-desk-1",
+          "summary": "Turn T47 taken by agent:review-desk/review-desk-1"
+        },
+        {
+          "at": "2026-11-15T14:15:00Z",
+          "kind": "block_opened",
+          "actor": "system",
+          "summary": "Block opened"
+        },
+        {
+          "at": "2026-11-15T14:15:00Z",
+          "kind": "from_you_raised",
+          "actor": "system",
+          "summary": "Operator item raised"
+        }
+      ]
+    },
+    "example-org/spur-board#510": {
+      "events": [
+        {
+          "at": "2026-11-12T10:00:00Z",
+          "kind": "task_added",
+          "actor": "system",
+          "summary": "Task added"
+        },
+        {
+          "at": "2026-11-12T10:00:00Z",
+          "kind": "link_added",
+          "actor": "system",
+          "summary": "Link added: ticket example-org/spur-board#510"
+        },
+        {
+          "at": "2026-11-15T11:58:00Z",
+          "kind": "task_moved",
+          "actor": "system",
+          "summary": "Task moved"
+        },
+        {
+          "at": "2026-11-15T12:00:00Z",
+          "kind": "turn_opened",
+          "actor": "system",
+          "summary": "Turn T55 opened in ready-to-merge for operator: Merge"
+        },
+        {
+          "at": "2026-11-15T12:00:00Z",
+          "kind": "from_you_raised",
+          "actor": "system",
+          "summary": "Operator item raised"
+        }
       ]
     }
   },
-  "inbox": [
-    {
-      "proj": "spur-board",
-      "kind": "block B89",
-      "cls": "warn",
-      "text": "Should a board-wide orchestrator binding skip projects that set their own column executor, or override them?",
-      "age": "14m",
-      "task": "#509"
-    },
-    {
-      "proj": "spur-board",
-      "kind": "your turn T55",
-      "cls": "warn",
-      "text": "ready-to-merge: check the PR's Changed checks section against changed test files",
-      "age": "3h",
-      "task": "#510"
-    },
-    {
-      "proj": "spur-board",
-      "kind": "stalled T47",
-      "cls": "err",
-      "text": "Orchestrator br has not moved the review turn for 47m.",
-      "age": "47m",
-      "task": "#508"
-    },
-    {
-      "proj": "system",
-      "kind": "github",
-      "cls": "err",
-      "text": "Rate budget is low: 312 of 5000 left, resets at 16:40.",
-      "age": "5m",
-      "task": null
-    }
-  ],
-  "handled": [
-    {
-      "proj": "spur-board",
-      "kind": "block B84",
-      "text": "Answered in Slack",
-      "age": "1d",
-      "task": "#509"
-    },
-    {
-      "proj": "spur-board",
-      "kind": "block B81",
-      "text": "Answered on the board",
-      "age": "2d",
-      "task": "#511"
-    }
-  ],
-  "services": {
-    "daemon": {
-      "icon": "pulse",
-      "st": "s-ok",
-      "state": "running",
-      "rows": [
-        ["Since", "09:12 14/11/26"],
-        ["Version", "0.64.0"],
-        ["Dispatcher tick", "14:59 15/11/26"],
-        ["CPU", "41%", 41],
-        ["RAM", "62%", 62],
-        ["Disk", "38%", 38]
-      ]
-    },
-    "slack": {
-      "icon": "hash",
-      "st": "s-ok",
-      "state": "connected",
-      "rows": [
-        ["Since", "09:12 14/11/26"],
-        ["Last request", "14:58 15/11/26 · chat.postMessage · ok"]
-      ]
-    },
-    "github": {
-      "icon": "pr",
-      "st": "s-warn",
-      "state": "budget low",
-      "rows": [
-        ["Since", "13:40 15/11/26"],
-        ["Last request", "14:59 15/11/26 · graphql · ok"],
-        ["Rate budget", "312 of 5000 left", 6],
-        ["Resets at", "16:40 15/11/26"]
-      ]
-    },
-    "jira": {
-      "icon": "diamond",
-      "st": "s-ok",
-      "state": "connected",
-      "rows": [
-        ["Since", "09:12 14/11/26"],
-        ["Last request", "14:55 15/11/26 · search · ok"]
-      ]
-    },
-    "spur": {
-      "icon": "mark",
-      "st": "s-ok",
-      "state": "connected",
-      "rows": [
-        ["Since", "09:12 14/11/26"],
-        ["Last request", "14:59 15/11/26 · sessions · ok"]
-      ]
-    }
+  "inbox.operator": {
+    "items": [
+      {
+        "id": "B89",
+        "project": "spur-board",
+        "kind": "block",
+        "text": "Should a board-wide orchestrator binding skip projects that set their own column executor, or override them?",
+        "at": "2026-11-15T14:46:00Z",
+        "task": "example-org/spur-board#509",
+        "severity": "attention"
+      },
+      {
+        "id": "I7",
+        "project": "_board",
+        "kind": "transport_health",
+        "text": "Slack delivery down: check the Slack app token",
+        "at": "2026-11-15T14:30:00Z",
+        "task": null,
+        "severity": "failure"
+      },
+      {
+        "id": "B90",
+        "project": "spur-board",
+        "kind": "block",
+        "text": "Turn T47 has not moved since 14:13: check the review-desk session.",
+        "at": "2026-11-15T14:15:00Z",
+        "task": "example-org/spur-board#508",
+        "severity": "attention"
+      },
+      {
+        "id": "T55",
+        "project": "spur-board",
+        "kind": "turn",
+        "text": "Merge: check the PR's Changed checks section against changed test files",
+        "at": "2026-11-15T12:00:00Z",
+        "task": "example-org/spur-board#510",
+        "severity": "attention",
+        "column": "ready-to-merge"
+      }
+    ],
+    "handled": [
+      {
+        "id": "B84",
+        "project": "spur-board",
+        "kind": "block",
+        "text": "Is the config key `orchestrators` or `columnExecutors`?",
+        "at": "2026-11-14T16:20:00Z",
+        "task": "example-org/spur-board#509",
+        "severity": "attention",
+        "answeredVia": "slack"
+      },
+      {
+        "id": "B81",
+        "project": "spur-board",
+        "kind": "block",
+        "text": "May the stall check reuse the doorbell timer, or does it need its own?",
+        "at": "2026-11-13T11:02:00Z",
+        "task": "example-org/spur-board#511",
+        "severity": "attention",
+        "answeredVia": "web"
+      }
+    ]
   }
 }

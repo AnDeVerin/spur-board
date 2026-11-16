@@ -10,6 +10,7 @@ import {
   GATE_CONDITION_STATES,
   MEMBERSHIPS,
   TASK_HOLDS,
+  VIAS,
 } from '../enums.ts';
 import { GATE_REASONS, MOVE_REASONS } from '../events.ts';
 import {
@@ -27,7 +28,7 @@ import {
   ticketFactsSchema,
 } from '../facts.ts';
 import { OPERATION_KINDS, cliModeSchema, grantRuleSchema } from './define.ts';
-import { statusTurnSchema, turnViewSchema } from './turn-schemas.ts';
+import { statusReturnedSchema, statusTurnSchema, turnViewSchema } from './turn-schemas.ts';
 
 // Shapes several operations return. Every object is strict and every field is described, so the
 // generated CLI help, MCP tool schemas and `board schema` carry the same text.
@@ -102,6 +103,18 @@ export const blockViewSchema = z
       .describe('When the block was unblocked; null while open.'),
   })
   .describe('A block on a task.');
+
+/** A block as `task.get` lists it: with the channel its closing answer arrived through. */
+export const taskBlockViewSchema = blockViewSchema
+  .extend({
+    answeredVia: z
+      .enum(VIAS)
+      .nullable()
+      .describe(
+        'Channel the closing write arrived through: web or slack; null while open or when it came through the CLI, MCP or the board itself.',
+      ),
+  })
+  .describe('A block on a task, with the channel that closed it.');
 
 /** One column move from the journal: a dispatcher move, a return to Dev or a correction. */
 export const moveViewSchema = z
@@ -348,18 +361,7 @@ export const statusTaskSchema = taskViewSchema
           .describe('One open block.'),
       )
       .describe('Open blocks on the task, oldest first, without their text.'),
-    returned: z
-      .strictObject({
-        from: z.enum(COLUMN_IDS).describe('Column the task was returned from.'),
-        at: z.iso.datetime().describe('When the task was returned, ISO 8601 UTC.'),
-        by: actorIdSchema.describe('Who returned the task to Dev.'),
-        block: blockIdSchema.describe('The code block the return opened.'),
-        findings: z
-          .int()
-          .min(0)
-          .nullable()
-          .describe('Number of review findings the return sent; null when not given.'),
-      })
+    returned: statusReturnedSchema
       .optional()
       .describe(
         'The return that put the task in Dev. Present only while the task stays in Dev after the return and before its next submit.',

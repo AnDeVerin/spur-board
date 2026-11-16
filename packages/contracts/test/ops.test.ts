@@ -69,6 +69,7 @@ describe('catalog', () => {
       'comment.add',
       'config.get',
       'inbox.get',
+      'inbox.operator',
       'status.get',
       'task.get',
       'task.history',
@@ -543,6 +544,7 @@ describe('grants', () => {
     ['task.history', 'query', [operator, projectAgent], null, id],
     ['schema.get', 'query', 'any', null, []],
     ['inbox.get', 'query', [projectAgent, operator], null, ['not_found']],
+    ['inbox.operator', 'query', [operator], null, []],
     ['inbox.ack', 'mutation', [projectAgent], null, [...id, 'stale_comment_revision']],
     ['token.list', 'query', [operator], null, []],
     ['token.revoke', 'mutation', [operator], null, ['not_found']],
@@ -640,7 +642,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(26);
+    expect(OPERATIONS).toHaveLength(27);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {

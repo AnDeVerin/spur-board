@@ -11,6 +11,7 @@ import { createBlockMutations } from './blocks.ts';
 import { createItemMutations, type ReapplyInbound } from './items.ts';
 import { createLinkMutations } from './links.ts';
 import { createMembershipMutations } from './membership.ts';
+import { createOperatorInbox } from './operator-inbox.ts';
 import type { OperationHandlers } from './operations.ts';
 import type { Query } from './queries.ts';
 import { getStatus } from './status.ts';
@@ -192,6 +193,7 @@ export function createOperationRegistry(deps: {
     'task.get': taskQueries.get,
     'task.history': taskQueries.history,
     'inbox.get': taskQueries.inbox,
+    'inbox.operator': createOperatorInbox({ config, clock }),
     'token.list': tokenListQuery(clock),
     'token.revoke': tokenRevokeMutation,
     'task.add': membership.add,

@@ -108,7 +108,7 @@ describe('web listener', () => {
 
   it('accepts exact origin with JSON parameters and runs bound reads as operator', async () => {
     const { app } = await setup();
-    for (const id of ['status.get', 'inbox.get', 'config.get']) {
+    for (const id of ['status.get', 'inbox.get', 'inbox.operator', 'config.get']) {
       const response = await app.inject({
         ...post(id),
         headers: { ...headers, 'content-type': 'application/json; charset=utf-8' },

@@ -296,6 +296,37 @@ describe('production query handlers', () => {
     expect(comments.map(({ via }) => via)).toEqual([undefined, 'slack', 'web']);
   });
 
+  it('shows where each block of a task was answered', async () => {
+    const { registry, query, apply } = await seeded();
+    const ask = (n: number) =>
+      apply(
+        required(registry['block.ask']),
+        { task: KEY, text: `Question ${String(n)}?` },
+        worker,
+        `ask-${String(n)}`,
+      );
+    const answer = (block: string, n: number) =>
+      apply(
+        required(registry['block.answer']),
+        { block, text: `Answer ${String(n)}.` },
+        'operator',
+        `answer-${String(n)}`,
+      );
+    const [slack, web, plain, open] = [await ask(1), await ask(2), await ask(3), await ask(4)];
+    await withVia('slack', () => answer(slack.block.id, 1));
+    await withVia('web', () => answer(web.block.id, 2));
+    await answer(plain.block.id, 3);
+
+    const { blocks } = await query(required(registry['task.get']), { task: KEY }, worker);
+
+    expect(blocks.map(({ id, state, answeredVia }) => [id, state, answeredVia])).toEqual([
+      [slack.block.id, 'unblocked', 'slack'],
+      [web.block.id, 'unblocked', 'web'],
+      [plain.block.id, 'unblocked', null],
+      [open.block.id, 'open', null],
+    ]);
+  });
+
   it('shows the current answer revision, acknowledges it, and shows an edited clarification', async () => {
     const { store, registry, query, apply } = await seeded();
     const asked = await apply(
