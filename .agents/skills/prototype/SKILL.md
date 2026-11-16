@@ -32,7 +32,9 @@ prototype and the design system differ, the reason codes and the PR section form
 ## Values
 
 - Every `--proposed-*` value and every literal gets a decision: an existing token or a new one,
-  named in `packages/web/src/ds/tokens.css` with a value in both themes.
+  named in `packages/web/src/ds/tokens.css` with a value in both themes. A structural literal
+  and a media query width take the `structural literal` and `breakpoint` codes instead
+  (`docs/design-system-decisions.md`).
 - Decide with `pnpm ds:nearest '<hex>'`, `pnpm ds:nearest '<dark hex>' '<light hex>'` or
   `pnpm ds:nearest <n>px`; quote a hex. `verdict: in` with a token of the value's family means
   `nearest token`; any other verdict means `new token` (family rule in

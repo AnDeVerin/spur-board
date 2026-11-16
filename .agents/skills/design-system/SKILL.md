@@ -42,7 +42,8 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
   change both together or neither (`scripts/web.test.ts`).
 - Dark is the default; light applies under `data-theme="light"` on the root element. Light
   overrides only `--color-*`.
-- Styles use tokens only. A raw hex or `rgb()` color outside `tokens.css` fails
+- Styles use tokens only, except structural literals and `@media` widths from `breakpoints`
+  (`docs/design-system-decisions.md`). A raw hex or `rgb()` color outside `tokens.css` fails
   `scripts/web.test.ts`, which also scans the gallery sources.
 - That scan matches "#" followed by three to eight hex-like characters anywhere in source, so
   example labels avoid text such as "PR #1234"; write "PR 1234".
@@ -78,4 +79,3 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 - A screen issue names the containers that take `quiet`.
 - `quiet` is a scoped CSS Modules class, not a global one: Vite drops CSS Modules no bundle reads,
   so use the exported name, never a literal class string.
-- Examples: gallery `Quiet / Rest`, `Quiet / HoverOrFocus` and `Quiet / Brightening`.
