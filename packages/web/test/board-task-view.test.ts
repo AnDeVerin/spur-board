@@ -359,6 +359,28 @@ describe('task view', () => {
     expect(inDialog('section').textContent).toContain('Why it is here');
   });
 
+  it('a failed re-read keeps the loaded task and shows the error banner', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const d = daemon();
+    mount(d);
+    await settle();
+    d.send(hello);
+    await settle();
+    click(card());
+    await settle();
+    expect(dialog()?.querySelector('[role="alert"]')).toBeNull();
+    const count = taskCalls().length;
+    d.routes['task.get'] = () => problem('unexpected', 500);
+    d.send('event: invalidate\ndata: {"projects":[],"tasks":["ex/repo#7"]}\n\n');
+    await settle();
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    await settle();
+    expect(taskCalls()).toHaveLength(count + 1);
+    expect(inDialog('[role="alert"]').textContent).toContain('Could not load the task.');
+    expect(inDialog('a[aria-label="PR #7, ex/repo"]').textContent).toBe('PR #7');
+    expect(inDialog('section').textContent).toContain('Why it is here');
+  });
+
   it('offline with kept data shows no modal banner and keeps the data', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const d = daemon();
