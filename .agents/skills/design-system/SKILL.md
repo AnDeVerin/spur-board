@@ -64,7 +64,9 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 - Text fields are the one exception: focus turns the border primary, with a transparent
   `var(--width-ring)` outline for forced colours mode; their buttons, such as Clear, take the ring.
 - A screen, the gallery included, never defines its own ring; `scripts/web.test.ts` rejects any
-  other outline. Native elements in example scaffolding keep the browser ring.
+  other outline, and any outline in CSS under `src/` outside `src/ds/`. A focusable screen element
+  with no ds component, such as a card link, takes the `focusRing` class from `ds/index.ts`.
+  Native elements in example scaffolding keep the browser ring.
 - Disabled controls are not focusable, so they show no ring.
 - Each focusable component has a `Focused` example whose caption names the keys to press.
 
