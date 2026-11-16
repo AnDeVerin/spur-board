@@ -809,3 +809,44 @@ describe('web browser boundary', () => {
     ).toContain('no-restricted-syntax');
   });
 });
+
+describe('design system boundary', () => {
+  const ds = 'local/ds-import-boundary';
+  const web = 'local/web-import-boundary';
+  it.each([
+    ['packages/web/src/ds/Chip/Chip.tsx', "import { api } from '../../lib/api.ts';"],
+    ['packages/web/src/ds/Chip/Chip.tsx', "import { App } from '../../App.tsx';"],
+    ['packages/web/src/ds/Chip/Chip.tsx', "import { x } from '@spur-board/contracts/browser';"],
+    ['packages/web/src/ds/Chip/Chip.tsx', "import { x } from '@spur-board/contracts';"],
+    ['packages/web/src/App.tsx', "import { Chip } from './ds/Chip/Chip.tsx';"],
+    ['packages/web/src/App.tsx', "import './ds/tokens.css';"],
+    ['packages/web/src/App.tsx', "import tokens from './ds/tokens.css?raw';"],
+    ['packages/web/src/App.tsx', "import type { X } from './ds/ThemeSwitch/ThemeSwitch.tsx';"],
+    ['packages/web/src/App.tsx', "export * from './ds/Chip/Chip.tsx';"],
+    ['packages/web/test/ds.test.ts', "import * as e from '../src/ds/Chip/Chip.examples.tsx';"],
+  ])(
+    'rejects at %s: %s',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toContain(ds);
+    },
+    30000,
+  );
+  it.each([
+    ['packages/web/src/ds/Chip/Chip.tsx', "import styles from './Chip.module.css';"],
+    ['packages/web/src/ds/Chip/Chip.tsx', "import '../tokens.css';"],
+    ['packages/web/src/ds/Chip/Chip.tsx', "import { useState } from 'react';"],
+    ['packages/web/src/lib/theme.ts', "import type { ThemePreference } from '../ds/index.ts';"],
+    ['packages/web/test/ds.test.ts', "import s from '../src/ds/index.ts?raw';"],
+  ])(
+    'allows at %s: %s',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).not.toContain(ds);
+    },
+    30000,
+  );
+  it('turns web-import-boundary off for kit.test.ts only', async () => {
+    const code = "import fs from 'node:fs';";
+    expect(await textRuleIds(code, 'packages/web/test/kit.test.ts')).not.toContain(web);
+    expect(await textRuleIds(code, 'packages/web/test/ds.test.ts')).toContain(web);
+  }, 30000);
+});

@@ -4,6 +4,7 @@ import { dirname, resolve, sep } from 'node:path';
 import { builtinModules } from 'node:module';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
+import dsImportBoundary from './eslint/ds-import-boundary.ts';
 import maxLinesBaseline from './eslint/max-lines-baseline.ts';
 import noProjectLiteralCompare from './eslint/no-project-literal-compare.ts';
 import skipNeedsFlakyIssue from './eslint/skip-needs-flaky-issue.ts';
@@ -76,6 +77,7 @@ const local = {
   rules: {
     'cli-import-boundary': cliImportBoundary,
     'web-import-boundary': webImportBoundary,
+    'ds-import-boundary': dsImportBoundary,
     'no-project-literal-compare': noProjectLiteralCompare,
     'skip-needs-flaky-issue': skipNeedsFlakyIssue,
   },
@@ -508,6 +510,7 @@ export default defineConfig(
     plugins: { local },
     rules: {
       'local/web-import-boundary': 'error',
+      'local/ds-import-boundary': 'error',
       'no-restricted-syntax': [
         'error',
         viMockBan,
@@ -528,4 +531,6 @@ export default defineConfig(
       ],
     },
   },
+  // The kit test spawns Vite builds and reads their output with Node APIs.
+  { files: ['packages/web/test/kit.test.ts'], rules: { 'local/web-import-boundary': 'off' } },
 );
