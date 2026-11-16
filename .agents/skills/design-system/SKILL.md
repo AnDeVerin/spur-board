@@ -55,9 +55,10 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
   date, dirty flag, sorted runtime exports). No build time: one commit gives byte-identical files.
 - The gallery source is `packages/web/gallery/`. It renders every example and the token table,
   with a dark and light switch that writes `?theme=`.
-- Serve the gallery from a loopback static server on a port in 4780-4799, e.g.
-  `python3 -m http.server 4781 --bind 127.0.0.1 --directory design`, open `/kit/gallery/`, and
-  stop the server when done. It needs no network.
+- Serve the gallery from a loopback static server on 127.0.0.1, outside 4777, 7777 and the stand
+  band 4780-4799 (it belongs to the board-stand Sidecar): port 0, or e.g.
+  `python3 -m http.server 4391 --bind 127.0.0.1 --directory design`; open `/kit/gallery/` and stop
+  the server when done. It needs no network.
 - `packages/web/test/kit.test.ts` builds the kit twice and checks the outputs. It runs in the
   process project; the command is in `CONTRIBUTING.md` `## Web shell`.
 - Kit output never ships: the tarball allowlist in `scripts/package.ts` rejects it.

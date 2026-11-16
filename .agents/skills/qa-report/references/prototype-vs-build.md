@@ -37,6 +37,11 @@ prototype state next to the built screen, in both themes, and give each pair a v
   server of the build.
 - No stand `webUrl` -> FAIL with the reason "no stand webUrl"; a dry run needs none.
 - The browser tool cannot run, or cannot reach 127.0.0.1 -> FAIL with that reason.
+- Exception: a change whose visible UI is only in `packages/web/src/ds/` (the prototype
+  `tokens.css` copy included) and that no screen uses yet takes the `pnpm ds:build` gallery as its
+  build side. Serve `design/` on one loopback server, open the prototype at `/prototypes/<slice>/`
+  and the gallery at `/kit/gallery/`, pair each state with its gallery example; the `webUrl`
+  bullets above do not apply, and the report names the exception.
 
 ## Pairs
 

@@ -34,8 +34,9 @@ prototype and the design system differ, the reason codes and the PR section form
 - Every `--proposed-*` value and every literal gets a decision: an existing token or a new one,
   named in `packages/web/src/ds/tokens.css` with a value in both themes.
 - Decide with `pnpm ds:nearest '<hex>'`, `pnpm ds:nearest '<dark hex>' '<light hex>'` or
-  `pnpm ds:nearest <n>px`; quote a hex. `verdict: in` means `nearest token`, `verdict: out` means
-  `new token`. A refused value follows the route the script prints.
+  `pnpm ds:nearest <n>px`; quote a hex. `verdict: in` with a token of the value's family means
+  `nearest token`; any other verdict means `new token` (family rule in
+  `docs/design-system-decisions.md`). A refused value follows the route the script prints.
 
 ## Build
 
@@ -47,7 +48,9 @@ prototype and the design system differ, the reason codes and the PR section form
 
 - Show each prototype state next to the built screen, in both themes. Open the build on a stand
   through the board-stand Sidecar (`qa-stand` skill) at the `webUrl` that `pnpm stand up`
-  prints, never through a direct loopback server.
+  prints, never through a direct loopback server. A change whose visible UI is only in
+  `packages/web/src/ds/` and that no screen uses yet takes the `pnpm ds:build` gallery instead
+  (`.agents/skills/qa-report/references/prototype-vs-build.md`, "The build").
 - Fill `## Design System decisions` in the PR body: one row per difference with its reason code
   and evidence, or the single line `None`. The format and a filled example are in
   `docs/design-system-decisions.md`.
