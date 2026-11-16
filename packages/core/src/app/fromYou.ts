@@ -19,10 +19,14 @@ import {
 } from '../domain/health.ts';
 import {
   BLOCK_ITEM_KINDS,
+  BLOCK_KEY,
+  CONVERSATION_KEY,
   fingerprint,
   ITEM_POLICY,
+  OPERATOR_BLOCK_KEY,
   orderItems,
   RECONCILED_KINDS,
+  SOURCE_KEY,
   type ItemCandidate,
   type ItemKind,
 } from '../domain/fromYou.ts';
@@ -103,7 +107,7 @@ async function conversationWaiting(
     config.projects.flatMap((project) => project.spurProjects).find((entry) => entry.name === spur)
       ?.shortName ?? spur;
   return {
-    key: `conversation:${String(block.id)}`,
+    key: `${CONVERSATION_KEY}${String(block.id)}`,
     kind: 'conversation_waiting',
     taskId: subject.task?.id ?? null,
     summary: `${subject.key}: message to @${shortName} waits for a live ${spur} session`,
@@ -131,7 +135,7 @@ export async function reconcileItems(
     // A stale tracker shows as a status flag only; stale Spur also blinds worker health.
     if (source.blind_reason === 'stale' && source.source !== 'spur') continue;
     candidates.push({
-      key: `source:${source.source}`,
+      key: `${SOURCE_KEY}${source.source}`,
       kind: 'board_observation',
       taskId: null,
       summary: `${source.source}: ${source.blind_message ?? source.blind_reason}`,
@@ -225,7 +229,7 @@ export async function reconcileItems(
       !blockedIds.has(block.id)
     )
       candidates.push({
-        key: `operator-block:${String(block.id)}`,
+        key: `${OPERATOR_BLOCK_KEY}${String(block.id)}`,
         kind: 'board_observation',
         taskId,
         summary: `${subject.key}: ${block.reason}`,
@@ -239,7 +243,7 @@ export async function reconcileItems(
     }
     if (now - Date.parse(block.created_at) >= config.thresholds.blockOpenMs)
       candidates.push({
-        key: `block:${String(block.id)}`,
+        key: `${BLOCK_KEY}${String(block.id)}`,
         kind: 'board_observation',
         taskId,
         summary: `${subject.key}: block has been open for more than a day`,

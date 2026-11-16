@@ -11,6 +11,9 @@ import {
   DISPATCHER_MODES,
   GATE_CONDITIONS,
   GATE_CONDITION_STATES,
+  INBOX_KINDS,
+  INBOX_SEVERITIES,
+  ITEM_KINDS,
   LINK_SOURCES,
   MEMBERSHIPS,
   PR_LINK_STATES,
@@ -157,4 +160,28 @@ it('lists task holds', () => {
     'cycle_limit',
     'work_not_started',
   ]);
+});
+
+it('lists operator item kinds and the operator inbox kinds and severities', () => {
+  const items = [
+    'token_request',
+    'post_blocked',
+    'post_failed',
+    'transport_health',
+    'answer_undelivered',
+    'worker_not_reading',
+    'answer_author_unavailable',
+    'inbound_failure',
+    'inbound_gap',
+    'board_observation',
+    'worker_ended',
+    'turn',
+    'anomaly',
+    'cycle_limit',
+    'course_check',
+    'conversation_waiting',
+  ];
+  expect(ITEM_KINDS).toEqual(items);
+  expect(INBOX_KINDS).toEqual(['block', ...items]);
+  expect(INBOX_SEVERITIES).toEqual(['attention', 'failure']);
 });

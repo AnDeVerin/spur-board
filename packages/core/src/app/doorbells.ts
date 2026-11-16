@@ -1229,6 +1229,12 @@ export async function ringStillCurrent(
   return recipientBusy(session) && !(await spurBlind(trx)) ? 'defer' : 'send';
 }
 
+/** The comment of an inbound author ring, named in its `doorbell:comment:<id>:` key. */
+export function ringCommentId(dedupeKey: string): number | undefined {
+  const id = /^doorbell:comment:(\d+):/.exec(dedupeKey)?.[1];
+  return id === undefined ? undefined : Number(id);
+}
+
 /**
  * The task of a ring: through its notification, or for an inbound author ring (no notification)
  * through the comment in its `doorbell:comment:<id>:` key. Archive kills only unclaimed rings;
@@ -1239,7 +1245,7 @@ export async function ringTask(
   notificationId: number | undefined,
   dedupeKey: string,
 ): Promise<Row<'task'> | undefined> {
-  const commentId = /^doorbell:comment:(\d+):/.exec(dedupeKey)?.[1];
+  const commentId = ringCommentId(dedupeKey);
   if (notificationId === undefined && commentId === undefined) return undefined;
   const owner =
     notificationId !== undefined

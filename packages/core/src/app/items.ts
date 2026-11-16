@@ -7,7 +7,7 @@ import type { Trx } from './board-utils.ts';
 import type { ResolvedTarget } from './authorize.ts';
 import { authorizationTarget, closeBlockIfOpen } from './blocks.ts';
 import { CommandError, type Mutation } from './commands.ts';
-import { restartNotification, ringTask } from './doorbells.ts';
+import { restartNotification, ringCommentId } from './doorbells.ts';
 import { clearItem, dismissItem } from './feed.ts';
 import { requeuePostFailed, retryTransport } from './sender.ts';
 
@@ -43,22 +43,83 @@ const deliveryPayloadSchema = z.object({
   notificationId: z.unknown().optional(),
 });
 
+/** The outbox row of a `delivery:<outbox id>` item; the item itself has no task. */
+function deliveryId(item: Item): number | undefined {
+  return item.kind === 'post_failed' && item.task_id === null
+    ? Number(item.item_key.slice('delivery:'.length))
+    : undefined;
+}
+
+/**
+ * The task each failed delivery item's outbox row belongs to: the payload's task, else for a
+ * doorbell its ring's (`ringTask`). Reads at most four statements, whatever the item count.
+ */
+export async function deliveryOwners(
+  trx: Trx,
+  items: readonly Item[],
+): Promise<Map<number, Row<'task'>>> {
+  const owners = new Map<number, Row<'task'>>();
+  const outboxIds = items.flatMap((item) => deliveryId(item) ?? []);
+  if (outboxIds.length === 0) return owners;
+  const rows = await trx
+    .selectFrom('outbox')
+    .select(['id', 'kind', 'dedupe_key', 'payload'])
+    .where('id', 'in', outboxIds)
+    .execute();
+  // How each row finds its task: directly, through its notification or through its comment.
+  const refs = new Map<number, { task?: number; notification?: number; comment?: number }>();
+  for (const row of rows) {
+    const payload = parseJson(deliveryPayloadSchema, row.payload);
+    if (typeof payload.taskId === 'number') refs.set(row.id, { task: payload.taskId });
+    else if (row.kind !== 'doorbell') continue;
+    else if (typeof payload.notificationId === 'number')
+      refs.set(row.id, { notification: payload.notificationId });
+    else {
+      const comment = ringCommentId(row.dedupe_key);
+      if (comment !== undefined) refs.set(row.id, { comment });
+    }
+  }
+  const ids = (pick: 'notification' | 'comment') =>
+    [...refs.values()].flatMap((ref) => ref[pick] ?? []);
+  const [notifications, comments] = await Promise.all(
+    (['notification', 'comment'] as const).map((table) => {
+      const wanted = ids(table);
+      return wanted.length === 0
+        ? Promise.resolve([])
+        : trx.selectFrom(table).select(['id', 'task_id']).where('id', 'in', wanted).execute();
+    }),
+  );
+  const taskOf = {
+    notification: new Map(notifications?.map((row) => [row.id, row.task_id])),
+    comment: new Map(comments?.map((row) => [row.id, row.task_id])),
+  };
+  const taskIds = new Map<number, number>();
+  for (const [outboxId, ref] of refs) {
+    const taskId =
+      ref.task ??
+      (ref.notification === undefined ? undefined : taskOf.notification.get(ref.notification)) ??
+      (ref.comment === undefined ? undefined : taskOf.comment.get(ref.comment));
+    if (typeof taskId === 'number') taskIds.set(outboxId, taskId);
+  }
+  if (taskIds.size === 0) return owners;
+  const tasks = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('id', 'in', [...new Set(taskIds.values())])
+    .execute();
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  for (const item of items) {
+    const outboxId = deliveryId(item);
+    const taskId = outboxId === undefined ? undefined : taskIds.get(outboxId);
+    const task = taskId === undefined ? undefined : taskById.get(taskId);
+    if (task !== undefined) owners.set(item.id, task);
+  }
+  return owners;
+}
+
 /** The task a `delivery:<outbox id>` item's row belongs to; the item itself has no task. */
 async function deliveryTask(trx: Trx, item: Item): Promise<Row<'task'> | undefined> {
-  if (item.kind !== 'post_failed') return undefined;
-  const row = await trx
-    .selectFrom('outbox')
-    .select(['kind', 'dedupe_key', 'payload'])
-    .where('id', '=', Number(item.item_key.slice('delivery:'.length)))
-    .executeTakeFirst();
-  if (row === undefined) return undefined;
-  const payload = parseJson(deliveryPayloadSchema, row.payload);
-  if (typeof payload.taskId === 'number')
-    return trx.selectFrom('task').selectAll().where('id', '=', payload.taskId).executeTakeFirst();
-  if (row.kind !== 'doorbell') return undefined;
-  const notificationId =
-    typeof payload.notificationId === 'number' ? payload.notificationId : undefined;
-  return ringTask(trx, notificationId, row.dedupe_key);
+  return (await deliveryOwners(trx, [item])).get(item.id);
 }
 
 /** The task an item belongs to: its own, else its delivery's; undefined for a board item. */

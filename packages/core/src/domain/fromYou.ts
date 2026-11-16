@@ -1,26 +1,8 @@
+import { ITEM_KINDS, type INBOX_SEVERITIES } from '@spur-board/contracts';
 import { createHash } from 'node:crypto';
 
-/** Every operator item kind; `ITEM_POLICY` must give each one a policy. */
-const ITEM_KINDS = [
-  'token_request',
-  'post_blocked',
-  'post_failed',
-  'transport_health',
-  'answer_undelivered',
-  'worker_not_reading',
-  'answer_author_unavailable',
-  'inbound_failure',
-  'inbound_gap',
-  'board_observation',
-  'worker_ended',
-  'turn',
-  'anomaly',
-  'cycle_limit',
-  'course_check',
-  'conversation_waiting',
-] as const;
-
 export type ItemKind = (typeof ITEM_KINDS)[number];
+type Severity = (typeof INBOX_SEVERITIES)[number];
 
 /** What `board item retry` does for a kind; `never_sent` and `none` refuse with a hint. */
 type RetryAction =
@@ -40,6 +22,11 @@ interface ItemPolicy {
    * closes it, and the block, not a feed line, is what the operator sees.
    */
   block: boolean;
+  /**
+   * How `inbox.operator` marks the kind: `failure` when the board or a connection broke and the
+   * text says what to check, else `attention`. A `source:` item is a failure whatever its kind.
+   */
+  severity: Severity;
 }
 
 export const ITEM_POLICY = {
@@ -50,6 +37,7 @@ export const ITEM_POLICY = {
     buttons: 'approve_deny',
     reconciled: false,
     block: false,
+    severity: 'attention',
   },
   post_blocked: {
     retry: 'never_sent',
@@ -58,6 +46,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: false,
+    severity: 'attention',
   },
   post_failed: {
     retry: 'requeue_post',
@@ -66,6 +55,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: true,
     block: false,
+    severity: 'failure',
   },
   transport_health: {
     retry: 'probe_transport',
@@ -74,6 +64,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: false,
+    severity: 'failure',
   },
   answer_undelivered: {
     retry: 'restart_ring',
@@ -82,6 +73,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: false,
+    severity: 'failure',
   },
   worker_not_reading: {
     retry: 'restart_ring',
@@ -90,6 +82,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: false,
+    severity: 'failure',
   },
   answer_author_unavailable: {
     retry: 'none',
@@ -98,6 +91,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: false,
+    severity: 'attention',
   },
   inbound_failure: {
     retry: 'reapply_inbound',
@@ -106,6 +100,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: false,
+    severity: 'failure',
   },
   inbound_gap: {
     retry: 'none',
@@ -114,6 +109,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: false,
+    severity: 'failure',
   },
   board_observation: {
     retry: 'none',
@@ -122,6 +118,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: true,
     block: false,
+    severity: 'attention',
   },
   worker_ended: {
     retry: 'none',
@@ -130,6 +127,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: true,
     block: false,
+    severity: 'attention',
   },
   /** A turn whose executor is the operator; `closeTurns` clears it. */
   turn: {
@@ -139,6 +137,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: false,
+    severity: 'attention',
   },
   /** A task-scoped condition only the operator can fix; `reconcileItems` owns its block. */
   anomaly: {
@@ -148,6 +147,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: true,
     block: true,
+    severity: 'attention',
   },
   /** A task that reached its column's cycle limit; the operator's close resets it. */
   cycle_limit: {
@@ -157,6 +157,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: true,
+    severity: 'attention',
   },
   /**
    * A task whose returns from a column reached its course check; the answer to its block, sent to
@@ -169,6 +170,7 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: false,
     block: true,
+    severity: 'attention',
   },
   /** An operator conversation whose ring waits for a live session of its Spur project. */
   conversation_waiting: {
@@ -178,8 +180,34 @@ export const ITEM_POLICY = {
     buttons: 'item',
     reconciled: true,
     block: false,
+    severity: 'attention',
   },
 } as const satisfies Record<ItemKind, ItemPolicy>;
+
+/** The `inbox.operator` severity of an item; a blind source's item is a failure. */
+export function itemSeverity(kind: ItemKind, key: string): Severity {
+  return key.startsWith(SOURCE_KEY) ? 'failure' : ITEM_POLICY[kind].severity;
+}
+
+/** Key prefixes of the items `reconcileItems` raises about a source or a block. */
+export const SOURCE_KEY = 'source:';
+export const OPERATOR_BLOCK_KEY = 'operator-block:';
+export const BLOCK_KEY = 'block:';
+export const CONVERSATION_KEY = 'conversation:';
+
+/** The block an item is about: its ledger block, else the block its key names. */
+export function itemBlockRef(item: {
+  item_key: string;
+  block_id: number | null;
+}): number | undefined {
+  if (item.block_id !== null) return item.block_id;
+  for (const prefix of [OPERATOR_BLOCK_KEY, BLOCK_KEY, CONVERSATION_KEY]) {
+    if (!item.item_key.startsWith(prefix)) continue;
+    const id = Number(item.item_key.slice(prefix.length));
+    return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+  }
+  return undefined;
+}
 
 /** Guards a stored kind: the column is free text and old or hand-written rows may hold others. */
 export function isItemKind(kind: string): kind is ItemKind {
