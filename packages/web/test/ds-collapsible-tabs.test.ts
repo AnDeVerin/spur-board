@@ -58,7 +58,7 @@ describe('CollapsibleSection', () => {
       Object.keys(
         examples['../src/ds/CollapsibleSection/CollapsibleSection.examples.tsx'] ?? {},
       ).sort(),
-    ).toEqual(['Collapsed', 'Open', 'Sticky']);
+    ).toEqual(['Collapsed', 'Focused', 'Open', 'Sticky']);
   });
 });
 

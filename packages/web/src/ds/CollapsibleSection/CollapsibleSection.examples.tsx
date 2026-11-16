@@ -38,3 +38,15 @@ export function Sticky() {
     </div>
   );
 }
+export function Focused() {
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
+        Press Tab to reach the chevron; Enter or Space toggles the section
+      </p>
+      <CollapsibleSection title="Comments" count={4} summary="2 open">
+        <p>Four comments, two of them still open.</p>
+      </CollapsibleSection>
+    </div>
+  );
+}

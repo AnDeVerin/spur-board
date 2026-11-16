@@ -34,8 +34,13 @@
 }
 .trigger:focus-visible,
 .item:focus-visible {
-  outline: 2px solid var(--color-accent-violet);
-  outline-offset: 2px;
+  outline: var(--width-ring) solid var(--color-status-working);
+  outline-offset: var(--offset-ring);
+}
+/* Items stack with no gap: lift the focused one so the next item cannot paint over its ring. */
+.item:focus-visible {
+  position: relative;
+  z-index: var(--z-focus);
 }
 .item[aria-checked='true'] {
   color: var(--color-text-primary);

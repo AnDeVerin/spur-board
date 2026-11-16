@@ -123,6 +123,7 @@
 
   /* stacking */
   --z-sticky: 1;
+  --z-focus: 1;
   --z-panel: 6;
   --z-modal: 7;
 

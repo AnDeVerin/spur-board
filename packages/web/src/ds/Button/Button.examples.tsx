@@ -50,3 +50,11 @@ export function Busy() {
     </Shown>
   );
 }
+export function Focused() {
+  return (
+    <Shown caption="Press Tab: each button shows the focus ring">
+      <Button variant="primary">Answer B89</Button>
+      <Button>Retry now</Button>
+    </Shown>
+  );
+}

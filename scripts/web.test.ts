@@ -61,6 +61,37 @@ function unlistedMediaWidths(css: string, allowed: readonly string[]): string[] 
       .filter((feature) => /width/.test(feature) && !listed.has(feature)),
   );
 }
+/** Every innermost `selector { body }` rule, comments removed, selector trimmed. */
+function cssRules(css: string): { selector: string; body: string }[] {
+  return [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(
+    (match) => ({ selector: (match[1] ?? '').trim(), body: match[2] ?? '' }),
+  );
+}
+const ring = 'var(--width-ring) solid var(--color-status-working)';
+// Text fields show focus with their border; the transparent outline is for forced colours mode.
+const forcedColoursRing = 'var(--width-ring) solid transparent';
+const forcedColoursFields = new Set([
+  'src/ds/TextInput/TextInput.module.css .box:focus-within',
+  'src/ds/TextArea/TextArea.module.css .field:focus',
+]);
+// The TextInput box draws its focus cue, so the input inside it drops its own outline.
+const outlineNone = new Set(['src/ds/TextInput/TextInput.module.css .input']);
+/** Each `outline*` declaration in `css` that is not the one ds focus ring. */
+function outlineViolations(file: string, css: string): string[] {
+  return cssRules(css).flatMap(({ selector, body }) =>
+    [...body.matchAll(/(outline(?:-[\w-]+)?)\s*:\s*([^;]+);/g)]
+      .filter(([, property, raw]) => {
+        const value = (raw ?? '').trim();
+        if (property === 'outline-offset') return value !== 'var(--offset-ring)';
+        if (property !== 'outline') return true;
+        if (value === ring) return false;
+        if (value === forcedColoursRing) return !forcedColoursFields.has(`${file} ${selector}`);
+        if (value === 'none') return !outlineNone.has(`${file} ${selector}`);
+        return true;
+      })
+      .map(([declaration]) => `${file} ${selector}: ${declaration}`),
+  );
+}
 describe('web design assets and policy', () => {
   it('preserves every prototype token and inherited scale byte for byte', () => {
     expect(tokens).toBe(
@@ -149,6 +180,89 @@ describe('web design assets and policy', () => {
     const rule = css.split('\n.actions {')[1]?.split('}')[0];
     expect(rule).toBeDefined();
     expect(rule).toContain('padding-top: calc(var(--width-ring) + var(--offset-ring));');
+  });
+  it('ThemeSwitch lifts a focused item so the next item cannot cover its ring', () => {
+    const lifts = cssRules(read('src/ds/ThemeSwitch/ThemeSwitch.module.css')).filter(
+      ({ selector, body }) =>
+        selector.split(',').some((part) => part.trim() === '.item:focus-visible') &&
+        body.includes('position: relative;') &&
+        body.includes('z-index: var(--z-focus);'),
+    );
+    expect(lifts).toHaveLength(1);
+    expect(dark['--z-focus']).toBe('1');
+  });
+  it('outlineViolations accepts only the ds ring, including negative fixtures', () => {
+    const rule = (selector: string, body: string) => `${selector} {\n  ${body}\n}\n`;
+    for (const ok of [
+      rule('.a:focus-visible', 'outline: var(--width-ring) solid var(--color-status-working);'),
+      rule('.a:focus-visible', 'outline-offset: var(--offset-ring);'),
+      '/* outline: 2px solid red; */',
+    ])
+      expect(outlineViolations('x.css', ok), ok).toEqual([]);
+    for (const bad of [
+      rule('.a:focus-visible', 'outline: 2px solid var(--color-accent-violet);'),
+      rule('.a:focus-visible', 'outline-offset: 2px;'),
+      rule('.a:focus-visible', 'outline-color: var(--color-status-working);'),
+      rule('.a', 'outline: var(--width-ring) solid transparent;'),
+      rule('.a:focus-visible', 'outline: var(--width-ring) solid transparent;'),
+      rule('.a:focus-within', 'outline: var(--width-ring) solid transparent;'),
+      rule('.box:focus-within', 'outline: var(--width-ring) solid transparent;'),
+      rule('.input', 'outline: none;'),
+      rule('.a:focus', 'outline: 0;'),
+    ])
+      expect(outlineViolations('x.css', bad), bad).toHaveLength(1);
+    for (const [file, ok] of [
+      ['src/ds/TextInput/TextInput.module.css', rule('.input', 'outline: none;')],
+      [
+        'src/ds/TextInput/TextInput.module.css',
+        rule('.box:focus-within', 'outline: var(--width-ring) solid transparent;'),
+      ],
+      [
+        'src/ds/TextArea/TextArea.module.css',
+        rule('.field:focus', 'outline: var(--width-ring) solid transparent;'),
+      ],
+    ] as const)
+      expect(outlineViolations(file, ok), ok).toEqual([]);
+  });
+  it('every outline in the web sources and the gallery is the ds ring', () => {
+    const files = [
+      ...readdirSync(join(root, 'src'), { recursive: true, encoding: 'utf8' }).map(
+        (file) => `src/${file}`,
+      ),
+      ...readdirSync(join(root, 'gallery'), { recursive: true, encoding: 'utf8' }).map(
+        (file) => `gallery/${file}`,
+      ),
+    ].filter((file) => file.endsWith('.css'));
+    expect(files).toContain('gallery/Gallery.module.css');
+    expect(files.flatMap((file) => outlineViolations(file, read(file)))).toEqual([]);
+  });
+  it('every ds component with a focus outline has a Focused example', () => {
+    const folders = readdirSync(join(root, 'src/ds'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    const focusable = folders.filter((name) => {
+      const file = `src/ds/${name}/${name}.module.css`;
+      return (
+        existsSync(join(root, file)) &&
+        cssRules(read(file)).some(
+          (rule) => rule.selector.includes(':focus') && /\boutline\s*:/.test(rule.body),
+        )
+      );
+    });
+    expect(focusable.sort()).toEqual([
+      'Button',
+      'CollapsibleSection',
+      'HoverMenu',
+      'IconButton',
+      'Tabs',
+      'TextArea',
+      'TextInput',
+      'ThemeSwitch',
+    ]);
+    for (const name of focusable)
+      expect(read(`src/ds/${name}/${name}.examples.tsx`), name).toContain(
+        'export function Focused(',
+      );
   });
   it('unlistedMediaWidths reports widths outside the list', () => {
     const allowed = ['(max-width: 760px)'];

@@ -30,3 +30,14 @@ export function WithValue() {
 export function Disabled() {
   return <Filter initial="B89" disabled />;
 }
+export function Focused() {
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
+        Press Tab: the border turns primary; press Tab again to reach Clear, which shows the focus
+        ring
+      </p>
+      <Filter initial="B89" />
+    </div>
+  );
+}

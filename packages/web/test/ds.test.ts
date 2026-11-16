@@ -279,11 +279,11 @@ describe('controls and form fields', () => {
     expect(
       Object.fromEntries(controlFolders.map((f) => [f, Object.keys(controlExamples(f))])),
     ).toEqual({
-      Button: ['Primary', 'Outlined', 'Disabled', 'Busy'],
+      Button: ['Primary', 'Outlined', 'Disabled', 'Busy', 'Focused'],
       FormRow: ['Answer', 'Error', 'Sending', 'Disabled', 'SendFails', 'NarrowActions'],
-      IconButton: ['Close', 'InActions', 'Disabled'],
-      TextArea: ['Empty', 'Typing', 'Disabled'],
-      TextInput: ['Empty', 'WithValue', 'Disabled'],
+      IconButton: ['Close', 'InActions', 'Disabled', 'Focused'],
+      TextArea: ['Empty', 'Typing', 'Disabled', 'Focused'],
+      TextInput: ['Empty', 'WithValue', 'Disabled', 'Focused'],
     });
   });
 

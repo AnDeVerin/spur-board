@@ -50,20 +50,23 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 
 ## Kit and gallery
 
-- `pnpm ds:build` runs `packages/web/kit/build.ts` and writes the git-ignored kit folder at the
-  top of design/: the DS script (global `DS`, React and ReactDOM bundled as `DS.React` and
-  `DS.ReactDOM`), the DS stylesheet (tokens, component styles and the fonts inlined as data
-  URLs), the gallery folder, compiled prototype scripts and the build info file (commit, commit
-  date, dirty flag, sorted runtime exports). No build time: one commit gives byte-identical files.
 - The gallery source is `packages/web/gallery/`. It renders every example and the token table,
   with a dark and light switch that writes `?theme=`.
-- Serve the gallery from a loopback static server on 127.0.0.1, outside 4777, 7777 and the stand
-  band 4780-4799 (it belongs to the board-stand Sidecar): port 0, or e.g.
-  `python3 -m http.server 4391 --bind 127.0.0.1 --directory design`; open `/kit/gallery/` and stop
-  the server when done. It needs no network.
-- `packages/web/test/kit.test.ts` builds the kit twice and checks the outputs. It runs in the
-  process project; the command is in `CONTRIBUTING.md` `## Web shell`.
+- What `pnpm ds:build` writes, serving the gallery and the kit test:
+  `references/kit-and-gallery.md`.
 - Kit output never ships: the tarball allowlist in `scripts/package.ts` rejects it.
+
+## Focus ring
+
+- Every focusable ds part shows one ring on `:focus-visible`:
+  `outline: var(--width-ring) solid var(--color-status-working)` and
+  `outline-offset: var(--offset-ring)`.
+- Text fields are the one exception: focus turns the border primary, with a transparent
+  `var(--width-ring)` outline for forced colours mode; their buttons, such as Clear, take the ring.
+- A screen, the gallery included, never defines its own ring; `scripts/web.test.ts` rejects any
+  other outline. Native elements in example scaffolding keep the browser ring.
+- Disabled controls are not focusable, so they show no ring.
+- Each focusable component has a `Focused` example whose caption names the keys to press.
 
 ## Quiet pattern
 
