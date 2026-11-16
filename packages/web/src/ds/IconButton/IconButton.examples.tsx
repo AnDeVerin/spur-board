@@ -22,3 +22,16 @@ export function Disabled() {
     </div>
   );
 }
+export function Focused() {
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
+        Press Tab: each size shows the focus ring
+      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <IconButton icon="x" size="small" label="Close" />
+        <IconButton icon="x" size="control" label="Cancel" />
+      </div>
+    </div>
+  );
+}

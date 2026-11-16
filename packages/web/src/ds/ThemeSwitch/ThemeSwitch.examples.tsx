@@ -2,13 +2,19 @@ import { useState } from 'react';
 import { ThemeSwitch, type ThemePreference } from './ThemeSwitch.tsx';
 
 // The menu opens upward, so each example reserves room above the switch.
-function Controlled({ initial, open = false }: { initial: ThemePreference; open?: boolean }) {
+function Controlled({
+  initial,
+  open = false,
+  caption = 'This switch is a demo; the page theme is set above.',
+}: {
+  initial: ThemePreference;
+  open?: boolean;
+  caption?: string;
+}) {
   const [value, setValue] = useState(initial);
   return (
     <div>
-      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
-        This switch is a demo; the page theme is set above.
-      </p>
+      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>{caption}</p>
       <div style={{ paddingBlockStart: 'calc(var(--size-control) * 4)' }}>
         <ThemeSwitch value={value} onChange={setValue} defaultOpen={open} />
       </div>
@@ -26,4 +32,12 @@ export function Auto() {
 }
 export function Open() {
   return <Controlled initial="dark" open />;
+}
+export function Focused() {
+  return (
+    <Controlled
+      initial="dark"
+      caption="Press Tab to reach the switch, then ArrowDown; arrows move, Escape returns to the switch"
+    />
+  );
 }

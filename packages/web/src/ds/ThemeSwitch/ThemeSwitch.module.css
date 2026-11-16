@@ -34,8 +34,8 @@
 }
 .trigger:focus-visible,
 .item:focus-visible {
-  outline: 2px solid var(--color-accent-violet);
-  outline-offset: 2px;
+  outline: var(--width-ring) solid var(--color-status-working);
+  outline-offset: var(--offset-ring);
 }
 .item[aria-checked='true'] {
   color: var(--color-text-primary);

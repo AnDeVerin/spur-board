@@ -22,3 +22,13 @@ export function Typing() {
 export function Disabled() {
   return <Controlled initial="" disabled />;
 }
+export function Focused() {
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
+        Press Tab: the border turns primary
+      </p>
+      <Controlled initial="" />
+    </div>
+  );
+}
