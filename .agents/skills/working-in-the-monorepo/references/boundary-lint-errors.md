@@ -13,6 +13,8 @@
 | Do not compare a project id with a string literal | `no-project-literal-compare` (local) | Read the behaviour from the config. |
 | core/src/domain has no IO | `domainBoundaryPatterns` | Take the data as an argument; keep queries in `packages/core/src/app/`. |
 | Core does not import a gateway package | `gatewayBoundaryPatterns` | Use the Gateway port from contracts; the daemon wires the gateway in. |
+| Design system files import only their own ds/ files | `ds-import-boundary` (local, `eslint/ds-import-boundary.ts`) | Pass app data in as props; move shared code into `packages/web/src/ds/`. |
+| Web code imports the design system only through ds/index.ts | `ds-import-boundary` (local, `eslint/ds-import-boundary.ts`) | Re-export the name from `ds/index.ts` and import it from there. |
 
 - Same-rule options replace earlier ones: a block that sets `no-restricted-imports` or
   `no-restricted-syntax` restates every ban it still needs, such as the SQLite ban in each
