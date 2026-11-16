@@ -2,7 +2,7 @@ import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseSync } from 'vite';
 import { describe, expect, it, vi } from 'vitest';
-import { Meter, type MeterThresholds } from '../src/ds/index.ts';
+import { KeyValueBox, Meter, type KeyValueRow, type MeterThresholds } from '../src/ds/index.ts';
 import indexSource from '../src/ds/index.ts?raw';
 
 // Keys only: Vitest returns an empty string for CSS read through a query.
@@ -55,7 +55,7 @@ describe('design system examples rule', () => {
   it('passes on the real tree and counts each value-exported component', () => {
     expect(checkDesignSystem(indexSource, files, examples)).toEqual({
       problems: [],
-      folders: ['Chip', 'Meter', 'Quiet', 'StatusDot', 'ThemeSwitch'],
+      folders: ['Chip', 'KeyValueBox', 'Meter', 'Quiet', 'StatusDot', 'ThemeSwitch'],
     });
     for (const module of Object.values(examples))
       expect(Object.keys(module).length).toBeGreaterThan(0);
@@ -125,6 +125,49 @@ describe('design system examples', () => {
     } finally {
       error.mockRestore();
     }
+  });
+});
+
+describe('KeyValueBox', () => {
+  const render = (rows: readonly KeyValueRow[], title?: string) =>
+    renderToStaticMarkup(createElement(KeyValueBox, { rows, title }));
+  const count = (html: string, text: string) =>
+    html.toLowerCase().split(text.toLowerCase()).length - 1;
+
+  it('marks each status row and puts each status word in the DOM once', () => {
+    const html = render([
+      { key: 'PR open', value: 'met', status: 'pass' },
+      { key: 'Checks green', value: 'checks pending', status: 'wait' },
+      { key: 'PR exists', value: 'no PR', status: 'fail' },
+      { key: 'Merged', status: 'unchecked' },
+      { key: 'Open turn', value: 'none' },
+    ]);
+    for (const status of ['pass', 'wait', 'fail', 'unchecked'])
+      expect(count(html, `data-status="${status}"`)).toBe(1);
+    expect(count(html, 'data-status=')).toBe(4);
+    for (const word of ['passed', 'waiting', 'failed', 'not checked'])
+      expect(count(html, word)).toBe(1);
+    expect(count(html, 'aria-hidden="true"')).toBe(4);
+    expect(html).toContain('Open turn');
+    expect(html).toContain('none');
+  });
+
+  it('does not repeat a word the value already says, and shows it for a message row', () => {
+    const html = render([
+      { key: 'Merged', value: 'Not checked', status: 'unchecked' },
+      { key: 'Spur unavailable', status: 'fail' },
+    ]);
+    expect(count(html, 'not checked')).toBe(1);
+    expect(count(html, 'failed')).toBe(1);
+  });
+
+  it('renders the title only when given, and nothing for no rows and no title', () => {
+    expect(render([{ key: 'CPU', value: '—' }], 'github pull requests')).toContain(
+      'github pull requests',
+    );
+    expect(render([{ key: 'CPU', value: '—' }])).not.toContain('github');
+    expect(render([], 'github pull requests')).toContain('github pull requests');
+    expect(render([])).toBe('');
   });
 });
 
