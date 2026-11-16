@@ -1,0 +1,25 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2-5);
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.line {
+  display: block;
+  height: var(--size-skeleton-line);
+  background: var(--color-border-strong);
+  opacity: var(--opacity-skeleton);
+  animation: pulse var(--duration-pulse) ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: var(--opacity-skeleton-pulse);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .line {
+    animation: none;
+  }
+}

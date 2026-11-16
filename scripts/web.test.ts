@@ -32,6 +32,35 @@ function rawColor(source: string): boolean {
 function withoutProposed(source: string): string {
   return source.replace(/--proposed-[\w-]+:[^;]+;/g, '');
 }
+/** Every `@media <query> { ... }` block, braces matched, for one exact query. */
+function mediaBlocks(css: string, query: string): string[] {
+  const blocks: string[] = [];
+  const head = `@media ${query} {`;
+  for (let start = css.indexOf(head); start !== -1; start = css.indexOf(head, start + 1)) {
+    let depth = 0;
+    for (let end = start + head.length - 1; end < css.length; end++) {
+      if (css[end] === '{') depth++;
+      if (css[end] === '}' && --depth === 0) {
+        blocks.push(css.slice(start, end + 1));
+        break;
+      }
+    }
+  }
+  return blocks;
+}
+/**
+ * Each parenthesised `@media` feature that names a width and is not in `allowed`, whitespace
+ * removed; `allowed` entries are compared with whitespace removed too.
+ */
+function unlistedMediaWidths(css: string, allowed: readonly string[]): string[] {
+  const squash = (text: string) => text.replace(/\s+/g, '');
+  const listed = new Set(allowed.map(squash));
+  return [...css.matchAll(/@media([^{]+)\{/g)].flatMap((media) =>
+    [...(media[1] ?? '').matchAll(/\([^()]*\)/g)]
+      .map((feature) => squash(feature[0]))
+      .filter((feature) => /width/.test(feature) && !listed.has(feature)),
+  );
+}
 describe('web design assets and policy', () => {
   it('preserves every prototype token and inherited scale byte for byte', () => {
     expect(tokens).toBe(
@@ -89,6 +118,69 @@ describe('web design assets and policy', () => {
     expect(rule).toBeDefined();
     expect(rule).toMatch(/^\s*outline: [^;]*\btransparent\b[^;]*;/m);
     expect(rule).not.toMatch(/outline: none/);
+  });
+  it('Skeleton stops the pulse under reduced motion', () => {
+    const css = read('src/ds/Skeleton/Skeleton.module.css');
+    const block = mediaBlocks(css, '(prefers-reduced-motion: reduce)').join('\n');
+    expect(block).toMatch(/\.line \{[^}]*animation: none;/);
+  });
+  it('HoverMenu guards hover styles', () => {
+    const css = read('src/ds/HoverMenu/HoverMenu.module.css');
+    const guarded = mediaBlocks(css, '(hover: hover)');
+    expect(guarded.join('\n')).toContain(':hover');
+    let rest = css;
+    for (const block of guarded) rest = rest.replace(block, '');
+    expect(rest).not.toContain(':hover');
+  });
+  it.each(['.trigger:focus-visible', '.item:focus-visible'])(
+    'HoverMenu %s uses the ds ring',
+    (selector) => {
+      const css = read('src/ds/HoverMenu/HoverMenu.module.css');
+      const rule = css.split('\n' + selector + ' {')[1]?.split('}')[0];
+      expect(rule).toBeDefined();
+      expect(rule).toContain('outline: var(--width-ring) solid var(--color-status-working);');
+      expect(rule).toContain('outline-offset: var(--offset-ring);');
+      if (selector === '.item:focus-visible')
+        expect(rule).toContain('background: var(--color-row-hover);');
+    },
+  );
+  it('unlistedMediaWidths reports widths outside the list', () => {
+    const allowed = ['(max-width: 760px)'];
+    for (const ok of [
+      '(max-width: 760px)',
+      'screen and (max-width:760px)',
+      '(hover: none)',
+      '(prefers-reduced-motion: reduce)',
+    ])
+      expect(unlistedMediaWidths(`@media ${ok} { a { b: c; } }`, allowed), ok).toEqual([]);
+    for (const [query, reported] of [
+      ['(max-width: 761px)', '(max-width:761px)'],
+      ['(min-width: 760px)', '(min-width:760px)'],
+      ['(width <= 760px)', '(width<=760px)'],
+      ['(hover: none), (max-width: 40em)', '(max-width:40em)'],
+    ] as const)
+      expect(unlistedMediaWidths(`@media ${query} { a { b: c; } }`, allowed), query).toEqual([
+        reported,
+      ]);
+  });
+  it('every @media width in packages/web/src is a listed breakpoint', async () => {
+    // scripts/ has no jsx option, so a static import of a .tsx fails typecheck (TS6142).
+    const mod: unknown = await import(join(root, 'src/ds/Breakpoints/Breakpoints.tsx'));
+    const list: unknown = (mod as { breakpoints?: unknown }).breakpoints;
+    expect(list).toBeTypeOf('object');
+    const allowed = Object.values(list as Record<string, unknown>);
+    expect(allowed.length).toBeGreaterThan(0);
+    for (const value of allowed) expect(value).toBeTypeOf('string');
+    const queries = allowed as string[];
+    let widths = 0;
+    for (const file of readdirSync(join(root, 'src'), { recursive: true, encoding: 'utf8' }).filter(
+      (file) => file.endsWith('.css'),
+    )) {
+      const css = read(`src/${file}`);
+      widths += unlistedMediaWidths(css, []).length;
+      expect(unlistedMediaWidths(css, queries), file).toEqual([]);
+    }
+    expect(widths).toBeGreaterThan(0);
   });
   it('rejects raw color literals in prototype styles outside --proposed-* declarations', () => {
     expect(rawColor(withoutProposed(':root { --proposed-accent: #ff00aa; }'))).toBe(false);

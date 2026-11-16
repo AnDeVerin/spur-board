@@ -1,0 +1,94 @@
+/* Each control resets its own native button: ds has no global reset. */
+.root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: var(--size-statusbar);
+}
+.trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-menu-trigger);
+  height: var(--size-logo);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+/* An icon-button-sized hit area around the smaller glyph box, with no visible change. */
+.trigger::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--size-icon-button);
+  height: var(--size-icon-button);
+  translate: -50% -50%;
+}
+.trigger[aria-expanded='true'] {
+  color: var(--color-text-primary);
+}
+/* The menu touches the root's top edge, so the pointer crosses into it without leaving. */
+.menu {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  min-width: var(--size-menu-min);
+  padding: var(--space-1) 0;
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-default);
+  z-index: var(--z-menu);
+}
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: var(--size-icon-button);
+  margin: 0;
+  padding: 0 var(--space-2-5);
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-bar);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.item[aria-checked='true'] {
+  color: var(--color-text-primary);
+}
+.tick {
+  display: inline-flex;
+  margin-left: auto;
+  visibility: hidden;
+}
+.item[aria-checked='true'] .tick {
+  visibility: visible;
+}
+/* Hover styles only where the pointer can hover: a tap leaves no sticky hover. */
+@media (hover: hover) {
+  .root:hover .trigger {
+    color: var(--color-text-primary);
+  }
+  .item:hover {
+    background: var(--color-row-hover);
+    color: var(--color-text-primary);
+  }
+}
+.trigger:focus-visible {
+  outline: var(--width-ring) solid var(--color-status-working);
+  outline-offset: var(--offset-ring);
+  color: var(--color-text-primary);
+}
+.item:focus-visible {
+  outline: var(--width-ring) solid var(--color-status-working);
+  outline-offset: var(--offset-ring);
+  background: var(--color-row-hover);
+  color: var(--color-text-primary);
+}
