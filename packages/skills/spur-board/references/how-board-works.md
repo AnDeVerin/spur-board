@@ -68,7 +68,7 @@ Reconnects retain valid SSE cursors, including ID-only records, until the server
 The configured daemon web listener serves the packaged SPA and its local assets, and streams
 live updates from `GET /v1/events` as server-sent events. The stream opens with `hello` (journal
 head and daemon instance), then sends one `invalidate` per committed batch of journal events,
-naming the projects and task keys it touched, so the shell rereads only those. A `reset` asks for
+naming the projects and task keys it touched; the shell then rereads its status. A `reset` asks for
 a full reread: after a client fell behind, or when its last event ID is ahead of the journal.
 A `status` frame every 30 seconds carries source and transport health; a comment line every 15
 seconds keeps proxies from closing the stream. A restarted daemon sends a new instance in
