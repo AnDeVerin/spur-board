@@ -55,7 +55,7 @@ export function timeInColumn(value: BoardTask, now: number): string | undefined 
 }
 
 /** The gate of the column the dispatcher works from; undefined means the gate is unknown. */
-export function currentGate(why: TaskWhy | undefined): TaskGate | undefined {
+function currentGate(why: TaskWhy | undefined): TaskGate | undefined {
   return why?.gates.find((gate) => gate.column === why.column);
 }
 

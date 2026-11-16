@@ -13,23 +13,30 @@ export type ColumnsView =
 
 const classes = (...names: (string | undefined)[]) => names.filter(Boolean).join(' ');
 
-/** A plain left click opens the task in place; modified clicks keep the browser's new tab. */
-function open(event: MouseEvent<HTMLAnchorElement>) {
+/**
+ * A plain left click, or Enter, opens the task in place; modified clicks keep the browser's new
+ * tab. The card takes focus first, since Safari and Firefox do not focus a clicked link, so the
+ * task view returns focus to it.
+ */
+function open(event: MouseEvent<HTMLAnchorElement>, key: string, onOpen: (key: string) => void) {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
     return;
   event.preventDefault();
-  history.pushState(null, '', event.currentTarget.getAttribute('href'));
+  event.currentTarget.focus();
+  onOpen(key);
 }
 
 /** A card or done row: a link to `?open=<key>`, dimmed, never removed, when the filter misses. */
 function TaskLink({
   row,
   filter,
+  onOpen,
   className,
   children,
 }: {
   row: BoardRow;
   filter: string;
+  onOpen: (key: string) => void;
   className: string | undefined;
   children: ReactNode;
 }) {
@@ -41,7 +48,9 @@ function TaskLink({
       title={row.key}
       aria-label={title === undefined ? row.key : `${row.key} ${title}`}
       data-dimmed={matchesFilter(row, filter) ? undefined : ''}
-      onClick={open}
+      onClick={(event) => {
+        open(event, row.key, onOpen);
+      }}
     >
       {children}
     </a>
@@ -52,10 +61,12 @@ function Column({
   column,
   filter,
   stale,
+  onOpen,
 }: {
   column: BoardColumn;
   filter: string;
   stale: boolean;
+  onOpen: (key: string) => void;
 }) {
   if (column.rows.length === 0)
     return (
@@ -81,7 +92,7 @@ function Column({
         <ul className={classes(styles.body, styles.done, quiet)}>
           {column.rows.map((row) => (
             <li key={row.key}>
-              <TaskLink row={row} filter={filter} className={styles.doneRow}>
+              <TaskLink row={row} filter={filter} onOpen={onOpen} className={styles.doneRow}>
                 <span className={styles.check}>
                   <Icon name="check" />
                 </span>
@@ -94,7 +105,13 @@ function Column({
       ) : (
         <div className={styles.body}>
           {column.rows.map((row) => (
-            <TaskLink key={row.key} row={row} filter={filter} className={styles.card}>
+            <TaskLink
+              key={row.key}
+              row={row}
+              filter={filter}
+              onOpen={onOpen}
+              className={styles.card}
+            >
               <span className={styles.key}>{shortKey(row.key)}</span>
               {row.ticket && <span className={styles.title}>{row.ticket.title}</span>}
             </TaskLink>
@@ -110,10 +127,13 @@ export function Columns({
   view,
   filter,
   stale,
+  onOpen,
 }: {
   view: ColumnsView;
   filter: string;
   stale: boolean;
+  /** A card asks to open its task. */
+  onOpen: (key: string) => void;
 }) {
   switch (view.kind) {
     case 'failed':
@@ -147,7 +167,7 @@ export function Columns({
       );
     case 'columns':
       return view.columns.map((column) => (
-        <Column key={column.id} column={column} filter={filter} stale={stale} />
+        <Column key={column.id} column={column} filter={filter} stale={stale} onOpen={onOpen} />
       ));
   }
 }
