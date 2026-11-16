@@ -51,9 +51,9 @@ function links(t) {
   const l = t.links,
     pr = l.prs[0],
     s = l.sessions[0];
-  return `<span class="links"><a href="#" title="Ticket ${t.key}${l.ticket ? `: ${l.ticket}` : ''}">${ic('ticket')}</a>
-  ${pr ? `<a href="#" title="PR #${pr.number}: ${pr.url}">${ic('pr')}</a>` : ''}
-  ${s ? `<a href="#" title="Spur session ${s.id}">${ic('term')}</a>` : ''}</span>`;
+  return `<span class="links"><a href="#" title="Ticket ${esc(t.key)}${l.ticket ? `: ${esc(l.ticket)}` : ''}">${ic('ticket')}</a>
+  ${pr ? `<a href="#" title="PR #${esc(pr.number)}: ${esc(pr.url)}">${ic('pr')}</a>` : ''}
+  ${s ? `<a href="#" title="Spur session ${esc(s.id)}">${ic('term')}</a>` : ''}</span>`;
 }
 function markers(t) {
   const blocks = t.blocks || [],
@@ -62,19 +62,19 @@ function markers(t) {
     r = t.returned,
     p = t.prSummary && t.prSummary[0];
   const m = [
-    mine ? `<span class="chip you">${ic('block')}${mine.id} → you</span>` : '',
+    mine ? `<span class="chip you">${ic('block')}${esc(mine.id)} → you</span>` : '',
     mine && rest.length
-      ? `<span class="chip" title="Other open blocks: ${rest.map((b) => b.id).join(', ')}">+${rest.length}</span>`
+      ? `<span class="chip" title="Other open blocks: ${esc(rest.map((b) => b.id).join(', '))}">+${rest.length}</span>`
       : '',
     !mine && rest.length
-      ? `<span class="chip" title="Open blocks: ${rest.map((b) => b.id).join(', ')}">${ic('block')}${rest.length} ${rest.length === 1 ? 'block' : 'blocks'}</span>`
+      ? `<span class="chip" title="Open blocks: ${esc(rest.map((b) => b.id).join(', '))}">${ic('block')}${rest.length} ${rest.length === 1 ? 'block' : 'blocks'}</span>`
       : '',
     r
-      ? `<span class="chip warn" title="Returned from ${r.from} by ${actorName(r.by)} at ${fmt(r.at)}, block ${r.block}">${ic('back')}returned${r.findings == null ? '' : ` · ${r.findings} findings`}</span>`
+      ? `<span class="chip warn" title="Returned from ${esc(r.from)} by ${esc(actorName(r.by))} at ${fmt(r.at)}, block ${esc(r.block)}">${ic('back')}returned${r.findings == null ? '' : ` · ${esc(r.findings)} findings`}</span>`
       : '',
     p && p.draft ? '<span class="chip">draft</span>' : '',
     t.shadowDiffers
-      ? `<span class="chip ghost">${ic('shadow')}board: ${t.shadowColumn} · tracker: ${t.column}</span>`
+      ? `<span class="chip ghost">${ic('shadow')}board: ${esc(t.shadowColumn)} · tracker: ${esc(t.column)}</span>`
       : '',
   ].join('');
   return m ? `<div class="row">${m}</div>` : '';
@@ -85,7 +85,7 @@ function turn(t) {
   const i = turnInfo(u);
   if (STATE === 'source-blind' && i.kind !== 'you')
     return `<div class="turn t-none"><span class="dot hollow"></span>
-  <span class="who">${u.id} ${i.role} <b>${i.name}</b></span><span class="age unknown">session unknown</span></div>`;
+  <span class="who">${esc(u.id)} ${esc(i.role)} <b>${esc(i.name)}</b></span><span class="age unknown">session unknown</span></div>`;
   const tail =
     i.kind === 'stall'
       ? `<span class="t-stall-text">${i.tail}</span>`
@@ -93,7 +93,7 @@ function turn(t) {
         ? i.tail
         : `<span class="t-wait-text">${i.tail}</span>`;
   return `<div class="turn t-${i.kind}"><span class="dot ${i.kind === 'wait' ? 'hollow' : ''}"></span>
-  <span class="who">${u.id} ${i.kind === 'you' ? '<b>your turn</b>' : `${i.role} <b>${i.name}</b>`}</span><span class="age">${tail}</span></div>`;
+  <span class="who">${esc(u.id)} ${i.kind === 'you' ? '<b>your turn</b>' : `${esc(i.role)} <b>${esc(i.name)}</b>`}</span><span class="age">${tail}</span></div>`;
 }
 /* PR status: four fixed cells from prSummary[0]. Facts, not a gate verdict. */
 function lights(t) {
@@ -161,7 +161,7 @@ function card(t) {
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
-  return `<article class="card t-${k}" tabindex="0" data-key="${t.key}" data-hay="${esc(hay)}">
-  <div class="row"><span class="key" title="${t.key}">${shortKey(t.key)}</span>${links(t)}</div>
+  return `<article class="card t-${k}" tabindex="0" data-key="${esc(t.key)}" data-hay="${esc(hay)}">
+  <div class="row"><span class="key" title="${esc(t.key)}">${esc(shortKey(t.key))}</span>${links(t)}</div>
   <p class="title">${esc(title)}</p>${t.links.prs.length || u ? lights(t) : ''}${markers(t)}${u ? turn(t) : ''}</article>`;
 }

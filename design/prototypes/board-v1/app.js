@@ -235,13 +235,13 @@ fetch('fixture.json')
       `${ic('inbox')}inbox<span class="count">${INBOX.items.length}</span>`;
 
     const doneRow = (r) =>
-      `<div class="done-row">${ic('check')}<b title="${r.key}">${shortKey(r.key)}</b><span>${esc(r.ticket.title)}</span></div>`;
+      `<div class="done-row">${ic('check')}<b title="${esc(r.key)}">${esc(shortKey(r.key))}</b><span>${esc(r.ticket.title)}</span></div>`;
     document.getElementById('board').innerHTML = COLS.map((c) => {
       const rows = byCol[c.id];
       if (!rows.length)
-        return `<section class="col empty" title="${c.id}: empty · ${execLine(c)}"><span class="n">0</span><span class="label spine">${c.id}</span></section>`;
-      return `<section class="col"><div class="col-head"><div class="name"><span class="label">${c.id}</span><span class="n">${rows.length}</span></div>
-      <div class="exec">${execLine(c)}</div></div><div class="col-body"${c.id === 'done' ? ' style="gap:0"' : ''}>${rows.map(c.id === 'done' ? doneRow : card).join('')}</div></section>`;
+        return `<section class="col empty" title="${esc(c.id)}: empty · ${esc(execLine(c))}"><span class="n">0</span><span class="label spine">${esc(c.id)}</span></section>`;
+      return `<section class="col"><div class="col-head"><div class="name"><span class="label">${esc(c.id)}</span><span class="n">${rows.length}</span></div>
+      <div class="exec">${esc(execLine(c))}</div></div><div class="col-body"${c.id === 'done' ? ' style="gap:0"' : ''}>${rows.map(c.id === 'done' ? doneRow : card).join('')}</div></section>`;
     }).join('');
 
     /* ---------- services: health per box ---------- */
@@ -299,7 +299,7 @@ fetch('fixture.json')
       `<button class="svc-trigger" id="svc-trigger" aria-controls="panel" aria-expanded="false" aria-label="services">${ic('pulse')}<span class="lbl">services</span></button>` +
       INDICATORS.map(([n, icon]) => {
         const h = health(n);
-        return `<button class="svc ${h.cls}" data-svc="${n}" title="${n}: ${h.state}" aria-label="${n}: ${h.state}">${ic(icon)}<span class="dot"></span></button>`;
+        return `<button class="svc ${h.cls}" data-svc="${n}" title="${n}: ${esc(h.state)}" aria-label="${n}: ${esc(h.state)}">${ic(icon)}<span class="dot"></span></button>`;
       }).join('') +
       `<span class="spacer"></span><span class="theme">
     <button class="theme-btn" id="theme-btn" aria-haspopup="menu" aria-label="Theme"></button>
@@ -307,7 +307,7 @@ fetch('fixture.json')
       (t) =>
         `<button role="menuitemradio" data-theme-set="${t[0]}">${ic(t[1])}${t[2]}<span class="tick">${ic('check')}</span></button>`,
     ).join('')}</span></span>
-    <span>board ${S.daemon.version}</span>`;
+    <span>board ${esc(S.daemon.version)}</span>`;
 
     /* ---------- panels ---------- */
     const byKey = {};
@@ -341,35 +341,35 @@ fetch('fixture.json')
       const cls = { stall: 'fail', agent: '', wait: 'wait', you: 'wait' }[i.kind];
       return row(
         cls,
-        `Open turn ${u.id}`,
-        `${i.kind === 'you' ? 'yours' : `${i.role} ${i.name}`} · ${i.tail}`,
+        `Open turn ${esc(u.id)}`,
+        `${i.kind === 'you' ? 'yours' : `${esc(i.role)} ${esc(i.name)}`} · ${i.tail}`,
       );
     }
     /* "Why it is here": the exit conditions of why.column, holds, the turn and open blocks. */
     function whyRows(why, t, blocks) {
       const gate = why.gates.find((g) => g.column === why.column) || { conditions: [] };
       const rows = gate.conditions.map((c) => {
-        const attr = ` data-cond="${c.condition}"`,
-          k = COND[c.condition] || human(c.condition);
+        const attr = ` data-cond="${esc(c.condition)}"`,
+          k = COND[c.condition] || esc(human(c.condition));
         if (c.state === 'met') return row('pass', k, 'met', 'check', attr);
-        if (c.state === 'failed') return row('fail', k, human(c.reason), 'x', attr);
-        if (c.state === 'waiting') return row('wait', k, human(c.reason), 'clock', attr);
+        if (c.state === 'failed') return row('fail', k, esc(human(c.reason)), 'x', attr);
+        if (c.state === 'waiting') return row('wait', k, esc(human(c.reason)), 'clock', attr);
         return row('muted', k, 'not checked', '', attr);
       });
       if (!gate.conditions.length)
         rows.push(
-          `<div class="kv muted"><span class="k">No exit conditions in ${why.column}</span></div>`,
+          `<div class="kv muted"><span class="k">No exit conditions in ${esc(why.column)}</span></div>`,
         );
-      for (const h of why.holds) rows.push(row('wait', 'Hold', human(h), 'clock'));
+      for (const h of why.holds) rows.push(row('wait', 'Hold', esc(human(h)), 'clock'));
       rows.push(turnRow(t.turn));
       const open = blocks.filter((b) => b.state === 'open');
       rows.push(
         open.length
-          ? row('fail', 'Open blocks', open.map((b) => b.id).join(', '), 'block')
+          ? row('fail', 'Open blocks', esc(open.map((b) => b.id).join(', ')), 'block')
           : row('pass', 'Open blocks', 'none', 'check'),
       );
       rows.push(
-        `<div class="kv next"><span class="k">When ${why.column} exit conditions pass</span><span class="v">→ ${nextOf(why.column)}</span></div>`,
+        `<div class="kv next"><span class="k">When ${esc(why.column)} exit conditions pass</span><span class="v">→ ${esc(nextOf(why.column))}</span></div>`,
       );
       const failed = gate.conditions.filter((c) => c.state === 'failed').length,
         waiting = gate.conditions.filter((c) => c.state === 'waiting').length;
@@ -405,20 +405,20 @@ fetch('fixture.json')
               ? '<span class="chip">answered on the board</span>'
               : answered
                 ? '<span class="chip">answered</span>'
-                : `<span class="chip">closed: ${b.outcome}</span>`;
+                : `<span class="chip">closed: ${esc(b.outcome)}</span>`;
       const mine = b.state === 'open' && forYou;
       const reply = comments
         .filter((c) => c.block === b.id)
         .sort((x, y) => y.at.localeCompare(x.at))[0];
       const from = who(b.author);
-      return `<div class="item ${mine ? 'for-you' : ''}" data-block="${b.id}" data-from="${from}">
-    <div class="meta"><b>${b.id}</b>${from} → ${who(b.addressee)}${st}<span class="age">${age(b.at)}</span></div>
+      return `<div class="item ${mine ? 'for-you' : ''}" data-block="${esc(b.id)}" data-from="${esc(from)}">
+    <div class="meta"><b>${esc(b.id)}</b>${esc(from)} → ${esc(who(b.addressee))}${st}<span class="age">${age(b.at)}</span></div>
     <p>${esc(b.reason)}</p>${reply ? `<p class="reply">${esc(reply.text)}</p>` : ''}
     ${
       mine
-        ? `<form class="form" data-answer="${b.id}"><textarea placeholder="Your answer goes to ${from}" aria-label="Answer ${b.id}" required>${b.failed ? esc(b.draft) : ''}</textarea>
+        ? `<form class="form" data-answer="${esc(b.id)}"><textarea placeholder="Your answer goes to ${esc(from)}" aria-label="Answer ${esc(b.id)}" required>${b.failed ? esc(b.draft) : ''}</textarea>
       ${b.failed ? '<span class="err-note">Not sent: the daemon did not answer. Your text is kept here.</span>' : ''}
-      <div class="actions"><button class="btn primary">${b.failed ? 'Send again' : `Answer ${b.id}`}</button></div></form>`
+      <div class="actions"><button class="btn primary">${b.failed ? 'Send again' : `Answer ${esc(b.id)}`}</button></div></form>`
         : ''
     }
     ${answered ? `<div class="fu">${FU_BTN}</div>` : ''}</div>`;
@@ -445,14 +445,14 @@ fetch('fixture.json')
       const pr = t.links.prs[0],
         sess = t.links.sessions[0];
       modal.innerHTML = `
-    <div class="m-head"><span class="key" title="${key}">${shortKey(key)}</span><span class="where">${col.id}${move ? ` · ${age(move.at)}` : ''}</span>
+    <div class="m-head"><span class="key" title="${esc(key)}">${esc(shortKey(key))}</span><span class="where">${esc(col.id)}${move ? ` · ${age(move.at)}` : ''}</span>
       <div class="m-tabs" role="tablist"><button role="tab" data-tab="now" aria-selected="true">Now</button><button role="tab" data-tab="history" aria-selected="false">History</button></div>
       <button class="icon-btn" data-close aria-label="Close">${ic('x')}</button></div>
     <div class="m-body" data-pane="now">
       <div class="m-top"><h2 class="p-title">${esc(t.ticket.title)}</h2>
-        <div class="p-links"><a class="chip" href="#" target="_blank" title="${t.links.ticket || ''}">${ic('ticket')}ticket ${shortKey(key)}</a>
-          ${pr ? `<a class="chip" href="#" target="_blank" title="${pr.url}">${ic('pr')}PR #${pr.number}</a>` : ''}
-          ${sess ? `<a class="chip" href="#" target="_blank" title="Spur session ${sess.id}">${ic('term')}session ${sess.id}</a>` : ''}</div></div>
+        <div class="p-links"><a class="chip" href="#" target="_blank" title="${esc(t.links.ticket || '')}">${ic('ticket')}ticket ${esc(shortKey(key))}</a>
+          ${pr ? `<a class="chip" href="#" target="_blank" title="${esc(pr.url)}">${ic('pr')}PR #${esc(pr.number)}</a>` : ''}
+          ${sess ? `<a class="chip" href="#" target="_blank" title="Spur session ${esc(sess.id)}">${ic('term')}session ${esc(sess.id)}</a>` : ''}</div></div>
       ${sec('why', 'Why it is here', '', why.sum, `<div class="box">${why.html}</div>`)}
       ${sec(
         'blocks',
@@ -469,10 +469,10 @@ fetch('fixture.json')
         `<div class="box" id="c-list">${comments
           .map(
             (c) =>
-              `<div class="item"><div class="meta"><b>${c.id}</b>${who(c.author)}<span class="age">${age(c.at)}</span></div><p>${esc(c.text)}</p></div>`,
+              `<div class="item"><div class="meta"><b>${esc(c.id)}</b>${esc(who(c.author))}<span class="age">${age(c.at)}</span></div><p>${esc(c.text)}</p></div>`,
           )
           .join('')}
-        <div class="item"><form class="form" data-comment><textarea placeholder="Add a comment to ${shortKey(key)}" aria-label="Comment" required></textarea>
+        <div class="item"><form class="form" data-comment><textarea placeholder="Add a comment to ${esc(shortKey(key))}" aria-label="Comment" required></textarea>
         <div class="actions"><button class="btn">Add comment</button></div></form></div></div>`,
       )}
     </div>
@@ -482,7 +482,7 @@ fetch('fixture.json')
             .reverse()
             .map(
               (h) =>
-                `<tr><td class="when">${fmt(h.at)}</td><td class="what">${esc(h.summary)} · <b>${esc(actorName(h.actor))}</b></td><td class="kind">${h.kind}</td></tr>`,
+                `<tr><td class="when">${fmt(h.at)}</td><td class="what">${esc(h.summary)} · <b>${esc(actorName(h.actor))}</b></td><td class="kind">${esc(h.kind)}</td></tr>`,
             )
             .join('')}</tbody></table>`
         : '<div class="empty-note">No journal events for this task.</div>'
@@ -504,7 +504,7 @@ fetch('fixture.json')
             ? val(fmt(s.lastCompleteAt))
             : '<span class="v none">— never completed</span>',
         ),
-        s.blindReason ? kv('Blind', val(`${s.blindReason} · ${esc(s.message || '')}`)) : '',
+        s.blindReason ? kv('Blind', val(`${esc(s.blindReason)} · ${esc(s.message || '')}`)) : '',
         kv(
           'Budget',
           !b
@@ -517,7 +517,7 @@ fetch('fixture.json')
     }
     function box(id, icon, name, h, body) {
       return `<div class="box svc-box ${h ? h.cls : ''}" id="svc-${id}">
-      <div class="svc-head">${ic(icon)}${name}${h ? `<span class="st">${h.state}</span>` : ''}</div>${body}</div>`;
+      <div class="svc-head">${ic(icon)}${name}${h ? `<span class="st">${esc(h.state)}</span>` : ''}</div>${body}</div>`;
     }
     function openServices(focus) {
       const unknown = STATE === 'daemon-down';
@@ -533,7 +533,7 @@ fetch('fixture.json')
                 health('daemon'),
                 unknown
                   ? ''
-                  : kv('Version', val(S.daemon.version)) +
+                  : kv('Version', val(esc(S.daemon.version))) +
                       kv('Started', val(fmt(S.daemon.startedAt))),
               ),
               box(
@@ -547,7 +547,7 @@ fetch('fixture.json')
                       kv('RAM', NONE) +
                       kv('Disk', NONE) +
                       (S.hostLoad
-                        ? `<div class="kv wait"><span class="k">${S.hostLoad}</span></div>`
+                        ? `<div class="kv wait"><span class="k">${esc(S.hostLoad)}</span></div>`
                         : ''),
               ),
               box(
@@ -560,7 +560,7 @@ fetch('fixture.json')
                   : slack.state === 'down'
                     ? kv('Down since', val(fmt(slack.since))) +
                       kv('Reason', val(esc(slack.reason))) +
-                      kv('Spaces', val(slack.spaces.join(', ')))
+                      kv('Spaces', val(esc(slack.spaces.join(', '))))
                     : '',
               ),
               ...github.map((s) =>
@@ -625,14 +625,14 @@ fetch('fixture.json')
       const item = (
         i,
         done,
-      ) => `<button class="in-item ${done ? 'handled' : ''}" ${i.task ? `data-open="${i.task}"` : ''}>
-    <div class="meta"><span class="proj">${projName(i.project)}</span><span class="kind ${i.severity === 'failure' ? 'err' : 'warn'}">${label(i)} · ${i.severity}</span>${i.task ? `<span title="${i.task}">${shortKey(i.task)}</span>` : ''}${done && via[i.answeredVia] ? `<span>${via[i.answeredVia]}</span>` : ''}<span class="age">${age(i.at)}</span></div>
+      ) => `<button class="in-item ${done ? 'handled' : ''}" ${i.task ? `data-open="${esc(i.task)}"` : ''}>
+    <div class="meta"><span class="proj">${esc(projName(i.project))}</span><span class="kind ${i.severity === 'failure' ? 'err' : 'warn'}">${esc(label(i))} · ${esc(i.severity)}</span>${i.task ? `<span title="${esc(i.task)}">${esc(shortKey(i.task))}</span>` : ''}${done && via[i.answeredVia] ? `<span>${via[i.answeredVia]}</span>` : ''}<span class="age">${age(i.at)}</span></div>
     <div>${esc(i.text)}</div></button>`;
       panel.innerHTML = `
     <div class="p-head">${ic('inbox')}<span class="key">Inbox</span><span class="where">${items.length} wait for you</span>
       <button class="icon-btn" data-close aria-label="Close">${ic('x')}</button></div>
     <div class="p-body">
-      <div class="tabs" role="group" aria-label="Filter">${tabs.map((t) => `<button data-filter="${t[0]}" aria-pressed="${inboxFilter === t[0]}">${t[0]}<span class="n">${t[1]}</span></button>`).join('')}</div>
+      <div class="tabs" role="group" aria-label="Filter">${tabs.map((t) => `<button data-filter="${esc(t[0])}" aria-pressed="${inboxFilter === t[0]}">${esc(t[0])}<span class="n">${t[1]}</span></button>`).join('')}</div>
       <section class="sec"><div class="box">${
         items
           .filter(f)
@@ -739,7 +739,7 @@ fetch('fixture.json')
       const fu = e.target.closest('[data-followup]');
       if (fu) {
         const it = fu.closest('.item');
-        fu.parentElement.outerHTML = `<form class="form" data-fu><textarea placeholder="Follow-up to ${it.dataset.from} on ${it.dataset.block}" aria-label="Follow-up on ${it.dataset.block}" required></textarea>
+        fu.parentElement.outerHTML = `<form class="form" data-fu><textarea placeholder="Follow-up to ${esc(it.dataset.from)} on ${esc(it.dataset.block)}" aria-label="Follow-up on ${esc(it.dataset.block)}" required></textarea>
       <div class="actions"><button class="btn primary">Send follow-up</button><button type="button" class="icon-btn" data-fu-cancel aria-label="Cancel" title="Cancel">${ic('x')}</button></div></form>`;
         return it.querySelector('textarea').focus();
       }
@@ -792,7 +792,7 @@ fetch('fixture.json')
             (
               c,
               i,
-            ) => `<section class="col"><div class="col-head"><div class="name"><span class="label">${c.id}</span></div>
+            ) => `<section class="col"><div class="col-head"><div class="name"><span class="label">${esc(c.id)}</span></div>
       <div class="exec">&nbsp;</div></div><div class="col-body">${'<div class="skel"><i style="width:30%"></i><i></i><i style="width:70%"></i></div>'.repeat(3 - (i % 2))}</div></section>`,
           )
           .join('');
@@ -800,7 +800,7 @@ fetch('fixture.json')
         document.getElementById('inbox').querySelector('.count').textContent = '–';
       }
       if (STATE === 'empty') {
-        board.innerHTML = `<div class="blank"><b>No tasks in ${CFG.id} yet</b>
+        board.innerHTML = `<div class="blank"><b>No tasks in ${esc(CFG.id)} yet</b>
       <span>A task appears here when the board sees a ticket for this project. Columns show up with the first task.</span></div>`;
         document.getElementById('inbox').className = 'inbox';
         document.getElementById('inbox').querySelector('.count').textContent = '0';
