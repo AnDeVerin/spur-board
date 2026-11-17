@@ -54,6 +54,11 @@ export function InboxPanel({
       b.at.localeCompare(a.at),
   );
   const row = (entry: Entry, handled = false) => {
+    const suffix = entry.action === undefined ? undefined : `: ${entry.action}`;
+    const description =
+      suffix !== undefined && entry.text.endsWith(suffix)
+        ? entry.text.slice(0, -suffix.length)
+        : entry.text;
     const content = (
       <>
         <span className={styles.meta}>
@@ -75,7 +80,8 @@ export function InboxPanel({
           )}
           <span className={styles.age}>{age(entry.at, now)}</span>
         </span>
-        <span>{entry.text}</span>
+        <span>{description}</span>
+        {entry.action !== undefined && <span className={styles.action}>{entry.action}</span>}
       </>
     );
     const className = `${styles.row ?? ''} ${quiet} ${focusRing}`;

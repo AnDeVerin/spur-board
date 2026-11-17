@@ -30,7 +30,8 @@ Header, left to right:
   the right panel at `?open=inbox`, also available directly. All/configured project/system filters
   apply to active and handled entries; counts include only active entries. Failures precede
   attention, newest first within severity. Handled entries retain query order, marked handled
-  with their answer channel when supplied. Before the first success, the panel says inbox data
+  with their answer channel when supplied. Supplied actions appear separately; an exact terminal
+  `: <action>` is removed from the description. Before the first success, the panel says inbox data
   is unavailable; later failures retain data. Task rows select their project and open above the
   retained panel. Task close focuses its row or panel Close if removed; panel close focuses the
   header inbox button. Back/Forward follow these layers. Non-task rows are focusable; all are read-only.

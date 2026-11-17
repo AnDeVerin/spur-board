@@ -69,7 +69,34 @@ const dimmed = () =>
     .filter((link) => link.closest('[data-dimmed]') !== null)
     .map((l) => l.title);
 
+type ActionCase = { text: string; action: string | undefined; description: string };
 describe('board screen', () => {
+  it.each<ActionCase>`
+    name          | text                                              | action                  | description
+    ${'ordinary'} | ${'Delivery failed: retry delivery'}              | ${'retry delivery'}     | ${'Delivery failed'}
+    ${'colons'}   | ${'Slack: delivery failed: check token: Slack'}   | ${'check token: Slack'} | ${'Slack: delivery failed'}
+    ${'absent'}   | ${'Delivery failed: retry delivery'}              | ${undefined}            | ${'Delivery failed: retry delivery'}
+    ${'mismatch'} | ${'Delivery failed: inspect logs'}                | ${'retry delivery'}     | ${'Delivery failed: inspect logs'}
+    ${'repeat'}   | ${'retry delivery: still failed: retry delivery'} | ${'retry delivery'}     | ${'retry delivery: still failed'}
+  `(
+    'inbox action $name preserves exact description and separate action in active and handled rows',
+    async ({ text, action, description }: ActionCase) => {
+      const d = daemon();
+      const entry = { ...inbox(1).items[0], id: 'I1', kind: 'transport_health', text, action };
+      const handled = [{ ...entry, id: 'I2', handledAt: '2026-11-15T14:00:00.000Z' }];
+      d.routes['inbox.operator'] = () => Promise.resolve(envelope({ items: [entry], handled }));
+      mount(d);
+      await settle();
+      press(button('inbox'), 'click');
+      for (const id of ['I1', 'I2']) {
+        const row = layerOne(`[data-inbox-id="${id}"]`);
+        expect(row.children.item(1)?.textContent).toBe(description);
+        expect(row.children.item(2)?.textContent).toBe(action);
+        expect(row.children.length).toBe(action === undefined ? 2 : 3);
+      }
+    },
+  );
+
   it('inbox filters active counts and both lists, orders failures first and preserves handled order', async () => {
     const all = layerAll;
     const one = layerOne;

@@ -22,6 +22,11 @@
 .row + .row {
   border-top: var(--size-hairline) solid var(--color-border-subtle);
 }
+.action {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-text-tertiary);
+}
 .meta {
   display: flex;
   flex-wrap: wrap;
