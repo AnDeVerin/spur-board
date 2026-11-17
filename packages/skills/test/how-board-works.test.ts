@@ -287,8 +287,9 @@ describe('how the Board works guide', () => {
     ).toEqual(prefixes.map((prefix) => `board_observation ${prefix}`));
     for (const row of rows) {
       const label = `${row.kind} ${row.prefix ?? ''}`;
-      expect(row.cells, label).toHaveLength(5);
+      expect(row.cells, label).toHaveLength(6);
       expect(row.cells[2], label).not.toBe('');
+      expect(row.cells[5], label).not.toBe('');
     }
     const action = (kind: string, prefix?: string) =>
       rows.find((row) => row.kind === kind && row.prefix === prefix)?.cells[2] ?? '';

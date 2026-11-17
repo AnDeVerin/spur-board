@@ -1,5 +1,5 @@
 {
-  "version": "8c019d397b4066cfd07d27998f20604b1f4671e1364b495688f5de7f9bde70f3",
+  "version": "90fe436877071ffaa9d500bc7ba2b9334895e4837a6254d7cab977b210631035",
   "grants": [
     "operator",
     "project-agent",
@@ -6559,10 +6559,11 @@
               {
                 "id": "I9",
                 "project": "_board",
-                "kind": "transport_health",
+                "kind": "board_observation",
                 "severity": "failure",
-                "text": "slack delivery down since 2026-01-05T09:30:00.000Z (connection lost): check the Slack app tokens",
-                "action": "check the Slack app tokens",
+                "text": "example/web: main is red (build): open the failing run; fix or revert",
+                "action": "open the failing run; fix or revert",
+                "url": "https://github.com/example/web/actions/runs/42",
                 "at": "2026-01-05T09:30:00.000Z",
                 "task": null
               },
@@ -6667,6 +6668,13 @@
                 "text": {
                   "type": "string",
                   "description": "What needs the operator, in one line."
+                },
+                "url": {
+                  "description": "Meaningful external destination for this entry, when known; HTTP(S) only. Task navigation takes precedence in the web inbox.",
+                  "allOf": [
+                    { "type": "string", "format": "uri" },
+                    { "type": "string", "pattern": "^[hH][tT][tT][pP][sS]?:\\/\\/" }
+                  ]
                 },
                 "action": {
                   "description": "What the operator does about an item entry; the text ends with it. Absent on block and turn entries.",
@@ -6783,6 +6791,13 @@
                 "text": {
                   "type": "string",
                   "description": "What needs the operator, in one line."
+                },
+                "url": {
+                  "description": "Meaningful external destination for this entry, when known; HTTP(S) only. Task navigation takes precedence in the web inbox.",
+                  "allOf": [
+                    { "type": "string", "format": "uri" },
+                    { "type": "string", "pattern": "^[hH][tT][tT][pP][sS]?:\\/\\/" }
+                  ]
                 },
                 "action": {
                   "description": "What the operator does about an item entry; the text ends with it. Absent on block and turn entries.",

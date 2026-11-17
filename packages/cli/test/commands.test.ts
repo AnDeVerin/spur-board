@@ -844,6 +844,33 @@ describe('catalog commands', () => {
     }
   });
 
+  it.each([
+    [false, []],
+    [true, ['--json']],
+    [true, []],
+  ] as const)('retains active and handled inbox URLs, TTY %s flags %s', async (tty, flags) => {
+    const entry = {
+      id: 'I1',
+      project: '_board',
+      kind: 'board_observation',
+      severity: 'failure',
+      text: 'Run failed',
+      at: '2026-11-04T08:00:00.000Z',
+      task: null,
+      url: 'https://example.test/run',
+    };
+    const value = {
+      items: [entry],
+      handled: [{ ...entry, id: 'I2', handledAt: entry.at, url: 'http://example.test/handled' }],
+    };
+    const url = await fakeServer(() => value);
+    const output = capture(tty);
+    expect(await runCli(['inbox', 'operator', ...flags], { env: env(url), io: output.io })).toBe(0);
+    expect(output.stdout).toContain(entry.url);
+    expect(output.stdout).toContain(value.handled[0]?.url);
+    if (!tty || flags.length) expect(JSON.parse(output.stdout)).toEqual(value);
+  });
+
   it('quotes untrusted comments in human output', async () => {
     const task = OPERATIONS.find((op) => op.id === 'task.get');
     if (!task) throw new Error('Missing task operation.');

@@ -1,7 +1,16 @@
 import { ITEM_KINDS } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createOperationRegistry, createQuery, type Store } from '../../src/index.ts';
-import { ago, block, clock, HOUR, item, mixed, task } from '../support/operator-inbox.ts';
+import {
+  ago,
+  block,
+  clock,
+  failedPost,
+  HOUR,
+  item,
+  mixed,
+  task,
+} from '../support/operator-inbox.ts';
 import { openTempStore } from '../support/store.ts';
 
 const stores: Store[] = [];
@@ -19,6 +28,130 @@ function setup() {
 }
 
 describe('inbox.operator actions', () => {
+  it.each([null, ago(HOUR)])(
+    'projects meaningful stored URLs, handled at %s',
+    async (clearedAt) => {
+      const { store, inbox } = setup();
+      const url = 'https://github.com/o/first/actions/runs/42';
+      await store.transaction((trx) =>
+        item(trx, {
+          key: 'default-branch:github:first:o/first',
+          kind: 'board_observation',
+          url,
+          clearedAt,
+        }),
+      );
+      const result = await inbox();
+      expect(clearedAt === null ? result.items : result.handled).toMatchObject([{ url }]);
+    },
+  );
+
+  it.each([
+    '',
+    'javascript:alert(1)',
+    '/relative',
+    'https://github.com',
+    'HTTPS://GITHUB.COM:443/',
+    'https://github.com/?q=help#top',
+  ])('omits unusable stored URL %s and never parses text', async (url) => {
+    const { store, inbox } = setup();
+    await store.transaction((trx) =>
+      item(trx, {
+        key: 'misc:1',
+        kind: 'board_observation',
+        url,
+        text: 'Open https://example.test/run',
+      }),
+    );
+    expect((await inbox()).items[0]).not.toHaveProperty('url');
+  });
+
+  it.each([null, ago(HOUR)])('selects official source help, handled at %s', async (clearedAt) => {
+    const { store, inbox } = setup();
+    const targets = [
+      [
+        'github:first:o/first',
+        'https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api',
+      ],
+      [
+        'github-issues:first:o/first',
+        'https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api',
+      ],
+      ['jira:first', 'https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro'],
+      ['spur', undefined],
+      ['unknown', undefined],
+    ] as const;
+    const ids = await store.transaction(async (trx) =>
+      Promise.all(
+        targets.map(([source]) =>
+          item(trx, {
+            key: `source:${source}`,
+            kind: 'board_observation',
+            url: 'https://github.com',
+            clearedAt,
+          }),
+        ),
+      ),
+    );
+    const result = await inbox();
+    const entries = clearedAt === null ? result.items : result.handled;
+    for (const [i, [, url]] of targets.entries()) {
+      const entry = entries.find((entry) => entry.id === ids[i]);
+      if (url === undefined) expect(entry).not.toHaveProperty('url');
+      else expect(entry).toMatchObject({ url });
+    }
+  });
+
+  it.each([null, ago(HOUR)])(
+    'uses own then immediate parent delivery permalink, handled at %s',
+    async (clearedAt) => {
+      const { store, inbox } = setup();
+      const own = 'https://chat.example.test/own';
+      const parent = 'https://chat.example.test/parent';
+      const ref = (permalink: string) =>
+        JSON.stringify({ conversation: 'C1:1', message: '2', permalink });
+      const ids = await store.transaction(async (trx) => {
+        // Reuse an outbox fixture as the parent, retaining a structurally valid delivered reference.
+        await failedPost(trx, {
+          kind: 'feed.line',
+          payload: {},
+          externalRef: ref(parent),
+          dedupeKey: 'parent',
+        });
+        const row = await trx
+          .selectFrom('outbox')
+          .select('id')
+          .where('dedupe_key', '=', 'parent')
+          .executeTakeFirstOrThrow();
+        const inputs = [
+          { externalRef: ref(own), parentId: row.id },
+          { externalRef: ref('javascript:alert(1)'), parentId: row.id },
+          { parentId: row.id },
+          {},
+          { externalRef: 'invalid-json' },
+        ];
+        return Promise.all(
+          inputs.map((input, i) =>
+            failedPost(trx, {
+              kind: 'feed.line',
+              payload: {},
+              dedupeKey: `child:${String(i)}`,
+              ...input,
+              ...(clearedAt === null ? {} : { clearedAt }),
+            }),
+          ),
+        );
+      });
+      const result = await inbox();
+      const entries = clearedAt === null ? result.items : result.handled;
+      for (const [i, url] of [own, parent, parent, undefined, undefined].entries()) {
+        const entry = entries.find((entry) => entry.id === ids[i]);
+        if (url === undefined) expect(entry).not.toHaveProperty('url');
+        else expect(entry).toMatchObject({ url });
+      }
+    },
+  );
+
   it('gives every item kind an action', async () => {
     const { store, inbox } = setup();
     const kinds = ITEM_KINDS.filter((kind) => kind !== 'turn');

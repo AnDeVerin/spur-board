@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, createElement } from 'react';
+import { InboxPanel } from '../src/board/InboxPanel.tsx';
+import type { BoardSnapshot } from '../src/board/data.ts';
+import { createRoot } from 'react-dom/client';
+import { focusRing, quiet } from '../src/ds/index.ts';
 import { describe, expect, it, vi } from 'vitest';
 import { config, daemon, deferred, envelope, failure, inbox, taskGet } from './board-fixtures.ts';
 import { mount, mountEachTest, press, settle } from './board-harness.ts';
@@ -13,6 +17,78 @@ const find = (selector: string) => {
 };
 
 describe('inbox task navigation without configuration', () => {
+  it.each([undefined, 'javascript:alert(1)', '/relative', 'https://example.test/run'])(
+    'inbox native link semantics for URL %s in active and handled rows',
+    (url) => {
+      const base = {
+        id: 'I1',
+        project: '_board',
+        kind: 'board_observation' as const,
+        severity: 'failure' as const,
+        text: 'Run failed',
+        at: '2026-11-04T08:00:00.000Z',
+        task: null,
+        ...(url === undefined ? {} : { url }),
+      };
+      const snapshot: BoardSnapshot = {
+        config: undefined,
+        project: undefined,
+        status: undefined,
+        inbox: {
+          items: [base, { ...base, id: 'I3', task: 'ex/repo#7' }],
+          handled: [{ ...base, id: 'I2', handledAt: base.at }],
+        },
+        readFailed: false,
+        stream: 'offline',
+        everLive: false,
+        lastGoodAt: undefined,
+        retrying: false,
+        task: undefined,
+        history: undefined,
+      };
+      // Direct renderer fixture deliberately bypasses the API schema to reach URL defense.
+      const target = document.createElement('div');
+      document.body.append(target);
+      const root = createRoot(target);
+      act(() => {
+        root.render(
+          createElement(InboxPanel, {
+            snapshot,
+            now: 0,
+            onClose: () => undefined,
+            onOpen: () => undefined,
+          }),
+        );
+      });
+      try {
+        const host = document;
+        for (const id of ['I1', 'I2']) {
+          const row = host.querySelector(`[data-inbox-id="${id}"]`);
+          expect(row?.className).toContain(focusRing);
+          expect(row?.className).toContain(quiet);
+          if (url === 'https://example.test/run') {
+            expect(row?.tagName).toBe('A');
+            expect(row?.getAttribute('href')).toBe(url);
+            expect(row?.getAttribute('target')).toBe('_blank');
+            expect(row?.getAttribute('rel')).toBe('noopener noreferrer');
+          } else {
+            expect(row?.tagName).toBe('DIV');
+            expect(row?.getAttribute('tabindex')).toBe('0');
+            expect(row?.hasAttribute('href')).toBe(false);
+          }
+        }
+        const task = host.querySelector('[data-inbox-id="I3"]');
+        expect(task?.tagName).toBe('A');
+        expect(task?.getAttribute('href')).toBe('?open=ex%2Frepo%237');
+        expect(task?.hasAttribute('target')).toBe(false);
+      } finally {
+        act(() => {
+          root.unmount();
+        });
+        target.remove();
+      }
+    },
+  );
   const cases = ['pending', 'failed'].flatMap((configState) =>
     ['click', 'restored'].flatMap((opener) =>
       ['stay', 'close', 'navigate'].map((next) => ({ configState, opener, next })),

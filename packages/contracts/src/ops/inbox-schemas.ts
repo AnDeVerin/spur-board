@@ -25,6 +25,14 @@ export const inboxEntrySchema = z
         'failure: the board or a connection broke; attention: a decision, answer or other operator action is wanted.',
       ),
     text: z.string().describe('What needs the operator, in one line.'),
+    url: z
+      .url({ protocol: /^https?$/ })
+      // The URL protocol option is runtime-only; retain it in advertised JSON Schema too.
+      .and(z.string().regex(/^[hH][tT][tT][pP][sS]?:\/\//))
+      .optional()
+      .describe(
+        'Meaningful external destination for this entry, when known; HTTP(S) only. Task navigation takes precedence in the web inbox.',
+      ),
     action: z
       .string()
       .min(1)

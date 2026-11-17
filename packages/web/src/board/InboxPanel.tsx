@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { focusRing, quiet, SidePanel, TabPanel, Tabs } from '../ds/index.ts';
+import { safeExternalUrl } from '../lib/links.ts';
 import type { BoardSnapshot } from './data.ts';
 import { open } from './Card.tsx';
 import { openHref, shortKey } from './model.ts';
@@ -85,6 +86,21 @@ export function InboxPanel({
       </>
     );
     const className = `${styles.row ?? ''} ${quiet} ${focusRing}`;
+    const url = entry.url === undefined ? null : safeExternalUrl(entry.url);
+    if (entry.task === null && url !== null)
+      return (
+        <a
+          key={entry.id}
+          className={className}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-inbox-id={entry.id}
+          data-handled={handled || undefined}
+        >
+          {content}
+        </a>
+      );
     return entry.task === null ? (
       <div
         key={entry.id}

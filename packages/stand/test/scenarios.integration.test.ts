@@ -866,6 +866,12 @@ describe('each scenario', () => {
     const { sources, items } = await status(current());
     expect(sources).toContainEqual(expect.objectContaining({ source, blindReason: 'auth' }));
     expect(items.map(({ key }) => key)).toContain(`source:${source}`);
+    const inbox = await op<{ items: { url?: string }[] }>(current(), 'inbox.operator', {});
+    expect(inbox.items).toContainEqual(
+      expect.objectContaining({
+        url: 'https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api',
+      }),
+    );
   }, 60_000);
 
   it('default-branch-red: one failure item under _board; a green head clears it; a failed scheduled run raises nothing', async () => {
@@ -876,8 +882,15 @@ describe('each scenario', () => {
     const key = `default-branch:${source}`;
     expect(scenario).toMatchObject({ sources: { red: source }, items: { red: key } });
     interface Inbox {
-      items: { kind: string; severity: string; project: string; text: string; action: string }[];
-      handled: { text: string }[];
+      items: {
+        kind: string;
+        severity: string;
+        project: string;
+        text: string;
+        action: string;
+        url?: string;
+      }[];
+      handled: { text: string; url?: string }[];
     }
     type Branch = { state: string; sha: string; check: string | null; url: string | null } | null;
     const inbox = () => op<Inbox>(current(), 'inbox.operator', {});
@@ -894,6 +907,7 @@ describe('each scenario', () => {
         severity: 'failure',
         project: '_board',
         action: 'open the failing run; fix or revert',
+        url,
       },
     ]);
     expect(red.items[0]?.text).toMatch(
@@ -910,6 +924,7 @@ describe('each scenario', () => {
     const green = await inbox();
     expect(green.items.filter((entry) => entry.text.startsWith(`${repo}: main`))).toEqual([]);
     expect(green.handled.filter((entry) => entry.text.startsWith(`${repo}: main`))).toHaveLength(1);
+    expect(green.handled.find((entry) => entry.text.startsWith(`${repo}: main`))?.url).toBe(url);
     expect(await branchOf()).toMatchObject({ state: 'green' });
 
     await branch({ state: 'green', scheduledFailure: 'nightly' });
@@ -968,6 +983,12 @@ describe('each scenario', () => {
       expect.objectContaining({ source: 'github-issues:stand:stand-org/board', blindReason: null }),
     );
     expect(items.map(({ key }) => key)).toContain(`source:${source}`);
+    const inbox = await op<{ items: { url?: string }[] }>(current(), 'inbox.operator', {});
+    expect(inbox.items).toContainEqual(
+      expect.objectContaining({
+        url: 'https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro',
+      }),
+    );
   }, 60_000);
 
   it('token-approval: a pending token whose approve button approves it', async () => {

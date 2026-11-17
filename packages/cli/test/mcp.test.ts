@@ -16,6 +16,39 @@ afterEach(() => {
 });
 
 describe('board mcp', () => {
+  it('retains active and handled inbox URLs in text, structured content and output schema', async () => {
+    const entry = {
+      id: 'I1',
+      project: '_board',
+      kind: 'board_observation',
+      severity: 'failure',
+      text: 'Run failed',
+      at: '2026-11-04T08:00:00.000Z',
+      task: null,
+      url: 'https://example.test/run',
+    };
+    const value = { items: [entry], handled: [{ ...entry, id: 'I2', handledAt: entry.at }] };
+    const daemon = await fakeDaemon((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ ok: true, requestId: 'req-inbox', value }));
+    });
+    await withClient({ BOARD_DAEMON_URL: daemon.url, BOARD_TOKEN: 'token' }, async (client) => {
+      const result = await client.callTool({ name: 'inbox_operator', arguments: {} });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toEqual(value);
+      const content = result.content.find((content) => content.type === 'text');
+      expect(JSON.parse(content?.text ?? 'null')).toEqual(value);
+      const { tools } = await client.listTools();
+      const schema = tools.find((tool) => tool.name === 'inbox_operator')?.outputSchema;
+      if (!schema) throw new Error('missing inbox output schema');
+      const validate = new AjvJsonSchemaValidator().getValidator(schema as JsonSchemaType);
+      expect(validate(value).valid).toBe(true);
+      expect(validate({ ...value, items: [{ ...entry, url: 'javascript:alert(1)' }] }).valid).toBe(
+        false,
+      );
+    });
+  });
+
   it('uses the configured daemon without BOARD_DAEMON_URL', async () => {
     const daemon = await fakeDaemon((_request, response) => {
       response.writeHead(200, { 'content-type': 'application/json' });

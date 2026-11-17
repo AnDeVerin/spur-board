@@ -23,7 +23,10 @@ Header, left to right:
   `: <action>` is removed from the description. Before the first success, the panel says inbox data
   is unavailable; later failures retain data. Task rows open above the retained panel and select
   their project when config arrives. Task close focuses its row or panel Close if removed; panel close focuses the
-  header inbox button. Back/Forward follow these layers. Non-task rows are focusable; all are read-only.
+  header inbox button. Back/Forward follow these layers. Task-less rows with a known HTTP(S)
+  destination open it in a new tab on click or Enter, retaining the inbox. This applies to active
+  and handled entries. Task navigation takes precedence even when a URL is supplied. Rows without
+  a safe destination remain focusable; all are read-only.
 
 Columns follow configuration order:
 

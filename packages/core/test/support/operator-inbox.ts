@@ -83,6 +83,7 @@ export async function item(
     key: string;
     kind: string;
     text?: string;
+    url?: string;
     taskId?: number | null;
     blockId?: number | null;
     raisedAt?: string;
@@ -97,7 +98,7 @@ export async function item(
       raise_no: input.raiseNo ?? 1,
       kind: input.kind,
       text: input.text ?? `${input.kind} happened`,
-      url: '',
+      url: input.url ?? '',
       task_id: input.taskId ?? null,
       block_id: input.blockId ?? null,
       raised_at: input.raisedAt ?? ago(3 * HOUR),
@@ -184,7 +185,15 @@ export async function turn(
 
 export async function failedPost(
   trx: Trx,
-  input: { kind: string; payload: object; dedupeKey?: string; raisedAt?: string },
+  input: {
+    kind: string;
+    payload: object;
+    dedupeKey?: string;
+    raisedAt?: string;
+    externalRef?: string;
+    parentId?: number;
+    clearedAt?: string;
+  },
 ): Promise<string> {
   const row = await trx
     .insertInto('outbox')
@@ -195,8 +204,8 @@ export async function failedPost(
       state: 'post_failed',
       next_at: ago(0),
       last_error: 'gateway refused',
-      external_ref: null,
-      parent_outbox_id: null,
+      external_ref: input.externalRef ?? null,
+      parent_outbox_id: input.parentId ?? null,
       first_attempt_at: null,
       first_delivery_at: null,
     })
@@ -206,6 +215,7 @@ export async function failedPost(
     key: `delivery:${String(row.id)}`,
     kind: 'post_failed',
     text: `Delivery failed: ${input.kind}`,
+    ...(input.clearedAt === undefined ? {} : { clearedAt: input.clearedAt }),
     ...(input.raisedAt === undefined ? {} : { raisedAt: input.raisedAt }),
   });
 }

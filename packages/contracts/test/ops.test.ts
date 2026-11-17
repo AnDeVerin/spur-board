@@ -14,6 +14,7 @@ import {
   roleCanUseOperation,
 } from '../src/index.ts';
 import { browserOperations } from '../src/browser.ts';
+import { inboxEntrySchema, inboxHandledSchema } from '../src/ops/inbox-schemas.ts';
 import { defineOperation } from '../src/ops/define.ts';
 import { SCHEMA_ROLES } from '../src/ops/schemas.ts';
 import { catalogSnapshotBody, catalogVersion } from '../src/ops/snapshot.ts';
@@ -24,6 +25,43 @@ const schemas = OPERATIONS.map((op) => ({
   input: z.toJSONSchema(op.input, { io: 'input' }),
   output: z.toJSONSchema(op.output, { io: 'output' }),
 }));
+
+describe('operator inbox URLs', () => {
+  const entry = {
+    id: 'I1',
+    project: '_board',
+    kind: 'board_observation',
+    severity: 'failure',
+    text: 'Run failed',
+    at: '2026-11-04T08:00:00.000Z',
+    task: null,
+  };
+  it.each([inboxEntrySchema, inboxHandledSchema])(
+    'accepts omission and HTTP(S) in the shared entry schema',
+    (schema) => {
+      const value = { ...entry, ...(schema === inboxHandledSchema ? { handledAt: entry.at } : {}) };
+      expect(schema.parse(value)).not.toHaveProperty('url');
+      for (const url of [
+        'http://example.test/run',
+        'https://example.test/run',
+        'HTTPS://example.test/run',
+      ]) {
+        expect(schema.parse({ ...value, url })).toMatchObject({ url });
+      }
+      for (const url of ['', '/relative', 'ftp://example.test/run', 'javascript:alert(1)']) {
+        expect(schema.safeParse({ ...value, url }).success, url).toBe(false);
+      }
+      const output = {
+        items: [{ ...entry, url: 'https://example.test/run' }],
+        handled: [{ ...entry, url: 'http://example.test/run', handledAt: entry.at }],
+      };
+      expect(browserOperations['inbox.operator'].output.parse(output)).toEqual(output);
+      expect(OPERATIONS.find((op) => op.id === 'inbox.operator')?.output.parse(output)).toEqual(
+        output,
+      );
+    },
+  );
+});
 
 /** The top-level object branches of an input: one, or one per union member. */
 function inputBranches(input: JsonObject): JsonObject[] {

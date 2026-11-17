@@ -1,4 +1,5 @@
 import { RESERVED_PROJECT, type Config, type Via } from '@spur-board/contracts';
+import { z } from 'zod';
 import {
   BLOCK_KEY,
   DEFAULT_BRANCH_KEY,
@@ -15,6 +16,8 @@ import { authorize, isOperator, projectTarget } from './authorize.ts';
 import type { Trx } from './board-utils.ts';
 import { answeredVia, answeredViaColumn } from './blocks.ts';
 import { deliveryOwners } from './items.ts';
+import { TASKLESS_ITEM_URL } from './item-raise.ts';
+import { deliveredRefSchema } from './outbox.ts';
 import type { Query } from './queries.ts';
 
 /** How far back `handled` reaches, and how many entries it keeps. */
@@ -38,6 +41,7 @@ interface Entry {
   severity: 'attention' | 'failure';
   text: string;
   action?: string;
+  url?: string;
   at: string;
   task: string | null;
   column?: Row<'turn'>['column'];
@@ -136,6 +140,63 @@ function serviceOf(source: string): string | undefined {
   if (source === 'spur') return 'Spur';
   if (source.startsWith('github:') || source.startsWith('github-issues:')) return 'GitHub';
   return source.startsWith('jira:') ? 'Jira' : undefined;
+}
+
+const externalUrlSchema = z.url({ protocol: /^https?$/ });
+
+/** Only structured destinations count; the task-less feed placeholder is never navigation. */
+function meaningfulUrl(value: string): string | undefined {
+  if (!externalUrlSchema.safeParse(value).success) return undefined;
+  const url = new URL(value);
+  if (url.origin === TASKLESS_ITEM_URL && url.pathname === '/') return undefined;
+  return url.href;
+}
+
+function deliveredUrl(value: string | null): string | undefined {
+  if (value === null) return undefined;
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(value);
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return undefined;
+  }
+  const ref = deliveredRefSchema.safeParse(decoded);
+  return ref.success ? meaningfulUrl(ref.data.permalink) : undefined;
+}
+
+function deliveryId(item: Item): number | undefined {
+  if (item.kind !== 'post_failed' || !/^delivery:[1-9]\d*$/.test(item.item_key)) return undefined;
+  const id = Number(item.item_key.slice('delivery:'.length));
+  return Number.isSafeInteger(id) ? id : undefined;
+}
+
+/** One batched join, including only the immediate parent of each failed delivery. */
+async function deliveryUrls(trx: Trx, items: readonly Item[]) {
+  const ids = items.flatMap((item) => deliveryId(item) ?? []);
+  if (ids.length === 0) return new Map<number, string | undefined>();
+  const rows = await trx
+    .selectFrom('outbox')
+    .leftJoin('outbox as parent', 'parent.id', 'outbox.parent_outbox_id')
+    .select(['outbox.id', 'outbox.external_ref', 'parent.external_ref as parent_ref'])
+    .where('outbox.id', 'in', ids)
+    .execute();
+  return new Map(
+    rows.map((row) => [row.id, deliveredUrl(row.external_ref) ?? deliveredUrl(row.parent_ref)]),
+  );
+}
+
+function itemUrl(item: Item, deliveries: Map<number, string | undefined>): string | undefined {
+  if (item.item_key.startsWith(SOURCE_KEY)) {
+    const service = serviceOf(item.item_key.slice(SOURCE_KEY.length));
+    if (service === 'GitHub')
+      return 'https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api';
+    if (service === 'Jira')
+      return 'https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro';
+    return undefined;
+  }
+  const id = deliveryId(item);
+  return id === undefined ? meaningfulUrl(item.url) : deliveries.get(id);
 }
 
 /**
@@ -250,7 +311,7 @@ export function createOperatorInbox(deps: {
       const sourceIds = items.flatMap((item) =>
         item.item_key.startsWith(SOURCE_KEY) ? [item.item_key.slice(SOURCE_KEY.length)] : [],
       );
-      const [referenced, owners, sources] = await Promise.all([
+      const [referenced, owners, sources, deliveries] = await Promise.all([
         blockIds.length === 0
           ? Promise.resolve([])
           : trx
@@ -273,6 +334,7 @@ export function createOperatorInbox(deps: {
               .select(['source', 'blind_reason', 'blind_message'])
               .where('source', 'in', sourceIds)
               .execute(),
+        deliveryUrls(trx, items),
       ]);
       const blockById = new Map(referenced.map((block) => [block.id, block]));
       const sourceById = new Map(sources.map((state) => [state.source, state]));
@@ -296,6 +358,7 @@ export function createOperatorInbox(deps: {
         const { condition, action } = item.item_key.startsWith(SOURCE_KEY)
           ? sourceText(item, sourceById.get(item.item_key.slice(SOURCE_KEY.length)))
           : { condition: item.text, action: ACTIONS[kind](item, { block, task }) };
+        const url = itemUrl(item, deliveries);
         return {
           id: `I${String(item.id)}`,
           project:
@@ -306,6 +369,7 @@ export function createOperatorInbox(deps: {
           action,
           at: item.raised_at,
           task: task?.key ?? null,
+          ...(url === undefined ? {} : { url }),
           ...(item.cleared_at === null ? {} : { handledAt: item.cleared_at }),
         };
       };
