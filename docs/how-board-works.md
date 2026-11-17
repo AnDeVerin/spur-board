@@ -9,8 +9,9 @@ Choose the topic for the decision or action in front of you:
 - [Done follows the ticket](how-board-works-done.md): check when a task is finished.
 
 Read effective project configuration with `board config get`, then the current overview with
-`board status`. Configuration lists enabled columns in order, their executors, dispatcher mode
-and effective Spur projects with display names, plus `web.publicOrigin` (the listener's origin,
+`board status`. Configuration lists enabled columns in order, their executors, dispatcher mode,
+effective Spur projects with display names and each project's `ticketBrowseBase`
+(`<tracker baseUrl>/browse/` for Jira, else null), plus `web.publicOrigin` (the listener's origin,
 null when off or not bound yet) and `web.spurUiOrigin` (null when not configured). It excludes
 credentials and adapter settings.
 A worker executor falls back to the operator when no live worker exists; unbound external review
