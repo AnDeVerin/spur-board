@@ -124,6 +124,8 @@ export function Board({ data }: { data: BoardData }) {
           view={view}
           filter={filter}
           stale={list[0]?.variant === 'error'}
+          now={snapshot.lastGoodAt}
+          spurUiOrigin={snapshot.config?.web.spurUiOrigin ?? null}
           onOpen={(key) => {
             history.pushState(null, '', openHref(key));
             setOpenKey(key);

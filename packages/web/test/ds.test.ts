@@ -15,6 +15,7 @@ import {
   IconButton,
   KeyValueBox,
   Logo,
+  StatusDot,
   TextArea,
   TextInput,
   type IconName,
@@ -268,6 +269,25 @@ describe('Icon and Logo', () => {
   });
 });
 
+describe('StatusDot and Chip', () => {
+  it('StatusDot working and Chip title render; defaults unchanged', () => {
+    const dot = (tone: ComponentProps<typeof StatusDot>['tone']) =>
+      markup(createElement(StatusDot, { tone }));
+    const working = dot('working');
+    expect(working).toContain('aria-hidden="true"');
+    expect(new Set([working, dot('ok'), dot('warn'), dot('error'), dot('unknown')]).size).toBe(5);
+    expect(markup(createElement(Chip, { children: 'draft' }))).not.toContain('title=');
+    expect(markup(createElement(Chip, { tone: 'you', children: 'B1' }))).not.toContain('title=');
+    expect(markup(createElement(Chip, { title: 'Open blocks: B7', children: '+1' }))).toContain(
+      'title="Open blocks: B7"',
+    );
+    expect(Object.keys(examples['../src/ds/StatusDot/StatusDot.examples.tsx'] ?? {})).toContain(
+      'Working',
+    );
+    expect(Object.keys(examples['../src/ds/Chip/Chip.examples.tsx'] ?? {})).toContain('Titled');
+  });
+});
+
 const controlFolders = ['Button', 'FormRow', 'IconButton', 'TextArea', 'TextInput'];
 const controlExamples = (folder: string) =>
   examples[`../src/ds/${folder}/${folder}.examples.tsx`] ?? {};
@@ -504,6 +524,7 @@ describe('Chip', () => {
       'Warn',
       'You',
       'Ghost',
+      'Titled',
       'Link',
       'LinkFocused',
     ]);

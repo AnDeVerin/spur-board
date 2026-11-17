@@ -17,6 +17,9 @@
 .error {
   --c: var(--color-status-error);
 }
+.working {
+  --c: var(--color-status-working);
+}
 /* No status known yet: a neutral hollow dot that brightens under the quiet class. */
 .unknown {
   --c: var(--color-text-tertiary);

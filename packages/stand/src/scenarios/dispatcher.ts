@@ -77,9 +77,12 @@ export const giveBack = (board: Board, turn: string) =>
     randomUUID(),
   );
 
-/** Opens issue 1 and links the worker role session: Dev with the turn `dev: no_pr`. */
-export async function begin(board: Board, fakes: ScenarioFakes): Promise<Turn> {
-  await openIssues(fakes, 1);
+/**
+ * Opens issue 1, titled `title` when given, and links the worker role session: Dev with the turn
+ * `dev: no_pr`.
+ */
+export async function begin(board: Board, fakes: ScenarioFakes, title?: string): Promise<Turn> {
+  await openIssues(fakes, 1, title === undefined ? undefined : () => title);
   await board.poll();
   await board.call('operator', 'link.add', {
     mode: 'session',
@@ -102,9 +105,17 @@ export async function openPr(
   await board.poll();
 }
 
-/** The worker took T1, opened a green PR and submitted A: Review with the conductor's turn. */
-export async function toReview(board: Board, fakes: ScenarioFakes, seed = {}): Promise<Turn> {
-  const dev = await begin(board, fakes);
+/**
+ * The worker took T1, opened a green PR and submitted A: Review with the conductor's turn. `title`
+ * names issue 1 when given.
+ */
+export async function toReview(
+  board: Board,
+  fakes: ScenarioFakes,
+  seed = {},
+  title?: string,
+): Promise<Turn> {
+  const dev = await begin(board, fakes, title);
   await take(board, 'worker', dev.id);
   await openPr(board, fakes, { seed });
   await submit(board, 'worker', dev.id, A);

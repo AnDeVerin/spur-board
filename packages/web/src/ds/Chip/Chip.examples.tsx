@@ -12,6 +12,9 @@ export function You() {
 export function Ghost() {
   return <Chip tone="ghost">no owner</Chip>;
 }
+export function Titled() {
+  return <Chip title="Other open blocks: B7, B9">+2</Chip>;
+}
 export function Link() {
   return (
     <Chip href="https://example.com/" label="PR #12, acme/app">

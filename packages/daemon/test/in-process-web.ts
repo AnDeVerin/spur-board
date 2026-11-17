@@ -1,24 +1,16 @@
-import { createServer } from 'node:net';
 import { configSchema, type Config } from '@spur-board/contracts';
 import { expect } from 'vitest';
 import type { HostProbe } from '../src/host-metrics.ts';
 
-/** `base` on a free loopback HTTP port with the web listener on an ephemeral one. */
-export async function webConfig(base: (httpPort: number) => Config): Promise<Config> {
-  const reservation = createServer();
-  await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve));
-  const reserved = reservation.address();
-  if (reserved === null || typeof reserved === 'string') throw new Error('Expected TCP address');
-  await new Promise<void>((resolve, reject) =>
-    reservation.close((err) => {
-      if (err) reject(err);
-      else resolve();
-    }),
-  );
-  return configSchema.parse({
-    ...base(reserved.port),
+/** Injected runtime fixture: each listener asks the OS for its own ephemeral port. */
+export function webConfig(base: (httpPort: number) => Config): Promise<Config> {
+  const config = configSchema.parse({
+    ...base(1),
     web: { port: 0, publicOrigin: 'http://127.0.0.1:{port}' },
   });
+  // Config files reject equal ports, including 0/0. Validate with a distinct placeholder,
+  // then inject both ephemeral ports without reparsing; port 1 is never bound.
+  return Promise.resolve({ ...config, http: { port: 0 } });
 }
 
 /** Runs a read-only operation through the web listener at `webAddress`; expects 200. */

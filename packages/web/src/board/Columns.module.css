@@ -74,42 +74,13 @@
   white-space: nowrap;
 }
 
-/* Cards and done rows are links: they keep the text colour and drop the underline. */
-.card,
+/* Done rows are links: they keep the text colour and drop the underline. */
 .doneRow {
   color: inherit;
   text-decoration: none;
 }
-.card[data-dimmed],
 .doneRow[data-dimmed] {
   opacity: var(--opacity-dimmed);
-}
-.card {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1-5);
-  min-width: 0;
-  padding: var(--space-2) var(--space-2-5) var(--space-2) var(--space-3);
-  background: var(--color-bg-elevated);
-  border: var(--size-hairline) solid var(--color-border-default);
-}
-.card:hover {
-  border-color: var(--color-border-strong);
-}
-.key {
-  font-size: var(--text-small);
-  font-weight: var(--weight-bold);
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-}
-.title {
-  display: -webkit-box;
-  overflow: hidden;
-  font-weight: var(--weight-medium);
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: var(--lines-title);
 }
 
 /* Done is a compact list of every done row. */

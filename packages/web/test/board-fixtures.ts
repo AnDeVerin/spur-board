@@ -69,7 +69,7 @@ const ticket = (key: string, title: string) => ({
   url: 'https://example.test/ticket',
   updatedAt: '2026-11-15T14:00:00.000Z',
 });
-const row = (key: string, columnId: string, extra: Record<string, unknown> = {}) => ({
+export const row = (key: string, columnId: string, extra: Record<string, unknown> = {}) => ({
   key,
   project: 'a',
   column: columnId,
@@ -84,6 +84,39 @@ const row = (key: string, columnId: string, extra: Record<string, unknown> = {})
   links: { ticket: null, prs: [], sessions: [] },
   ticket: ticket(key, `Title ${key}`),
   ...extra,
+});
+/** An open `status.get` turn: the worker's untaken Dev turn T3 unless `extra` says otherwise. */
+export const turn = (extra: Record<string, unknown> = {}) => ({
+  id: 'T3',
+  task: 'ex/repo#7',
+  column: 'dev',
+  addressee: 'worker',
+  reason: 'dev: no_pr',
+  head: null,
+  at: '2026-11-15T14:00:00.000Z',
+  taken: null,
+  addressedTo: null,
+  stalledSince: null,
+  ...extra,
+});
+/** A `prSummary` entry: PR 1, green, mergeable, no threads or reviews, unless `extra` says otherwise. */
+export const prSummary = (extra: Record<string, unknown> = {}) => ({
+  repo: 'ex/repo',
+  number: 1,
+  checks: { pass: 3, fail: 0, pending: 0 },
+  mergeable: 'mergeable',
+  threads: { unresolved: 0, total: 0 },
+  reviewsOnHead: { approved: [], changesRequested: [] },
+  draft: false,
+  factAt: '2026-11-15T14:00:00.000Z',
+  unconfirmed: false,
+  ...extra,
+});
+/** The `links.prs` entry of PR `number` in `ex/repo`. */
+export const prLink = (number: number) => ({
+  repo: 'ex/repo',
+  number,
+  url: `https://github.com/ex/repo/pull/${String(number)}`,
 });
 export const DONE = [20, 21, 22, 23, 24, 25, 26].map((n) => `ex/repo#${String(n)}`);
 // Done first and a row in a column config lacks: the screen orders by config and drops it.

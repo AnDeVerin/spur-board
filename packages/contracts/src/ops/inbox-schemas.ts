@@ -22,9 +22,16 @@ export const inboxEntrySchema = z
     severity: z
       .enum(INBOX_SEVERITIES)
       .describe(
-        'failure: something broke and the text says what to check; attention: a decision or answer is wanted.',
+        'failure: the board or a connection broke; attention: a decision, answer or other operator action is wanted.',
       ),
     text: z.string().describe('What needs the operator, in one line.'),
+    action: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'What the operator does about an item entry; the text ends with it. Absent on block and turn entries.',
+      ),
     at: z.iso.datetime().describe('When the entry was raised or opened, ISO 8601 UTC.'),
     task: taskKeySchema.nullable().describe('Task the entry is about; null when it has none.'),
     column: z.enum(COLUMN_IDS).optional().describe('Column of a turn; absent on other entries.'),

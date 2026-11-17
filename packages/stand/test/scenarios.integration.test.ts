@@ -292,6 +292,7 @@ describe('scenarios', () => {
       'spur-transitions-cursor-expired',
       'spur-transitions-killed-holder',
       'spur-turn-stall',
+      'card-long',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -2908,3 +2909,55 @@ it('pr-finality: final PRs cost discovery only, closed probes honor persisted de
   await points(now);
   expect(await ok(current(), '/violations')).toEqual({ total: 0, items: [] });
 }, 90_000);
+
+describe('card scenario', () => {
+  it('card-long: one row carries a long title, the operator and code blocks, returned findings and two PRs', async () => {
+    await up();
+    const { scenario } = await seed('card-long');
+    const task = 'stand-org/board#1';
+    expect(scenario.prs).toEqual({ flow: task, second: 'stand-org/board#2' });
+    interface Row {
+      key: string;
+      column: string;
+      ticket?: { title: string } | null;
+      turn: { addressee: string; taken: { by: string } | null } | null;
+      returned?: { from: string; findings: number | null };
+      blocks: { id: string; addressee: string }[];
+      links: { prs: { number: number }[]; sessions: { id: string }[] };
+      prSummary: {
+        number: number;
+        mergeable: string;
+        threads: { unresolved: number; total: number };
+        reviewsOnHead: { changesRequested: string[] };
+      }[];
+    }
+    const { tasks } = await op<{ tasks: Row[] }>(current(), 'status.get', {
+      project: 'stand',
+      detail: true,
+    });
+    const row = tasks.find(({ key }) => key === task);
+    expect(row?.column).toBe('dev');
+    expect(row?.ticket?.title.length).toBeGreaterThan(100);
+    expect(row?.turn).toMatchObject({
+      addressee: 'worker',
+      taken: { by: expect.stringContaining(current().roles.worker) as unknown },
+    });
+    expect(row?.returned).toMatchObject({ from: 'review', findings: 5 });
+    expect(row?.blocks.map(({ id, addressee }) => [id, addressee]).sort()).toEqual(
+      [
+        [scenario.blocks?.['code'], 'worker'],
+        [scenario.blocks?.['question'], 'operator'],
+      ].sort(),
+    );
+    expect(row?.links.prs.map(({ number }) => number)).toEqual([1, 2]);
+    expect(row?.links.sessions.map(({ id }) => id)).toContain(current().roles.worker);
+    expect(row?.prSummary.map(({ number, mergeable }) => [number, mergeable])).toEqual([
+      [1, 'conflicting'],
+      [2, 'mergeable'],
+    ]);
+    expect(row?.prSummary[0]).toMatchObject({
+      threads: { unresolved: 3, total: 3 },
+      reviewsOnHead: { changesRequested: ['stand-reviewer'] },
+    });
+  }, 90_000);
+});
