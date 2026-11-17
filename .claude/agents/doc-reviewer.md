@@ -28,7 +28,7 @@ Find what a user would read wrong after this change. Code quality is the reviewe
 3. Accuracy - check each changed doc sentence against the code at the head. A docs-only diff
    gets this step only.
 4. Copies and generated files:
-   - Every `docs/how-board-works*.md` file matches its copy in
+   - Every `docs/how-board-works*.md` and `docs/web-ui*.md` file matches its copy in
      `packages/skills/spur-board/references/` byte for byte at the head.
    - A changed generator source (config schema, operation catalog, errors, product skill
      sources) ships the files `pnpm gen` writes. Byte equality is left to tests and
