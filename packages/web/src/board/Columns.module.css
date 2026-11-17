@@ -28,13 +28,44 @@
   font-size: var(--text-micro);
   color: var(--color-text-tertiary);
 }
+/* The executor line ends with the sort buttons. Only the text clips, so the buttons' focus
+   ring stays whole and a long executor never squeezes them. */
 .exec {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-chevron);
   margin-top: var(--space-0-25);
-  overflow: hidden;
   font-size: var(--text-micro);
   color: var(--color-text-tertiary);
+}
+.execText {
+  min-width: 0;
+  overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.sort {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-25);
+  margin-left: auto;
+}
+.sortButton {
+  min-width: var(--size-chevron);
+  height: var(--size-chevron);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.sortButton:hover {
+  background: var(--color-row-hover);
+  color: var(--color-text-primary);
 }
 /* The body scrolls, so it pads by the ring width plus offset to keep the first and last
    card's focus ring inside its clip. */
@@ -151,6 +182,13 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.entered {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* An empty project: a message in place of the columns. */

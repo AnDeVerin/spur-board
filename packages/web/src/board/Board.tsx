@@ -186,6 +186,12 @@ export function Board({ data }: { data: BoardData }) {
         <Columns
           key={snapshot.project}
           view={view}
+          sorts={{
+            get: (column) => data.columnSort(snapshot.project ?? '', column),
+            set: (column, sort) => {
+              data.setColumnSort(snapshot.project ?? '', column, sort);
+            },
+          }}
           filter={filter}
           stale={list[0]?.variant === 'error'}
           now={snapshot.lastGoodAt}

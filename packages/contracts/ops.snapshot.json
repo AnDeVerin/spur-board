@@ -1,5 +1,5 @@
 {
-  "version": "1cb1b54c346db569c92528d38fba95bffc4675548b81336439a6cf0c991ce8bf",
+  "version": "b2272d13589b33d9c285a751d4ce18662f4d67640328e944af6e35a211eca29e",
   "grants": [
     "operator",
     "project-agent",
@@ -4851,7 +4851,7 @@
               "additionalProperties": false,
               "description": "A comment on a task."
             },
-            "description": "Comments on the task, oldest first."
+            "description": "Comments on the task, oldest first; a block's opening comment, by its author with its reason as text, is left out."
           },
           "why": {
             "description": "Present only with why.",

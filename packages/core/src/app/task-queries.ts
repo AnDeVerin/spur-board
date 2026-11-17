@@ -9,7 +9,7 @@ import {
 import { sql, type Selectable } from 'kysely';
 import { dispatchHolds } from '../domain/dispatch.ts';
 import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../domain/gates.ts';
-import type { TaskTable } from '../store/schema.ts';
+import type { CommentTable, TaskTable } from '../store/schema.ts';
 import { authorize, projectTarget } from './authorize.ts';
 import { blockView, commentView, subjectTarget, taskBlockViews, taskTarget } from './blocks.ts';
 import { linkView, moveViews, taskView, type Trx } from './board-utils.ts';
@@ -63,6 +63,30 @@ export function projectTargets(config: Config, project: string | undefined, acto
   return projects.length === 0
     ? [{ kind: 'missing' as const }]
     : projects.map((entry) => projectTarget(entry.id));
+}
+
+type Comment = Selectable<CommentTable>;
+type BlockOpening = Pick<ReturnType<typeof blockView>, 'id' | 'author' | 'reason' | 'at'>;
+
+/**
+ * Drops each block's opening comment: its earliest comment when author, text and time equal the
+ * block's author, reason and creation time. `block.ask` writes it as the Slack thread root, so the
+ * reply list would repeat the question. Order is kept.
+ */
+function withoutBlockOpenings(comments: readonly Comment[], blocks: readonly BlockOpening[]) {
+  const byId = new Map(blocks.map((block) => [block.id, block]));
+  const seen = new Set<number>();
+  return comments.filter((comment) => {
+    if (comment.block_id === null || seen.has(comment.block_id)) return true;
+    seen.add(comment.block_id);
+    const block = byId.get(`B${String(comment.block_id)}`);
+    return !(
+      block !== undefined &&
+      comment.author === block.author &&
+      comment.text === block.reason &&
+      comment.created_at === block.at
+    );
+  });
 }
 
 async function taskByKey(trx: Trx, key: string) {
@@ -242,7 +266,9 @@ export function createTaskQueries(deps: {
           return { ...linkView(link), ...(observed === undefined ? {} : { state: observed }) };
         }),
         blocks,
-        comments: comments.map((comment) => commentView(comment, subject)),
+        comments: withoutBlockOpenings(comments, blocks).map((comment) =>
+          commentView(comment, subject),
+        ),
         ...(input.why === true ? { why: await why(trx, task) } : {}),
       };
     },

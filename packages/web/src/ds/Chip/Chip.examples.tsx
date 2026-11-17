@@ -1,3 +1,4 @@
+import { Icon } from '../Icon/Icon.tsx';
 import { Chip } from './Chip.tsx';
 
 export function Default() {
@@ -32,5 +33,27 @@ export function LinkFocused() {
         PR #12
       </Chip>
     </div>
+  );
+}
+export function ReadyTint() {
+  return <Chip tone="ready">ready</Chip>;
+}
+export function ReadyTintIcon() {
+  return (
+    <Chip tone="ready">
+      <Icon name="pr" />
+      PR 12 merged
+    </Chip>
+  );
+}
+export function ErrorTint() {
+  return <Chip tone="error">failed</Chip>;
+}
+export function ErrorTintIcon() {
+  return (
+    <Chip tone="error">
+      <Icon name="block" />
+      B161 blocked
+    </Chip>
   );
 }

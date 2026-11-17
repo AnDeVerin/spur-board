@@ -1,0 +1,12 @@
+/* The full text stays in the DOM and selectable; only the box is clamped. */
+.clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--lines-fold);
+  line-clamp: var(--lines-fold);
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--color-text-secondary);
+}

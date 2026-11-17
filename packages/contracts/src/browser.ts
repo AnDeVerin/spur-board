@@ -333,7 +333,11 @@ export const taskGetOutputSchema = z.strictObject({
     .optional()
     .describe('Current facts of effective linked sessions.'),
   blocks: z.array(taskBlockViewSchema).describe('Blocks on the task, open and unblocked.'),
-  comments: z.array(commentSchema).describe('Comments on the task, oldest first.'),
+  comments: z
+    .array(commentSchema)
+    .describe(
+      "Comments on the task, oldest first; a block's opening comment, by its author with its reason as text, is left out.",
+    ),
   why: taskWhySchema.optional().describe('Present only with why.'),
 });
 

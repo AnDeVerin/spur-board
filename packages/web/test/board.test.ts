@@ -486,7 +486,10 @@ describe('board screen', () => {
       one('input'),
       button('inbox'),
       button('Retry now'),
-      ...links(),
+      ...all('main section').flatMap((section) => [
+        ...section.querySelectorAll('[role="group"] button'),
+        ...section.querySelectorAll('a'),
+      ]),
     ]);
     expect(links().map((link) => link.getAttribute('aria-label') ?? link.title)).toEqual([
       'ex/repo#7 Title ex/repo#7',

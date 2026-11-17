@@ -50,15 +50,15 @@
   white-space: nowrap;
 }
 .title {
-  font-size: var(--text-micro);
+  font-size: var(--text-body);
   text-transform: uppercase;
   letter-spacing: var(--tracking-label);
   font-weight: var(--weight-bold);
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
 }
 .count {
   flex-shrink: 0;
-  font-size: var(--text-micro);
+  font-size: var(--text-small);
   color: var(--color-text-tertiary);
 }
 .summary {

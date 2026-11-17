@@ -76,6 +76,12 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.entered {
+  flex: none;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
 /* One empty box per quick link, so the key never runs under them. */
 .spacer {
   flex: none;

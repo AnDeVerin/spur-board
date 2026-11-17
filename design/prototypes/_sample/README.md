@@ -23,10 +23,10 @@ Open `http://127.0.0.1:4391/prototypes/_sample/`. Stop the server when done.
 Add `&theme=light` or `&theme=dark` to any state; the default, and any other value, is dark. The
 theme switch in the bottom bar changes the theme in place.
 
-| State                                                         | URL                                  |
-| ------------------------------------------------------------- | ------------------------------------ |
-| Default: four rows, one per chip tone, and the proposed strip | `/prototypes/_sample/?state=default` |
-| Empty: the labelled message "Empty state: no items"           | `/prototypes/_sample/?state=empty`   |
+| State                                                                                       | URL                                  |
+| ------------------------------------------------------------------------------------------- | ------------------------------------ |
+| Default: a row each for the chip tones default, warn, you and ghost, and the proposed strip | `/prototypes/_sample/?state=default` |
+| Empty: the labelled message "Empty state: no items"                                         | `/prototypes/_sample/?state=empty`   |
 
 In the empty state the proposed strip and the theme switch stay visible. An unknown `state` opens
 the default.
