@@ -1,56 +1,49 @@
 # Web UI
 
-The web UI shows one project's Board in a browser: its columns, tasks and whether the data is
-current. It only reads; every action stays in the CLI, the MCP tools and Slack.
+The browser shows one project's columns, tasks and data freshness. It only reads; writes stay
+in the CLI, MCP tools and Slack.
 
 ## Opening it
 
-The daemon serves the UI on its web listener, off by default. Set `web.port` and `web.publicOrigin`
-as described in
+The daemon's web listener is off by default. Set `web.port` and `web.publicOrigin` following
 [Optional browser access](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#optional-browser-access),
-build the UI assets, then open `web.publicOrigin`. A 503 `UI is not built` means they are missing;
-see
+then open `web.publicOrigin`. A 503 `UI is not built` means assets are missing; follow
 [Building the web UI](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#building-the-web-ui).
 
-The UI reads `config.get`, `status.get` for the chosen project, `inbox.operator`, `task.get` for the
-open task and the `/v1/events` stream, and holds no data of its own.
+Reads: `config.get`, chosen-project `status.get`, `inbox.operator`, open-task `task.get` and
+`/v1/events`. The UI owns no data.
 
 ## What it shows
 
-The header, from left to right:
+Header, left to right:
 
 - The logo.
-- The project switcher: the chosen project's id. It opens a list of every project as `<id> ·
-dispatcher <mode>`, the current one checked; Escape or a click outside closes it. The browser
-  remembers the choice; a project no longer configured falls back to the first. A long id ends in
-  `…`.
+- The project switcher lists `<id> · dispatcher <mode>`, checking the current project. Escape or
+  an outside click closes it. The browser remembers the choice, falling back to the first project
+  if removed. Long ids end in `…`.
 - The chosen project's dispatcher mode: `dispatcher on` or `dispatcher shadow`.
-- The filter: the full or short key (`#12`), a session id or a block id, ignoring case. Cards that
-  miss are dimmed, never hidden, and reachable with Tab; the clear button resets it.
+- The filter matches full/short keys (`#12`), session or block ids, ignoring case. Misses dim,
+  remain visible and accept Tab; Clear resets the filter.
 - The live indicator: `connecting` until the stream answers, then `live`, `reconnecting` or
   `offline`.
-- The inbox button: open operator inbox items across all projects, highlighted above zero, `–` until
-  the first inbox read. It opens the right panel at `?open=inbox`, including on direct navigation.
-  The panel filters active and recently handled entries by all projects, each configured project,
-  or system. Counts always describe active entries. Active failures precede attention entries,
-  newest first within each severity; recently handled entries keep the query's order and show
-  their handled state and answer channel when supplied. Before the first successful read the
-  panel says that inbox data is not available yet; later failures retain the last good data.
-  Task entries select their project and open a task view above the retained panel. Closing the
-  task returns focus to its row, or the panel Close button if the row has disappeared; closing
-  the panel returns focus to the header inbox button. Back and Forward follow these layers.
-  Non-task entries can receive keyboard focus. Inbox entries are read-only here.
+- The inbox button highlights nonzero active counts; `–` means no successful read yet. It opens
+  the right panel at `?open=inbox`, also available directly. All/configured project/system filters
+  apply to active and handled entries; counts include only active entries. Failures precede
+  attention, newest first within severity. Handled entries retain query order, marked handled
+  with their answer channel when supplied. Before the first success, the panel says inbox data
+  is unavailable; later failures retain data. Task rows select their project and open above the
+  retained panel. Task close focuses its row or panel Close if removed; panel close focuses the
+  header inbox button. Back/Forward follow these layers. Non-task rows are focusable; all are read-only.
 
-Below the header, the chosen project's columns in configuration order:
+Columns follow configuration order:
 
 - A column header shows its name, task count and executor (kind, then name).
 - An empty column collapses to a spine with its name and `0`.
 - `done` lists every done task in a compact scrolling list.
 - A card opens the task view on click or Enter, a new tab on a modified click. It shows the short
   key (full key on hover), the ticket title, then:
-  - Quick links to the ticket, the first pull request and the Spur session open in a new tab, never
-    the task; Tab reaches them after their card. The session link needs `web.spurUiOrigin`; without
-    it the session is a `session <id>` chip, cut at 20 characters.
+  - Ticket, first pull request and Spur session links open new tabs; Tab reaches them after the
+    card. Sessions need `web.spurUiOrigin`; otherwise a `session <id>` chip truncates at 20 characters.
   - Four cells for the first pull request: checks, merge, resolved threads, reviews on the head.
     Red: failed, conflicting or changes requested. Yellow: pending or unresolved. Green glyph:
     passed, no conflicts or approved. `–`: nothing reported. `?`: mergeability unknown. All four
@@ -67,21 +60,20 @@ On a narrow screen the columns scroll sideways and the mode and filter are hidde
 
 ## Status bar
 
-From left to right: **services**, which toggles the services panel; one button per service (daemon,
-slack, github, spur, and jira when listed); the Light, Dark and Auto theme menu (its icon shows the
-choice); and the daemon version, empty until the first status read.
+Left to right: **services** toggles its panel; service buttons (daemon, slack, github, spur, jira
+when listed); Light/Dark/Auto theme menu with the choice's icon; daemon version, empty until
+the first status read.
 
-Each service button's dot follows its health row in `status.get`: green healthy, amber degraded, red
-failing. Its name reads `<service>: <word>`:
+Service dots follow `status.get` health: green healthy, amber degraded, red failing. Names read
+`<service>: <word>`:
 
 - daemon: `running`, `stalled` after 120 s without a completed tick, `no answer since <time>` when
   the UI cannot read it, or `no answer` if the first read fails.
 - slack: `up` or `down`.
-- github, spur and jira: `polling` when healthy. GitHub covers every repository's pull request and
-  issue sources and takes the worst. Otherwise it is the word of the first source, in status order,
-  whose state has the service's colour: `blind: <reason>`, `never completed`, `warming up` or
-  `stale`. Else it is `waits for rate budget`: a GitHub budget fell to the configured reserve; hover
-  for the reason.
+- github, spur and jira: `polling` when healthy. GitHub takes the worst across repository pull
+  request and issue sources. Otherwise the first source matching the service's colour supplies
+  `blind: <reason>`, `never completed`, `warming up` or `stale`. Else `waits for rate budget`
+  means a GitHub budget reached its configured reserve; hover for the reason.
 - `unknown`, with a hollow dot, for a service with no health row, for all before the first status
   read, and for all but the daemon while the daemon does not answer.
 
@@ -101,15 +93,13 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
   red at 5%; `<n> left` without a limit; `—` without a budget. The spur box adds an availability
   line while Spur is unavailable.
 
-No healthy service shows since when it is healthy. Before the first status the panel waits for it;
-while the daemon does not answer, the boxes read unknown; once live updates are lost while the
-daemon still answers, the header reads `Data from <time>` and the boxes keep the last data. Close,
-Escape, the dimmed area and the services button close it; focus returns to the opener, or to
-services after a link.
+Healthy services omit their healthy-since time. Before the first status the panel waits; an
+unreachable daemon makes boxes unknown. Lost live updates with a reachable daemon show
+`Data from <time>` and retain data. Close, Escape, the scrim or services button closes the panel;
+focus returns to its opener, or services after a link.
 
-While the panel is open the header and columns are inert and the bar answers the pointer only (Tab
-stays in the panel). On a narrow screen the panel covers the bar. Opening and closing each add a
-history entry, so Back after a close reopens it.
+While open, header and columns are inert; the bar accepts pointer only (Tab stays in the panel).
+Narrow panels cover the bar. Opening and closing add history entries; Back after close reopens it.
 
 ## Task view
 
@@ -130,16 +120,14 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
 - **Reconnecting**: the stream dropped; the UI reconnects with backoff, changing only the indicator.
 - **Offline**: after five failed connection attempts, an error banner says live updates are lost and
   gives the data's time; the columns dim and the UI keeps reconnecting.
-- **Daemon down**: a configuration or status read failed. The error banner says the daemon does not
-  answer, gives the data's time and warns that answers and comments cannot be sent. The daemon
-  button turns red. On the first load the banner says there is no data and no columns show.
+- **Daemon down**: config/status read failed. The error banner gives data time and warns that
+  answers/comments cannot be sent; the daemon button turns red. Initial failure shows no data
+  and no columns.
 - **Source blind**: a warning banner names a project source that has stopped answering and the time
   of its last complete poll. Several share one banner; a source still warming up is not named.
 - **Shadow**: an info banner says the dispatcher computes columns and turns but does not act.
 
-Banners order errors, warnings, info. The data time is when this browser last got a good status
-read, not when the error happened.
+Banners order errors, warnings, info. Data time means this browser's last good status read.
 
-**Retry now** on an error banner reconnects a waiting stream at once and rereads the configuration,
-status and inbox; it reads `Retrying` until they finish. A failed inbox read keeps the last count
-and shows no banner.
+**Retry now** reconnects a waiting stream and rereads config, status and inbox, showing `Retrying`
+until done. Inbox failures keep the last count without a banner.
