@@ -11,7 +11,8 @@ shadow mode, use keyed `board submit <task> <sha>`.
 Unseen heads answer `pending`: that submit is final; do not resubmit or raise a
 block. Confirm timeout: `projects[].dispatcher.submitConfirmMs`.
 
-A new head closes taken turns outside Dev; taken Dev turns survive pushes.
+A new head closes taken turns outside Dev and Done; taken Dev turns and Done
+wrap-up turns survive pushes, and a wrap-up turn closes when its holder ends.
 Right of Dev, red CI, a draft, a conflict, an external comment or an unresolved
 thread where required returns the task to Dev at once, unless a turn is taken; then after its submit or return.
 The Dev turn hands the comments, beside a return's `code` block.

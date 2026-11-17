@@ -81,7 +81,7 @@ describe('how the Board works guide', () => {
         /`board inbox ack <entries>`/,
         /`board submit <turn> <sha>`/,
         /`board return <turn> <reason>`/,
-        /new head closes taken turns outside Dev; taken Dev turns survive/,
+        /new head closes taken turns outside Dev and Done; taken Dev turns and Done\s+wrap-up turns survive pushes, and a wrap-up turn closes when its holder ends/,
         /Closed turns receive no further Board sends/,
         /Obsolete queued rings are dropped/,
         /message already accepted by Spur cannot be retracted/,
