@@ -17,6 +17,7 @@
 .what {
   width: 100%;
   color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
 }
 .actor {
   color: var(--color-text-primary);

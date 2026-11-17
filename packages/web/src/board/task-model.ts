@@ -57,7 +57,7 @@ export const actorLabel = (actor: string, via: string | undefined) =>
 
 /** One History row; the kind stays the raw journal kind, a kind this bundle does not know too. */
 export interface HistoryRow {
-  /** Journal position, stable while events only append. */
+  /** Position in the server time order. */
   key: number;
   time: string;
   summary: string;
