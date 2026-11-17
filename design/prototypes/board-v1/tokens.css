@@ -99,10 +99,11 @@
   --size-logo: 20px;
   --size-dot: 6px;
   --size-chevron: 16px;
-  --size-column: 248px;
+  --size-column: 320px;
   --size-spine: 34px;
   --size-measure: 420px;
   --size-hairline: 1px;
+  --size-rail: 2px;
   --size-meter: 60px;
   --size-meter-height: 4px;
   --size-textarea: 56px;
@@ -175,6 +176,13 @@
 
   --color-you-bg: #bf8700;
   --color-you-text: #ffffff;
+}
+
+/* breakpoints.narrow */
+@media (max-width: 760px) {
+  :root {
+    --size-column: 248px;
+  }
 }
 
 html {

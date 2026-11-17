@@ -15,6 +15,17 @@ const light = {
 };
 
 describe('web design assets and policy', () => {
+  it('uses exact desktop columns and rails with the existing narrow column width', () => {
+    for (const theme of [dark, light]) {
+      expect(theme['--size-column']).toBe('320px');
+      expect(theme['--size-rail']).toBe('2px');
+      expect(theme['--size-hairline']).toBe('1px');
+      expect(theme['--size-spine']).toBe('34px');
+    }
+    const narrow = /@media \(max-width: 760px\) \{\s*:root \{([^}]+)\}\s*\}/.exec(tokens);
+    expect(declarations(narrow?.[1] ?? '')).toEqual({ '--size-column': '248px' });
+    expect(narrow?.index).toBeGreaterThan(tokens.indexOf(":root[data-theme='light'] {"));
+  });
   it('preserves every prototype token and inherited scale byte for byte', () => {
     // Issue 590 authorizes only these two additions; all remaining bytes must match.
     expect(tokens.match(/--color-text-attention:/g)).toHaveLength(2);

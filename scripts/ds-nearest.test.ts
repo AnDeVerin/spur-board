@@ -140,6 +140,16 @@ describe('nearest size', () => {
   });
 });
 
+it.each([
+  ['2px', '--size-rail'],
+  ['320px', '--size-column'],
+])('matches exact board dimension %s in both themes', (value, token) => {
+  const out = lines([value]);
+  for (const theme of ['dark', 'light'] as const)
+    expect(line(out, theme)).toContain(`${token} ${value} - Δ 0px - in`);
+  expect(out.at(-1)).toBe(`verdict: in ${token}`);
+});
+
 describe('nearest unitless', () => {
   const FAMILIES = 'weight, leading, stroke, opacity, lines, z, radius';
 

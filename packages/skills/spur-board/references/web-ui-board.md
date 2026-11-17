@@ -28,6 +28,8 @@ Header, left to right:
 Columns follow configuration order:
 
 - Fitting rows centre; wider rows scroll horizontally from the left.
+- Columns are 320px wide above 760px and retain 248px at 760px or narrower. Card accent rails
+  are 2px wide; empty-column spines retain their compact width.
 - A column header shows name, task count and executor (kind, then name).
 - An empty column collapses to a spine with its name and `0`.
 - `done` lists every done task in a compact scrolling list.

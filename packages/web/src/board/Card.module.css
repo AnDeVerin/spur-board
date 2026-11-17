@@ -46,7 +46,7 @@
   top: calc(-1 * var(--size-hairline));
   bottom: calc(-1 * var(--size-hairline));
   left: calc(-1 * var(--size-hairline));
-  width: var(--size-hairline);
+  width: var(--size-rail);
   background: var(--c);
   opacity: var(--opacity-rail);
 }
