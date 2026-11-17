@@ -15,9 +15,9 @@ is selected once configuration arrives. Back and Forward restore both layers.
 
 ## What it shows
 
-- The header shows the short key (hover for the full key), then the column and the time since
-  the task moved into it, such as `dev · 2h 9m`. Without such a move it shows the column alone.
-  The `Now` and `History` tabs and Close sit at its right.
+- The header reads `#7 · DEV · 2h 9m`: short key (hover for full key), uppercase column with
+  the active Now tab's weight and colour, then lowercase time since the move. No move omits time;
+  no task data shows only the key. Now/History tabs and Close sit at its right.
 - `Now` starts with the ticket title. It comes from the task's card on the Board, so it reads as
   a placeholder until the status read answers, and a task with no card in the chosen project has
   no title line.

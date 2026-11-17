@@ -117,7 +117,7 @@ describe('task view', () => {
     await settle();
     expect(dialog()?.getAttribute('aria-modal')).toBe('true');
     expect(inDialog('[title="ex/repo#7"]').textContent).toBe('#7');
-    expect(dialog()?.textContent).toContain('dev · 2h');
+    expect(dialog()?.textContent).toContain(' · DEV · 2h');
     expect(inDialog('h2').textContent).toBe('Fix login');
     const pr = inDialog(
       'a[aria-label="PR #7, ex/repo"][rel="noopener noreferrer"][target="_blank"]',

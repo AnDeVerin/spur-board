@@ -92,11 +92,18 @@ export function TaskView({
   const key = value?.task.key ?? task.key;
   const inColumn = value === undefined ? undefined : timeInColumn(value, now);
   const detail =
-    value === undefined
-      ? undefined
-      : inColumn === undefined
-        ? value.task.column
-        : `${value.task.column} · ${inColumn}`;
+    value === undefined ? undefined : (
+      <>
+        {' · '}
+        <span className={styles.columnName}>{value.task.column.toUpperCase()}</span>
+        {inColumn !== undefined && (
+          <>
+            {' · '}
+            <span className={styles.duration}>{inColumn}</span>
+          </>
+        )}
+      </>
+    );
   const failed = task.state === 'failed' || task.retrying;
   const chips =
     value === undefined ? [] : linkChips(value.links, key, spurUiOrigin, ticketBrowseBase, row);

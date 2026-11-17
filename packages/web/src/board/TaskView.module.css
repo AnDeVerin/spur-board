@@ -1,4 +1,11 @@
 /* Ticket title and link chips above "Why it is here". */
+.columnName {
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+}
+.duration {
+  text-transform: none;
+}
 .top {
   padding: var(--space-4) 0 var(--space-3);
   display: flex;

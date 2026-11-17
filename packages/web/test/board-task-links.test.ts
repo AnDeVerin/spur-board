@@ -2,10 +2,64 @@
 import { expect, it } from 'vitest';
 import { focusRing, quiet } from '../src/ds/index.ts';
 import cardStyles from '../src/board/Card.module.css';
-import { config, daemon, envelope, status, row, taskGet } from './board-fixtures.ts';
+import taskStyles from '../src/board/TaskView.module.css';
+import { config, daemon, envelope, problem, status, row, taskGet } from './board-fixtures.ts';
 import { mount, mountEachTest, one, press, settle } from './board-harness.ts';
 
 mountEachTest();
+it.each([
+  [120, '2h'],
+  [106, '1h 46m'],
+  [3, '3m'],
+  [null, null],
+] as const)(
+  'header separates key, uppercase column and lowercase duration (%s minutes)',
+  async (minutes, duration) => {
+    const d = daemon();
+    const now = Date.parse('2026-11-15T14:00:00.000Z');
+    const why = taskGet().why;
+    d.routes['task.get'] = () =>
+      Promise.resolve(
+        envelope(
+          taskGet({
+            why: {
+              ...why,
+              moves:
+                minutes === null
+                  ? []
+                  : [{ ...why.moves[0], at: new Date(now - minutes * 60_000).toISOString() }],
+            },
+          }),
+        ),
+      );
+    mount(d, {}, () => now);
+    await settle();
+    press(one('main a[title="ex/repo#7"]'), 'click');
+    await settle();
+    const title = document.querySelector('[role="dialog"] [title="ex/repo#7"]');
+    if (!title) throw new Error('missing header key');
+    expect(title.textContent).toBe('#7');
+    expect(document.querySelector(`.${taskStyles.columnName ?? ''}`)?.textContent).toBe('DEV');
+    expect(title.parentElement?.nextElementSibling?.textContent).toBe(
+      duration === null ? ' · DEV' : ` · DEV · ${duration}`,
+    );
+    expect(document.querySelector(`.${taskStyles.duration ?? ''}`)?.textContent ?? null).toBe(
+      duration,
+    );
+  },
+);
+it('header retains the key tooltip without orphan separators when details are unavailable', async () => {
+  const d = daemon();
+  d.routes['task.get'] = () => problem('not_found');
+  mount(d);
+  await settle();
+  press(one('main a[title="ex/repo#7"]'), 'click');
+  await settle();
+  const title = document.querySelector('[role="dialog"] [title="ex/repo#7"]');
+  if (!title) throw new Error('missing header key');
+  expect(title.textContent).toBe('#7');
+  expect(title.parentElement?.nextElementSibling?.textContent).toBe('NowHistory');
+});
 it.each([true, false])(
   'renders ordered shared icon cells and full long labels; session linked %s',
   async (linked) => {
