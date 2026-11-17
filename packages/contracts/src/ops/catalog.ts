@@ -464,7 +464,8 @@ export const OPERATIONS = [
     id: 'task.history',
     web: true,
     kind: 'query',
-    description: 'List what happened to a task, oldest first.',
+    description:
+      'List what happened to a task, oldest first by time, leaving out facts events with nothing new to name, such as an update time alone.',
     mcp: {
       whenToUse: 'Trace changes to one task.',
       whenNotToUse: 'Use task_get for current state.',

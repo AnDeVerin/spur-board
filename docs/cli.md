@@ -210,7 +210,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board task history`
 
-List what happened to a task, oldest first.
+List what happened to a task, oldest first by time, leaving out facts events with nothing new to name, such as an update time alone.
 
 Arguments: `<task>`.
 

@@ -209,14 +209,21 @@ describe('product skill sync', () => {
   it('keeps the skill and bounded references equal to fresh generation', () => {
     expect(replaceGeneratedSection(skill)).toBe(skill);
     expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(5120);
-    expect(references.map((r) => r.fileName)).toEqual(['commands.md', 'config.md', 'errors.md']);
-    expect(references[0]?.content).toContain('[errors.md](errors.md)');
+    expect(references.map((r) => r.fileName)).toEqual([
+      'tasks.md',
+      'blocks.md',
+      'config.md',
+      'errors.md',
+    ]);
+    for (const page of references.slice(0, 2))
+      expect(page.content).toContain('[errors.md](errors.md)');
     expect(readdirSync(refsPath).sort()).toEqual(
       [...references.map((reference) => reference.fileName), ...guideNames].sort(),
     );
     for (const [index, reference] of references.entries()) {
       expect(referenceTexts[index]).toBe(reference.content);
-      expect(Buffer.byteLength(reference.content)).toBeLessThan(8192);
+      // 80% of the 8192-byte cap leaves room for the next operations.
+      expect(Buffer.byteLength(reference.content)).toBeLessThanOrEqual(6553);
     }
   });
 
@@ -253,10 +260,15 @@ describe('product skill sync', () => {
     expect(
       [...section.matchAll(/^- \[`board ([^`]+)`\]\(references\//gm)].map((match) => match[1]),
     ).toEqual(expected.map((operation) => operation.cli.command));
-    for (const operation of expected)
-      expect(section).toContain(
-        `references/${operation.id === 'config.get' ? 'config.md' : 'commands.md'}#board-${operation.cli.command.replaceAll(' ', '-')}`,
+    for (const operation of expected) {
+      const anchor = `#board-${operation.cli.command.replaceAll(' ', '-')}`;
+      const file = section.match(new RegExp(`\\(references/([a-z-]+\\.md)${anchor}\\)`))?.[1];
+      expect(file, operation.id).toBeDefined();
+      expect(readdirSync(refsPath)).toContain(file);
+      expect(readFileSync(`${refsPath}/${file ?? ''}`, 'utf8')).toMatch(
+        new RegExp(`^### \`board ${operation.cli.command}\`$`, 'm'),
       );
+    }
   });
 
   it('renders each command once with CLI guidance, role modes, and shared error hints', () => {

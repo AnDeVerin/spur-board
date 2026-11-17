@@ -15,7 +15,8 @@ const target = fileURLToPath(new URL('../packages/skills/spur-board/SKILL.md', i
 const referencesDir = fileURLToPath(
   new URL('../packages/skills/spur-board/references/', import.meta.url),
 );
-const referenceBudget = 8192;
+const referenceCap = 8192;
+const referenceLimit = Math.floor(referenceCap * 0.8);
 type CatalogOperation = (typeof OPERATIONS)[number];
 const roles = ['worker', 'orchestrator'] as const;
 const visibleOperations = OPERATIONS.filter((operation) =>
@@ -158,21 +159,42 @@ function renderOperation(operation: CatalogOperation): string {
   ].join('\n');
 }
 
+const commandPages = [
+  {
+    fileName: 'tasks.md',
+    title: '# Board task, inbox and comment commands',
+    commands: [
+      'status',
+      'task',
+      'task history',
+      'schema',
+      'inbox',
+      'inbox ack',
+      'ask',
+      'project ask',
+      'comment',
+      'comment edit',
+    ],
+  },
+  {
+    fileName: 'blocks.md',
+    title: '# Board block and turn commands',
+    commands: ['block', 'escalate', 'answer', 'unblock', 'submit', 'return'],
+  },
+];
+
+function pageOperations(commands: string[]): CatalogOperation[] {
+  for (const command of commands) {
+    if (!visibleOperations.some((operation) => operation.cli.command === command))
+      throw new Error(`Reference page lists board ${command}, which no visible operation has.`);
+  }
+  return visibleOperations.filter((operation) => commands.includes(operation.cli.command));
+}
+
 export function renderCommandReferences(): CommandReference[] {
   const otherErrors = [
     ...new Set(visibleOperations.flatMap((operation) => operation.errors)),
   ].filter((code) => !commonErrors.includes(code));
-  const commands = [
-    '# Board command reference',
-    '',
-    'Every command can return the common errors in [errors.md](errors.md). Each entry lists its other codes; their hints are there too.',
-    '',
-    visibleOperations
-      .filter((operation) => operation.id !== 'config.get')
-      .map(renderOperation)
-      .join('\n\n'),
-    '',
-  ].join('\n');
   const errors = [
     '# Board error hints',
     '',
@@ -186,30 +208,29 @@ export function renderCommandReferences(): CommandReference[] {
     '',
   ].join('\n');
   const references = [
-    {
-      fileName: 'commands.md',
-      commands: visibleOperations
-        .filter((operation) => operation.id !== 'config.get')
-        .map((operation) => operation.cli.command),
-      content: commands,
-    },
+    ...commandPages.map(({ fileName, title, commands }) => ({
+      fileName,
+      commands,
+      content: [
+        title,
+        '',
+        'Every command can return the common errors in [errors.md](errors.md). Each entry lists its other codes; their hints are there too.',
+        '',
+        pageOperations(commands).map(renderOperation).join('\n\n'),
+        '',
+      ].join('\n'),
+    })),
     {
       fileName: 'config.md',
       commands: ['config get'],
-      content:
-        '# Board configuration command\n\n' +
-        visibleOperations
-          .filter((operation) => operation.id === 'config.get')
-          .map(renderOperation)
-          .join('\n\n') +
-        '\n',
+      content: `# Board configuration command\n\n${pageOperations(['config get']).map(renderOperation).join('\n\n')}\n`,
     },
     { fileName: 'errors.md', commands: [], content: errors },
   ];
   for (const { fileName, content } of references) {
-    if (Buffer.byteLength(content) > referenceBudget) {
+    if (Buffer.byteLength(content) > referenceLimit) {
       throw new Error(
-        `Reference ${fileName} is ${String(Buffer.byteLength(content))} bytes; limit is ${String(referenceBudget)}.`,
+        `Reference ${fileName} is ${String(Buffer.byteLength(content))} bytes; limit is ${String(referenceLimit)}, 80% of the ${String(referenceCap)}-byte cap. Move commands to another page in renderCommandReferences.`,
       );
     }
   }
@@ -225,7 +246,10 @@ export function renderBoardCommands(references = renderCommandReferences()): str
         .map((operation) => {
           const command = operation.cli.command;
           const reference = references.find((item) => item.commands.includes(command));
-          if (reference === undefined) throw new Error(`No reference for ${operation.id}`);
+          if (reference === undefined)
+            throw new Error(
+              `No reference for ${operation.id}; add it to a page in renderCommandReferences.`,
+            );
           return `- [\`board ${command}\`](references/${reference.fileName}#board-${command.replaceAll(' ', '-')})`;
         });
       return `### ${heading}\n\n${entries.join('\n')}`;
@@ -252,7 +276,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   writeFileSync(target, next);
   mkdirSync(referencesDir, { recursive: true });
   for (const file of readdirSync(referencesDir)) {
-    if (/^(?:worker|orchestrator)-[1-9][0-9]*\.md$|^(?:commands|errors)\.md$/.test(file)) {
+    if (
+      /^(?:worker|orchestrator)-[1-9][0-9]*\.md$|^(?:commands|tasks|blocks|config|errors)\.md$/.test(
+        file,
+      )
+    ) {
       rmSync(join(referencesDir, file));
     }
   }

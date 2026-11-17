@@ -17,7 +17,7 @@ Example: {"task":"PROJ-123"}",
     "name": "task_get",
   },
   {
-    "description": "List what happened to a task, oldest first.
+    "description": "List what happened to a task, oldest first by time, leaving out facts events with nothing new to name, such as an update time alone.
 Use when: Trace changes to one task.
 When not to use: Use task_get for current state.
 Example: {"task":"acme/web#42"}",

@@ -56,7 +56,8 @@ path order. A PR that changes this path or these rules updates this skill in the
 - Run `pnpm gen` and commit every file it changes: `packages/contracts/ops.snapshot.json`, the
   product skill `packages/skills/spur-board/SKILL.md` with its pages in
   `packages/skills/spur-board/references/`, and `docs/cli.md`. The gen job in
-  `.github/workflows/ci.yml` fails on a diff or an untracked page.
+  `.github/workflows/ci.yml` fails on a diff or an untracked page. Put a new visible operation on
+  its catalog neighbours' page in `scripts/gen-skill.ts`.
 - Any catalog change moves the `version` in `packages/contracts/ops.snapshot.json`: a running
   daemon and live `board mcp` sessions answer `version_mismatch` until both restart. Say so in
   the PR Description.
