@@ -13,7 +13,8 @@ import {
   TabPanel,
   Tabs,
 } from '../ds/index.ts';
-import type { BoardConfig, BoardData, BoardTask, TaskState } from './data.ts';
+import type { BoardConfig, BoardData, BoardTask, HistoryState, TaskState } from './data.ts';
+import { TaskHistory } from './TaskHistory.tsx';
 import { shortKey } from './model.ts';
 import { age, linkChips, timeInColumn, whyRows, whySummary } from './task-model.ts';
 import styles from './TaskView.module.css';
@@ -29,11 +30,12 @@ export type TaskTitle = { state: 'loading' } | { state: 'ready'; text: string } 
 
 /**
  * The task view: a modal with the short key, `<column> · <time in column>` and the Now and
- * History tabs. Now holds the ticket title, the link chips and "Why it is here"; History is a
- * placeholder. Key it by the task key so the tab resets for another task.
+ * History tabs. Now holds links, Why, blocks and comments; History lists journal events and
+ * reads only while shown. Key it by the task key so state resets for another task.
  */
 export function TaskView({
   task,
+  history,
   title,
   columns,
   spurUiOrigin,
@@ -41,6 +43,8 @@ export function TaskView({
   offline,
   onClose,
   onRetry,
+  onHistory,
+  onRetryHistory,
   config,
   unavailable,
   answerIntent,
@@ -48,6 +52,7 @@ export function TaskView({
   refreshTask,
 }: {
   task: TaskState;
+  history: HistoryState | undefined;
   config: BoardConfig | undefined;
   unavailable: string | undefined;
   answerIntent: BoardData['answerIntent'];
@@ -63,8 +68,18 @@ export function TaskView({
   offline: boolean;
   onClose: () => void;
   onRetry: () => void;
+  onHistory: (shown: boolean) => void;
+  onRetryHistory: () => void;
 }) {
   const [tab, setTab] = useState('now');
+  const historyShown = tab === 'history';
+  useEffect(() => {
+    if (!historyShown) return;
+    onHistory(true);
+    return () => {
+      onHistory(false);
+    };
+  }, [historyShown, onHistory]);
   const { value } = task;
   const key = value?.task.key ?? task.key;
   const inColumn = value === undefined ? undefined : timeInColumn(value, now);
@@ -146,7 +161,15 @@ export function TaskView({
             </>
           )}
         </div>
-        {tab === 'history' && <p className={styles.note}>History arrives in a later version.</p>}
+        {historyShown && (
+          <div role="region" aria-label="History">
+            {task.state === 'missing' || history?.state === 'missing' ? (
+              <p className={styles.note}>Task not found.</p>
+            ) : (
+              <TaskHistory history={history} offline={offline} onRetry={onRetryHistory} />
+            )}
+          </div>
+        )}
       </TabPanel>
     </Modal>
   );

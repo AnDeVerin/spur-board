@@ -5,8 +5,10 @@ import {
   COLUMN_BINDING_SOURCES,
   COLUMN_IDS,
   OPERATOR_BINDING_SOURCES,
+  VIAS,
 } from './enums.ts';
-import { blockIdSchema, taskKeyInputSchema } from './ids.ts';
+import { EVENT_KINDS } from './events.ts';
+import { actorIdSchema, blockIdSchema, taskKeyInputSchema } from './ids.ts';
 import { SPACE_IDS } from './gateway/schemas.ts';
 import { configViewSchema } from './ops/config-view-schema.ts';
 import { inboxEntrySchema, inboxHandledSchema } from './ops/inbox-schemas.ts';
@@ -329,6 +331,41 @@ export const taskGetOutputSchema = z.strictObject({
   why: taskWhySchema.optional().describe('Present only with why.'),
 });
 
+export const taskHistoryInputSchema = z.strictObject({ task: taskKeyInputSchema });
+const taskHistoryEventSchema = z
+  .strictObject({
+    at: z.iso.datetime().describe('When it happened, ISO 8601 UTC.'),
+    kind: z.enum(EVENT_KINDS).describe('Journal event kind.'),
+    actor: actorIdSchema,
+    via: z
+      .enum(VIAS)
+      .optional()
+      .describe(
+        'Channel the write arrived through, web or slack, whoever the actor; absent for CLI, MCP, agent and scheduled writes.',
+      ),
+    summary: z.string().describe('What happened, in one line.'),
+  })
+  .describe('One journal event.');
+export const taskHistoryOutputSchema = z.strictObject({
+  task: taskViewSchema,
+  events: z.array(taskHistoryEventSchema).describe('Journal events of the task, oldest first.'),
+});
+/** The browser's read of `task.history`: a kind or channel a newer daemon added still parses. */
+const taskHistoryReadSchema = taskHistoryOutputSchema.extend({
+  events: z.array(
+    taskHistoryEventSchema.extend({
+      kind: z.string().min(1),
+      via: z.string().min(1).optional(),
+    }),
+  ),
+});
+
+/**
+ * Operations the web shell calls. `input` and `output` are the catalog's own objects
+ * (`ops.test.ts`). An optional `read` is the schema the browser parses an answer with instead of
+ * `output`; it only widens values a newer daemon may add, so one unknown value never rejects the
+ * whole answer.
+ */
 export const browserOperations = {
   'config.get': {
     id: 'config.get',
@@ -353,6 +390,13 @@ export const browserOperations = {
     kind: 'query',
     input: taskGetInputSchema,
     output: taskGetOutputSchema,
+  },
+  'task.history': {
+    id: 'task.history',
+    kind: 'query',
+    input: taskHistoryInputSchema,
+    output: taskHistoryOutputSchema,
+    read: taskHistoryReadSchema,
   },
   'comment.add': {
     id: 'comment.add',

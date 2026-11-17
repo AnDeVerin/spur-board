@@ -13,6 +13,7 @@ import {
   problem,
   status,
   taskGet,
+  taskHistory,
   type Daemon,
 } from './board-fixtures.ts';
 
@@ -138,8 +139,9 @@ describe('task view', () => {
     const tabs = [...(dialog()?.querySelectorAll('[role="tab"]') ?? [])];
     expect(tabs.map((tab) => tab.textContent)).toEqual(['Now', 'History']);
     click(tabs[1] ?? close());
-    expect(inDialog('[role="tabpanel"] > p').textContent).toBe(
-      'History arrives in a later version.',
+    await settle();
+    expect(inDialog('[role="tabpanel"] table').querySelectorAll('tr')).toHaveLength(
+      taskHistory().events.length,
     );
   });
 

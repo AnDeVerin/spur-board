@@ -12,6 +12,7 @@ export type BoardConfig = Output<'config.get'>;
 type BoardStatus = Output<'status.get'>;
 type BoardInbox = Output<'inbox.operator'>;
 export type BoardTask = Output<'task.get'>;
+export type BoardHistory = Output<'task.history'>;
 
 /**
  * The open task: `loading` until its first answer and while a Retry runs, `ready` with a good
@@ -25,8 +26,31 @@ export interface TaskState {
   /** `retryTask` ran after a failure and its read has not settled yet. */
   retrying: boolean;
 }
-type TaskResult =
-  { key: string; kind: 'ok'; value: BoardTask } | { key: string; kind: 'missing' | 'failed' };
+/**
+ * The open task's `task.history`, read only while the History tab shows: states as `TaskState`;
+ * a re-read keeps `ready` and its rows.
+ */
+export interface HistoryState {
+  key: string;
+  state: 'loading' | 'ready' | 'missing' | 'failed';
+  value: BoardHistory | undefined;
+  /** `retryHistory` ran after a failure and its read has not settled yet. */
+  retrying: boolean;
+}
+type ReadResult<T> =
+  { key: string; kind: 'ok'; value: T } | { key: string; kind: 'missing' | 'failed' };
+
+/** One read of the open task: an unknown task or a key that is not a task key is `missing`. */
+async function readResult<T>(key: string, read: () => Promise<T>): Promise<ReadResult<T>> {
+  try {
+    return { key, kind: 'ok', value: await read() };
+  } catch (error) {
+    const missing =
+      error instanceof ProblemError &&
+      (error.code === 'not_found' || error.code === 'wrong_id_kind');
+    return { key, kind: missing ? 'missing' : 'failed' };
+  }
+}
 
 /** The facts the board screen derives its state from; a new object on every change. */
 export interface BoardSnapshot {
@@ -49,6 +73,8 @@ export interface BoardSnapshot {
   retrying: boolean;
   /** The task `open` names; undefined when none is open. */
   task: TaskState | undefined;
+  /** History of the open task; undefined until `showHistory` first reads it. */
+  history: HistoryState | undefined;
 }
 
 interface BoardDataOptions {
@@ -78,6 +104,7 @@ export function createBoardData(options: BoardDataOptions) {
     lastGoodAt: undefined,
     retrying: false,
     task: undefined,
+    history: undefined,
   };
   let preferred: string | null = null;
   try {
@@ -168,20 +195,12 @@ export function createBoardData(options: BoardDataOptions) {
   let taskRead = 0;
   let taskIssuedEpoch = 0;
   const refreshWaits = new Set<{ epoch: number; after: number; resolve: (ok: boolean) => void }>();
-  const task = coordinateRead<TaskResult>(
-    async (signal) => {
+  const task = coordinateRead<ReadResult<BoardTask>>(
+    (signal) => {
       const key = taskKey ?? '';
       taskRead++;
       taskIssuedEpoch = taskEpoch;
-      try {
-        const value = await api('task.get', { task: key, why: true }, { signal });
-        return { key, kind: 'ok', value };
-      } catch (error) {
-        const missing =
-          error instanceof ProblemError &&
-          (error.code === 'not_found' || error.code === 'wrong_id_kind');
-        return { key, kind: missing ? 'missing' : 'failed' };
-      }
+      return readResult(key, () => api('task.get', { task: key, why: true }, { signal }));
     },
     (result) => {
       // An answer for a key that is no longer open is dropped; its trailing read follows.
@@ -209,11 +228,35 @@ export function createBoardData(options: BoardDataOptions) {
   const refreshTask = () => {
     if (taskReadable) task.refresh();
   };
+  let historyShown = false;
+  const history = coordinateRead<ReadResult<BoardHistory> | undefined>(
+    (signal) => {
+      // A trailing read queued while History showed is skipped once the tab hides or the task changes.
+      if (!historyShown || !taskReadable) return Promise.resolve(undefined);
+      const key = taskKey ?? '';
+      return readResult(key, () => api('task.history', { task: key }, { signal }));
+    },
+    (result) => {
+      // As for the task: an answer for a key that is no longer open is dropped.
+      if (result === undefined || result.key !== taskKey || state.history?.key !== result.key)
+        return;
+      const { key } = result;
+      if (result.kind === 'ok')
+        update({ history: { key, state: 'ready', value: result.value, retrying: false } });
+      else if (result.kind === 'missing')
+        update({ history: { key, state: 'missing', value: undefined, retrying: false } });
+      else update({ history: { ...state.history, state: 'failed', retrying: false } });
+    },
+  );
+  const refreshHistory = () => {
+    if (taskReadable && historyShown) history.refresh();
+  };
 
   const readAll = () => {
     config.refresh();
     inbox.refresh();
     refreshTask();
+    refreshHistory();
   };
   const refresh = (scope: RefreshScope | null) => {
     if (scope === null) {
@@ -228,8 +271,10 @@ export function createBoardData(options: BoardDataOptions) {
     if (
       (taskKey !== null && scope.tasks.includes(taskKey)) ||
       (loaded !== undefined && scope.tasks.includes(loaded))
-    )
+    ) {
       refreshTask();
+      refreshHistory();
+    }
   };
   const onStream = (value: StreamState) => {
     const previous = state.stream;
@@ -312,6 +357,7 @@ export function createBoardData(options: BoardDataOptions) {
       config.dispose();
       inbox.dispose();
       task.dispose();
+      history.dispose();
     },
     /** The client clock the snapshot's times are read against. */
     now: () => options.now(),
@@ -323,7 +369,7 @@ export function createBoardData(options: BoardDataOptions) {
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
     /**
      * Open a task by key, or close it with null: read `task.get` with why, then again whenever the
-     * stream names the task, the board re-reads everything, or `retryTask` runs.
+     * stream names the task, the board re-reads everything, or `retryTask` runs. History hides.
      */
     open(key: string | null) {
       if (key === taskKey) return;
@@ -331,16 +377,41 @@ export function createBoardData(options: BoardDataOptions) {
       for (const wait of refreshWaits) wait.resolve(false);
       refreshWaits.clear();
       taskKey = key;
+      historyShown = false;
       taskReadable =
         key !== null &&
         browserOperations['task.get'].input.safeParse({ task: key, why: true }).success;
-      if (key === null) update({ task: undefined });
+      if (key === null) update({ task: undefined, history: undefined });
       else if (!taskReadable)
-        update({ task: { key, state: 'missing', value: undefined, retrying: false } });
+        update({
+          task: { key, state: 'missing', value: undefined, retrying: false },
+          history: undefined,
+        });
       else {
-        update({ task: { key, state: 'loading', value: undefined, retrying: false } });
+        update({
+          task: { key, state: 'loading', value: undefined, retrying: false },
+          history: undefined,
+        });
         task.refresh();
       }
+    },
+    /**
+     * The History tab of the open task shows or hides. Shown, it reads `task.history`, then again
+     * whenever the task re-reads; hidden, it reads nothing and keeps the last answer.
+     */
+    showHistory(shown: boolean) {
+      if (shown === historyShown) return;
+      historyShown = shown;
+      if (!shown || !taskReadable || taskKey === null) return;
+      if (state.history?.key !== taskKey)
+        update({ history: { key: taskKey, state: 'loading', value: undefined, retrying: false } });
+      history.refresh();
+    },
+    /** Re-read the history after a failure; the last good answer stays while it runs. */
+    retryHistory() {
+      if (!taskReadable || !historyShown || !state.history || state.history.retrying) return;
+      update({ history: { ...state.history, state: 'loading', retrying: true } });
+      history.refresh();
     },
     /** Re-read the open task after a failure; the last good answer stays while it runs. */
     retryTask() {

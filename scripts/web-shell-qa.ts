@@ -128,11 +128,34 @@ export function shellTask() {
     },
   });
 }
+/** The fixture task's history as task.history answers it, oldest first. */
+export function shellHistory() {
+  return browserOperations['task.history'].output.parse({
+    task: { key: 'PROJ-1', project: 'web', column: 'dev', membership: 'active' },
+    events: [
+      { at: '2026-01-05T09:00:00.000Z', kind: 'task_added', actor: 'operator', summary: 'Added.' },
+      {
+        at: '2026-01-05T09:10:00.000Z',
+        kind: 'turn_taken',
+        actor: 'operator',
+        via: 'slack',
+        summary: 'Took the turn.',
+      },
+      {
+        at: '2026-01-05T09:30:00.000Z',
+        kind: 'task_moved',
+        actor: 'system',
+        summary: 'Moved to Dev.',
+      },
+    ],
+  });
+}
 const shellReads = {
   'status.get': shellFixture,
   'config.get': shellConfig,
   'inbox.operator': shellInbox,
   'task.get': shellTask,
+  'task.history': shellHistory,
 } satisfies Record<string, (scenario: Scenario) => unknown>;
 type ShellRead = keyof typeof shellReads;
 export function createShellQaServer(

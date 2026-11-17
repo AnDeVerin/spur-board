@@ -144,8 +144,14 @@ describe('task discussion', () => {
         if (!tab) throw new Error(`no ${label} tab`);
         click(tab);
       };
+      const beforeHistory = calls.length;
       select('History');
+      await settle();
       expect(inDialog('[role="tab"][aria-selected="true"]').textContent).toBe('History');
+      expect(calls.slice(beforeHistory)).toEqual([
+        { path: '/v1/ops/task.history', input: { task: 'ex/repo#7' } },
+      ]);
+      expect(inDialog('table[aria-label="Task history"]').textContent).toContain('operator (web)');
       select('Now');
       expect(field(answer).value).toBe(draft);
       if (state === 'uncertain')

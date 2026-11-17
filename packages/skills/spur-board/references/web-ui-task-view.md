@@ -1,7 +1,7 @@
 # Web UI: task view
 
 The task view of the [web UI](web-ui.md) shows one task in a dialog over the columns; on a
-narrow screen it fills the screen. It reads `task.get` with `why` for the open task and, like
+narrow screen it fills the screen. It reads `task.get` with `why` for the open task, `task.history` while History shows and, like
 the rest of the UI, refreshes from the event stream. It also offers the two writes below.
 
 ## Opening it
@@ -23,7 +23,13 @@ address opens it too, with the full key (`?open=ex%2Frepo%237`) or a short one
   GitHub in a new tab. A session is a link to its Spur UI page,
   `<web.spurUiOrigin>/sessions/<session id>`, also in a new tab; when `web.spurUiOrigin` is not
   set it is plain text `session <id>`. A Jira ticket is plain text: the UI knows no Jira address.
-- `History` says that history arrives in a later version.
+- `History` lists the task's journal events, newest first; events at the same time keep the
+  reverse of their journal order. Each row shows the time (UTC, `hh:mm dd/mm/yy`), the summary
+  with who did it, and the raw event kind, such as `turn_taken`. An agent reads as its session;
+  a write that came through the web UI or Slack adds its channel: `operator (web)`,
+  `operator (slack)`. An event kind this version does not know still shows, with its raw kind.
+  On a narrow screen the kind is hidden. A task with no events reads
+  `No journal events for this task.`
 
 ## Why it is here
 
@@ -74,9 +80,12 @@ Closing the dialog does not persist drafts.
 - A failed read shows an error banner, `Could not load the task.`, with **Retry**, above the
   data loaded before. While the UI is offline and the task was loaded, no banner shows in the
   dialog: the Board's offline banner says so, and the rows may be out of date.
+- History reads `task.history` only while its tab shows. A failed read shows
+  `Could not load the history.` with **Retry** above the rows loaded before, with the same
+  offline rule. A task the daemon no longer knows shows `Task not found.`
 - The task view rereads the task when the stream names it, and whenever the UI rereads
   everything: a `reset`, the 30-second status frame, a changed journal head or daemon instance,
-  and **Retry now**.
+  and **Retry now**. While History shows, it rereads the history at the same moments.
 
 ## Closing it
 

@@ -83,10 +83,11 @@ stand, which passes it as its web root (`docs/qa-stand.md`).
 For controlled shell states, exercise the shell with
 `node scripts/web-shell-qa.ts --port 4780` through a disposable session sidecar after building.
 This loopback fixture answers `status.get`, `config.get` (one project, `web`),
-`inbox.operator` and `task.get` (task `PROJ-1` with why, for any key) and serves controlled stream
+`inbox.operator`, `task.get` (task `PROJ-1` with why, for any key) and `task.history` (three
+events of `PROJ-1`, for any key) and serves controlled stream
 scenarios; it is never packaged.
 Installed package smoke separately exercises the real configured web listener and assets. POST to
 `/__qa/scenario/loading|empty|healthy|mixed|read-error|refresh-error|recovered|stream-drop`;
-`loading` holds all four reads, `read-error` and `refresh-error` fail all four, and
+`loading` holds all five reads, `read-error` and `refresh-error` fail all five, and
 POST `/__qa/release` releases held loading reads. The footer shows `status.get`
 `daemon.version`, which the fixture's status scenarios supply; it stays empty until the first read.
