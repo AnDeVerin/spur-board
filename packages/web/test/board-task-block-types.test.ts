@@ -7,7 +7,7 @@ mountEachTest();
 
 const TYPES = ['needs_input', 'code', 'dependency', 'external'] as const;
 const CHANNELS = [null, 'slack', 'web'] as const;
-const variants = [
+const rows = [
   ...TYPES.flatMap((type) =>
     ['operator', 'worker'].map((addressee) => ({
       type,
@@ -97,10 +97,16 @@ const variants = [
   },
 ];
 
+/** Only an answered question offers a follow-up. */
+const variants = rows.map((row) => ({
+  ...row,
+  followUp: row.type === 'needs_input' && row.state === 'unblocked' && row.outcome === 'done',
+}));
+
 describe('block type presentation and answer eligibility', () => {
   it.each(variants)(
-    '$type $state/$outcome via $answeredVia addressed to $addressee shows $status, form=$form',
-    async ({ type, state, addressee, outcome, answeredVia, status, form, reference }) => {
+    '$type $state/$outcome via $answeredVia addressed to $addressee shows $status, form=$form, followUp=$followUp',
+    async ({ type, state, addressee, outcome, answeredVia, status, form, reference, followUp }) => {
       const d = daemon();
       d.routes['task.get'] = () =>
         Promise.resolve(
@@ -126,6 +132,9 @@ describe('block type presentation and answer eligibility', () => {
       }
       if (!status.startsWith('answered')) expect(item.textContent).not.toContain('answered');
       if (reference !== null) expect(item.textContent).toContain(reference);
+      expect(
+        [...item.querySelectorAll('button')].some((button) => button.textContent === 'Follow up'),
+      ).toBe(followUp);
       if (addressee === 'curator') expect(item.textContent).toContain('→ curator');
     },
   );

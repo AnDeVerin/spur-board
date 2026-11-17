@@ -1,26 +1,45 @@
-import { useEffect, useRef, useState } from 'react';
-import { Banner, Button, FormRow, TextArea } from '../ds/index.ts';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Banner, Button, FormRow, IconButton, TextArea } from '../ds/index.ts';
 import type { BoardData } from './data.ts';
 import styles from './TaskView.module.css';
 
-/** Each caller keeps its draft and retry intent through canonical data refreshes. */
+const TEXTS = {
+  answer: { submit: 'Send answer', success: 'Answer sent.' },
+  followup: { submit: 'Send follow-up', success: 'Follow-up sent.' },
+  comment: { submit: 'Add comment', success: 'Comment added.' },
+} as const;
+/** The follow-up form's Cancel inside its wrapper. */
+const cancelIn = (root: HTMLElement | null) =>
+  root?.querySelector<HTMLButtonElement>('button[aria-label="Cancel"]') ?? undefined;
+
+/**
+ * Each caller keeps its draft and retry intent through canonical data refreshes. A `followup`
+ * starts closed as a `Follow up` button; its form closes on Cancel or once a send is reread.
+ * `superseded` hides an answer's `sent` line while idle.
+ */
 export function TaskWrite({
   label,
-  answer = false,
+  kind,
   eligible = true,
   unavailable,
   createIntent,
   refreshTask,
+  onOpen,
+  superseded = false,
 }: {
   label: string;
-  answer?: boolean;
+  kind: 'answer' | 'followup' | 'comment';
   eligible?: boolean;
   unavailable: string | undefined;
   createIntent: (text: string) => ReturnType<BoardData['commentIntent']>;
   refreshTask: BoardData['refreshTask'];
+  onOpen?: () => void;
+  superseded?: boolean;
 }) {
+  const followUp = kind === 'followup';
   const [draft, setDraft] = useState('');
   const [sent, setSent] = useState(false);
+  const [open, setOpen] = useState(!followUp);
   const revision = useRef(0);
   const [error, setError] = useState<string>();
   const [phase, setPhase] = useState<'idle' | 'sending' | 'refreshing' | 'refresh-failed'>('idle');
@@ -30,12 +49,34 @@ export function TaskWrite({
   const intent = useRef<
     { text: string; value: ReturnType<BoardData['commentIntent']> } | undefined
   >(undefined);
+  // The follow-up's wrapper; focus moves inside it only after the commit that renders the target.
+  const area = useRef<HTMLDivElement>(null);
+  const pendingFocus = useRef<'field' | 'trigger'>(undefined);
+  const focusAtSubmit = useRef(false);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
+  useLayoutEffect(() => {
+    const target = pendingFocus.current;
+    if (target === undefined) return;
+    pendingFocus.current = undefined;
+    const field = area.current?.querySelector('textarea');
+    (target === 'trigger'
+      ? area.current?.querySelector('button')
+      : field && !field.disabled
+        ? field
+        : cancelIn(area.current)
+    )?.focus();
+  });
+  useLayoutEffect(() => {
+    const cancel = cancelIn(area.current);
+    const active = document.activeElement;
+    if (unavailable === undefined || !cancel || cancel.disabled || active === cancel) return;
+    if (area.current?.contains(active)) cancel.focus();
+  }, [unavailable]);
   const reconcile = async (refresh: Promise<boolean>, submittedRevision: number) => {
     const ok = await refresh;
     if (!mounted.current) return;
@@ -43,19 +84,26 @@ export function TaskWrite({
       setPhase('refresh-failed');
       return;
     }
-    if (revision.current === submittedRevision) setDraft('');
+    if (revision.current === submittedRevision) {
+      setDraft('');
+      if (followUp) {
+        if (focusAtSubmit.current && area.current?.contains(document.activeElement))
+          pendingFocus.current = 'trigger';
+        setOpen(false);
+      }
+    }
     confirmed.current = false;
     busy.current = false;
     intent.current = undefined;
     setPhase('idle');
   };
   const submittedRevision = useRef(0);
-  const success = answer ? 'Answer sent.' : 'Comment added.';
-  const status = sent
-    ? `${success}${phase === 'refreshing' ? ' Refreshing task…' : phase === 'refresh-failed' ? ' Could not refresh the task.' : ''}`
-    : !eligible && phase === 'sending'
-      ? 'Sending answer…'
-      : undefined;
+  const status =
+    sent && !(superseded && phase === 'idle')
+      ? `${TEXTS[kind].success}${phase === 'refreshing' ? ' Refreshing task…' : phase === 'refresh-failed' ? ' Could not refresh the task.' : ''}`
+      : !eligible && phase === 'sending'
+        ? 'Sending answer…'
+        : undefined;
   const feedback = (
     <>
       {status && (
@@ -102,7 +150,23 @@ export function TaskWrite({
       </>
     );
   }
-  return (
+  if (!open)
+    return (
+      <div ref={area}>
+        <Button
+          onClick={() => {
+            setSent(false);
+            setOpen(true);
+            pendingFocus.current = 'field';
+            onOpen?.();
+          }}
+        >
+          Follow up
+        </Button>
+        {feedback}
+      </div>
+    );
+  const form = (
     <form
       onSubmit={(event) => {
         event.preventDefault();
@@ -117,6 +181,7 @@ export function TaskWrite({
         }
         busy.current = true;
         submittedRevision.current = revision.current;
+        focusAtSubmit.current = area.current?.contains(document.activeElement) ?? false;
         if (intent.current?.text !== draft)
           intent.current = { text: draft, value: createIntent(draft) };
         setSent(false);
@@ -144,14 +209,35 @@ export function TaskWrite({
         error={error === undefined ? undefined : `${error}${unavailable ? ` ${unavailable}` : ''}`}
         hint={unavailable}
         actions={
-          <Button
-            type="submit"
-            variant={answer ? 'primary' : 'outlined'}
-            disabled={unavailable !== undefined}
-            busy={phase !== 'idle'}
-          >
-            {phase === 'sending' ? 'Sending' : answer ? 'Send answer' : 'Add comment'}
-          </Button>
+          <>
+            <Button
+              type="submit"
+              variant={kind === 'comment' ? 'outlined' : 'primary'}
+              disabled={unavailable !== undefined}
+              busy={phase !== 'idle'}
+            >
+              {phase === 'sending' ? 'Sending' : TEXTS[kind].submit}
+            </Button>
+            {followUp && (
+              <IconButton
+                icon="x"
+                size="control"
+                label="Cancel"
+                disabled={phase !== 'idle'}
+                onClick={() => {
+                  // A failed send keeps its text, error and key, so an unchanged resend after
+                  // reopening cannot post a landed follow-up twice.
+                  if (intent.current === undefined) {
+                    setDraft('');
+                    setError(undefined);
+                  }
+                  setSent(false);
+                  setOpen(false);
+                  pendingFocus.current = 'trigger';
+                }}
+              />
+            )}
+          </>
         }
       >
         <TextArea
@@ -167,4 +253,5 @@ export function TaskWrite({
       {feedback}
     </form>
   );
+  return followUp ? <div ref={area}>{form}</div> : form;
 }
