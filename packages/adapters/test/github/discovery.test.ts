@@ -486,49 +486,19 @@ describe('default branch head', () => {
 
   it('replaces a check only with a later run of the same check', async () => {
     const later = '2026-01-01T01:00:00.000Z';
+    const failed = run('build', 'FAILURE', 'push');
+    const passed = (workflow = 'W_ci') =>
+      run('build', 'SUCCESS', 'push', { workflow, startedAt: later });
+    const statusOk = { ...commitStatus('build', 'SUCCESS'), createdAt: later };
+    const scheduled = run('build', 'FAILURE', 'schedule', { startedAt: later });
     const cases: [string, unknown[], unknown][] = [
-      [
-        'same job name in two push workflows, one failing',
-        [
-          run('build', 'FAILURE', 'push', { workflow: 'W_ci' }),
-          run('build', 'SUCCESS', 'push', { workflow: 'W_release', startedAt: later }),
-        ],
-        red,
-      ],
-      [
-        'a check run and a commit status sharing a name, the status failing',
-        [
-          commitStatus('build', 'FAILURE', runUrl),
-          run('build', 'SUCCESS', 'push', { startedAt: later }),
-        ],
-        red,
-      ],
-      [
-        'a check run and a commit status sharing a name, the check run failing',
-        [
-          run('build', 'FAILURE', 'push'),
-          { ...commitStatus('build', 'SUCCESS'), createdAt: later },
-        ],
-        red,
-      ],
-      [
-        'a rerun of the same job in the same workflow, failed then succeeded',
-        [
-          run('build', 'FAILURE', 'push', { workflow: 'W_ci' }),
-          run('build', 'SUCCESS', 'push', { workflow: 'W_ci', startedAt: later }),
-        ],
-        green,
-      ],
-      [
-        'a scheduled run of the same name in the same workflow',
-        [
-          run('build', 'SUCCESS', 'push', { workflow: 'W_ci' }),
-          run('build', 'FAILURE', 'schedule', { workflow: 'W_ci', startedAt: later }),
-        ],
-        green,
-      ],
+      ['one name in two push workflows', [failed, passed('W_release')], red],
+      ['a failed status, a check run', [commitStatus('build', 'FAILURE', runUrl), passed()], red],
+      ['a failed check run, a status', [failed, statusOk], red],
+      ['a rerun of one job in one workflow', [failed, passed()], green],
+      ['a later scheduled run', [run('build', 'SUCCESS', 'push'), scheduled], green],
     ];
-    for (const [label, nodes, expected] of cases)
-      expect({ label, fact: await branchOf(nodes) }).toEqual({ label, fact: expected });
+    for (const [label, nodes, fact] of cases)
+      expect({ label, fact: await branchOf(nodes) }).toEqual({ label, fact });
   });
 });
