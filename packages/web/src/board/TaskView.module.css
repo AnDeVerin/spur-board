@@ -17,6 +17,17 @@
   flex-wrap: wrap;
   gap: var(--space-1-5);
 }
+.links > * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.linkText {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 /* One line in place of the panel: the task is not found. */
 .note {
   margin: 0;

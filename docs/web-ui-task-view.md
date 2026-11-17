@@ -22,6 +22,10 @@ is selected once configuration arrives. Back and Forward restore both layers.
   a placeholder until the status read answers, and a task with no card in the chosen project has
   no title line.
 - Below the title come chips for the task's links: tickets, then pull requests, then sessions.
+  They reuse the card's bordered PR status cells with ticket, PR and terminal icons. The current
+  ticket uses its held card's URL, even if omitted from task links; unsafe/missing URLs stay plain,
+  outside Tab order. Long labels truncate with full accessible text and hover titles. Links use
+  the focus ring; text brightens on hover, focus within and touch.
   A pull request or a GitHub issue ticket written `<owner>/<repo>#<n>` is a link that opens
   GitHub in a new tab. A session is a link to its Spur UI page,
   `<web.spurUiOrigin>/sessions/<session id>`, also in a new tab; when `web.spurUiOrigin` is not

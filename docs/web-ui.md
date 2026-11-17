@@ -38,6 +38,8 @@ Header, left to right:
 
 Columns follow configuration order:
 
+- Fitting rows centre; wider rows scroll horizontally from the left.
+
 - A column header shows name, task count and executor (kind, then name).
 - An empty column collapses to a spine with its name and `0`.
 - `done` lists every done task in a compact scrolling list.
@@ -59,7 +61,7 @@ Columns follow configuration order:
 - Unconfigured columns: a trailing count opens a list of task keys, titles and original columns.
   Rows open the task view. At zero, both are absent.
 
-On a narrow screen columns scroll sideways; the mode and filter are hidden.
+Narrow screens hide the mode and filter.
 
 ## Status bar
 
@@ -80,7 +82,7 @@ Service dots follow `status.get` health: green healthy, amber degraded, red fail
 - `unknown`, with a hollow dot, for a service with no health row, for all before the first status
   read, and for all but the daemon while the daemon does not answer.
 
-The bar follows each `status` stream message, about every 30 s, and reads nothing itself.
+The bar follows `status` stream messages, about every 30 s.
 
 ## Services panel
 

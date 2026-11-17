@@ -5,6 +5,7 @@
 .main {
   flex: 1;
   display: flex;
+  justify-content: safe center;
   gap: var(--space-3);
   min-height: 0;
   padding: var(--space-4) var(--space-6);

@@ -3,6 +3,8 @@ import {
   Banner,
   Button,
   Chip,
+  focusRing,
+  Icon,
   CollapsibleSection,
   quiet,
   KeyValueBox,
@@ -17,6 +19,8 @@ import { TaskHistory } from './TaskHistory.tsx';
 import { shortKey } from './model.ts';
 import { age, linkChips, timeInColumn, whyRows, whySummary } from './task-model.ts';
 import styles from './TaskView.module.css';
+import cardStyles from './Card.module.css';
+import type { BoardRow } from './model.ts';
 
 const TABS_ID = 'task-tabs';
 const TABS = [
@@ -36,6 +40,7 @@ export function TaskView({
   task,
   history,
   title,
+  row,
   columns,
   spurUiOrigin,
   ticketBrowseBase,
@@ -59,6 +64,7 @@ export function TaskView({
   commentIntent: BoardData['commentIntent'];
   refreshTask: BoardData['refreshTask'];
   title: TaskTitle;
+  row: BoardRow | undefined;
   /** Enabled column ids of the task's project in `config.get` order. */
   columns: readonly string[];
   /** `config.get` `web.spurUiOrigin`: session chips link there; null keeps them plain. */
@@ -92,6 +98,8 @@ export function TaskView({
         ? value.task.column
         : `${value.task.column} · ${inColumn}`;
   const failed = task.state === 'failed' || task.retrying;
+  const chips =
+    value === undefined ? [] : linkChips(value.links, key, spurUiOrigin, ticketBrowseBase, row);
   return (
     <Modal
       open
@@ -120,7 +128,7 @@ export function TaskView({
                   Could not load the task.
                 </Banner>
               )}
-              <div className={styles.top}>
+              <div className={`${quiet} ${styles.top ?? ''}`}>
                 {title.state === 'loading' ? (
                   <Skeleton widths={[60]} />
                 ) : (
@@ -128,18 +136,33 @@ export function TaskView({
                 )}
                 {value === undefined
                   ? task.state === 'loading' && <Skeleton />
-                  : value.links.length > 0 && (
+                  : chips.length > 0 && (
                       <div className={styles.links}>
-                        {linkChips(value.links, key, spurUiOrigin, ticketBrowseBase).map(
-                          (chip, index) =>
-                            // A link has no id of its own; its position in the list stays put.
-                            chip.href === null ? (
-                              <Chip key={index}>{chip.text}</Chip>
-                            ) : (
-                              <Chip key={index} href={chip.href} label={chip.label}>
-                                {chip.text}
-                              </Chip>
-                            ),
+                        {chips.map((chip, index) =>
+                          // A link has no id of its own; its position in the list stays put.
+                          chip.href === null ? (
+                            <span
+                              key={index}
+                              className={`${cardStyles.cell ?? ''} ${cardStyles.standalone ?? ''}`}
+                              title={chip.text}
+                            >
+                              <Icon name={chip.icon} />
+                              <span className={styles.linkText}>{chip.text}</span>
+                            </span>
+                          ) : (
+                            <a
+                              key={index}
+                              className={`${cardStyles.cell ?? ''} ${cardStyles.standalone ?? ''} ${focusRing}`}
+                              href={chip.href}
+                              aria-label={chip.label}
+                              title={chip.text}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Icon name={chip.icon} />
+                              <span className={styles.linkText}>{chip.text}</span>
+                            </a>
+                          ),
                         )}
                       </div>
                     )}

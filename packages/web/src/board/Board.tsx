@@ -220,6 +220,7 @@ export function Board({ data }: { data: BoardData }) {
           task={task}
           history={snapshot.history}
           title={taskTitle(snapshot, task)}
+          row={snapshot.status?.tasks.find((row) => row.key === (task.value?.task.key ?? task.key))}
           columns={project?.columns.map(({ id }) => id) ?? []}
           spurUiOrigin={snapshot.config?.web.spurUiOrigin ?? null}
           ticketBrowseBase={project?.ticketBrowseBase ?? null}

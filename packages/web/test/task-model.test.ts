@@ -12,7 +12,7 @@ import {
   whyRows,
   whySummary,
 } from '../src/board/task-model.ts';
-import { historyEvent, T, T_TEXT, taskGet, taskHistory } from './board-fixtures.ts';
+import { historyEvent, parsed, T, T_TEXT, taskGet, taskHistory } from './board-fixtures.ts';
 
 const NOW = Date.parse('2026-11-15T14:00:00.000Z');
 const COLUMNS = ['todo', 'dev', 'review', 'done'];
@@ -239,6 +239,40 @@ describe('header facts', () => {
 });
 
 describe('link chips', () => {
+  it('inserts the held current ticket once with the card destination and matching icons', () => {
+    const row = parsed().rows.find((entry) => entry.key === 'ex/repo#7');
+    if (!row) throw new Error('missing row');
+    const held = { ...row, links: { ...row.links, ticket: 'https://observed.test/issue/7' } };
+    const links = task().links;
+    const chips = linkChips(links, row.key, null, null, held);
+    expect(chips.map((chip) => chip.icon)).toEqual(['ticket', 'pr', 'term']);
+    expect(chips[0]?.href).toBe(held.links.ticket);
+    expect(
+      linkChips(
+        [
+          { kind: 'ticket', ref: row.key, role: null },
+          { kind: 'ticket', ref: row.key, role: null },
+          ...links,
+        ],
+        row.key,
+        null,
+        null,
+        held,
+      ),
+    ).toHaveLength(3);
+    expect(
+      linkChips([], row.key, null, null, {
+        ...held,
+        links: { ...held.links, ticket: 'javascript:bad' },
+      })[0]?.href,
+    ).toBeNull();
+    expect(linkChips([], row.key, null, null, row)[0]?.href).toBeNull();
+    expect(linkChips([], row.key, null, null, { ...held, key: 'ex/repo#99' })).toEqual([]);
+    const jira = { ...held, key: 'ABC-3' };
+    expect(linkChips([], jira.key, null, 'https://jira.test/browse/', jira)[0]?.href).toBe(
+      'https://jira.test/browse/ABC-3',
+    );
+  });
   it('groups ticket, pr, session; links GitHub refs, keeps Jira plain without a browse base, sessions plain without an origin', () => {
     const link = (kind: string, ref: string) => ({
       kind,
@@ -258,19 +292,21 @@ describe('link chips', () => {
       },
     );
     expect(linkChips(value.links, 'ABC-1', null, null)).toEqual([
-      { text: 'ticket ABC-3', href: null, label: undefined },
+      { icon: 'ticket', text: 'ticket ABC-3', href: null, label: undefined },
       {
         text: 'ticket #5',
+        icon: 'ticket',
         href: 'https://github.com/ex/repo/issues/5',
         label: 'ticket #5, ex/repo',
       },
       {
         text: 'PR #7',
+        icon: 'pr',
         href: 'https://github.com/ex/repo/pull/7',
         label: 'PR #7, ex/repo',
       },
-      { text: 'PR repo#8', href: null, label: undefined },
-      { text: 'session s1', href: null, label: undefined },
+      { icon: 'pr', text: 'PR repo#8', href: null, label: undefined },
+      { icon: 'term', text: 'session s1', href: null, label: undefined },
     ]);
   });
   it('links a session to the Spur UI when the origin is set', () => {
@@ -278,6 +314,7 @@ describe('link chips', () => {
     expect(linkChips(value.links, 'ABC-1', 'https://spur.example', null)).toEqual([
       {
         text: 'session sb-1234',
+        icon: 'term',
         href: 'https://spur.example/sessions/sb-1234',
         label: 'session sb-1234, Spur session',
       },
@@ -292,16 +329,18 @@ describe('link chips', () => {
     expect(linkChips(value.links, 'ABC-1', null, 'https://j.test/browse/')).toEqual([
       {
         text: 'ticket ABC-3',
+        icon: 'ticket',
         href: 'https://j.test/browse/ABC-3',
         label: 'ticket ABC-3, Jira',
       },
       {
         text: 'ticket #5',
+        icon: 'ticket',
         href: 'https://github.com/ex/repo/issues/5',
         label: 'ticket #5, ex/repo',
       },
-      { text: 'ticket #6', href: null, label: undefined },
-      { text: 'ticket foo bar', href: null, label: undefined },
+      { icon: 'ticket', text: 'ticket #6', href: null, label: undefined },
+      { icon: 'ticket', text: 'ticket foo bar', href: null, label: undefined },
     ]);
   });
   it.each([

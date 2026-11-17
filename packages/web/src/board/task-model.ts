@@ -1,4 +1,4 @@
-import type { KeyValueStatus } from '../ds/index.ts';
+import type { IconName, KeyValueStatus } from '../ds/index.ts';
 import {
   githubRef,
   sameJiraProject,
@@ -7,7 +7,8 @@ import {
   ticketBrowseHref,
 } from '../lib/links.ts';
 import type { BoardHistory, BoardTask } from './data.ts';
-import { formatDataTime, shortKey } from './model.ts';
+import { formatDataTime, shortKey, type BoardRow } from './model.ts';
+import { quickLinks } from './card.ts';
 
 type TaskWhy = NonNullable<BoardTask['why']>;
 type TaskGate = TaskWhy['gates'][number];
@@ -22,6 +23,7 @@ export interface WhyRow {
 
 /** A link chip: a link when `href` is set, else plain text. */
 export interface LinkChip {
+  icon: IconName;
   text: string;
   href: string | null;
   /** Accessible name of a link chip: the visible text, then the owner and repo or `Spur session`. */
@@ -205,13 +207,13 @@ function linkChip(
   if (link.kind === 'session') {
     const text = `session ${link.ref}`;
     const href = sessionLinkHref(spurUiOrigin, link.ref);
-    return { text, href, label: href === null ? undefined : `${text}, Spur session` };
+    return { icon: 'term', text, href, label: href === null ? undefined : `${text}, Spur session` };
   }
   if (link.kind === 'ticket' && taskLinkHref(link) === null) {
     const text = `ticket ${shortKey(link.ref)}`;
     const base = sameJiraProject(link.ref, taskKey) ? ticketBrowseBase : null;
     const href = ticketBrowseHref(base, link.ref);
-    return { text, href, label: href === null ? undefined : `${text}, Jira` };
+    return { icon: 'ticket', text, href, label: href === null ? undefined : `${text}, Jira` };
   }
   const href = taskLinkHref(link);
   const ref = githubRef(link.ref);
@@ -222,6 +224,7 @@ function linkChip(
         ? `PR #${ref.number}`
         : `PR ${link.ref}`;
   return {
+    icon: link.kind === 'ticket' ? 'ticket' : 'pr',
     text,
     href,
     label: href !== null && ref ? `${text}, ${ref.owner}/${ref.repo}` : undefined,
@@ -229,7 +232,8 @@ function linkChip(
 }
 
 /**
- * One chip per `task.get` link: tickets, then pull requests, then sessions, each kind in order.
+ * Tickets, pull requests, then sessions, each kind in order. A held matching card supplies the
+ * current ticket destination, inserting it if omitted and deduplicating it.
  * A session links to the Spur UI at `spurUiOrigin` (`config.get` `web.spurUiOrigin`); a Jira
  * ticket links to `<ticketBrowseBase><key>` (`config.get` `projects[].ticketBrowseBase`) only when
  * its key has the Jira project prefix of `taskKey`, the open task; else it is plain.
@@ -239,8 +243,22 @@ export function linkChips(
   taskKey: string,
   spurUiOrigin: string | null,
   ticketBrowseBase: string | null,
+  row?: BoardRow,
 ): LinkChip[] {
-  return KIND_ORDER.flatMap((kind) => links.filter((link) => link.kind === kind)).map((link) =>
-    linkChip(link, taskKey, spurUiOrigin, ticketBrowseBase),
-  );
+  const current = row?.key === taskKey ? row : undefined;
+  const all: readonly TaskLink[] =
+    current === undefined || links.some((link) => link.kind === 'ticket' && link.ref === taskKey)
+      ? links
+      : [{ kind: 'ticket', ref: taskKey, role: null }, ...links];
+  let seenCurrent = false;
+  return KIND_ORDER.flatMap((kind) => all.filter((link) => link.kind === kind)).flatMap((link) => {
+    const chip = linkChip(link, taskKey, spurUiOrigin, ticketBrowseBase);
+    if (current === undefined || link.kind !== 'ticket' || link.ref !== taskKey) return [chip];
+    if (seenCurrent) return [];
+    seenCurrent = true;
+    const href =
+      quickLinks(current, spurUiOrigin, ticketBrowseBase).find((entry) => entry.kind === 'ticket')
+        ?.href ?? null;
+    return [{ ...chip, href, label: href === null ? undefined : chip.label }];
+  });
 }

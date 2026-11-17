@@ -137,6 +137,12 @@
 .cell + .cell {
   border-left: var(--size-hairline) solid var(--color-border-default);
 }
+/* Standalone task links reuse the status cell's geometry. */
+.standalone {
+  border: var(--size-hairline) solid var(--color-border-default);
+  padding: 0 var(--space-2);
+  text-decoration: none;
+}
 .cell[data-tone='ok'] {
   color: var(--color-text-secondary);
 }
