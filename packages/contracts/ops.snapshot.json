@@ -1,5 +1,5 @@
 {
-  "version": "71680b1bce672f623f12dd8664fbe2585d6af8cfbb2468785197241d0c75f991",
+  "version": "8c019d397b4066cfd07d27998f20604b1f4671e1364b495688f5de7f9bde70f3",
   "grants": [
     "operator",
     "project-agent",
@@ -1487,6 +1487,12 @@
                           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                           "description": "When the board first read this colour."
                         },
+                        "confirmedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When a poll last read this colour; a poll that reads no colour keeps it."
+                        },
                         "check": {
                           "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }],
                           "description": "Name of the first failing check, or null."
@@ -1496,7 +1502,15 @@
                           "description": "Web URL of the failing run, or null."
                         }
                       },
-                      "required": ["branch", "state", "sha", "since", "check", "url"],
+                      "required": [
+                        "branch",
+                        "state",
+                        "sha",
+                        "since",
+                        "confirmedAt",
+                        "check",
+                        "url"
+                      ],
                       "additionalProperties": false,
                       "description": "Colour of the default-branch head. It is red when the latest check run of a push-triggered workflow finished without success (failed, cancelled, timed out) or a commit status failed; scheduled, manual and other runs and check runs outside workflows are ignored, and branch protection is not read."
                     },

@@ -159,7 +159,8 @@ export async function reconcileItems(
         kind: 'board_observation',
         taskId: null,
         summary: `${repo}: ${branch.branch} is red since ${branch.sha.slice(0, 7)} (${check}): fix ${branch.branch} before merging more${run}`,
-        factAt: branch.since,
+        // The episode start keeps the item; each red read confirms it.
+        factAt: branch.confirmedAt,
         source,
         priority: 2,
         revision: branch.since,

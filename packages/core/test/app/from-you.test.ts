@@ -904,6 +904,34 @@ describe('default branch item', () => {
     expect(JSON.parse(lines[0]?.payload ?? '{}')).toMatchObject({ url: runUrl, itemKey: key });
   });
 
+  it('refreshes the fact time on each red read of one episode, not on a poll without one', async () => {
+    const { store, core, status } = setup();
+    const raisedAt = await observeBranch(core, redFact(first));
+    const [raised] = await openItems(store);
+    now += 5 * 60_000;
+    const confirmedAt = await observeBranch(core, redFact(second));
+    const items = await openItems(store);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: raised?.id,
+      fingerprint: raised?.fingerprint,
+      fact_at: confirmedAt,
+      text: `o/r: main is red since ${first.slice(0, 7)} (build): fix main before merging more (run ${runUrl})`,
+    });
+    expect(await events(store, 'from_you_raised')).toBe(1);
+    expect(await outbox(store, 'feed.line')).toHaveLength(1);
+    expect((await status()).items.find((item) => item.key === key)).toMatchObject({
+      factAt: confirmedAt,
+      unconfirmed: false,
+    });
+    expect(
+      (await status()).sources.find((entry) => entry.source === prSource)?.defaultBranch,
+    ).toMatchObject({ since: raisedAt, confirmedAt });
+    now += 60_000;
+    await observeBranch(core);
+    expect((await openItems(store))[0]?.fact_at).toBe(confirmedAt);
+  });
+
   it('clears the item on a green head and raises anew on a later red', async () => {
     const { store, core } = setup();
     await observeBranch(core, redFact(first));
@@ -970,6 +998,7 @@ describe('default branch item', () => {
     expect((await view(prSource))?.defaultBranch).toEqual({
       ...redFact(first),
       since: at,
+      confirmedAt: at,
     });
     expect((await status()).items.find((item) => item.key === key)).toBeDefined();
     now += 60_000;
@@ -977,6 +1006,7 @@ describe('default branch item', () => {
     expect((await view(prSource))?.defaultBranch).toEqual({
       ...greenFact(second),
       since: green,
+      confirmedAt: green,
       check: null,
       url: null,
     });

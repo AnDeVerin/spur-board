@@ -153,7 +153,8 @@ async function blindReason(trx: Trx, source: string): Promise<string | null> {
 
 /**
  * The default-branch colour to store, or undefined to keep the stored one: a batch without a fact
- * says nothing, and the same colour on the same branch keeps the first commit, check and run.
+ * says nothing, and the same colour on the same branch keeps the first commit, check and run and
+ * only moves `confirmedAt`.
  */
 async function nextDefaultBranch(
   trx: Trx,
@@ -168,12 +169,14 @@ async function nextDefaultBranch(
     .where('source', '=', source)
     .executeTakeFirst();
   const stored = parseDefaultBranch(row?.default_branch);
-  if (stored?.state === fact.state && stored.branch === fact.branch) return undefined;
+  if (stored?.state === fact.state && stored.branch === fact.branch)
+    return toJson(defaultBranchViewSchema, { ...stored, confirmedAt: at });
   return toJson(defaultBranchViewSchema, {
     branch: fact.branch,
     state: fact.state,
     sha: fact.sha,
     since: at,
+    confirmedAt: at,
     check: fact.state === 'red' ? fact.check : null,
     url: fact.state === 'red' ? fact.url : null,
   });

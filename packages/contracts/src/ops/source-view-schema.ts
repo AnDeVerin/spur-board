@@ -10,6 +10,9 @@ export const defaultBranchViewSchema = z
       'Head commit when this colour was first read; while red, the first red commit.',
     ),
     since: z.iso.datetime().describe('When the board first read this colour.'),
+    confirmedAt: z.iso
+      .datetime()
+      .describe('When a poll last read this colour; a poll that reads no colour keeps it.'),
     check: z.string().min(1).nullable().describe('Name of the first failing check, or null.'),
     url: webUrl.nullable().describe('Web URL of the failing run, or null.'),
   })
