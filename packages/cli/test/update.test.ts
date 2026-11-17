@@ -224,6 +224,7 @@ async function stand() {
     args: string[];
     env: NodeJS.ProcessEnv | undefined;
     lockFd: number | undefined;
+    timeoutMs: number | undefined;
   }[] = [];
   const counts = { doctor: 0, pack: 0, service: 0, skills: 0 };
   const backupDirs: { exists: boolean; directory: boolean; mode: number; state: string }[] = [];
@@ -308,7 +309,13 @@ async function stand() {
     // The update lock is real, so runs in one process exclude each other as in two.
     if (command === 'flock' && args.at(-1) === '3') return runCommand(command, args, options);
     const name = label(command, args);
-    calls.push({ label: name, args: [...args], env: options?.env, lockFd: options?.lockFd });
+    calls.push({
+      label: name,
+      args: [...args],
+      env: options?.env,
+      lockFd: options?.lockFd,
+      timeoutMs: options?.timeoutMs,
+    });
     events.push(name);
     await hooks.beforeCall?.(name);
     return respond(name, args);
@@ -386,6 +393,7 @@ async function stand() {
     calls,
     events,
     counts,
+    clock,
     backupDirs,
     environPids,
     cwdPids,
@@ -526,6 +534,7 @@ describe('board update', () => {
     expect(existsSync(packDir)).toBe(false);
     expect(pack?.env?.['PATH']).toBe(`${dirname(process.execPath)}:/usr/bin`);
     expect(pack?.lockFd).toBeUndefined();
+    expect(pack?.timeoutMs).toBe(600_000);
     expect(result.stderr).toContain('update: tarball check\n');
     expect(s.calls[0]?.args).toEqual([
       '--user',
@@ -1504,16 +1513,25 @@ describe('board update', () => {
     expect(error.code).toBe('config');
     expect(error.hint).toContain('within 600 s');
     expect(error.hint).toContain('the service was not stopped');
-    expect(s.labels().filter((label) => label === 'npm pack')).toHaveLength(23);
+    // Attempts at 0, 5, 15, 35 s and every 30 s from 65 to 575 s; a wait from 575 s would end
+    // at 605 s, past the bound, so the 22nd 404 refuses.
+    const packs = s.calls.filter((call) => call.label === 'npm pack');
+    const starts = [
+      0,
+      5_000,
+      15_000,
+      35_000,
+      ...Array.from({ length: 18 }, (_, k) => 65_000 + k * 30_000),
+    ];
+    expect(packs.map((call) => call.timeoutMs)).toEqual(starts.map((t) => 600_000 - t));
     const sleeps = s.events.filter((event) => event.startsWith('sleep '));
     expect(sleeps).toEqual([
       'sleep 5000',
       'sleep 10000',
       'sleep 20000',
       ...Array<string>(18).fill('sleep 30000'),
-      'sleep 25000',
     ]);
-    expect(sleeps.reduce((sum, event) => sum + Number(event.slice(6)), 0)).toBe(600_000);
+    expect(sleeps.reduce((sum, event) => sum + Number(event.slice(6)), 0)).toBe(575_000);
     expect(s.labels()).not.toContain('doctor');
     expect(s.labels()).not.toContain('stop');
     expect(s.labels()).not.toContain('npm install');
@@ -1522,6 +1540,32 @@ describe('board update', () => {
     const dirs = new Set(s.calls.filter((call) => call.label === 'npm pack').map((c) => c.args[3]));
     expect(dirs.size).toBe(1);
     expect(existsSync([...dirs][0] ?? '')).toBe(false);
+  });
+
+  it.each([
+    ['is killed at the bound', (): CommandResult => ({ ...fail(1, ''), timedOut: true })],
+    ['succeeds only after the bound', undefined],
+  ])('U10: a pack that %s refuses at the bound with nothing changed', async (_name, last) => {
+    const s = await stand();
+    s.behaviour.pack = (run) => {
+      if (run <= 2) return fail(1, TARBALL_404);
+      if (last !== undefined) return last();
+      s.clock.t += 600_000;
+      return ok();
+    };
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(4);
+    const error = errorOf(result.stderr);
+    expect(error.code).toBe('config');
+    expect(error.hint).toContain('within 600 s');
+    expect(error.hint).toContain('the service was not stopped');
+    const packs = s.calls.filter((call) => call.label === 'npm pack');
+    expect(packs.map((call) => call.timeoutMs)).toEqual([600_000, 595_000, 585_000]);
+    expect(s.labels()).not.toContain('doctor');
+    expect(s.labels()).not.toContain('stop');
+    expect(existsSync(s.stateFile)).toBe(false);
+    expect(readdirSync(s.updateDir)).toEqual(['update.lock']);
   });
 
   it('U10: an integrity failure or an EBADENGINE dry run refuses without a wait', async () => {

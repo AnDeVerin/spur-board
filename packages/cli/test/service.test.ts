@@ -409,6 +409,31 @@ describe('service', () => {
     expect(inherited.stdout).toBe('unset\n');
   });
 
+  it('kills a child that outlives its timeout and reports it as timed out', async () => {
+    const started = Date.now();
+    const result = await runCommand(
+      process.execPath,
+      ['-e', 'process.stdout.write("started"); setTimeout(() => {}, 20000)'],
+      { timeoutMs: 300 },
+    );
+    expect(result).toMatchObject({ exitCode: 1, stdout: 'started', timedOut: true });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    const quick = await runCommand(process.execPath, ['-p', '1'], { timeoutMs: 10_000 });
+    expect(quick).toEqual({ exitCode: 0, stdout: '1\n', stderr: '' });
+  });
+
+  it('sends SIGKILL to a timed-out child that ignores SIGTERM', async () => {
+    const result = await runCommand(
+      process.execPath,
+      [
+        '-e',
+        'process.on("SIGTERM", () => process.stdout.write("term")); process.stdout.write("ready"); setTimeout(() => {}, 20000)',
+      ],
+      { timeoutMs: 500 },
+    );
+    expect(result).toMatchObject({ exitCode: 1, stdout: 'readyterm', timedOut: true });
+  });
+
   it('gives the child the lock fd as fd 3, the same open file', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'board-run-'));
     const fd = openSync(join(dir, 'update.lock'), 'a');
