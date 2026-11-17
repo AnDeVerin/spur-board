@@ -172,6 +172,14 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "block_answer",
   },
   {
+    "description": "Follow up on an unblocked block: the comment rings its author like an answer; the block stays closed.
+Use when: Add to an answer after the block was unblocked.
+When not to use: Use block_answer while the block is open.
+Example: {"block":"B12","text":"Also check v3.","idempotencyKey":"block_followup-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
+    "name": "block_followup",
+  },
+  {
     "description": "Close a block: the work is done, a reason is given, or its author withdraws it.
 Use when: Close an open block.
 When not to use: Use block_answer for a question answer.

@@ -164,6 +164,8 @@ describe('how the Board works guide', () => {
         /Project `needs_input` blocks get Slack threads except operator-agent asks/,
         /operator: `board inbox`, keyed `board answer`/,
         /Answers reach a current curator session; other roles use the asking session/,
+        /`board followup <block> <text>`\s*rings the author like an answer/,
+        /the block\s*stays closed, and the column and turn do not change/,
       ],
       keys: [
         'projects[].columns[].orchestrator',
@@ -178,6 +180,7 @@ describe('how the Board works guide', () => {
         /curator answers and operator items/,
         /block threads addressed to the operator/,
         /Answer in the existing block thread/,
+        /later reply on an answered\s*block is a follow-up, the same as `board followup`/,
       ],
       keys: ['slack.channels.feed', 'slack.channels.orchestrators'],
     },

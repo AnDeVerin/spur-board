@@ -132,6 +132,13 @@ export const ERRORS = {
     hint: 'Read the task with `board task <KEY>` to see the current blocks.',
     recovery: noRetry('Read the current blocks before choosing another action.'),
   }),
+  block_still_open: spec('block_still_open', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The block is still open.',
+    hint: 'Answer a question with `board answer <BLOCK> <TEXT>`; comment on another block with `board comment <KEY> <TEXT> --block <BLOCK>`.',
+    recovery: noRetry('Answer or comment on the open block instead of following up.'),
+  }),
   wrong_block_type: spec('wrong_block_type', {
     status: 409,
     exit: EXIT_CODES.refused,

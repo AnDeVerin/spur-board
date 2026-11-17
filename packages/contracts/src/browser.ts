@@ -282,6 +282,11 @@ export const blockAnswerOutputSchema = z.strictObject({
   comment: commentSchema,
 });
 
+export const blockFollowupInputSchema = z.strictObject({
+  block: blockIdSchema,
+  text: text('The follow-up.', TEXT_MAX),
+});
+
 export const configGetInputSchema = z.strictObject({ project });
 
 export const inboxOperatorInputSchema = z.strictObject({});
@@ -410,5 +415,11 @@ export const browserOperations = {
     kind: 'mutation',
     input: blockAnswerInputSchema,
     output: blockAnswerOutputSchema,
+  },
+  'block.followup': {
+    id: 'block.followup',
+    kind: 'mutation',
+    input: blockFollowupInputSchema,
+    output: commentAddOutputSchema,
   },
 } as const;

@@ -14,9 +14,11 @@ import {
   acknowledgeComment,
   answerBlock,
   blockAddressee,
+  BlockRuleError,
   closeBlock,
   editComment,
   escalateBlock,
+  followUpBlock,
   priorAddressees,
   type CurrentBlock,
 } from '../../src/domain/blocks/blocks.ts';
@@ -252,6 +254,31 @@ describe('block transitions', () => {
     expect(() =>
       closeBlock(code, { mode: 'withdraw', isAuthor: true, reason: 'Elsewhere.' }),
     ).toThrow('Only the question author');
+  });
+
+  it('refuses a follow-up on an open block with the command for its type', () => {
+    const refusal = (block: CurrentBlock) => {
+      try {
+        followUpBlock(block);
+      } catch (error) {
+        if (error instanceof BlockRuleError) return { code: error.code, message: error.message };
+        throw error;
+      }
+      throw new Error('Expected a refusal');
+    };
+    expect(refusal(question).code).toBe('block_still_open');
+    expect(refusal(question).message).toContain('`board answer <BLOCK> <TEXT>`');
+    for (const type of ['dependency', 'code'] as const) {
+      expect(refusal({ ...question, type }).code).toBe('block_still_open');
+      expect(refusal({ ...question, type }).message).toContain(
+        '`board comment <KEY> <TEXT> --block <BLOCK>`',
+      );
+    }
+    for (const outcome of ['done', 'reason', 'withdrawn'] as const) {
+      expect(() => {
+        followUpBlock({ ...question, state: 'unblocked', outcome, unblockedBy: 'operator' });
+      }).not.toThrow();
+    }
   });
 });
 

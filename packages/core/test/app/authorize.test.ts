@@ -93,6 +93,7 @@ const allowed = {
   'block.create': ['operator', 'orchestrator'],
   'block.escalate': ['worker', 'addressee'],
   'block.answer': ['operator', 'worker', 'addressee'],
+  'block.followup': ['operator'],
   'block.unblock': ['worker', 'addressee'],
   'task.submit': ['worker', 'orchestrator', 'addressee'],
   'task.return': ['worker', 'orchestrator', 'addressee'],

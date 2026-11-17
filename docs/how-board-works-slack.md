@@ -5,7 +5,8 @@
 `slack.channels.feed`: curator answers and operator items,
 except delivery/health/ended-worker items and blocks.
 `slack.channels.orchestrators`: block threads addressed to the operator by
-others. Answer in the existing block thread.
+others. Answer in the existing block thread. A later reply on an answered
+block is a follow-up, the same as `board followup`.
 
 ## Slack addressing
 

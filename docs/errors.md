@@ -206,6 +206,40 @@ Example:
 }
 ```
 
+## block_still_open
+
+The block is still open.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Answer a question with `board answer <BLOCK> <TEXT>`; comment on another block with `board comment <KEY> <TEXT> --block <BLOCK>`.  
+Recovery: Answer or comment on the open block instead of following up.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "block_still_open",
+    "requestId": "req-example-123",
+    "message": "The block is still open.",
+    "hint": "Answer a question with `board answer <BLOCK> <TEXT>`; comment on another block with `board comment <KEY> <TEXT> --block <BLOCK>`.",
+    "docs": "docs/errors.md#block_still_open",
+    "recovery": {
+      "action": "Answer or comment on the open block instead of following up.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## wrong_block_type
 
 The operation does not apply to this type of block.

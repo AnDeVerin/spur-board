@@ -14,6 +14,9 @@ Taskless: all roles, operator only:
 `board project ask <project> <text> --to operator --key <key>`.
 Project `needs_input` blocks get Slack threads except operator-agent asks;
 operator: `board inbox`, keyed `board answer`. Answers reach a current curator session; other roles use the asking session.
+On an unblocked block, the operator's keyed `board followup <block> <text>`
+rings the author like an answer and posts to the block's thread; the block
+stays closed, and the column and turn do not change.
 A task's blocks (`task.get`) carry `answeredVia`: `web` or `slack` for an answer
 from there, else null.
 

@@ -228,6 +228,7 @@ export function createOperationRegistry(deps: {
     'block.create': blocks.create,
     'block.escalate': blocks.escalate,
     'block.answer': blocks.answer,
+    'block.followup': blocks.followup,
     'block.unblock': blocks.unblock,
     'comment.add': blocks.add,
     'comment.edit': blocks.edit,

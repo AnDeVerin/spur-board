@@ -60,13 +60,14 @@ describe('schema walker', () => {
 });
 
 describe('catalog', () => {
-  it('defaults web off and exposes exactly the screen reads and two operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and three operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
         .sort(),
     ).toEqual([
       'block.answer',
+      'block.followup',
       'comment.add',
       'config.get',
       'inbox.get',
@@ -79,7 +80,7 @@ describe('catalog', () => {
       OPERATIONS.filter((op) => op.kind === 'mutation' && op.web !== null)
         .map((op) => op.id)
         .sort(),
-    ).toEqual(['block.answer', 'comment.add']);
+    ).toEqual(['block.answer', 'block.followup', 'comment.add']);
     expect(OPERATIONS.find((op) => op.id === 'schema.get')?.web).toBeNull();
     expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
       true,
@@ -296,7 +297,7 @@ describe('catalog', () => {
   );
 
   it('marks only the mutations that write new rows as non-destructive', () => {
-    const additive = ['block.ask', 'project.ask', 'comment.add', 'block.create'];
+    const additive = ['block.ask', 'project.ask', 'comment.add', 'block.create', 'block.followup'];
     const mutations = OPERATIONS.filter((op) => op.kind === 'mutation');
     expect(mutations.filter((op) => !op.mcp.destructive).map((op) => op.id)).toEqual(additive);
     for (const op of mutations) {
@@ -447,6 +448,7 @@ describe('catalog', () => {
       'item.retry': { kind: 'button', label: 'Retry' },
       'item.close': { kind: 'button', label: 'Close' },
       'block.answer': { kind: 'thread-reply' },
+      'block.followup': { kind: 'thread-reply' },
     };
     const slack = Object.fromEntries(
       OPERATIONS.filter((op) => op.slack !== null).map((op) => [op.id, op.slack]),
@@ -592,6 +594,13 @@ describe('grants', () => {
       ['wrong_id_kind', 'not_found', 'block_not_open', 'wrong_block_type', 'task_archived'],
     ],
     [
+      'block.followup',
+      'mutation',
+      [operator],
+      null,
+      ['wrong_id_kind', 'not_found', 'block_still_open', 'task_archived'],
+    ],
+    [
       'block.unblock',
       'mutation',
       [
@@ -633,7 +642,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 26 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 28 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -654,7 +663,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(27);
+    expect(OPERATIONS).toHaveLength(28);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {
@@ -719,6 +728,7 @@ describe('comment shape', () => {
     expect(output('comment.add')['comment']).toEqual(comment);
     expect(output('comment.edit')['comment']).toEqual(comment);
     expect(output('block.answer')['comment']).toEqual(comment);
+    expect(output('block.followup')['comment']).toEqual(comment);
   });
 
   it('gives every at and *At output property the date-time format', () => {

@@ -30,7 +30,7 @@ describe('error catalog', () => {
     });
   });
 
-  it('pins the 29 codes in order, with HTTP status and exit code', () => {
+  it('pins the 31 codes in order, with HTTP status and exit code', () => {
     const table = Object.entries(ERRORS).map(([code, { status, exit }]) => [code, status, exit]);
     expect(table).toEqual([
       ['usage', 400, 2],
@@ -39,6 +39,7 @@ describe('error catalog', () => {
       ['not_found', 404, 1],
       ['not_implemented', 501, 1],
       ['block_not_open', 409, 1],
+      ['block_still_open', 409, 1],
       ['wrong_block_type', 409, 1],
       ['stale_comment_revision', 409, 1],
       ['turn_closed', 409, 1],

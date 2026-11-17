@@ -21,6 +21,7 @@ import {
   closeBlock,
   editComment,
   escalateBlock,
+  followUpBlock,
   parseAddressee,
   priorAddressees,
   type CurrentBlock,
@@ -1066,6 +1067,23 @@ export function createBlockMutations(config: Config) {
       return { block: blockView(updated, subject), comment: commentView(comment, subject) };
     },
   };
+  // Stores what a reply in the block's Slack thread stores: a comment that rings the block's
+  // author like an answer, echoed into the thread. The block, its task and turn stay as they are.
+  const followup: Mutation<'block.followup'> = {
+    id: 'block.followup',
+    resolveTargets: (trx, input) => blockTarget(trx, input.block),
+    async run(trx, input, ctx) {
+      const block = found(await blockById(trx, input.block));
+      const subject = await blockSubject(trx, block);
+      if (subject.task !== null) active(subject.task);
+      rule(() => {
+        followUpBlock(current(block));
+      });
+      const role = authorRole(config, subject, block.author);
+      const comment = await addComment(trx, subject, block, input.text, ctx, role, config);
+      return { comment: commentView(comment, subject) };
+    },
+  };
   const unblock: Mutation<'block.unblock'> = {
     id: 'block.unblock',
     async resolveTargets(trx, input) {
@@ -1325,5 +1343,5 @@ export function createBlockMutations(config: Config) {
       ]),
     run: (trx, input, ctx) => askOn(trx, projectSubject(input.project), input.text, ctx),
   };
-  return { ask, create, escalate, answer, unblock, add, edit, ack, projectAsk };
+  return { ask, create, escalate, answer, followup, unblock, add, edit, ack, projectAsk };
 }

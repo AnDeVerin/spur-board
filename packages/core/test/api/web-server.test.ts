@@ -187,7 +187,7 @@ describe('web listener', () => {
     expect((await starting.app.inject(post())).statusCode).toBe(503);
   });
 
-  it('runs both anonymous operator writes with shared hooks and idempotency', async () => {
+  it('runs the three anonymous operator writes with shared hooks and idempotency', async () => {
     const order: string[] = [];
     const { app, store } = await setup({
       runOperation: async (id, _input, run) => {
@@ -228,8 +228,12 @@ describe('web listener', () => {
       post('block.answer', { block: 'B1', text: 'Answer from browser' }),
     );
     expect(answer.statusCode).toBe(200);
+    const followup = await app.inject(
+      post('block.followup', { block: 'B1', text: 'Follow-up from browser' }),
+    );
+    expect(followup.statusCode).toBe(200);
     const comments = await store.db.selectFrom('comment').selectAll().execute();
-    expect(comments).toHaveLength(2);
+    expect(comments).toHaveLength(3);
     expect(comments.every((entry) => entry.author === 'operator')).toBe(true);
     const events = await store.db
       .selectFrom('event')
@@ -240,6 +244,7 @@ describe('web listener', () => {
       { kind: 'comment_added', actor: 'operator', via: 'web' },
       { kind: 'comment_added', actor: 'operator', via: 'web' },
       { kind: 'block_unblocked', actor: 'operator', via: 'web' },
+      { kind: 'comment_added', actor: 'operator', via: 'web' },
     ]);
 
     expect(order).toEqual([
@@ -248,6 +253,8 @@ describe('web listener', () => {
       'comment.add',
       'after',
       'block.answer',
+      'after',
+      'block.followup',
       'after',
     ]);
     expect((await app.inject(post('task.get', { task: 'o/r#101' }))).statusCode).toBe(200);
@@ -259,6 +266,7 @@ describe('web listener', () => {
           { kind: 'comment_added', actor: 'operator', via: 'web' },
           { kind: 'comment_added', actor: 'operator', via: 'web' },
           { kind: 'block_unblocked', actor: 'operator', via: 'web' },
+          { kind: 'comment_added', actor: 'operator', via: 'web' },
         ],
       },
     });

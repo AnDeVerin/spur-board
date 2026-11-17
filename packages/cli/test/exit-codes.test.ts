@@ -74,6 +74,7 @@ const SERVER_EXITS = {
   not_found: { exit: 1, code: 'not_found' },
   not_implemented: { exit: 1, code: 'not_implemented' },
   block_not_open: { exit: 1, code: 'block_not_open' },
+  block_still_open: { exit: 1, code: 'block_still_open' },
   wrong_block_type: { exit: 1, code: 'wrong_block_type' },
   stale_comment_revision: { exit: 1, code: 'stale_comment_revision' },
   turn_closed: { exit: 1, code: 'turn_closed' },

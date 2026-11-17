@@ -8,12 +8,16 @@ import {
   type ColumnId,
 } from '@spur-board/contracts';
 
+type BlockRuleCode =
+  | 'block_not_open'
+  | 'block_still_open'
+  | 'wrong_block_type'
+  | 'forbidden'
+  | 'stale_comment_revision';
+
 export class BlockRuleError extends Error {
-  readonly code: 'block_not_open' | 'wrong_block_type' | 'forbidden' | 'stale_comment_revision';
-  constructor(
-    code: 'block_not_open' | 'wrong_block_type' | 'forbidden' | 'stale_comment_revision',
-    message: string,
-  ) {
+  readonly code: BlockRuleCode;
+  constructor(code: BlockRuleCode, message: string) {
     super(message);
     this.code = code;
   }
@@ -140,6 +144,17 @@ export function answerBlock(block: CurrentBlock): void {
   if (block.type !== 'needs_input') {
     throw new BlockRuleError('wrong_block_type', 'Only a question block can be answered.');
   }
+}
+
+/** A follow-up goes to an unblocked block of any type or outcome; an open block is answered. */
+export function followUpBlock(block: CurrentBlock): void {
+  if (block.state === 'unblocked') return;
+  throw new BlockRuleError(
+    'block_still_open',
+    block.type === 'needs_input'
+      ? 'The block is still open: answer it with `board answer <BLOCK> <TEXT>`.'
+      : 'The block is still open: comment on it with `board comment <KEY> <TEXT> --block <BLOCK>`.',
+  );
 }
 
 export function closeBlock(

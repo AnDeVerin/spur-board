@@ -21,6 +21,7 @@ import {
   recordInboundBlockMessage,
 } from '../../src/app/blocks.ts';
 import { personaFor } from '../../src/app/block-thread.ts';
+import { withVia } from '../../src/app/board-utils.ts';
 import { raiseItem } from '../../src/app/feed.ts';
 import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
@@ -2370,5 +2371,207 @@ describe('operator conversation', () => {
     await expect(
       apply(createBlockMutations(board).answer, { block: 'B1', text: 'x' }, 'agent:qa/qa-1', 'a'),
     ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+});
+
+describe('follow-up on an answered block', () => {
+  const inQa = (store: Store) =>
+    store.transaction((trx) =>
+      trx.updateTable('task').set({ column: 'qa' }).where('id', '=', 1).execute(),
+    );
+  /** A question the worker asked in `qa`, so the operator holds it, and the operator's answer. */
+  async function answered(b: Awaited<ReturnType<typeof seeded>>, n: number): Promise<string> {
+    const asked = await b.apply(
+      ops.ask,
+      { task: KEY, text: `Question ${String(n)}?` },
+      author,
+      `ask-${String(n)}`,
+    );
+    await b.apply(
+      ops.answer,
+      { block: asked.block.id, text: 'Use v2.' },
+      'operator',
+      `answer-${String(n)}`,
+    );
+    return asked.block.id;
+  }
+  const rejection = (promise: Promise<unknown>) =>
+    promise.then(
+      () => {
+        throw new Error('Expected a command error');
+      },
+      (error: unknown) => {
+        if (!(error instanceof CommandError)) throw error;
+        return error;
+      },
+    );
+
+  it('refuses an open block, an archived task and a non-operator', async () => {
+    const b = await seeded();
+    const asked = await b.apply(ops.ask, { task: KEY, text: 'Which version?' }, author, 'ask-1');
+    const created = await b.apply(
+      ops.create,
+      { task: KEY, type: 'dependency', reason: 'Needs outside work.' },
+      orchestrator,
+      'create-1',
+    );
+    const before = await counts(b.store);
+    const question = await rejection(
+      b.apply(ops.followup, { block: asked.block.id, text: 'More.' }, 'operator', 'follow-1'),
+    );
+    expect(question.code).toBe('block_still_open');
+    expect(question.hint).toContain('board answer');
+    const dependency = await rejection(
+      b.apply(ops.followup, { block: created.block.id, text: 'More.' }, 'operator', 'follow-2'),
+    );
+    expect(dependency.code).toBe('block_still_open');
+    expect(dependency.hint).toContain('board comment');
+    expect(dependency.hint).toContain('--block');
+    expect(await counts(b.store)).toEqual(before);
+
+    await b.apply(ops.answer, { block: asked.block.id, text: 'Use v2.' }, orchestrator, 'answer-1');
+    await expect(
+      b.apply(ops.followup, { block: asked.block.id, text: 'More.' }, author, 'follow-3'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await b.store.transaction((trx) =>
+      trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute(),
+    );
+    await expect(
+      b.apply(ops.followup, { block: asked.block.id, text: 'More.' }, 'operator', 'follow-4'),
+    ).rejects.toMatchObject({ code: 'task_archived' });
+  });
+
+  it('stores a follow-up the same way from a Slack thread and from the operation', async () => {
+    const b = await seeded();
+    await inQa(b.store);
+    const slack = await answered(b, 1);
+    const operation = await answered(b, 2);
+    const text = 'Also check v3.';
+    const inbound = await withVia('slack', () =>
+      scanTransaction(b.store, config, (trx) =>
+        recordInboundBlockMessage(trx, {
+          blockId: Number(slack.slice(1)),
+          text,
+          conversationRef: 'thread-1',
+          messageRef: 'thread-1-reply-2',
+          at: new Date(NOW).toISOString(),
+          config,
+        }),
+      ),
+    );
+    expect(inbound.answered).toBe(false);
+    const followed = await b.apply(
+      ops.followup,
+      { block: operation, text },
+      'operator',
+      'follow-1',
+    );
+    expect(followed.comment).toMatchObject({ block: operation, author: 'operator', text });
+
+    const ids = [inbound.comment.id, Number(followed.comment.id.slice(1))];
+    const comments = await b.store.db
+      .selectFrom('comment')
+      .select(['block_id', 'author', 'text', 'task_id', 'revision'])
+      .where('id', 'in', ids)
+      .orderBy('id')
+      .execute();
+    expect(comments.map((row) => ({ ...row, block_id: undefined }))).toEqual([
+      { block_id: undefined, author: 'operator', text, task_id: 1, revision: 1 },
+      { block_id: undefined, author: 'operator', text, task_id: 1, revision: 1 },
+    ]);
+    expect(comments.map((row) => `B${String(row.block_id)}`)).toEqual([slack, operation]);
+
+    const added = await b.store.db
+      .selectFrom('event')
+      .select(['payload', 'via'])
+      .where('kind', '=', 'comment_added')
+      .orderBy('id')
+      .execute();
+    const byComment = (id: number) =>
+      added.filter(
+        (row) => (JSON.parse(row.payload) as { comment: string }).comment === `C${String(id)}`,
+      );
+    const [slackEvent, operationEvent] = ids.map(byComment);
+    expect(slackEvent).toHaveLength(1);
+    expect(operationEvent).toHaveLength(1);
+    expect(slackEvent?.[0]?.via).toBe('slack');
+    const addressee = (rows: typeof added | undefined) =>
+      (JSON.parse(rows?.[0]?.payload ?? '{}') as { addressee?: string }).addressee;
+    expect(addressee(slackEvent)).toBe('worker');
+    expect(addressee(operationEvent)).toBe(addressee(slackEvent));
+
+    const rings = await Promise.all(
+      ids.map((id) =>
+        b.store.db
+          .selectFrom('notification')
+          .select(['kind', 'role', 'author_session'])
+          .where('comment_id', '=', id)
+          .execute(),
+      ),
+    );
+    expect(rings).toEqual([
+      [{ kind: 'answer', role: 'worker', author_session: 'worker-1' }],
+      [{ kind: 'answer', role: 'worker', author_session: 'worker-1' }],
+    ]);
+    expect(
+      await b.store.db.selectFrom('block').select(['state', 'outcome']).orderBy('id').execute(),
+    ).toEqual([
+      { state: 'unblocked', outcome: 'done' },
+      { state: 'unblocked', outcome: 'done' },
+    ]);
+    const replies = (
+      await b.store.db
+        .selectFrom('outbox')
+        .select('payload')
+        .where('kind', '=', 'conversation.reply')
+        .execute()
+    ).map((row) => (JSON.parse(row.payload) as { commentId: number }).commentId);
+    expect(replies.filter((id) => id === ids[0])).toHaveLength(0);
+    expect(replies.filter((id) => id === ids[1])).toHaveLength(1);
+  });
+
+  it('keeps the block closed and the column and turn unchanged', async () => {
+    const b = await seeded();
+    await inQa(b.store);
+    const block = await answered(b, 1);
+    await b.store.transaction((trx) =>
+      trx
+        .insertInto('turn')
+        .values({ ...sampleRows.turn, column: 'qa', closed_at: null, closed_reason: null })
+        .execute(),
+    );
+    const snapshot = () =>
+      Promise.all([
+        b.store.db.selectFrom('task').selectAll().execute(),
+        b.store.db.selectFrom('turn').selectAll().orderBy('id').execute(),
+        b.store.db.selectFrom('block').selectAll().orderBy('id').execute(),
+      ]);
+    const before = await snapshot();
+    const journal = (await events(b.store)).length;
+    await b.apply(ops.followup, { block, text: 'Also check v3.' }, 'operator', 'follow-1');
+    expect(await snapshot()).toEqual(before);
+    expect((await events(b.store)).slice(journal).map((event) => event.kind)).toEqual([
+      'comment_added',
+    ]);
+  });
+
+  it("stores an operator-role session's follow-up under that session, like an answer", async () => {
+    const b = await seeded();
+    await inQa(b.store);
+    const block = await answered(b, 1);
+    const followed = await b.apply(
+      ops.followup,
+      { block, text: 'More.' },
+      operatorAgent,
+      'follow-1',
+    );
+    expect(followed.comment).toMatchObject({ author: operatorAgent, block });
+    expect(
+      await b.store.db
+        .selectFrom('notification')
+        .select(['kind', 'author_session'])
+        .where('comment_id', '=', Number(followed.comment.id.slice(1)))
+        .execute(),
+    ).toEqual([{ kind: 'answer', author_session: 'worker-1' }]);
   });
 });
