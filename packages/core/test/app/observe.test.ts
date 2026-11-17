@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   configSchema,
+  eventPayloadSchemas,
   OPERATIONS,
   RESERVED_PROJECT,
   unknownSessionHealthSchema,
@@ -1221,6 +1222,32 @@ describe('accepted observation', () => {
       ).toHaveLength(1);
       const status = await getStatus({ store, config, clock, completeSince: core.completeSince });
       expect(status.tasks[0]?.state.split('; ').at(-1)).toBe(`sessions 1 ${row}`);
+      const states = await store.db
+        .selectFrom('event')
+        .select('payload')
+        .where('kind', '=', 'session_state_changed')
+        .execute();
+      expect(
+        states
+          .map(({ payload }) =>
+            eventPayloadSchemas.session_state_changed.parse(JSON.parse(payload)),
+          )
+          .filter(({ from, to }) => from === to),
+      ).toEqual([]);
+      const registry = createOperationRegistry({
+        config,
+        clock,
+        completeSince: core.completeSince,
+      });
+      const { events } = await createQuery({ store, config, clock })(
+        registry['task.history'],
+        { task: 'o/r#9' },
+        'operator',
+      );
+      if (reason === 'vanished')
+        expect(events.map(({ summary }) => summary)).toContain(
+          'Session worker-1: ended (vanished)',
+        );
     },
   );
 

@@ -1531,12 +1531,7 @@ export function createObservationCore(deps: {
               .selectAll()
               .where('id', '=', link.task_id)
               .executeTakeFirstOrThrow();
-            await emit(trx, 'session_state_changed', task.project, task.id, batch.observedAt, {
-              session: old.id,
-              from: fact.lifecycle,
-              to: fact.lifecycle,
-              endReason: 'vanished',
-            });
+            // The lifecycle did not change, so only the facts row journals the end.
             await emit(trx, 'session_facts_changed', task.project, task.id, batch.observedAt, {
               facts: ended,
             });
