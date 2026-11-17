@@ -597,7 +597,9 @@ async function askQuestion(manifest: StandManifest): Promise<OutboxMessage> {
   });
   expect(code, stderr).toBe(0);
   await waitFor(manifest, 'outbox-drained');
-  const [message] = (await outbox(manifest)).messages;
+  const message = (await outbox(manifest)).messages.find((posted) =>
+    posted.text.includes('Which version?'),
+  );
   if (message === undefined) throw new Error('the question was not posted');
   return message;
 }
@@ -1028,6 +1030,13 @@ describe('stand', () => {
       'https://spur.stand.invalid',
     );
     expect((await fetch(`${manifest.daemonUrl}/v1/schema`)).status).toBe(200);
+    const status = await operatorStatus(manifest);
+    expect(status.code, status.stderr).toBe(0);
+    const parsed = statusOutputSchema.parse(JSON.parse(status.stdout));
+    const cliPackage = JSON.parse(
+      readFileSync(new URL('../../cli/package.json', import.meta.url), 'utf8'),
+    ) as { version: string };
+    expect(parsed.daemon.version).toBe(cliPackage.version);
   }, 60_000);
 
   it('leaves no source blind', async () => {
@@ -1284,7 +1293,13 @@ describe('stand', () => {
     if (current === undefined) throw new Error('stand stopped');
     const after = current.manifest();
     expect(slackUrl(after)).toBe(url);
-    expect(await outbox(after)).toEqual({ messages: [], violations: [] });
+    await waitFor(after, 'outbox-drained');
+    const restored = await outbox(after);
+    expect(restored.violations).toEqual([]);
+    expect(restored.messages).toHaveLength(1);
+    expect(restored.messages[0]?.text).toBe(
+      'spur-board\n\n> spur-board is live: 0 tasks, 0 for you',
+    );
 
     const message = await requestToken(after, 'after');
     const close = button(message, /^item:\d+:close$/);
@@ -1415,7 +1430,7 @@ describe('stand', () => {
 
   it('runs fake slack outbox and click through the real CLI', async () => {
     const manifest = await up();
-    await askQuestion(manifest);
+    const question = await askQuestion(manifest);
 
     const listed = await standCli(['fake', 'slack', 'outbox', '--home', manifest.home]);
     expect(listed.code, listed.stderr).toBe(0);
@@ -1425,7 +1440,7 @@ describe('stand', () => {
       'fake',
       'slack',
       'click',
-      '1',
+      String(question.n),
       'answer',
       '--text',
       'Use v2.',

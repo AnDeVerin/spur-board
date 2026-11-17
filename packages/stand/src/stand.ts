@@ -9,6 +9,7 @@ import {
   mkdtempSync,
   openSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -720,6 +721,11 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       stdout: { write: log },
       writeErr: log,
       ports: {
+        productVersion: (
+          JSON.parse(readFileSync(new URL('../../cli/package.json', import.meta.url), 'utf8')) as {
+            version: string;
+          }
+        ).version,
         startAdapters: runner.start,
         sessionFetcher: standFetch,
         spur: createSpurPort({ baseUrl: spurBaseUrl, fetch: standFetch }),
