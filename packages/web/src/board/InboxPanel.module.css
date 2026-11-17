@@ -40,6 +40,10 @@
   text-transform: uppercase;
   letter-spacing: var(--tracking-bar);
   font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+}
+.row[data-handled] .project {
+  color: var(--color-text-secondary);
 }
 .kind[data-severity='failure'] {
   color: var(--color-status-error);
