@@ -116,6 +116,7 @@ export async function block(
     taskId?: number | null;
     project?: string | null;
     addressee?: 'operator' | 'worker';
+    addresseeSpurProject?: string | null;
     author?: string;
     reason?: string;
     createdAt?: string;
@@ -132,6 +133,7 @@ export async function block(
       reason: input.reason ?? 'Which API version?',
       author: (input.author ?? 'agent:first-worker/s1') as ActorId,
       addressee_role: input.addressee ?? 'operator',
+      addressee_spur_project: input.addresseeSpurProject ?? null,
       target_column: null,
       state: closed ? 'unblocked' : 'open',
       outcome: closed ? 'reason' : null,

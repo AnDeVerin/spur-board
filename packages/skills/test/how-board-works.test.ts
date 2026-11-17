@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { ITEM_KINDS } from '../../contracts/src/index.ts';
 
 describe('how the Board works guide', () => {
   it.each([
@@ -217,6 +218,7 @@ describe('how the Board works guide', () => {
         /`attention`[\s\S]*`failure`/,
         /last 24 h[\s\S]*at most 20/,
         /`answeredVia`/,
+        /`action`/,
       ],
       keys: ['board inbox operator'],
     },
@@ -241,6 +243,66 @@ describe('how the Board works guide', () => {
     const body = howBoardWorks.slice(start + heading.length, end < 0 ? undefined : end);
     for (const clause of clauses) expect(body).toMatch(clause);
     for (const key of keys) expect(body).toContain(`\`${key}\``);
+  });
+
+  it('lists every item kind in the operator inbox table', () => {
+    const guide = readFileSync(
+      new URL('../../../docs/how-board-works-blocks.md', import.meta.url),
+      'utf8',
+    );
+    const start = guide.indexOf('## Operator inbox\n');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = guide.indexOf('\n## ', start + 1);
+    const section = guide.slice(start, end < 0 ? undefined : end);
+    const rows = [...section.matchAll(/^\|\s*`([a-z_]+)`(?:\s+`([a-z-]+:)`)?\s*\|(.*)$/gm)].map(
+      (match) => ({
+        kind: match[1] ?? '',
+        prefix: match[2],
+        cells: ['', ...(match[3] ?? '').split('|').slice(0, -1)].map((cell) => cell.trim()),
+      }),
+    );
+    const prefixes = [
+      'source:',
+      'pr-outcome:',
+      'lookup:',
+      'operator-block:',
+      'block:',
+      'filter:',
+      'health:',
+    ];
+    expect([...new Set(rows.map((row) => row.kind))].sort()).toEqual([...ITEM_KINDS].sort());
+    for (const kind of ITEM_KINDS) {
+      const plain = rows.filter((row) => row.kind === kind && row.prefix === undefined);
+      expect(plain, kind).toHaveLength(1);
+    }
+    expect(
+      rows
+        .filter((row) => row.prefix !== undefined)
+        .map((row) => `${row.kind} ${row.prefix ?? ''}`),
+    ).toEqual(prefixes.map((prefix) => `board_observation ${prefix}`));
+    for (const row of rows) {
+      const label = `${row.kind} ${row.prefix ?? ''}`;
+      expect(row.cells, label).toHaveLength(5);
+      expect(row.cells[2], label).not.toBe('');
+    }
+    const action = (kind: string, prefix?: string) =>
+      rows.find((row) => row.kind === kind && row.prefix === prefix)?.cells[2] ?? '';
+    const hidden = 'not listed: shown as its block';
+    expect(action('cycle_limit')).toBe(hidden);
+    expect(action('board_observation', 'operator-block:')).toBe(hidden);
+    expect(action('anomaly')).toMatch(
+      /; listed only when addressed to the curator; otherwise shown as its block$/,
+    );
+    expect(action('course_check')).toMatch(
+      /; listed only when addressed to the curator or orchestrator; otherwise shown as its block$/,
+    );
+    expect(action('board_observation', 'block:')).toMatch(
+      /; listed only when the block is not addressed to you; otherwise shown as its block$/,
+    );
+    expect(action('turn')).toBe('listed as its `T…` entry');
+    expect(action('board_observation', 'filter:')).toContain(
+      '`board unlink <task> --pr <pr> --reason <reason>`',
+    );
   });
 });
 

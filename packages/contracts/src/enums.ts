@@ -154,7 +154,10 @@ export const ITEM_KINDS = [
 /** What an `inbox.operator` entry is: a block addressed to the operator, else an item kind. */
 export const INBOX_KINDS = ['block', ...ITEM_KINDS] as const;
 
-/** `failure`: something the board or a connection broke; `attention`: a decision or answer. */
+/**
+ * `failure`: the board or a connection broke; `attention`: a decision, answer or other operator
+ * action is wanted.
+ */
 export const INBOX_SEVERITIES = ['attention', 'failure'] as const;
 
 /** Who caused a journal event. */
