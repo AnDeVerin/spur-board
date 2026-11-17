@@ -18,12 +18,14 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configSchema, type PrFacts } from '@spur-board/contracts';
+import { statusOutputSchema } from '@spur-board/contracts/browser';
 import { openStore } from '@spur-board/core';
 import { isScrubbed } from '@spur-board/testkit';
 import { acquireLock } from '@spur-board/daemon/in-process';
 import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import YAML from 'yaml';
+import type { z } from 'zod';
 import { runCli, type CliIo } from '../../cli/src/cli.ts';
 // Types `inject('webAssetsRoot')`.
 import type {} from '../../testkit/src/global-setup.ts';
@@ -90,6 +92,101 @@ function webGet(port: number, host: string): Promise<{ status: number; body: str
     );
     req.on('error', reject);
     req.end();
+  });
+}
+
+/** One server-sent event with the client time it arrived. */
+interface Frame {
+  event: string;
+  data: string;
+  at: number;
+}
+
+/** Reads `/v1/events` on the stand web listener; `next` waits for a frame matching `match`. */
+function webEvents(port: number, host: string) {
+  const frames: Frame[] = [];
+  let wake: () => void = () => undefined;
+  const req = request(
+    {
+      host: '127.0.0.1',
+      port,
+      path: '/v1/events',
+      method: 'GET',
+      headers: { host, accept: 'text/event-stream' },
+    },
+    (res) => {
+      let buffer = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => {
+        buffer += chunk;
+        let end: number;
+        while ((end = buffer.indexOf('\n\n')) >= 0) {
+          const block = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          const field = (name: string) =>
+            block
+              .split('\n')
+              .filter((line) => line.startsWith(`${name}:`))
+              .map((line) => line.slice(name.length + 1).trim())
+              .join('\n');
+          if (field('event') !== '')
+            frames.push({ event: field('event'), data: field('data'), at: Date.now() });
+        }
+        wake();
+      });
+    },
+  );
+  req.on('error', () => undefined);
+  req.end();
+  return {
+    async next(match: (frame: Frame) => boolean, timeoutMs: number): Promise<Frame> {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const found = frames.find(match);
+        if (found) return found;
+        if (Date.now() > deadline) throw new Error(`no matching frame in ${String(timeoutMs)} ms`);
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+          setTimeout(resolve, 500);
+        });
+      }
+    },
+    close() {
+      req.destroy();
+    },
+  };
+}
+
+/** `status.get` through the stand web listener, as the browser calls it. */
+function webStatus(port: number, host: string): Promise<z.output<typeof statusOutputSchema>> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/v1/ops/status.get',
+        method: 'POST',
+        headers: { host, origin: `https://${host}`, 'content-type': 'application/json' },
+      },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          body += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(body) as { ok: boolean; value?: unknown };
+            if (!parsed.ok) throw new Error(`status.get failed: ${body}`);
+            resolve(statusOutputSchema.parse(parsed.value));
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error(String(error)));
+          }
+        });
+      },
+    );
+    req.on('error', reject);
+    req.end(JSON.stringify({ input: {} }));
   });
 }
 
@@ -858,6 +955,53 @@ describe('stand', () => {
     expect(readManifest(checked.home)?.webUrl).toBe(before);
     expect((await webGet(webPort, host)).status).toBe(200);
   }, 60_000);
+
+  it('streams a blind Spur in the next status frame on the web port', async () => {
+    writeLiveConfig(liveConfigDir(osHome), { web: LIVE_WEB });
+    const webPort = await pickWebPort({ port: 0, env: {}, osHome });
+    if (webPort === undefined) throw new Error('no web port picked');
+    const host = `${String(webPort)}.local.example`;
+    stand = await startStand({
+      root,
+      port: 0,
+      webPort,
+      env: {},
+      osHome,
+      webRoot: join(base, 'no-web'),
+    });
+    checked = stand.manifest();
+    const events = webEvents(webPort, host);
+    try {
+      await events.next((frame) => frame.event === 'hello', 20_000);
+      await fake(checked, 'fail', { mode: 'refuse', route: 'all' });
+      const moved = await control(checked, '/clock', { shiftMs: 40 * 60_000 });
+      expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+      // The runner's own scheduled poll turns the refused, shifted Spur blind.
+      await vi.waitFor(
+        async () => {
+          const { sources } = await webStatus(webPort, host);
+          expect(sources.find(({ source }) => source === 'spur')?.blindReason).toBe('stale');
+        },
+        { timeout: 20_000, interval: 500 },
+      );
+      // A frame read in flight when Spur turned blind may predate it.
+      const blindAt = Date.now() + 1000;
+      const frame = await events.next(
+        ({ event, at }) => event === 'status' && at >= blindAt,
+        45_000,
+      );
+      const data = JSON.parse(frame.data) as {
+        spurUnavailable: string | null;
+        sources: { source: string; blindReason: string | null }[];
+      };
+      expect(data.sources.find(({ source }) => source === 'spur')?.blindReason).toBe('stale');
+      expect(data.spurUnavailable).not.toBeNull();
+      const { services } = await webStatus(webPort, host);
+      expect(services.find(({ service }) => service === 'spur')?.state).toBe('failing');
+    } finally {
+      events.close();
+    }
+  }, 90_000);
 
   it('starts on a passed home that holds only its spawn log', async () => {
     const home = mkdtempSync(join(root, 'spur-board-stand.'));

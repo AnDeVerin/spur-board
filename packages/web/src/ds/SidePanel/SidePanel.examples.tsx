@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Button } from '../Button/Button.tsx';
 import type { IconName } from '../Icon/Icon.tsx';
 import { SidePanel, type SidePanelSide } from './SidePanel.tsx';
@@ -87,5 +87,49 @@ export function Left() {
     <Demo side="left" icon="pulse" title="Services" detail="5 sources">
       <p style={{ margin: 0 }}>Daemon, Slack, GitHub, Spur and Jira.</p>
     </Demo>
+  );
+}
+
+export function LiveBar() {
+  const [open, setOpen] = useState(false);
+  const bar = useRef<HTMLDivElement>(null);
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
+        Click Services in the bar: the left panel opens and the bar stays live, so a second click
+        closes it. Tab stays inside the panel; Escape and Close close it too.
+      </p>
+      <div
+        ref={bar}
+        style={{
+          display: 'flex',
+          gap: 'var(--space-2)',
+          padding: 'var(--space-2)',
+          border: 'var(--size-hairline) solid var(--color-border-default)',
+        }}
+      >
+        <Button
+          expanded={open}
+          onClick={() => {
+            setOpen(!open);
+          }}
+        >
+          Services
+        </Button>
+      </div>
+      <SidePanel
+        open={open}
+        onClose={() => {
+          setOpen(false);
+        }}
+        side="left"
+        icon="pulse"
+        title="Services"
+        detail="5 sources"
+        keepLive={bar}
+      >
+        <p style={{ margin: 0 }}>Daemon, Slack, GitHub, Spur and Jira.</p>
+      </SidePanel>
+    </div>
   );
 }

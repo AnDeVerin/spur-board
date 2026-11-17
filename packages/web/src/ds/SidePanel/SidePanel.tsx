@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import type { IconName } from '../Icon/Icon.tsx';
 import { Layer } from '../Scrim/Scrim.tsx';
 import styles from './SidePanel.module.css';
@@ -8,7 +8,8 @@ export type SidePanelSide = 'right' | 'left';
 /**
  * A panel docked to the right (default) or left edge, between the header band and the status
  * bar band, with a scrim over the same band; at the narrow breakpoint it fills the screen.
- * Those bands stay undimmed but are `inert` while it is open, like everything outside it.
+ * Those bands stay undimmed but are `inert` while it is open, like everything outside it
+ * except the element `keepLive` names.
  * Controlled: it renders while `open` and calls `onClose` on Close, a scrim click or Escape (the
  * top layer only). Focus moves to Close on open (a field inside with `autoFocus` keeps it), Tab
  * wraps inside, the page does not scroll, and focus returns to the element that opened it.
@@ -17,6 +18,14 @@ export type SidePanelSide = 'right' | 'left';
  * label beside it. A `Modal` may open from inside the panel, also in the same render as the
  * panel; the modal is the top layer either way. A panel opened over an open `Modal` is
  * unsupported: it stacks under the modal.
+ *
+ * `keepLive` keeps one element outside the panel live while the panel is on top, such as the
+ * status bar whose buttons open and close it. It is reachable by pointer only: Tab stays inside
+ * the panel and `aria-modal` is unchanged. At the narrow breakpoint the panel covers it.
+ *
+ * Limits: the kept element must be attached when the panel mounts, either mounted earlier or
+ * rendered as an earlier sibling in the same commit, never as a parent of the panel. One
+ * mounted later stays `inert` until the next layer opens or closes.
  */
 export function SidePanel({
   open,
@@ -25,6 +34,7 @@ export function SidePanel({
   icon,
   title,
   detail,
+  keepLive,
   children,
 }: {
   open: boolean;
@@ -33,6 +43,7 @@ export function SidePanel({
   icon?: IconName | undefined;
   title: ReactNode;
   detail?: ReactNode;
+  keepLive?: RefObject<HTMLElement | null> | undefined;
   children: ReactNode;
 }) {
   if (!open) return null;
@@ -45,6 +56,7 @@ export function SidePanel({
       title={title}
       detail={detail}
       onClose={onClose}
+      keepLive={keepLive}
     >
       {children}
     </Layer>

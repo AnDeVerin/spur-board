@@ -483,6 +483,6 @@ Reconnecting changes only the header indicator. Once the stream is offline, or a
 or status read fails, the columns dim under an error banner that gives the time of the data on
 screen and offers Retry now: it reconnects at once when the stream waits between attempts, and
 rereads. A failed read keeps the last data; a first load that fails shows the banner with no
-data and no columns. See the [web UI](docs/web-ui.md) guide for every state. The footer keeps
-the theme switch, which works independently of reads and tolerates blocked browser storage. Auto
+data and no columns. See the [web UI](docs/web-ui.md) guide for every state. The status bar keeps
+the theme menu, which works independently of reads and tolerates blocked browser storage. Auto
 follows the system; explicit Light/Dark choices stay fixed.
