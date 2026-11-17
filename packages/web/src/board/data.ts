@@ -205,8 +205,10 @@ export function createBoardData(options: BoardDataOptions) {
     if (taskReadable) task.refresh();
   };
   let historyShown = false;
-  const history = coordinateRead<ReadResult<BoardHistory>>(
+  const history = coordinateRead<ReadResult<BoardHistory> | undefined>(
     (signal) => {
+      // A trailing read queued while History showed is skipped once the tab hides or the task changes.
+      if (!historyShown || !taskReadable) return Promise.resolve(undefined);
       const key = taskKey ?? '';
       return readResult(key, () => api('task.history', { task: key }, { signal }));
     },

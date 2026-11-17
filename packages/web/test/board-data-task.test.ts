@@ -244,6 +244,44 @@ describe('task history read', () => {
     expect(historyCalls()).toHaveLength(6);
   });
 
+  it.each([
+    [
+      'History hides',
+      (data: BoardData) => {
+        data.showHistory(false);
+      },
+    ],
+    [
+      'another task opens',
+      (data: BoardData) => {
+        data.open('ex/repo#8');
+      },
+    ],
+    [
+      'the task closes',
+      (data: BoardData) => {
+        data.open(null);
+      },
+    ],
+  ])('drops the queued history re-read when %s during a pending read', async (_, leave) => {
+    const d = daemon();
+    const held = deferred();
+    d.routes['task.history'] = () => held.promise;
+    const data = start(d);
+    await settle();
+    data.open('ex/repo#7');
+    data.showHistory(true);
+    await settle();
+    expect(historyCalls()).toHaveLength(1);
+    // An invalidate during the pending read queues one trailing re-read.
+    d.send('event: reset\ndata: {}\n\n');
+    await settle();
+    leave(data);
+    held.resolve(envelope(taskHistory()));
+    await settle();
+    expect(historyCalls()).toHaveLength(1);
+  });
+
   it('never reads history for a key that is not a task key', async () => {
     const d = daemon();
     const data = start(d);
