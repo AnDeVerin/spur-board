@@ -30,7 +30,16 @@ dispatcher <mode>`, the current one checked; Escape or a click outside closes it
 - The live indicator: `connecting` until the stream answers, then `live`, `reconnecting` or
   `offline`.
 - The inbox button: open operator inbox items across all projects, highlighted above zero, `–` until
-  the first inbox read. It sets the address to `?open=inbox`; there is no inbox panel yet.
+  the first inbox read. It opens the right panel at `?open=inbox`, including on direct navigation.
+  The panel filters active and recently handled entries by all projects, each configured project,
+  or system. Counts always describe active entries. Active failures precede attention entries,
+  newest first within each severity; recently handled entries keep the query's order and show
+  their handled state and answer channel when supplied. Before the first successful read the
+  panel says that inbox data is not available yet; later failures retain the last good data.
+  Task entries select their project and open a task view above the retained panel. Closing the
+  task returns focus to its row, or the panel Close button if the row has disappeared; closing
+  the panel returns focus to the header inbox button. Back and Forward follow these layers.
+  Non-task entries can receive keyboard focus. Inbox entries are read-only here.
 
 Below the header, the chosen project's columns in configuration order:
 
