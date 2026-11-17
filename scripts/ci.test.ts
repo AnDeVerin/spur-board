@@ -202,6 +202,7 @@ interface WorkflowStep {
 }
 
 interface WorkflowJob {
+  'timeout-minutes'?: number;
   if?: string;
   permissions?: Record<string, string>;
   env?: Record<string, string>;
@@ -213,6 +214,12 @@ describe('release workflow isolation', () => {
   const jobs = (parse(workflow) as { jobs: Record<string, WorkflowJob> }).jobs;
   const installsUnpinned = /\b(package|upgrade|update):smoke\b|\bnpm (install|i)\b/;
   const runs = (id: string) => (jobs[id]?.steps ?? []).map((step) => step.run ?? '');
+
+  it('allows both upgrade smoke jobs time for npm registry propagation', () => {
+    for (const id of ['package-smoke', 'release-smoke']) {
+      expect(jobs[id]?.['timeout-minutes'], id).toBe(35);
+    }
+  });
 
   it('grants no write scope or token to jobs that install unpinned packages', () => {
     const installing = Object.entries(jobs).filter(([, job]) =>
