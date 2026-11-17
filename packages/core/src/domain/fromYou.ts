@@ -23,8 +23,9 @@ interface ItemPolicy {
    */
   block: boolean;
   /**
-   * How `inbox.operator` marks the kind: `failure` when the board or a connection broke and the
-   * text says what to check, else `attention`. A `source:` item is a failure whatever its kind.
+   * How `inbox.operator` marks the kind: `failure` when the board or a connection broke, else
+   * `attention` when a decision, answer or other operator action is wanted. A `source:` item is a
+   * failure whatever its kind.
    */
   severity: Severity;
 }

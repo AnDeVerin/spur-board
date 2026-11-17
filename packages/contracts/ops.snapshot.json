@@ -1,5 +1,5 @@
 {
-  "version": "2684969f98a45af9a7e511991fc95101c4c2d6366abf83d823ad924b5b9884c5",
+  "version": "d1dab2f763d89b80a72e819a55bb3786ec4a8d63cfc92fe5bf29365bf2dadc9a",
   "grants": [
     "operator",
     "project-agent",
@@ -6473,6 +6473,7 @@
                 "kind": "transport_health",
                 "severity": "failure",
                 "text": "slack delivery down since 2026-01-05T09:30:00.000Z (connection lost): check the Slack app tokens",
+                "action": "check the Slack app tokens",
                 "at": "2026-01-05T09:30:00.000Z",
                 "task": null
               },
@@ -6572,11 +6573,16 @@
                 "severity": {
                   "type": "string",
                   "enum": ["attention", "failure"],
-                  "description": "failure: something broke and the text says what to check; attention: a decision or answer is wanted."
+                  "description": "failure: the board or a connection broke; attention: a decision, answer or other operator action is wanted."
                 },
                 "text": {
                   "type": "string",
                   "description": "What needs the operator, in one line."
+                },
+                "action": {
+                  "description": "What the operator does about an item entry; the text ends with it. Absent on block and turn entries.",
+                  "type": "string",
+                  "minLength": 1
                 },
                 "at": {
                   "type": "string",
@@ -6680,11 +6686,16 @@
                 "severity": {
                   "type": "string",
                   "enum": ["attention", "failure"],
-                  "description": "failure: something broke and the text says what to check; attention: a decision or answer is wanted."
+                  "description": "failure: the board or a connection broke; attention: a decision, answer or other operator action is wanted."
                 },
                 "text": {
                   "type": "string",
                   "description": "What needs the operator, in one line."
+                },
+                "action": {
+                  "description": "What the operator does about an item entry; the text ends with it. Absent on block and turn entries.",
+                  "type": "string",
+                  "minLength": 1
                 },
                 "at": {
                   "type": "string",

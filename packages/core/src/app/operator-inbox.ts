@@ -36,6 +36,7 @@ interface Entry {
   kind: 'block' | ItemKind;
   severity: 'attention' | 'failure';
   text: string;
+  action?: string;
   at: string;
   task: string | null;
   column?: Row<'turn'>['column'];
@@ -43,15 +44,80 @@ interface Entry {
   handledAt?: string;
 }
 
-/** What a failure item asks the operator to check; a `source:` item gets its own text. */
-const CHECK_HINTS: Partial<Record<ItemKind, (item: Item) => string>> = {
+/** The block an item refers to, as the batched read selects it. */
+type Referenced = Pick<
+  Row<'block'>,
+  'id' | 'addressee_role' | 'project' | 'addressee_spur_project'
+> &
+  Joined;
+
+/** What the item names: the block it refers to and the task it is about. */
+interface ActionContext {
+  block: Referenced | undefined;
+  task: Owner | null;
+}
+
+/** `B<n>` of the block an item refers to, else "its block". */
+function blockName(item: Item): string {
+  const ref = itemBlockRef(item);
+  return ref === undefined ? 'its block' : `B${String(ref)}`;
+}
+
+const HEALTH_KEY = 'health:';
+const WORKER_ENDED = 'start a new worker for the task, or archive the task';
+const OBSERVATION_FALLBACK = 'check the task, then close the item';
+
+/** The action of a `board_observation` item, chosen by its key prefix. */
+function observationAction(item: Item): string {
+  const key = item.item_key;
+  if (key.startsWith('pr-outcome:'))
+    return 'check the pull request, then close the item or archive the task';
+  if (key.startsWith('lookup:'))
+    return 'check the ticket in the tracker, then close the item or archive the task';
+  if (key.startsWith(OPERATOR_BLOCK_KEY)) return `answer ${blockName(item)}`;
+  if (key.startsWith(BLOCK_KEY))
+    return `answer ${blockName(item)} if it is a question, or close it with a reason`;
+  if (key.startsWith('filter:'))
+    return 'return the ticket to the tracker filter, or finish or unlink the linked work';
+  if (key.startsWith(HEALTH_KEY)) {
+    // `health:<taskId>:<session>:<flag>`; the session id may itself hold `:`.
+    const rest = key.slice(HEALTH_KEY.length);
+    const first = rest.indexOf(':');
+    const last = rest.lastIndexOf(':');
+    const session = first < 0 || first === last ? '' : rest.slice(first + 1, last);
+    if (session === '') return OBSERVATION_FALLBACK;
+    return rest.slice(last + 1) === 'worker_vanished'
+      ? WORKER_ENDED
+      : `check session ${session} in Spur`;
+  }
+  return OBSERVATION_FALLBACK;
+}
+
+/**
+ * What the operator does about an item, the end of its text. A failure says what to check; a
+ * `source:` item gets its action from `sourceText`.
+ */
+const ACTIONS: Record<Exclude<ItemKind, 'turn'>, (item: Item, at: ActionContext) => string> = {
   transport_health: (item) =>
-    `the ${capitalized(item.item_key.slice('transport:'.length))} app tokens`,
-  post_failed: () => 'the chat gateway, then retry the item',
-  inbound_failure: () => 'the daemon log, then retry the item',
-  inbound_gap: () => 'the conversation for missed messages',
-  answer_undelivered: () => 'the asking session, then retry the item',
-  worker_not_reading: () => 'the worker session, then retry the item',
+    `check the ${capitalized(item.item_key.slice('transport:'.length))} app tokens`,
+  post_failed: () => 'check the chat gateway, then retry the item',
+  inbound_failure: () => 'check the daemon log, then retry the item',
+  inbound_gap: () => 'check the conversation for missed messages',
+  answer_undelivered: () => 'check the asking session, then retry the item',
+  worker_not_reading: () => 'check the worker session, then retry the item',
+  token_request: () => 'approve or deny it in Slack within 15 minutes of the request',
+  post_blocked: () => 'close the item once you have read it',
+  answer_author_unavailable: (_item, { task }) =>
+    task === null
+      ? 'pass the answer to the asking session yourself, then close the item'
+      : 'comment on the task so a live session reads the answer, then close the item',
+  board_observation: observationAction,
+  worker_ended: () => WORKER_ENDED,
+  anomaly: (item) => `wait for the answer to ${blockName(item)}, or answer it yourself`,
+  course_check: (item) => `wait for the answer to ${blockName(item)}, or answer it yourself`,
+  cycle_limit: (item) => `answer or close ${blockName(item)} to reset the cycle count`,
+  conversation_waiting: (item, { block }) =>
+    `start a session in ${block?.addressee_spur_project ?? 'its Spur project'}, or withdraw ${blockName(item)}`,
 };
 
 const PROBLEMS: Partial<Record<string, string>> = {
@@ -74,9 +140,12 @@ function serviceOf(source: string): string | undefined {
  * The text of a source item: built from the source's state while it is open and blind; a cleared
  * or unknown one keeps its stored text, which names the failure it had.
  */
-function sourceText(item: Item, state: SourceState | undefined): string {
+function sourceText(
+  item: Item,
+  state: SourceState | undefined,
+): { condition: string; action: string } {
   const source = item.item_key.slice(SOURCE_KEY.length);
-  const stored = `${item.text}: check the ${source} source`;
+  const stored = { condition: item.text, action: `check the ${source} source` };
   const reason = state?.blind_reason ?? null;
   const service = serviceOf(source);
   if (item.cleared_at !== null || reason === null || service === undefined) return stored;
@@ -91,7 +160,10 @@ function sourceText(item: Item, state: SourceState | undefined): string {
           : undefined;
   if (problem === undefined || thing === undefined) return stored;
   const message = state?.blind_message ?? null;
-  return `${service} ${problem}${message === null ? '' : ` (${message})`}: check ${thing}`;
+  return {
+    condition: `${service} ${problem}${message === null ? '' : ` (${message})`}`,
+    action: `check ${thing}`,
+  };
 }
 
 /** Newest first by `at`, ties by id as text. */
@@ -182,7 +254,13 @@ export function createOperatorInbox(deps: {
           : trx
               .selectFrom('block')
               .leftJoin('task', 'task.id', 'block.task_id')
-              .select(['block.id', 'block.addressee_role', 'block.project', ...taskColumns])
+              .select([
+                'block.id',
+                'block.addressee_role',
+                'block.project',
+                'block.addressee_spur_project',
+                ...taskColumns,
+              ])
               .where('block.id', 'in', blockIds)
               .execute(),
         deliveryOwners(trx, items),
@@ -213,18 +291,17 @@ export function createOperatorInbox(deps: {
         const task =
           owner(item) ?? owners.get(item.id) ?? (block === undefined ? null : owner(block));
         if (task?.membership === 'archived') return undefined;
-        const hint = CHECK_HINTS[kind];
+        const { condition, action } = item.item_key.startsWith(SOURCE_KEY)
+          ? sourceText(item, sourceById.get(item.item_key.slice(SOURCE_KEY.length)))
+          : { condition: item.text, action: ACTIONS[kind](item, { block, task }) };
         return {
           id: `I${String(item.id)}`,
           project:
             task?.project ?? (block === undefined ? RESERVED_PROJECT : blockProject(block.project)),
           kind,
           severity: itemSeverity(kind, item.item_key),
-          text: item.item_key.startsWith(SOURCE_KEY)
-            ? sourceText(item, sourceById.get(item.item_key.slice(SOURCE_KEY.length)))
-            : hint === undefined
-              ? item.text
-              : `${item.text}: check ${hint(item)}`,
+          text: `${condition}: ${action}`,
+          action,
           at: item.raised_at,
           task: task?.key ?? null,
           ...(item.cleared_at === null ? {} : { handledAt: item.cleared_at }),

@@ -633,6 +633,7 @@ export const OPERATIONS = [
               kind: 'transport_health',
               severity: 'failure',
               text: `slack delivery down since ${at} (connection lost): check the Slack app tokens`,
+              action: 'check the Slack app tokens',
               at,
               task: null,
             },

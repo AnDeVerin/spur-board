@@ -247,12 +247,23 @@ describe('inbox.operator', () => {
       });
       expect(entry(ids.byKind[kind] ?? '')?.text, kind).toMatch(/: check \S/);
     }
-    for (const kind of ['token_request', 'post_blocked', 'answer_author_unavailable']) {
+    for (const [kind, action] of [
+      ['token_request', 'approve or deny it in Slack within 15 minutes of the request'],
+      ['post_blocked', 'close the item once you have read it'],
+      [
+        'answer_author_unavailable',
+        'pass the answer to the asking session yourself, then close the item',
+      ],
+    ] as const) {
       expect(entry(ids.byKind[kind] ?? ''), kind).toMatchObject({
         severity: 'attention',
-        text: `${kind} text`,
+        action,
+        text: `${kind} text: ${action}`,
       });
     }
+    expect(entry(ids.byKind['transport_health'] ?? '')).toMatchObject({
+      action: 'check the Slack app tokens',
+    });
     expect(entry(ids.byKind['transport_health'] ?? '')?.text).toBe(
       'slack delivery down since x (down): check the Slack app tokens',
     );
@@ -260,6 +271,7 @@ describe('inbox.operator', () => {
       severity: 'failure',
       project: '_board',
       text: 'Spur unreachable (connection refused): check the Spur daemon',
+      action: 'check the Spur daemon',
     });
     expect(entry(ids.github)?.text).toBe('GitHub auth failed: check the GitHub token');
     expect(entry(ids.jira)?.text).toBe(
