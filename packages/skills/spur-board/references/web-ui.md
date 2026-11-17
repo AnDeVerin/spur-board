@@ -5,7 +5,7 @@ are read-only; other actions use CLI, MCP or Slack.
 
 ## Opening it
 
-Enable the daemon's optional web listener with `web.port` and `web.publicOrigin` per
+Enable the optional web listener with `web.port` and `web.publicOrigin` per
 [Optional browser access](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#optional-browser-access),
 then open `web.publicOrigin`. For 503 `UI is not built`, follow
 [Building the web UI](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#building-the-web-ui).
@@ -38,7 +38,7 @@ Header, left to right:
 
 Columns follow configuration order:
 
-- A column header shows its name, task count and executor (kind, then name).
+- A column header shows name, task count and executor (kind, then name).
 - An empty column collapses to a spine with its name and `0`.
 - `done` lists every done task in a compact scrolling list.
 - A card opens the task view on click or Enter, a new tab on a modified click. It shows the short
@@ -90,7 +90,7 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
 - host: CPU, RAM and Disk percent bars, amber at 80% and red at 90%; an unread value shows `— /
 100`, never 0. A host load wait adds an amber row.
 - slack: when down, Down since, Reason and Spaces.
-- One box per GitHub source, spur and each Jira source, headed by its own state: Last complete poll,
+- One box per GitHub or Jira source and spur, headed by its own state: Last complete poll,
   Last observation, Blind (when blind), Freshness, Warming up, Points last hour (pull request
   sources) and Budget: a bar of requests left over the limit with its reset time, amber at 20% and
   red at 5%; `<n> left` without a limit; `—` without a budget. The spur box adds an availability
@@ -114,10 +114,10 @@ A card or `?open=<task key>` opens links, **Why it is here**, **Blocks**, **Comm
 
 Screen times are UTC, `hh:mm dd/mm/yy`.
 
-- **Loading**: skeleton columns, the inbox count `–`, and the switcher disabled until the
-  configuration answers.
+- **Loading**: skeleton columns, the inbox count `–`, and the switcher disabled until config
+  answers.
 - **Live**: the indicator reads `live`. The stream tells the UI which projects changed; a change in
-  the chosen project rereads its configuration and status, and any change rereads the inbox. A
+  the chosen project rereads its config and status, and any change rereads the inbox. A
   changed journal head or daemon instance on reconnect, a `reset` and the 30-second status frame
   reread everything.
 - **Empty**: a project with no tasks shows a message instead of columns.
