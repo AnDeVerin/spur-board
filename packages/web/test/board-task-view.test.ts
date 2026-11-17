@@ -138,7 +138,9 @@ describe('task view', () => {
     const tabs = [...(dialog()?.querySelectorAll('[role="tab"]') ?? [])];
     expect(tabs.map((tab) => tab.textContent)).toEqual(['Now', 'History']);
     click(tabs[1] ?? close());
-    expect(inDialog('[role="tabpanel"]').textContent).toBe('History arrives in a later version.');
+    expect(inDialog('[role="tabpanel"] > p').textContent).toBe(
+      'History arrives in a later version.',
+    );
   });
 
   it('links the session chip to the Spur UI when web.spurUiOrigin is set', async () => {

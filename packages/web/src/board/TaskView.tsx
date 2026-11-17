@@ -84,67 +84,69 @@ export function TaskView({
       actions={<Tabs id={TABS_ID} label="Task view" tabs={TABS} value={tab} onChange={setTab} />}
     >
       <TabPanel tabsId={TABS_ID} value={tab}>
-        {tab === 'history' ? (
-          <p className={styles.note}>History arrives in a later version.</p>
-        ) : task.state === 'missing' ? (
-          <p className={styles.note}>Task not found.</p>
-        ) : (
-          <>
-            {failed && !(offline && value !== undefined) && (
-              <Banner
-                variant="error"
-                icon="x"
-                action={
-                  <Button busy={task.retrying} onClick={onRetry}>
-                    {task.retrying ? 'Retrying' : 'Retry'}
-                  </Button>
-                }
-              >
-                Could not load the task.
-              </Banner>
-            )}
-            <div className={styles.top}>
-              {title.state === 'loading' ? (
-                <Skeleton widths={[60]} />
-              ) : (
-                title.state === 'ready' && <h2 className={styles.title}>{title.text}</h2>
+        {/* Keep drafts and intent guards for this modal's lifetime, including on History. */}
+        <div hidden={tab !== 'now'}>
+          {task.state === 'missing' ? (
+            <p className={styles.note}>Task not found.</p>
+          ) : (
+            <>
+              {failed && !(offline && value !== undefined) && (
+                <Banner
+                  variant="error"
+                  icon="x"
+                  action={
+                    <Button busy={task.retrying} onClick={onRetry}>
+                      {task.retrying ? 'Retrying' : 'Retry'}
+                    </Button>
+                  }
+                >
+                  Could not load the task.
+                </Banner>
               )}
-              {value === undefined
-                ? task.state === 'loading' && <Skeleton />
-                : value.links.length > 0 && (
-                    <div className={styles.links}>
-                      {linkChips(value.links, spurUiOrigin).map((chip, index) =>
-                        // A link has no id of its own; its position in the list stays put.
-                        chip.href === null ? (
-                          <Chip key={index}>{chip.text}</Chip>
-                        ) : (
-                          <Chip key={index} href={chip.href} label={chip.label}>
-                            {chip.text}
-                          </Chip>
-                        ),
-                      )}
-                    </div>
-                  )}
-            </div>
-            {value !== undefined && (
-              <CollapsibleSection title="Why it is here" summary={whySummary(value)}>
-                <KeyValueBox rows={whyRows(value, columns, now)} />
-              </CollapsibleSection>
-            )}
-            {value !== undefined && (
-              <TaskDiscussion
-                value={value}
-                taskKey={task.key}
-                config={config}
-                now={now}
-                unavailable={unavailable}
-                answerIntent={answerIntent}
-                commentIntent={commentIntent}
-                refreshTask={refreshTask}
-              />
-            )}
-          </>
-        )}
+              <div className={styles.top}>
+                {title.state === 'loading' ? (
+                  <Skeleton widths={[60]} />
+                ) : (
+                  title.state === 'ready' && <h2 className={styles.title}>{title.text}</h2>
+                )}
+                {value === undefined
+                  ? task.state === 'loading' && <Skeleton />
+                  : value.links.length > 0 && (
+                      <div className={styles.links}>
+                        {linkChips(value.links, spurUiOrigin).map((chip, index) =>
+                          // A link has no id of its own; its position in the list stays put.
+                          chip.href === null ? (
+                            <Chip key={index}>{chip.text}</Chip>
+                          ) : (
+                            <Chip key={index} href={chip.href} label={chip.label}>
+                              {chip.text}
+                            </Chip>
+                          ),
+                        )}
+                      </div>
+                    )}
+              </div>
+              {value !== undefined && (
+                <CollapsibleSection title="Why it is here" summary={whySummary(value)}>
+                  <KeyValueBox rows={whyRows(value, columns, now)} />
+                </CollapsibleSection>
+              )}
+              {value !== undefined && (
+                <TaskDiscussion
+                  value={value}
+                  taskKey={task.key}
+                  config={config}
+                  now={now}
+                  unavailable={unavailable}
+                  answerIntent={answerIntent}
+                  commentIntent={commentIntent}
+                  refreshTask={refreshTask}
+                />
+              )}
+            </>
+          )}
+        </div>
+        {tab === 'history' && <p className={styles.note}>History arrives in a later version.</p>}
       </TabPanel>
     </Modal>
   );

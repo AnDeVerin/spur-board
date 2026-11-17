@@ -106,6 +106,82 @@ async function discussion(extra: Record<string, unknown> = {}) {
 }
 
 describe('task discussion', () => {
+  it.each(
+    (['idle', 'pending', 'uncertain', 'refreshing', 'refresh-failed'] as const).flatMap((state) =>
+      [false, true].map((answer) => ({ state, answer })),
+    ),
+  )(
+    'tab navigation preserves $state draft and intent (answer=$answer)',
+    async ({ state, answer }) => {
+      const { d } = await discussion({ blocks: answer ? [block()] : [] });
+      const operation = answer ? 'block.answer' : 'comment.add';
+      const accepted = d.routes[operation];
+      const mutation = deferred();
+      const read = deferred();
+      d.routes[operation] = () => mutation.promise;
+      const draft = ' exact\nintent text ';
+      typeText(field(answer), draft);
+      if (state !== 'idle') {
+        submit(field(answer));
+        await settle();
+        if (state === 'uncertain') {
+          mutation.resolve(await problem('outcome_unknown', 500));
+          await settle();
+        } else if (state === 'refreshing' || state === 'refresh-failed') {
+          d.routes['task.get'] = () => read.promise;
+          mutation.resolve(await accepted({}));
+          await settle();
+          if (state === 'refresh-failed') {
+            read.resolve(await problem('unexpected', 500));
+            await settle();
+          }
+        }
+      }
+      const select = (label: string) => {
+        const tab = [...(dialog()?.querySelectorAll('[role="tab"]') ?? [])].find(
+          (candidate) => candidate.textContent === label,
+        );
+        if (!tab) throw new Error(`no ${label} tab`);
+        click(tab);
+      };
+      select('History');
+      expect(inDialog('[role="tab"][aria-selected="true"]').textContent).toBe('History');
+      select('Now');
+      expect(field(answer).value).toBe(draft);
+      if (state === 'uncertain')
+        expect(inDialog('[role="alert"]').textContent).toContain('outcome_unknown');
+      if (state === 'refreshing' || state === 'refresh-failed') {
+        expect(inDialog('[role="status"]').textContent).toContain(
+          answer ? 'Answer sent.' : 'Comment added.',
+        );
+        expect(inDialog('[role="status"]').textContent).toContain(
+          state === 'refreshing' ? 'Refreshing task…' : 'Could not refresh the task.',
+        );
+      }
+      submit(field(answer));
+      await settle();
+      const count = state === 'idle' ? 1 : state === 'uncertain' ? 2 : 1;
+      expect(writes()).toHaveLength(count);
+      expect(field(answer).value).toBe(draft);
+      if (state === 'uncertain') expect(writes()[1]?.key).toBe(writes()[0]?.key);
+      expect(writes()[0]?.input).toEqual(
+        answer ? { block: 'B12', text: draft } : { task: 'ex/repo#7', text: draft },
+      );
+      if (state === 'refresh-failed') {
+        const recovery = deferred();
+        d.routes['task.get'] = () => recovery.promise;
+        const refresh = [...(dialog()?.querySelectorAll('button') ?? [])].find(
+          (button) => button.textContent === 'Refresh task',
+        );
+        if (!refresh) throw new Error('no read-only recovery action');
+        click(refresh);
+        await settle();
+        expect(writes()).toHaveLength(1);
+        expect(inDialog('[role="status"]').textContent).toContain('Refreshing task…');
+      }
+    },
+  );
+
   it('unchanged uncertain retries reuse UUID, edited drafts create a new UUID', async () => {
     const { d } = await discussion();
     d.routes['comment.add'] = () => problem('outcome_unknown', 500);
