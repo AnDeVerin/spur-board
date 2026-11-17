@@ -197,10 +197,11 @@ channel. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for check-specific fixes a
 
 To upgrade, run `board update` for the latest release, or `board update <version>` for a given one,
 from a shell with the same Node and `BOARD_HOME` or `XDG_*` settings as the service (a live Spur
-session). The service must be running. The command checks the target and the daemon first, then
-saves a copy of the installed package and a backup of the database, installs the new package,
-restarts the service, reinstalls the skills, waits up to five minutes for every source's first
-complete poll and runs doctor. It keeps configuration, secrets and operator access. If the new
+session). The service must be running. The command checks the target and the daemon first and
+confirms that the target's tarball downloads with `npm pack`, waiting up to 10 minutes for a
+release published moments ago, then saves a copy of the installed package and a backup of the
+database, installs the new package, restarts the service, reinstalls the skills, waits up to five
+minutes for every source's first complete poll and runs doctor. It keeps configuration, secrets and operator access. If the new
 version fails a step, it puts the previous package and, when the schema changed, the database back
 and exits 4 with `update_rolled_back`. On success it prints `operator` lines: restart agent sessions
 that run `board mcp`, and stop and wake the Spur sessions doctor lists as stale; the skill reinstall

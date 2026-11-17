@@ -7,6 +7,7 @@ import {
   cpSync,
   ftruncateSync,
   mkdirSync,
+  mkdtempSync,
   openSync,
   readFileSync,
   readdirSync,
@@ -19,7 +20,7 @@ import {
 } from 'node:fs';
 import { get as httpGet } from 'node:http';
 import { get as httpsGet } from 'node:https';
-import { userInfo } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
@@ -165,6 +166,11 @@ function childDetail(result: CommandResult): string {
 function config(hint: string): CliError {
   return new CliError('config', undefined, undefined, hint);
 }
+
+/** How long a listed version's tarball may answer 404 (CDN lag after a publish). */
+const TARBALL_WAIT_MS = 600_000;
+/** Waits between tarball 404s; the last one repeats, each clamped to the bound. */
+const TARBALL_DELAYS_MS = [5_000, 10_000, 20_000, 30_000];
 
 function migrationCount(packageRoot: string): number | undefined {
   try {
@@ -801,6 +807,51 @@ function blockingIds(report: DoctorReport): Set<string> {
 }
 
 /** `board update [version]`: preflight, snapshot, stop, backup, install, then health checks. */
+/**
+ * Downloads `target` with `npm pack` before anything changes, so a registry that lists a version
+ * but does not serve its tarball yet stops the update while the service still runs. A 404 is
+ * retried up to `TARBALL_WAIT_MS`; any other failure, an integrity mismatch included, refuses at
+ * once.
+ */
+async function confirmTarball(
+  updater: Updater,
+  target: string,
+  npmEnv: NodeJS.ProcessEnv,
+): Promise<void> {
+  const { ports } = updater;
+  updater.progress('tarball check');
+  const dir = mkdtempSync(join(tmpdir(), 'board-update-pack-'));
+  try {
+    const started = ports.now();
+    const deadline = started + TARBALL_WAIT_MS;
+    for (let attempt = 0; ; attempt += 1) {
+      const result = await ports.runner('npm', ['pack', target, '--pack-destination', dir], {
+        env: npmEnv,
+      });
+      if (result.exitCode === 0) return;
+      if (!/\bE404\b/.test(result.stderr)) {
+        throw config(
+          `${target} cannot be downloaded: ${childDetail(result)}. Nothing was changed and the service was not stopped.`,
+        );
+      }
+      const now = ports.now();
+      if (now >= deadline) {
+        throw config(
+          `The registry lists ${target} but did not serve its tarball within ${String(TARBALL_WAIT_MS / 1000)} s: ${childDetail(result)}. Nothing was changed and the service was not stopped; run \`board update\` again later.`,
+        );
+      }
+      const delay = TARBALL_DELAYS_MS[Math.min(attempt, TARBALL_DELAYS_MS.length - 1)] ?? 0;
+      const wait = Math.min(delay, deadline - now);
+      updater.progress(
+        `tarball wait: ${target} is listed but its tarball is not served yet (E404); retrying in ${String(Math.ceil(wait / 1000))} s, waited ${String(Math.floor((now - started) / 1000))} s of ${String(TARBALL_WAIT_MS / 1000)} s`,
+      );
+      await ports.sleep(wait);
+    }
+  } finally {
+    removeQuietly(dir);
+  }
+}
+
 export async function updatePackage(
   options: UpdateOptions,
   requested: string | undefined,
@@ -907,6 +958,7 @@ async function update(
   if (dryRun.exitCode !== 0) {
     throw config(`${target} cannot be installed with this Node: ${childDetail(dryRun)}`);
   }
+  await confirmTarball(updater, target, npmEnv);
 
   updater.progress('doctor');
   let baseline: DoctorReport;

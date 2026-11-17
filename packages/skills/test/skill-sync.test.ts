@@ -511,6 +511,8 @@ describe('public guide command mentions', () => {
       expect(guide).toContain('without `board update`');
       expect(guide).toContain('`board service install`');
       expect(guide).toContain('`board service restart` only when the service was active before');
+      expect(guide).toContain('`npm pack`');
+      expect(guide).toContain('10 minutes');
     }
     for (const token of ['update_rolled_back', 'rollback_failed', '`board rollback --yes`'])
       expect(troubleshooting).toContain(token);
