@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { block, comment, daemon, deferred, envelope, problem, taskGet } from './board-fixtures.ts';
+import taskStyles from '../src/board/TaskView.module.css';
 import { goOffline, mount, mountEachTest, press, settle } from './board-harness.ts';
 
 mountEachTest();
@@ -31,6 +32,9 @@ async function open(
     },
   });
   await settle();
+  // An answered block with a reply starts folded; its band unfolds it.
+  const band = item().querySelector(':scope > button[aria-expanded="false"]');
+  if (band) press(band, 'click');
   return { d, writes, setTask, accepted: d.routes['block.followup'] };
 }
 function item() {
@@ -53,7 +57,7 @@ function pressCancel() {
 }
 const send = () => item().querySelector<HTMLButtonElement>('button[type="submit"]');
 const replies = () =>
-  [...item().querySelectorAll(':scope > div > p:not([role])')].map((p) => p.textContent);
+  [...item().querySelectorAll(`.${taskStyles.reply ?? ''} > p`)].map((p) => p.textContent);
 const statuses = () => [...item().querySelectorAll('[role="status"]')].map((p) => p.textContent);
 function type(text: string) {
   const input = field();

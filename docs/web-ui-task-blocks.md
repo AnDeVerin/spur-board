@@ -10,6 +10,14 @@ Agent names use configured Spur project display names, with project and
 session identifiers as fallbacks; the operator reads as `you`. Empty blocks read
 `No blocks on this task.`
 
+Each block is its own box with a header band: id, author and age, addressee, then status. An
+open block is always shown whole. A closed block starts folded to three lines of its reason,
+with `… Show all · 2 replies · outcome` naming what is hidden. A click on the folded text,
+**Show all** or the band unfolds it; a click while text is selected does not. The band or
+`Collapse B<n>` folds it again. A short closed block with no replies and no outcome has no fold
+control. A draft or an open follow-up keeps its block unfolded. The fold state lasts while the
+view is open, across History and refreshes.
+
 Only an open question (`needs_input`) addressed to the operator has an answer form. **Send answer** calls
 `block.answer`. An answered question shows **Follow up**. It opens the same field,
 `Follow-up on B<n>`, with **Send follow-up**, which calls `block.followup`, and an icon

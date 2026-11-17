@@ -14,6 +14,7 @@ import {
   Tabs,
 } from '../ds/index.ts';
 import type { BoardConfig, BoardData, BoardTask, HistoryState, TaskState } from './data.ts';
+import { TaskBlock } from './TaskBlock.tsx';
 import { TaskWrite } from './TaskWrite.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
 import { shortKey } from './model.ts';
@@ -259,67 +260,32 @@ function TaskDiscussion({
         count={blocks.length}
         summary={`${String(blocks.filter((block) => block.state === 'open').length)} open`}
       >
-        <div className={styles.items}>
-          {blocks.length === 0 && <p className={styles.empty}>No blocks on this task.</p>}
-          {blocks.map((block) => {
-            const question = block.type === 'needs_input';
-            const mine = block.state === 'open' && block.addressee === 'operator';
-            const replies = value.comments.filter((comment) => comment.block === block.id);
-            const answered = question && block.state === 'unblocked' && block.outcome === 'done';
-            return (
-              <article
+        {blocks.length === 0 ? (
+          <div className={styles.items}>
+            <p className={styles.empty}>No blocks on this task.</p>
+          </div>
+        ) : (
+          <div className={styles.blocks}>
+            {blocks.map((block) => (
+              <TaskBlock
                 key={block.id}
-                className={`${quiet} ${styles.item ?? ''} ${mine ? (styles.forYou ?? '') : ''}`}
-              >
-                <div className={styles.metadata}>
-                  <strong>{block.id}</strong>
-                  <span>{metadata(block.author, block.at)}</span>
-                  <span>→ {block.addressee === 'operator' ? 'you' : block.addressee}</span>
-                  <Chip>
-                    {block.state === 'open'
-                      ? 'open'
-                      : answered
-                        ? `answered${block.answeredVia ? ` via ${block.answeredVia === 'slack' ? 'Slack' : block.answeredVia}` : ''}`
-                        : (block.outcome ?? 'closed')}
-                  </Chip>
-                </div>
-                <p className={styles.text}>{block.reason}</p>
-                {replies.map((reply) => (
-                  <div key={reply.id} className={styles.reply}>
-                    <div className={styles.metadata}>
-                      {reply.id} · {metadata(reply.author, reply.at)}
-                    </div>
-                    <p className={styles.text}>{reply.text}</p>
-                  </div>
-                ))}
-                {!answered && block.outcomeReason && (
-                  <p className={styles.text}>{block.outcomeReason}</p>
-                )}
-                <TaskWrite
-                  eligible={mine && question}
-                  label={`Answer ${block.id}`}
-                  kind="answer"
-                  superseded={followed.has(block.id)}
-                  unavailable={unavailable}
-                  createIntent={(text) => answerIntent(taskKey, block.id, text)}
-                  refreshTask={refreshTask}
-                />
-                {answered && (
-                  <TaskWrite
-                    label={`Follow-up on ${block.id}`}
-                    kind="followup"
-                    unavailable={unavailable}
-                    onOpen={() => {
-                      setFollowed((ids) => new Set(ids).add(block.id));
-                    }}
-                    createIntent={(text) => followUpIntent(taskKey, block.id, text)}
-                    refreshTask={refreshTask}
-                  />
-                )}
-              </article>
-            );
-          })}
-        </div>
+                block={block}
+                replies={value.comments.filter((comment) => comment.block === block.id)}
+                name={name}
+                now={now}
+                unavailable={unavailable}
+                taskKey={taskKey}
+                superseded={followed.has(block.id)}
+                onFollowOpen={() => {
+                  setFollowed((ids) => new Set(ids).add(block.id));
+                }}
+                answerIntent={answerIntent}
+                followUpIntent={followUpIntent}
+                refreshTask={refreshTask}
+              />
+            ))}
+          </div>
+        )}
       </CollapsibleSection>
       <CollapsibleSection title="Comments" count={comments.length}>
         <div className={styles.items}>
