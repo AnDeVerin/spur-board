@@ -202,7 +202,7 @@ export function withCommandKey<T>(key: string, fn: () => Promise<T>): Promise<T>
 const vias = new AsyncLocalStorage<Via>();
 
 /**
- * Runs fn in the scope of one write path (`web` or `slack`): every event `emit` writes inside it
+ * Runs fn in the scope of one write path (`web`, `slack`, `cli` or `mcp`): every event `emit` writes inside it
  * carries it in `via`. The innermost scope wins, and it nests independently of `withCommandKey`.
  * The same rule applies: run only request work inside it, never trigger a job or start detached
  * work (timers, unawaited promises), or later scheduled runs would carry this `via`.

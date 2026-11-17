@@ -83,6 +83,8 @@ interface SendOptions<Value> {
   anonymous: boolean;
   decode: (response: IncomingMessage, raw: string) => Value;
   observe?: ((instance: string) => void) | undefined;
+  /** The client channel reported in `x-board-via`; operation requests only. */
+  via?: 'cli' | 'mcp';
 }
 
 function send<Value>({
@@ -93,6 +95,7 @@ function send<Value>({
   anonymous,
   decode,
   observe,
+  via,
 }: SendOptions<Value>): Promise<Value> {
   const target = new URL(path, config.address);
   const payload = method === 'POST' ? JSON.stringify(body) : undefined;
@@ -129,6 +132,7 @@ function send<Value>({
             : config.session
               ? { 'x-board-session': config.session }
               : { authorization: `Bearer ${config.token ?? ''}` }),
+          ...(via === undefined ? {} : { 'x-board-via': via }),
         },
       },
       (response) => {
@@ -182,6 +186,7 @@ export async function requestOperation(
   input: unknown,
   key: string | undefined,
   config: ClientConfig,
+  via: 'cli' | 'mcp',
   observe?: (instance: string) => void,
 ): Promise<unknown> {
   if (!config.session && !config.token) throw new CliError('identity_missing');
@@ -193,6 +198,7 @@ export async function requestOperation(
     anonymous: false,
     decode: (response, raw) => decodeResponse(op.output, response, raw),
     observe,
+    via,
   });
 }
 

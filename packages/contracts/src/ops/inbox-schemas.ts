@@ -40,7 +40,7 @@ export const inboxEntrySchema = z
       .nullable()
       .optional()
       .describe(
-        'On a block: web or slack when the closing write arrived that way, else null; absent on other entries.',
+        'On a block: web, slack, cli or mcp when the closing write arrived that way (cli and mcp as the board client reported it), else null; absent on other entries.',
       ),
   })
   .describe('One entry of the operator inbox.');

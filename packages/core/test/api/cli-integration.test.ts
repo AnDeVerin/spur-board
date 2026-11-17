@@ -321,10 +321,10 @@ describe('CLI against the real HTTP API', () => {
           (comment) => comment.id,
         ),
       ).toContain(followUp.comment.id);
-      // CLI, MCP and agent writes reach the same HTTP API and record no `via`.
+      // Every write here came through the board CLI, which reports its write path to the agent API.
       const vias = await store.db.selectFrom('event').select('via').execute();
       expect(vias.length).toBeGreaterThan(1);
-      expect(vias.map((event) => event.via)).toEqual(vias.map(() => null));
+      expect(vias.map((event) => event.via)).toEqual(vias.map(() => 'cli'));
     } finally {
       try {
         await app?.close();

@@ -8,6 +8,7 @@ import {
 } from '@spur-board/contracts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CommandError } from '../app/commands.ts';
+import { withVia } from '../app/board-utils.ts';
 import { dispatchOperation } from '../app/operations.ts';
 import type { IdentifiedCaller } from './identity.ts';
 import type { ApiOptions } from './server.ts';
@@ -100,8 +101,10 @@ export function createOpsRoute(
       if (!parsed.success) {
         throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
       }
-      const dispatch = () =>
+      const run = () =>
         dispatchOperation(options, operation.id, parsed.data, caller.actor, body.key);
+      const { via } = caller;
+      const dispatch = () => (via === undefined ? run() : withVia(via, run));
       const result = await (options.runOperation === undefined
         ? dispatch()
         : options.runOperation(operation.id, parsed.data, dispatch));

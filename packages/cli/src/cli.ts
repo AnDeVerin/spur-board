@@ -530,6 +530,7 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
             input,
             key,
             config,
+            'cli',
             (seen) => {
               instance = seen;
             },

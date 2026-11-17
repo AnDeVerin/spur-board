@@ -17,8 +17,8 @@ operator: `board inbox`, keyed `board answer`. Answers reach a current curator s
 On an unblocked block, the operator's keyed `board followup <block> <text>`
 rings the author like an answer and posts to the block's thread; the block
 stays closed, and the column and turn do not change.
-A task's blocks (`task.get`) carry `answeredVia`: `web` or `slack` for an answer
-from there, else null.
+A task's blocks (`task.get`) carry `answeredVia`: `web`, `slack`, `cli` or `mcp`
+for an answer from there, else null.
 
 `projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
 `operator.slack`.

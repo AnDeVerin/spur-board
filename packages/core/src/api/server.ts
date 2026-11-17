@@ -246,10 +246,13 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
         const sessionHeader = request.headers['x-board-session'];
         if (Array.isArray(sessionHeader))
           throw new CommandError('forbidden', 'Use one session identity header.');
-        return identifyCaller(options, {
+        const caller = await identifyCaller(options, {
           session: sessionHeader,
           authorization: header(request.headers.authorization),
         });
+        // Client-reported, so only the two client write paths count; anything else records none.
+        const via = request.headers['x-board-via'];
+        return via === 'cli' || via === 'mcp' ? { ...caller, via } : caller;
       },
     },
     callers,

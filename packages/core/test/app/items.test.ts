@@ -1001,7 +1001,7 @@ describe('item.retry and item.close', () => {
     expect(pressKey).toEqual(expect.any(String));
     expect(pressKey).not.toBe('k');
     expect(cleared.map((event) => event.request_id)).toEqual([pressKey, 'k']);
-    expect(cleared.map((event) => event.via)).toEqual(['slack', null]);
+    expect(cleared.map((event) => event.via)).toEqual(['slack', 'cli']);
   });
 });
 

@@ -35,7 +35,9 @@ one of the limits below is not a vulnerability; a way around a guarantee below i
   `x-board-session` header and sends no secret. The daemon accepts any id of a session that has
   not ended, from its own snapshot or from the local Spur server, whose Spur project is listed
   under `projects[].spurProjects`. Whoever knows such an id can act as that agent, and as the
-  operator when that Spur project has the `operator` role.
+  operator when that Spur project has the `operator` role. The `board` CLI and `board mcp` also
+  send `x-board-via: cli` or `x-board-via: mcp`; the agent API keeps only those two values, and
+  the web listener ignores the header.
 - **Agents can read the operator's files.** Agents run as the operator's OS user, so file modes
   do not stop them: they can read `.spur-board/token` files, `secrets.env` and the database, and
   use an operator token. Do not give an agent work you would not do yourself with these
@@ -47,9 +49,10 @@ one of the limits below is not a vulnerability; a way around a guarantee below i
   [SETUP.md](SETUP.md) for the operator paths.
 - **The journal records the actor and the channel.** Each journal event records who acted (the
   operator, an agent and its session, or the board) and, in `via`, the channel the write arrived
-  through (`slack` or `web`), whoever the actor; writes from
-  the CLI, MCP, agents and scheduled work have none. The channel is where the daemon received
-  the write, not proof of who typed it.
+  through, whoever the actor: `slack` or `web` where the daemon received the write, or `cli` or
+  `mcp` as the `board` client reported it; scheduled work and older clients have none. The
+  channel is not proof of who typed the write, and `cli` or `mcp` is not proof of the client
+  either.
 
 ### Optional web listener
 

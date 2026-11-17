@@ -110,7 +110,7 @@ it('lists actors', () => {
 });
 
 it('lists write vias', () => {
-  expect(VIAS).toEqual(['web', 'slack']);
+  expect(VIAS).toEqual(['web', 'slack', 'cli', 'mcp']);
 });
 
 it('lists token statuses', () => {

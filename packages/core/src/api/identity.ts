@@ -24,6 +24,8 @@ export interface IdentityPorts {
 export interface IdentifiedCaller {
   readonly actor: ActorId;
   readonly tokenName?: string;
+  /** The write path the agent API accepted from `x-board-via`; absent otherwise. */
+  readonly via?: 'cli' | 'mcp';
 }
 
 function sessionActor(project: string, session: string, config: Config): ActorId {

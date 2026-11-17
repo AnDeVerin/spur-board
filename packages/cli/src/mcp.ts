@@ -155,7 +155,7 @@ export function createMcpServer(
           let outcome: { value: unknown } | { error: unknown };
           try {
             outcome = {
-              value: await requestOperation(op, parsed.input, key, config, (seen) => {
+              value: await requestOperation(op, parsed.input, key, config, 'mcp', (seen) => {
                 instance = seen;
               }),
             };

@@ -1,5 +1,5 @@
 {
-  "version": "ae875d2208aa6b9a36e54d84d046370b313ed2db4094c046769984df0be569d2",
+  "version": "2a5ce7a4be7199ba8407f12fb9be1d14f5fbe7109b6da159af38b253144c836f",
   "grants": [
     "operator",
     "project-agent",
@@ -4671,8 +4671,11 @@
                   "description": "When the block was unblocked; null while open."
                 },
                 "answeredVia": {
-                  "anyOf": [{ "type": "string", "enum": ["web", "slack"] }, { "type": "null" }],
-                  "description": "Channel the closing write arrived through: web or slack; null while open or when it came through the CLI, MCP or the board itself."
+                  "anyOf": [
+                    { "type": "string", "enum": ["web", "slack", "cli", "mcp"] },
+                    { "type": "null" }
+                  ],
+                  "description": "Channel the closing write arrived through: web or slack, or cli or mcp as the board client reported it; null while open or when no channel was recorded."
                 }
               },
               "required": [
@@ -5579,9 +5582,9 @@
                   "description": "Actor: operator, system, or agent:<project>/<session>."
                 },
                 "via": {
-                  "description": "Channel the write arrived through, web or slack, whoever the actor; absent for CLI, MCP, agent and scheduled writes.",
+                  "description": "Channel the write arrived through, whoever the actor: web or slack, or cli or mcp as the board client reported it; absent for scheduled and board writes and older clients.",
                   "type": "string",
-                  "enum": ["web", "slack"]
+                  "enum": ["web", "slack", "cli", "mcp"]
                 },
                 "summary": { "type": "string", "description": "What happened, in one line." }
               },
@@ -6646,8 +6649,11 @@
                   ]
                 },
                 "answeredVia": {
-                  "description": "On a block: web or slack when the closing write arrived that way, else null; absent on other entries.",
-                  "anyOf": [{ "type": "string", "enum": ["web", "slack"] }, { "type": "null" }]
+                  "description": "On a block: web, slack, cli or mcp when the closing write arrived that way (cli and mcp as the board client reported it), else null; absent on other entries.",
+                  "anyOf": [
+                    { "type": "string", "enum": ["web", "slack", "cli", "mcp"] },
+                    { "type": "null" }
+                  ]
                 }
               },
               "required": ["id", "project", "kind", "severity", "text", "at", "task"],
@@ -6759,8 +6765,11 @@
                   ]
                 },
                 "answeredVia": {
-                  "description": "On a block: web or slack when the closing write arrived that way, else null; absent on other entries.",
-                  "anyOf": [{ "type": "string", "enum": ["web", "slack"] }, { "type": "null" }]
+                  "description": "On a block: web, slack, cli or mcp when the closing write arrived that way (cli and mcp as the board client reported it), else null; absent on other entries.",
+                  "anyOf": [
+                    { "type": "string", "enum": ["web", "slack", "cli", "mcp"] },
+                    { "type": "null" }
+                  ]
                 },
                 "handledAt": {
                   "type": "string",

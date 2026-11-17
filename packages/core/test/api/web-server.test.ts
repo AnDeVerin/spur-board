@@ -228,9 +228,11 @@ describe('web listener', () => {
       post('block.answer', { block: 'B1', text: 'Answer from browser' }),
     );
     expect(answer.statusCode).toBe(200);
-    const followup = await app.inject(
-      post('block.followup', { block: 'B1', text: 'Follow-up from browser' }),
-    );
+    // The web listener records its own write path whatever path a caller claims.
+    const followup = await app.inject({
+      ...post('block.followup', { block: 'B1', text: 'Follow-up from browser' }),
+      headers: { ...headers, 'x-board-via': 'cli' },
+    });
     expect(followup.statusCode).toBe(200);
     const comments = await store.db.selectFrom('comment').selectAll().execute();
     expect(comments).toHaveLength(3);

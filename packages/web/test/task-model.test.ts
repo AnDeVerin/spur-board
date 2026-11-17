@@ -336,6 +336,8 @@ describe('history rows', () => {
     ['operator', 'carrier', 'operator (carrier)'],
     ['agent:web/web-7', undefined, 'web-7'],
     ['agent:web/web-7', 'slack', 'web-7 (slack)'],
+    ['operator', 'cli', 'operator (cli)'],
+    ['agent:web/web-7', 'mcp', 'web-7 (mcp)'],
     ['operator', undefined, 'operator'],
     ['system', undefined, 'system'],
   ])('actor %s via %s reads %s', (actor, via, label) => {

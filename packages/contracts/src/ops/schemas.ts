@@ -111,7 +111,7 @@ export const taskBlockViewSchema = blockViewSchema
       .enum(VIAS)
       .nullable()
       .describe(
-        'Channel the closing write arrived through: web or slack; null while open or when it came through the CLI, MCP or the board itself.',
+        'Channel the closing write arrived through: web or slack, or cli or mcp as the board client reported it; null while open or when no channel was recorded.',
       ),
   })
   .describe('A block on a task, with the channel that closed it.');

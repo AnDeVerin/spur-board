@@ -221,6 +221,7 @@ describe('board mcp', () => {
         );
         expect(daemon.requests[0]?.headers['x-board-session']).toBe('session-1');
         expect(daemon.requests[0]?.headers['authorization']).toBeUndefined();
+        expect(daemon.requests[0]?.headers['x-board-via']).toBe('mcp');
         expect(daemon.requests[0]?.body.key).toBe('comment-PROJ-123-hello');
         expect(daemon.requests[0]?.body.input).toEqual({ task: 'PROJ-123', text: 'Hello' });
       },

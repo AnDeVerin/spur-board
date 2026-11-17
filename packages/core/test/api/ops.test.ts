@@ -19,6 +19,7 @@ import {
   type Query,
   type Store,
 } from '../../src/index.ts';
+import { emit } from '../../src/app/board-utils.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { openTempStore } from '../support/store.ts';
 
@@ -650,6 +651,97 @@ describe('catalog HTTP API', () => {
       expect(await store.db.selectFrom('command').select(['key', 'actor']).execute()).toEqual([
         { key: 'add-1', actor: 'operator' },
       ]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('journals the client write path from x-board-via', async () => {
+    const seen = vi.fn();
+    const add: Mutation<'task.add'> = {
+      id: 'task.add',
+      resolveTargets() {
+        return Promise.resolve([]);
+      },
+      async run(trx, input, ctx) {
+        seen(input);
+        await emit(
+          trx,
+          'comment_added',
+          'board',
+          null,
+          ctx.at,
+          { comment: 'C1', addressee: 'operator' },
+          ctx.actor,
+        );
+        return {
+          task: { key: input.task, project: 'board', column: 'todo', membership: 'active' },
+        };
+      },
+    };
+    const store = newStore();
+    const app = await server(store, { registry: { 'task.add': add } });
+    const newestVia = async () =>
+      (
+        await store.db
+          .selectFrom('event')
+          .select(['kind', 'via'])
+          .orderBy('id', 'desc')
+          .executeTakeFirstOrThrow()
+      ).via;
+    try {
+      const cases: [string | string[] | undefined, string | null][] = [
+        ['mcp', 'mcp'],
+        ['cli', 'cli'],
+        ['web', null],
+        ['slack', null],
+        ['bogus', null],
+        ['CLI', null],
+        [['cli', 'mcp'], null],
+        [undefined, null],
+      ];
+      for (const [index, [via, expected]] of cases.entries()) {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/v1/ops/task.add',
+          headers: {
+            host,
+            'content-type': 'application/json',
+            authorization: 'Bearer accepted',
+            ...(via === undefined ? {} : { 'x-board-via': via }),
+          },
+          payload: JSON.stringify({ input: { task: 'PROJ-123' }, key: `via-${String(index + 1)}` }),
+        });
+        expect(response.statusCode, String(via)).toBe(200);
+        expect(await newestVia(), String(via)).toBe(expected);
+      }
+      expect(seen).toHaveBeenCalledTimes(cases.length);
+
+      const before = await store.db.selectFrom('event').select('id').execute();
+      const denied = await app.inject({
+        method: 'POST',
+        url: '/v1/ops/task.add',
+        headers: {
+          host,
+          'content-type': 'application/json',
+          'x-board-session': 'session-1',
+          'x-board-via': 'mcp',
+        },
+        payload: JSON.stringify({ input: { task: 'PROJ-123' }, key: 'via-session' }),
+      });
+      expect(denied.statusCode).toBe(403);
+      expect(denied.json()).toMatchObject({ code: 'forbidden' });
+      expect(seen).toHaveBeenCalledTimes(cases.length);
+      const after = await store.db
+        .selectFrom('event')
+        .select(['kind', 'via'])
+        .where(
+          'id',
+          'not in',
+          before.map((row) => row.id),
+        )
+        .execute();
+      expect(after).toEqual([{ kind: 'operation_denied', via: 'mcp' }]);
     } finally {
       await app.close();
     }

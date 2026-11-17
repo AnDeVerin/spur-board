@@ -165,11 +165,12 @@ export const ACTORS = ['operator', 'agent', 'system'] as const;
 export type Actor = (typeof ACTORS)[number];
 
 /**
- * The channel a write arrived through, whoever the actor, journaled as `event.via`; a write
- * outside both has none. Named `via` because core keeps platform terms such as "channel" out of
- * its source.
+ * The channel a write arrived through, whoever the actor, journaled as `event.via`. The daemon
+ * sets `web` and `slack` where the write arrived; `cli` and `mcp` are what the `board` client
+ * reported in its `x-board-via` header; every other write has none. Named `via` because core
+ * keeps platform terms such as "channel" out of its source.
  */
-export const VIAS = ['web', 'slack'] as const;
+export const VIAS = ['web', 'slack', 'cli', 'mcp'] as const;
 export type Via = (typeof VIAS)[number];
 
 /** The stored state of an operator token. */
