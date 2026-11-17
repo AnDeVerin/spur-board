@@ -102,4 +102,4 @@ says what changed:
 
 Checks count the required ones, else all but skipped. A facts row leaves out what
 other rows say (head, checks, PR state, mergeability, reviews, ticket status) and
-update times; with nothing else changed it is not shown.
+update and activity times; with nothing else changed it is not shown.

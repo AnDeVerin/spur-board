@@ -40,7 +40,7 @@ is selected once configuration arrives. Back and Forward restore both layers.
   a write adds its channel: `operator (web)`, `operator (slack)`, `operator (cli)`,
   `operator (mcp)`; `cli` and `mcp` are what the client reported. An event kind
   this version does not know still shows, with its raw kind. A facts event that changed only
-  an update time, or only what another row already says, is not shown; a long summary wraps.
+  an update or activity time, or only what another row already says, is not shown; a long summary wraps.
   On a narrow screen the kind is hidden. A task with no events reads
   `No journal events for this task.`
 
