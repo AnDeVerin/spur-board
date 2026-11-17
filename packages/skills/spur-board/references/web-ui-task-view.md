@@ -34,8 +34,9 @@ is selected once configuration arrives. Back and Forward restore both layers.
 - `History` lists the task's journal events, newest first; events at the same time keep the
   reverse of their journal order. Each row shows the time (UTC, `hh:mm dd/mm/yy`), the summary
   with who did it, and the raw event kind, such as `turn_taken`. An agent reads as its session;
-  a write that came through the web UI or Slack adds its channel: `operator (web)`,
-  `operator (slack)`. An event kind this version does not know still shows, with its raw kind.
+  a write adds its channel: `operator (web)`, `operator (slack)`, `operator (cli)`,
+  `operator (mcp)`; `cli` and `mcp` are what the client reported. An event kind
+  this version does not know still shows, with its raw kind.
   On a narrow screen the kind is hidden. A task with no events reads
   `No journal events for this task.`
 
