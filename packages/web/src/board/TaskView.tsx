@@ -246,7 +246,7 @@ function TaskDiscussion({
         summary={`${String(blocks.filter((block) => block.state === 'open').length)} open`}
       >
         <div className={styles.items}>
-          {blocks.length === 0 && <p className={styles.note}>No blocks on this task.</p>}
+          {blocks.length === 0 && <p className={styles.empty}>No blocks on this task.</p>}
           {blocks.map((block) => {
             const question = block.type === 'needs_input';
             const mine = block.state === 'open' && block.addressee === 'operator';
@@ -296,6 +296,7 @@ function TaskDiscussion({
       </CollapsibleSection>
       <CollapsibleSection title="Comments" count={comments.length}>
         <div className={styles.items}>
+          {comments.length === 0 && <p className={styles.empty}>No comments on this task.</p>}
           {comments.map((comment) => (
             <article key={comment.id} className={`${quiet} ${styles.item ?? ''}`}>
               <div className={styles.metadata}>

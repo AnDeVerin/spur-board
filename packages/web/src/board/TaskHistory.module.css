@@ -35,7 +35,7 @@
 /* A task with no journal events. */
 .empty {
   margin: 0;
-  padding: var(--space-2) var(--space-2-5);
+  padding: var(--space-1-5) var(--space-2-5);
   color: var(--color-text-tertiary);
 }
 @media (max-width: 760px) {

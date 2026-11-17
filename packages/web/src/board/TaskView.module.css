@@ -34,6 +34,12 @@
   padding: var(--space-4) 0;
   color: var(--color-text-secondary);
 }
+/* Empty discussion rows use the same inner padding as Why rows. */
+.empty {
+  margin: 0;
+  padding: var(--space-1-5) var(--space-2-5);
+  color: var(--color-text-secondary);
+}
 .items {
   border: var(--size-hairline) solid var(--color-border-default);
 }

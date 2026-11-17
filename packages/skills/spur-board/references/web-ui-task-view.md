@@ -69,7 +69,8 @@ session identifiers as fallbacks; the operator reads as `you`. Empty blocks read
 
 Only an open question (`needs_input`) addressed to the operator has an answer form. **Send answer** calls
 `block.answer`. **Comments** lists task comments with their authors, ids and ages, excluding
-block replies. Its composer stays available with count zero. **Add comment** calls
+block replies. Empty comments read `No comments on this task.` above the usable composer.
+Empty Blocks, Comments and History lines use the same inner padding as Why rows. **Add comment** calls
 `comment.add` for the task. Follow-up, answering agent blocks, and editing or deleting comments
 remain outside this view.
 

@@ -292,7 +292,10 @@ describe('task discussion', () => {
     expect(sections[1]?.textContent).toContain('Blocks00 open');
     expect(sections[1]?.textContent).toContain('No blocks on this task.');
     expect(sections[2]?.textContent).toContain('Comments0');
+    expect(sections[2]?.textContent).toContain('No comments on this task.');
     expect(field().disabled).toBe(false);
+    typeText(field(), 'first comment');
+    expect(field().closest('form')?.querySelector('button')?.disabled).toBe(false);
   });
 
   it('open-first blocks, eligibility, closure channels, latest reply and task comments', async () => {
@@ -333,6 +336,7 @@ describe('task discussion', () => {
     expect(items[5]?.textContent).toContain('answered via cli');
     expect(items[6]?.textContent).toContain('answered via mcp');
     expect(items[7]?.textContent).toContain('C3 · you');
+    expect(dialog()?.textContent).not.toContain('No comments on this task.');
   });
 
   it.each([false, true])(
