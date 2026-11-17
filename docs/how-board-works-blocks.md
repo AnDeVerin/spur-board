@@ -19,6 +19,7 @@ rings the author like an answer and posts to the block's thread; the block
 stays closed, and the column and turn do not change.
 A task's blocks (`task.get`) carry `answeredVia`: `web`, `slack`, `cli` or `mcp`
 for an answer from there, else null.
+Its `comments` leave out a block's opening comment that repeats its reason.
 
 `projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
 `operator.slack`.
