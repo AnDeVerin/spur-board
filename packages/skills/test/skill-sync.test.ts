@@ -222,9 +222,7 @@ describe('product skill sync', () => {
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
     const guides = readdirSync(docsPath).filter((name) => /^how-board-works.*\.md$/.test(name));
-    expect(guides.sort()).toEqual(
-      guideNames.filter((name) => name.startsWith('how-board-works')).sort(),
-    );
+    expect(guides.sort()).toEqual(guideNames.filter((name) => name.startsWith('how-')).sort());
     for (const [index, reference] of guideTexts.entries()) {
       expect(reference).toBe(guideDocs[index]);
       expect(Buffer.byteLength(reference)).toBeLessThan(8192);
