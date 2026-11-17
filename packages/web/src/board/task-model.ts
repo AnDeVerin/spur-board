@@ -1,7 +1,7 @@
 import type { KeyValueStatus } from '../ds/index.ts';
 import { githubRef, sessionLinkHref, taskLinkHref, ticketBrowseHref } from '../lib/links.ts';
-import type { BoardTask } from './data.ts';
-import { shortKey } from './model.ts';
+import type { BoardHistory, BoardTask } from './data.ts';
+import { formatDataTime, shortKey } from './model.ts';
 
 type TaskWhy = NonNullable<BoardTask['why']>;
 type TaskGate = TaskWhy['gates'][number];
@@ -42,6 +42,33 @@ export function age(iso: string, now: number): string {
 /** `agent:<project>/<session>` reads as the session; operator and system stay. */
 export const actorName = (actor: string) =>
   actor.startsWith('agent:') ? actor.slice(actor.indexOf('/') + 1) : actor;
+
+/** The actor with the channel its write arrived through, when the journal has one. */
+export const actorLabel = (actor: string, via: string | undefined) =>
+  via === undefined ? actorName(actor) : `${actorName(actor)} (${via})`;
+
+/** One History row; the kind stays the raw journal kind, a kind this bundle does not know too. */
+export interface HistoryRow {
+  /** Journal position, stable while events only append. */
+  key: number;
+  time: string;
+  summary: string;
+  actor: string;
+  kind: string;
+}
+
+/** History rows newest first; events with one timestamp keep reverse journal order. */
+export function historyRows(events: BoardHistory['events']): HistoryRow[] {
+  return events
+    .map((event, index) => ({
+      key: index,
+      time: formatDataTime(Date.parse(event.at)),
+      summary: event.summary,
+      actor: actorLabel(event.actor, event.via),
+      kind: event.kind,
+    }))
+    .reverse();
+}
 
 /** Time in the task's column: since the last real move into it; none without such a move. */
 export function timeInColumn(value: BoardTask, now: number): string | undefined {

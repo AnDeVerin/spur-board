@@ -6,8 +6,12 @@ import {
 import type { z } from 'zod';
 
 type OperationId = keyof typeof browserOperations;
-type Input<K extends OperationId> = z.input<(typeof browserOperations)[K]['input']>;
-export type Output<K extends OperationId> = z.output<(typeof browserOperations)[K]['output']>;
+type Operation<K extends OperationId> = (typeof browserOperations)[K];
+type Input<K extends OperationId> = z.input<Operation<K>['input']>;
+/** What the browser reads: the operation's `read` schema when it has one, else its `output`. */
+export type Output<K extends OperationId> = z.output<
+  Operation<K> extends { read: z.ZodType } ? Operation<K>['read'] : Operation<K>['output']
+>;
 type ProblemCode = z.output<typeof problemSchema>['code'];
 /** A daemon problem answer: the message as the error's, and its stable code. */
 export class ProblemError extends Error {
@@ -43,7 +47,10 @@ export function createApi(fetcher: typeof fetch = fetch) {
       const problem = problemSchema.parse(value);
       throw new ProblemError(problem.message, problem.code);
     }
-    return operation.output.parse(successEnvelopeSchema.parse(value).value) as Output<K>;
+    const entry: { output: z.ZodType; read?: z.ZodType } = operation;
+    return (entry.read ?? entry.output).parse(
+      successEnvelopeSchema.parse(value).value,
+    ) as Output<K>;
   };
 }
 /** Own one instance per user intent. Retry uncertain outcomes on this same instance. */

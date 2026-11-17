@@ -1,5 +1,6 @@
-// Shared by the happy-dom board screen tests: board.test.ts and board-card.test.ts. A test file
-// calls mountEachTest() once, then mounts a Board on a fake daemon with mount().
+// Shared by the happy-dom board screen tests: board.test.ts, board-card.test.ts and
+// board-task-history.test.ts. A test file calls mountEachTest() once, then mounts a Board on a
+// fake daemon with mount().
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, vi } from 'vitest';

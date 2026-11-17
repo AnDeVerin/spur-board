@@ -17,7 +17,7 @@
   flex-wrap: wrap;
   gap: var(--space-1-5);
 }
-/* One line in place of the panel: not found, or the History placeholder. */
+/* One line in place of the panel: the task is not found. */
 .note {
   margin: 0;
   padding: var(--space-4) 0;

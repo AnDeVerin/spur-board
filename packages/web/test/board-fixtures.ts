@@ -1,7 +1,7 @@
 import { browserOperations } from '@spur-board/contracts/browser';
 
 /** Board screen fixtures: config, `status.get` rows and a fake daemon with its event stream. */
-type OpId = 'config.get' | 'status.get' | 'inbox.operator' | 'task.get';
+type OpId = 'config.get' | 'status.get' | 'inbox.operator' | 'task.get' | 'task.history';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
@@ -257,13 +257,57 @@ export const taskGet = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-/** Fake daemon: the four reads by route and an event stream the test writes to. */
+/** A journal event of `task.history`; `via` only when given. */
+export const historyEvent = (
+  at: string,
+  kind: string,
+  actor: string,
+  summary: string,
+  via?: string,
+) => ({
+  at,
+  kind,
+  actor,
+  ...(via === undefined ? {} : { via }),
+  summary,
+});
+/**
+ * `task.history` of `ex/repo#7`, oldest first: added at `T`, a worker turn opened, taken by
+ * session web-7 and closed, an operator comment from the web, a block answered from Slack, and two
+ * events with one timestamp.
+ */
+export const taskHistory = (
+  events: unknown[] = [
+    historyEvent('2026-11-15T14:40:00.000Z', 'task_added', 'operator', 'Added to Dev.'),
+    historyEvent(
+      '2026-11-15T14:41:00.000Z',
+      'turn_opened',
+      'system',
+      'Opened a worker turn in Dev.',
+    ),
+    historyEvent('2026-11-15T14:42:00.000Z', 'turn_taken', 'agent:web/web-7', 'Took the turn.'),
+    historyEvent('2026-11-15T14:45:00.000Z', 'turn_closed', 'agent:web/web-7', 'Closed the turn.'),
+    historyEvent('2026-11-15T14:50:00.000Z', 'comment_added', 'operator', 'Commented.', 'web'),
+    historyEvent(
+      '2026-11-15T14:55:00.000Z',
+      'block_unblocked',
+      'operator',
+      'Answered B12.',
+      'slack',
+    ),
+    historyEvent('2026-11-15T15:00:00.000Z', 'task_moved', 'system', 'Moved to Review.'),
+    historyEvent('2026-11-15T15:00:00.000Z', 'flag_raised', 'system', 'Raised a flag.'),
+  ],
+) => ({ task: taskGet().task, events });
+
+/** Fake daemon: the five reads by route and an event stream the test writes to. */
 export function daemon() {
   const routes: Record<OpId, Route> = {
     'config.get': () => Promise.resolve(envelope(config)),
     'status.get': () => Promise.resolve(envelope(status())),
     'inbox.operator': () => Promise.resolve(envelope(inbox(2))),
     'task.get': () => Promise.resolve(envelope(taskGet())),
+    'task.history': () => Promise.resolve(envelope(taskHistory())),
   };
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
   let streamFails = false;

@@ -1,0 +1,45 @@
+/* The History tab: one quiet row per journal event, newest first. */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-3);
+}
+.table td {
+  padding: var(--space-1-5) var(--space-2) var(--space-1-5) 0;
+  vertical-align: top;
+  border-bottom: var(--size-hairline) solid var(--color-border-subtle);
+}
+.when {
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.what {
+  width: 100%;
+  color: var(--color-text-secondary);
+}
+.actor {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-medium);
+}
+/* The raw journal kind, quiet until its row is hovered or focused. */
+.table .kind {
+  padding-top: var(--space-2);
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
+}
+.loading {
+  padding: var(--space-3) 0;
+}
+/* A task with no journal events. */
+.empty {
+  margin: 0;
+  padding: var(--space-2) var(--space-2-5);
+  color: var(--color-text-tertiary);
+}
+@media (max-width: 760px) {
+  .kind {
+    display: none;
+  }
+}
