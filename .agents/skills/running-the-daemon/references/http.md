@@ -28,8 +28,9 @@ browser/proxy -> Web Fastify (web.port) -> shared ops route -> registry
 
 - Require exact resolved public-origin Host, exact Origin on methods other than GET/HEAD, JSON POST and no `Sec-Fetch-Site: cross-site`; never add CORS headers or trust proxy identity.
 - Serve only bound catalog operations, health, the event stream and memory-mapped static assets; leave token, skill, schema and doctor routes absent.
-- Identify every web operation as operator and allow it only when `operation.web !== null`; keep the two enabled writes in the catalog.
+- Identify every web operation as operator and allow it only when `operation.web !== null`; keep the three enabled writes in the catalog.
 - Wrap request dispatch with `withVia('web', fn)` so journal events and history retain `via: web`; keep `afterOperation` and detached job triggers outside that scope.
+- Read `x-board-via` only in the agent API's `identify` (`packages/core/src/api/server.ts`): keep exactly `cli` or `mcp`, ignore any other value without an error, and wrap only `dispatch` in `withVia` (`packages/core/src/api/ops-route.ts`). The web listener never reads it.
 - Reject raw and encoded traversal before fallback; use index fallback only for extensionless paths outside the `/v1/` namespace, and return the build-hint 503 when index is absent.
 - The build-hint 503 and the event stream's 33rd-connection 503 (`text/plain`, `Retry-After: 5`) are the deliberate exceptions to one problem shape: no browser or proxy reads a problem body there.
 - Set CSP (`default-src 'self'; frame-ancestors 'none'`), DENY, nosniff and no-referrer on every response.
