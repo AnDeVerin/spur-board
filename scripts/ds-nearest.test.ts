@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { COLOUR_LIMIT, SIZE_LIMIT_PX, deltaE2000, nearest } from './ds-nearest.ts';
+import { COLOUR_LIMIT, SIZE_LIMIT_PX, UNITLESS_LIMITS, deltaE2000, nearest } from './ds-nearest.ts';
 
 const SCRIPT = join(import.meta.dirname, 'ds-nearest.ts');
 const DOC = readFileSync(join(import.meta.dirname, '../docs/design-system-decisions.md'), 'utf8');
@@ -113,7 +113,7 @@ describe('nearest size', () => {
     ['1.2E1px', 'in'],
     ['-12px', 'in'],
     ['.5e2px', 'out'],
-    ['12', 'no scale for this unit'],
+    ['12', 'a unitless value needs --family'],
     ['12 px', 'composite value'],
     ['1e', 'no scale for this unit'],
     ['px', 'no scale for this unit'],
@@ -140,6 +140,65 @@ describe('nearest size', () => {
   });
 });
 
+describe('nearest unitless', () => {
+  const FAMILIES = 'weight, leading, stroke, opacity, lines, z, radius';
+
+  it('puts an exact font weight in with its token', () => {
+    expect(lines(['500', '--family', 'weight'])).toEqual([
+      'unitless difference within --weight-*; in when Δ ≤ 0 in both themes',
+      'dark  500: --weight-medium 500 - Δ 0 - in',
+      'light 500: --weight-medium 500 - Δ 0 - in',
+      'verdict: in --weight-medium',
+    ]);
+  });
+
+  it(`puts a line height ${String(UNITLESS_LIMITS.leading)} away in and further out`, () => {
+    const near = lines(['1.45', '--family', 'leading']);
+    expect(line(near, 'dark')).toBe('dark  1.45: --leading-title 1.4 - Δ 0.05 - in');
+    expect(near.at(-1)).toBe('verdict: in --leading-title');
+    expect(lines(['1.5', '--family', 'leading']).at(-1)).toBe('verdict: out');
+  });
+
+  it('compares only tokens of the given family', () => {
+    const leading = lines(['1.6', '--family', 'leading']);
+    expect(leading.at(-1)).toBe('verdict: out');
+    expect(leading.join('\n')).not.toContain('--stroke-icon');
+    const weight = lines(['400', '--family', 'weight']);
+    expect(line(weight, 'dark')).toMatch(/Δ 100 - out$/);
+    expect(weight.at(-1)).toBe('verdict: out');
+  });
+
+  it('compares the sign and matches the unitless radius', () => {
+    expect(lines(['-1', '--family', 'z']).at(-1)).toBe('verdict: out');
+    expect(lines(['0', '--family', 'radius']).at(-1)).toBe('verdict: in --radius');
+  });
+
+  it('reads the families from tokens.css', () => {
+    const css = TOKENS.replace(':root {', ':root {\n  --foo-bar: 3;');
+    const result = nearest(css, ['3', '--family', 'foo']);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.lines.at(-1)).toBe('verdict: in --foo-bar');
+  });
+
+  it('refuses a unitless value without a known family', () => {
+    const missing = refused(['500']);
+    expect(missing).toContain('--family');
+    expect(missing).toContain(FAMILIES);
+    expect(refused(['500', '--family', 'text'])).toContain(
+      `unknown family text - --family takes one of: ${FAMILIES}`,
+    );
+  });
+
+  it.each([
+    [['13px', '--family', 'space'], '--family applies only to a unitless value'],
+    [['500', '--family'], '--family needs a name'],
+    [['500', '--family', 'weight', '--family', 'weight'], '--family given twice'],
+    [['1', '2', '--family', 'z'], 'a unitless value takes one argument'],
+  ])('refuses %j', (args, expected) => {
+    expect(refused(args)).toContain(expected);
+  });
+});
+
 describe('refused values', () => {
   it.each(['#5aa8ff80', '#fff8', 'rgba(0,0,0,.5)', 'rgba(0, 0, 0, 0.5)'])(
     'routes alpha %s to new token, not to the composite rule',
@@ -155,9 +214,18 @@ describe('refused values', () => {
     expect(refused(['#5aa8ff', '#0969da80'])).toContain('`new token`');
   });
 
-  it.each(['0.02em', '0', '50%'])('routes %s to new token', (value) => {
-    expect(refused([value])).toContain('no scale for this unit - decide it as `new token`');
-    expect(refused([value])).toContain('keep a `structural literal`');
+  it.each(['0.02em', '50%'])('routes %s to a family check by hand', (value) => {
+    const error = refused([value]);
+    expect(error).toContain('no scale for this unit - keep a `structural literal`');
+    expect(error).toContain('by hand');
+    expect(error).toContain('`nearest token`');
+    expect(error).toContain('`new token`');
+  });
+
+  it('routes a bare 0 to the structural literal before any family check', () => {
+    const error = refused(['0']);
+    expect(error).toContain('a unitless value needs --family');
+    expect(error).toContain('keep a `structural literal`');
   });
 
   it('asks to split a composite value into its parts', () => {
@@ -193,6 +261,19 @@ describe('ds:nearest CLI', () => {
     expect(result.stderr).toContain('`new token`');
   });
 
+  it('exits 0 for a unitless value with its family', () => {
+    const result = run(['500', '--family', 'weight']);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^verdict: in --weight-medium$/m);
+  });
+
+  it('exits 2 for a unitless value without --family', () => {
+    const result = run(['500']);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('--family');
+  });
+
   it('exits 2 without an argument', () => {
     const result = run([]);
     expect(result.status).toBe(2);
@@ -207,5 +288,16 @@ describe('docs/design-system-decisions.md', () => {
     expect(DOC).toContain(
       'The reviewer accepts or rejects each row; a difference missing from the section is a finding.',
     );
+  });
+
+  it('states every unitless limit and routes an equal token to nearest token', () => {
+    for (const [family, limit] of Object.entries(UNITLESS_LIMITS)) {
+      expect(DOC).toContain(`\`${family}\` Δ ≤ ${String(limit)}`);
+    }
+    expect(DOC).toContain('any other family Δ ≤ 0 (exact)');
+    expect(DOC).not.toContain('or a refusal from the script.');
+    expect(DOC).toContain('pnpm ds:nearest 500 --family weight');
+    expect(DOC).toContain('pnpm ds:nearest 0 --family radius');
+    for (const output of lines(['500', '--family', 'weight'])) expect(DOC).toContain(output);
   });
 });

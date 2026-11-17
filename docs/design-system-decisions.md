@@ -21,22 +21,22 @@ The prototype shows intent; it never overrides a ds component that already cover
 
 Each difference between the prototype and the build gets exactly one code.
 
-| Code                        | When                                                                                                          | Decision                                                                                           | Evidence required                                                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `match`                     | The prototype mounts a ds component and the build uses it the same way.                                       | Use the ds part as is.                                                                             | Gallery example name, e.g. `Chip / Warn`.                                                                                  |
-| `hand-built → base as is`   | The prototype hand-built a part that a ds component already covers.                                           | Use the ds component; the code wins over the prototype's look.                                     | Component name and gallery example.                                                                                        |
-| `new base`                  | A hand-built part is shared by two or more screens, or the prototype README lists it as design system.        | Add it to `packages/web/src/ds/` with examples.                                                    | The prototype README row, or the screens that share it.                                                                    |
-| `screen-local`              | A hand-built part serves one screen only.                                                                     | Build it outside `ds/` from ds components and tokens.                                              | The one screen that uses it.                                                                                               |
-| `DS override → new variant` | The prototype restyles a ds component with screen CSS.                                                        | Add a variant prop and an example to the component; never override it from screen CSS.             | The new prop and its gallery example.                                                                                      |
-| `functional gap → prop`     | A ds component lacks behaviour the screen needs.                                                              | Add a prop; the default behaviour stays unchanged.                                                 | The new prop and its gallery example.                                                                                      |
-| `older kit (<commit>)`      | The prototype mounts a kit older than the current `ds/`, and the component changed since.                     | Follow the current `ds/`.                                                                          | Output of the older kit command below.                                                                                     |
-| `nearest token`             | `pnpm ds:nearest` gives a `--proposed-*` value or a literal `verdict: in` with a token of the value's family. | Use that token of the value's family.                                                              | `pnpm ds:nearest` output with `verdict: in` listing a token of the value's family.                                         |
-| `new token`                 | A value gets `verdict: out`, a `verdict: in` that lists no token of its family, or a refusal from the script. | Name it in `tokens.css` with a value in both themes, per the `design-system` skill's tokens rules. | `pnpm ds:nearest` output with `verdict: out` or with `verdict: in` listing no token of the value's family, or the refusal. |
-| `default change avoided`    | The prototype needs a ds component to look different from its default.                                        | Keep the default and pass a prop at the call site; changing a default needs `operator decision`.   | The prop passed at the call site.                                                                                          |
-| `structural literal`        | A value places or sizes a box to its container (list below).                                                  | Keep the literal.                                                                                  | The property and value, e.g. `.menu bottom: 100%`.                                                                         |
-| `breakpoint`                | A viewport width in a media query (below).                                                                    | Use an entry of `breakpoints`, written as the same literal.                                        | The entry name, e.g. `breakpoints.narrow`.                                                                                 |
-| `ticket over prototype`     | The ticket and the prototype disagree.                                                                        | Build what the ticket says.                                                                        | A quote of the ticket.                                                                                                     |
-| `operator decision`         | The operator decided the case.                                                                                | Follow the decision.                                                                               | Session and date of the decision.                                                                                          |
+| Code                        | When                                                                                                                                                                                                     | Decision                                                                                           | Evidence required                                                                                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `match`                     | The prototype mounts a ds component and the build uses it the same way.                                                                                                                                  | Use the ds part as is.                                                                             | Gallery example name, e.g. `Chip / Warn`.                                                                                                                  |
+| `hand-built → base as is`   | The prototype hand-built a part that a ds component already covers.                                                                                                                                      | Use the ds component; the code wins over the prototype's look.                                     | Component name and gallery example.                                                                                                                        |
+| `new base`                  | A hand-built part is shared by two or more screens, or the prototype README lists it as design system.                                                                                                   | Add it to `packages/web/src/ds/` with examples.                                                    | The prototype README row, or the screens that share it.                                                                                                    |
+| `screen-local`              | A hand-built part serves one screen only.                                                                                                                                                                | Build it outside `ds/` from ds components and tokens.                                              | The one screen that uses it.                                                                                                                               |
+| `DS override → new variant` | The prototype restyles a ds component with screen CSS.                                                                                                                                                   | Add a variant prop and an example to the component; never override it from screen CSS.             | The new prop and its gallery example.                                                                                                                      |
+| `functional gap → prop`     | A ds component lacks behaviour the screen needs.                                                                                                                                                         | Add a prop; the default behaviour stays unchanged.                                                 | The new prop and its gallery example.                                                                                                                      |
+| `older kit (<commit>)`      | The prototype mounts a kit older than the current `ds/`, and the component changed since.                                                                                                                | Follow the current `ds/`.                                                                          | Output of the older kit command below.                                                                                                                     |
+| `nearest token`             | `pnpm ds:nearest` gives a `--proposed-*` value or a literal `verdict: in` with a token of the value's family, or a check by hand finds a token of the value's family equal to the value.                 | Use that token of the value's family.                                                              | `pnpm ds:nearest` output with `verdict: in` listing a token of the value's family, or the family checked and the equal token.                              |
+| `new token`                 | No token of the value's family equals the value: after `verdict: out`, a `verdict: in` that lists no token of its family, or a refusal, the family checked by hand in `tokens.css` holds no equal token. | Name it in `tokens.css` with a value in both themes, per the `design-system` skill's tokens rules. | `pnpm ds:nearest` output with `verdict: out` or with `verdict: in` listing no token of the value's family, or the refusal; and the family checked by hand. |
+| `default change avoided`    | The prototype needs a ds component to look different from its default.                                                                                                                                   | Keep the default and pass a prop at the call site; changing a default needs `operator decision`.   | The prop passed at the call site.                                                                                                                          |
+| `structural literal`        | A value places or sizes a box to its container (list below).                                                                                                                                             | Keep the literal.                                                                                  | The property and value, e.g. `.menu bottom: 100%`.                                                                                                         |
+| `breakpoint`                | A viewport width in a media query (below).                                                                                                                                                               | Use an entry of `breakpoints`, written as the same literal.                                        | The entry name, e.g. `breakpoints.narrow`.                                                                                                                 |
+| `ticket over prototype`     | The ticket and the prototype disagree.                                                                                                                                                                   | Build what the ticket says.                                                                        | A quote of the ticket.                                                                                                                                     |
+| `operator decision`         | The operator decided the case.                                                                                                                                                                           | Follow the decision.                                                                               | Session and date of the decision.                                                                                                                          |
 
 Record `operator decision` only for a decision the operator made in person, named in the task or
 answered by the operator; an answer from the curator or a reviewer applies an existing rule, so its
@@ -76,6 +76,7 @@ hex: an unquoted `#` starts a shell comment.
 pnpm ds:nearest '#5aa8ff'            # one colour, both themes
 pnpm ds:nearest '#5aa8ff' '#0969da'  # dark value, then light value
 pnpm ds:nearest 13px
+pnpm ds:nearest 500 --family weight  # a unitless value within one token family
 ```
 
 - Colours are compared by CIEDE2000 after converting sRGB (IEC 61966-2-1) to CIELAB under the D65
@@ -84,16 +85,29 @@ pnpm ds:nearest 13px
 - Sizes are compared by the absolute px difference against the `px` tokens. A size is in when the
   difference is ≤ 1px. A size is any CSS number with `px`, in any case (`12px`, `.5px`,
   `1.2e1px`). A negative value is compared by its size; write it as `calc(-1 * var(--token))`.
-- Both limits are inclusive. When several tokens share the minimum distance, the line lists all
-  of them.
+- A unitless value (a bare CSS number such as `500`, `1.4` or `0.25`) takes `--family <name>`, the
+  first segment of its tokens' names in `tokens.css`: `font-weight` takes `weight`,
+  `line-height` takes `leading`, `opacity` takes `opacity`, `z-index` takes `z`, `stroke-width`
+  takes `stroke`, `line-clamp` takes `lines`, a unitless `border-radius` takes `radius`. The
+  candidates are the unitless tokens named `--<name>` or `--<name>-*`, compared by the signed
+  difference (`-1` is 2 from `1`). The limits are `leading` Δ ≤ 0.05, `opacity` Δ ≤ 0.05,
+  `stroke` Δ ≤ 0.05; any other family Δ ≤ 0 (exact), so an equal value is always in. A refusal
+  lists the families `tokens.css` has.
+- All limits are inclusive. When several tokens share the minimum distance, the line lists all
+  of them (`0.25 --family opacity` lists `--opacity-skeleton-pulse, --opacity-dimmed`); pick one
+  by meaning.
 - `verdict: in <tokens>` lists every token that is nearest and within the limit in both themes.
-  Record `nearest token` when it lists a token of the value's family (next bullet); otherwise, and
-  on `verdict: out`, record `new token`.
+  Record `nearest token` when it lists a token of the value's family (next bullet). Otherwise,
+  and on `verdict: out`, look in `tokens.css` for a token of the value's family that equals the
+  value and that the script did not compare: `border-radius: 0px` equals `--radius: 0`, so run
+  `pnpm ds:nearest 0 --family radius`. An equal token is `nearest token`; none is `new token`,
+  with the family checked named in the evidence.
 - The family rule holds for every verdict: a text size takes `--text-*`, spacing takes
   `--space-*`, an element size takes `--size-*`. When the verdict lists several tokens (`13px`
   gives `--text-body, --text-lead, --space-3, --size-icon`), pick one from the value's family; when it
-  lists none from that family, record `new token`, even if a token of another family is nearer (a
-  `42px` gap gives `in --size-header`: `new token`).
+  lists none from that family, check the family for an equal token as above, and record
+  `new token` only when there is none. A token of another family never counts, even if it is
+  nearer (a `42px` gap gives `in --size-header` and no `--space-*` equals 42px: `new token`).
 - Exit 0 for any computed result, in or out; exit 2 for a refused value.
 
 ```text
@@ -104,15 +118,30 @@ light #5aa8ff: --color-text-tertiary #818b98 - ΔE00 18.64 - out
 verdict: out
 ```
 
+```text
+$ pnpm ds:nearest 500 --family weight
+unitless difference within --weight-*; in when Δ ≤ 0 in both themes
+dark  500: --weight-medium 500 - Δ 0 - in
+light 500: --weight-medium 500 - Δ 0 - in
+verdict: in --weight-medium
+```
+
 ### Values the script refuses
 
-- An alpha colour (`#rgba`, `#rrggbbaa`, `rgba(...)`): decide it as `new token`, or record
-  `operator decision` to keep it.
+Each route below ends the same way: an equal token of the value's family is `nearest token`, none
+is `new token`, and the evidence names the family checked; or record `operator decision` to keep
+the literal.
+
+- A structural literal (`0`, `100%`, a keyframe stop, `1` or `-1` as a multiplier, below) stays
+  literal: record `structural literal`. Check this first.
+- A unitless value without `--family` (`0.6`): run it again with its property's family
+  (`pnpm ds:nearest 0.6 --family opacity`).
+- An alpha colour (`#rgba`, `#rrggbbaa`, `rgba(...)`): compare it by hand with the alpha
+  `--color-*` tokens of each theme.
+- Any other unit (`em`, `s`, `deg`, `%`): check the value's family in `tokens.css` by hand
+  (`0.02em` letter spacing equals `--tracking-body`).
 - A composite value such as `1px dashed var(--color-border-strong)`: run each colour or px part on
   its own; keywords such as `dashed` and `var()` parts need no check.
-- A structural literal (`0`, `100%`, a keyframe stop, below) stays literal: record
-  `structural literal`. Any other unit or unitless value (`em`, `%`, `0.6`): decide it as
-  `new token`, or record `operator decision` to keep the literal.
 
 ## Structural literals and breakpoints
 

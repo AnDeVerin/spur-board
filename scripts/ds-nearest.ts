@@ -1,7 +1,8 @@
-// `pnpm ds:nearest '<hex>' ['<light hex>'] | <n>px`: the nearest design token per theme and an
-// in/out verdict. Colours are compared by CIEDE2000 (sRGB, IEC 61966-2-1, to CIELAB under D65,
-// no chromatic adaptation); sizes by the absolute px difference. Exit 0 for any computed result,
-// 2 for a value the script refuses. Thresholds, reason codes and routes:
+// `pnpm ds:nearest '<hex>' ['<light hex>'] | <n>px | <number> --family <name>`: the nearest design
+// token per theme and an in/out verdict. Colours are compared by CIEDE2000 (sRGB, IEC 61966-2-1,
+// to CIELAB under D65, no chromatic adaptation); sizes by the absolute px difference; a unitless
+// value by the difference to the unitless tokens of its family (`--<name>-*`). Exit 0 for any
+// computed result, 2 for a value the script refuses. Thresholds, reason codes and routes:
 // docs/design-system-decisions.md.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -10,6 +11,15 @@ import { join } from 'node:path';
 export const COLOUR_LIMIT = 5;
 /** A size is `in` when the px difference to the nearest token is at most this (inclusive). */
 export const SIZE_LIMIT_PX = 1;
+/**
+ * A unitless value is `in` when its difference to the nearest token of its family is at most
+ * this (inclusive). A family not listed here matches only an equal token.
+ */
+export const UNITLESS_LIMITS: Readonly<Record<string, number>> = {
+  leading: 0.05,
+  opacity: 0.05,
+  stroke: 0.05,
+};
 
 const TOKENS = join(import.meta.dirname, '../packages/web/src/ds/tokens.css');
 const DOC = 'docs/design-system-decisions.md';
@@ -18,11 +28,12 @@ const LIGHT_BLOCK = ":root[data-theme='light'] {";
 const TIE = 1e-9;
 
 const USAGE =
-  "usage: pnpm ds:nearest '<hex>' ['<light hex>'] | <n>px - quote a hex: an unquoted # starts a shell comment";
-const ALPHA = `alpha colours are not compared - decide it as \`new token\`, or \`operator decision\` to keep it (${DOC})`;
+  "usage: pnpm ds:nearest '<hex>' ['<light hex>'] | <n>px | <number> --family <name> - quote a hex: an unquoted # starts a shell comment";
+const ALPHA = `alpha colours are not compared - check the alpha \`--color-*\` tokens of each theme by hand and name the family in the evidence: an equal token is \`nearest token\`, none is \`new token\`, or \`operator decision\` to keep it (${DOC})`;
 const COMPOSITE = `composite value - run each colour or px part on its own; keywords and \`var()\` parts need no check (${DOC})`;
 const NOT_FINITE = `not a finite number - ${USAGE}`;
-const NO_SCALE = `no scale for this unit - decide it as \`new token\`, keep a \`structural literal\`, or \`operator decision\` to keep the literal (${DOC})`;
+const NO_SCALE = `no scale for this unit - keep a \`structural literal\`; otherwise check the value's family in tokens.css by hand and name it in the evidence: an equal token is \`nearest token\`, none is \`new token\`, or \`operator decision\` to keep the literal (${DOC})`;
+const FAMILY_FLAG = '--family';
 
 type Lab = readonly [number, number, number];
 type Theme = 'dark' | 'light';
@@ -124,8 +135,10 @@ function themeTokens(css: string): Record<Theme, [string, string][]> | undefined
 
 const OPAQUE_HEX = /^#(?:[\da-f]{3}|[\da-f]{6})$/i;
 const ALPHA_HEX = /^#(?:[\da-f]{4}|[\da-f]{8})$/i;
-// A CSS <number> followed by `px`, any case: sign, digits or a leading-dot fraction, exponent.
-const PX = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)px$/i;
+// A CSS <number>: sign, digits or a leading-dot fraction, exponent. `PX` adds `px`, any case.
+const NUMBER_SOURCE = String.raw`[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?`;
+const PX = new RegExp(`^(${NUMBER_SOURCE})px$`, 'i');
+const NUMBER = new RegExp(`^${NUMBER_SOURCE}$`, 'i');
 const NEGATIVE_NOTE =
   'a negative value is compared by its size; write it as calc(-1 * var(--token))';
 
@@ -135,11 +148,30 @@ function pxValue(value: string): number | undefined {
   return match === null ? undefined : Number(match[1]);
 }
 
-/** Refusal for one argument, or undefined when it is an opaque hex or a px size. */
+/** The value of a bare CSS number such as `0.4`, or undefined when it is not one. */
+function unitlessValue(value: string): number | undefined {
+  return NUMBER.test(value) ? Number(value) : undefined;
+}
+
+/** Whether a token name belongs to `family`: `--<family>` or `--<family>-*`. */
+const inFamily = (name: string, family: string) =>
+  name === `--${family}` || name.startsWith(`--${family}-`);
+
+/** Families (first name segment) of the unitless tokens, in file order. */
+function unitlessFamilies(tokens: Record<Theme, [string, string][]>): string[] {
+  const families = [...tokens.dark, ...tokens.light].flatMap(([name, value]) =>
+    unitlessValue(value) === undefined ? [] : [name.slice(2).split('-')[0] ?? ''],
+  );
+  return [...new Set(families)];
+}
+
+/** Refusal for one argument, or undefined when it is an opaque hex, a px size or a number. */
 function refusal(arg: string): string | undefined {
   if (ALPHA_HEX.test(arg) || /^rgba\s*\(/i.test(arg)) return ALPHA;
   if (/\s/.test(arg)) return COMPOSITE;
   if (OPAQUE_HEX.test(arg)) return undefined;
+  const unitless = unitlessValue(arg);
+  if (unitless !== undefined) return Number.isFinite(unitless) ? undefined : NOT_FINITE;
   const px = pxValue(arg);
   if (px === undefined) return NO_SCALE;
   return Number.isFinite(px) ? undefined : NOT_FINITE;
@@ -180,12 +212,29 @@ function closest(
 
 /** The nearest tokens per theme for `args` against the text of tokens.css, as printable lines. */
 export function nearest(tokensCss: string, args: readonly string[]): NearestResult {
-  const [first, second, ...rest] = args.map((a) => a.trim());
+  const trimmed = args.map((a) => a.trim());
+  const flags = trimmed.flatMap((a, i) => (a === FAMILY_FLAG ? [i] : []));
+  if (flags.length > 1) return { ok: false, error: `${FAMILY_FLAG} given twice - ${USAGE}` };
+  const flagAt = flags[0];
+  const family = flagAt === undefined ? undefined : trimmed[flagAt + 1];
+  if (flagAt !== undefined && (family === undefined || family === '')) {
+    return { ok: false, error: `${FAMILY_FLAG} needs a name - ${USAGE}` };
+  }
+  const positional =
+    flagAt === undefined ? trimmed : trimmed.filter((_, i) => i !== flagAt && i !== flagAt + 1);
+  const [first, second, ...rest] = positional;
   if (first === undefined || first === '') return { ok: false, error: USAGE };
   if (rest.length > 0) return { ok: false, error: `too many arguments - ${USAGE}` };
   for (const arg of [first, second]) {
     const refused = arg === undefined ? undefined : refusal(arg);
     if (refused !== undefined) return { ok: false, error: refused };
+  }
+  const isUnitless = [first, second].some((a) => a !== undefined && NUMBER.test(a));
+  if (isUnitless && second !== undefined) {
+    return { ok: false, error: `a unitless value takes one argument - ${USAGE}` };
+  }
+  if (!isUnitless && family !== undefined) {
+    return { ok: false, error: `${FAMILY_FLAG} applies only to a unitless value - ${USAGE}` };
   }
   const isColour = OPAQUE_HEX.test(first);
   if (!isColour && second !== undefined) {
@@ -201,9 +250,40 @@ export function nearest(tokensCss: string, args: readonly string[]): NearestResu
       error: `tokens.css lacks the \`${DARK_BLOCK}\` or \`${LIGHT_BLOCK}\` block`,
     };
   }
+  if (isUnitless) {
+    const families = unitlessFamilies(tokens).join(', ');
+    if (family === undefined) {
+      return {
+        ok: false,
+        error: `a unitless value needs ${FAMILY_FLAG} <name>, one of: ${families} - keep a \`structural literal\` (\`0\` that places a box, \`1\` or \`-1\` as a multiplier) without a check (${DOC})`,
+      };
+    }
+    if (!unitlessFamilies(tokens).includes(family)) {
+      return {
+        ok: false,
+        error: `unknown family ${family} - ${FAMILY_FLAG} takes one of: ${families}`,
+      };
+    }
+  }
+  const unitlessLimit = family === undefined ? 0 : (UNITLESS_LIMITS[family] ?? 0);
 
   const matches: ThemeMatch[] = (['dark', 'light'] as const).map((theme) => {
     const input = theme === 'light' && second !== undefined ? second : first;
+    if (family !== undefined) {
+      const value = Number(input);
+      const candidates = tokens[theme].filter(
+        ([name, v]) => inFamily(name, family) && Number.isFinite(unitlessValue(v)),
+      );
+      return {
+        theme,
+        input,
+        ...closest(
+          candidates,
+          (v) => Math.abs((unitlessValue(v) ?? NaN) - value),
+          unitlessLimit + TIE,
+        ),
+      };
+    }
     if (isColour) {
       const lab = hexToLab(input);
       const candidates = tokens[theme].filter(([, v]) => OPAQUE_HEX.test(v));
@@ -227,14 +307,22 @@ export function nearest(tokensCss: string, args: readonly string[]): NearestResu
 
   const [dark, light] = matches as [ThemeMatch, ThemeMatch];
   const both = dark.within && light.within ? dark.names.filter((n) => light.names.includes(n)) : [];
-  const header = isColour
-    ? `CIEDE2000, sRGB to CIELAB D65; in when ΔE00 ≤ ${String(COLOUR_LIMIT)} in both themes`
-    : `px difference; in when ≤ ${String(SIZE_LIMIT_PX)}px in both themes`;
+  const header =
+    family !== undefined
+      ? `unitless difference within --${family}-*; in when Δ ≤ ${String(unitlessLimit)} in both themes`
+      : isColour
+        ? `CIEDE2000, sRGB to CIELAB D65; in when ΔE00 ≤ ${String(COLOUR_LIMIT)} in both themes`
+        : `px difference; in when ≤ ${String(SIZE_LIMIT_PX)}px in both themes`;
   const lines = [
     header,
     ...matches.map((m) => {
       const set = m.names.map((n, i) => `${n} ${m.values[i] ?? ''}`).join(', ');
-      const distance = isColour ? `ΔE00 ${m.distance.toFixed(2)}` : `Δ ${String(m.distance)}px`;
+      const distance =
+        family !== undefined
+          ? `Δ ${String(Number(m.distance.toFixed(4)))}`
+          : isColour
+            ? `ΔE00 ${m.distance.toFixed(2)}`
+            : `Δ ${String(m.distance)}px`;
       const negative = !isColour && (pxValue(m.input) ?? 0) < 0 ? ` (${NEGATIVE_NOTE})` : '';
       return `${m.theme.padEnd(5)} ${m.input}: ${set} - ${distance} - ${m.within ? 'in' : 'out'}${negative}`;
     }),
