@@ -5,8 +5,6 @@
 # means a full run; a dispatch refreshes the cache.
 # The job timeout fits a full run: 14.5 min locally at concurrency 4 for 1229 mutants and 1759
 # tests, about 30 min on this 4-vCPU runner, which runs the same tests about 2x slower.
-# ignoreStatic in stryker.config.json skips static mutants: each one reruns every related test.
-# The progress-append-only reporter prints a progress line every 10 s, so a stall shows in the log.
 name: weekly-mutation
 
 on:
