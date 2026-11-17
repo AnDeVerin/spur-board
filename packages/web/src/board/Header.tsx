@@ -4,9 +4,10 @@ import { openHref, type BoardProject } from './model.ts';
 import styles from './Header.module.css';
 
 /**
- * Project switcher: a ds Button disclosing a plain list of projects. Escape and an outside
- * pointerdown close it; Escape and a choice return focus to the trigger, which ds Button
- * reaches only through this wrapper.
+ * Project switcher: a ds Button disclosing a plain list of projects. Escape, an outside
+ * pointerdown, focus moving to an element outside it and a history move close it; Escape and a
+ * choice return focus to the trigger, which ds Button reaches only through this wrapper. The
+ * history move matters because a panel can open from the address while the list is open.
  */
 function Switcher({
   projects,
@@ -27,15 +28,26 @@ function Switcher({
       if (!(event.target instanceof Node) || !wrapper.current?.contains(event.target))
         setOpen(false);
     };
+    const close = () => {
+      setOpen(false);
+    };
     document.addEventListener('pointerdown', outside);
+    window.addEventListener('popstate', close);
     return () => {
       document.removeEventListener('pointerdown', outside);
+      window.removeEventListener('popstate', close);
     };
   }, [open]);
   return (
     <div
       ref={wrapper}
       className={styles.switcher}
+      onBlur={(event) => {
+        // Focus that leaves for no element (a click on the list's padding, a window switch)
+        // keeps it open; the outside pointerdown covers clicks elsewhere.
+        const next = event.relatedTarget;
+        if (open && next instanceof Node && !event.currentTarget.contains(next)) setOpen(false);
+      }}
       onKeyDown={(event) => {
         if (event.key !== 'Escape' || !open) return;
         setOpen(false);

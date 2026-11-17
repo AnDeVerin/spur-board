@@ -26,11 +26,11 @@ const light = {
   ...declarations(tokens.split(":root[data-theme='light'] {")[1]?.split('}')[0] ?? ''),
 };
 function rgb(color: string): number[] {
-  if (/^#[\da-f]{6}$/i.test(color))
-    return (color.slice(1).match(/../g) ?? []).map((value) => parseInt(value, 16));
+  const hex = /^#[\da-f]{6}$/i.test(color);
   const rgba = /^rgba\(([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)$/.exec(color);
-  if (!rgba) throw new Error(`Unsupported color: ${color}`);
-  return rgba.slice(1).map(Number);
+  const values = hex ? color.slice(1).match(/../g) : rgba?.slice(1);
+  if (!values) throw new Error(`Unsupported color: ${color}`);
+  return values.map((value) => (hex ? parseInt(value, 16) : Number(value)));
 }
 function luminance(color: string | number[]): number {
   const channels = (typeof color === 'string' ? rgb(color) : color)
@@ -125,15 +125,13 @@ describe('web design assets and policy', () => {
         expect(value, key).not.toContain('var(');
       }
   });
-  it.each([
-    ['dark', dark],
-    ['light', light],
-  ] as const)('%s text meets 4.5 on base, elevated and Banner fills', (_name, theme) => {
+  it.each(Object.entries({ dark, light }))('%s text meets AA contrast', (_name, theme) => {
     const rules = cssRules(read('src/ds/Banner/Banner.module.css'));
     const binding = (selector: string, property: string) =>
-      new RegExp(`\\b${property}: var\\((--[\\w-]+)\\);`).exec(
-        rules.find((rule) => rule.selector === selector)?.body ?? '',
-      )?.[1] ?? '';
+      rules
+        .find((rule) => rule.selector === selector)
+        ?.body.match(new RegExp(`\\b${property}: var\\((--[\\w-]+)\\);`))?.[1] ?? '';
+    const pairs: [string, string | number[]][] = [];
     for (const variant of ['error', 'warning', 'info']) {
       const selector = `.root[data-variant='${variant}']`;
       const main = binding(`${selector} .main`, 'color') || binding(selector, 'color');
@@ -141,28 +139,21 @@ describe('web design assets and policy', () => {
       const alpha = fill[3] ?? 1;
       // Composite in sRGB, retaining fractional channels before luminance conversion.
       const base = rgb(theme['--color-bg-base'] ?? '');
-      const b = luminance(base.map((v, i) => (fill[i] ?? 0) * alpha + v * (1 - alpha)));
-      for (const token of [main, binding('.detail', 'color')]) {
-        const a = luminance(theme[token] ?? '');
-        expect((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05), variant).toBeGreaterThanOrEqual(
-          4.5,
-        );
-      }
+      const background = base.map((v, i) => (fill[i] ?? 0) * alpha + v * (1 - alpha));
+      for (const token of [main, binding('.detail', 'color')]) pairs.push([token, background]);
     }
-    for (const fg of [
-      '--color-text-primary',
-      '--color-text-secondary',
-      '--color-status-working',
-      '--color-status-ready',
-      '--color-status-attention',
-      '--color-status-error',
-    ]) {
-      for (const bg of ['--color-bg-base', '--color-bg-elevated']) {
-        const a = luminance(theme[fg] ?? '');
-        const b = luminance(theme[bg] ?? '');
-        const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-        expect(ratio, `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
-      }
+    for (const [kind, names] of [
+      ['text', ['primary', 'secondary']],
+      ['status', ['working', 'ready', 'attention', 'error']],
+    ] as const)
+      for (const name of names)
+        for (const bg of ['base', 'elevated'])
+          pairs.push([`--color-${kind}-${name}`, theme[`--color-bg-${bg}`] ?? '']);
+    for (const [token, background] of pairs) {
+      const a = luminance(theme[token] ?? '');
+      const b = luminance(background);
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      expect(ratio, token).toBeGreaterThanOrEqual(4.5);
     }
   });
   it('rejects raw color literals outside the token file, including negative fixtures', () => {
@@ -247,6 +238,13 @@ describe('web design assets and policy', () => {
     );
     expect(lifts).toHaveLength(1);
     expect(dark['--z-focus']).toBe('1');
+  });
+  it('stacks menus above panels and below modals', () => {
+    // A menu kept live beside an open panel, such as the status bar theme menu, must open over
+    // it; a modal covers both.
+    const z = (name: string) => Number(dark[name]);
+    expect(z('--z-panel')).toBeLessThan(z('--z-menu'));
+    expect(z('--z-menu')).toBeLessThan(z('--z-modal'));
   });
   it('outlineViolations accepts only the ds ring, including negative fixtures', () => {
     const rule = (selector: string, body: string) => `${selector} {\n  ${body}\n}\n`;

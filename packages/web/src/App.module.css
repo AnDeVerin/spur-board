@@ -1,46 +1,10 @@
-/* The board fills the viewport between the header and the footer and scrolls inside. */
+/* The board fills the viewport between the header and the status bar and scrolls inside. */
 .shell {
   height: 100dvh;
   display: flex;
   flex-direction: column;
 }
-.footer {
-  flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
-  padding: var(--space-1) var(--space-3);
-  border-top: 1px solid var(--color-border-default);
-  color: var(--color-text-secondary);
-  background: var(--color-bg-base);
-  min-height: var(--size-statusbar);
-}
-.status {
-  display: flex;
-  flex: 1 1 25rem;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.sources {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-3);
-  min-width: 0;
-}
-.controls {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: var(--space-3);
-  margin-left: auto;
-  position: relative;
-}
-.item {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
+/* Holds the header, banners and columns as flex items of the shell. */
+.board {
+  display: contents;
 }

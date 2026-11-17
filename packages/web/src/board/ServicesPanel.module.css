@@ -1,0 +1,28 @@
+/* The boxes sit in the panel body's own column and gap; the wrapper only finds them. */
+.list {
+  display: contents;
+}
+.note {
+  margin: 0;
+  padding: var(--space-2) var(--space-2-5);
+  color: var(--color-text-tertiary);
+}
+/* The state word of a box head, coloured as the dot beside it. */
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin-left: auto;
+}
+.state[data-tone='ok'] {
+  color: var(--color-status-ready);
+}
+.state[data-tone='warn'] {
+  color: var(--color-status-attention);
+}
+.state[data-tone='error'] {
+  color: var(--color-status-error);
+}
+.state[data-tone='unknown'] {
+  color: var(--color-text-tertiary);
+}

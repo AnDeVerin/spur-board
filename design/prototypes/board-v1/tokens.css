@@ -124,7 +124,6 @@
   --opacity-stale: 0.55;
   --lines-title: 3;
   --duration-pulse: 2s;
-  --z-menu: 5;
 
   /* transforms */
   --rotate-collapsed: -90deg;
@@ -132,8 +131,10 @@
   /* stacking */
   --z-sticky: 1;
   --z-focus: 1;
+  /* panels, then menus (a live bar's menu opens over a panel), then modals */
   --z-panel: 6;
-  --z-modal: 7;
+  --z-menu: 7;
+  --z-modal: 8;
 
   --radius: 0;
 }

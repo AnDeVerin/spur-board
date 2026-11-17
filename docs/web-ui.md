@@ -48,8 +48,55 @@ Below the header come the columns of the chosen project, in configuration order:
 
 On a narrow screen the columns scroll sideways, and the mode and the filter are hidden.
 
-The footer keeps the task count, source health, the Light, Dark and Auto theme switch and the
-daemon version.
+## Status bar
+
+From left to right: **services**, which opens and closes the services panel; one button per
+service (daemon, slack, github, spur, and jira when the status lists Jira); the Light, Dark and
+Auto theme menu, whose icon shows the choice the browser remembers; and the version of the
+running daemon, empty until the first status read.
+
+A service button shows a dot coloured from the service's health row in `status.get`: green
+healthy, amber degraded, red failing. Its name reads `<service>: <word>`:
+
+- daemon: `running`, `stalled` after 120 seconds without a completed tick,
+  `no answer since <time>` when the UI cannot read it, or `no answer` when the very first read
+  fails.
+- slack: `up` or `down`.
+- github, spur and jira: `polling` when healthy. GitHub covers the pull request and issue
+  sources of every repository and takes its worst source. Otherwise the word is that of the
+  first source, in status order, whose own state has the service's colour: `blind: <reason>`,
+  `never completed`, `warming up` or `stale`. Else it is `waits for rate budget`: a GitHub
+  budget fell to the configured reserve; hover for the reason.
+- `unknown`, with a hollow dot, for a service with no health row, for all while the first
+  status read is pending, and for all but the daemon while the daemon does not answer.
+
+The bar follows each `status` message of the event stream, about every 30 seconds, and makes
+no reads of its own.
+
+## Services panel
+
+Opened from the bar or by `?open=services`, the left panel shows boxes from `status.get` only:
+
+- daemon: Version, Started, Last dispatch.
+- host: CPU, RAM and Disk percent bars, amber at 80% and red at 90%; an unread value shows
+  `— / 100`, never 0. A host load wait adds an amber row.
+- slack: when down, Down since, Reason and Spaces.
+- One box per GitHub source, spur, and one per Jira source, headed by the source's own state:
+  Last complete poll, Last observation, Blind (when blind), Freshness, Warming up, Points last
+  hour (pull request sources) and Budget: a bar of requests left over the limit with its reset
+  time, amber at 20% and red at 5%; `<n> left` without a limit; `—` without a budget. The spur
+  box adds the Spur availability line while Spur is unavailable.
+
+No healthy service shows since when it is healthy. Before the first status the panel waits for
+it; while the daemon does not answer, the boxes read unknown; once live updates are lost while
+the daemon still answers, the header reads `Data from <time>` and the boxes keep the last data.
+Close, Escape, the dimmed area and the services button close it; focus returns to the opener, or
+to services after a link.
+
+Limits: the header and columns are inert while the panel is open, and the bar stays live for the
+pointer only (Tab stays in the panel). On a narrow screen the panel covers the bar; Close or
+Escape closes it. Opening and closing each add a history entry, so Back after a close reopens
+the panel.
 
 ## Live and stale states
 
@@ -69,7 +116,7 @@ Times on the screen are UTC, written `hh:mm dd/mm/yy`.
   trying to reconnect.
 - **Daemon down**: a configuration or status read failed. The error banner says the daemon does
   not answer, gives the time of the data on screen and warns that answers and comments cannot be
-  sent. On the first load there is no data, so the banner says so and no columns show.
+  sent. The daemon button in the status bar turns red and the other services read `unknown`. On the first load there is no data, so the banner says so and no columns show.
 - **Source blind**: a warning banner names a source of the project that has stopped answering
   and the time of its last complete poll, such as Spur not answering since 14:40 15/11/26.
   Several such sources share one banner. A source that is still warming up is not named.

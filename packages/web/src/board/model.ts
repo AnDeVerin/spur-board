@@ -56,7 +56,7 @@ export function matchesFilter(row: BoardRow, text: string): boolean {
 const pad = (value: number) => String(value).padStart(2, '0');
 
 /** UTC `hh:mm dd/mm/yy`, as the prototype and History write times. */
-function formatDataTime(ms: number): string {
+export function formatDataTime(ms: number): string {
   const date = new Date(ms);
   return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} ${pad(date.getUTCDate())}/${pad(
     date.getUTCMonth() + 1,

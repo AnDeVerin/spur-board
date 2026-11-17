@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon, type IconName } from '../Icon/Icon.tsx';
@@ -25,7 +26,7 @@ export function Scrim({ onClick }: { onClick?: (() => void) | undefined }) {
 type LayerNode = { parent: LayerNode | null };
 const LayerContext = createContext<LayerNode | null>(null);
 
-// The z order of the layer roots: `--z-panel` under `--z-modal`.
+// The z order of the layer roots: `--z-panel` under `--z-modal`, with `--z-menu` between them.
 const levels = { panel: 0, modal: 1 };
 
 type Entry = {
@@ -34,6 +35,8 @@ type Entry = {
   root: HTMLElement;
   surface: HTMLElement;
   close: HTMLElement | null;
+  // An element outside the layer that stays live while this layer is on top; read in `sync`.
+  keep: RefObject<HTMLElement | null> | null;
   // Where focus goes when this layer closes on top: its own opener first, then the openers of
   // layers under it that left the stack before it, in the order they left.
   openers: HTMLElement[];
@@ -181,8 +184,10 @@ function focusFirst(candidates: Iterable<HTMLElement>): boolean {
  * before its parent's in one commit, and only then does a lower root land out of order.
  *
  * Then marks every element child of `body` except the top layer's root `inert`, and gives each
- * element that leaves that set its own earlier state back. With no layer open it restores
- * everything, releases the scroll lock and drops the key listener. Only the attribute is written.
+ * element that leaves that set its own earlier state back. When the top layer keeps an element
+ * live, that element and its ancestors stay live and their other children turn `inert` instead.
+ * With no layer open it restores everything, releases the scroll lock and drops the key
+ * listener. Only the attribute is written.
  */
 function sync(): void {
   for (let index = stack.length - 2; index >= 0; index--) {
@@ -193,9 +198,22 @@ function sync(): void {
       document.body.insertBefore(root, above);
   }
   const top = stack.at(-1);
-  const targets = new Set<Element>(
-    top ? [...document.body.children].filter((element) => element !== top.root) : [],
-  );
+  const targets = new Set<Element>();
+  if (top) {
+    // The kept element and its ancestors below `body`, innermost first.
+    const kept: Element[] = [];
+    const keep = top.keep?.current;
+    if (keep && keep !== document.body && document.body.contains(keep) && !top.root.contains(keep))
+      for (
+        let node: Element | null = keep;
+        node && node !== document.body;
+        node = node.parentElement
+      )
+        kept.push(node);
+    const live = new Set<Element>([top.root, ...kept]);
+    for (const parent of [document.body, ...kept.slice(1)])
+      for (const element of parent.children) if (!live.has(element)) targets.add(element);
+  }
   for (const [element, prior] of priorInert)
     if (!targets.has(element)) {
       element.toggleAttribute('inert', prior);
@@ -276,9 +294,10 @@ function returnFocus(entry: Entry): void {
  * actions, and Close, then a scrolling body that is a tab stop.
  *
  * The stack follows visual order, not effect order: a `modal` layer sits above every `panel`
- * layer (`--z-modal` over `--z-panel`); within one level a layer rendered inside another sits
- * above it, even when both mount in one commit, where React runs the inner effect first; other
- * layers of one level stack in mount order, so siblings mounting in one commit keep render order.
+ * layer (`--z-modal` over `--z-panel`, with menus at `--z-menu` between them); within one level
+ * a layer rendered inside another sits above it, even when both mount in one commit, where React
+ * runs the inner effect first; other layers of one level stack in mount order, so siblings
+ * mounting in one commit keep render order.
  * Paint order equals stack order: the layer roots stay in `body` in stack order (`sync` moves a
  * lower root that React inserted after a higher one), so a layer above another of the same level
  * also paints above it.
@@ -309,9 +328,18 @@ function returnFocus(entry: Entry): void {
  * the document, not `inert`, not inside a layer that left the stack and takes focus; otherwise to
  * Close of the new top layer.
  *
+ * `keepLive` names an element outside the layer, such as a status bar, that stays live while
+ * this layer is on top: the element and its ancestors are left out of `inert`, and their other
+ * children turn `inert`. It is reachable by pointer only: Tab stays in the layer and
+ * `aria-modal` is unchanged.
+ *
  * Limits: elements added to `body` while a layer is open stay live until the next open or close.
- * Tab skips what the candidate selector does not list but a browser may focus (a scroll container
- * Chrome makes focusable, `iframe`, media controls), and Tab inside an `iframe` is the frame's own.
+ * The inert set is computed only when a layer opens or closes, so the kept element must be
+ * attached when the layer mounts: mounted earlier, or rendered as an earlier sibling in the same
+ * commit (its ref is attached before this layer's layout effect runs; a parent's is not). A kept
+ * element mounted later stays `inert` until the next open or close. Tab skips what the candidate
+ * selector does not list but a browser may focus (a scroll container Chrome makes focusable,
+ * `iframe`, media controls), and Tab inside an `iframe` is the frame's own.
  */
 export function Layer({
   level,
@@ -322,6 +350,7 @@ export function Layer({
   detail,
   actions,
   onClose,
+  keepLive,
   children,
 }: {
   level: keyof typeof levels;
@@ -338,6 +367,7 @@ export function Layer({
   detail?: ReactNode;
   actions?: ReactNode;
   onClose: () => void;
+  keepLive?: RefObject<HTMLElement | null> | undefined;
   children: ReactNode;
 }) {
   const titleId = useId();
@@ -364,6 +394,7 @@ export function Layer({
       root: root.current,
       surface: surface.current,
       close: close.current?.querySelector('button') ?? null,
+      keep: keepLive ?? null,
       openers: opener ? [opener] : [],
       onClose: latest,
     };
