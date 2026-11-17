@@ -1289,14 +1289,6 @@ describe('a merged PR and the ticket', () => {
     await ctx.ack(WORKER, wrapUp?.id ?? '');
     return Number(wrapUp?.id.slice(1));
   };
-  const endWorker = (ctx: Board, end: 'complete' | 'kill') =>
-    end === 'complete'
-      ? ctx.spur('ended')
-      : ctx.session({
-          ...sessionFacts('worker-1', 'worker', true),
-          endReason: 'kill',
-          lifecycle: 'killed',
-        });
   const openSystemBlocks = (ctx: Board) =>
     ctx.store.db
       .selectFrom('block')
@@ -1310,14 +1302,16 @@ describe('a merged PR and the ticket', () => {
     async (end) => {
       const ctx = await inDev();
       const id = await wrappingUp(ctx);
-      await endWorker(ctx, end);
-      expect(
-        await ctx.store.db
-          .selectFrom('turn')
-          .select('closed_reason')
-          .where('id', '=', id)
-          .executeTakeFirstOrThrow(),
-      ).toEqual({ closed_reason: 'moved' });
+      await (end === 'complete'
+        ? ctx.spur('ended')
+        : ctx.session({
+            ...sessionFacts('worker-1', 'worker', true),
+            endReason: 'kill',
+            lifecycle: 'killed',
+          }));
+      expect((await ctx.turns()).find((turn) => turn.id === id)).toMatchObject({
+        closed_reason: 'moved',
+      });
       expect((await ctx.events('turn_closed')).at(-1)?.payload).toMatchObject({
         turn: `T${String(id)}`,
         outcome: 'moved',
@@ -1354,20 +1348,14 @@ describe('a merged PR and the ticket', () => {
     await ctx.pr({ state: 'merged' });
     await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
-    expect(
-      await ctx.store.db
-        .selectFrom('turn')
-        .select('closed_reason')
-        .where('id', '=', 1)
-        .executeTakeFirstOrThrow(),
-    ).toEqual({ closed_reason: 'moved' });
+    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'moved' });
     expect(
       await ctx.store.db
         .selectFrom('block')
-        .select(['state', 'outcome'])
+        .select('outcome')
         .where('id', '=', stuck?.block_id ?? -1)
         .executeTakeFirstOrThrow(),
-    ).toMatchObject({ outcome: 'withdrawn' });
+    ).toEqual({ outcome: 'withdrawn' });
     expect(await items()).toEqual([]);
     expect(await ctx.openTurn()).toBeNull();
   });
@@ -1375,7 +1363,7 @@ describe('a merged PR and the ticket', () => {
   it('opens a new wrap-up for another live worker after the holder ends', async () => {
     const ctx = await inDev();
     const id = await wrappingUp(ctx);
-    await ctx.session({ ...sessionFacts('worker-2', 'worker') });
+    await ctx.session(sessionFacts('worker-2', 'worker'));
     await ctx.spur('ended');
     await ctx.tick();
     const next = await ctx.openTurn();
