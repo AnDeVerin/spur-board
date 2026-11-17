@@ -476,27 +476,30 @@ async function ticket(
     .executeTakeFirst();
   const previousFact =
     previous === undefined ? null : parseJson(ticketFactsSchema, previous.detail);
-  if (previousFact === null || JSON.stringify(previousFact) !== JSON.stringify(fact)) {
-    await trx
-      .insertInto('ticket_snapshot')
-      .values({
-        task_id: task.id,
+  await trx
+    .insertInto('ticket_snapshot')
+    .values({
+      task_id: task.id,
+      status: fact.status,
+      assignee: fact.assignee,
+      detail: toJson(ticketFactsSchema, fact),
+      source,
+      observed_at: at,
+    })
+    .onConflict((oc) =>
+      oc.column('task_id').doUpdateSet({
         status: fact.status,
         assignee: fact.assignee,
         detail: toJson(ticketFactsSchema, fact),
         source,
         observed_at: at,
-      })
-      .onConflict((oc) =>
-        oc.column('task_id').doUpdateSet({
-          status: fact.status,
-          assignee: fact.assignee,
-          detail: toJson(ticketFactsSchema, fact),
-          source,
-          observed_at: at,
-        }),
-      )
-      .execute();
+      }),
+    )
+    .execute();
+  if (
+    previousFact === null ||
+    comparableFacts(previousFact, 'updatedAt') !== comparableFacts(fact, 'updatedAt')
+  ) {
     if (previousFact?.status !== fact.status) {
       await emit(trx, 'ticket_status_changed', project.id, task.id, at, {
         from: previousFact?.status ?? null,
@@ -511,12 +514,6 @@ async function ticket(
     }
     await emit(trx, 'ticket_facts_changed', project.id, task.id, at, { facts: fact });
     await trx.updateTable('task').set({ last_change_at: at }).where('id', '=', task.id).execute();
-  } else {
-    await trx
-      .updateTable('ticket_snapshot')
-      .set({ observed_at: at })
-      .where('task_id', '=', task.id)
-      .execute();
   }
   if (
     fact.inFilter &&
@@ -533,6 +530,16 @@ async function ticket(
   }
   if (previousKey !== fact.key || previousMembership === 'archived')
     await reconcileTaskPrs(trx, config, task.id, at);
+}
+
+/** Only these top-level refresh timestamps are immaterial to the journal. */
+function comparableFacts(
+  facts: TicketFacts | PrFacts | SessionFacts,
+  timestamp: 'updatedAt' | 'lastActivityAt',
+): string {
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(facts).filter(([key]) => key !== timestamp)),
+  );
 }
 
 async function pr(
@@ -561,7 +568,9 @@ async function pr(
   if (old !== undefined && previous !== null && old.source !== source)
     await savePrPolling(trx, old.source, previous, old.closed_recheck_at, true);
   await savePrPolling(trx, source, fact, recheckAt);
-  const changed = previous === null || JSON.stringify(previous) !== JSON.stringify(fact);
+  const changed =
+    previous === null ||
+    comparableFacts(previous, 'updatedAt') !== comparableFacts(fact, 'updatedAt');
   await trx
     .insertInto('pr_snapshot')
     .values({
@@ -823,7 +832,9 @@ async function session(
     .where('id', '=', fact.id)
     .executeTakeFirst();
   const previous = old === undefined ? null : parseJson(sessionFactsSchema, old.detail);
-  const changed = previous === null || JSON.stringify(previous) !== JSON.stringify(fact);
+  const changed =
+    previous === null ||
+    comparableFacts(previous, 'lastActivityAt') !== comparableFacts(fact, 'lastActivityAt');
   await trx
     .insertInto('session_snapshot')
     .values({

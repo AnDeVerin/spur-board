@@ -267,8 +267,16 @@ function board(options: Options = {}) {
       ({ registry, apply, query } = build());
     },
     session: (facts: SessionFacts) => observe('spur', [{ kind: 'session', facts }], false),
-    ticket: (status = 'open', inFilter = true) =>
-      observe(TRACKER, [{ kind: 'ticket', facts: ticketFacts(status, inFilter) }]),
+    ticket: (status = 'open', inFilter = true, updatedAt?: string) =>
+      observe(TRACKER, [
+        {
+          kind: 'ticket',
+          facts: {
+            ...ticketFacts(status, inFilter),
+            ...(updatedAt === undefined ? {} : { updatedAt }),
+          },
+        },
+      ]),
     /**
      * A complete GitHub poll with the given PR facts merged over the current ones; `startedAt`
      * backdates the poll's start, as for a poll that began before an earlier step.
@@ -1479,12 +1487,12 @@ describe('a merged PR and the ticket', () => {
     expect(await devMoves(ctx)).toBe(before);
   });
 
-  it('an unchanged ticket poll past the interval sends the task to Dev', async () => {
+  it('a timestamp-only ticket poll past the interval sends the task to Dev', async () => {
     const ctx = await pastProductReview();
     await merge(ctx);
     await ctx.ticket();
     const changes = (await ctx.events()).filter((event) => event.kind.startsWith('ticket_')).length;
-    await ctx.ticket();
+    await ctx.ticket('open', true, ctx.at());
     expect((await ctx.events()).filter((event) => event.kind.startsWith('ticket_'))).toHaveLength(
       changes,
     );
@@ -3801,8 +3809,10 @@ describe('pending submit', () => {
 
     await ctx.pr({}, true, new Date(Date.parse(submittedAt) - 1).toISOString());
     expect((await ctx.task()).column).toBe('dev');
-    // The next poll is unchanged and journals nothing, so only the tick decides.
-    await ctx.github();
+    // A timestamp-only refresh journals no facts, so only the tick decides.
+    const factsEvents = await ctx.events('pr_facts_changed');
+    await ctx.pr({ updatedAt: ctx.at() });
+    expect(await ctx.events('pr_facts_changed')).toEqual(factsEvents);
     expect((await ctx.task()).column).toBe('dev');
     expect((await ctx.why()).holds).toEqual([]);
 

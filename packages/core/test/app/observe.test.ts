@@ -137,6 +137,126 @@ async function pollGithub(core: ReturnType<typeof setup>['core']) {
 }
 
 describe('accepted observation', () => {
+  it.each(['ticket', 'pr', 'session'] as const)(
+    'persists timestamp-only %s refreshes without changing journal rows or task time',
+    async (kind) => {
+      const { store, core, apply, mutations } = setup();
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      const initial = {
+        ticket: { kind: 'ticket', facts: fact() },
+        pr: { kind: 'pr', facts: prFact() },
+        session: { kind: 'session', facts: sessionFact('worker-1') },
+      } as const;
+      const observationSource =
+        kind === 'ticket' ? source : kind === 'pr' ? 'github:board:o/r' : 'spur';
+      const observe = (item: Batch['items'][number]) => {
+        const observedAt = new Date(now).toISOString();
+        return core.observe(observationSource, {
+          batch: {
+            source: observationSource,
+            observedAt,
+            complete: false,
+            items: [item],
+            entities: [],
+          },
+          effectiveComplete: false,
+          state: { gone: [] },
+          outcomes: [],
+        });
+      };
+      const snapshot = () =>
+        store.db.selectFrom(`${kind}_snapshot`).selectAll().executeTakeFirstOrThrow();
+      await observe(initial[kind]);
+      const journal = await store.db.selectFrom('event').selectAll().orderBy('id').execute();
+      const task = await store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+      for (let cycle = 0; cycle < 2; cycle++) {
+        now += 1_000;
+        const timestamp = new Date(now).toISOString();
+        const refreshed =
+          kind === 'session'
+            ? { kind, facts: { ...initial.session.facts, lastActivityAt: timestamp } }
+            : kind === 'pr'
+              ? { kind, facts: { ...initial.pr.facts, updatedAt: timestamp } }
+              : { kind, facts: { ...initial.ticket.facts, updatedAt: timestamp } };
+        await observe(refreshed);
+        const row = await snapshot();
+        expect(JSON.parse(row.detail)).toEqual(refreshed.facts);
+        expect(row.observed_at).toBe(timestamp);
+        expect(row.source).toBe(observationSource);
+        expect(await store.db.selectFrom('event').selectAll().orderBy('id').execute()).toEqual(
+          journal,
+        );
+        expect(
+          (await store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow()).last_change_at,
+        ).toBe(task.last_change_at);
+      }
+      now += 1_000;
+      const timestamp = new Date(now).toISOString();
+      const changed =
+        kind === 'session'
+          ? {
+              kind,
+              facts: { ...initial.session.facts, lastActivityAt: timestamp, branch: 'new-branch' },
+            }
+          : kind === 'pr'
+            ? { kind, facts: { ...initial.pr.facts, updatedAt: timestamp, title: 'New title' } }
+            : {
+                kind,
+                facts: { ...initial.ticket.facts, updatedAt: timestamp, title: 'New title' },
+              };
+      await observe(changed);
+      const events = await store.db
+        .selectFrom('event')
+        .selectAll()
+        .where('kind', '=', `${kind}_facts_changed`)
+        .orderBy('id')
+        .execute();
+      expect(events).toHaveLength(2);
+      expect(JSON.parse(events.at(-1)?.payload ?? '{}')).toEqual({ facts: changed.facts });
+      expect(
+        (await store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow()).last_change_at,
+      ).toBe(timestamp);
+    },
+  );
+
+  it.each(['health', 'healthSince'] as const)('journals a session %s change', async (field) => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    const observe = (facts: SessionFacts) =>
+      core.observe('spur', {
+        batch: {
+          source: 'spur',
+          observedAt: new Date(now).toISOString(),
+          complete: false,
+          items: [{ kind: 'session', facts }],
+          entities: [],
+        },
+        effectiveComplete: false,
+        state: { gone: [] },
+        outcomes: [],
+      });
+    await observe(sessionFact('worker-1'));
+    now += 1_000;
+    const timestamp = new Date(now).toISOString();
+    const facts = {
+      ...sessionFact('worker-1'),
+      lastActivityAt: timestamp,
+      ...(field === 'health' ? { health: 'waiting' as const } : { healthSince: timestamp }),
+    };
+    await observe(facts);
+    const events = await store.db
+      .selectFrom('event')
+      .selectAll()
+      .where('kind', '=', 'session_facts_changed')
+      .orderBy('id')
+      .execute();
+    expect(events).toHaveLength(2);
+    expect(JSON.parse(events.at(-1)?.payload ?? '{}')).toEqual({ facts });
+    expect(
+      (await store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow()).last_change_at,
+    ).toBe(timestamp);
+  });
+
   it('adds an unseen key immediately and binds stable facts on the next batch', async () => {
     const { store, core, apply, mutations } = setup();
     const added = await apply(mutations.add, { task: 'o/r#9' }, 'operator');

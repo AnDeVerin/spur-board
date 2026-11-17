@@ -1590,6 +1590,80 @@ describe('dispatcher scenarios', () => {
   );
 
   it(
+    'dispatch-happy-path: timestamp-only adapter refreshes persist without facts events',
+    async () => {
+      await up();
+      await seed('dispatch-happy-path');
+      await poll();
+      const capture = () =>
+        withStore(async (store) => {
+          const ticket = await store.db
+            .selectFrom('ticket_snapshot')
+            .innerJoin('task', 'task.id', 'ticket_snapshot.task_id')
+            .selectAll('ticket_snapshot')
+            .select('task.last_change_at')
+            .where('task.key', '=', ISSUE)
+            .executeTakeFirstOrThrow();
+          const pr = await store.db
+            .selectFrom('pr_snapshot')
+            .selectAll()
+            .where('repo', '=', 'stand-org/board')
+            .where('number', '=', 1)
+            .executeTakeFirstOrThrow();
+          const session = await store.db
+            .selectFrom('session_snapshot')
+            .selectAll()
+            .where('id', '=', as('worker'))
+            .executeTakeFirstOrThrow();
+          const facts = (detail: string) => JSON.parse(detail) as Record<string, unknown>;
+          return {
+            ticket: { facts: facts(ticket.detail), observedAt: ticket.observed_at },
+            pr: { facts: facts(pr.detail), observedAt: pr.observed_at },
+            session: { facts: facts(session.detail), observedAt: session.observed_at },
+            taskTime: ticket.last_change_at,
+            events: await store.db
+              .selectFrom('event')
+              .selectAll()
+              .where('kind', 'in', [
+                'ticket_facts_changed',
+                'pr_facts_changed',
+                'session_facts_changed',
+              ])
+              .orderBy('id')
+              .execute(),
+          };
+        });
+      const before = await capture();
+      await ok(current(), '/clock', { shiftMs: 1_000 });
+      await spur('session', { id: as('worker') });
+      await github('resolve');
+      await github('issue-label', { labels: before.ticket.facts['labels'] });
+      // Manual poll restarts the adapter and resets healthSince. Let its scheduled polls
+      // preserve smoothing state so only the fake's refresh timestamp changes.
+      await vi.waitFor(
+        async () => {
+          const after = await capture();
+          for (const kind of ['ticket', 'pr', 'session'] as const) {
+            const timestamp = kind === 'session' ? 'lastActivityAt' : 'updatedAt';
+            expect(after[kind].facts[timestamp]).not.toBe(before[kind].facts[timestamp]);
+            expect(after[kind].facts).toEqual({
+              ...before[kind].facts,
+              [timestamp]: after[kind].facts[timestamp],
+            });
+            expect(Date.parse(after[kind].observedAt)).toBeGreaterThan(
+              Date.parse(before[kind].observedAt),
+            );
+          }
+          expect(after.events).toEqual(before.events);
+          expect(after.taskTime).toBe(before.taskTime);
+        },
+        { timeout: 10_000, interval: 100 },
+      );
+    },
+    TIMEOUT,
+  );
+
+  it(
     'dispatch-split-pr: a second PR merged with the issue closed moves the split task to Done',
     async () => {
       await up();

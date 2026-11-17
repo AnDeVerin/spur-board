@@ -91,14 +91,13 @@ its time; stream failures reconnect with capped backoff and show offline after f
 attempts while continuing recovery. Reconnects retain valid SSE cursors, including ID-only
 records, until the server clears them.
 
-The configured daemon web listener serves the packaged SPA and its local assets, and streams
-live updates from `GET /v1/events` as server-sent events. The stream opens with `hello` (journal
-head and daemon instance), then sends one `invalidate` per committed batch of journal events,
-naming the projects and task keys it touched; the screen rereads configuration and status when
-the chosen project is named, and the inbox on every batch. A `reset` asks for a full reread:
-after a client fell behind, or when its last event ID is ahead of the journal. A `status` frame
-every 30 seconds carries source and transport health and also triggers a full reread; a comment
-line every 15 seconds keeps proxies from closing the stream. The first `hello`, and a later one
-with a changed head or a new instance after a daemon restart, make the screen reread everything.
-The status bar version is `daemon.version` from `status.get`, so a stale bundle never claims
-the daemon's version; it stays empty until the first status read.
+The daemon serves the packaged SPA and streams `GET /v1/events` as server-sent events. `hello`
+names the journal head and daemon instance. Each committed journal batch sends an `invalidate`
+with affected projects and tasks; the screen rereads configuration and status for its chosen
+project, and the inbox on every batch. `reset` requests a full reread after a cursor falls behind
+or ahead of the journal. The first `hello`, or a changed head or instance, also rereads everything.
+Timestamp-only changes to session `lastActivityAt`, PR `updatedAt` or ticket `updatedAt` refresh
+the full snapshot without a facts event or task change time. A `status` frame every 30 seconds
+carries source and transport health and triggers a full reread, including these quiet refreshes.
+A comment every 15 seconds keeps proxies open. The status bar reads `daemon.version` from
+`status.get` and stays empty until that first read.
