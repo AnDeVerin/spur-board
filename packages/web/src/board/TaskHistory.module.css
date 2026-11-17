@@ -1,4 +1,4 @@
-/* The History tab: one quiet row per journal event, newest first. */
+/* The History tab: quiet journal rows and expandable runs, newest first. */
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -22,6 +22,28 @@
 .actor {
   color: var(--color-text-primary);
   font-weight: var(--weight-medium);
+}
+.since {
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.run td {
+  background: var(--color-row-hover);
+}
+.run td:first-child {
+  padding-left: var(--space-2);
+  box-shadow: inset var(--size-rail) 0 0 var(--color-border-strong);
+}
+/* Keep the action descriptive for assistive technology while showing only the count. */
+.actionText {
+  position: absolute;
+  width: var(--size-hairline);
+  height: var(--size-hairline);
+  padding: 0;
+  margin: calc(-1 * var(--space-0-25));
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 /* The raw journal kind, quiet until its row is hovered or focused. */
 .table .kind {

@@ -68,6 +68,86 @@ const cells = () =>
   );
 
 describe('task history tab', () => {
+  it('folds, expands, preserves expansion on append, and collapses without operation calls', async () => {
+    const events = ['23:58', '00:01', '00:02'].map((time, index) =>
+      historyEvent(
+        `2026-11-${index === 0 ? '15' : '16'}T${time}:00Z`,
+        'session_facts_changed',
+        'system',
+        'Session changed.',
+      ),
+    );
+    const d = daemon();
+    d.routes['task.history'] = () => Promise.resolve(envelope(taskHistory(events)));
+    await openHistory(d);
+    expect(panel().querySelectorAll('tr')).toHaveLength(1);
+    expect(cells()[0]?.[0]).toBe('00:02 16/11/26');
+    expect(panel().textContent).toContain('since 23:58 15/11/26');
+    const toggle = () => inDialog('[aria-label="History"] button[aria-expanded]');
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    expect(toggle().textContent).toBe('+2, show matching rows');
+    const before = calls.length;
+    click(toggle());
+    await settle();
+    expect(calls).toHaveLength(before);
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(toggle().textContent).toBe('3 rows, collapse matching rows');
+    expect(cells().map((row) => row[0])).toEqual([
+      '00:02 16/11/26',
+      '00:01 16/11/26',
+      '23:58 15/11/26',
+    ]);
+    expect(panel().textContent).not.toContain('since');
+    for (const row of panel().querySelectorAll('tr'))
+      expect(row.classList.contains(quiet)).toBe(true);
+    events.push(
+      historyEvent('2026-11-16T00:03:00Z', 'session_facts_changed', 'system', 'Session changed.'),
+    );
+    d.send('event: reset\ndata: {}\n\n');
+    await settle();
+    expect(panel().querySelectorAll('tr')).toHaveLength(4);
+    expect(toggle().textContent).toBe('4 rows, collapse matching rows');
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(cells().map((row) => row[0])).toEqual([
+      '00:03 16/11/26',
+      '00:02 16/11/26',
+      '00:01 16/11/26',
+      '23:58 15/11/26',
+    ]);
+    const afterRefresh = calls.length;
+    click(toggle());
+    await settle();
+    expect(calls).toHaveLength(afterRefresh);
+    expect(panel().querySelectorAll('tr')).toHaveLength(1);
+    expect(toggle().textContent).toBe('+3, show matching rows');
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('shows only the oldest UTC time for a same-day run and keeps two runs independent', async () => {
+    const d = daemon();
+    const events = ['First.', 'First.', 'First.', 'Second.', 'Second.', 'Second.'].map((summary) =>
+      historyEvent(T, 'future_kind', 'system', summary),
+    );
+    d.routes['task.history'] = () => Promise.resolve(envelope(taskHistory(events)));
+    await openHistory(d);
+    expect(panel().textContent).toContain('since 14:40');
+    expect(panel().textContent).not.toContain('since 14:40 15/11/26');
+    const toggles = () => [...panel().querySelectorAll('button[aria-expanded]')];
+    click(inDialog('[aria-label="History"] tr:first-child button'));
+    await settle();
+    expect(toggles().map((control) => control.getAttribute('aria-expanded'))).toEqual([
+      'true',
+      'false',
+    ]);
+    click(inDialog('[aria-label="History"] tr:last-child button'));
+    await settle();
+    expect(toggles().map((control) => control.getAttribute('aria-expanded'))).toEqual([
+      'true',
+      'true',
+    ]);
+    expect(panel().querySelectorAll('tr')).toHaveLength(6);
+  });
+
   it('lists events newest first; the only new request is task.history', async () => {
     history.replaceState(null, '', '/?open=ex%2Frepo%237');
     start(daemon());

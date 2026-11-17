@@ -41,6 +41,11 @@ is selected once configuration arrives. Back and Forward restore both layers.
   `operator (mcp)`; `cli` and `mcp` are what the client reported. An event kind
   this version does not know still shows, with its raw kind. A facts event that changed only
   an update or activity time, or only what another row already says, is not shown; a long summary wraps.
+  Adjacent events with the same raw kind, actor, channel and summary fold when there are three
+  or more: the newest row shows `+N` hidden rows and `since` the oldest event's UTC time, adding
+  the date across UTC days. Select `+N` to show every row with a shared rail and faint fill;
+  `N rows` folds the run again. Pairs stay separate. An expanded run stays open when a newer
+  matching event arrives. The controls only change the view.
   On a narrow screen the kind is hidden. A task with no events reads
   `No journal events for this task.`
 
