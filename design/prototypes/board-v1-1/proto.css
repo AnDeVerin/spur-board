@@ -1,0 +1,744 @@
+/* Values with no token yet, declared before use. */
+:root {
+  --proposed-outline-dash: 1px dashed var(--color-border-strong);
+  /* Lines of a folded block's reason. */
+  --proposed-lines-fold: 3;
+  /* The rail of an open block; the card rail is --size-rail at --opacity-rail. */
+  --proposed-size-block-rail: 3px;
+
+  /* Dark theme: muted text and lines with more contrast. The README has the ratios before and
+     after on both surfaces. */
+  --proposed-color-text-tertiary: #85858c;
+  --proposed-color-border-subtle: #2a2a2e;
+  --proposed-color-border-default: #38383d;
+  --proposed-color-border-strong: #48484f;
+
+  /* A violet fill beside the four status fills, for the ticket link. */
+  --proposed-color-fill-violet: rgba(163, 113, 247, 0.12);
+}
+:root[data-theme='light'] {
+  --proposed-color-fill-violet: rgba(130, 80, 223, 0.08);
+}
+/* `?tokens=proposed` (default) puts the proposed values in place of the dark tokens, so every
+   design system component on the page shows them; `?tokens=now` leaves the tokens alone. */
+:root[data-tokens='proposed']:not([data-theme='light']) {
+  --color-text-tertiary: var(--proposed-color-text-tertiary);
+  --color-border-subtle: var(--proposed-color-border-subtle);
+  --color-border-default: var(--proposed-color-border-default);
+  --color-border-strong: var(--proposed-color-border-strong);
+}
+
+body {
+  margin: 0;
+}
+
+/* ---- Shell: simplified stand-ins for the app's shell, column and card ---------------------- */
+.shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.board-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--size-header);
+  padding: 0 var(--space-6);
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+}
+.board-project {
+  font-weight: var(--weight-bold);
+}
+.board-sort {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.board-sort-label {
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--color-text-tertiary);
+}
+.board-main {
+  flex: 1;
+  display: flex;
+  justify-content: safe center;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: var(--space-4) var(--space-6);
+  padding-bottom: calc(var(--size-statusbar) + var(--space-4));
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.column {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: var(--size-column);
+  min-height: 0;
+}
+.column-head {
+  flex: none;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+}
+.column-name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.column-label {
+  margin: 0;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+.column-count {
+  margin-left: auto;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.column-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-0-25);
+  min-height: var(--size-chevron);
+}
+.column-exec {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.column-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: calc(2 * var(--space-0-25));
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.spine {
+  box-sizing: border-box;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: var(--size-spine);
+  padding: var(--space-2) 0;
+  border: var(--size-hairline) dashed var(--color-border-default);
+}
+.spine .column-count {
+  margin: 0 0 var(--space-2);
+}
+.spine-name {
+  writing-mode: vertical-rl;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+.card-wrap {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  --c: transparent;
+}
+.card-wrap[data-turn='agent'] {
+  --c: var(--color-status-working);
+}
+.card-wrap[data-turn='you'],
+.card-wrap[data-turn='wait'] {
+  --c: var(--color-status-attention);
+}
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+  padding: var(--space-2) var(--space-2-5) var(--space-2) var(--space-3);
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-default);
+  color: inherit;
+  text-decoration: none;
+}
+.card-wrap:hover .card {
+  border-color: var(--color-border-strong);
+}
+.card::before {
+  content: '';
+  position: absolute;
+  top: calc(-1 * var(--size-hairline));
+  bottom: calc(-1 * var(--size-hairline));
+  left: calc(-1 * var(--size-hairline));
+  width: var(--size-rail);
+  background: var(--c);
+  opacity: var(--opacity-rail);
+}
+.card-key-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: var(--size-logo);
+}
+.card-key {
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+}
+.card-entered {
+  flex: none;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.done-row .card-entered {
+  margin-left: auto;
+}
+.card-title {
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+.card-links {
+  position: absolute;
+  top: calc(var(--size-hairline) + var(--space-2));
+  right: calc(var(--size-hairline) + var(--space-2-5));
+  display: inline-flex;
+  gap: var(--space-0-25);
+}
+.card-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-logo);
+  height: var(--size-logo);
+  color: var(--color-text-tertiary);
+}
+.card-cells {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.card-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: var(--size-menu-trigger);
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.card-cell + .card-cell {
+  border-left: var(--size-hairline) solid var(--color-border-default);
+}
+.card-cell[data-tone='ok'] {
+  color: var(--color-text-secondary);
+}
+.card-cell[data-tone='ok'] svg {
+  color: var(--color-status-ready);
+}
+.card-cell[data-tone='bad'] {
+  background: var(--color-fill-error);
+  color: var(--color-status-error);
+  font-weight: var(--weight-bold);
+}
+.card-cell[data-tone='pend'] {
+  background: var(--color-fill-attention);
+  color: var(--color-status-attention);
+}
+.card-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--size-icon-button);
+  border: var(--size-hairline) dashed var(--color-border-default);
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.card-markers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+.card-marker {
+  display: inline-flex;
+}
+.card-turn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin-top: var(--space-0-25);
+  padding-top: var(--space-1-5);
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
+.card-turn b {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+.card-who {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.card-age {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.card-age[data-kind='you'],
+.card-age[data-kind='wait'] {
+  color: var(--color-status-attention);
+}
+.done {
+  gap: 0;
+}
+.done-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+  padding: var(--space-1-5) var(--space-0-25);
+  border-bottom: var(--size-hairline) solid var(--color-border-subtle);
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+.done-check {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-status-ready);
+}
+.done-key {
+  flex: none;
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+.done-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- Proposed marks ------------------------------------------------------------------------ */
+.proposed-label {
+  flex: none;
+  padding: 0 var(--space-1);
+  border: var(--proposed-outline-dash);
+  color: var(--color-text-secondary);
+  font-size: var(--text-micro);
+  font-weight: 400;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+:root[data-marks='off'] .proposed-label {
+  display: none;
+}
+
+/* ---- 1. Proposed: column sort -------------------------------------------------------------- */
+.proposed-sort {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-25);
+  margin-left: auto;
+}
+.proposed-sort .proposed-label {
+  margin-right: var(--space-1);
+}
+.proposed-sort-button {
+  min-width: var(--size-chevron);
+  height: var(--size-chevron);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.proposed-sort-button:hover {
+  background: var(--color-row-hover);
+  color: var(--color-text-primary);
+}
+
+/* ---- Task view: stand-ins ------------------------------------------------------------------ */
+.task-column {
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+}
+.task-top {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) 0 var(--space-3);
+}
+.task-title {
+  margin: 0;
+  font-size: var(--text-lead);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-title);
+}
+.task-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+.items {
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  padding: var(--space-2) var(--space-2-5);
+}
+.item + .item {
+  border-top: var(--size-hairline) solid var(--color-border-default);
+}
+.block-meta {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
+}
+.block-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.block-reply {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: var(--size-hairline) solid var(--color-border-strong);
+}
+.block-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.block-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* A stand-in for the app's link chips: the status cell geometry, standalone. */
+.task-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-menu-trigger);
+  padding: 0 var(--space-2);
+  border: var(--size-hairline) solid var(--color-border-default);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
+
+/* ---- Proposed: colour ---------------------------------------------------------------------- */
+/* One rule for a tint: a soft status fill and a coloured icon; the text and the border stay
+   neutral. Coloured text and a coloured border stay reserved for what asks for attention
+   (failed and pending cells, `warn` and `you` chips). `?color=off` shows the screen without. */
+/* Card: a passing PR cell gets the ready fill; a cell with no facts stays plain. */
+:root[data-color='on'] .card-cell[data-tone='ok'] {
+  background: var(--color-fill-ready);
+}
+/* Card: the open blocks marker. */
+:root[data-color='on'] .card-marker[data-marker='block'] > * {
+  background: var(--color-fill-error);
+}
+:root[data-color='on'] .card-marker[data-marker='block'] svg {
+  color: var(--color-status-error);
+}
+/* Task view: link chips tinted by kind. */
+:root[data-color='on'] .task-link[data-kind='ticket'] {
+  background: var(--proposed-color-fill-violet);
+}
+:root[data-color='on'] .task-link[data-kind='ticket'] svg {
+  color: var(--color-accent-violet);
+}
+:root[data-color='on'] .task-link[data-kind='pr'] {
+  background: var(--color-fill-ready);
+}
+:root[data-color='on'] .task-link[data-kind='pr'] svg {
+  color: var(--color-status-ready);
+}
+:root[data-color='on'] .task-link[data-kind='session'] {
+  background: var(--color-fill-working);
+}
+:root[data-color='on'] .task-link[data-kind='session'] svg {
+  color: var(--color-status-working);
+}
+/* Task view: an answered block's chip. */
+:root[data-color='on'] .proposed-block-status[data-answered] > * {
+  background: var(--color-fill-ready);
+}
+:root[data-color='on'] .proposed-block-status[data-answered] svg {
+  color: var(--color-status-ready);
+}
+:root[data-color='off'] .proposed-block-status[data-answered] svg {
+  display: none;
+}
+
+/* ---- 2. Proposed: section titles one step up ------------------------------------------------ */
+/* Overrides DS.CollapsibleSection from outside: its title and count are --text-micro today. The
+   title becomes body size and the count small, for every section of the task view. */
+.proposed-sections [id$='-title'] {
+  font-size: var(--text-body);
+  color: var(--color-text-primary);
+}
+.proposed-sections [id$='-title'] + span {
+  font-size: var(--text-small);
+}
+
+/* ---- 2. Proposed: blocks ------------------------------------------------------------------- */
+/* Each block is its own box with a gap, so two long blocks never read as one. */
+.proposed-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.proposed-block {
+  position: relative;
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.proposed-block > .proposed-label {
+  position: absolute;
+  top: calc(-1 * var(--space-2));
+  left: 50%;
+  background: var(--color-bg-base);
+}
+/* The header band: the id reads first, then who, when and to whom; the state chip ends the row. */
+.proposed-block-head {
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+  width: 100%;
+  min-height: var(--size-control);
+  padding: var(--space-1) var(--space-2-5);
+  border: 0;
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+  background: var(--color-bg-elevated);
+  font: inherit;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+button.proposed-block-head {
+  cursor: pointer;
+}
+button.proposed-block-head:hover {
+  color: var(--color-text-secondary);
+}
+/* The id is one step under the section title, so a block never outranks its section. */
+.proposed-block-id {
+  font-size: var(--text-small);
+  color: var(--color-text-primary);
+}
+.proposed-block-status {
+  margin-left: auto;
+}
+.proposed-block-caret,
+.proposed-run-caret,
+.proposed-fold-caret {
+  display: inline-flex;
+  transform: rotate(var(--rotate-collapsed));
+}
+.proposed-block-caret[data-expanded],
+.proposed-run-caret[data-expanded] {
+  transform: none;
+}
+.proposed-fold-caret {
+  transform: rotate(180deg);
+}
+/* An open block: a rail in the state colour and a tinted band. */
+.proposed-block[data-state='mine'] {
+  border-left: var(--proposed-size-block-rail) solid var(--color-you-bg);
+}
+.proposed-block[data-state='mine'] .proposed-block-head {
+  background: var(--color-fill-attention);
+}
+.proposed-block[data-state='open'] {
+  border-left: var(--proposed-size-block-rail) solid var(--color-status-working);
+}
+.proposed-block[data-state='open'] .proposed-block-head {
+  background: var(--color-fill-working);
+}
+/* `?head=plain`: the header as the app has it today, to compare. */
+.proposed-block[data-head='plain'] .proposed-block-head {
+  border-bottom: 0;
+  background: none;
+}
+.proposed-block[data-head='plain'] .proposed-block-id {
+  font-size: inherit;
+  color: inherit;
+}
+.proposed-block-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2-5);
+}
+.proposed-block-peek[data-foldable] {
+  cursor: pointer;
+}
+.proposed-block-peek[data-foldable]:hover {
+  background: var(--color-row-hover);
+}
+.proposed-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--proposed-lines-fold);
+  line-clamp: var(--proposed-lines-fold);
+  overflow: hidden;
+  color: var(--color-text-secondary);
+}
+.proposed-block-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.proposed-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.proposed-block-foot .proposed-fold {
+  margin-left: auto;
+}
+.proposed-fold:hover {
+  color: var(--color-text-primary);
+}
+
+/* ---- 3. History ---------------------------------------------------------------------------- */
+.history {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-3);
+}
+.history td {
+  padding: var(--space-1-5) var(--space-2) var(--space-1-5) 0;
+  vertical-align: top;
+  border-bottom: var(--size-hairline) solid var(--color-border-subtle);
+}
+.history-when {
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.history-what {
+  width: 100%;
+  color: var(--color-text-secondary);
+}
+.history-actor {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-medium);
+}
+.history .history-kind {
+  padding-top: var(--space-2);
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
+}
+/* Proposed: a run of alike rows. Folded it is one row with a +N toggle; unfolded, its rows share
+   a rail so the run still reads as one thing. */
+.proposed-run-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-25);
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.proposed-run-toggle:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-text-tertiary);
+}
+.proposed-run-since {
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.history-what .proposed-label {
+  margin-left: var(--space-2);
+}
+.proposed-run[data-run='lead-open'] td:first-child,
+.proposed-run[data-run='member'] td:first-child {
+  padding-left: var(--space-2);
+  box-shadow: inset var(--size-rail) 0 0 var(--color-border-strong);
+}
+.proposed-run[data-run='lead-open'] td,
+.proposed-run[data-run='member'] td {
+  background: var(--color-row-hover);
+}
+
+/* ---- Prototype bar: not part of the design ------------------------------------------------- */
+.proto-bar {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--size-statusbar);
+  padding: 0 var(--space-4);
+  border-block-start: var(--size-hairline) solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+}
+.proto-bar-switches {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+  margin-right: var(--space-3);
+}
+.proto-bar-switch {
+  padding: 0 var(--space-2);
+  border: var(--proposed-outline-dash);
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.proto-bar-note {
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+
+/* breakpoints.narrow */
+@media (max-width: 760px) {
+  .board-main {
+    padding: var(--space-3);
+    padding-bottom: calc(var(--size-statusbar) + var(--space-3));
+  }
+  .history-kind {
+    display: none;
+  }
+}

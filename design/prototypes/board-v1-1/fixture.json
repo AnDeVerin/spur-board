@@ -1,0 +1,811 @@
+{
+  "now": "2026-11-17T18:40:00.000Z",
+  "config.get": {
+    "projects": [
+      {
+        "id": "acme-web",
+        "columns": [
+          {
+            "id": "todo",
+            "executor": {
+              "kind": "worker",
+              "name": null
+            }
+          },
+          {
+            "id": "dev",
+            "executor": {
+              "kind": "worker",
+              "name": "web"
+            }
+          },
+          {
+            "id": "review",
+            "executor": {
+              "kind": "orchestrator",
+              "name": "review-desk"
+            }
+          },
+          {
+            "id": "product-review",
+            "executor": {
+              "kind": "orchestrator",
+              "name": "product-desk"
+            }
+          },
+          {
+            "id": "done",
+            "executor": {
+              "kind": "worker",
+              "name": null
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "status.get": {
+    "tasks": [
+      {
+        "key": "acme/web#431",
+        "project": "acme-web",
+        "column": "todo",
+        "membership": "board",
+        "ticket": {
+          "title": "Show the daemon version in the status bar"
+        },
+        "columnEnteredAt": "2026-11-17T17:05:00Z",
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/431",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#418",
+        "project": "acme-web",
+        "column": "todo",
+        "membership": "board",
+        "ticket": {
+          "title": "Export the journal as JSON lines"
+        },
+        "columnEnteredAt": "2026-11-15T18:30:00Z",
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/418",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#425",
+        "project": "acme-web",
+        "column": "todo",
+        "membership": "board",
+        "ticket": {
+          "title": "Rate limit the inbox poll"
+        },
+        "columnEnteredAt": "2026-11-17T08:30:00Z",
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/425",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#412",
+        "project": "acme-web",
+        "column": "dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Close a wrap-up turn when its holder session ends"
+        },
+        "columnEnteredAt": "2026-11-17T12:28:00Z",
+        "turn": {
+          "addressee": "operator",
+          "at": "2026-11-17T18:00:00Z",
+          "taken": null,
+          "id": "T713"
+        },
+        "prSummary": [
+          {
+            "repo": "acme/web",
+            "number": 433,
+            "checks": {
+              "pass": 11,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["review-desk"],
+              "changesRequested": []
+            },
+            "draft": false
+          }
+        ],
+        "openBlocks": 2,
+        "returned": {
+          "at": "2026-11-17T18:40:00.000Z"
+        },
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/412",
+          "prs": [
+            {
+              "repo": "acme/web",
+              "number": 433,
+              "url": "https://example.test/acme/web/pull/433"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "wb-6c6c"
+            }
+          ]
+        }
+      },
+      {
+        "key": "acme/web#427",
+        "project": "acme-web",
+        "column": "dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Group check reruns by workflow and job"
+        },
+        "columnEnteredAt": "2026-11-17T17:52:00Z",
+        "turn": {
+          "addressee": "worker:web",
+          "at": "2026-11-17T17:52:00Z",
+          "taken": {
+            "by": "agent:web/wb-41c0",
+            "at": "2026-11-17T17:54:00Z"
+          },
+          "id": "T714"
+        },
+        "prSummary": [
+          {
+            "repo": "acme/web",
+            "number": 436,
+            "checks": {
+              "pass": 4,
+              "fail": 0,
+              "pending": 7
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 0
+            },
+            "reviewsOnHead": {
+              "approved": [],
+              "changesRequested": []
+            },
+            "draft": false
+          }
+        ],
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/427",
+          "prs": [
+            {
+              "repo": "acme/web",
+              "number": 436,
+              "url": "https://example.test/acme/web/pull/436"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "wb-41c0"
+            }
+          ]
+        }
+      },
+      {
+        "key": "acme/web#409",
+        "project": "acme-web",
+        "column": "dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Keep unsent answer drafts across reconnects"
+        },
+        "columnEnteredAt": "2026-11-16T17:20:00Z",
+        "turn": {
+          "addressee": "worker:web",
+          "at": "2026-11-17T15:20:00Z",
+          "taken": {
+            "by": "agent:web/wb-7e12",
+            "at": "2026-11-17T15:30:00Z"
+          },
+          "id": "T715"
+        },
+        "prSummary": [
+          {
+            "repo": "acme/web",
+            "number": 429,
+            "checks": {
+              "pass": 9,
+              "fail": 2,
+              "pending": 0
+            },
+            "mergeable": false,
+            "threads": {
+              "unresolved": 2,
+              "total": 5
+            },
+            "reviewsOnHead": {
+              "approved": [],
+              "changesRequested": ["review-desk"]
+            },
+            "draft": false
+          }
+        ],
+        "openBlocks": 1,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/409",
+          "prs": [
+            {
+              "repo": "acme/web",
+              "number": 429,
+              "url": "https://example.test/acme/web/pull/429"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "wb-7e12"
+            }
+          ]
+        }
+      },
+      {
+        "key": "acme/web#421",
+        "project": "acme-web",
+        "column": "dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Link task-less inbox entries to their destinations"
+        },
+        "columnEnteredAt": "2026-11-17T16:27:00Z",
+        "turn": {
+          "addressee": "worker:web",
+          "at": "2026-11-17T16:27:00Z",
+          "taken": null,
+          "id": "T716"
+        },
+        "prSummary": null,
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/421",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#416",
+        "project": "acme-web",
+        "column": "review",
+        "membership": "board",
+        "ticket": {
+          "title": "Raise an inbox item when the default branch is red"
+        },
+        "columnEnteredAt": "2026-11-17T18:18:00Z",
+        "turn": {
+          "addressee": "orchestrator:review",
+          "at": "2026-11-17T18:18:00Z",
+          "taken": {
+            "by": "agent:review-desk/rd-03aa",
+            "at": "2026-11-17T18:20:00Z"
+          },
+          "id": "T717"
+        },
+        "prSummary": [
+          {
+            "repo": "acme/web",
+            "number": 435,
+            "checks": {
+              "pass": 11,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 1,
+              "total": 4
+            },
+            "reviewsOnHead": {
+              "approved": [],
+              "changesRequested": []
+            },
+            "draft": false
+          }
+        ],
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/416",
+          "prs": [
+            {
+              "repo": "acme/web",
+              "number": 435,
+              "url": "https://example.test/acme/web/pull/435"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "rd-03aa"
+            }
+          ]
+        }
+      },
+      {
+        "key": "acme/web#403",
+        "project": "acme-web",
+        "column": "review",
+        "membership": "board",
+        "ticket": {
+          "title": "Centre the columns on wide screens"
+        },
+        "columnEnteredAt": "2026-11-17T10:15:00Z",
+        "turn": {
+          "addressee": "orchestrator:review",
+          "at": "2026-11-17T18:31:00Z",
+          "taken": null,
+          "id": "T718"
+        },
+        "prSummary": [
+          {
+            "repo": "acme/web",
+            "number": 430,
+            "checks": {
+              "pass": 11,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 2
+            },
+            "reviewsOnHead": {
+              "approved": ["review-desk"],
+              "changesRequested": []
+            },
+            "draft": false
+          }
+        ],
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/403",
+          "prs": [
+            {
+              "repo": "acme/web",
+              "number": 430,
+              "url": "https://example.test/acme/web/pull/430"
+            }
+          ],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#398",
+        "project": "acme-web",
+        "column": "done",
+        "membership": "board",
+        "ticket": {
+          "title": "Split the web UI docs by screen"
+        },
+        "columnEnteredAt": "2026-11-17T14:20:00Z",
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/398",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#401",
+        "project": "acme-web",
+        "column": "done",
+        "membership": "board",
+        "ticket": {
+          "title": "Wait for published tarballs before the upgrade smoke"
+        },
+        "columnEnteredAt": "2026-11-17T17:25:00Z",
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/401",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#387",
+        "project": "acme-web",
+        "column": "done",
+        "membership": "board",
+        "ticket": {
+          "title": "Classify ended turn holders as worker ended"
+        },
+        "columnEnteredAt": "2026-11-14T17:20:00Z",
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/387",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#394",
+        "project": "acme-web",
+        "column": "done",
+        "membership": "board",
+        "ticket": {
+          "title": "Confirm the tarball downloads before stopping the service"
+        },
+        "columnEnteredAt": "2026-11-16T21:00:00Z",
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/394",
+          "prs": [],
+          "sessions": []
+        }
+      }
+    ]
+  },
+  "task.get": {
+    "task": {
+      "key": "acme/web#412",
+      "project": "acme-web",
+      "column": "dev",
+      "membership": "board"
+    },
+    "title": "Close a wrap-up turn when its holder session ends",
+    "links": [
+      {
+        "kind": "ticket",
+        "ref": "acme/web#412",
+        "role": null
+      },
+      {
+        "kind": "pr",
+        "ref": "acme/web#433",
+        "role": null
+      },
+      {
+        "kind": "session",
+        "ref": "wb-6c6c",
+        "role": "worker"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "B164",
+        "type": "needs_input",
+        "state": "open",
+        "author": "agent:web/wb-6c6c",
+        "addressee": "operator",
+        "at": "2026-11-17T18:00:00Z",
+        "outcome": null,
+        "answeredVia": null,
+        "outcomeReason": null,
+        "reason": "The cleanup would also withdraw two stall blocks raised before the update. Both are on archived tasks.\n\nWithdraw them too, or leave archived tasks untouched?\n(A) Withdraw. (B) Leave. Default: (B)."
+      },
+      {
+        "id": "B165",
+        "type": "anomaly",
+        "state": "open",
+        "author": "system",
+        "addressee": "orchestrator:review",
+        "at": "2026-11-17T18:28:00Z",
+        "outcome": null,
+        "answeredVia": null,
+        "outcomeReason": null,
+        "reason": "review: no review on the head after 30 minutes. The reviewer session rd-03aa is idle."
+      },
+      {
+        "id": "B161",
+        "type": "needs_input",
+        "state": "unblocked",
+        "author": "agent:web/wb-6c6c",
+        "addressee": "curator",
+        "at": "2026-11-17T12:28:00Z",
+        "outcome": "done",
+        "answeredVia": "cli",
+        "outcomeReason": null,
+        "reason": "#412 Clarify: one question. The planned fix closes a taken wrap-up turn as soon as the session holding it ends, whatever the end reason. The block it raised is withdrawn with the reason \"turn closed: its holder ended\". This needs no migration, and the live blocks close on the first reconcile after the update.\n\n1. An ended holder outside Done. The ticket assumes that an ended holder on a Dev turn already raises an inbox item. It does not: the item is raised only for a killed worker that has no PR and no open turn. Today an ended holder of an open turn gets:\n   - killed or vanished: an anomaly block, raised at once;\n   - completed with an open PR: a stuck-turn block after 30 minutes, which is the only signal for that case.\n   Which do you want?\n   (A) Keep that behaviour outside Done. Only Done turns change, and the cleanup closes only stall blocks on Done tasks.\n   (B) Follow the ticket as written. Outside Done, an ended holder of an open turn raises the inbox item instead of the stuck-turn block. This widens the item beyond \"killed\" and changes its docs row.\n   Default: (A).\n\nReply with A or B. Silence accepts the default."
+      },
+      {
+        "id": "B158",
+        "type": "needs_input",
+        "state": "unblocked",
+        "author": "agent:web/wb-6c6c",
+        "addressee": "operator",
+        "at": "2026-11-16T17:50:00Z",
+        "outcome": "done",
+        "answeredVia": "slack",
+        "outcomeReason": null,
+        "reason": "The ticket names two docs pages for the new row, but only one of them lists inbox kinds. Update only that page?"
+      },
+      {
+        "id": "B151",
+        "type": "stuck_turn",
+        "state": "unblocked",
+        "author": "system",
+        "addressee": "operator",
+        "at": "2026-11-15T18:20:00Z",
+        "outcome": "withdrawn",
+        "answeredVia": null,
+        "outcomeReason": "turn T702 closed: its holder wb-2f90 ended in Done",
+        "reason": "Turn T702 in Done is taken by wb-2f90 and has not moved for 30 minutes.\n\nThe holder session reports no activity since the merge. The pull request is merged, the branch is deleted, and the wrap-up checklist has two unchecked items: the changelog line and the follow-up ticket for the docs row.\n\nStart a new worker for the wrap-up, or close the turn by hand with `board turn close T702`."
+      }
+    ],
+    "comments": [
+      {
+        "id": "C231",
+        "block": "B161",
+        "author": "agent:notes/bn-1c4b",
+        "at": "2026-11-17T12:29:00Z",
+        "text": "A. Fix the reported bug: a taken Done turn closes when its holder ends, and the cleanup closes the stall blocks on Done tasks. Leave the outside-Done behaviour as it is today. The ticket's assumption was wrong, and widening the item changes a catalogue kind, so it is a separate ticket; I am asking the manager to cut it. In the PR, say that acceptance criteria 2 and 4 moved to that ticket, and keep the test for it out of this PR."
+      },
+      {
+        "id": "C236",
+        "block": "B161",
+        "author": "agent:web/wb-6c6c",
+        "at": "2026-11-17T12:50:00Z",
+        "text": "Understood: A. Criteria 2 and 4 are out of this PR."
+      },
+      {
+        "id": "C219",
+        "block": "B158",
+        "author": "operator",
+        "at": "2026-11-16T18:00:00Z",
+        "text": "Yes, only that page."
+      },
+      {
+        "id": "C240",
+        "block": null,
+        "author": "agent:notes/bn-1c4b",
+        "at": "2026-11-17T13:40:00Z",
+        "text": "Follow-up ticket #434 covers the widened inbox item."
+      }
+    ],
+    "why": {
+      "rows": [
+        {
+          "key": "PR open",
+          "value": "met",
+          "status": "pass"
+        },
+        {
+          "key": "Checks green",
+          "value": "met",
+          "status": "pass"
+        },
+        {
+          "key": "Threads resolved",
+          "value": "met",
+          "status": "pass"
+        },
+        {
+          "key": "Submit on the head",
+          "value": "no submit on head",
+          "status": "fail"
+        },
+        {
+          "key": "Open turn T713",
+          "value": "yours · open · 40m",
+          "status": "wait"
+        },
+        {
+          "key": "Open blocks",
+          "value": "B164, B165",
+          "status": "fail"
+        }
+      ]
+    }
+  },
+  "task.history": {
+    "events": [
+      {
+        "at": "2026-11-15T18:15:00Z",
+        "kind": "task_added",
+        "actor": "system",
+        "summary": "Added to Todo."
+      },
+      {
+        "at": "2026-11-16T17:10:00Z",
+        "kind": "task_moved",
+        "actor": "system",
+        "summary": "Moved from Todo to Dev: session linked."
+      },
+      {
+        "at": "2026-11-16T17:11:00Z",
+        "kind": "turn_opened",
+        "actor": "system",
+        "summary": "Turn T716 opened in dev for worker:web: dev: start"
+      },
+      {
+        "at": "2026-11-16T17:13:00Z",
+        "kind": "turn_acked",
+        "actor": "agent:web/wb-6c6c",
+        "summary": "Turn T716 taken by wb-6c6c",
+        "via": "mcp"
+      },
+      {
+        "at": "2026-11-16T17:50:00Z",
+        "kind": "block_raised",
+        "actor": "agent:web/wb-6c6c",
+        "summary": "Block B158 raised for operator",
+        "via": "mcp"
+      },
+      {
+        "at": "2026-11-16T18:00:00Z",
+        "kind": "block_answered",
+        "actor": "operator",
+        "summary": "Block B158 answered",
+        "via": "slack"
+      },
+      {
+        "at": "2026-11-16T22:30:00Z",
+        "kind": "pr_facts_changed",
+        "actor": "system",
+        "summary": "PR #433 facts changed: opened as draft"
+      },
+      {
+        "at": "2026-11-16T22:36:00Z",
+        "kind": "pr_facts_changed",
+        "actor": "system",
+        "summary": "PR #433 facts changed: checks 0 of 11 passed"
+      },
+      {
+        "at": "2026-11-16T22:44:00Z",
+        "kind": "pr_facts_changed",
+        "actor": "system",
+        "summary": "PR #433 facts changed: checks 7 of 11 passed"
+      },
+      {
+        "at": "2026-11-16T22:52:00Z",
+        "kind": "pr_facts_changed",
+        "actor": "system",
+        "summary": "PR #433 facts changed: checks 11 of 11 passed"
+      },
+      {
+        "at": "2026-11-17T12:28:00Z",
+        "kind": "block_raised",
+        "actor": "agent:web/wb-6c6c",
+        "summary": "Block B161 raised for curator",
+        "via": "mcp"
+      },
+      {
+        "at": "2026-11-17T12:29:00Z",
+        "kind": "comment_added",
+        "actor": "agent:notes/bn-1c4b",
+        "summary": "Comment C231 added on B161",
+        "via": "cli"
+      },
+      {
+        "at": "2026-11-17T12:29:00Z",
+        "kind": "block_answered",
+        "actor": "agent:notes/bn-1c4b",
+        "summary": "Block B161 answered",
+        "via": "cli"
+      },
+      {
+        "at": "2026-11-17T12:50:00Z",
+        "kind": "comment_added",
+        "actor": "agent:web/wb-6c6c",
+        "summary": "Comment C236 added on B161",
+        "via": "mcp"
+      },
+      {
+        "at": "2026-11-17T17:17:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T17:17:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T17:21:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T17:21:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T17:25:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T17:25:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T17:26:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T17:31:00Z",
+        "kind": "turn_opened",
+        "actor": "system",
+        "summary": "Turn T729 opened in review for orchestrator:review: review: no_review_on_head"
+      },
+      {
+        "at": "2026-11-17T17:48:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T17:49:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T18:00:00Z",
+        "kind": "block_raised",
+        "actor": "agent:web/wb-6c6c",
+        "summary": "Block B164 raised for operator",
+        "via": "mcp"
+      },
+      {
+        "at": "2026-11-17T18:09:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T18:16:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T18:22:00Z",
+        "kind": "session_facts_changed",
+        "actor": "system",
+        "summary": "Session facts changed"
+      },
+      {
+        "at": "2026-11-17T18:28:00Z",
+        "kind": "block_raised",
+        "actor": "system",
+        "summary": "Block B165 raised for orchestrator:review"
+      }
+    ]
+  }
+}
