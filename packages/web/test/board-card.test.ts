@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest';
-import { daemon, failure, prLink, prSummary, row, turn } from './board-fixtures.ts';
+import { config, daemon, failure, prLink, prSummary, row, turn } from './board-fixtures.ts';
 import {
   all,
   container,
@@ -63,6 +63,26 @@ describe('board task cards', () => {
     } finally {
       document.removeEventListener('click', stop);
     }
+  });
+
+  it('a Jira card links its ticket to the project browse base', async () => {
+    const d = daemon();
+    const [first, ...rest] = config.projects;
+    if (first === undefined) throw new Error('no project');
+    serve(d, linkedRows(), {
+      ...config,
+      projects: [{ ...first, ticketBrowseBase: 'https://j.test/browse/' }, ...rest],
+    });
+    mount(d);
+    await settle();
+    const ticket = one(
+      'main a[target="_blank"][rel="noopener noreferrer"][href="https://j.test/browse/ABC-3"]',
+    );
+    expect(ticket.getAttribute('aria-label')).toBe('Ticket ABC-3, Jira, opens in a new tab');
+    expect(ticket.closest('a[href^="?open="]')).toBeNull();
+    expect(
+      one('main a[aria-label="Ticket ex/repo#7, opens in a new tab"]').getAttribute('href'),
+    ).toBe('https://example.test/ticket');
   });
 
   it('the session is a link with spurUiOrigin and a plain chip without', async () => {

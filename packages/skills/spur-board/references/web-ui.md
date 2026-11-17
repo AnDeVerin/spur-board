@@ -1,13 +1,12 @@
 # Web UI
 
-The browser shows one project's columns, tasks and data freshness. It only reads; writes stay
-in the CLI, MCP tools and Slack.
+The browser reads one project's columns, tasks and freshness. Writes stay in CLI, MCP tools and Slack.
 
 ## Opening it
 
-The daemon's web listener is off by default. Set `web.port` and `web.publicOrigin` following
+Enable the daemon's optional web listener with `web.port` and `web.publicOrigin` per
 [Optional browser access](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#optional-browser-access),
-then open `web.publicOrigin`. A 503 `UI is not built` means assets are missing; follow
+then open `web.publicOrigin`. For 503 `UI is not built`, follow
 [Building the web UI](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#building-the-web-ui).
 
 Reads: `config.get`, chosen-project `status.get`, `inbox.operator`, open-task `task.get`/`task.history` and
@@ -21,7 +20,7 @@ Header, left to right:
 - The project switcher lists `<id> · dispatcher <mode>`, checking the current project. Escape or
   an outside click closes it. The browser remembers the choice, falling back to the first project
   if removed. Long ids end in `…`.
-- The chosen project's dispatcher mode: `dispatcher on` or `dispatcher shadow`.
+- Dispatcher mode: `dispatcher on` or `dispatcher shadow`.
 - The filter matches full/short keys (`#12`), session or block ids, ignoring case. Misses dim,
   remain visible and accept Tab; Clear resets the filter.
 - The live indicator: `connecting` until the stream answers, then `live`, `reconnecting` or
@@ -45,6 +44,7 @@ Columns follow configuration order:
   key (full key on hover), the ticket title, then:
   - Ticket, first pull request and Spur session links open new tabs; Tab reaches them after the
     card. Sessions need `web.spurUiOrigin`; otherwise a `session <id>` chip truncates at 20 characters.
+    Jira links use `ticketBrowseBase` plus the key; other tickets and PRs use observed URLs.
   - Four cells for the first pull request: checks, merge, resolved threads, reviews on the head.
     Red: failed, conflicting or changes requested. Yellow: pending or unresolved. Green glyph:
     passed, no conflicts or approved. `–`: nothing reported. `?`: mergeability unknown. All four
@@ -55,9 +55,9 @@ Columns follow configuration order:
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
     on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
     without a turn. Ages stop while the data is stale.
-- A task in a column the configuration does not list is hidden.
+- A task in an unconfigured column is hidden.
 
-On a narrow screen the columns scroll sideways and the mode and filter are hidden.
+On a narrow screen columns scroll sideways; the mode and filter are hidden.
 
 ## Status bar
 
@@ -125,8 +125,8 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
 - **Daemon down**: config/status read failed. The error banner gives data time and warns that
   answers/comments cannot be sent; the daemon button turns red. Initial failure shows no data
   and no columns.
-- **Source blind**: a warning banner names a project source that has stopped answering and the time
-  of its last complete poll. Several share one banner; a source still warming up is not named.
+- **Source blind**: a warning names unresponsive project sources and their last complete poll;
+  warming-up sources are omitted.
 - **Shadow**: an info banner says the dispatcher computes columns and turns but does not act.
 
 Banners order errors, warnings, info. Data time means this browser's last good status read.

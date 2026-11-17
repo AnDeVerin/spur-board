@@ -305,11 +305,38 @@ describe('task card', () => {
     expect(turnView(card({ turn: turn() }).turn, undefined)?.tail).toBe('not taken · —');
   });
 
+  it('a Jira key links its ticket to the browse base; other keys keep the observed URL', () => {
+    const BASE = 'https://j.test/browse/';
+    const jira = typed(row('ABC-3', 'dev', { links: links([]) }));
+    expect(quickLinks(jira, null, BASE)).toEqual([
+      {
+        kind: 'ticket',
+        icon: 'ticket',
+        href: 'https://j.test/browse/ABC-3',
+        label: 'Ticket ABC-3, Jira, opens in a new tab',
+        title: 'Ticket ABC-3: https://j.test/browse/ABC-3',
+      },
+    ]);
+    expect(quickLinks(jira, null, null)).toEqual([]);
+    const github = card({
+      links: { ticket: 'https://example.test/ticket', prs: [], sessions: [] },
+    });
+    expect(quickLinks(github, null, BASE)).toEqual([
+      {
+        kind: 'ticket',
+        icon: 'ticket',
+        href: 'https://example.test/ticket',
+        label: 'Ticket ex/repo#7, opens in a new tab',
+        title: 'Ticket ex/repo#7: https://example.test/ticket',
+      },
+    ]);
+  });
+
   it('quick links go through safeExternalUrl; the session link uses spurUiOrigin', () => {
     const SPUR = 'https://spur.example.test';
     const unsafe = { ...card(), links: { ticket: 'javascript:alert(1)', prs: [], sessions: [] } };
-    expect(quickLinks(unsafe, SPUR)).toEqual([]);
-    expect(quickLinks(card(), SPUR)).toEqual([]);
+    expect(quickLinks(unsafe, SPUR, null)).toEqual([]);
+    expect(quickLinks(card(), SPUR, null)).toEqual([]);
     const linked = card({
       links: {
         ticket: 'https://example.test/ticket',
@@ -317,7 +344,7 @@ describe('task card', () => {
         sessions: [{ id: 'a/b' }],
       },
     });
-    expect(quickLinks(linked, SPUR)).toEqual([
+    expect(quickLinks(linked, SPUR, null)).toEqual([
       {
         kind: 'ticket',
         icon: 'ticket',
@@ -341,14 +368,17 @@ describe('task card', () => {
       },
     ]);
     expect(sessionChip(linked, SPUR)).toBeNull();
-    expect(quickLinks(linked, null).map(({ kind }) => kind)).toEqual(['ticket', 'pr']);
+    expect(quickLinks(linked, null, null).map(({ kind }) => kind)).toEqual(['ticket', 'pr']);
     expect(sessionChip(linked, null)).toEqual({
       tone: 'default',
       icon: 'term',
       text: 'session a/b',
       title: 'Spur session a/b',
     });
-    expect(quickLinks(linked, 'javascript:x').map(({ kind }) => kind)).toEqual(['ticket', 'pr']);
+    expect(quickLinks(linked, 'javascript:x', null).map(({ kind }) => kind)).toEqual([
+      'ticket',
+      'pr',
+    ]);
     expect(sessionChip(linked, 'javascript:x')?.text).toBe('session a/b');
     const id = 'crew-ada-0123456789-abcdefghijklmnopq';
     expect(id).toHaveLength(37);
