@@ -7,6 +7,7 @@ import {
   type Output,
 } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
+import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
 
 export type BoardConfig = Output<'config.get'>;
 type BoardStatus = Output<'status.get'>;
@@ -84,6 +85,7 @@ interface BoardDataOptions {
 }
 
 const PROJECT_KEY = 'board-project';
+const sortKey = (project: string, column: string) => `board-sort:${project}:${column}`;
 
 /**
  * Board reads outside React: `config.get`, then `status.get` for the chosen project, and
@@ -439,6 +441,23 @@ export function createBoardData(options: BoardDataOptions) {
       statusFailed = false;
       update({ project, status: undefined, lastGoodAt: undefined });
       status.refresh();
+    },
+    /** The stored order of a column; `T ↑` when none is stored, it is unknown or storage fails. */
+    columnSort(project: string, column: string): ColumnSort {
+      try {
+        const stored = options.storage().getItem(sortKey(project, column));
+        return isColumnSort(stored) ? stored : FIRST_SORT;
+      } catch {
+        return FIRST_SORT;
+      }
+    },
+    /** Keep the order of a column for its project; it is view state and never reaches the daemon. */
+    setColumnSort(project: string, column: string, sort: ColumnSort) {
+      try {
+        options.storage().setItem(sortKey(project, column), sort);
+      } catch {
+        /* The order lasts until reload without storage. */
+      }
     },
     /** Retry now: reconnect the stream if it waits in backoff and re-read everything. */
     retry() {

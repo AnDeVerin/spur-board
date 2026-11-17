@@ -1,10 +1,22 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
+import { browserOperations } from '@spur-board/contracts/browser';
 import { describe, expect, it, vi } from 'vitest';
-import { boardColumns } from '../src/board/model.ts';
+import { createBoardData } from '../src/board/data.ts';
+import { boardColumns, sortRows, type ColumnSort } from '../src/board/model.ts';
+import { focusRing } from '../src/ds/index.ts';
 import { parsed } from './board-fixtures.ts';
 import { config, daemon, envelope, failure, row, ROWS, status, taskGet } from './board-fixtures.ts';
-import { all, goOffline, mount, mountEachTest, one, press, settle } from './board-harness.ts';
+import {
+  all,
+  goOffline,
+  mount,
+  mountEachTest,
+  one,
+  press,
+  remount,
+  settle,
+} from './board-harness.ts';
 
 mountEachTest();
 
@@ -43,7 +55,7 @@ describe('unknown board columns', () => {
     mount(d);
     await settle();
     const marker = button('2 tasks in unknown columns');
-    expect(all('main button')).toEqual([marker]);
+    expect(all('main button[aria-controls]')).toEqual([marker]);
     expect(marker.getAttribute('aria-expanded')).toBe('false');
     const list = one(`ul[id="${marker.getAttribute('aria-controls') ?? ''}"]`);
     expect(list.hidden).toBe(true);
@@ -72,7 +84,7 @@ describe('unknown board columns', () => {
       d.routes['status.get'] = () => Promise.resolve(envelope(status(rows)));
       mount(d);
       await settle();
-      expect(all('main button')).toHaveLength(0);
+      expect(all('main button[aria-controls]')).toHaveLength(0);
       expect(one('main').textContent).not.toContain('unknown columns');
     },
   );
@@ -133,7 +145,7 @@ describe('unknown board columns', () => {
       );
     d.send('event: reset\ndata: {}\n\n');
     await settle();
-    expect(all('main button')).toHaveLength(0);
+    expect(all('main button[aria-controls]')).toHaveLength(0);
     expect(all('main a').map((link) => link.title)).toEqual(['NEW-1']);
   });
 
@@ -158,4 +170,219 @@ describe('unknown board columns', () => {
       expect(all('main section').every((section) => section.hasAttribute('data-stale'))).toBe(true);
     },
   );
+});
+
+const T0 = Date.parse('2026-11-15T12:00:00.000Z');
+const at = (minutesBefore: number) => new Date(T0 - minutesBefore * 60_000).toISOString();
+const typed = (rows: unknown[]) => browserOperations['status.get'].output.parse(status(rows)).tasks;
+const section = (id: string) => {
+  const found = all('main section').find((item) => item.querySelector('h2')?.textContent === id);
+  if (!found) throw new Error(`no column ${id}`);
+  return found;
+};
+const sortButtons = (id: string) => [...section(id).querySelectorAll('[role="group"] button')];
+const sortText = (id: string) => sortButtons(id).map((item) => item.textContent);
+const keys = (id: string) =>
+  [...section(id).querySelectorAll<HTMLAnchorElement>('a[href^="?open="]')].map((a) => a.title);
+const click = (id: string, index: number) => {
+  const target = sortButtons(id)[index];
+  if (!target) throw new Error(`no sort button ${String(index)} in ${id}`);
+  press(target, 'click');
+};
+const named = (target: Element) => [
+  target.textContent,
+  target.getAttribute('aria-label'),
+  target.getAttribute('title'),
+];
+
+describe('column sort', () => {
+  const rows = [
+    row('ex/repo#10', 'dev', { columnEnteredAt: at(30) }),
+    row('ex/repo#9', 'dev', { columnEnteredAt: at(90) }),
+    row('ex/repo#100', 'dev'),
+  ];
+  it.each<[ColumnSort, string[]]>([
+    ['entered-asc', ['ex/repo#9', 'ex/repo#10', 'ex/repo#100']],
+    ['entered-desc', ['ex/repo#10', 'ex/repo#9', 'ex/repo#100']],
+    ['key-asc', ['ex/repo#9', 'ex/repo#10', 'ex/repo#100']],
+    ['key-desc', ['ex/repo#100', 'ex/repo#10', 'ex/repo#9']],
+  ])('sortRows %s', (sort, expected) => {
+    const input = typed(rows);
+    expect(sortRows(input, sort).map((item) => item.key)).toEqual(expected);
+    expect(input.map((item) => item.key)).toEqual(['ex/repo#10', 'ex/repo#9', 'ex/repo#100']);
+  });
+
+  it('sortRows compares Jira keys as numbers and keeps ties in input order', () => {
+    const jira = typed([row('ABC-10', 'dev'), row('ABC-9', 'dev')]);
+    expect(sortRows(jira, 'key-asc').map((item) => item.key)).toEqual(['ABC-9', 'ABC-10']);
+    const tied = typed(
+      ['A-2', 'A-1', 'A-3'].map((key) => row(key, 'dev', { columnEnteredAt: at(5) })),
+    );
+    for (const sort of ['entered-asc', 'entered-desc'] as const)
+      expect(sortRows(tied, sort).map((item) => item.key)).toEqual(['A-2', 'A-1', 'A-3']);
+  });
+
+  it('renders the sort group on non-empty columns with the prototype names', async () => {
+    mount(daemon());
+    await settle();
+    expect(
+      all('[role="group"][aria-label^="Sort "]').map((g) => g.getAttribute('aria-label')),
+    ).toEqual(['Sort dev', 'Sort done']);
+    expect(all('main section[title] button')).toHaveLength(0);
+    const [field, direction] = sortButtons('dev');
+    if (!field || !direction) throw new Error('no dev sort buttons');
+    expect([named(field), named(direction)]).toEqual([
+      ['T', 'Sorted by time in the column', 'T: sorted by time in the column. Click for K, key.'],
+      ['↑', 'Longest in the column first', 'Longest in the column first. Click to reverse.'],
+    ]);
+    press(field, 'click');
+    expect([named(field), named(direction)]).toEqual([
+      ['K', 'Sorted by key', 'K: sorted by key. Click for T, time in the column.'],
+      ['↑', 'Lowest key first', 'Lowest key first. Click to reverse.'],
+    ]);
+    press(direction, 'click');
+    expect(named(direction)).toEqual([
+      '↓',
+      'Highest key first',
+      'Highest key first. Click to reverse.',
+    ]);
+    press(field, 'click');
+    expect([named(field), named(direction)]).toEqual([
+      ['T', 'Sorted by time in the column', 'T: sorted by time in the column. Click for K, key.'],
+      ['↓', 'Newest in the column first', 'Newest in the column first. Click to reverse.'],
+    ]);
+    // The head is not remounted, so a clicked button keeps its focus.
+    expect(sortButtons('dev')).toEqual([field, direction]);
+  });
+
+  it('puts both buttons after the heading and before the rows, with the ds focus ring', async () => {
+    mount(daemon());
+    await settle();
+    const dev = section('dev');
+    const [field, direction] = sortButtons('dev');
+    expect([...dev.querySelectorAll('button, a[href]')]).toEqual([
+      field,
+      direction,
+      ...dev.querySelectorAll('a[href]'),
+    ]);
+    const heading = dev.querySelector('h2');
+    if (!heading || !field) throw new Error('no heading');
+    expect(heading.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect([field, direction].every((item) => item?.classList.contains(focusRing))).toBe(true);
+  });
+
+  it('reorders one column, stores its order and restores it per project and column', async () => {
+    const d = daemon();
+    d.routes['status.get'] = () => Promise.resolve(envelope(status([...ROWS, ...rows])));
+    const stored = mount(d);
+    await settle();
+    expect(keys('dev')).toEqual(['ex/repo#9', 'ex/repo#10', 'ex/repo#7', 'ABC-3', 'ex/repo#100']);
+    click('dev', 1);
+    expect(keys('dev')).toEqual(['ex/repo#10', 'ex/repo#9', 'ex/repo#7', 'ABC-3', 'ex/repo#100']);
+    expect(
+      Object.fromEntries([...stored].filter(([key]) => key.startsWith('board-sort:'))),
+    ).toEqual({ 'board-sort:a:dev': 'entered-desc' });
+    remount();
+    mount(d, { 'board-sort:a:dev': 'key-asc', 'board-sort:a:done': 'bogus' });
+    await settle();
+    expect(sortText('dev')).toEqual(['K', '↑']);
+    expect(keys('dev')).toEqual(['ABC-3', 'ex/repo#7', 'ex/repo#9', 'ex/repo#10', 'ex/repo#100']);
+    expect(sortText('done')).toEqual(['T', '↑']);
+    remount();
+    mount(d, { 'board-sort:a:done': 'key-desc' });
+    await settle();
+    expect(sortText('done')).toEqual(['K', '↓']);
+    press(trigger(), 'click');
+    press(button('b · dispatcher'), 'click');
+    await settle();
+    expect(sortText('done')).toEqual(['T', '↑']);
+  });
+
+  it('falls back to T up when storage throws', () => {
+    const broken = createBoardData({
+      fetch: daemon().fetcher,
+      storage: () => ({
+        getItem: () => {
+          throw new Error('denied');
+        },
+        setItem: () => {
+          throw new Error('denied');
+        },
+      }),
+      now: () => 0,
+    });
+    expect(broken.columnSort('a', 'dev')).toBe('entered-asc');
+    expect(() => {
+      broken.setColumnSort('a', 'dev', 'key-asc');
+    }).not.toThrow();
+  });
+
+  it('shows the time in the column after the key and last in a Done row', async () => {
+    const d = daemon();
+    d.routes['status.get'] = () =>
+      Promise.resolve(
+        envelope(
+          status([
+            row('ex/repo#7', 'dev', { columnEnteredAt: at(90) }),
+            row('ex/repo#20', 'done', { columnEnteredAt: at(90) }),
+            row('ex/repo#21', 'done'),
+          ]),
+        ),
+      );
+    mount(d, {}, () => T0);
+    await settle();
+    const keyRow = section('dev').querySelector('a')?.firstElementChild;
+    expect(
+      [...(keyRow?.children ?? [])].map((item) => [item.textContent, item.getAttribute('title')]),
+    ).toEqual([
+      ['#7', null],
+      ['1h 30m', 'Time in this column'],
+    ]);
+    const [timed, untimed] = section('done').querySelectorAll('a');
+    expect(timed?.lastElementChild?.textContent).toBe('1h 30m');
+    expect(untimed?.textContent).toBe('#21Title ex/repo#21');
+  });
+
+  it('keeps the unknown list in status order and lets the filter dim without reordering', async () => {
+    const d = daemon();
+    // ROWS already holds ex/repo#99 in qa.
+    const unknown = [row('ABC-1', 'qa'), row('ex/repo#5', 'qa')];
+    d.routes['status.get'] = () => Promise.resolve(envelope(status([...ROWS, ...unknown])));
+    mount(d, { 'board-sort:a:dev': 'key-desc', 'board-sort:a:qa': 'key-asc' });
+    await settle();
+    press(trigger(), 'click');
+    expect(all('main ul[id] a').map((link) => link.title)).toEqual([
+      'ex/repo#99',
+      'ABC-1',
+      'ex/repo#5',
+    ]);
+    expect(keys('dev')).toEqual(['ex/repo#7', 'ABC-3']);
+    type('ABC');
+    expect(keys('dev')).toEqual(['ex/repo#7', 'ABC-3']);
+    expect(
+      [...section('dev').querySelectorAll('[data-dimmed]')].map(
+        (item) => item.querySelector('a')?.title,
+      ),
+    ).toEqual(['ex/repo#7']);
+  });
+
+  it('calls no daemon route on a sort click', async () => {
+    const d = daemon();
+    mount(d);
+    await settle();
+    const calls: string[] = [];
+    for (const name of Object.keys(d.routes) as (keyof typeof d.routes)[]) {
+      const route = d.routes[name];
+      d.routes[name] = (input) => {
+        calls.push(name);
+        return route(input);
+      };
+    }
+    for (const id of ['dev', 'done']) {
+      click(id, 0);
+      click(id, 1);
+    }
+    await settle();
+    expect(calls).toEqual([]);
+  });
 });
