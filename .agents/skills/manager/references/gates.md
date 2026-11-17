@@ -94,7 +94,7 @@ update rules are in `references/runtime.md`.
   `designer` (code), then `reviewer`; the gate that asked reruns in its place. Each rerun counts
   toward its cap; at the cap there is no rerun and the gate goes under Missing.
 - Final head of a `tester` or `designer` (code) verdict: an APPROVED review on `headRefOid`, no
-  open point -> fetch, check out `headRefOid`, `pnpm ci:status` once. Exit not 0 -> mark the
+  open point -> fetch, check out `headRefOid`, `pnpm ci:status <N>` once. Exit not 0 -> mark the
   verdict `older than <HEAD>`. Exit 0 and `git diff --name-only <verdict head>..HEAD` has a path
   under `packages/web/` outside `test/`, `gallery/` and `kit/`; `docs/design-system-decisions.md`;
   or, for an issue naming `design/prototypes/<slice>/`, that folder or the step 11 pairs file ->
