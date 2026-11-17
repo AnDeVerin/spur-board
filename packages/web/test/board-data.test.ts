@@ -15,6 +15,7 @@ const config = (...projects: string[]) => ({
     ],
     dispatcher: { mode: 'on' },
     spurProjects: [],
+    ticketBrowseBase: null,
   })),
   web: { publicOrigin: null, spurUiOrigin: null },
 });

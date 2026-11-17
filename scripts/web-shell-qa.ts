@@ -81,6 +81,7 @@ export function shellConfig() {
         ],
         dispatcher: { mode: 'on' },
         spurProjects: [],
+        ticketBrowseBase: null,
       },
     ],
     web: { publicOrigin: null, spurUiOrigin: null },

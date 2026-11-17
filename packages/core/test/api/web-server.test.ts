@@ -142,6 +142,7 @@ describe('web listener', () => {
             ].map(([id, kind]) => ({ id, executor: { kind, name: null } })),
             dispatcher: { mode: 'shadow' },
             spurProjects: [],
+            ticketBrowseBase: null,
           },
         ],
         web: { publicOrigin: 'https://web.example.test', spurUiOrigin: null },
