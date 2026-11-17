@@ -33,11 +33,15 @@ Columns follow configuration order:
 - Fitting rows centre; wider rows scroll horizontally from the left.
 - Columns are 320px wide above 760px and retain 248px at 760px or narrower. Card accent rails
   are 2px wide; empty-column spines retain their compact width.
-- A column header shows name, task count and executor (kind, then name).
+- A column header shows name, task count and executor (kind, then name), then two sort buttons.
+  `T`/`K` sorts by time in the column or by key; `↑`/`↓` reverses. `T ↑`, the default, puts the
+  longest in the column first; `K ↑` the lowest key, numbers compared as numbers. Rows without a
+  time go last. The browser keeps the order per project and column. Spines have none; the filter
+  only dims.
 - An empty column collapses to a spine with its name and `0`.
-- `done` lists every done task in a compact scrolling list.
+- `done` lists every done task in a compact scrolling list, each with its time in the column.
 - A card opens the task view on click or Enter, a new tab on a modified click. It shows the short
-  key (full key on hover), the ticket title, then:
+  key (full key on hover) and its time in the column, the ticket title, then:
   - Ticket, first pull request and Spur session links open new tabs; Tab reaches them after the
     card. Sessions need `web.spurUiOrigin`; otherwise a `session <id>` chip truncates at 20 characters.
     Jira links use `ticketBrowseBase` plus the key; other tickets and PRs use observed URLs.
@@ -52,6 +56,6 @@ Columns follow configuration order:
     on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
     without a turn. Ages stop while the data is stale.
 - Unconfigured columns: a trailing count opens a list of task keys, titles and original columns.
-  Rows open the task view. At zero, both are absent.
+  Rows open the task view and keep status order. At zero, both are absent.
 
 On a narrow screen columns scroll sideways; the mode and filter are hidden.

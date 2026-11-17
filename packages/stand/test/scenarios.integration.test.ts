@@ -578,18 +578,22 @@ describe('each scenario', () => {
     const task = scenario.tasks?.['question'] ?? '';
     expect(task).toBe('stand-org/board#1');
     const read = () =>
-      op<{ blocks: { id: string; state: string; addressee: string; outcome: string | null }[] }>(
-        current(),
-        'task.get',
-        { task },
-      );
+      op<{
+        blocks: { id: string; state: string; addressee: string; outcome: string | null }[];
+        comments: { block: string | null; author: string; text: string }[];
+      }>(current(), 'task.get', { task });
+    const blockId = scenario.blocks?.['question'];
+    const onBlock = async () =>
+      (await read()).comments.filter((comment) => comment.block === blockId);
     expect((await read()).blocks).toEqual([
       expect.objectContaining({
-        id: scenario.blocks?.['question'],
+        id: blockId,
         state: 'open',
         addressee: 'operator',
       }),
     ]);
+    // The question is the block's reason, not also its first reply.
+    expect(await onBlock()).toEqual([]);
     const question = (await outbox(current())).find((message) =>
       message.text.includes('Which version should the client target?'),
     );
@@ -617,6 +621,9 @@ describe('each scenario', () => {
       },
       { timeout: 10_000 },
     );
+    expect((await onBlock()).map(({ author, text }) => ({ author, text }))).toEqual([
+      { author: 'operator', text: 'Use v2.' },
+    ]);
     await ok(current(), '/poll');
     await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 10_000 });
     expect(await workerSends()).toBe(0);

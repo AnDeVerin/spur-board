@@ -1,6 +1,6 @@
 import { Fragment, useId, type MouseEvent, type ReactNode } from 'react';
 import { Chip, focusRing, Icon, quiet, StatusDot } from '../ds/index.ts';
-import { markers, prStatus, quickLinks, turnView, type PrStatus } from './card.ts';
+import { age, markers, prStatus, quickLinks, turnView, type PrStatus } from './card.ts';
 import { matchesFilter, openHref, shortKey, type BoardRow } from './model.ts';
 import styles from './Card.module.css';
 
@@ -158,6 +158,11 @@ export function Card({
       >
         <div className={styles.keyRow}>
           <span className={styles.key}>{shortKey(row.key)}</span>
+          {row.columnEnteredAt !== null && (
+            <span className={styles.entered} title="Time in this column">
+              {age(row.columnEnteredAt, now)}
+            </span>
+          )}
           {links.length > 0 && (
             // Room for the quick links, which sit over the card's top right corner.
             <span className={styles.spacer} aria-hidden="true">

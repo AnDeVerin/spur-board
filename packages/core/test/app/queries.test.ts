@@ -336,6 +336,53 @@ describe('production query handlers', () => {
     ]);
   });
 
+  it("leaves out a question's opening comment and keeps every later reply", async () => {
+    const { registry, query, apply } = await seeded();
+    const asked = await apply(
+      required(registry['block.ask']),
+      { task: KEY, text: 'Which version?' },
+      worker,
+      'ask-1',
+    );
+    const block = asked.block.id;
+    const read = async () => {
+      const view = await query(required(registry['task.get']), { task: KEY }, worker);
+      return { view, onBlock: view.comments.filter((comment) => comment.block === block) };
+    };
+    const opened = await read();
+    expect(opened.view.blocks[0]?.reason).toBe('Which version?');
+    expect(opened.onBlock).toEqual([]);
+
+    await apply(
+      required(registry['block.answer']),
+      { block, text: 'Which version?' },
+      orchestrator,
+      'answer-1',
+    );
+    await apply(
+      required(registry['block.followup']),
+      { block, text: 'Pin it.' },
+      'operator',
+      'followup-1',
+    );
+    await apply(
+      required(registry['comment.add']),
+      { task: KEY, block, text: 'Which version?' },
+      worker,
+      'comment-1',
+    );
+
+    const { onBlock } = await read();
+    expect(onBlock.map(({ author, text }) => [author, text])).toEqual([
+      [orchestrator, 'Which version?'],
+      ['operator', 'Pin it.'],
+      [worker, 'Which version?'],
+    ]);
+    expect(onBlock.map(({ id }) => Number(id.slice(1)))).toEqual(
+      onBlock.map(({ id }) => Number(id.slice(1))).sort((a, b) => a - b),
+    );
+  });
+
   it('shows the current answer revision, acknowledges it, and shows an edited clarification', async () => {
     const { store, registry, query, apply } = await seeded();
     const asked = await apply(
