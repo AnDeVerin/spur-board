@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createApi, createMutationIntent, coordinateRead, ProblemError } from '../src/lib/api.ts';
-import { statusOutputSchema } from '@spur-board/contracts/browser';
+import { browserOperations, statusOutputSchema } from '@spur-board/contracts/browser';
+import { historyEvent, taskHistory } from './board-fixtures.ts';
 
 const status = statusOutputSchema.parse({
   items: [],
@@ -132,6 +133,25 @@ describe('browser API', () => {
       createMutationIntent(api, 'comment.add', input, () => `uuid-${String(++uuid)}`).run(),
     ).rejects.toThrow();
     expect(keys).toEqual(['uuid-1', 'uuid-1', 'uuid-2']);
+  });
+  it('reads task.history with its read schema: an unknown kind or channel still parses', async () => {
+    const at = '2026-11-15T14:40:00.000Z';
+    const answer = taskHistory([
+      historyEvent(at, 'task_added', 'operator', 'Added to Dev.'),
+      historyEvent(at, 'future_kind', 'system', 'Something new.', 'carrier'),
+    ]);
+    const api = createApi(() => Promise.resolve(envelope(answer)));
+    const value = await api('task.history', { task: 'ex/repo#7' });
+    expect(value.events.map((event) => event.kind)).toEqual(['task_added', 'future_kind']);
+    expect(value.events[1]?.via).toBe('carrier');
+    // The catalog's own output stays strict.
+    expect(browserOperations['task.history'].output.safeParse(answer).success).toBe(false);
+    const noSummary = { at, kind: 'future_kind', actor: 'system' };
+    await expect(
+      createApi(() => Promise.resolve(envelope(taskHistory([noSummary]))))('task.history', {
+        task: 'ex/repo#7',
+      }),
+    ).rejects.toThrow();
   });
 });
 describe('status read coordination', () => {

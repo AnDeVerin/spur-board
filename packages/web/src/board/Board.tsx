@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Banner, Button } from '../ds/index.ts';
 import type { BoardData, BoardSnapshot, TaskState } from './data.ts';
 import { banners, boardColumns, chosenProject, indicator, openHref } from './model.ts';
@@ -99,6 +99,12 @@ export function Board({ data }: { data: BoardData }) {
     if (wasInboxOpen.current && !inboxOpen) inboxTrigger.current?.querySelector('button')?.focus();
     wasInboxOpen.current = inboxOpen;
   }, [inboxOpen]);
+  const onHistory = useCallback(
+    (shown: boolean) => {
+      data.showHistory(shown);
+    },
+    [data],
+  );
   const { task } = snapshot;
   // Runs after the task view's layer returned focus to its opener on unmount.
   useEffect(() => {
@@ -199,6 +205,7 @@ export function Board({ data }: { data: BoardData }) {
         <TaskView
           key={task.key}
           task={task}
+          history={snapshot.history}
           title={taskTitle(snapshot, task)}
           columns={project?.columns.map(({ id }) => id) ?? []}
           spurUiOrigin={snapshot.config?.web.spurUiOrigin ?? null}
@@ -211,6 +218,10 @@ export function Board({ data }: { data: BoardData }) {
           }}
           onRetry={() => {
             data.retryTask();
+          }}
+          onHistory={onHistory}
+          onRetryHistory={() => {
+            data.retryHistory();
           }}
         />
       )}

@@ -10,7 +10,7 @@ The daemon's web listener is off by default. Set `web.port` and `web.publicOrigi
 then open `web.publicOrigin`. A 503 `UI is not built` means assets are missing; follow
 [Building the web UI](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#building-the-web-ui).
 
-Reads: `config.get`, chosen-project `status.get`, `inbox.operator`, open-task `task.get` and
+Reads: `config.get`, chosen-project `status.get`, `inbox.operator`, open-task `task.get`/`task.history` and
 `/v1/events`. The UI owns no data.
 
 ## What it shows
@@ -104,8 +104,9 @@ Narrow panels cover the bar. Opening and closing add history entries; Back after
 
 ## Task view
 
-A card or `?open=<task key>` opens the task view: its links and **Why it is here**, the conditions,
-holds, turn and blocks keeping it in its column. See the [task view](web-ui-task-view.md) guide.
+A card or `?open=<task key>` opens the task view: links, **Why it is here** and **History**
+(journal events with the actor's channel, as `operator (web)`). See the
+[task view](web-ui-task-view.md) guide.
 
 ## Live and stale states
 
