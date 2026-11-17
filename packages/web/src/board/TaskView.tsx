@@ -319,9 +319,10 @@ function TaskDiscussion({
         <div className={styles.items}>
           {blocks.length === 0 && <p className={styles.note}>No blocks on this task.</p>}
           {blocks.map((block) => {
+            const question = block.type === 'needs_input';
             const mine = block.state === 'open' && block.addressee === 'operator';
             const reply = value.comments.filter((comment) => comment.block === block.id).at(-1);
-            const answered = block.state === 'unblocked' && block.outcome === 'done';
+            const answered = question && block.state === 'unblocked' && block.outcome === 'done';
             return (
               <article
                 key={block.id}
@@ -351,7 +352,7 @@ function TaskDiscussion({
                 {!answered && block.outcomeReason && (
                   <p className={styles.text}>{block.outcomeReason}</p>
                 )}
-                {mine && (
+                {mine && question && (
                   <SendForm
                     label={`Answer ${block.id}`}
                     answer

@@ -43,12 +43,13 @@ The section header sums up the failed and waiting conditions and the open blocks
 ## Blocks and comments
 
 **Blocks** shows the total and the number open, with open blocks first. Each item names its
-author, addressee, age and reason, its resolution and answer channel when known, and its latest
-associated reply. Agent names use configured Spur project display names, with project and
+author, addressee, age and reason, its resolution and question-answer channel when known, and
+its latest associated reply. Completed code blocks retain their completion reference.
+Agent names use configured Spur project display names, with project and
 session identifiers as fallbacks; the operator reads as `you`. Empty blocks read
 `No blocks on this task.`
 
-Only an open block addressed to the operator has an answer form. **Send answer** calls
+Only an open question (`needs_input`) addressed to the operator has an answer form. **Send answer** calls
 `block.answer`. **Comments** lists task comments with their authors, ids and ages, excluding
 block replies. Its composer stays available with count zero. **Add comment** calls
 `comment.add` for the task. Follow-up, answering agent blocks, and editing or deleting comments

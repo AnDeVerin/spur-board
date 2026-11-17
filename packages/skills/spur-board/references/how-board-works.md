@@ -71,7 +71,7 @@ The private web package builds the Board screen for one chosen project; the
 `status.get` with detail for the chosen project, `inbox.operator` and `task.get` with `why` for
 the open task. A card click or the address `?open=<task key>` opens the
 [task view](web-ui-task-view.md) with its "Why it is here", Blocks and Comments sections.
-The task view can answer open operator blocks through `block.answer` and add task comments
+The task view can answer open operator questions through `block.answer` and add task comments
 through `comment.add`; other actions stay in the CLI, MCP and Slack. Failed sends preserve
 drafts, and confirmed writes refresh authoritative task data. While the daemon or live updates
 are unavailable, both forms are disabled with a reason and retain their drafts.
