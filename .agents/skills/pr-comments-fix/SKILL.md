@@ -84,9 +84,10 @@ Fix or answer every open PR point once, with a reason for each rejection.
 - A later review or comment notification -> run the collection again from step 1; the head and
   the set of open threads have changed.
 - No open point, an APPROVED review on `headRefOid` and a `tester` or `designer` (code) verdict
-  in the PR's Testing -> apply `Final head` in `.agents/skills/manager/references/gates.md`, with
-  the handoffs of `.agents/skills/manager/references/runtime.md`; write each verdict and line it
-  gives into Testing with `gh pr edit <N> --body-file`.
+  recorded `on <sha>` in the PR's Testing -> apply `Final head` in
+  `.agents/skills/manager/references/gates.md`, with the handoffs of
+  `.agents/skills/manager/references/runtime.md`; write each verdict and line it gives into
+  Testing with `gh pr edit <N> --body-file`.
 - Report in the session, not on the PR: `Fixed: <thread or comment> - <sha>` and
   `Rejected: <thread or comment> - <reason>`, one line each, plus the checks run and their exit
   codes.

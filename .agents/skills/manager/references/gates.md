@@ -37,8 +37,8 @@ The numbers are the canonical gate order.
     `.agents/skills/qa-report/references/prototype-vs-build.md`. A FAIL for no stand webUrl, or
     because the browser tool cannot run or cannot reach 127.0.0.1, is an external blocker:
     `Missing: tester - external blocker: <reason>`, no `developer` fix, no rerun; the run goes on.
-12. Design review (UI) - `designer` (code) with the changed files, the step 11 screenshots and
-    report path, and the decisions section the `developer` returned.
+12. Design review (UI) - `designer` (code) with its `Head:` line, the changed files, the step 11
+    screenshots and report path, and the decisions section the `developer` returned.
 13. Review - a PR exists: push, and bring its `## Changed checks` section up to date with the
     developer's output per `gitflow`. Then `reviewer` with the spec, every `developer` output of
     the run and `PR: <url> | none`.
@@ -96,7 +96,7 @@ update rules are in `references/runtime.md`.
 - Final head of a `tester` or `designer` (code) verdict: an APPROVED review on `headRefOid`, no
   open point -> `pnpm ci:status` once. Exit not 0 -> mark the verdict `older than <HEAD>`.
   Exit 0 and `git diff --name-only <verdict head>..HEAD` has a path under `packages/web/`
-  outside `test/`, `gallery/`, `kit/`, or `docs/design-system-decisions.md`, or, for an issue
+  outside `test/`, `gallery/` and `kit/`; `docs/design-system-decisions.md`; or, for an issue
   naming `design/prototypes/<slice>/`, that folder or
   `.agents/skills/qa-report/references/prototype-vs-build.md` -> each runs in step order from a
   worktree at HEAD, once per gate per task, outside its cap: `<verdict> on <sha> (final head)`.
