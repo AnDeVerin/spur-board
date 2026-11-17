@@ -20,6 +20,8 @@ Column bindings `none` and `operator` keep their routing meaning even when a Spu
 same name.
 
 Compact status rows include the unclosed `turn` (or null), `prSummary` and navigation `links`.
+Compact and detailed rows have `columnEnteredAt`: latest real entry into the current column
+in UTC, falling back to original add time; null if neither is known.
 An untaken turn names its last assigned recipient session in `addressedTo`; a taken turn names
 its holder and time in `taken`. `turn.stalledSince` is the executor stall start while its stall
 block is open, else null. `blocks` lists open blocks as `{id, addressee, session}`; `session` is
