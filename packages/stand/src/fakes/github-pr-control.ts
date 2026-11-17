@@ -20,7 +20,20 @@ const contextSchema = z.discriminatedUnion('__typename', [
     conclusion: z.string().nullable(),
     startedAt: z.string().nullable(),
     completedAt: z.string().nullable(),
-    checkSuite: z.strictObject({ createdAt: z.string() }).nullable(),
+    checkSuite: z
+      .strictObject({
+        createdAt: z.string(),
+        // The Actions workflow or the app that ran the check; GitHub sends null when absent.
+        workflowRun: z
+          .strictObject({ workflow: z.strictObject({ id: z.string().min(1) }) })
+          .nullable()
+          .default(null),
+        app: z
+          .strictObject({ id: z.string().min(1) })
+          .nullable()
+          .default(null),
+      })
+      .nullable(),
     isRequired: z.boolean(),
   }),
   z.strictObject({

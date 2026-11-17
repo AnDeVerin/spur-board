@@ -74,7 +74,7 @@ const prFields = (
 ): string => `id number url title updatedAt mergedAt closedAt state isDraft mergeable mergeStateStatus
  author { login } headRefName headRefOid
  statusCheckRollup { contexts(first: 100) { nodes {
- ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${String(number)}) }
+ ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } } isRequired(pullRequestNumber: ${String(number)}) }
  ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${String(number)}) }
  } pageInfo { hasNextPage endCursor } } }
  reviews(first: 100) { nodes { ${REVIEW_FIELDS} } pageInfo { hasNextPage endCursor } }
@@ -148,7 +148,7 @@ export function pageQuery(
     connection === 'closingIssuesReferences'
       ? `closingIssuesReferences(first: 100, after: $after) { ${CLOSING_FIELDS} }`
       : connection === 'contexts'
-        ? `statusCheckRollup { contexts(first: 100, after: $after) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: $number) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: $number) } } pageInfo { hasNextPage endCursor } } }`
+        ? `statusCheckRollup { contexts(first: 100, after: $after) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } } isRequired(pullRequestNumber: $number) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: $number) } } pageInfo { hasNextPage endCursor } } }`
         : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? REVIEW_FIELDS : connection === 'reviewThreads' ? THREAD_FIELDS : REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }`;
   return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }

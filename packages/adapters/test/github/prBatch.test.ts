@@ -291,7 +291,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      'd9591863b96cb97eb8d94f1fb4e461b88a524d5256d3e1e85a09837f0db7f39e',
+      '03705dbc621f1ba01f31e5450740e07936e60f3d897ed7d484a3badefa5271e9',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -448,7 +448,12 @@ describe('GitHub PR batch', () => {
     expect(normalizePr('demo/widgets', pr, demoKeys, true).requiredChecks).toEqual([
       { name: 'build', state: 'pending', completedAt: null },
     ]);
-    expect(pageQuery('contexts')).toContain('startedAt completedAt checkSuite { createdAt }');
+    expect(pageQuery('contexts')).toContain(
+      'startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } }',
+    );
+    expect(detailQuery([7])).toContain(
+      'startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } }',
+    );
   });
   it('uses check-suite creation time for a queued rerun without a start time', () => {
     const pr = wire();
@@ -465,6 +470,69 @@ describe('GitHub PR batch', () => {
     expect(normalizePr('demo/widgets', pr, demoKeys, true).requiredChecks).toEqual([
       { name: 'build', state: 'pending', completedAt: null },
     ]);
+  });
+  it('keys check reruns by workflow, app or status context', () => {
+    const early = '2026-01-03T00:00:00.000Z';
+    const late = '2026-01-04T00:00:00.000Z';
+    const run = (conclusion: string, at: string, suite: Json): Json => ({
+      __typename: 'CheckRun',
+      name: 'test',
+      status: 'COMPLETED',
+      conclusion,
+      startedAt: at,
+      completedAt: at,
+      checkSuite: { createdAt: at, ...(suite as Record<string, Json>) },
+      isRequired: true,
+    });
+    const status = (state: string, at: string): Json => ({
+      __typename: 'StatusContext',
+      context: 'test',
+      state,
+      createdAt: at,
+      isRequired: true,
+    });
+    const workflow = (id: string): Json => ({ workflowRun: { workflow: { id } }, app: null });
+    const app = (id: string): Json => ({ workflowRun: null, app: { id } });
+    const red = { name: 'test', state: 'failure', completedAt: early };
+    const green = { name: 'test', state: 'success', completedAt: late };
+    const cases: { name: string; nodes: Json[]; checks: unknown[] }[] = [
+      {
+        name: 'two workflows',
+        nodes: [run('FAILURE', early, workflow('W_1')), run('SUCCESS', late, workflow('W_2'))],
+        checks: [red, green],
+      },
+      {
+        name: 'rerun in one workflow',
+        nodes: [run('FAILURE', early, workflow('W_1')), run('SUCCESS', late, workflow('W_1'))],
+        checks: [green],
+      },
+      {
+        name: 'two apps',
+        nodes: [run('FAILURE', early, app('A_1')), run('SUCCESS', late, app('A_2'))],
+        checks: [red, green],
+      },
+      {
+        name: 'rerun from one app',
+        nodes: [run('FAILURE', early, app('A_1')), run('SUCCESS', late, app('A_1'))],
+        checks: [green],
+      },
+      {
+        name: 'status beside a check run',
+        nodes: [status('FAILURE', early), run('SUCCESS', late, workflow('W_1'))],
+        checks: [green, { name: 'test', state: 'failure', completedAt: null }],
+      },
+      {
+        name: 'two statuses with one context',
+        nodes: [status('FAILURE', early), status('SUCCESS', late)],
+        checks: [{ name: 'test', state: 'success', completedAt: null }],
+      },
+    ];
+    for (const { name, nodes, checks } of cases) {
+      const pr = { ...wire(), statusCheckRollup: { contexts: conn(nodes) } };
+      const facts = normalizePr('demo/widgets', pr, demoKeys, true);
+      expect(facts.checks, name).toEqual(checks);
+      expect(facts.requiredChecks, name).toEqual(checks);
+    }
   });
   it('reads checks from the PR head on a multi-commit branch', () => {
     const olderCommit = {

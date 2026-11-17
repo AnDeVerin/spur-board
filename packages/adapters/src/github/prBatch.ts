@@ -14,6 +14,13 @@ import {
 import { z } from 'zod';
 import { parseWire } from '../runner/wire.ts';
 import {
+  checkState,
+  contextName,
+  contextWire,
+  latestContexts,
+  type ContextWire,
+} from './checks.ts';
+import {
   inlineComments,
   linkOf,
   newestEdit,
@@ -25,28 +32,6 @@ const KEPT_REVIEWS = ['approved', 'changes_requested', 'dismissed'];
 const actor = z.object({ login: z.string().optional() }).nullish();
 // The author of a comment or review; a deleted account arrives as null.
 const typedActor = z.object({ __typename: z.string(), login: z.string().min(1) }).nullable();
-const checkRunWire = z
-  .object({
-    __typename: z.literal('CheckRun'),
-    name: z.string(),
-    status: z.string(),
-    conclusion: z.string().nullable(),
-    startedAt: z.string().nullish(),
-    completedAt: z.string().nullable(),
-    checkSuite: z.object({ createdAt: z.string() }).nullish(),
-    isRequired: z.boolean().nullish(),
-  })
-  .refine((run) => run.status !== 'COMPLETED' || run.conclusion !== null, {
-    path: ['conclusion'],
-  });
-const statusContextWire = z.object({
-  __typename: z.literal('StatusContext'),
-  context: z.string(),
-  state: z.string(),
-  createdAt: z.string(),
-  isRequired: z.boolean().nullish(),
-});
-const contextWire = z.discriminatedUnion('__typename', [checkRunWire, statusContextWire]);
 // A kept review must name its commit.
 const reviewWire = z
   .object({
@@ -135,7 +120,6 @@ const prWire = z.object({
   // `closing`; a Jira project never selects it.
   closingIssuesReferences: closingWire,
 });
-type ContextWire = z.output<typeof contextWire>;
 type ReviewWire = z.output<typeof reviewWire>;
 type CommentWire = z.output<typeof commentWire>;
 type ActorWire = z.output<typeof typedActor>;
@@ -223,60 +207,18 @@ export function closingRefs(wire: ClosingWire): ClosingRef[] {
   );
 }
 
-/** The contracts check state of a check run or commit status. */
-export function checkState(node: ContextWire): PrFacts['checks'][number]['state'] {
-  if (node.__typename === 'StatusContext') {
-    const state = node.state.toLowerCase();
-    return state === 'success'
-      ? 'success'
-      : state === 'pending'
-        ? 'pending'
-        : state === 'expected'
-          ? 'expected'
-          : 'failure';
-  }
-  if (node.status !== 'COMPLETED') return 'pending';
-  const value = node.conclusion?.toLowerCase();
-  const allowed: PrFacts['checks'][number]['state'][] = [
-    'success',
-    'neutral',
-    'skipped',
-    'failure',
-    'cancelled',
-    'timed_out',
-    'action_required',
-    'stale',
-  ];
-  return allowed.find((state) => state === value) ?? 'error';
-}
-/** When a context ran, to keep the latest per name; an empty string sorts first. */
-export function contextAt(node: ContextWire): string {
-  return node.__typename === 'StatusContext'
-    ? node.createdAt
-    : (node.startedAt ?? node.checkSuite?.createdAt ?? node.completedAt ?? '');
-}
 function latestChecks(nodes: readonly ContextWire[]): {
   checks: PrFacts['checks'];
   requiredChecks: PrFacts['requiredChecks'];
 } {
-  const latest = new Map<
-    string,
-    { check: PrFacts['checks'][number]; required: boolean; at: string }
-  >();
-  for (const node of nodes) {
-    const status = node.__typename === 'StatusContext';
-    const name = status ? node.context : node.name;
-    const completedAt = status ? null : node.completedAt;
-    const at = contextAt(node);
-    const old = latest.get(name);
-    if (old !== undefined && old.at > at) continue;
-    latest.set(name, {
-      check: { name, state: checkState(node), completedAt },
-      required: node.isRequired === true,
-      at,
-    });
-  }
-  const values = [...latest.values()].sort((a, b) => a.check.name.localeCompare(b.check.name));
+  const values = latestContexts(nodes).map((node) => ({
+    check: {
+      name: contextName(node),
+      state: checkState(node),
+      completedAt: node.__typename === 'StatusContext' ? null : node.completedAt,
+    },
+    required: node.isRequired === true,
+  }));
   return {
     checks: values.map((v) => v.check),
     requiredChecks: values.filter((v) => v.required).map((v) => v.check),
