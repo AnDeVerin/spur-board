@@ -75,6 +75,8 @@ The task view can answer open operator questions through `block.answer` and add 
 through `comment.add`; other actions stay in the CLI, MCP and Slack. Failed sends preserve
 drafts, and confirmed writes refresh authoritative task data. While the daemon or live updates
 are unavailable, both forms are disabled with a reason and retain their drafts.
+Archived tasks also disable both writes while keeping drafts. If a question closes or is
+reassigned, newer unsent answer text stays selectable without a follow-up action.
 The header holds the project switcher,
 dispatcher mode, a key, session and block filter that dims and never hides cards, the live
 indicator and the inbox count; columns follow configuration order, empty ones collapse and

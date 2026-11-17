@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Banner,
   Button,
   Chip,
   CollapsibleSection,
-  FormRow,
-  TextArea,
   quiet,
   KeyValueBox,
   Modal,
@@ -14,6 +12,7 @@ import {
   Tabs,
 } from '../ds/index.ts';
 import type { BoardConfig, BoardData, BoardTask, HistoryState, TaskState } from './data.ts';
+import { TaskWrite } from './TaskWrite.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
 import { shortKey } from './model.ts';
 import { age, linkChips, timeInColumn, whyRows, whySummary } from './task-model.ts';
@@ -152,7 +151,11 @@ export function TaskView({
                   taskKey={task.key}
                   config={config}
                   now={now}
-                  unavailable={unavailable}
+                  unavailable={
+                    value.task.membership === 'archived'
+                      ? 'This task is archived. Answers and comments cannot be sent.'
+                      : unavailable
+                  }
                   answerIntent={answerIntent}
                   commentIntent={commentIntent}
                   refreshTask={refreshTask}
@@ -172,130 +175,6 @@ export function TaskView({
         )}
       </TabPanel>
     </Modal>
-  );
-}
-
-/** Each caller keeps its draft and retry intent through canonical data refreshes. */
-function SendForm({
-  label,
-  answer = false,
-  unavailable,
-  createIntent,
-  refreshTask,
-}: {
-  label: string;
-  answer?: boolean;
-  unavailable: string | undefined;
-  createIntent: (text: string) => ReturnType<BoardData['commentIntent']>;
-  refreshTask: BoardData['refreshTask'];
-}) {
-  const [draft, setDraft] = useState('');
-  const revision = useRef(0);
-  const [error, setError] = useState<string>();
-  const [phase, setPhase] = useState<'idle' | 'sending' | 'refreshing' | 'refresh-failed'>('idle');
-  const busy = useRef(false);
-  const confirmed = useRef(false);
-  const mounted = useRef(true);
-  const intent = useRef<
-    { text: string; value: ReturnType<BoardData['commentIntent']> } | undefined
-  >(undefined);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  const reconcile = async (refresh: Promise<boolean>, submittedRevision: number) => {
-    const ok = await refresh;
-    if (!mounted.current) return;
-    if (!ok) {
-      setPhase('refresh-failed');
-      return;
-    }
-    if (revision.current === submittedRevision) setDraft('');
-    confirmed.current = false;
-    busy.current = false;
-    intent.current = undefined;
-    setPhase('idle');
-  };
-  const submittedRevision = useRef(0);
-  const success = answer ? 'Answer sent.' : 'Comment added.';
-  return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (busy.current || confirmed.current || unavailable) return;
-        if (!draft.trim() || draft.length > 20_000) {
-          setError(
-            !draft.trim()
-              ? 'Enter text before sending.'
-              : 'Text must be 20,000 characters or fewer.',
-          );
-          return;
-        }
-        busy.current = true;
-        submittedRevision.current = revision.current;
-        if (intent.current?.text !== draft)
-          intent.current = { text: draft, value: createIntent(draft) };
-        setPhase('sending');
-        setError(undefined);
-        void intent.current.value.run().then(
-          (result) => {
-            if (!mounted.current) return;
-            confirmed.current = true;
-            setPhase('refreshing');
-            void reconcile(result.refresh, submittedRevision.current);
-          },
-          (cause: unknown) => {
-            if (!mounted.current) return;
-            busy.current = false;
-            setPhase('idle');
-            setError(cause instanceof Error ? cause.message : 'Could not send. Retry your text.');
-          },
-        );
-      }}
-    >
-      <FormRow
-        label={label}
-        error={error}
-        hint={unavailable}
-        actions={
-          <Button
-            type="submit"
-            variant={answer ? 'primary' : 'outlined'}
-            disabled={unavailable !== undefined}
-            busy={phase !== 'idle'}
-          >
-            {phase === 'sending' ? 'Sending' : answer ? 'Send answer' : 'Add comment'}
-          </Button>
-        }
-      >
-        <TextArea
-          value={draft}
-          onChange={(text) => {
-            revision.current++;
-            setDraft(text);
-            setError(undefined);
-          }}
-          disabled={unavailable !== undefined}
-        />
-      </FormRow>
-      {(phase === 'refreshing' || phase === 'refresh-failed') && (
-        <p role="status" className={styles.feedback}>
-          {success} {phase === 'refreshing' ? 'Refreshing task…' : 'Could not refresh the task.'}
-        </p>
-      )}
-      {phase === 'refresh-failed' && (
-        <Button
-          onClick={() => {
-            setPhase('refreshing');
-            void reconcile(refreshTask(), submittedRevision.current);
-          }}
-        >
-          Refresh task
-        </Button>
-      )}
-    </form>
   );
 }
 
@@ -375,15 +254,14 @@ function TaskDiscussion({
                 {!answered && block.outcomeReason && (
                   <p className={styles.text}>{block.outcomeReason}</p>
                 )}
-                {mine && question && (
-                  <SendForm
-                    label={`Answer ${block.id}`}
-                    answer
-                    unavailable={unavailable}
-                    createIntent={(text) => answerIntent(taskKey, block.id, text)}
-                    refreshTask={refreshTask}
-                  />
-                )}
+                <TaskWrite
+                  eligible={mine && question}
+                  label={`Answer ${block.id}`}
+                  answer
+                  unavailable={unavailable}
+                  createIntent={(text) => answerIntent(taskKey, block.id, text)}
+                  refreshTask={refreshTask}
+                />
               </article>
             );
           })}
@@ -400,7 +278,7 @@ function TaskDiscussion({
             </article>
           ))}
           <div className={`${quiet} ${styles.item ?? ''}`}>
-            <SendForm
+            <TaskWrite
               label="Comment"
               unavailable={unavailable}
               createIntent={(text) => commentIntent(taskKey, text)}

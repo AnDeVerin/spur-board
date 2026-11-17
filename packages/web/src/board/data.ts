@@ -307,6 +307,10 @@ export function createBoardData(options: BoardDataOptions) {
       run() {
         if (confirmed) return Promise.resolve(confirmed);
         if (pending) return pending;
+        if (state.task?.value?.task.membership === 'archived')
+          return Promise.reject(
+            new Error('This task is archived. Answers and comments cannot be sent.'),
+          );
         if (
           stopped ||
           key !== taskKey ||

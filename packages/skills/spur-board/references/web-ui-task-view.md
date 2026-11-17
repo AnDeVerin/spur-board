@@ -73,6 +73,19 @@ success remains confirmed and **Refresh task** retries only the read. It cannot 
 successful intent. Text edited during a send survives completion of the earlier revision.
 Closing the dialog does not persist drafts.
 
+If a question closes, is withdrawn or is reassigned while you type, a newer unsent revision
+stays visible as selectable **Unsent answer draft** text. It is read-only: closed questions
+offer no answer or follow-up action. An unchanged confirmed submission clears after canonical
+reconciliation. Pending and uncertain intent state survives eligibility changes and History
+navigation; only the submitted revision may be cleared by its completion.
+Pending or uncertain submitted text is labelled **Answer draft (unconfirmed)**, so it can be
+copied without implying that the write failed or offering another send on a closed block.
+
+Archived tasks show `This task is archived. Answers and comments cannot be sent.` Both fields
+and send actions are disabled, preserving pending, failed and newer drafts. Reactivating the
+task enables still-eligible forms again. History and read-only **Refresh task** recovery for an already
+confirmed write remain available while archived.
+
 ## States
 
 - A key the daemon does not know, or a value that is not a task key such as `?open=509`, shows

@@ -119,6 +119,7 @@ describe('block type presentation and answer eligibility', () => {
       if (!item) throw new Error('no block in task dialog');
       expect(item.textContent).toContain(status);
       expect(item.querySelector('textarea') !== null).toBe(form);
+      expect(item.querySelector('[aria-label^="Retained draft:"]')).toBeNull();
       if (form) {
         expect(item.querySelector('label')?.textContent).toBe('Answer B12');
         expect(item.querySelector('button[type="submit"]')?.textContent).toBe('Send answer');

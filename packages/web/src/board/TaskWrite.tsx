@@ -1,0 +1,170 @@
+import { useEffect, useRef, useState } from 'react';
+import { Banner, Button, FormRow, TextArea } from '../ds/index.ts';
+import type { BoardData } from './data.ts';
+import styles from './TaskView.module.css';
+
+/** Each caller keeps its draft and retry intent through canonical data refreshes. */
+export function TaskWrite({
+  label,
+  answer = false,
+  eligible = true,
+  unavailable,
+  createIntent,
+  refreshTask,
+}: {
+  label: string;
+  answer?: boolean;
+  eligible?: boolean;
+  unavailable: string | undefined;
+  createIntent: (text: string) => ReturnType<BoardData['commentIntent']>;
+  refreshTask: BoardData['refreshTask'];
+}) {
+  const [draft, setDraft] = useState('');
+  const [sent, setSent] = useState(false);
+  const revision = useRef(0);
+  const [error, setError] = useState<string>();
+  const [phase, setPhase] = useState<'idle' | 'sending' | 'refreshing' | 'refresh-failed'>('idle');
+  const busy = useRef(false);
+  const confirmed = useRef(false);
+  const mounted = useRef(true);
+  const intent = useRef<
+    { text: string; value: ReturnType<BoardData['commentIntent']> } | undefined
+  >(undefined);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const reconcile = async (refresh: Promise<boolean>, submittedRevision: number) => {
+    const ok = await refresh;
+    if (!mounted.current) return;
+    if (!ok) {
+      setPhase('refresh-failed');
+      return;
+    }
+    if (revision.current === submittedRevision) setDraft('');
+    confirmed.current = false;
+    busy.current = false;
+    intent.current = undefined;
+    setPhase('idle');
+  };
+  const submittedRevision = useRef(0);
+  const success = answer ? 'Answer sent.' : 'Comment added.';
+  const status = sent
+    ? `${success}${phase === 'refreshing' ? ' Refreshing task…' : phase === 'refresh-failed' ? ' Could not refresh the task.' : ''}`
+    : !eligible && phase === 'sending'
+      ? 'Sending answer…'
+      : undefined;
+  const feedback = (
+    <>
+      {status && (
+        <p role="status" className={styles.feedback}>
+          {status}
+        </p>
+      )}
+      {phase === 'refresh-failed' && (
+        <Button
+          onClick={() => {
+            setPhase('refreshing');
+            void reconcile(refreshTask(), submittedRevision.current);
+          }}
+        >
+          Refresh task
+        </Button>
+      )}
+    </>
+  );
+  if (!eligible) {
+    const unsent =
+      draft !== '' &&
+      (intent.current === undefined || revision.current !== submittedRevision.current);
+    const unconfirmed = draft !== '' && !sent && !unsent;
+    return (
+      <>
+        {(unsent || unconfirmed) && (
+          <section aria-label={`Retained draft: ${label}`}>
+            <strong>{unsent ? 'Unsent answer draft' : 'Answer draft (unconfirmed)'}</strong>
+            <p className={styles.text}>{draft}</p>
+            <p className={styles.feedback}>
+              {unsent
+                ? 'Answering is no longer available for this block. Copy this text before closing.'
+                : 'The send is pending or its outcome is unknown. Copy this text before closing.'}
+            </p>
+          </section>
+        )}
+        {error && (
+          <Banner variant="error" icon="x">
+            {error}
+          </Banner>
+        )}
+        {feedback}
+      </>
+    );
+  }
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (busy.current || confirmed.current || unavailable) return;
+        if (!draft.trim() || draft.length > 20_000) {
+          setError(
+            !draft.trim()
+              ? 'Enter text before sending.'
+              : 'Text must be 20,000 characters or fewer.',
+          );
+          return;
+        }
+        busy.current = true;
+        submittedRevision.current = revision.current;
+        if (intent.current?.text !== draft)
+          intent.current = { text: draft, value: createIntent(draft) };
+        setSent(false);
+        setPhase('sending');
+        setError(undefined);
+        void intent.current.value.run().then(
+          (result) => {
+            if (!mounted.current) return;
+            confirmed.current = true;
+            setSent(true);
+            setPhase('refreshing');
+            void reconcile(result.refresh, submittedRevision.current);
+          },
+          (cause: unknown) => {
+            if (!mounted.current) return;
+            busy.current = false;
+            setPhase('idle');
+            setError(cause instanceof Error ? cause.message : 'Could not send. Retry your text.');
+          },
+        );
+      }}
+    >
+      <FormRow
+        label={label}
+        error={error === undefined ? undefined : `${error}${unavailable ? ` ${unavailable}` : ''}`}
+        hint={unavailable}
+        actions={
+          <Button
+            type="submit"
+            variant={answer ? 'primary' : 'outlined'}
+            disabled={unavailable !== undefined}
+            busy={phase !== 'idle'}
+          >
+            {phase === 'sending' ? 'Sending' : answer ? 'Send answer' : 'Add comment'}
+          </Button>
+        }
+      >
+        <TextArea
+          value={draft}
+          onChange={(text) => {
+            revision.current++;
+            setDraft(text);
+            setError(undefined);
+          }}
+          disabled={unavailable !== undefined}
+        />
+      </FormRow>
+      {feedback}
+    </form>
+  );
+}

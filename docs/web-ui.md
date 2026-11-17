@@ -1,7 +1,7 @@
 # Web UI
 
-The web UI shows one project's Board and data freshness. Its task view answers open operator
-questions and adds task comments. Other actions use the CLI, MCP tools or Slack.
+View the Board and freshness, answer open operator questions and add comments. Archived tasks
+are read-only; other actions use CLI, MCP or Slack.
 
 ## Opening it
 
