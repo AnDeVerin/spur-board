@@ -1,8 +1,8 @@
-import type { SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { CommandResult, RunOptions } from '../packages/cli/src/service.ts';
 import { installPublished, latestPublishedVersion, registryVersions } from './upgrade-smoke.ts';
 
 describe('previous published version', () => {
@@ -111,53 +111,61 @@ describe('previous version install retry', () => {
 
   it('verifies the published tarball before installing it', async () => {
     fakeNpm('', 0);
-    const optionsSeen: SpawnSyncOptionsWithStringEncoding[] = [];
-    const run = vi.fn((_args: string[], options: SpawnSyncOptionsWithStringEncoding) => {
+    const optionsSeen: (RunOptions | undefined)[] = [];
+    const runner = vi.fn((_command: string, _args: readonly string[], options?: RunOptions) => {
       optionsSeen.push(options);
-      return { status: 0, stdout: '', stderr: '' };
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
     });
-    await installPublished('spur-board@0.62.1', join(root, 'previous'), { ...deps, run });
-    expect(run).toHaveBeenCalledWith(
-      expect.arrayContaining(['pack', 'spur-board@0.62.1', '--pack-destination']),
-      expect.objectContaining({ killSignal: 'SIGKILL' }),
+    await installPublished('spur-board@0.62.1', join(root, 'previous'), { ...deps, runner });
+    expect(runner).toHaveBeenCalledWith(
+      'npm',
+      expect.arrayContaining([
+        'pack',
+        'spur-board@0.62.1',
+        '--pack-destination',
+        '--ignore-scripts',
+      ]),
+      optionsSeen[0],
     );
-    expect(optionsSeen[0]?.timeout).toBeGreaterThan(0);
-    expect(optionsSeen[0]?.timeout).toBeLessThanOrEqual(600_000);
+    expect(optionsSeen[0]?.env?.['PATH']).toBe(process.env['PATH']);
+    expect(optionsSeen[0]?.timeoutMs).toBeGreaterThan(0);
+    expect(optionsSeen[0]?.timeoutMs).toBeLessThanOrEqual(600_000);
   });
 
   function preflight(
-    results: { status: number | null; stderr: string; duration: number; error?: Error }[],
+    results: (Omit<CommandResult, 'stdout'> & { duration: number })[],
+    sleepOverhead = 0,
   ) {
     let elapsed = 0;
     const destinations: string[] = [];
     const budgets: number[] = [];
-    const run = vi.fn((args: string[], options: SpawnSyncOptionsWithStringEncoding) => {
+    const runner = vi.fn((_command: string, args: readonly string[], options?: RunOptions) => {
       expect(calls()).toBe(0);
       const destination = args[args.indexOf('--pack-destination') + 1] ?? '';
       expect(existsSync(destination)).toBe(true);
       writeFileSync(join(destination, 'download.tgz'), 'partial or complete download');
       destinations.push(destination);
-      budgets.push(options.timeout ?? 0);
-      expect(options.env?.['NPM_TOKEN']).toBeUndefined();
-      expect(options.env?.['GITHUB_TOKEN']).toBeUndefined();
-      expect(options.env?.['PATH']).toBe(process.env['PATH']);
-      const result = results[Math.min(run.mock.calls.length - 1, results.length - 1)];
+      budgets.push(options?.timeoutMs ?? 0);
+      expect(options?.env?.['NPM_TOKEN']).toBeUndefined();
+      expect(options?.env?.['GITHUB_TOKEN']).toBeUndefined();
+      expect(options?.env?.['PATH']).toBe(process.env['PATH']);
+      const result = results[Math.min(runner.mock.calls.length - 1, results.length - 1)];
       if (result === undefined) throw new Error('Missing fake result');
       elapsed += result.duration;
-      return { ...result, stdout: '' };
+      return Promise.resolve({ ...result, stdout: '' });
     });
     return {
       destinations,
       budgets,
-      run,
+      runner,
       deps: {
         ...deps,
-        run,
+        runner,
         now: () => elapsed,
         environment: { ...process.env, NPM_TOKEN: 'sentinel', GITHUB_TOKEN: 'sentinel' },
         sleep: async (ms: number) => {
           await deps.sleep(ms);
-          elapsed += ms;
+          elapsed += ms + sleepOverhead;
         },
       },
     };
@@ -166,11 +174,11 @@ describe('previous version install retry', () => {
   it('waits for a verified pack before install and cleans its scrubbed download directory', async () => {
     fakeNpm('', 0);
     const probe = preflight([
-      { status: 1, stderr: TARBALL_404, duration: 100 },
-      { status: 0, stderr: '', duration: 200 },
+      { exitCode: 1, stderr: TARBALL_404, duration: 100 },
+      { exitCode: 0, stderr: '', duration: 200 },
     ]);
     await installPublished('spur-board@0.62.1', join(root, 'previous'), probe.deps);
-    expect(probe.run).toHaveBeenCalledTimes(2);
+    expect(probe.runner).toHaveBeenCalledTimes(2);
     expect(calls()).toBe(1);
     expect(sleeps).toEqual([5_000]);
     expect(probe.budgets).toEqual([600_000, 594_900]);
@@ -182,7 +190,7 @@ describe('previous version install retry', () => {
 
   it('bounds persistent registry lag by elapsed command time and capped backoff', async () => {
     fakeNpm('', 0);
-    const probe = preflight([{ status: 1, stderr: TARBALL_404, duration: 100_000 }]);
+    const probe = preflight([{ exitCode: 1, stderr: TARBALL_404, duration: 100_000 }]);
     const failure = installPublished('spur-board@0.62.1', join(root, 'previous'), probe.deps);
     await expect(failure).rejects.toThrow('npm registry lag for spur-board@0.62.1');
     await expect(failure).rejects.toThrow('600000 ms');
@@ -192,29 +200,53 @@ describe('previous version install retry', () => {
     expect(probe.destinations.every((destination) => !existsSync(destination))).toBe(true);
   });
 
-  it('caps the final backoff and never starts a pack at the deadline', async () => {
+  it('refuses when the next full backoff would reach the deadline', async () => {
     fakeNpm('', 0);
-    const probe = preflight([{ status: 1, stderr: TARBALL_404, duration: 599_999 }]);
+    const probe = preflight([{ exitCode: 1, stderr: TARBALL_404, duration: 599_999 }]);
     await expect(
       installPublished('spur-board@0.62.1', join(root, 'previous'), probe.deps),
     ).rejects.toThrow('600000 ms');
-    expect(sleeps).toEqual([1]);
+    expect(sleeps).toEqual([]);
     expect(probe.budgets).toEqual([600_000]);
     expect(calls()).toBe(0);
   });
 
+  it('starts no npm command when a backoff wakes at the deadline', async () => {
+    fakeNpm('', 0);
+    const probe = preflight([{ exitCode: 1, stderr: TARBALL_404, duration: 0 }], 595_000);
+    await expect(
+      installPublished('spur-board@0.62.1', join(root, 'previous'), probe.deps),
+    ).rejects.toThrow('600000 ms');
+    expect(probe.runner).toHaveBeenCalledTimes(1);
+    expect(sleeps).toEqual([5_000]);
+    expect(calls()).toBe(0);
+    expect(probe.destinations.every((destination) => !existsSync(destination))).toBe(true);
+  });
+
+  it('accepts verified success exactly at the shared helper deadline', async () => {
+    fakeNpm('', 0);
+    const probe = preflight([{ exitCode: 0, stderr: '', duration: 600_000 }]);
+    await expect(
+      installPublished('spur-board@0.62.1', join(root, 'previous'), probe.deps),
+    ).resolves.toBe(join(root, 'previous/node_modules/.bin/board'));
+    expect(probe.runner).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
+    expect(sleeps).toEqual([]);
+    expect(probe.destinations.every((destination) => !existsSync(destination))).toBe(true);
+  });
+
   it.each([
-    ['a timed-out pack', 1, Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })],
+    ['a timed-out pack', 1, true],
     ['a late successful pack', 0, undefined],
-  ])('rejects %s as registry lag', async (_name, status, error) => {
+  ])('rejects %s as registry lag', async (_name, exitCode, timedOut) => {
     fakeNpm('', 0);
     const probe = preflight([
-      { status, stderr: '', duration: 600_000, ...(error ? { error } : {}) },
+      { exitCode, stderr: '', duration: 600_001, ...(timedOut ? { timedOut: true } : {}) },
     ]);
     await expect(
       installPublished('spur-board@0.62.1', join(root, 'previous'), probe.deps),
     ).rejects.toThrow('npm registry lag for spur-board@0.62.1: tarball not ready within 600000 ms');
-    expect(probe.run).toHaveBeenCalledTimes(1);
+    expect(probe.runner).toHaveBeenCalledTimes(1);
     expect(calls()).toBe(0);
     expect(sleeps).toEqual([]);
     expect(probe.destinations.every((destination) => !existsSync(destination))).toBe(true);
@@ -226,11 +258,11 @@ describe('previous version install retry', () => {
     ['packument 404', PACKUMENT_404],
   ])('fails preflight immediately on %s', async (_name, stderr) => {
     fakeNpm('', 0);
-    const probe = preflight([{ status: 1, stderr, duration: 100 }]);
+    const probe = preflight([{ exitCode: 1, stderr, duration: 100 }]);
     await expect(
       installPublished('spur-board@0.62.1', join(root, 'previous'), probe.deps),
     ).rejects.toThrow(stderr);
-    expect(probe.run).toHaveBeenCalledTimes(1);
+    expect(probe.runner).toHaveBeenCalledTimes(1);
     expect(calls()).toBe(0);
     expect(sleeps).toEqual([]);
     expect(probe.destinations.every((destination) => !existsSync(destination))).toBe(true);
