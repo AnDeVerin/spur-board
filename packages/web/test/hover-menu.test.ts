@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react';
+import { act, createElement, useRef, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HoverMenu, type HoverMenuItem } from '../src/ds/index.ts';
+import { HoverMenu, Modal, SidePanel, type HoverMenuItem } from '../src/ds/index.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -242,5 +242,184 @@ describe('HoverMenu', () => {
     expect(isOpen()).toBe(true);
     click(trigger(), 1);
     expect(isOpen()).toBe(false);
+  });
+});
+
+describe('Escape with several menus and layers', () => {
+  const render = (node: ReactNode) => {
+    act(() => {
+      root.render(node);
+    });
+  };
+  const themeMenu = (props: { defaultOpen?: boolean } = {}) =>
+    createElement(HoverMenu<Choice>, {
+      key: 'theme',
+      label: 'Theme',
+      icon: 'moon',
+      items,
+      value: 'dark',
+      onSelect,
+      ...props,
+    });
+  const accentMenu = (props: { defaultOpen?: boolean } = {}) =>
+    createElement(HoverMenu<Choice>, {
+      key: 'accent',
+      label: 'Accent',
+      icon: 'sun',
+      items,
+      onSelect,
+      ...props,
+    });
+  const triggerOf = (label: string) => {
+    const found = document.querySelector<HTMLButtonElement>(
+      `button[aria-haspopup="menu"][aria-label="${label}"]`,
+    );
+    if (!found) throw new Error(`no trigger ${label}`);
+    return found;
+  };
+  const openMenu = (label: string) =>
+    document.querySelector(`[role="menu"][aria-label="${label}"]`) !== null;
+  const escape = (target: EventTarget, init: KeyboardEventInit = {}) => {
+    const event = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Escape',
+      ...init,
+    });
+    fire(target, event);
+    return event;
+  };
+  const focused = () => document.activeElement ?? document.body;
+
+  it('two open menus: Escape closes the focused one, else the most recent', () => {
+    render([themeMenu(), accentMenu()]);
+    click(triggerOf('Theme'), 1);
+    move('mouse', document.body, triggerOf('Accent'));
+    expect(openMenu('Theme')).toBe(true);
+    expect(openMenu('Accent')).toBe(true);
+    expect(document.activeElement?.textContent).toContain('Dark');
+    const first = escape(focused());
+    expect(first.defaultPrevented).toBe(true);
+    expect(openMenu('Theme')).toBe(false);
+    expect(openMenu('Accent')).toBe(true);
+    expect(document.activeElement).toBe(triggerOf('Theme'));
+    triggerOf('Theme').blur();
+    escape(document.body);
+    expect(openMenu('Accent')).toBe(false);
+
+    render(null);
+    render([themeMenu({ defaultOpen: true }), accentMenu({ defaultOpen: true })]);
+    expect(document.activeElement).toBe(document.body);
+    escape(document.body);
+    expect(openMenu('Theme')).toBe(true);
+    expect(openMenu('Accent')).toBe(false);
+    escape(document.body);
+    expect(openMenu('Theme')).toBe(false);
+  });
+
+  it('a menu inside a Modal closes first, then the Modal', () => {
+    const onClose = vi.fn<() => void>();
+    render(createElement(Modal, { open: true, onClose, title: 'Settings', children: themeMenu() }));
+    key(triggerOf('Theme'), 'ArrowDown');
+    expect(openMenu('Theme')).toBe(true);
+    escape(focused());
+    expect(openMenu('Theme')).toBe(false);
+    expect(onClose).toHaveBeenCalledTimes(0);
+    expect(document.activeElement).toBe(triggerOf('Theme'));
+    escape(focused());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('a menu under a layer ignores Escape', () => {
+    const onPanelClose = vi.fn<() => void>();
+    render([
+      themeMenu({ defaultOpen: true }),
+      createElement(SidePanel, {
+        key: 'panel',
+        open: true,
+        onClose: onPanelClose,
+        title: 'Services',
+        children: 'Body',
+      }),
+    ]);
+    escape(focused());
+    expect(onPanelClose).toHaveBeenCalledTimes(1);
+    expect(openMenu('Theme')).toBe(true);
+
+    render(null);
+    onPanelClose.mockClear();
+    const onModalClose = vi.fn<() => void>();
+    render(
+      createElement(SidePanel, {
+        open: true,
+        onClose: onPanelClose,
+        title: 'Services',
+        children: [
+          themeMenu({ defaultOpen: true }),
+          createElement(Modal, {
+            key: 'modal',
+            open: true,
+            onClose: onModalClose,
+            title: 'Settings',
+            children: 'Body',
+          }),
+        ],
+      }),
+    );
+    escape(focused());
+    expect(onModalClose).toHaveBeenCalledTimes(1);
+    expect(onPanelClose).toHaveBeenCalledTimes(0);
+    expect(openMenu('Theme')).toBe(true);
+  });
+
+  it('a menu in the element the panel keeps live closes first', () => {
+    const onClose = vi.fn<() => void>();
+    function Host() {
+      const footer = useRef<HTMLElement>(null);
+      return [
+        createElement('footer', { key: 'footer', ref: footer }, themeMenu({ defaultOpen: true })),
+        createElement(SidePanel, {
+          key: 'panel',
+          open: true,
+          onClose,
+          title: 'Services',
+          keepLive: footer,
+          children: 'Body',
+        }),
+      ];
+    }
+    render(createElement(Host));
+    expect(triggerOf('Theme').closest('[inert]')).toBeNull();
+    escape(focused());
+    expect(openMenu('Theme')).toBe(false);
+    expect(onClose).toHaveBeenCalledTimes(0);
+    escape(focused());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('an Escape already handled or composing leaves the menu open', () => {
+    render([
+      themeMenu({ defaultOpen: true }),
+      createElement(
+        'div',
+        {
+          key: 'handler',
+          onKeyDown: (event: { key: string; preventDefault: () => void }) => {
+            if (event.key === 'Escape') event.preventDefault();
+          },
+        },
+        createElement('button', { type: 'button' }, 'Inside'),
+      ),
+    ]);
+    const inside = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Inside',
+    );
+    if (!inside) throw new Error('no inside button');
+    escape(inside);
+    expect(openMenu('Theme')).toBe(true);
+    escape(document.body, { isComposing: true });
+    expect(openMenu('Theme')).toBe(true);
+    escape(document.body);
+    expect(openMenu('Theme')).toBe(false);
   });
 });
