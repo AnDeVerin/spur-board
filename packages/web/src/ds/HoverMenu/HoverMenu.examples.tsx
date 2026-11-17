@@ -30,7 +30,7 @@ function Demo({
         style={{
           display: 'flex',
           justifyContent: 'flex-end',
-          gap: 'var(--size-menu-min)',
+          gap: 'calc(var(--space-8) * 4)',
           maxWidth: 'var(--size-column)',
           paddingBlockStart: 'calc(var(--size-control) * 4)',
         }}
