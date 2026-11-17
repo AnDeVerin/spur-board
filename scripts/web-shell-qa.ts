@@ -49,6 +49,7 @@ export function shellFixture(scenario: Scenario) {
       key: `PROJ-${String(i + 1)}`,
       project: 'web',
       column: 'dev',
+      columnEnteredAt: null,
       membership: 'active',
       state: 'ticket not observed',
       prCount: 0,

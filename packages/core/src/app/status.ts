@@ -21,9 +21,11 @@ import { itemOwner } from './items.ts';
 import { readOutageEnds, services } from './status-services.ts';
 import {
   readStatusBlocks,
+  readStatusColumnEntries,
   readStatusReturns,
   readStatusTurns,
   summarizePr,
+  sourceInterval,
 } from './status-views.ts';
 
 function sessionView(fact: SessionFacts) {
@@ -81,13 +83,6 @@ function issuesRepo(project: Config['projects'][number] | undefined): string | n
 
 /** Unlinked PRs and sessions finished longer ago than this are counted, not listed. */
 const UNLINKED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-
-function interval(config: Config, source: string): number {
-  if (source === 'spur') return config.adapters.spur.intervalMs;
-  if (source.startsWith('jira:')) return config.adapters.jira.intervalMs;
-  if (source.startsWith('github-issues:')) return config.adapters.githubIssues.intervalMs;
-  return config.adapters.github.intervalMs;
-}
 
 type StatusOutput = z.output<typeof statusOutputSchema>;
 
@@ -164,6 +159,8 @@ export async function getStatus(
   const sourceById = new Map(sourceRows.map((row) => [row.source, row]));
   const turns = await readStatusTurns(store.db, projectIds);
   const returns = await readStatusReturns(store.db, projectIds);
+  const entries = await readStatusColumnEntries(store.db, projectIds);
+  const columnEntries = new Map(entries.map((entry) => [entry.task_id, entry.at]));
   const tasks = [];
   for (const task of rows) {
     if (!projectIds.has(task.project)) continue;
@@ -198,7 +195,7 @@ export async function getStatus(
             source === undefined ||
             source.blind_reason !== null ||
             clock.now() - Date.parse(snapshot.observed_at) >
-              config.thresholds.staleMultiplier * interval(config, snapshot.source);
+              config.thresholds.staleMultiplier * sourceInterval(config, snapshot.source);
           summaries.push(summarizePr(fact, snapshot.observed_at, unconfirmed));
         }
       } else if (link.entity === 'session' && link.session_id !== null) {
@@ -248,6 +245,7 @@ export async function getStatus(
       key: task.key,
       project: task.project,
       column: task.column,
+      columnEnteredAt: columnEntries.get(task.id) ?? task.created_at,
       membership: task.membership,
       ...(project?.dispatcher.mode === 'shadow'
         ? {
@@ -414,7 +412,7 @@ export async function getStatus(
       stale:
         last === null ||
         clock.now() - Date.parse(last) >
-          config.thresholds.staleMultiplier * interval(config, source),
+          config.thresholds.staleMultiplier * sourceInterval(config, source),
       healthySince: deps.healthySince?.get(source) ?? null,
       // `lastCompleteAt` is stored, but the runner does not reload it, so the first report or
       // incomplete observe after a restart can clear it. `completeSince` holds only polls since
@@ -454,7 +452,7 @@ export async function getStatus(
         item.fact_at !== null &&
         item.source !== null &&
         clock.now() - Date.parse(item.fact_at) >
-          config.thresholds.staleMultiplier * interval(config, item.source);
+          config.thresholds.staleMultiplier * sourceInterval(config, item.source);
       const unconfirmed =
         stale ||
         item.text.includes('no_access') ||

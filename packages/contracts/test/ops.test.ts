@@ -16,7 +16,7 @@ import {
 import { browserOperations } from '../src/browser.ts';
 import { inboxEntrySchema, inboxHandledSchema } from '../src/ops/inbox-schemas.ts';
 import { defineOperation } from '../src/ops/define.ts';
-import { SCHEMA_ROLES } from '../src/ops/schemas.ts';
+import { SCHEMA_ROLES, statusTaskSchema } from '../src/ops/schemas.ts';
 import { catalogSnapshotBody, catalogVersion } from '../src/ops/snapshot.ts';
 import { type JsonObject, isObject, walk } from './json-schema-walk.ts';
 
@@ -98,6 +98,18 @@ describe('schema walker', () => {
 });
 
 describe('catalog', () => {
+  it('requires a described nullable UTC column entry timestamp on status rows only', () => {
+    const field = statusTaskSchema.shape.columnEnteredAt;
+    for (const value of ['2026-11-04T08:00:00.000Z', null])
+      expect(field.safeParse(value).success).toBe(true);
+    for (const value of [undefined, 'yesterday', '2026-11-04T08:00:00+02:00'])
+      expect(field.safeParse(value).success).toBe(false);
+    const schema = z.toJSONSchema(statusTaskSchema);
+    expect(schema.required).toContain('columnEnteredAt');
+    const property = schema.properties?.['columnEnteredAt'];
+    if (!isObject(property)) throw new Error('Missing column entry schema');
+    expect(property['description']).toContain('original add');
+  });
   it('defaults web off and exposes exactly the screen reads and three operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
@@ -790,6 +802,7 @@ describe('comment shape', () => {
           'lastUsedAt',
           'lastDispatchAt',
           'lastGoodAt',
+          'columnEnteredAt',
         ].some((name) => path.endsWith(name)) && !path.includes('.prSummary');
       expect(Array.isArray(node['anyOf']), path).toBe(nullable);
       const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];

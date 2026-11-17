@@ -567,8 +567,8 @@ function board(options: Options = {}) {
     inbox: (actor: ActorId) => query(registry['inbox.get'], {}, actor),
     history: () => query(registry['task.history'], { task: KEY }, 'operator'),
     /** The task's `status.get` row. */
-    async status() {
-      const { tasks } = await query(registry['status.get'], {}, 'operator');
+    async status(detail = false) {
+      const { tasks } = await query(registry['status.get'], { detail }, 'operator');
       const [row] = tasks;
       if (row === undefined || tasks.length !== 1) throw new Error('status.get returned no row');
       return row;
@@ -1615,6 +1615,7 @@ describe('shadow mode', () => {
   it('status shows the shadow column next to the column on every row', async () => {
     const ctx = board({ mode: 'shadow' });
     await ctx.ticket();
+    const addedAt = (await ctx.task()).created_at;
     await ctx.github();
     await ctx.spur('none');
     expect(await ctx.task()).toMatchObject({ column: 'todo', shadow_column: null });
@@ -1622,6 +1623,7 @@ describe('shadow mode', () => {
       key: KEY,
       project: 'proj',
       column: 'todo',
+      columnEnteredAt: addedAt,
       membership: 'active',
       shadowColumn: 'todo',
       shadowDiffers: false,
@@ -1644,6 +1646,7 @@ describe('shadow mode', () => {
       key: KEY,
       project: 'proj',
       column: 'todo',
+      columnEnteredAt: addedAt,
       membership: 'active',
       shadowColumn: 'review',
       shadowDiffers: true,
@@ -2660,6 +2663,7 @@ describe('mode switch', () => {
       'project',
       'column',
       'membership',
+      'columnEnteredAt',
       'state',
       'prCount',
       'sessionCount',
@@ -2673,6 +2677,7 @@ describe('mode switch', () => {
       key: KEY,
       project: 'proj',
       column: 'dev',
+      columnEnteredAt: on.at(),
       membership: 'active',
       state: 'ticket open; sessions 1 working',
       prCount: 0,
@@ -2725,8 +2730,13 @@ describe('mode switch', () => {
       column_epoch: 0,
     });
 
+    const shadowAt = ctx.at();
     ctx.restart({ mode: 'on' });
     await ctx.tick();
+    const promotedAt = ctx.at();
+    for (const detail of [false, true])
+      expect((await ctx.status(detail)).columnEnteredAt).toBe(promotedAt);
+    expect(promotedAt).not.toBe(shadowAt);
     expect(await ctx.task()).toMatchObject({
       column: 'review',
       shadow_column: null,

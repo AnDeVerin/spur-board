@@ -81,6 +81,7 @@ export const row = (key: string, columnId: string, extra: Record<string, unknown
   key,
   project: 'a',
   column: columnId,
+  columnEnteredAt: null,
   membership: 'active',
   state: 'open',
   prCount: 0,

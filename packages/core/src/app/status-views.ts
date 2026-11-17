@@ -4,6 +4,7 @@ import {
   type ActorId,
   type AddresseeRole,
   type ColumnId,
+  type Config,
   type PrFacts,
 } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
@@ -214,4 +215,35 @@ export async function readStatusBlocks(db: Store['db'], projectIds: ReadonlySet<
     blocks.set(row.task_id, list);
   }
   return blocks;
+}
+
+/** Latest real entry into each visible task's current column, ordered by journal position. */
+export async function readStatusColumnEntries(db: Store['db'], projectIds: ReadonlySet<string>) {
+  return await db
+    .selectFrom('event')
+    .innerJoin(
+      (eb) =>
+        eb
+          .selectFrom('event as entry')
+          .innerJoin('task', 'task.id', 'entry.task_id')
+          .select((eb) => eb.fn.max<number>('entry.id').as('id'))
+          .where('task.membership', '!=', 'archived')
+          .where('task.project', 'in', [...projectIds])
+          .where(sql<boolean>`json_extract(entry.payload, '$.to') = task.column`)
+          .where(
+            sql<boolean>`(entry.kind = 'task_moved' or (entry.kind = 'task_corrected' and json_extract(entry.payload, '$.shadow') = 0))`,
+          )
+          .groupBy('entry.task_id')
+          .as('latest'),
+      (join) => join.onRef('latest.id', '=', 'event.id'),
+    )
+    .select(['event.task_id', 'event.at'])
+    .execute();
+}
+
+export function sourceInterval(config: Config, source: string): number {
+  if (source === 'spur') return config.adapters.spur.intervalMs;
+  if (source.startsWith('jira:')) return config.adapters.jira.intervalMs;
+  if (source.startsWith('github-issues:')) return config.adapters.githubIssues.intervalMs;
+  return config.adapters.github.intervalMs;
 }

@@ -23,6 +23,7 @@ const task = (project: string, n: number) => ({
   key: `${project.toUpperCase()}-${String(n)}`,
   project,
   column: 'todo',
+  columnEnteredAt: null,
   membership: 'active',
   state: 'open',
   prCount: 0,

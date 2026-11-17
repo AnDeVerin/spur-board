@@ -1,5 +1,5 @@
 {
-  "version": "f0841a29deeb4492ecb94a7a83bc1133e024dea5787f635d885a2f487a68f84e",
+  "version": "1cb1b54c346db569c92528d38fba95bffc4675548b81336439a6cf0c991ce8bf",
   "grants": [
     "operator",
     "project-agent",
@@ -941,7 +941,7 @@
     {
       "id": "status.get",
       "kind": "query",
-      "description": "List items, freshness, service health, host metrics, tasks with turns and PRs; detail adds facts.",
+      "description": "List items, freshness, service health, host metrics, tasks with columnEnteredAt, turns and PRs; detail adds facts.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -1003,6 +1003,7 @@
                 "project": "web",
                 "column": "dev",
                 "membership": "active",
+                "columnEnteredAt": "2026-01-05T09:30:00.000Z",
                 "state": "ticket not observed",
                 "prCount": 0,
                 "sessionCount": 0,
@@ -1063,6 +1064,7 @@
                 "project": "web",
                 "column": "dev",
                 "membership": "active",
+                "columnEnteredAt": "2026-01-05T09:30:00.000Z",
                 "state": "ticket not observed",
                 "prCount": 0,
                 "sessionCount": 0,
@@ -1568,6 +1570,17 @@
                   "type": "string",
                   "enum": ["active", "out_of_filter", "archived"],
                   "description": "Whether the task is on the board, outside the tracker filter, or archived."
+                },
+                "columnEnteredAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Time the task entered its current real column, ISO 8601 UTC; latest real move or correction, falling back to the original add time, or null if neither is known."
                 },
                 "shadowColumn": {
                   "description": "Column the dispatcher works from in shadow mode: where the board would have the task. Present only while the project dispatcher is in shadow mode.",
@@ -2762,6 +2775,7 @@
                 "project",
                 "column",
                 "membership",
+                "columnEnteredAt",
                 "state",
                 "prCount",
                 "sessionCount",

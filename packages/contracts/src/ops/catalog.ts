@@ -271,7 +271,7 @@ export const OPERATIONS = [
     web: true,
     kind: 'query',
     description:
-      'List items, freshness, service health, host metrics, tasks with turns and PRs; detail adds facts.',
+      'List items, freshness, service health, host metrics, tasks with columnEnteredAt, turns and PRs; detail adds facts.',
     mcp: {
       whenToUse: 'Get a board overview.',
       whenNotToUse: 'Use task_get for one task.',
@@ -303,6 +303,7 @@ export const OPERATIONS = [
           tasks: [
             {
               ...task,
+              columnEnteredAt: at,
               state: 'ticket not observed',
               prCount: 0,
               sessionCount: 0,
@@ -343,6 +344,7 @@ export const OPERATIONS = [
           tasks: [
             {
               ...task,
+              columnEnteredAt: at,
               state: 'ticket not observed',
               prCount: 0,
               sessionCount: 0,

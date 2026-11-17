@@ -323,6 +323,12 @@ const prSummarySchema = z
 
 export const statusTaskSchema = taskViewSchema
   .extend({
+    columnEnteredAt: z.iso
+      .datetime()
+      .nullable()
+      .describe(
+        'Time the task entered its current real column, ISO 8601 UTC; latest real move or correction, falling back to the original add time, or null if neither is known.',
+      ),
     shadowColumn: z
       .enum(COLUMN_IDS)
       .optional()

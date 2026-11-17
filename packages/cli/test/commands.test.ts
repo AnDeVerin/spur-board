@@ -897,7 +897,7 @@ describe('catalog commands', () => {
     const output = capture(true);
     expect(await runCli(['status'], { env: env(url), io: output.io })).toBe(0);
     expect(output.stdout).toContain(
-      '    column: todo\n    membership: active\n    shadowColumn: review\n    shadowDiffers: true\n',
+      '    column: todo\n    membership: active\n    columnEnteredAt: 2026-01-05T09:30:00.000Z\n    shadowColumn: review\n    shadowDiffers: true\n',
     );
   });
 
@@ -939,6 +939,7 @@ describe('catalog commands', () => {
           project: web
           column: dev
           membership: active
+          columnEnteredAt: 2026-01-05T09:30:00.000Z
           state: ticket not observed
           prCount: 0
           sessionCount: 0
@@ -982,6 +983,27 @@ describe('catalog commands', () => {
       "
     `);
   });
+
+  it.each(['2026-11-04T08:00:00.000Z', null])(
+    'retains column entry %s in detailed human and JSON status',
+    async (columnEnteredAt) => {
+      const status = OPERATIONS.find((op) => op.id === 'status.get');
+      if (!status) throw new Error('Missing status operation.');
+      const value = {
+        ...status.examples[0].output,
+        tasks: status.examples[0].output.tasks.map((task) => ({ ...task, columnEnteredAt })),
+      };
+      const url = await fakeServer(() => value);
+      for (const flags of [[], ['--json']]) {
+        const output = capture(true);
+        expect(
+          await runCli(['status', '--detail', ...flags], { env: env(url), io: output.io }),
+        ).toBe(0);
+        if (flags.length) expect(JSON.parse(output.stdout)).toEqual(value);
+        else expect(output.stdout).toContain(`columnEnteredAt: ${String(columnEnteredAt)}`);
+      }
+    },
+  );
 
   it('does not treat a positional --version as the top-level version flag', async () => {
     const comment = OPERATIONS.find((op) => op.id === 'comment.add');

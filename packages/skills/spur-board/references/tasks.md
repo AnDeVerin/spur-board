@@ -4,7 +4,7 @@ Every command can return the common errors in [errors.md](errors.md). Each entry
 
 ### `board status`
 
-Purpose: List items, freshness, service health, host metrics, tasks with turns and PRs; detail adds facts.
+Purpose: List items, freshness, service health, host metrics, tasks with columnEnteredAt, turns and PRs; detail adds facts.
 Arguments: none.
 Flags: `--project <value>`, `--detail`, `--json`.
 Use when: Get a board overview.
