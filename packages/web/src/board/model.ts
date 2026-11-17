@@ -18,7 +18,7 @@ export interface BoardColumn {
 const executorLine = ({ executor }: BoardColumnConfig) =>
   executor.name === null ? executor.kind : `${executor.kind} ${executor.name}`;
 
-/** Columns in `config.get` order with their rows; a row in a column config lacks is not shown. */
+/** Configured groups in `config.get` order; the screen handles unmatched rows separately. */
 export function boardColumns(
   columns: readonly BoardColumnConfig[],
   rows: readonly BoardRow[],

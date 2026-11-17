@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createBoardData, type BoardData } from '../src/board/data.ts';
 import {
   daemon,
+  comment,
   deferred,
   envelope,
   failure,
@@ -18,6 +19,7 @@ const settle = async () => {
 };
 const started: BoardData[] = [];
 let inputs: Record<string, unknown>[] = [];
+let mutations: { path: string; key: string; input: unknown }[] = [];
 let historyInputs: Record<string, unknown>[] = [];
 /** The inputs of every `task.get` the board sent, in order. */
 const taskCalls = () => inputs;
@@ -28,8 +30,11 @@ function start(d: Daemon) {
     fetch: (url, init) => {
       const path = url instanceof Request ? url.url : url.toString();
       const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+        key: string;
         input: Record<string, unknown>;
       };
+      if (path === '/v1/ops/comment.add' || path === '/v1/ops/block.answer')
+        mutations.push({ path, ...body });
       if (path === '/v1/ops/task.get') inputs.push(body.input);
       if (path === '/v1/ops/task.history') historyInputs.push(body.input);
       return d.fetcher(url, init);
@@ -44,8 +49,124 @@ function start(d: Daemon) {
 afterEach(() => {
   for (const data of started.splice(0)) data.stop();
   inputs = [];
+  mutations = [];
   historyInputs = [];
   vi.useRealTimers();
+});
+
+describe('task writes', () => {
+  it('only the two narrow payloads, UUID per intent, coalesced pending, same-key retry after failure', async () => {
+    const d = daemon();
+    const data = start(d);
+    data.open('ex/repo#7');
+    await settle();
+    const held = deferred();
+    d.routes['comment.add'] = () => held.promise;
+    const intent = data.commentIntent('ex/repo#7', ' exact\ntext ');
+    const first = intent.run();
+    const duplicate = intent.run();
+    expect(duplicate).toBe(first);
+    expect(mutations).toHaveLength(1);
+    const rejected = expect(first).rejects.toThrow('outcome_unknown');
+    held.resolve(await problem('outcome_unknown', 500));
+    await rejected;
+    d.routes['comment.add'] = () => Promise.resolve(envelope({ comment: comment() }));
+    const result = await intent.run();
+    expect(await result.refresh).toBe(true);
+    expect(mutations[0]?.key).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(mutations[1]?.key).toBe(mutations[0]?.key);
+    expect(mutations[0]?.input).toEqual({ task: 'ex/repo#7', text: ' exact\ntext ' });
+    await intent.run();
+    expect(mutations).toHaveLength(2);
+    const next = await data.commentIntent('ex/repo#7', 'edited').run();
+    await next.refresh;
+    const answer = await data.answerIntent('ex/repo#7', 'B12', 'Answer').run();
+    await answer.refresh;
+    expect(new Set([mutations[0]?.key, mutations[2]?.key, mutations[3]?.key]).size).toBe(3);
+    expect(mutations[3]).toMatchObject({
+      path: '/v1/ops/block.answer',
+      input: { block: 'B12', text: 'Answer' },
+    });
+    expect(taskCalls()).toHaveLength(4);
+  });
+
+  it('post-success refresh waits for the read after an overlapping stream read, then recovers without another write', async () => {
+    const d = daemon();
+    const data = start(d);
+    data.open('ex/repo#7');
+    await settle();
+    const oldRead = deferred();
+    d.routes['task.get'] = () => oldRead.promise;
+    d.send('event: reset\ndata: {}\n\n');
+    await settle();
+    const result = await data.commentIntent('ex/repo#7', 'comment').run();
+    let settled = false;
+    void result.refresh.then(() => {
+      settled = true;
+    });
+    expect(settled).toBe(false);
+    d.routes['task.get'] = () => problem('unexpected', 500);
+    oldRead.resolve(envelope(taskGet()));
+    await settle();
+    expect(await result.refresh).toBe(false);
+    expect(taskCalls()).toHaveLength(3);
+    d.routes['task.get'] = () => Promise.resolve(envelope(taskGet({ comments: [comment()] })));
+    expect(await data.refreshTask()).toBe(true);
+    expect(mutations).toHaveLength(1);
+    expect(data.snapshot().task?.value?.comments).toHaveLength(1);
+  });
+
+  it.each(['switch', 'close', 'stop'])(
+    'late mutation completion after %s cannot refresh a different task or publish',
+    async (action) => {
+      const d = daemon();
+      const data = start(d);
+      data.open('ex/repo#7');
+      await settle();
+      const held = deferred();
+      d.routes['comment.add'] = () => held.promise;
+      const intent = data.commentIntent('ex/repo#7', 'comment');
+      const pending = intent.run();
+      if (action === 'switch') data.open('ex/repo#8');
+      else if (action === 'close') data.open(null);
+      else data.stop();
+      await settle();
+      const before = taskCalls().length;
+      const snapshot = data.snapshot();
+      held.resolve(envelope({ comment: comment() }));
+      const result = await pending;
+      expect(await result.refresh).toBe(false);
+      await settle();
+      expect(taskCalls()).toHaveLength(before);
+      expect(data.snapshot()).toBe(snapshot);
+      if (action !== 'stop') {
+        data.open('ex/repo#7');
+        await settle();
+        await intent.run();
+        expect(mutations).toHaveLength(1);
+      }
+    },
+  );
+
+  it('an intent rechecks availability and task lifetime at send time', async () => {
+    const d = daemon();
+    const data = start(d);
+    data.open('ex/repo#7');
+    await settle();
+    const intent = data.commentIntent('ex/repo#7', 'comment');
+    d.routes['config.get'] = () => problem('unexpected', 500);
+    data.retry();
+    await settle();
+    await expect(intent.run()).rejects.toThrow('unavailable');
+    expect(mutations).toHaveLength(0);
+    data.open(null);
+    data.open('ex/repo#7');
+    await settle();
+    await expect(intent.run()).rejects.toThrow('unavailable');
+    expect(mutations).toHaveLength(0);
+  });
 });
 describe('task read', () => {
   it('reads task.get with why for an opened task key and never for another key', async () => {

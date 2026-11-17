@@ -4,6 +4,36 @@ import styles from './HoverMenu.module.css';
 
 export type HoverMenuItem<V extends string> = { value: V; label: string; icon?: IconName };
 
+type OpenMenu = { root: HTMLElement; escape: () => void };
+
+/** Open menus in opening order; one document key listener serves them all while any is open. */
+const openMenus: OpenMenu[] = [];
+
+/**
+ * Closes one menu per Escape: the live menu holding focus, else the most recently opened live
+ * one. A menu under a layer (inside an `inert` element) is not live. The listener sits on
+ * `document`, so it runs before the layer's `window` listener, which skips the handled event.
+ */
+function onEscape(event: globalThis.KeyboardEvent): void {
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+  const live = openMenus.filter((menu) => menu.root.closest('[inert]') === null);
+  const target = live.find((menu) => menu.root.contains(document.activeElement)) ?? live.at(-1);
+  if (!target) return;
+  event.preventDefault();
+  target.escape();
+}
+
+function addOpenMenu(entry: OpenMenu): void {
+  if (openMenus.length === 0) document.addEventListener('keydown', onEscape);
+  openMenus.push(entry);
+}
+
+function removeOpenMenu(entry: OpenMenu): void {
+  const index = openMenus.indexOf(entry);
+  if (index !== -1) openMenus.splice(index, 1);
+  if (openMenus.length === 0) document.removeEventListener('keydown', onEscape);
+}
+
 /**
  * A small icon trigger whose menu opens upward and end-aligned, with one radio choice checked.
  *
@@ -15,7 +45,11 @@ export type HoverMenuItem<V extends string> = { value: V; label: string; icon?: 
  *   ever open, so a Space keyup cannot close what keydown opened. ArrowDown opens it as well.
  * - Arrows wrap, Home and End jump; Tab and choosing an item close it and focus the trigger.
  * - Escape closes it from anywhere while open and returns focus to the trigger when focus was
- *   inside; a pointer down outside closes it.
+ *   inside; a pointer down outside closes it. One Escape closes one menu: the open menu holding
+ *   focus, else the most recently opened. A menu under a layer (inside an `inert` element)
+ *   ignores Escape, so the top Modal or SidePanel closes instead; a menu in the element a layer
+ *   keeps live still closes first. An Escape already handled (`defaultPrevented`) or composing
+ *   closes no menu.
  *
  * `defaultOpen` renders it open and pinned on mount without moving focus.
  */
@@ -73,18 +107,22 @@ export function HoverMenu<V extends string>({
     const outside = (event: globalThis.PointerEvent) => {
       if (event.target instanceof Node && !root.current?.contains(event.target)) close();
     };
-    const escape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      const inside = root.current?.contains(document.activeElement) ?? false;
-      close();
-      if (inside) trigger.current?.focus();
-    };
+    const element = root.current;
+    const entry: OpenMenu | undefined = element
+      ? {
+          root: element,
+          escape: () => {
+            const inside = element.contains(document.activeElement);
+            close();
+            if (inside) trigger.current?.focus();
+          },
+        }
+      : undefined;
     document.addEventListener('pointerdown', outside);
-    document.addEventListener('keydown', escape);
+    if (entry) addOpenMenu(entry);
     return () => {
       document.removeEventListener('pointerdown', outside);
-      document.removeEventListener('keydown', escape);
+      if (entry) removeOpenMenu(entry);
     };
   }, [open]);
   const menuKey = (event: KeyboardEvent<HTMLDivElement>) => {

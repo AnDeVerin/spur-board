@@ -1,5 +1,11 @@
 import { browserOperations } from '@spur-board/contracts/browser';
-import { coordinateRead, createApi, ProblemError, type Output } from '../lib/api.ts';
+import {
+  coordinateRead,
+  createApi,
+  createMutationIntent,
+  ProblemError,
+  type Output,
+} from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 
 export type BoardConfig = Output<'config.get'>;
@@ -185,20 +191,38 @@ export function createBoardData(options: BoardDataOptions) {
   // The requested task key; a key that is not a task key is never read.
   let taskKey: string | null = null;
   let taskReadable = false;
+  let taskEpoch = 0;
+  let taskRead = 0;
+  let taskIssuedEpoch = 0;
+  const refreshWaits = new Set<{ epoch: number; after: number; resolve: (ok: boolean) => void }>();
   const task = coordinateRead<ReadResult<BoardTask>>(
     (signal) => {
       const key = taskKey ?? '';
+      taskRead++;
+      taskIssuedEpoch = taskEpoch;
       return readResult(key, () => api('task.get', { task: key, why: true }, { signal }));
     },
     (result) => {
       // An answer for a key that is no longer open is dropped; its trailing read follows.
-      if (result === undefined || result.key !== taskKey || state.task?.key !== result.key) return;
+      if (
+        result === undefined ||
+        taskIssuedEpoch !== taskEpoch ||
+        result.key !== taskKey ||
+        state.task?.key !== result.key
+      )
+        return;
       const { key } = result;
       if (result.kind === 'ok')
         update({ task: { key, state: 'ready', value: result.value, retrying: false } });
       else if (result.kind === 'missing')
         update({ task: { key, state: 'missing', value: undefined, retrying: false } });
       else update({ task: { ...state.task, state: 'failed', retrying: false } });
+      for (const wait of refreshWaits) {
+        if (wait.epoch === taskEpoch && taskRead > wait.after) {
+          refreshWaits.delete(wait);
+          wait.resolve(result.kind === 'ok');
+        }
+      }
     },
   );
   const refreshTask = () => {
@@ -263,6 +287,54 @@ export function createBoardData(options: BoardDataOptions) {
   let stream: ReturnType<typeof connectStream> | undefined;
   let stopped = false;
 
+  const refreshWrittenTask = (key: string, epoch: number): Promise<boolean> => {
+    if (stopped || key !== taskKey || epoch !== taskEpoch) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      refreshWaits.add({ epoch, after: taskRead, resolve });
+      task.refresh();
+    });
+  };
+  const writeIntent = <K extends 'block.answer' | 'comment.add'>(
+    key: string,
+    id: K,
+    input: Parameters<typeof createMutationIntent<K>>[2],
+  ) => {
+    const epoch = taskEpoch;
+    const intent = createMutationIntent(api, id, input);
+    let pending: Promise<{ refresh: Promise<boolean> }> | undefined;
+    let confirmed: { refresh: Promise<boolean> } | undefined;
+    return {
+      run() {
+        if (confirmed) return Promise.resolve(confirmed);
+        if (pending) return pending;
+        if (state.task?.value?.task.membership === 'archived')
+          return Promise.reject(
+            new Error('This task is archived. Answers and comments cannot be sent.'),
+          );
+        if (
+          stopped ||
+          key !== taskKey ||
+          epoch !== taskEpoch ||
+          state.readFailed ||
+          state.stream === 'offline'
+        )
+          return Promise.reject(
+            new Error('Answers and comments cannot be sent while the board is unavailable.'),
+          );
+        pending = intent
+          .run()
+          .then(() => {
+            confirmed = { refresh: refreshWrittenTask(key, epoch) };
+            return confirmed;
+          })
+          .finally(() => {
+            pending = undefined;
+          });
+        return pending;
+      },
+    };
+  };
+
   return {
     /** An arrow, so `useSyncExternalStore(data.subscribe, ...)` can pass it unbound. */
     subscribe: (listener: () => void) => {
@@ -282,6 +354,8 @@ export function createBoardData(options: BoardDataOptions) {
     /** End the controller for good: the stream closes and no read publishes again. */
     stop() {
       stopped = true;
+      for (const wait of refreshWaits) wait.resolve(false);
+      refreshWaits.clear();
       stream?.stop();
       status.dispose();
       config.dispose();
@@ -291,12 +365,21 @@ export function createBoardData(options: BoardDataOptions) {
     },
     /** The client clock the snapshot's times are read against. */
     now: () => options.now(),
+    /** The only two task-view writes; each object owns one idempotent intent. */
+    answerIntent: (key: string, block: string, text: string) =>
+      writeIntent(key, 'block.answer', { block, text }),
+    commentIntent: (key: string, text: string) =>
+      writeIntent(key, 'comment.add', { task: state.task?.value?.task.key ?? key, text }),
+    refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
     /**
      * Open a task by key, or close it with null: read `task.get` with why, then again whenever the
      * stream names the task, the board re-reads everything, or `retryTask` runs. History hides.
      */
     open(key: string | null) {
       if (key === taskKey) return;
+      taskEpoch++;
+      for (const wait of refreshWaits) wait.resolve(false);
+      refreshWaits.clear();
       taskKey = key;
       historyShown = false;
       taskReadable =

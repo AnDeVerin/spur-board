@@ -1,7 +1,14 @@
 import { browserOperations } from '@spur-board/contracts/browser';
 
 /** Board screen fixtures: config, `status.get` rows and a fake daemon with its event stream. */
-type OpId = 'config.get' | 'status.get' | 'inbox.operator' | 'task.get' | 'task.history';
+type OpId =
+  | 'config.get'
+  | 'status.get'
+  | 'inbox.operator'
+  | 'task.get'
+  | 'task.history'
+  | 'block.answer'
+  | 'comment.add';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
@@ -119,7 +126,7 @@ export const prLink = (number: number) => ({
   url: `https://github.com/ex/repo/pull/${String(number)}`,
 });
 export const DONE = [20, 21, 22, 23, 24, 25, 26].map((n) => `ex/repo#${String(n)}`);
-// Done first and a row in a column config lacks: the screen orders by config and drops it.
+// Done first and an unmatched row: configured groups come first, then the unknown disclosure.
 export const ROWS = [
   ...DONE.map((key) =>
     row(
@@ -307,6 +314,12 @@ export function daemon() {
     'status.get': () => Promise.resolve(envelope(status())),
     'inbox.operator': () => Promise.resolve(envelope(inbox(2))),
     'task.get': () => Promise.resolve(envelope(taskGet())),
+    'block.answer': () => {
+      const answered: Record<string, unknown> = block();
+      delete answered.answeredVia;
+      return Promise.resolve(envelope({ block: answered, comment: comment({ block: 'B12' }) }));
+    },
+    'comment.add': () => Promise.resolve(envelope({ comment: comment() })),
     'task.history': () => Promise.resolve(envelope(taskHistory())),
   };
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -342,9 +355,41 @@ export function daemon() {
     failStream() {
       streamFails = true;
     },
+    recoverStream() {
+      streamFails = false;
+    },
   };
 }
 export type Daemon = ReturnType<typeof daemon>;
+/** Valid mixed discussion records, with overrides for lifecycle and provenance tests. */
+export const block = (extra: Record<string, unknown> = {}) => ({
+  id: 'B12',
+  task: 'ex/repo#7',
+  type: 'needs_input',
+  state: 'open',
+  author: 'agent:worker/s1',
+  addressee: 'operator',
+  reason: 'Pick a path\nKeep this line.',
+  at: '2026-11-15T13:00:00.000Z',
+  outcome: null,
+  outcomeReason: null,
+  unblockedBy: null,
+  unblockedAt: null,
+  answeredVia: null,
+  ...extra,
+});
+export const comment = (extra: Record<string, unknown> = {}) => ({
+  id: 'C1',
+  task: 'ex/repo#7',
+  block: null,
+  author: 'operator',
+  at: '2026-11-15T13:30:00.000Z',
+  text: 'A task comment',
+  revision: 1,
+  ackedRevision: null,
+  untrusted: true,
+  ...extra,
+});
 export const hello = 'event: hello\ndata: {"head":1,"instance":"one"}\n\n';
 
 // Status bar and services panel fixtures.

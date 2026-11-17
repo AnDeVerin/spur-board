@@ -19,7 +19,13 @@ function columnsView(snapshot: BoardSnapshot): ColumnsView {
     return { kind: 'loading', names: project?.columns.map(({ id }) => id) ?? UNNAMED };
   }
   if (snapshot.status.tasks.length === 0) return { kind: 'empty', project: snapshot.project ?? '' };
-  return { kind: 'columns', columns: boardColumns(project?.columns ?? [], snapshot.status.tasks) };
+  const configured = project?.columns ?? [];
+  const ids = new Set(configured.map(({ id }) => id));
+  return {
+    kind: 'columns',
+    columns: boardColumns(configured, snapshot.status.tasks),
+    unknown: snapshot.status.tasks.filter((row) => !ids.has(row.column)),
+  };
 }
 
 /** The ticket title comes from the held `status.get` row; the task view reads no other. */
@@ -178,6 +184,7 @@ export function Board({ data }: { data: BoardData }) {
         aria-busy={view.kind === 'loading' || undefined}
       >
         <Columns
+          key={snapshot.project}
           view={view}
           filter={filter}
           stale={list[0]?.variant === 'error'}
@@ -218,6 +225,17 @@ export function Board({ data }: { data: BoardData }) {
           ticketBrowseBase={project?.ticketBrowseBase ?? null}
           now={data.now()}
           offline={snapshot.stream === 'offline'}
+          config={snapshot.config}
+          unavailable={
+            snapshot.readFailed
+              ? 'The board daemon does not answer. Answers and comments cannot be sent.'
+              : snapshot.stream === 'offline'
+                ? 'Live updates are lost. Answers and comments cannot be sent.'
+                : undefined
+          }
+          answerIntent={data.answerIntent}
+          commentIntent={data.commentIntent}
+          refreshTask={data.refreshTask}
           onClose={() => {
             closed.current = task.value?.task.key ?? task.key;
             history.pushState(null, '', inboxOpen ? openHref('inbox') : withoutOpen());

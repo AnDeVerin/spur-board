@@ -14,7 +14,7 @@ import type { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
 import { cardLong } from './card.ts';
-import { columnsBasic, columnsBasicJira } from './columns-basic.ts';
+import { columnsBasic, columnsBasicJira, columnsUnknown } from './columns-basic.ts';
 import { dispatchCourseCheck, dispatchCourseCheckTo } from './course-check.ts';
 import {
   curatorAbsent,
@@ -163,6 +163,7 @@ export interface Scenario {
 export const SCENARIOS: readonly Scenario[] = [
   empty,
   columnsBasic,
+  columnsUnknown,
   questionToOperator,
   questionToCurator,
   curatorEscalation,

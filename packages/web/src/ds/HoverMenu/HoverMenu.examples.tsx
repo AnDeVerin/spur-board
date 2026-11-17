@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { IconName } from '../Icon/Icon.tsx';
 import { HoverMenu, type HoverMenuItem } from './HoverMenu.tsx';
 
@@ -15,10 +15,12 @@ function Demo({
   caption,
   initial,
   open = false,
+  children,
 }: {
   caption: string;
   initial?: Choice;
   open?: boolean;
+  children?: ReactNode;
 }) {
   const [value, setValue] = useState<Choice | undefined>(initial);
   return (
@@ -28,6 +30,7 @@ function Demo({
         style={{
           display: 'flex',
           justifyContent: 'flex-end',
+          gap: 'calc(var(--space-8) + var(--space-8) + var(--space-8) + var(--space-8))',
           maxWidth: 'var(--size-column)',
           paddingBlockStart: 'calc(var(--size-control) * 4)',
         }}
@@ -40,10 +43,25 @@ function Demo({
           onSelect={setValue}
           defaultOpen={open}
         />
+        {children}
       </div>
     </div>
   );
 }
+type Accent = 'warm' | 'cool' | 'plain';
+const accents: readonly HoverMenuItem<Accent>[] = [
+  { value: 'warm', label: 'Warm', icon: 'diamond' },
+  { value: 'cool', label: 'Cool', icon: 'pulse' },
+  { value: 'plain', label: 'Plain', icon: 'shadow' },
+];
+
+function AccentMenu() {
+  const [value, setValue] = useState<Accent>('warm');
+  return (
+    <HoverMenu label="Accent" icon="diamond" items={accents} value={value} onSelect={setValue} />
+  );
+}
+
 export function Closed() {
   return <Demo caption="Hover, click or tap the trigger" initial="dark" />;
 }
@@ -67,5 +85,15 @@ export function Touch() {
       caption="On a touch screen or with touch emulation (hover: none): tap opens, tap again closes"
       initial="auto"
     />
+  );
+}
+export function TwoMenus() {
+  return (
+    <Demo
+      caption="Click the first trigger, then hover the second: Escape closes the focused menu, a second Escape the other"
+      initial="light"
+    >
+      <AccentMenu />
+    </Demo>
   );
 }

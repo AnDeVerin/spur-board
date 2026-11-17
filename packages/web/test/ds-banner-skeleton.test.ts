@@ -88,7 +88,14 @@ describe('Banner, Skeleton, HoverMenu and Breakpoints examples', () => {
       'WarningWithAction',
     ]);
     expect(names('Skeleton')).toEqual(['Card', 'Column', 'Widths']);
-    expect(names('HoverMenu')).toEqual(['Closed', 'Focused', 'Open', 'Selected', 'Touch']);
+    expect(names('HoverMenu')).toEqual([
+      'Closed',
+      'Focused',
+      'Open',
+      'Selected',
+      'Touch',
+      'TwoMenus',
+    ]);
     expect(names('Breakpoints')).toEqual(['List']);
   });
 });

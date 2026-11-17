@@ -23,5 +23,6 @@ A task key after the prefix attaches it.
 
 Read `board inbox`; reply via `board answer`. Each operator thread message rings again; `close` or ✅ in the
 thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`, top-level ones too,
-else project name and role icon (`board` for operator). No session:
+else project name and the icon of the author's role on the block's task: orchestrator only on its
+column's task, else curator or worker; `board` for operator. No session:
 `board status` lists it as waiting.

@@ -41,7 +41,7 @@ const inDialog = (selector: string) => {
   if (!found) throw new Error(`no ${selector} in the dialog`);
   return found;
 };
-const panel = () => inDialog('[role="tabpanel"]');
+const panel = () => inDialog('[role="tabpanel"] [role="region"][aria-label="History"]');
 const click = (target: Element) => {
   act(() => {
     target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
@@ -209,7 +209,7 @@ describe('task history tab', () => {
     expect(document.activeElement?.textContent).toBe('History');
     expect(document.activeElement?.getAttribute('aria-selected')).toBe('true');
     expect(panel().querySelectorAll('tr')).toHaveLength(8);
-    expect(panel().parentElement?.getAttribute('tabindex')).toBe('0');
+    expect(inDialog('[role="tabpanel"]').parentElement?.getAttribute('tabindex')).toBe('0');
     expect(historyCalls()).toHaveLength(1);
   });
 });

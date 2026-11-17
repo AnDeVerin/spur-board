@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { focusRing, Icon, quiet, Skeleton } from '../ds/index.ts';
+import { useId, useState, type ReactNode } from 'react';
+import { Button, focusRing, Icon, quiet, Skeleton } from '../ds/index.ts';
 import { matchesFilter, openHref, shortKey, type BoardColumn, type BoardRow } from './model.ts';
 import { Card, open } from './Card.tsx';
 import styles from './Columns.module.css';
@@ -10,7 +10,7 @@ export type ColumnsView =
   /** Skeleton columns: the chosen project's column ids, or unnamed ones before config. */
   | { kind: 'loading'; names: readonly (string | undefined)[] }
   | { kind: 'empty'; project: string }
-  | { kind: 'columns'; columns: readonly BoardColumn[] };
+  | { kind: 'columns'; columns: readonly BoardColumn[]; unknown: readonly BoardRow[] };
 
 const classes = (...names: (string | undefined)[]) => names.filter(Boolean).join(' ');
 
@@ -138,6 +138,8 @@ export function Columns({
   /** A card asks to open its task. */
   onOpen: (key: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
   switch (view.kind) {
     case 'failed':
       return null;
@@ -169,17 +171,53 @@ export function Columns({
         </div>
       );
     case 'columns':
-      return view.columns.map((column) => (
-        <Column
-          key={column.id}
-          column={column}
-          filter={filter}
-          stale={stale}
-          now={now}
-          spurUiOrigin={spurUiOrigin}
-          ticketBrowseBase={ticketBrowseBase}
-          onOpen={onOpen}
-        />
-      ));
+      return (
+        <>
+          {view.columns.map((column) => (
+            <Column
+              key={column.id}
+              column={column}
+              filter={filter}
+              stale={stale}
+              now={now}
+              spurUiOrigin={spurUiOrigin}
+              ticketBrowseBase={ticketBrowseBase}
+              onOpen={onOpen}
+            />
+          ))}
+          {view.unknown.length > 0 && (
+            <div className={classes(styles.unknown, quiet)} data-stale={stale ? '' : undefined}>
+              <Button
+                expanded={expanded}
+                controls={listId}
+                onClick={() => {
+                  setExpanded(!expanded);
+                }}
+              >
+                <span className={styles.unknownLabel}>
+                  {view.unknown.length} {view.unknown.length === 1 ? 'task' : 'tasks'} in unknown
+                  columns
+                </span>
+              </Button>
+              <ul id={listId} hidden={!expanded} className={styles.unknownList}>
+                {view.unknown.map((row) => (
+                  <li key={row.key}>
+                    <TaskLink
+                      row={row}
+                      filter={filter}
+                      onOpen={onOpen}
+                      className={styles.unknownRow}
+                    >
+                      <b className={styles.doneKey}>{shortKey(row.key)}</b>
+                      {row.ticket && <span>{row.ticket.title}</span>}
+                      <span className={styles.unknownLabel}>{row.column}</span>
+                    </TaskLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      );
   }
 }

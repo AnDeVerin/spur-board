@@ -396,6 +396,9 @@ describe('task view', () => {
       panel,
       inDialog('a[aria-label="PR #7, ex/repo"]'),
       inDialog('button[aria-expanded]'),
+      ...[...(dialog()?.querySelectorAll('button[aria-expanded]') ?? [])].slice(1),
+      inDialog('textarea'),
+      inDialog('button[type="submit"]'),
       inDialog('[role="tab"][aria-selected="true"]'),
       close().querySelector('button') ?? close(),
     ];

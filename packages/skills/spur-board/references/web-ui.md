@@ -1,6 +1,7 @@
 # Web UI
 
-The browser reads one project's columns, tasks and freshness. Writes stay in CLI, MCP tools and Slack.
+View the Board and freshness, answer open operator questions and add comments. Archived tasks
+are read-only; other actions use CLI, MCP or Slack.
 
 ## Opening it
 
@@ -55,7 +56,8 @@ Columns follow configuration order:
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
     on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
     without a turn. Ages stop while the data is stale.
-- A task in an unconfigured column is hidden.
+- Unconfigured columns: a trailing count opens a list of task keys, titles and original columns.
+  Rows open the task view. At zero, both are absent.
 
 On a narrow screen columns scroll sideways; the mode and filter are hidden.
 
@@ -104,8 +106,8 @@ Narrow panels cover the bar. Opening and closing add history entries; Back after
 
 ## Task view
 
-A card or `?open=<task key>` opens the task view: links, **Why it is here** and **History**
-(journal events with the actor's channel, as `operator (web)`). See the
+A card or `?open=<task key>` opens links, **Why it is here**, **Blocks**, **Comments** and
+**History** (journal events with channel, e.g. `operator (web)`). See the
 [task view](web-ui-task-view.md) guide.
 
 ## Live and stale states
