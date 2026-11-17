@@ -19,6 +19,9 @@
 .row:hover {
   background: var(--color-row-hover);
 }
+.row + .row {
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+}
 .meta {
   display: flex;
   flex-wrap: wrap;
