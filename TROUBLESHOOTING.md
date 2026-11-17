@@ -156,7 +156,7 @@ the doctor. The [setup skill](packages/skills/setup/SKILL.md) gives the project-
 Warns about live Codex sessions (as `sessions.stale` defines them) that cannot see the product
 skill while their project's install passes `skills.codex_visibility`. Spur links `.agents/skills/spur-board` only when it creates a
 worktree, so these sessions started before the link. Start new sessions to replace them. It
-passes while `skills.codex_visibility` fails or warns: fix that check first, then rerun.
+passes while `skills.codex_visibility` warns: fix that check first, then rerun.
 
 ### sessions.stale
 
