@@ -68,6 +68,53 @@ const cells = () =>
   );
 
 describe('task history tab', () => {
+  it.each([false, true])(
+    'keeps the focused disclosure mounted across append (expanded=%s)',
+    async (expanded) => {
+      const events = ['14:40', '14:41', '14:42'].map((time) =>
+        historyEvent(
+          `2026-11-15T${time}:00Z`,
+          'session_facts_changed',
+          'system',
+          'Session changed.',
+        ),
+      );
+      const d = daemon();
+      d.routes['task.history'] = () => Promise.resolve(envelope(taskHistory(events)));
+      await openHistory(d);
+      const control = inDialog('[aria-label="History"] button[aria-expanded]');
+      if (expanded) click(control);
+      act(() => {
+        control.focus();
+      });
+      expect(document.activeElement).toBe(control);
+      expect(control.getAttribute('aria-expanded')).toBe(String(expanded));
+      events.push(
+        historyEvent('2026-11-15T14:43:00Z', 'session_facts_changed', 'system', 'Session changed.'),
+      );
+      d.send('event: reset\ndata: {}\n\n');
+      await settle();
+      expect(inDialog('[aria-label="History"] button[aria-expanded]')).toBe(control);
+      expect(control.isConnected).toBe(true);
+      expect(document.activeElement).toBe(control);
+      expect(control.getAttribute('aria-expanded')).toBe(String(expanded));
+      expect(control.textContent).toBe(
+        expanded ? '4 rows, collapse matching rows' : '+3, show matching rows',
+      );
+      expect(panel().querySelectorAll('tr')).toHaveLength(expanded ? 4 : 1);
+      expect(cells()[0]?.[0]).toBe('14:43 15/11/26');
+      const afterRefresh = calls.length;
+      // Happy DOM does not implement Enter/Space default actions; browser QA covers those keys.
+      click(control);
+      await settle();
+      expect(control.getAttribute('aria-expanded')).toBe(String(!expanded));
+      expect(panel().querySelectorAll('tr')).toHaveLength(expanded ? 1 : 4);
+      expect(control.isConnected).toBe(true);
+      expect(document.activeElement).toBe(control);
+      expect(calls).toHaveLength(afterRefresh);
+    },
+  );
+
   it('folds, expands, preserves expansion on append, and collapses without operation calls', async () => {
     const events = ['23:58', '00:01', '00:02'].map((time, index) =>
       historyEvent(

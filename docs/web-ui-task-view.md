@@ -45,7 +45,7 @@ is selected once configuration arrives. Back and Forward restore both layers.
   or more: the newest row shows `+N` hidden rows and `since` the oldest event's UTC time, adding
   the date across UTC days. Select `+N` to show every row with a shared rail and faint fill;
   `N rows` folds the run again. Pairs stay separate. An expanded run stays open when a newer
-  matching event arrives. The controls only change the view.
+  matching event arrives, and a focused run control keeps focus. The controls only change the view.
   On a narrow screen the kind is hidden. A task with no events reads
   `No journal events for this task.`
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Banner, Button, Skeleton, quiet } from '../ds/index.ts';
 import type { HistoryState } from './data.ts';
 import { historyRuns } from './task-model.ts';
@@ -50,47 +50,52 @@ export function TaskHistory({
       ) : (
         <table className={styles.table} aria-label="Task history">
           <tbody>
-            {historyRuns(value.events).flatMap((run) => {
+            {historyRuns(value.events).map((run) => {
               const grouped = run.rows.length >= 3;
               const expanded = expandedRuns.has(run.key);
-              return (expanded ? run.rows : run.rows.slice(0, 1)).map((row, index) => (
-                <tr
-                  key={row.key}
-                  className={[quiet, grouped && expanded ? styles.run : undefined]
-                    .filter(Boolean)
-                    .join(' ')}
-                >
-                  <td className={styles.when}>{row.time}</td>
-                  <td className={styles.what}>
-                    {row.summary} · <span className={styles.actor}>{row.actor}</span>
-                    {grouped && index === 0 && (
-                      <>
-                        {' '}
-                        <Button
-                          expanded={expanded}
-                          onClick={() => {
-                            setExpandedRuns((current) => {
-                              const next = new Set(current);
-                              if (next.has(run.key)) next.delete(run.key);
-                              else next.add(run.key);
-                              return next;
-                            });
-                          }}
-                        >
-                          {expanded
-                            ? `${String(run.rows.length)} rows`
-                            : `+${String(run.rows.length - 1)}`}
-                          <span className={styles.actionText}>
-                            {expanded ? ', collapse matching rows' : ', show matching rows'}
-                          </span>
-                        </Button>
-                        {!expanded && <span className={styles.since}> since {run.since}</span>}
-                      </>
-                    )}
-                  </td>
-                  <td className={styles.kind}>{row.kind}</td>
-                </tr>
-              ));
+              // Keep the lead disclosure mounted when a newer event joins this run.
+              return (
+                <Fragment key={run.key}>
+                  {(expanded ? run.rows : run.rows.slice(0, 1)).map((row, index) => (
+                    <tr
+                      key={index === 0 ? 'lead' : row.key}
+                      className={[quiet, grouped && expanded ? styles.run : undefined]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      <td className={styles.when}>{row.time}</td>
+                      <td className={styles.what}>
+                        {row.summary} · <span className={styles.actor}>{row.actor}</span>
+                        {grouped && index === 0 && (
+                          <>
+                            {' '}
+                            <Button
+                              expanded={expanded}
+                              onClick={() => {
+                                setExpandedRuns((current) => {
+                                  const next = new Set(current);
+                                  if (next.has(run.key)) next.delete(run.key);
+                                  else next.add(run.key);
+                                  return next;
+                                });
+                              }}
+                            >
+                              {expanded
+                                ? `${String(run.rows.length)} rows`
+                                : `+${String(run.rows.length - 1)}`}
+                              <span className={styles.actionText}>
+                                {expanded ? ', collapse matching rows' : ', show matching rows'}
+                              </span>
+                            </Button>
+                            {!expanded && <span className={styles.since}> since {run.since}</span>}
+                          </>
+                        )}
+                      </td>
+                      <td className={styles.kind}>{row.kind}</td>
+                    </tr>
+                  ))}
+                </Fragment>
+              );
             })}
           </tbody>
         </table>
