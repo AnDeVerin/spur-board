@@ -69,9 +69,12 @@ Missing UI assets return a 503 build hint while health and operations remain ava
 The private web package builds the Board screen for one chosen project; the
 [web UI](web-ui.md) guide describes what it shows and its states. It reads `config.get`,
 `status.get` with detail for the chosen project, `inbox.operator` and `task.get` with `why` for
-the open task, and never writes: answers and comments stay in the CLI, MCP and Slack. A card
-click or the address `?open=<task key>` opens the [task view](web-ui-task-view.md) with its
-"Why it is here" section.
+the open task. A card click or the address `?open=<task key>` opens the
+[task view](web-ui-task-view.md) with its "Why it is here", Blocks and Comments sections.
+The task view can answer open operator blocks through `block.answer` and add task comments
+through `comment.add`; other actions stay in the CLI, MCP and Slack. Failed sends preserve
+drafts, and confirmed writes refresh authoritative task data. While the daemon or live updates
+are unavailable, both forms are disabled with a reason and retain their drafts.
 The header holds the project switcher,
 dispatcher mode, a key, session and block filter that dims and never hides cards, the live
 indicator and the inbox count; columns follow configuration order, empty ones collapse and
