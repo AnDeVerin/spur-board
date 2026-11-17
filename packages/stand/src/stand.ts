@@ -228,6 +228,7 @@ type Attempt = Awaited<FirstAttempts>[number];
 function runnerController(standFetch: typeof fetch) {
   let args: Parameters<typeof startAdapters> | undefined;
   let runner: AdapterRunner | undefined;
+  let firstAttempts: FirstAttempts = Promise.resolve([]);
   let polled = false;
   let generation = 0;
   let stopped = false;
@@ -236,6 +237,7 @@ function runnerController(standFetch: typeof fetch) {
     const mine = generation;
     polled = false;
     const attempts = next.firstAttempts ?? Promise.resolve([]);
+    firstAttempts = attempts;
     void attempts.then(
       () => {
         if (mine === generation) polled = true;
@@ -265,6 +267,7 @@ function runnerController(standFetch: typeof fetch) {
   return {
     start,
     polled: () => polled,
+    waitFirstAttempts: () => firstAttempts,
     async restart(): Promise<readonly Attempt[]> {
       if (args === undefined || runner === undefined || stopped)
         throw new Error('The adapter runner is not running.');
@@ -753,6 +756,12 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     return started;
   }
 
+  /** Observation commits enqueue the announcement; the following pulse persists its delivery. */
+  async function settleStartup(running: NonNullable<typeof current>): Promise<void> {
+    await running.runner.waitFirstAttempts();
+    await running.daemon.outbox.pulse();
+  }
+
   let control: Control | undefined;
   const controlUrl = (): string => {
     if (control === undefined) throw new Error('The control endpoint is not running.');
@@ -1142,6 +1151,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         if (shifted.status !== 200)
           throw new Error(`The restored clock shift answered ${String(shifted.status)}.`);
       }
+      await settleStartup(current);
       writeCurrentManifest(current.daemon.address, controlUrl());
     } catch (err) {
       failure = 1;
@@ -1355,6 +1365,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     fake = await startFake();
     await writeHome(fake.url, options.scenario);
     current = await startDaemon();
+    await settleStartup(current);
     control = await startControl({ token: controlToken, routes });
     if (options.scenario !== undefined) {
       try {

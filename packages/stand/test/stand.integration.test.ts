@@ -1120,8 +1120,11 @@ describe('stand', () => {
 
   it('reset equals a fresh start', async () => {
     const manifest = await up();
-    await waitFor(manifest, 'sources-polled');
     const fresh = await fingerprint(manifest);
+    expect(fresh.counts['conversation']).toBe(1);
+    expect((await outbox(manifest)).messages.map(({ text }) => text)).toEqual([
+      'spur-board\n\n> spur-board is live: 0 tasks, 0 for you',
+    ]);
     const before = await instance(manifest);
 
     const request = await fetch(`${manifest.daemonUrl}/v1/tokens/requests`, {
@@ -1142,8 +1145,12 @@ describe('stand', () => {
     const after = stand?.manifest();
     if (after === undefined) throw new Error('stand stopped');
     expect(readManifest(after.home)).toEqual(after);
-    await waitFor(after, 'sources-polled');
-    expect(await fingerprint(after)).toEqual(fresh);
+    const reset = await fingerprint(after);
+    expect(reset.counts['conversation']).toBe(1);
+    expect(reset).toEqual(fresh);
+    expect((await outbox(after)).messages.map(({ text }) => text)).toEqual([
+      'spur-board\n\n> spur-board is live: 0 tasks, 0 for you',
+    ]);
     expectPrivateDatabase(after.home);
     expect(await instance(after)).not.toBe(before);
     const status = await operatorStatus(after);
