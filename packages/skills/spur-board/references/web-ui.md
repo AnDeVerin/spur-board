@@ -1,7 +1,7 @@
 # Web UI
 
-View the Board and freshness, answer open operator questions and add comments. Archived tasks
-are read-only; other actions use CLI, MCP or Slack.
+View the Board and freshness, answer operator questions, follow up on them and comment.
+Archived tasks are read-only; other actions use CLI, MCP or Slack.
 
 ## Opening it
 

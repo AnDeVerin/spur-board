@@ -581,6 +581,7 @@ describe('board update', () => {
     s.behaviour.environ = () =>
       environText({
         OTHER: 'a=b',
+        NODE_EXTRA_CA_CERTS: '/certificates/private-root.pem',
         HOME: '/elsewhere',
         BOARD_HOME: s.env['BOARD_HOME'] ?? '',
         XDG_DATA_HOME: '/data',
@@ -1072,6 +1073,32 @@ describe('board update', () => {
     expect(s.counts.doctor).toBe(3);
     const tail = s.events.filter((name) => name === 'doctor' || name === 'sleep 6000');
     expect(tail).toEqual(['doctor', 'doctor', 'sleep 6000', 'doctor']);
+    expect(s.state().status).toBe('succeeded');
+  });
+
+  it('U4: a new UI warning succeeds without recheck or rollback', async () => {
+    const s = await stand();
+    s.behaviour.doctor = (run) =>
+      doctorResult(
+        run === 1
+          ? baseChecks
+          : [
+              ...baseChecks,
+              {
+                id: 'web.spurUiOrigin',
+                status: 'warning',
+                blocking: false,
+                fix: 'Start the Spur UI.',
+              },
+            ],
+      );
+    const result = await s.run(['--json', 'update']);
+    expect(result.exit, result.stderr).toBe(0);
+    expect(s.counts.doctor).toBe(2);
+    expect(s.events.filter((name) => name === 'doctor' || name === 'sleep 6000')).toEqual([
+      'doctor',
+      'doctor',
+    ]);
     expect(s.state().status).toBe('succeeded');
   });
 

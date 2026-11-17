@@ -1,5 +1,5 @@
 {
-  "version": "940cde0cb3393b80d9eee4ea60ec922ec68e0f8d8386ba78436f52306ee88de9",
+  "version": "71680b1bce672f623f12dd8664fbe2585d6af8cfbb2468785197241d0c75f991",
   "grants": [
     "operator",
     "project-agent",
@@ -10900,7 +10900,7 @@
               },
               "spurUiOrigin": {
                 "anyOf": [{ "type": "string", "format": "uri" }, { "type": "null" }],
-                "description": "Origin of the Spur web UI clients link sessions to; null when not configured."
+                "description": "Origin of the Spur web UI clients link sessions to; HTTP works on any host without voice. Null when not configured; UI reachability only warns in doctor and never blocks updates."
               }
             },
             "required": ["publicOrigin", "spurUiOrigin"],

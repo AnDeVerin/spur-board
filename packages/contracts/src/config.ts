@@ -76,12 +76,12 @@ export function plainHttpAllowed(url: URL): boolean {
 }
 
 /** Check raw syntax before URL normalization can hide a slash, whitespace or backslash. */
-function validOrigin(value: string, port?: number): boolean {
+function validOrigin(value: string, port?: number, allowHttp = false): boolean {
   const resolved = port === undefined ? value : value.replaceAll('{port}', String(port));
   if (!/^https?:\/\/[^/\\\s?#@{}]+$/i.test(resolved)) return false;
   try {
     const url = new URL(resolved);
-    return url.username === '' && url.password === '' && plainHttpAllowed(url);
+    return url.username === '' && url.password === '' && (allowHttp || plainHttpAllowed(url));
   } catch {
     return false;
   }
@@ -89,8 +89,9 @@ function validOrigin(value: string, port?: number): boolean {
 
 const originError =
   'Expected a bare HTTP/HTTPS origin; HTTP requires loopback, with no path, trailing slash, query, fragment, credentials or invalid placeholders';
-const concreteOrigin = z.string().refine((value) => validOrigin(value), {
-  error: originError,
+const concreteOrigin = z.string().refine((value) => validOrigin(value, undefined, true), {
+  error:
+    'Expected a bare HTTP/HTTPS origin with no path, trailing slash, query, fragment, credentials or placeholders',
 });
 
 const jiraTracker = z.strictObject({
@@ -876,7 +877,7 @@ const configObject = z.strictObject({
       spurUiOrigin: concreteOrigin
         .optional()
         .describe(
-          'Optional concrete bare origin for the Spur UI, independently of the web API. HTTP requires loopback; no placeholders or trailing slash. Omitted means no configured UI origin.',
+          'Optional concrete bare origin for the Spur UI, independently of the web API. HTTP works on any host without voice; no placeholders or trailing slash. Unset or unreachable UI only warns in doctor and never blocks updates.',
         ),
     })
     .prefault({}),

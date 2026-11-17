@@ -137,6 +137,46 @@ async function run(
 }
 
 describe('board doctor', () => {
+  it.each([
+    ['PATH binary', false, true, false],
+    ['skill stamp', false, false, true],
+    ['daemon', true, false, false],
+    ['daemon plus auxiliary versions', true, true, true],
+  ] as const)(
+    'keeps the correct version gate for %s',
+    async (_case, critical, pathMismatch, skillMismatch) => {
+      const defaults = ports();
+      const value = await run(
+        ['doctor', '--json'],
+        ports({
+          run: () => ({ exitCode: 0, stdout: pathMismatch ? '0.0.1\n' : '1.2.3\n' }),
+          readText: (path) =>
+            path.endsWith('.spur-board-install.json') && skillMismatch
+              ? stamp.replace('1.2.3', '0.0.1')
+              : defaults.readText(path),
+          fetcher: (input) =>
+            Promise.resolve(
+              isSpur(input)
+                ? spurResponse(input)
+                : Response.json({
+                    version: critical ? '0.0.1' : '1.2.3',
+                    checks: remoteIds.map((id) => ({
+                      id,
+                      status: 'pass',
+                      blocking: false,
+                      fix: null,
+                    })),
+                  }),
+            ),
+        }),
+      );
+      expect(value.checks.find(({ id }) => id === 'versions')).toMatchObject({
+        status: critical ? 'fail' : 'warning',
+        blocking: critical,
+      });
+      expect(value.exitCode).toBe(critical ? 1 : 0);
+    },
+  );
   it.each(['pass', 'warning', 'fail'] as const)(
     'preserves the exact UI origin check in JSON (%s)',
     async (status) => {
@@ -532,7 +572,7 @@ describe('board doctor', () => {
   it.each([
     ['a label filter', yaml],
     ['no filter', yaml.replace('\n      label: board', '')],
-    ['configured UI origin', `${yaml}web:\n  spurUiOrigin: https://ui.example.test\n`],
+    ['configured UI origin', `${yaml}web:\n  spurUiOrigin: http://ui.example.test\n`],
   ])(
     'uses only config validation offline and does not call any other port (%s)',
     async (filter, config) => {
@@ -726,12 +766,14 @@ describe('board doctor', () => {
       'Install matching CLI and skills versions, then restart the daemon.',
       { productVersion: () => '9.9.9' },
     ],
-  ] as const)('gives a blocking fix for %s', async (id, fix, override) => {
+  ] as const)('gives an actionable fix for %s', async (id, fix, override) => {
     const value = await run(['doctor', '--json'], ports(override));
     const check = value.checks.find((entry) => entry.id === id);
-    expect(check?.status).toBe('fail');
+    const advisory = ['path.current', 'path.spur', 'skills.codex_visibility'].includes(id);
+    expect(check?.status).toBe(advisory ? 'warning' : 'fail');
+    expect(check?.blocking).toBe(!advisory);
     expect(check?.fix).toBe(fix);
-    expect(value.exitCode).toBe(1);
+    expect(value.exitCode).toBe(advisory ? 0 : 1);
   });
 
   it.each([
@@ -1444,29 +1486,29 @@ describe('board doctor Codex skill install', () => {
   it.each([
     ['the link resolves outside the installed skill', linkTo('/elsewhere')],
     ['only the symlinks entry marks the project as Codex', linkTo(null)],
-  ] as const)('fails the install check without sessions when %s', async (_case, realPath) => {
+  ] as const)('warns about the install without sessions when %s', async (_case, realPath) => {
     const value = await run(['doctor', '--json'], ports({ sessions: () => [], realPath }));
     expect(find(value.checks, 'skills.codex_visibility')).toEqual({
       id: 'skills.codex_visibility',
-      status: 'fail',
-      blocking: true,
+      status: 'warning',
+      blocking: false,
       fix: codexFix,
     });
-    expect(value.exitCode).toBe(1);
+    expect(value.exitCode).toBe(0);
   });
 
-  it('fails the install check without sessions when the symlinks entry is missing', async () => {
+  it('warns about the install without sessions when the symlinks entry is missing', async () => {
     const value = await run(
       ['doctor', '--json'],
       ports({ sessions: () => [], ...spurConfig('projects:\n  worker:\n    symlinks: []\n') }),
     );
     expect(find(value.checks, 'skills.codex_visibility')).toEqual({
       id: 'skills.codex_visibility',
-      status: 'fail',
-      blocking: true,
+      status: 'warning',
+      blocking: false,
       fix: codexFix,
     });
-    expect(value.exitCode).toBe(1);
+    expect(value.exitCode).toBe(0);
   });
 
   it('accepts a symlinks entry written with ./ and a trailing slash', async () => {
@@ -1501,12 +1543,12 @@ describe('board doctor Codex skill install', () => {
         ...spurConfig('projects:\n  worker:\n    defaultAgent: codex\n    symlinks: []\n'),
       }),
     );
-    expect(find(value.checks, 'skills.codex_visibility')?.status).toBe('fail');
+    expect(find(value.checks, 'skills.codex_visibility')?.status).toBe('warning');
   });
 
   it.each([
     ['when set', { CODEX_HOME: '/custom-codex' }, 'pass', false],
-    ['only when set', {}, 'fail', true],
+    ['only when set', {}, 'warning', false],
   ] as const)(
     'checks the Codex copy under CODEX_HOME %s',
     async (_case, extra, status, blocking) => {
@@ -1626,10 +1668,10 @@ describe('board doctor Codex skill install', () => {
       }),
     );
     expect(find(value.checks, 'skills.codex_visibility')).toMatchObject({
-      status: 'fail',
-      blocking: true,
+      status: 'warning',
+      blocking: false,
     });
-    expect(value.exitCode).toBe(1);
+    expect(value.exitCode).toBe(0);
   });
 
   it('warns when the project spur.yaml cannot be read', async () => {

@@ -621,7 +621,9 @@ export async function runDoctor(
   );
   const currentBoard = ports.run('board', ['--version']);
   checks.push(
-    result('path.current', currentBoard.exitCode === 0, 'Install board into the current PATH.'),
+    currentBoard.exitCode === 0
+      ? result('path.current', true, '')
+      : warning('path.current', 'Install board into the current PATH.'),
   );
 
   const processes = ports.sessions();
@@ -638,11 +640,9 @@ export async function runDoctor(
   checks.push(
     live === undefined
       ? warning('path.spur', 'Start a Spur session, then rerun board doctor.')
-      : result(
-          'path.spur',
-          spurBoard?.exitCode === 0,
-          'Install board into the live Spur session PATH.',
-        ),
+      : spurBoard?.exitCode === 0
+        ? result('path.spur', true, '')
+        : warning('path.spur', 'Install board into the live Spur session PATH.'),
   );
   const configured = new Set(
     config.projects.flatMap((project) => project.spurProjects.map((spur) => spur.name)),
@@ -714,7 +714,7 @@ export async function runDoctor(
             'Start Spur or correct adapters.spur.baseUrl in config.yaml, then rerun board doctor to check the Codex skill install.',
           )
         : [...states.values()].includes('broken')
-          ? result('skills.codex_visibility', false, codexVisibilityFix)
+          ? warning('skills.codex_visibility', codexVisibilityFix)
           : missing.length > 0 || unknown.length > 0
             ? warning(
                 'skills.codex_visibility',
@@ -877,15 +877,18 @@ export async function runDoctor(
   const availableVersions = [
     ...(currentBoard.exitCode === 0 ? [currentBoard.stdout.trim()] : []),
     ...(spurBoard?.exitCode === 0 ? [spurBoard.stdout.trim()] : []),
-    ...(remote === null ? [] : [remote.version]),
     ...stamps.flatMap((entry) => (entry === null ? [] : [entry.version])),
   ];
   checks.push(
-    result(
-      'versions',
-      availableVersions.every((available) => available === version),
-      'Install matching CLI and skills versions, then restart the daemon.',
-    ),
+    remote !== null && remote.version !== version
+      ? result(
+          'versions',
+          false,
+          'Install matching CLI and skills versions, then restart the daemon.',
+        )
+      : availableVersions.every((available) => available === version)
+        ? result('versions', true, '')
+        : warning('versions', 'Install matching CLI and skills versions, then restart the daemon.'),
   );
   return checks;
 }

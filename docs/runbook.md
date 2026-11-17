@@ -212,6 +212,9 @@ and other proxies need buffering disabled in their own config. Keep the proxy re
 15 seconds, the stream's heartbeat interval.
 
 A busy web port leaves the agent API running; `board doctor --json` reports `web.listening`
-failed. Free the port or change the settings, then restart the daemon. Missing UI assets return
+as a nonblocking warning. Free the port or change the settings, then restart the daemon. An unset
+or unreachable `web.spurUiOrigin` also only warns and never blocks setup or update; see the
+[UI diagnostics and private CA recipe](../TROUBLESHOOTING.md#webspuruiorigin).
+Missing UI assets return
 503 with the hint ``UI is not built: run `pnpm --filter @spur-board/web build` ``; health and
 operations still work. The UI build is supplied separately from this listener.

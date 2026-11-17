@@ -1519,7 +1519,6 @@ describe('web and stand configuration', () => {
   );
 
   it.each([
-    'http://example.test',
     'https://example.test/',
     'https://example.test/path',
     'https://example.test?query',
@@ -1558,6 +1557,18 @@ describe('web and stand configuration', () => {
         .publicOrigin,
     ).toBe(value);
   });
+
+  it.each(['http://example.test', 'http://192.0.2.1:8080'])(
+    'allows HTTP UI on any host while rejecting the public API origin %s',
+    (value) => {
+      expect(
+        configSchema.parse(validConfig({}, { web: { spurUiOrigin: value } })).web.spurUiOrigin,
+      ).toBe(value);
+      expect(errorFor(validConfig({}, { web: { ...web, publicOrigin: value } }))).toContain(
+        '→ at web.publicOrigin',
+      );
+    },
+  );
 
   it('validates substitutions using the configured port', () => {
     const config = configSchema.parse(

@@ -183,6 +183,19 @@ http: { port: ${String(port)} }
 }
 
 describe('service', () => {
+  it('preserves a separate CA environment drop-in across repeated installs', async () => {
+    const { options, paths } = await fixture();
+    const directory = `${paths.unitFile}.d`;
+    const file = join(directory, 'ca.conf');
+    const contents =
+      '[Service]\nEnvironment="NODE_EXTRA_CA_CERTS=/certificates/private-root.pem"\n';
+    await mkdir(directory, { recursive: true });
+    await writeFile(file, contents);
+    await installService(options);
+    expect(await readFile(file, 'utf8')).toBe(contents);
+    await installService(options);
+    expect(await readFile(file, 'utf8')).toBe(contents);
+  });
   it('dispatches lifecycle commands without daemon config through a fake runner', async () => {
     const { options, paths, calls } = await fixture();
     const output = { stdout: '', stderr: '' };

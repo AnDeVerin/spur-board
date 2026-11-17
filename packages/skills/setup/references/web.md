@@ -20,7 +20,11 @@ path (the stream sends `X-Accel-Buffering: no`, which nginx honours; other proxi
 disabled) and keep the proxy read timeout above 15 seconds, the heartbeat interval.
 After restarting the daemon, run `board doctor --json`: `web` checks the configuration and
 `web.listening` checks whether the listener bound. A busy port leaves the agent API running;
-free it or choose another web port and restart.
+the listener check warns without blocking setup or updates. Free it or choose another web port
+and restart. An unset or unreachable `web.spurUiOrigin` also only warns. HTTP UI origins work
+on any host without voice; `web.publicOrigin` still requires HTTPS outside loopback. For private
+CA trust, use a separate systemd service drop-in with `NODE_EXTRA_CA_CERTS`; see
+[Troubleshooting](../../../../TROUBLESHOOTING.md#webspuruiorigin).
 
 The listener serves the packaged browser UI and its assets. A missing UI build returns 503 with
 ``UI is not built: run `pnpm --filter @spur-board/web build` ``.

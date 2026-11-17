@@ -293,7 +293,7 @@ describe('web listener composition', () => {
     await daemon.stop();
   });
 
-  it('keeps the API ready on a busy web port and doctor reports the failed listener', async () => {
+  it('keeps the API ready on a busy web port and doctor warns about the listener', async () => {
     const taken = createServer();
     await new Promise<void>((resolve) => taken.listen(0, '127.0.0.1', resolve));
     const address = taken.address();
@@ -311,8 +311,8 @@ describe('web listener composition', () => {
       const response = await fetch(`${daemon.address}/v1/doctor`);
       const report = doctorReportSchema.parse(await response.json());
       expect(report.checks.find((check) => check.id === 'web.listening')).toMatchObject({
-        status: 'fail',
-        blocking: true,
+        status: 'warning',
+        blocking: false,
       });
       expect(lines.join('')).toContain('web listener failed');
       await daemon.stop();

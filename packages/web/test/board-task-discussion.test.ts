@@ -295,7 +295,7 @@ describe('task discussion', () => {
     expect(field().disabled).toBe(false);
   });
 
-  it('open-first blocks, eligibility, closure channels, latest reply and task comments', async () => {
+  it('open-first blocks, eligibility, closure channels, every reply in order and task comments', async () => {
     await discussion({
       blocks: [
         block({ id: 'B10', state: 'unblocked', outcome: 'done', answeredVia: 'slack' }),
@@ -325,8 +325,11 @@ describe('task discussion', () => {
     expect(dialog()?.querySelectorAll('textarea')).toHaveLength(2);
     expect(items[2]?.querySelector('form')).toBeNull();
     expect(items[2]?.textContent).toContain('answered via Slack');
-    expect(items[2]?.textContent).toContain('latest reply');
-    expect(dialog()?.textContent).not.toContain('old reply');
+    expect(
+      [...(items[2]?.querySelectorAll(':scope > div > p:not([role])') ?? [])].map(
+        (reply) => reply.textContent,
+      ),
+    ).toEqual(['old reply', 'latest reply']);
     expect(items[3]?.textContent).toContain('withdrawn');
     expect(items[3]?.textContent).not.toContain('answered');
     expect(items[4]?.textContent).toContain('answered via web');

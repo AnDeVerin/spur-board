@@ -65,7 +65,7 @@ export const configViewSchema = z
           .url({ protocol: /^https?$/ })
           .nullable()
           .describe(
-            'Origin of the Spur web UI clients link sessions to; null when not configured.',
+            'Origin of the Spur web UI clients link sessions to; HTTP works on any host without voice. Null when not configured; UI reachability only warns in doctor and never blocks updates.',
           ),
       })
       .describe('Web origins of the board listener and the Spur UI.'),

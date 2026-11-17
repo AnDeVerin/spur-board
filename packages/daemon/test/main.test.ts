@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -76,6 +77,72 @@ async function deliveredState(home: string): Promise<string> {
 }
 
 describe('daemon process', () => {
+  it('trusts a private UI CA supplied at process startup', async () => {
+    const home = makeHome();
+    const key = join(home, 'ui-key.pem');
+    const cert = join(home, 'ui-ca.pem');
+    const generated = spawnSync(
+      'openssl',
+      [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-days',
+        '2',
+        '-subj',
+        '/CN=localhost',
+        '-addext',
+        'subjectAltName=IP:127.0.0.1',
+        '-keyout',
+        key,
+        '-out',
+        cert,
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(generated.status, generated.error?.message ?? generated.stderr).toBe(0);
+    const ui = createHttpsServer(
+      { key: readFileSync(key), cert: readFileSync(cert) },
+      (_req, res) => {
+        res.writeHead(401).end();
+      },
+    );
+    ui.listen(0, '127.0.0.1');
+    await once(ui, 'listening');
+    try {
+      const port = (ui.address() as AddressInfo).port;
+      const { writeFileSync } = await import('node:fs');
+      const file = join(home, 'config.yaml');
+      writeFileSync(
+        file,
+        `${readFileSync(file, 'utf8')}\nweb:\n  spurUiOrigin: https://127.0.0.1:${String(port)}\n`,
+      );
+      const child = spawnDaemon(home, { NODE_EXTRA_CA_CERTS: cert });
+      await waitForLine(child, 'daemon ready');
+      const response = await fetch(`http://127.0.0.1:${String(httpPort(home))}/v1/doctor`);
+      const report = (await response.json()) as {
+        checks: { id: string; status: string; blocking: boolean; fix: string | null }[];
+      };
+      expect(report.checks.find(({ id }) => id === 'web.spurUiOrigin')).toEqual({
+        id: 'web.spurUiOrigin',
+        status: 'pass',
+        blocking: false,
+        fix: null,
+      });
+      const exited = once(child, 'exit');
+      child.kill('SIGTERM');
+      await exited;
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        ui.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
+  });
   it('uses the publishable package version for daemon diagnostics and live announcements', () => {
     const manifest = JSON.parse(
       readFileSync(new URL('../../cli/package.json', import.meta.url), 'utf8'),

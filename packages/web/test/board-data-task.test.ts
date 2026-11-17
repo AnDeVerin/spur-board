@@ -33,7 +33,11 @@ function start(d: Daemon) {
         key: string;
         input: Record<string, unknown>;
       };
-      if (path === '/v1/ops/comment.add' || path === '/v1/ops/block.answer')
+      if (
+        path === '/v1/ops/comment.add' ||
+        path === '/v1/ops/block.answer' ||
+        path === '/v1/ops/block.followup'
+      )
         mutations.push({ path, ...body });
       if (path === '/v1/ops/task.get') inputs.push(body.input);
       if (path === '/v1/ops/task.history') historyInputs.push(body.input);
@@ -55,7 +59,7 @@ afterEach(() => {
 });
 
 describe('task writes', () => {
-  it('only the two narrow payloads, UUID per intent, coalesced pending, same-key retry after failure', async () => {
+  it('only the three narrow payloads, UUID per intent, coalesced pending, same-key retry after failure', async () => {
     const d = daemon();
     const data = start(d);
     data.open('ex/repo#7');
@@ -84,12 +88,21 @@ describe('task writes', () => {
     await next.refresh;
     const answer = await data.answerIntent('ex/repo#7', 'B12', 'Answer').run();
     await answer.refresh;
-    expect(new Set([mutations[0]?.key, mutations[2]?.key, mutations[3]?.key]).size).toBe(3);
+    await (
+      await data.followUpIntent('ex/repo#7', 'B12', 'More').run()
+    ).refresh;
+    expect(
+      new Set([mutations[0]?.key, mutations[2]?.key, mutations[3]?.key, mutations[4]?.key]).size,
+    ).toBe(4);
     expect(mutations[3]).toMatchObject({
       path: '/v1/ops/block.answer',
       input: { block: 'B12', text: 'Answer' },
     });
-    expect(taskCalls()).toHaveLength(4);
+    expect(mutations[4]).toMatchObject({
+      path: '/v1/ops/block.followup',
+      input: { block: 'B12', text: 'More' },
+    });
+    expect(taskCalls()).toHaveLength(5);
   });
 
   it('post-success refresh waits for the read after an overlapping stream read, then recovers without another write', async () => {
