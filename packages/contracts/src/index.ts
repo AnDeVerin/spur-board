@@ -101,6 +101,7 @@ export {
 } from './ops/define.ts';
 export { commentSchema, type Comment } from './ops/schemas.ts';
 export { turnHandedSchema } from './ops/turn-schemas.ts';
+export { defaultBranchViewSchema, type DefaultBranchView } from './ops/source-view-schema.ts';
 export { OPERATIONS, type OperationId } from './ops/catalog.ts';
 export { roleCanUseOperation, type SchemaRole } from './ops/roles.ts';
 export { buildCatalogSnapshot } from './ops/snapshot.ts';
@@ -155,6 +156,7 @@ export {
   POLL_PR_ERROR_KINDS,
   batchItemSchema,
   batchSchema,
+  defaultBranchFactSchema,
   entityRefSchema,
   prSourceId,
   sourceCursorSchema,
@@ -167,6 +169,7 @@ export {
   type AcceptedObservation,
   type Batch,
   type BatchItem,
+  type DefaultBranchFact,
   type EntityRef,
   type EntityStatus,
   type PollContext,

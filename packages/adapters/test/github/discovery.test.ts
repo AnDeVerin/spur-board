@@ -1,4 +1,11 @@
-import { configSchema, sourceCursorSchema, type Adapter } from '@spur-board/contracts';
+import {
+  AdapterError,
+  batchSchema,
+  configSchema,
+  sourceCursorSchema,
+  type Adapter,
+  type Batch,
+} from '@spur-board/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { discover, nextPage } from '../../src/github/discovery.ts';
 import { githubSources } from '../../src/github/index.ts';
@@ -278,5 +285,199 @@ describe('GitHub discovery', () => {
     const detail = fetcher.mock.calls[1]?.[1]?.body as string;
     expect(detail).toContain('pullRequest(number: 8)');
     expect(detail).not.toContain('pullRequest(number: 7)');
+  });
+});
+
+describe('default branch head', () => {
+  const sha = 'a'.repeat(40);
+  const runUrl = 'https://github.com/demo/widgets/actions/runs/1/job/2';
+  const run = (
+    name: string,
+    conclusion: string | null,
+    event: string | null,
+    { status = 'COMPLETED', startedAt = old, url = runUrl } = {},
+  ) => ({
+    __typename: 'CheckRun',
+    name,
+    status,
+    conclusion,
+    startedAt,
+    completedAt: status === 'COMPLETED' ? startedAt : null,
+    detailsUrl: url,
+    checkSuite: { createdAt: old, workflowRun: event === null ? null : { event } },
+  });
+  const commitStatus = (context: string, state: string, targetUrl: string | null = null) => ({
+    __typename: 'StatusContext',
+    context,
+    state,
+    createdAt: old,
+    targetUrl,
+  });
+  const branchRef = (nodes: unknown[], hasNextPage = false) => ({
+    name: 'main',
+    target: {
+      __typename: 'Commit',
+      oid: sha,
+      statusCheckRollup: { contexts: { nodes, pageInfo: { hasNextPage } } },
+    },
+  });
+  const red = { state: 'red', branch: 'main', sha, check: 'build', url: runUrl };
+  const green = { state: 'green', branch: 'main', sha };
+  async function pollWith(
+    defaultBranchRef: unknown,
+    errors?: object[],
+    pullRequests: unknown = conn([node(1, newer, 'someone')]),
+  ): Promise<{ batch: Batch; fetcher: ReturnType<typeof vi.fn<typeof fetch>> }> {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ repository: { pullRequests, defaultBranchRef } }, errors));
+    return { batch: await adapter(fetcher).poll(context), fetcher };
+  }
+  const branchOf = async (nodes: unknown[], hasNextPage = false): Promise<unknown> =>
+    (await pollWith(branchRef(nodes, hasNextPage))).batch.defaultBranch;
+  const operations = (fetcher: ReturnType<typeof vi.fn<typeof fetch>>): string[] =>
+    fetcher.mock.calls.map(([, init]) => /query (\w+)/.exec(init?.body as string)?.[1] ?? 'none');
+
+  it('reads a red default-branch head from the discovery request alone', async () => {
+    const { batch, fetcher } = await pollWith(branchRef([run('build', 'FAILURE', 'push')]));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const body = fetcher.mock.calls[0]?.[1]?.body as string;
+    expect(body).toContain('defaultBranchRef');
+    expect(body).toContain('workflowRun { event }');
+    expect(batch.defaultBranch).toEqual(red);
+    expect(batch.complete).toBe(true);
+    expect(batchSchema.parse(batch)).toEqual(batch);
+  });
+
+  it('sends the same requests for a red, a green and a missing default branch', async () => {
+    const runs = [
+      await pollWith(branchRef([run('build', 'FAILURE', 'push')])),
+      await pollWith(branchRef([run('build', 'SUCCESS', 'push')])),
+      await pollWith(null),
+    ];
+    expect(runs.map(({ batch }) => batch.defaultBranch)).toEqual([red, green, undefined]);
+    for (const { fetcher } of runs) expect(operations(fetcher)).toEqual(['PrBatch']);
+  });
+
+  it('keeps discovery complete when the default branch is denied or malformed', async () => {
+    const contextsPath = [
+      'repository',
+      'defaultBranchRef',
+      'target',
+      'statusCheckRollup',
+      'contexts',
+    ];
+    const denied = {
+      name: 'main',
+      target: { __typename: 'Commit', oid: sha, statusCheckRollup: { contexts: null } },
+    };
+    const cases: [unknown, object[] | undefined][] = [
+      [denied, [{ message: 'denied', type: 'FORBIDDEN', path: contextsPath }]],
+      [null, [{ message: 'gone', type: 'NOT_FOUND', path: ['repository', 'defaultBranchRef'] }]],
+      [{ name: 'main', target: { __typename: 'Tree', oid: sha } }, undefined],
+      [
+        { ...branchRef([]), target: { __typename: 'Commit', oid: sha, statusCheckRollup: null } },
+        undefined,
+      ],
+      [null, undefined],
+    ];
+    for (const [ref, errors] of cases) {
+      const { batch, fetcher } = await pollWith(ref, errors);
+      expect(batch.complete).toBe(true);
+      expect(batch.cursor).toBe(newer);
+      expect(batch).not.toHaveProperty('defaultBranch');
+      expect(operations(fetcher)).toEqual(['PrBatch']);
+    }
+  });
+
+  it('keeps the default-branch fact when the PR listing fails', async () => {
+    const { batch } = await pollWith(
+      branchRef([run('build', 'FAILURE', 'push')]),
+      [{ message: 'listing failed', path: ['repository', 'pullRequests'] }],
+      null,
+    );
+    expect(batch.complete).toBe(false);
+    expect(batch.cursor).toBe(old);
+    expect(batch.defaultBranch).toEqual(red);
+  });
+
+  it('leaves a running head out', async () => {
+    expect(await branchOf([run('build', null, 'push', { status: 'IN_PROGRESS' })])).toBeUndefined();
+    expect(
+      await branchOf([run('build', 'SUCCESS', 'push'), commitStatus('ci/ext', 'PENDING')]),
+    ).toBeUndefined();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({
+        pr0: null,
+        repository: { defaultBranchRef: branchRef([run('build', 'FAILURE', 'push')]) },
+      }),
+    );
+    const source = adapter(fetcher);
+    const ref = { kind: 'pr' as const, repo: 'demo/widgets', number: 7 };
+    const batch = await source.pollPr?.(ref, { signal: new AbortController().signal });
+    expect(batch?.entities).toEqual([{ ref, status: 'not_found' }]);
+    expect(batch).not.toHaveProperty('defaultBranch');
+    expect(fetcher.mock.calls[0]?.[1]?.body as string).not.toContain('defaultBranchRef');
+  });
+
+  it('a scope error on the default branch fails the poll with auth', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({ repository: { pullRequests: conn([]), defaultBranchRef: null } }, [
+        {
+          message: 'scope',
+          type: 'INSUFFICIENT_SCOPES',
+          path: ['repository', 'defaultBranchRef'],
+        },
+      ]),
+    );
+    const poll = adapter(fetcher).poll(context);
+    await expect(poll).rejects.toBeInstanceOf(AdapterError);
+    await expect(poll).rejects.toMatchObject({ kind: 'auth' });
+  });
+
+  it('nulls a run url that is not http', async () => {
+    for (const url of ['not a url', 'javascript:alert(1)']) {
+      const { batch } = await pollWith(branchRef([run('build', 'FAILURE', 'push', { url })]));
+      expect(batch.defaultBranch).toEqual({ ...red, url: null });
+      expect(batch.complete).toBe(true);
+      expect(batchSchema.safeParse(batch).success).toBe(true);
+    }
+  });
+
+  it('counts only push-workflow check runs and commit statuses', async () => {
+    const later = '2026-01-01T01:00:00.000Z';
+    const extUrl = 'https://ci.example.test/builds/9';
+    const pushOk = run('build', 'SUCCESS', 'push');
+    expect(await branchOf([pushOk, run('nightly', 'FAILURE', 'schedule')])).toEqual(green);
+    expect(await branchOf([run('nightly', 'FAILURE', 'schedule')])).toBeUndefined();
+    expect(await branchOf([run('build', 'FAILURE', 'workflow_dispatch'), pushOk])).toEqual(green);
+    expect(await branchOf([run('scanner', 'FAILURE', null), pushOk])).toEqual(green);
+    expect(await branchOf([commitStatus('ci/ext', 'FAILURE', extUrl), pushOk])).toEqual({
+      ...red,
+      check: 'ci/ext',
+      url: extUrl,
+    });
+    expect(await branchOf([commitStatus('ci/ext', 'ERROR', null)])).toEqual({
+      ...red,
+      check: 'ci/ext',
+      url: null,
+    });
+    expect(
+      await branchOf([
+        run('build', 'FAILURE', 'push'),
+        run('build', 'SUCCESS', 'push', { startedAt: later }),
+      ]),
+    ).toEqual(green);
+    expect(
+      await branchOf([
+        run('build', 'SUCCESS', 'schedule', { startedAt: later }),
+        run('build', 'FAILURE', 'push'),
+      ]),
+    ).toEqual(red);
+    expect(await branchOf([pushOk], true)).toBeUndefined();
+    expect(await branchOf([pushOk, run('lint', 'FAILURE', 'push')], true)).toEqual({
+      ...red,
+      check: 'lint',
+    });
   });
 });

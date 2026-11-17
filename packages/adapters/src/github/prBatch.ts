@@ -223,7 +223,8 @@ export function closingRefs(wire: ClosingWire): ClosingRef[] {
   );
 }
 
-function checkState(node: ContextWire): PrFacts['checks'][number]['state'] {
+/** The contracts check state of a check run or commit status. */
+export function checkState(node: ContextWire): PrFacts['checks'][number]['state'] {
   if (node.__typename === 'StatusContext') {
     const state = node.state.toLowerCase();
     return state === 'success'
@@ -248,6 +249,12 @@ function checkState(node: ContextWire): PrFacts['checks'][number]['state'] {
   ];
   return allowed.find((state) => state === value) ?? 'error';
 }
+/** When a context ran, to keep the latest per name; an empty string sorts first. */
+export function contextAt(node: ContextWire): string {
+  return node.__typename === 'StatusContext'
+    ? node.createdAt
+    : (node.startedAt ?? node.checkSuite?.createdAt ?? node.completedAt ?? '');
+}
 function latestChecks(nodes: readonly ContextWire[]): {
   checks: PrFacts['checks'];
   requiredChecks: PrFacts['requiredChecks'];
@@ -260,9 +267,7 @@ function latestChecks(nodes: readonly ContextWire[]): {
     const status = node.__typename === 'StatusContext';
     const name = status ? node.context : node.name;
     const completedAt = status ? null : node.completedAt;
-    const at = status
-      ? node.createdAt
-      : (node.startedAt ?? node.checkSuite?.createdAt ?? completedAt ?? '');
+    const at = contextAt(node);
     const old = latest.get(name);
     if (old !== undefined && old.at > at) continue;
     latest.set(name, {

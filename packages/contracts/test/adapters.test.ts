@@ -254,6 +254,26 @@ describe('batch', () => {
     ).toBe(false);
   });
 
+  it('keeps an optional default-branch fact and rejects a malformed one', () => {
+    const green = { state: 'green', branch: 'main', sha };
+    const red = { ...green, state: 'red', check: 'build', url: 'https://github.com/o/r/runs/1' };
+    const parsed = (defaultBranch: unknown): unknown =>
+      batchSchema.parse(batch({ defaultBranch })).defaultBranch;
+    const rejects = (defaultBranch: unknown): boolean =>
+      !batchSchema.safeParse(batch({ defaultBranch })).success;
+    expect(parsed(green)).toEqual(green);
+    expect(parsed(red)).toEqual(red);
+    expect(parsed({ ...red, check: null, url: null })).toEqual({ ...red, check: null, url: null });
+    expect(batchSchema.parse(batch()).defaultBranch).toBeUndefined();
+    expect(rejects({ ...green, extra: 1 })).toBe(true);
+    expect(rejects({ ...green, check: 'build', url: null })).toBe(true);
+    expect(rejects({ ...green, state: 'pending' })).toBe(true);
+    expect(rejects({ ...green, sha: 'abc1234' })).toBe(true);
+    expect(rejects({ ...red, url: 'not a url' })).toBe(true);
+    expect(rejects({ ...red, url: 'javascript:alert(1)' })).toBe(true);
+    expect(rejects({ ...green, branch: '' })).toBe(true);
+  });
+
   it('describes every property', () => {
     const walked = walk(z.toJSONSchema(batchSchema, { io: 'output' }));
     expect(walked.undescribed).toEqual([]);

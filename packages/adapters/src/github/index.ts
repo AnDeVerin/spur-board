@@ -28,6 +28,7 @@ import {
 } from './client.ts';
 import {
   baselineNodeWire,
+  defaultBranchFact,
   discover,
   discoveryNodeWire,
   latestUpdatedAt,
@@ -588,8 +589,14 @@ interface DiscoveryResult {
   ok: boolean;
   found: Discovery;
   bootstrapCursor: SourceCursor | undefined;
+  defaultBranch: Batch['defaultBranch'];
 }
-/** Lists the repository's PRs since the cursor; a transient failure leaves `ok` false. */
+// An error under `repository.defaultBranchRef` drops only the default-branch fact.
+const branchScoped = (error: GraphError): boolean => error.path?.[1] === 'defaultBranchRef';
+/**
+ * Lists the repository's PRs since the cursor; a transient failure leaves `ok` false. The first
+ * response also gives the default-branch colour, whatever the PR listing's outcome.
+ */
 async function readDiscovery(
   scope: RequestScope,
   acc: Accumulator,
@@ -599,10 +606,20 @@ async function readDiscovery(
   const bootstrap = ctx.cursor === undefined;
   const response = await attempt(scope, discoveryQuery(bootstrap));
   if (response === undefined)
-    return { ok: false, found: discover([], ctx.cursor, login), bootstrapCursor: undefined };
+    return {
+      ok: false,
+      found: discover([], ctx.cursor, login),
+      bootstrapCursor: undefined,
+      defaultBranch: undefined,
+    };
   acc.budget = response.budget;
-  rejectUnscoped(response.errors, ['repository']);
-  let ok = scoped(response.errors, 'repository').length === 0;
+  const errors = response.errors.filter((error) => !branchScoped(error));
+  const defaultBranch =
+    errors.length === response.errors.length
+      ? defaultBranchFact(response.data.repository)
+      : undefined;
+  rejectUnscoped(errors, ['repository']);
+  let ok = scoped(errors, 'repository').length === 0;
   const first = ok
     ? parseWire(discoveryRootWire, response.data.repository, MALFORMED, ['data', 'repository'])
         .pullRequests
@@ -640,7 +657,7 @@ async function readDiscovery(
           found.cursor,
         ) ?? sourceCursorSchema.parse('1970-01-01T00:00:00.000Z'))
       : undefined;
-  return { ok, found, bootstrapCursor };
+  return { ok, found, bootstrapCursor, defaultBranch };
 }
 /** Reads the light index of `numbers`; a PR left out of the map is read in full. */
 async function readIndex(
@@ -871,6 +888,7 @@ async function pollRepository({
         ? {}
         : { cursor: ctx.cursor }),
     ...(acc.budget === undefined ? {} : { budget: acc.budget }),
+    ...(discovery.defaultBranch === undefined ? {} : { defaultBranch: discovery.defaultBranch }),
   };
 }
 interface PrArgs {

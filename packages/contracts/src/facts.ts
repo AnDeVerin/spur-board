@@ -74,7 +74,8 @@ export type SessionHealthState = (typeof SESSION_HEALTH_STATES)[number];
 
 /** UTC ISO 8601 timestamp. */
 const at = z.iso.datetime();
-const webUrl = z.url({ protocol: /^https?$/ });
+/** An http or https web URL. */
+export const webUrl = z.url({ protocol: /^https?$/ });
 const login = z.string().min(1);
 /** A full lowercase commit SHA (SHA-1 or SHA-256). */
 export const commitShaSchema = z.string().regex(/^[0-9a-f]{40,64}$/, 'Expected a full commit SHA');

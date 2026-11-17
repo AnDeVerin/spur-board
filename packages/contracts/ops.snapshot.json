@@ -1,5 +1,5 @@
 {
-  "version": "2a5ce7a4be7199ba8407f12fb9be1d14f5fbe7109b6da159af38b253144c836f",
+  "version": "8393b906caf82a0aa6aef64b4efaaf0fda916fc2e6992a51d52f9672c987b01b",
   "grants": [
     "operator",
     "project-agent",
@@ -1459,6 +1459,49 @@
                 "warmingUp": {
                   "type": "boolean",
                   "description": "Whether this source needs a complete poll in this daemon run."
+                },
+                "defaultBranch": {
+                  "description": "GitHub pull request sources only: the default-branch colour, counting only failed check runs of push-triggered workflows and failed commit statuses (scheduled and other runs ignored, branch protection not read); null until a poll reads it.",
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "branch": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Name of the default branch."
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": ["red", "green"],
+                          "description": "Colour of the default-branch head."
+                        },
+                        "sha": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{40,64}$",
+                          "description": "Head commit when this colour was first read; while red, the first red commit."
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When the board first read this colour."
+                        },
+                        "check": {
+                          "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }],
+                          "description": "Name of the first failing check, or null."
+                        },
+                        "url": {
+                          "anyOf": [{ "type": "string", "format": "uri" }, { "type": "null" }],
+                          "description": "Web URL of the failing run, or null."
+                        }
+                      },
+                      "required": ["branch", "state", "sha", "since", "check", "url"],
+                      "additionalProperties": false,
+                      "description": "Colour of the default-branch head. Only failed check runs of push-triggered workflows and failed commit statuses make it red; scheduled, manual and other runs and check runs outside workflows are ignored, and branch protection is not read."
+                    },
+                    { "type": "null" }
+                  ]
                 }
               },
               "required": [

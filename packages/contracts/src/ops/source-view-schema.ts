@@ -1,4 +1,22 @@
 import { z } from 'zod';
+import { commitShaSchema, webUrl } from '../facts.ts';
+
+/** The stored colour of a repository's default-branch head, as status.get shows it. */
+export const defaultBranchViewSchema = z
+  .strictObject({
+    branch: z.string().min(1).describe('Name of the default branch.'),
+    state: z.enum(['red', 'green']).describe('Colour of the default-branch head.'),
+    sha: commitShaSchema.describe(
+      'Head commit when this colour was first read; while red, the first red commit.',
+    ),
+    since: z.iso.datetime().describe('When the board first read this colour.'),
+    check: z.string().min(1).nullable().describe('Name of the first failing check, or null.'),
+    url: webUrl.nullable().describe('Web URL of the failing run, or null.'),
+  })
+  .describe(
+    'Colour of the default-branch head. Only failed check runs of push-triggered workflows and failed commit statuses make it red; scheduled, manual and other runs and check runs outside workflows are ignored, and branch protection is not read.',
+  );
+export type DefaultBranchView = z.output<typeof defaultBranchViewSchema>;
 
 export const sourceViewSchema = z
   .strictObject({
@@ -42,5 +60,11 @@ export const sourceViewSchema = z
     warmingUp: z
       .boolean()
       .describe('Whether this source needs a complete poll in this daemon run.'),
+    defaultBranch: defaultBranchViewSchema
+      .nullable()
+      .optional()
+      .describe(
+        'GitHub pull request sources only: the default-branch colour, counting only failed check runs of push-triggered workflows and failed commit statuses (scheduled and other runs ignored, branch protection not read); null until a poll reads it.',
+      ),
   })
   .describe('Freshness and availability of one source.');

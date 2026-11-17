@@ -4,12 +4,14 @@ import { z } from 'zod';
 import type { Config } from './config.ts';
 import type { Result } from './errors.ts';
 import {
+  commitShaSchema,
   prFactsSchema,
   prRefSchema,
   sessionFactsSchema,
   ticketFactsSchema,
   type PrFacts,
   type PrFeedback,
+  webUrl,
 } from './facts.ts';
 import { actorPartSchema, taskKeySchema } from './ids.ts';
 
@@ -130,6 +132,31 @@ function itemAnswersRef(item: BatchItem, ref: EntityRef): boolean {
   return itemIdentity(item) === refIdentity(ref);
 }
 
+const defaultBranchHead = {
+  branch: z.string().min(1).describe('Name of the default branch.'),
+  sha: commitShaSchema.describe('Commit at the head of the default branch.'),
+};
+
+/**
+ * The colour of a repository's default-branch head. Only push-triggered workflow check runs and
+ * commit statuses count; scheduled and other runs, and check runs outside workflows, never do.
+ */
+export const defaultBranchFactSchema = z
+  .discriminatedUnion('state', [
+    z.strictObject({
+      state: z.literal('green').describe('Every counted check finished successfully.'),
+      ...defaultBranchHead,
+    }),
+    z.strictObject({
+      state: z.literal('red').describe('At least one counted check failed.'),
+      ...defaultBranchHead,
+      check: z.string().min(1).nullable().describe('Name of the first failing check, if known.'),
+      url: webUrl.nullable().describe('Web URL of the failing run, or null when unknown.'),
+    }),
+  ])
+  .describe('Colour of the default-branch head.');
+export type DefaultBranchFact = z.output<typeof defaultBranchFactSchema>;
+
 export const batchSchema = z
   .strictObject({
     source: z.string().min(1).describe('Id of the adapter that produced the batch.'),
@@ -184,6 +211,11 @@ export const batchSchema = z
       })
       .optional()
       .describe('Request budget the source reported on this poll; omitted when it reports none.'),
+    defaultBranch: defaultBranchFactSchema
+      .optional()
+      .describe(
+        'Colour of the default-branch head read by this poll; omitted when the poll did not read a settled colour.',
+      ),
   })
   .superRefine((batch, ctx) => {
     const positions = new Set<string>();
@@ -302,6 +334,8 @@ export function trackerSourceId(
  * - A1: A batch carries facts only. No wire format of the source (query fields, paging
  *   tokens, response JSON, headers) reaches the batch or core, except the opaque resume of A10.
  *   A request budget the source reports goes in `budget`, in source-neutral terms.
+ *   A source repository's default-branch colour goes in `defaultBranch`; omitted, it says
+ *   nothing. Only push-triggered workflow check runs and commit statuses decide it.
  * - A2: `observedAt` is the time the poll started, not when it finished.
  * - A3: `complete` is true only when the whole listing was read without errors. A request the
  *   adapter gave up on or deferred for budget also leaves it false. An incomplete batch still
@@ -331,7 +365,7 @@ export function trackerSourceId(
  * - A9: `pollPr` observes one requested PR. `entities` holds exactly that ref, `items` at most
  *   its own item, `complete` is false and the batch carries no cursor and no `continuation`, so
  *   an out-of-turn poll never moves discovery, reads as a complete listing or changes what core
- *   holds. It may receive the PR's `feedbackCursors` and `continuations` entry and merge the
+ *   holds. It carries no `defaultBranch`; only `poll` sets it. It may receive the PR's `feedbackCursors` and `continuations` entry and merge the
  *   held history within the same page budget. A1, A2, A6 and A7 apply.
  * - A10: A `pr` item of `poll` may carry `continuation`. Omitted, it says nothing; `null` drops
  *   what core holds; an object asks core to hold `facts.feedback` with the opaque `resume`

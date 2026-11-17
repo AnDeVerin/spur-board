@@ -792,6 +792,81 @@ describe('review thread verbs', () => {
   });
 });
 
+describe('default branch', () => {
+  const branch = (args: Record<string, unknown>) =>
+    fakes.control({ system: 'github', verb: 'branch', args });
+  const runs = async () => {
+    const response = await postQuery(fakeFetch(fakes), discoveryQuery());
+    const body = (await response.json()) as {
+      data: { repository: { defaultBranchRef: unknown } };
+    };
+    return body.data.repository.defaultBranchRef as {
+      name: string;
+      target: {
+        oid: string;
+        statusCheckRollup: {
+          contexts: {
+            nodes: { name: string; conclusion: string; checkSuite: { workflowRun: unknown } }[];
+          };
+        };
+      };
+    } | null;
+  };
+
+  it('answers defaultBranchRef null until branch sets a head', async () => {
+    expect(await runs()).toBeNull();
+    expect((await pollRepo(fakes, BOARD)).defaultBranch).toBeUndefined();
+    expect(branch({ repo: BOARD, state: 'red' }).status).toBe(200);
+    const batch = await pollRepo(fakes, BOARD);
+    expect(batch.defaultBranch).toMatchObject({
+      state: 'red',
+      branch: 'main',
+      check: 'build',
+      url: `https://github.stand.invalid/${BOARD}/actions/runs/1`,
+    });
+    expect((await pollRepo(fakes, SERVICE)).defaultBranch).toBeUndefined();
+    expect(branch({ repo: BOARD, state: 'green' }).status).toBe(200);
+    expect((await pollRepo(fakes, BOARD)).defaultBranch).toMatchObject({ state: 'green' });
+  });
+
+  it('marks the branch run push and scheduledFailure schedule', async () => {
+    expect(branch({ repo: BOARD, state: 'green', scheduledFailure: 'nightly' }).status).toBe(200);
+    const ref = await runs();
+    expect(ref?.target.statusCheckRollup.contexts.nodes).toMatchObject([
+      { name: 'build', conclusion: 'SUCCESS', checkSuite: { workflowRun: { event: 'push' } } },
+      {
+        name: 'nightly',
+        conclusion: 'FAILURE',
+        checkSuite: { workflowRun: { event: 'schedule' } },
+      },
+    ]);
+    expect((await pollRepo(fakes, BOARD)).defaultBranch).toMatchObject({ state: 'green' });
+  });
+
+  it('refuses a bad branch request and keeps heads through state and restore', async () => {
+    expect(branch({ repo: BOARD, state: 'amber' }).status).toBe(400);
+    expect(branch({ repo: 'stand-org/other', state: 'red' }).status).toBe(400);
+    expect(branch({ repo: BOARD, state: 'red' }).status).toBe(200);
+    const before = await runs();
+    const restored = githubFakes();
+    restored.restore(fakes.state());
+    expect((await pollRepo(restored, BOARD)).defaultBranch).toMatchObject({
+      state: 'red',
+      sha: before?.target.oid,
+    });
+    fakes.reset();
+    expect(await runs()).toBeNull();
+  });
+
+  it('knows the recorded PrBatch without the default-branch fragment', () => {
+    for (const bootstrap of [false, true]) {
+      const legacy = discoveryQuery(bootstrap).replace(` ${client.DEFAULT_BRANCH_FIELDS}`, '');
+      expect(legacy).not.toContain('defaultBranchRef');
+      expect(isKnownShape(legacy.replace('cost limit remaining', 'remaining'))).toBe(true);
+    }
+  });
+});
+
 describe('state and restore', () => {
   it('gives a fresh fake the same pull requests, unaffected by later changes', async () => {
     created(1, { title: 'Seeded' });

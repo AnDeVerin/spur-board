@@ -106,13 +106,17 @@ function aliases(numbers: readonly number[], fields: (number: number) => string)
 // history later polls can list; the alias keeps its name to match the recorded request text.
 const discoveryStates = (bootstrap: boolean): string =>
   bootstrap ? 'OPEN' : 'OPEN, MERGED, CLOSED';
+// The default-branch head's check runs, with the event that triggered each run's workflow, and
+// commit statuses; only the first discovery request selects them (`defaultBranchFact`).
+export const DEFAULT_BRANCH_FIELDS =
+  'defaultBranchRef { name target { __typename ... on Commit { oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } } } } }';
 // Discovery has no aliases; the trailing double space keeps the recorded request text.
 export function discoveryQuery(bootstrap = false): string {
   const states = discoveryStates(bootstrap);
   const baseline = bootstrap
     ? ' mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } }'
     : '';
-  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} }${baseline} }  }`;
+  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} }${baseline} ${DEFAULT_BRANCH_FIELDS} }  }`;
 }
 export function stateQuery(numbers: readonly number[]): string {
   return `query PrStates($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, () => 'number state')} }`;

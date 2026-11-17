@@ -3,7 +3,15 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import { FakeViolation, type FakeModule } from './fetch.ts';
-import { PR_VERBS, prControlSchema, type Pr, type Seed, type Verb } from './github-pr-control.ts';
+import {
+  BRANCH_VERB,
+  branchControlSchema,
+  PR_VERBS,
+  prControlSchema,
+  type Pr,
+  type Seed,
+  type Verb,
+} from './github-pr-control.ts';
 import { KNOWN_SHAPES } from './github-pr-shapes.ts';
 import {
   canonicalize,
@@ -72,6 +80,9 @@ export function createGithubPrFake(options: {
   const { now } = options;
   const repos = new Set(options.repos.map((repo) => repo.toLowerCase()));
   const prs = new Map<string, Pr>();
+  // The default-branch head of each repository by lowercase name; none until `branch` sets one.
+  const branches = new Map<string, { sha: string; contexts: Wire[] }>();
+  let heads = 0;
   // Not part of `state`: a restore keeps the requests answered so far.
   const requests = createRequestLog(now);
   const keyOf = (repo: string, number: number): string => `${repo.toLowerCase()}#${String(number)}`;
@@ -343,7 +354,21 @@ export function createGithubPrFake(options: {
     const repo = `${String(owner)}/${String(name)}`;
     if (!repos.has(repo.toLowerCase())) throw new FakeViolation(`Unknown repository ${repo}.`);
     const own = [...prs.values()].filter((pr) => pr.repo.toLowerCase() === repo.toLowerCase());
+    const branch = branches.get(repo.toLowerCase());
     return {
+      defaultBranchRef:
+        branch === undefined
+          ? null
+          : {
+              name: 'main',
+              target: {
+                __typename: 'Commit',
+                oid: branch.sha,
+                statusCheckRollup: {
+                  contexts: (args: Args) => page('contexts', branch.contexts, args),
+                },
+              },
+            },
       // Newest first, which the adapter's scan relies on to stop at its cursor.
       pullRequests: (args: Args) => {
         const states = args['states'] as readonly string[];
@@ -368,7 +393,36 @@ export function createGithubPrFake(options: {
     };
   }
 
+  /** A new default-branch head with a push run and, when asked, a failed scheduled run. */
+  function setBranch(args: unknown): RouteResult {
+    const parsed = branchControlSchema.safeParse(args ?? {});
+    if (!parsed.success) return { status: 400, body: { error: z.prettifyError(parsed.error) } };
+    const { repo, state, check, scheduledFailure } = parsed.data;
+    if (!repos.has(repo.toLowerCase()))
+      return { status: 400, body: { error: 'Unknown repository.', repos: [...repos] } };
+    heads += 1;
+    const at = iso(now());
+    const sha = createHash('sha1')
+      .update(`${repo.toLowerCase()}:${String(heads)}`)
+      .digest('hex');
+    const run = (name: string, conclusion: string, event: string): Wire => ({
+      __typename: 'CheckRun',
+      name,
+      status: 'COMPLETED',
+      conclusion,
+      startedAt: at,
+      completedAt: at,
+      detailsUrl: `https://github.stand.invalid/${repo}/actions/runs/${String(heads)}`,
+      checkSuite: { createdAt: at, workflowRun: { event } },
+    });
+    const contexts = [run(check, state === 'red' ? 'FAILURE' : 'SUCCESS', 'push')];
+    if (scheduledFailure !== undefined) contexts.push(run(scheduledFailure, 'FAILURE', 'schedule'));
+    branches.set(repo.toLowerCase(), { sha, contexts });
+    return { status: 200, body: { repo, branch: 'main', sha, state } };
+  }
+
   function control(verb: string, args: unknown): RouteResult | undefined {
+    if (verb === BRANCH_VERB) return setBranch(args);
     if (verb === 'inspect')
       return z.strictObject({}).safeParse(args ?? {}).success
         ? { status: 200, body: { requests: requests.list() } }
@@ -445,12 +499,20 @@ export function createGithubPrFake(options: {
     control,
     reset() {
       prs.clear();
+      branches.clear();
+      heads = 0;
       requests.clear();
     },
-    state: () => structuredClone(prs),
+    state: () => structuredClone({ prs, branches, heads }),
     restore(state) {
+      const saved = structuredClone(
+        state as { prs: typeof prs; branches: typeof branches; heads: number },
+      );
       prs.clear();
-      for (const [key, pr] of structuredClone(state as Map<string, Pr>)) prs.set(key, pr);
+      for (const [key, pr] of saved.prs) prs.set(key, pr);
+      branches.clear();
+      for (const [key, branch] of saved.branches) branches.set(key, branch);
+      heads = saved.heads;
     },
   };
 }
