@@ -40,8 +40,9 @@ Below the header, the chosen project's columns in configuration order:
 - A card opens the task view on click or Enter, a new tab on a modified click. It shows the short
   key (full key on hover), the ticket title, then:
   - Quick links to the ticket, the first pull request and the Spur session open in a new tab, never
-    the task; Tab reaches them after their card. The session link needs `web.spurUiOrigin`; without
-    it the session is a `session <id>` chip, cut at 20 characters.
+    the task; Tab reaches them after their card. A Jira key links to `ticketBrowseBase`
+    plus the key; other tickets and the PR use the observed URL. Without `web.spurUiOrigin` the
+    session is a `session <id>` chip, cut at 20 characters.
   - Four cells for the first pull request: checks, merge, resolved threads, reviews on the head.
     Red: failed, conflicting or changes requested. Yellow: pending or unresolved. Green glyph:
     passed, no conflicts or approved. `–`: nothing reported. `?`: mergeability unknown. All four
@@ -104,8 +105,8 @@ history entry, so Back after a close reopens it.
 
 ## Task view
 
-A card or `?open=<task key>` opens the task view: its links and **Why it is here**, the conditions,
-holds, turn and blocks keeping it in its column. See the [task view](web-ui-task-view.md) guide.
+A card or `?open=<task key>` opens the task view: its links and **Why it is here**. See the
+[task view](web-ui-task-view.md) guide.
 
 ## Live and stale states
 

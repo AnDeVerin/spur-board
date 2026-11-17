@@ -1,5 +1,5 @@
 import type { KeyValueStatus } from '../ds/index.ts';
-import { githubRef, sessionLinkHref, taskLinkHref } from '../lib/links.ts';
+import { githubRef, sessionLinkHref, taskLinkHref, ticketBrowseHref } from '../lib/links.ts';
 import type { BoardTask } from './data.ts';
 import { shortKey } from './model.ts';
 
@@ -163,11 +163,20 @@ export function whySummary(value: BoardTask): string {
 
 const KIND_ORDER: readonly TaskLink['kind'][] = ['ticket', 'pr', 'session'];
 
-function linkChip(link: TaskLink, spurUiOrigin: string | null): LinkChip {
+function linkChip(
+  link: TaskLink,
+  spurUiOrigin: string | null,
+  ticketBrowseBase: string | null,
+): LinkChip {
   if (link.kind === 'session') {
     const text = `session ${link.ref}`;
     const href = sessionLinkHref(spurUiOrigin, link.ref);
     return { text, href, label: href === null ? undefined : `${text}, Spur session` };
+  }
+  if (link.kind === 'ticket' && taskLinkHref(link) === null) {
+    const text = `ticket ${shortKey(link.ref)}`;
+    const href = ticketBrowseHref(ticketBrowseBase, link.ref);
+    return { text, href, label: href === null ? undefined : `${text}, Jira` };
   }
   const href = taskLinkHref(link);
   const ref = githubRef(link.ref);
@@ -186,10 +195,15 @@ function linkChip(link: TaskLink, spurUiOrigin: string | null): LinkChip {
 
 /**
  * One chip per `task.get` link: tickets, then pull requests, then sessions, each kind in order.
- * A session links to the Spur UI at `spurUiOrigin` (`config.get` `web.spurUiOrigin`).
+ * A session links to the Spur UI at `spurUiOrigin` (`config.get` `web.spurUiOrigin`); a Jira
+ * ticket links to `<ticketBrowseBase><key>` (`config.get` `projects[].ticketBrowseBase`).
  */
-export function linkChips(links: readonly TaskLink[], spurUiOrigin: string | null): LinkChip[] {
+export function linkChips(
+  links: readonly TaskLink[],
+  spurUiOrigin: string | null,
+  ticketBrowseBase: string | null,
+): LinkChip[] {
   return KIND_ORDER.flatMap((kind) => links.filter((link) => link.kind === kind)).map((link) =>
-    linkChip(link, spurUiOrigin),
+    linkChip(link, spurUiOrigin, ticketBrowseBase),
   );
 }

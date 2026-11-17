@@ -237,7 +237,7 @@ describe('header facts', () => {
 });
 
 describe('link chips', () => {
-  it('groups ticket, pr, session; links GitHub refs, keeps Jira plain, sessions plain without an origin', () => {
+  it('groups ticket, pr, session; links GitHub refs, keeps Jira plain without a browse base, sessions plain without an origin', () => {
     const link = (kind: string, ref: string) => ({
       kind,
       ref,
@@ -255,7 +255,7 @@ describe('link chips', () => {
         ],
       },
     );
-    expect(linkChips(value.links, null)).toEqual([
+    expect(linkChips(value.links, null, null)).toEqual([
       { text: 'ticket ABC-3', href: null, label: undefined },
       {
         text: 'ticket #5',
@@ -273,12 +273,33 @@ describe('link chips', () => {
   });
   it('links a session to the Spur UI when the origin is set', () => {
     const value = task({}, { links: [{ kind: 'session', ref: 'sb-1234', role: 'worker' }] });
-    expect(linkChips(value.links, 'https://spur.example')).toEqual([
+    expect(linkChips(value.links, 'https://spur.example', null)).toEqual([
       {
         text: 'session sb-1234',
         href: 'https://spur.example/sessions/sb-1234',
         label: 'session sb-1234, Spur session',
       },
+    ]);
+  });
+  it('links a Jira ticket to the browse base; GitHub tickets and free text keep theirs', () => {
+    const ticket = (ref: string) => ({ kind: 'ticket', ref, role: null });
+    const value = task(
+      {},
+      { links: [ticket('ABC-3'), ticket('ex/repo#5'), ticket('repo#6'), ticket('foo bar')] },
+    );
+    expect(linkChips(value.links, null, 'https://j.test/browse/')).toEqual([
+      {
+        text: 'ticket ABC-3',
+        href: 'https://j.test/browse/ABC-3',
+        label: 'ticket ABC-3, Jira',
+      },
+      {
+        text: 'ticket #5',
+        href: 'https://github.com/ex/repo/issues/5',
+        label: 'ticket #5, ex/repo',
+      },
+      { text: 'ticket #6', href: null, label: undefined },
+      { text: 'ticket foo bar', href: null, label: undefined },
     ]);
   });
 });

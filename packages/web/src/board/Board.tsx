@@ -126,6 +126,7 @@ export function Board({ data }: { data: BoardData }) {
           stale={list[0]?.variant === 'error'}
           now={snapshot.lastGoodAt}
           spurUiOrigin={snapshot.config?.web.spurUiOrigin ?? null}
+          ticketBrowseBase={chosenProject(snapshot)?.ticketBrowseBase ?? null}
           onOpen={(key) => {
             history.pushState(null, '', openHref(key));
             setOpenKey(key);
@@ -139,6 +140,7 @@ export function Board({ data }: { data: BoardData }) {
           title={taskTitle(snapshot, task)}
           columns={project?.columns.map(({ id }) => id) ?? []}
           spurUiOrigin={snapshot.config?.web.spurUiOrigin ?? null}
+          ticketBrowseBase={project?.ticketBrowseBase ?? null}
           now={data.now()}
           offline={snapshot.stream === 'offline'}
           onClose={() => {

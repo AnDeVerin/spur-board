@@ -1,6 +1,6 @@
 // The task card as data: what a `status.get` row shows on the board, before any markup.
 import type { ChipTone, IconName, StatusDotTone } from '../ds/index.ts';
-import { safeExternalUrl, sessionLinkHref } from '../lib/links.ts';
+import { safeExternalUrl, sessionLinkHref, ticketBrowseHref } from '../lib/links.ts';
 import { formatDataTime, type BoardRow } from './model.ts';
 
 type Turn = NonNullable<BoardRow['turn']>;
@@ -310,16 +310,24 @@ export interface QuickLink {
   title: string;
 }
 
-/** Ticket, PR and Spur session links; a missing or unsafe URL drops its link. */
-export function quickLinks(row: BoardRow, spurUiOrigin: string | null): QuickLink[] {
+/**
+ * Ticket, PR and Spur session links; a missing or unsafe URL drops its link. A Jira key links to
+ * `<ticketBrowseBase><key>` (`config.get` `projects[].ticketBrowseBase`) before the observed URL.
+ */
+export function quickLinks(
+  row: BoardRow,
+  spurUiOrigin: string | null,
+  ticketBrowseBase: string | null,
+): QuickLink[] {
   const list: QuickLink[] = [];
-  const ticket = row.links.ticket === null ? null : safeExternalUrl(row.links.ticket);
+  const jira = ticketBrowseHref(ticketBrowseBase, row.key);
+  const ticket = jira ?? (row.links.ticket === null ? null : safeExternalUrl(row.links.ticket));
   if (ticket !== null)
     list.push({
       kind: 'ticket',
       icon: 'ticket',
       href: ticket,
-      label: `Ticket ${row.key}, opens in a new tab`,
+      label: `Ticket ${row.key}, ${jira === null ? '' : 'Jira, '}opens in a new tab`,
       title: `Ticket ${row.key}: ${ticket}`,
     });
   const pr = row.links.prs[0];
