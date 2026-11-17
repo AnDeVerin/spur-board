@@ -83,7 +83,8 @@ export type DispatcherMode = (typeof DISPATCHER_MODES)[number];
  * How a turn closed: `submitted` by the executor's submit, `returned` by `task.return`, `moved`
  * when the task moved on (it also covers returns and mode switches recorded by older versions),
  * `corrected` by the operator's column correction, `rerouted` to another executor,
- * `mode_changed` by a dispatcher mode switch, `archived` with the task.
+ * `mode_changed` by a dispatcher mode switch, `archived` with the task. `moved` also closes a
+ * Done wrap-up turn whose holder session ended.
  */
 export const TURN_OUTCOMES = [
   'submitted',

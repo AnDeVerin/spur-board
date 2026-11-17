@@ -235,6 +235,17 @@ describe('how the Board works guide', () => {
       ],
       keys: ['projects[].tracker.doneStatuses'],
     },
+    {
+      section: 'Done wrap-up',
+      topic: 'done',
+      clauses: [
+        /opens one wrap-up turn \(`done: wrap up`\)/,
+        /closes like any turn \(submit, the task leaving Done, archive\), and\s+also when its holder session ends/,
+        /`turn_closed` outcome `moved`/,
+        /holder's end raises no stall block on\s+it/,
+      ],
+      keys: ['projects[].columns[].orchestrator'],
+    },
   ])('pins the operational contract in $section', ({ section, topic, clauses, keys }) => {
     const howBoardWorks = readFileSync(
       new URL(`../../../docs/how-board-works-${topic}.md`, import.meta.url),

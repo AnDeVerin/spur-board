@@ -7,6 +7,7 @@ import {
   RESERVED_PROJECT,
   unknownSessionHealthSchema,
   type Batch,
+  type ColumnId,
   type PrFacts,
   type SourceCursor,
   type SessionFacts,
@@ -2366,6 +2367,10 @@ describe('anomaly blocks', () => {
     endReason: 'kill',
     lifecycle: 'killed',
   });
+  const completed = (id: string): SessionFacts => ({
+    ...sessionFact(id, link, true),
+    endedAt: iso(),
+  });
   const pr = (number: number, state: PrFacts['state']): PrFacts => ({
     ...prFact(),
     number,
@@ -2411,14 +2416,14 @@ describe('anomaly blocks', () => {
       });
   }
 
-  /** A worker turn of the task taken by `session` at the current time. */
-  function heldTurn(b: Board, session = 'worker-1') {
+  /** A worker turn of the task in `column` taken by `session` at the current time. */
+  function heldTurn(b: Board, session = 'worker-1', column: ColumnId = b.task.column) {
     return b.store.transaction((trx) =>
       trx
         .insertInto('turn')
         .values({
           task_id: b.task.id,
-          column: b.task.column,
+          column,
           epoch: b.task.column_epoch,
           seq: 1,
           role: 'worker',
@@ -4050,6 +4055,56 @@ describe('anomaly blocks', () => {
         .filter((block) => block.author === 'system')
         .map((block) => block.outcome),
     ).toEqual(['withdrawn', null]);
+  });
+
+  it('withdraws a stuck-turn block on a Done wrap-up when its holder ends', async () => {
+    const b = await board();
+    await prs(b, [pr(7, 'merged')]);
+    await b.store.db
+      .updateTable('task')
+      .set({ column: 'done' })
+      .where('id', '=', b.task.id)
+      .execute();
+    await spur(b, [session('worker-1', 'waiting')]);
+    const turn = await heldTurn(b, 'worker-1', 'done');
+    now += IDLE;
+    await tick(b);
+    const { reminder, outboxId } = await sendReminder(b);
+    await scanTransaction(b.store, b.config, (trx) =>
+      ringUndelivered(trx, {
+        notificationId: reminder.id,
+        outboxId,
+        dedupeKey: 'unused',
+        session: 'worker-1',
+        reason: 'rejected',
+        at: new Date(now),
+        config: b.config,
+      }),
+    );
+    await tick(b);
+    expect(await openLedger(b)).toEqual([`stuck-turn:${String(turn.id)}`]);
+
+    now += 1_000;
+    await spur(b, [completed('worker-1')]);
+    expect(await openLedger(b)).toEqual([]);
+    const { blocks, items } = await surface(b);
+    expect(blocks.map(({ outcome, outcome_reason }) => ({ outcome, outcome_reason }))).toEqual([
+      {
+        outcome: 'withdrawn',
+        outcome_reason: `turn T${String(turn.id)} closed: its holder worker-1 ended in Done`,
+      },
+    ]);
+    expect(items.map((item) => item.cleared_at)).toEqual([iso()]);
+    expect(
+      await b.store.db
+        .selectFrom('turn')
+        .select('closed_reason')
+        .where('id', '=', turn.id)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ closed_reason: 'moved' });
+    now += IDLE * 2;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
   });
 
   it('opens no stuck-turn block for a lost worker', async () => {

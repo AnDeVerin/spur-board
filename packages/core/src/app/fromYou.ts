@@ -53,7 +53,7 @@ import {
 import { curatorProject } from './authorize.ts';
 import { TASKLESS_ITEM_URL, type RaiseItemInput } from './item-raise.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
-import { quietTurns, stuckTurnAfterMs } from './turns.ts';
+import { closeTurns, quietTurns, stuckTurnAfterMs } from './turns.ts';
 
 const episodeSchema = z.object({ startedAt: z.number() }).nullable();
 const stallEpisodeSchema = z.object({
@@ -119,7 +119,11 @@ async function conversationWaiting(
   };
 }
 
-/** Reconciles every item in the caller's observation or tick transaction. */
+/**
+ * Reconciles every item in the caller's observation or tick transaction. It first closes each
+ * Done wrap-up turn whose holder session ended (`closeEndedDoneTurns`), so no stall item is
+ * raised for it.
+ */
 export async function reconcileItems(
   trx: Trx,
   config: Config,
@@ -129,6 +133,7 @@ export async function reconcileItems(
   /** Fresh complete Spur batch after startup or an expired observation interval. */
   spurContinuityStartAt?: number,
 ): Promise<void> {
+  await closeEndedDoneTurns(trx, new Date(now));
   const candidates: ItemCandidate[] = [];
   const sources = await trx.selectFrom('source_state').selectAll().execute();
   const sourceById = new Map(sources.map((state) => [state.source, state]));
@@ -898,12 +903,61 @@ async function raiseAnomaly(
 }
 
 /** Clears a reconciled item; a ledger item's open block is withdrawn by the board first. */
-async function clearReconciled(trx: Trx, item: Row<'operator_item'>, at: Date): Promise<void> {
+async function clearReconciled(
+  trx: Trx,
+  item: Row<'operator_item'>,
+  at: Date,
+  reason = 'condition ended',
+): Promise<void> {
   if (item.block_id !== null) {
     const ctx = { actor: 'system' as const, at: at.toISOString() };
-    await closeBlockIfOpen(trx, item.block_id, ctx, 'withdrawn', 'condition ended');
+    await closeBlockIfOpen(trx, item.block_id, ctx, 'withdrawn', reason);
   }
   await clearItem(trx, item.id, at);
+}
+
+/**
+ * Closes, as `moved`, each taken Done wrap-up turn of an unarchived Done task whose agent holder
+ * session ended, and withdraws the stall items of that turn and holder with a reason naming both.
+ * The holder can no longer submit, so a stall block on its turn would never clear.
+ */
+async function closeEndedDoneTurns(trx: Trx, at: Date): Promise<void> {
+  const turns = await trx
+    .selectFrom('turn')
+    .innerJoin('task', 'task.id', 'turn.task_id')
+    .select(['turn.id', 'turn.task_id', 'turn.acked_by'])
+    .where('turn.closed_at', 'is', null)
+    .where('turn.acked_at', 'is not', null)
+    .where('turn.role', '!=', 'operator')
+    .where('turn.column', '=', 'done')
+    .where('task.column', '=', 'done')
+    .where('task.membership', '!=', 'archived')
+    .orderBy('turn.id')
+    .execute();
+  for (const turn of turns) {
+    const holder = turn.acked_by === null ? undefined : parseActorId(turn.acked_by);
+    if (holder?.actor !== 'agent') continue;
+    const sessionId = holder.actorRef.session;
+    const session = await trx
+      .selectFrom('session_snapshot')
+      .select('ended_at')
+      .where('id', '=', sessionId)
+      .executeTakeFirst();
+    if (session === undefined || session.ended_at === null) continue;
+    await closeTurns(trx, { taskId: turn.task_id, reason: 'moved', at });
+    const keys = [
+      `stuck-turn:${String(turn.id)}`,
+      healthKey(turn.task_id, { taskId: String(turn.task_id), sessionId, kind: 'worker_lost' }),
+    ];
+    const items = await trx
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', 'in', keys)
+      .where('cleared_at', 'is', null)
+      .execute();
+    const reason = `turn T${String(turn.id)} closed: its holder ${sessionId} ended in Done`;
+    for (const item of items) await clearReconciled(trx, item, at, reason);
+  }
 }
 
 /**

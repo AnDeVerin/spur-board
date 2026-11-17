@@ -44,6 +44,8 @@ const REV: ActorId = 'agent:rev/rev-1';
 const COORD: ActorId = 'agent:coord/coord-1';
 const CUR: ActorId = 'agent:cur/cur-1';
 const EXTERNAL = 'reviewer';
+/** How long a taken turn's holder may sit quiet before a reminder, then a stall block. */
+const IDLE = boardConfig().health.idleInDevAfterMs;
 const ROW_TABLES = [
   'turn',
   'notification',
@@ -1275,6 +1277,110 @@ describe('a merged PR and the ticket', () => {
         .where('kind', 'in', ['cycle_limit', 'course_check'])
         .execute(),
     ).toEqual([]);
+  });
+
+  /** The task in Done after the merge and the ticket close, with the worker's wrap-up taken. */
+  const wrappingUp = async (ctx: Board) => {
+    await ctx.pr({ state: 'merged' });
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    const wrapUp = await ctx.openTurn();
+    expect(wrapUp).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+    await ctx.ack(WORKER, wrapUp?.id ?? '');
+    return Number(wrapUp?.id.slice(1));
+  };
+  const endWorker = (ctx: Board, end: 'complete' | 'kill') =>
+    end === 'complete'
+      ? ctx.spur('ended')
+      : ctx.session({
+          ...sessionFacts('worker-1', 'worker', true),
+          endReason: 'kill',
+          lifecycle: 'killed',
+        });
+  const openSystemBlocks = (ctx: Board) =>
+    ctx.store.db
+      .selectFrom('block')
+      .selectAll()
+      .where('author', '=', 'system')
+      .where('state', '=', 'open')
+      .execute();
+
+  it.each(['complete', 'kill'] as const)(
+    'closes the Done wrap-up turn when its holder session ends (%s)',
+    async (end) => {
+      const ctx = await inDev();
+      const id = await wrappingUp(ctx);
+      await endWorker(ctx, end);
+      expect(
+        await ctx.store.db
+          .selectFrom('turn')
+          .select('closed_reason')
+          .where('id', '=', id)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ closed_reason: 'moved' });
+      expect((await ctx.events('turn_closed')).at(-1)?.payload).toMatchObject({
+        turn: `T${String(id)}`,
+        outcome: 'moved',
+      });
+      ctx.wait(IDLE * 2);
+      await ctx.tick();
+      expect(
+        await ctx.store.db
+          .selectFrom('operator_item')
+          .selectAll()
+          .where('kind', '=', 'anomaly')
+          .execute(),
+      ).toEqual([]);
+      expect(await openSystemBlocks(ctx)).toEqual([]);
+      expect(await ctx.openTurn()).toBeNull();
+    },
+  );
+
+  it('withdraws a stuck-turn block when the task reaches Done', async () => {
+    const ctx = await inDev();
+    await ctx.spur('ended');
+    ctx.wait(IDLE);
+    await ctx.tick();
+    const items = () =>
+      ctx.store.db
+        .selectFrom('operator_item')
+        .select(['item_key', 'block_id'])
+        .where('item_key', '=', 'stuck-turn:1')
+        .where('cleared_at', 'is', null)
+        .execute();
+    const [stuck] = await items();
+    expect(stuck?.block_id).not.toBeNull();
+    expect(await openSystemBlocks(ctx)).toHaveLength(1);
+    await ctx.pr({ state: 'merged' });
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    expect(
+      await ctx.store.db
+        .selectFrom('turn')
+        .select('closed_reason')
+        .where('id', '=', 1)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ closed_reason: 'moved' });
+    expect(
+      await ctx.store.db
+        .selectFrom('block')
+        .select(['state', 'outcome'])
+        .where('id', '=', stuck?.block_id ?? -1)
+        .executeTakeFirstOrThrow(),
+    ).toMatchObject({ outcome: 'withdrawn' });
+    expect(await items()).toEqual([]);
+    expect(await ctx.openTurn()).toBeNull();
+  });
+
+  it('opens a new wrap-up for another live worker after the holder ends', async () => {
+    const ctx = await inDev();
+    const id = await wrappingUp(ctx);
+    await ctx.session({ ...sessionFacts('worker-2', 'worker') });
+    await ctx.spur('ended');
+    await ctx.tick();
+    const next = await ctx.openTurn();
+    expect(next).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+    expect(next?.id).not.toBe(`T${String(id)}`);
   });
 
   it('a split task reaches Done on its second merge and shows both merged PRs', async () => {
