@@ -385,8 +385,8 @@ fetch('fixture.json')
           .join(' · ') || 'all pass';
       return { html: rows.join(''), sum };
     }
-    /* Follow-up on an answered block is not in V1: the board has no operation for it yet (parity gap with Slack).
-   The design is kept behind ?followup=1 for the parity task. */
+    /* Follow-up on an answered block is built in the board (#540).
+   The prototype shows it only with ?followup=1. */
     const FOLLOW_UP = new URLSearchParams(location.search).has('followup');
     const FU_BTN = FOLLOW_UP
       ? `<button class="btn small" data-followup>${ic('back')}Follow up</button>`
