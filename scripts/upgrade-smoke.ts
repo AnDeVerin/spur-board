@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -60,6 +60,12 @@ function tarball404Path(result: string | Error): string | undefined {
 interface InstallDeps {
   sleep: (ms: number) => Promise<unknown>;
   log: (text: string) => void;
+  now?: () => number;
+  environment?: NodeJS.ProcessEnv;
+  run?: (
+    args: string[],
+    options: SpawnSyncOptionsWithStringEncoding,
+  ) => { status: number | null; stdout: string; stderr: string; error?: Error };
 }
 
 const installDeps: InstallDeps = {
@@ -67,15 +73,63 @@ const installDeps: InstallDeps = {
   log: (text) => process.stdout.write(`${text}\n`),
 };
 
+const READINESS_TIMEOUT_MS = 600_000;
+
+/** npm pack downloads the exact version and verifies its registry integrity before installation. */
+async function waitForTarball(spec: string, deps: InstallDeps): Promise<void> {
+  const now = deps.now ?? (() => performance.now());
+  const run = deps.run ?? ((args, options) => spawnSync('npm', args, options));
+  const started = now();
+  const temporary = mkdtempSync(join(tmpdir(), 'spur-board-upgrade-pack-'));
+  const lagError = () =>
+    new Error(
+      `upgrade smoke: npm registry lag for ${spec}: tarball not ready within ${String(READINESS_TIMEOUT_MS)} ms`,
+    );
+  try {
+    let attempt = 0;
+    for (;;) {
+      const remaining = READINESS_TIMEOUT_MS - (now() - started);
+      if (remaining <= 0) throw lagError();
+      const result = run(['pack', spec, '--pack-destination', temporary, '--ignore-scripts'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: credentialFreeEnv(deps.environment ?? process.env),
+        timeout: Math.max(1, Math.floor(remaining)),
+        killSignal: 'SIGKILL',
+      });
+      const elapsed = now() - started;
+      const timedOut =
+        result.error !== undefined && 'code' in result.error && result.error.code === 'ETIMEDOUT';
+      if (timedOut) throw lagError();
+      const failure = new Error(`Tarball preflight failed: ${result.stderr || result.stdout}`, {
+        cause: result.error,
+      });
+      if (result.status !== 0 && tarball404Path(failure) === undefined) throw failure;
+      if (elapsed >= READINESS_TIMEOUT_MS) throw lagError();
+      if (result.status === 0) return;
+      const wait = Math.min(
+        [5_000, 10_000, 20_000][attempt++] ?? 30_000,
+        READINESS_TIMEOUT_MS - elapsed,
+      );
+      deps.log(
+        `upgrade smoke: npm registry lag/404 for ${spec}, elapsed ${String(Math.floor(elapsed))} ms, retrying in ${String(wait)} ms (bound ${String(READINESS_TIMEOUT_MS)} ms)`,
+      );
+      await deps.sleep(wait);
+    }
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+}
+
 /**
- * Installs a published registry spec, waiting out the CDN lag while npmjs answers 404 for a
- * tarball it already lists. Any other install failure throws on the first attempt.
+ * Waits for a verified published tarball, then installs it with dependency-tarball retries.
  */
 export async function installPublished(
   spec: string,
   prefix: string,
   deps: InstallDeps = installDeps,
 ): Promise<string> {
+  await waitForTarball(spec, deps);
   const { result, attempts, waitedMs } = await retryTarball404<string | Error>(
     () => {
       try {
