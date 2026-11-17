@@ -197,7 +197,8 @@ describe('how the Board works guide', () => {
         /`close` or ✅ in the\s*thread closes it/,
         /`board status` lists it as waiting/,
         /board-wide operator/,
-        /top-level ones too,\s*else project name and role icon \(`board` for operator\)/,
+        /top-level ones too,\s*else project name and the icon of the author's role on the block's task/,
+        /orchestrator only on its\s*column's task, else curator or worker; `board` for operator/,
       ],
       keys: [
         'projects[].spurProjects[].shortName',
