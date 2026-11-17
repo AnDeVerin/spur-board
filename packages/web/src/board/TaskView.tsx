@@ -92,7 +92,7 @@ export function TaskView({
   }, [historyShown, onHistory]);
   const { value } = task;
   const key = value?.task.key ?? task.key;
-  const inColumn = value === undefined ? undefined : timeInColumn(value, now);
+  const inColumn = value === undefined ? undefined : timeInColumn(value.task.column, row, now);
   const detail =
     value === undefined ? undefined : (
       <>

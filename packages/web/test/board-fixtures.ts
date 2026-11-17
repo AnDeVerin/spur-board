@@ -139,6 +139,7 @@ export const ROWS = [
   ),
   row('ex/repo#99', 'qa'),
   row('ex/repo#7', 'dev', {
+    columnEnteredAt: '2026-11-15T12:00:00.000Z',
     ticket: ticket('ex/repo#7', 'Fix login'),
     blocks: [{ id: 'B12', addressee: 'operator', session: null }],
   }),

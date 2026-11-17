@@ -12,7 +12,16 @@ import {
   whyRows,
   whySummary,
 } from '../src/board/task-model.ts';
-import { historyEvent, parsed, T, T_TEXT, taskGet, taskHistory } from './board-fixtures.ts';
+import {
+  historyEvent,
+  parsed,
+  row as statusRow,
+  status,
+  T,
+  T_TEXT,
+  taskGet,
+  taskHistory,
+} from './board-fixtures.ts';
 
 const NOW = Date.parse('2026-11-15T14:00:00.000Z');
 const COLUMNS = ['todo', 'dev', 'review', 'done'];
@@ -210,23 +219,30 @@ describe('header facts', () => {
     expect(age(at(minutes), NOW)).toBe(text);
   });
 
-  it('time in column skips shadow moves and is absent without a move into the column', () => {
-    const move = (kind: string, to: string, minutesAgo: number) => ({
-      at: at(minutesAgo),
-      kind,
-      actor: 'system',
-      from: 'todo',
-      to,
-      reason: 'gate_passed',
-      gate: [],
-      text: null,
+  it('time in column reads the held row entry and is absent without one in the same column', () => {
+    const held = (column: string, columnEnteredAt: string | null) =>
+      browserOperations['status.get'].output.parse(
+        status([statusRow('ex/repo#7', column, { columnEnteredAt })]),
+      ).tasks[0];
+    // A later correction into the column in why.moves does not move the row's entry time.
+    const corrected = task({
+      moves: [
+        {
+          at: at(5),
+          kind: 'task_corrected',
+          actor: 'operator',
+          from: 'todo',
+          to: 'dev',
+          reason: 'corrected',
+          gate: [],
+          text: 'Operator correction',
+        },
+      ],
     });
-    const value = task({
-      moves: [move('task_moved', 'dev', 300), move('task_shadow_moved', 'dev', 5)],
-    });
-    expect(timeInColumn(value, NOW)).toBe('5h');
-    expect(timeInColumn(task({ moves: [move('task_moved', 'review', 5)] }), NOW)).toBeUndefined();
-    expect(timeInColumn(task({}, { why: undefined }), NOW)).toBeUndefined();
+    expect(timeInColumn(corrected.task.column, held('dev', at(300)), NOW)).toBe('5h');
+    expect(timeInColumn('dev', held('dev', null), NOW)).toBeUndefined();
+    expect(timeInColumn('dev', undefined, NOW)).toBeUndefined();
+    expect(timeInColumn('dev', held('review', at(300)), NOW)).toBeUndefined();
   });
 
   it('actor names and the ?open= task param', () => {
