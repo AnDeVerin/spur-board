@@ -38,8 +38,8 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 
 ## Tokens and themes
 
-- `packages/web/src/ds/tokens.css` is byte-identical to `design/prototypes/board-v1/tokens.css`;
-  change both together or neither (`scripts/web.test.ts`).
+- Tokens stay byte-identical to `design/prototypes/board-v1/tokens.css`
+  except exact operator-authorized differences (`scripts/web-tokens.test.ts`).
 - Dark is the default; light applies under `data-theme="light"` on the root element. Light
   overrides only `--color-*`.
 - Styles use tokens only, except structural literals and `@media` widths from `breakpoints`
