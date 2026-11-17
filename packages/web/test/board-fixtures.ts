@@ -8,6 +8,7 @@ type OpId =
   | 'task.get'
   | 'task.history'
   | 'block.answer'
+  | 'block.followup'
   | 'comment.add';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
@@ -320,6 +321,8 @@ export function daemon() {
       return Promise.resolve(envelope({ block: answered, comment: comment({ block: 'B12' }) }));
     },
     'comment.add': () => Promise.resolve(envelope({ comment: comment() })),
+    'block.followup': () =>
+      Promise.resolve(envelope({ comment: comment({ id: 'C9', block: 'B12' }) })),
     'task.history': () => Promise.resolve(envelope(taskHistory())),
   };
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
