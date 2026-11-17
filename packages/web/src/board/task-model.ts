@@ -1,5 +1,11 @@
 import type { KeyValueStatus } from '../ds/index.ts';
-import { githubRef, sessionLinkHref, taskLinkHref, ticketBrowseHref } from '../lib/links.ts';
+import {
+  githubRef,
+  sameJiraProject,
+  sessionLinkHref,
+  taskLinkHref,
+  ticketBrowseHref,
+} from '../lib/links.ts';
 import type { BoardHistory, BoardTask } from './data.ts';
 import { formatDataTime, shortKey } from './model.ts';
 
@@ -192,6 +198,7 @@ const KIND_ORDER: readonly TaskLink['kind'][] = ['ticket', 'pr', 'session'];
 
 function linkChip(
   link: TaskLink,
+  taskKey: string,
   spurUiOrigin: string | null,
   ticketBrowseBase: string | null,
 ): LinkChip {
@@ -202,7 +209,8 @@ function linkChip(
   }
   if (link.kind === 'ticket' && taskLinkHref(link) === null) {
     const text = `ticket ${shortKey(link.ref)}`;
-    const href = ticketBrowseHref(ticketBrowseBase, link.ref);
+    const base = sameJiraProject(link.ref, taskKey) ? ticketBrowseBase : null;
+    const href = ticketBrowseHref(base, link.ref);
     return { text, href, label: href === null ? undefined : `${text}, Jira` };
   }
   const href = taskLinkHref(link);
@@ -223,14 +231,16 @@ function linkChip(
 /**
  * One chip per `task.get` link: tickets, then pull requests, then sessions, each kind in order.
  * A session links to the Spur UI at `spurUiOrigin` (`config.get` `web.spurUiOrigin`); a Jira
- * ticket links to `<ticketBrowseBase><key>` (`config.get` `projects[].ticketBrowseBase`).
+ * ticket links to `<ticketBrowseBase><key>` (`config.get` `projects[].ticketBrowseBase`) only when
+ * its key has the Jira project prefix of `taskKey`, the open task; else it is plain.
  */
 export function linkChips(
   links: readonly TaskLink[],
+  taskKey: string,
   spurUiOrigin: string | null,
   ticketBrowseBase: string | null,
 ): LinkChip[] {
   return KIND_ORDER.flatMap((kind) => links.filter((link) => link.kind === kind)).map((link) =>
-    linkChip(link, spurUiOrigin, ticketBrowseBase),
+    linkChip(link, taskKey, spurUiOrigin, ticketBrowseBase),
   );
 }

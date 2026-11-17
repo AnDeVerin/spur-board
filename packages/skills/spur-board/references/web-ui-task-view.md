@@ -23,9 +23,11 @@ address opens it too, with the full key (`?open=ex%2Frepo%237`) or a short one
   GitHub in a new tab. A session is a link to its Spur UI page,
   `<web.spurUiOrigin>/sessions/<session id>`, also in a new tab; when `web.spurUiOrigin` is not
   set it is plain text `session <id>`. A Jira-shaped ticket key such as `PROJ-12` links to
-  `<tracker baseUrl>/browse/<key>` of the open task's project, in a new tab. It is plain text when
-  the project has no `ticketBrowseBase` in `config.get`, as a GitHub Issues project; any other
-  ticket ref is plain text too.
+  `<tracker baseUrl>/browse/<key>` of the open task's project, in a new tab, when it belongs to
+  that task's Jira project: its prefix before `-<number>` matches the task key's, in any case. A
+  key from another Jira project may live on another Jira site, so it is plain text. A Jira key is
+  plain text too when the project has no `ticketBrowseBase` in `config.get`, as a GitHub Issues
+  project; any other ticket ref is plain text too.
 - `History` lists the task's journal events, newest first; events at the same time keep the
   reverse of their journal order. Each row shows the time (UTC, `hh:mm dd/mm/yy`), the summary
   with who did it, and the raw event kind, such as `turn_taken`. An agent reads as its session;

@@ -53,8 +53,8 @@ export function TaskView({
   /** `config.get` `web.spurUiOrigin`: session chips link there; null keeps them plain. */
   spurUiOrigin: string | null;
   /**
-   * `config.get` `projects[].ticketBrowseBase` of the task's project: Jira ticket chips link
-   * there; null keeps them plain.
+   * `config.get` `projects[].ticketBrowseBase` of the task's project: Jira ticket chips with
+   * the task key's project prefix link there; null keeps them plain.
    */
   ticketBrowseBase: string | null;
   now: number;
@@ -123,15 +123,16 @@ export function TaskView({
                 ? task.state === 'loading' && <Skeleton />
                 : value.links.length > 0 && (
                     <div className={styles.links}>
-                      {linkChips(value.links, spurUiOrigin, ticketBrowseBase).map((chip, index) =>
-                        // A link has no id of its own; its position in the list stays put.
-                        chip.href === null ? (
-                          <Chip key={index}>{chip.text}</Chip>
-                        ) : (
-                          <Chip key={index} href={chip.href} label={chip.label}>
-                            {chip.text}
-                          </Chip>
-                        ),
+                      {linkChips(value.links, key, spurUiOrigin, ticketBrowseBase).map(
+                        (chip, index) =>
+                          // A link has no id of its own; its position in the list stays put.
+                          chip.href === null ? (
+                            <Chip key={index}>{chip.text}</Chip>
+                          ) : (
+                            <Chip key={index} href={chip.href} label={chip.label}>
+                              {chip.text}
+                            </Chip>
+                          ),
                       )}
                     </div>
                   )}

@@ -178,7 +178,8 @@ describe('task view', () => {
           projects: [{ ...first, ticketBrowseBase: 'https://j.test/browse/' }, ...rest],
         }),
       );
-    linked.routes['task.get'] = () => Promise.resolve(envelope(taskGet({ links })));
+    const task = { ...taskGet().task, key: 'ABC-1' };
+    linked.routes['task.get'] = () => Promise.resolve(envelope(taskGet({ task, links })));
     mount(linked);
     await settle();
     click(card());
@@ -196,7 +197,7 @@ describe('task view', () => {
     history.replaceState(null, '', '/');
     root = createRoot(container);
     const plain = daemon();
-    plain.routes['task.get'] = () => Promise.resolve(envelope(taskGet({ links })));
+    plain.routes['task.get'] = () => Promise.resolve(envelope(taskGet({ task, links })));
     mount(plain);
     await settle();
     click(card());

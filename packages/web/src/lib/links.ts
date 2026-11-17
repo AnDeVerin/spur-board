@@ -56,3 +56,14 @@ export function ticketBrowseHref(base: string | null, key: string): string | nul
   if (base === null || !JIRA_KEY.test(key)) return null;
   return safeExternalUrl(`${base}${encodeURIComponent(key)}`);
 }
+
+/**
+ * Whether `key` and `taskKey` are Jira keys of one Jira project: both Jira-shaped with equal
+ * project prefixes, compared case-insensitively. `config.get` gives only the browse base of the
+ * task's own project; a key linked from another project may live on another Jira site.
+ */
+export function sameJiraProject(key: string, taskKey: string): boolean {
+  if (!JIRA_KEY.test(key) || !JIRA_KEY.test(taskKey)) return false;
+  const prefix = (value: string) => value.slice(0, value.lastIndexOf('-')).toUpperCase();
+  return prefix(key) === prefix(taskKey);
+}
