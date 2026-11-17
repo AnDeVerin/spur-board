@@ -18,7 +18,7 @@ The numbers are the canonical gate order.
 6. Clarify - collect every `UNRESOLVED:` line from steps 3-5 and merge duplicates. A question
    whose answer changes the design or scope goes to the operator; every other one becomes
    `Assumption: <topic> - default: <value>`. Nothing left -> skip. Else send the Clarify batch
-   from `.agents/skills/manager/references/templates.md` and end the turn. Unattended run (the task or the session says
+   from `references/templates.md` and end the turn. Unattended run (the task or the session says
    so, or nobody can answer) -> apply the defaults, record them under Assumptions, continue.
 7. Plan final - `architect` in final mode only when Clarify got a non-default answer or
    `spec-critic` / `designer` (plan) asked for changes; then rerun the gate that asked. Otherwise
@@ -37,8 +37,8 @@ The numbers are the canonical gate order.
     `.agents/skills/qa-report/references/prototype-vs-build.md`. A FAIL for no stand webUrl, or
     because the browser tool cannot run or cannot reach 127.0.0.1, is an external blocker:
     `Missing: tester - external blocker: <reason>`, no `developer` fix, no rerun; the run goes on.
-12. Design review (UI) - `designer` (code) with the changed files, the step 11 screenshots and
-    report path, and the decisions section the `developer` returned.
+12. Design review (UI) - `designer` (code) with its `Head:` line, the changed files, the step 11
+    screenshots and report path, and the decisions section the `developer` returned.
 13. Review - a PR exists: push, and bring its `## Changed checks` section up to date with the
     developer's output per `gitflow`. Then `reviewer` with the spec, every `developer` output of
     the run and `PR: <url> | none`.
@@ -46,8 +46,9 @@ The numbers are the canonical gate order.
     (`references/runtime.md`, Handoff), recorded right before each spawn.
 15. PR - follow `gitflow`: push, then open the PR or update its body from the spec, the gate
     outputs and the developer's `Changed checks`. After step 11, Testing gets a `<details>` block
-    with the report table, the screenshot names and the round path relative to the artifacts
-    directory; a prototype run fills `## Design System decisions` from the `developer` output.
+    with the report table, the screenshot names, the round path relative to the artifacts
+    directory and each `tester` and `designer` (code) verdict as `<verdict> (x<N>) on <sha>`; a
+    prototype run fills `## Design System decisions` from the `developer` output.
     Skip only without commits or when the issue says no PR.
 16. Close-out - one evidence line per acceptance criterion, taken from a gate output (a reviewer
     Requirements row, a command with its observed result, a tester scenario). Work is committed;
@@ -58,7 +59,7 @@ The numbers are the canonical gate order.
 ## Spec file
 
 `.scratch/spec-<issue-number>.md`, written only by the manager and read by roles. Its layout and
-update rules are in `.agents/skills/manager/references/runtime.md`.
+update rules are in `references/runtime.md`.
 
 ## Verdicts and retries
 
@@ -92,6 +93,16 @@ update rules are in `.agents/skills/manager/references/runtime.md`.
   diff reruns, in step order, `doc-reviewer`, then for a UI change `tester` (step 11) and
   `designer` (code), then `reviewer`; the gate that asked reruns in its place. Each rerun counts
   toward its cap; at the cap there is no rerun and the gate goes under Missing.
+- Final head of a `tester` or `designer` (code) verdict: an APPROVED review on `headRefOid`, no
+  open point -> fetch, check out `headRefOid`, `pnpm ci:status <N>` once. Exit not 0 -> mark the
+  verdict `older than <HEAD>`. Exit 0 and `git diff --name-only <verdict head>..HEAD` has a path
+  under `packages/web/` outside `test/`, `gallery/` and `kit/`; `docs/design-system-decisions.md`;
+  or, for an issue naming `design/prototypes/<slice>/`, that folder or the step 11 pairs file ->
+  each runs in step order from a worktree at HEAD, once per gate per task, outside its cap:
+  `<verdict> on <sha> (final head)`.
+  FAIL or CHANGES_REQUESTED -> `developer`; reruns count toward the cap, recorded after the
+  `(final head)` record; at it, Testing: `Missing: <gate> - verdict older than <sha>`. No such
+  path -> Testing: `no UI change since <verdict head>`.
 - Close-out and `doc-reviewer`: a stale verdict reruns once only while under the cap. That run's
   DOCS_CHANGES_REQUESTED is `BLOCKED_DOCS` with its findings under Missing, no fix. At the cap ->
   `Missing: doc-reviewer - verdict older than <sha>`.

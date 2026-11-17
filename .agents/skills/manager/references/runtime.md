@@ -41,8 +41,8 @@ Every spawn gets, and only gets:
   containers the issue names and the decisions section the `developer` returned;
 - `tester` on a UI change whose issue names `design/prototypes/<slice>/`: the prototype folder,
   the listed states and the decisions section;
-- `tester` and `doc-reviewer`: `Head: <sha>`, from `git rev-parse HEAD` run right before each
-  spawn - the last `developer` or fix commit, since no other role commits.
+- `tester`, `designer` (code) and `doc-reviewer`: `Head: <sha>`, from `git rev-parse HEAD` run
+  right before each spawn - the last `developer` or fix commit, since no other role commits.
 
 Never pass the raw conversation.
 

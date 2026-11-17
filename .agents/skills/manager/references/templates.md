@@ -30,13 +30,13 @@ Execution:
 - research / critic: SELECTED | SKIPPED
 - architect: DRAFT | DRAFT+FINAL | REPLAN | REPLAN+FINAL | SKIPPED
 - spec-critic: SPEC_APPROVED (x<N>) | BLOCKED_SPEC | SKIPPED
-- designer: plan APPROVED (x<N>), code APPROVED (x<N>) | BLOCKED_DESIGN (<mode>) | SKIPPED
+- designer: plan APPROVED (x<N>), code APPROVED (x<N>) on <sha> | BLOCKED_DESIGN (<mode>) | SKIPPED
 - clarify: DONE (<N> asked, <M> assumed) | DEFAULTS (<M>) | SKIPPED
 - developer: DONE (x<N>)
 - simplify: DONE | SKIPPED
 - doc-reviewer: DOCS_APPROVED (x<N>) | BLOCKED_DOCS | SKIPPED
 - reviewer: APPROVED (x<N>) | BLOCKED_REVIEW | SKIPPED
-- tester: PASS (x<N>) | SKIPPED
+- tester: PASS (x<N>) on <sha> | SKIPPED
 - pr: <url> | SKIPPED - <reason>
 Spec file: .scratch/spec-<N>.md
 Evidence:

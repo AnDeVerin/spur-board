@@ -10,6 +10,9 @@ A click or Enter on a card opens it and sets the address to `?open=<task key>`. 
 address opens it too, with the full key (`?open=ex%2Frepo%237`) or a short one
 (`?open=repo%237`). `?open=inbox` and `?open=services` open no task view.
 
+A task entry in the inbox opens above the retained panel, even without configuration. Its project
+is selected once configuration arrives. Back and Forward restore both layers.
+
 ## What it shows
 
 - The header shows the short key (hover for the full key), then the column and the time since
@@ -107,7 +110,12 @@ confirmed write remain available while archived.
 
 ## Closing it
 
-Escape, a click outside the dialog or Close closes it and removes `open` from the address,
-keeping the other parameters. Focus returns to the card that opened it; after opening from the
-address, to the card of that task when the columns show it. Close adds a history entry, so Back
-opens the task again.
+Escape, a click outside the dialog or Close closes the task view. For a task opened from a card
+or directly from its address, closing removes `open`, keeping the other parameters. Focus
+returns to the card that opened it; after opening from the address, to the card of that task
+when the columns show it.
+
+For a task opened from the inbox, closing returns to `?open=inbox` and keeps the panel and its
+filter open. Focus returns to the inbox row that opened the task, or to the panel's Close
+button if that row has disappeared. A second Escape closes the inbox and focuses its header
+button. Closing adds a history entry, so Back opens the task again.

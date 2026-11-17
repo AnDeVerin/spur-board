@@ -4,6 +4,7 @@ import type { BoardData, BoardSnapshot, TaskState } from './data.ts';
 import { banners, boardColumns, chosenProject, indicator, openHref } from './model.ts';
 import { Columns, type ColumnsView } from './Columns.tsx';
 import { Header } from './Header.tsx';
+import { InboxPanel } from './InboxPanel.tsx';
 import { taskParam } from './task-model.ts';
 import { TaskView, type TaskTitle } from './TaskView.tsx';
 import styles from './Board.module.css';
@@ -38,6 +39,29 @@ function withoutOpen(): string {
   return `${location.pathname}${search === '' ? '' : `?${search}`}${location.hash}`;
 }
 
+function inboxBackground(): boolean {
+  const state: unknown = history.state;
+  return (
+    new URLSearchParams(location.search).get('open') === 'inbox' ||
+    (taskParam(location.search) !== null &&
+      typeof state === 'object' &&
+      state !== null &&
+      'inbox' in state &&
+      state.inbox === true)
+  );
+}
+
+function inboxProject(): string | null {
+  const state: unknown = history.state;
+  return inboxBackground() &&
+    typeof state === 'object' &&
+    state !== null &&
+    'project' in state &&
+    typeof state.project === 'string'
+    ? state.project
+    : null;
+}
+
 /**
  * The board screen: header, banners, the columns of the chosen project and the task view that
  * `?open=<task key>` names, on load, on Back and Forward, and on a card click.
@@ -46,11 +70,17 @@ export function Board({ data }: { data: BoardData }) {
   const snapshot = useSyncExternalStore(data.subscribe, data.snapshot);
   const [filter, setFilter] = useState('');
   const [openKey, setOpenKey] = useState(() => taskParam(location.search));
+  const [inboxOpen, setInboxOpen] = useState(inboxBackground);
+  const [pendingProject, setPendingProject] = useState(inboxProject);
+  const inboxTrigger = useRef<HTMLSpanElement>(null);
+  const wasInboxOpen = useRef(inboxOpen);
   // The task key whose card takes focus after close when the task view returned it nowhere.
   const closed = useRef<string | null>(null);
   useEffect(() => {
     const onPop = () => {
       setOpenKey(taskParam(location.search));
+      setInboxOpen(inboxBackground());
+      setPendingProject(inboxProject());
     };
     addEventListener('popstate', onPop);
     return () => {
@@ -58,8 +88,22 @@ export function Board({ data }: { data: BoardData }) {
     };
   }, []);
   useEffect(() => {
+    if (pendingProject === null) return;
+    if (openKey === null || !inboxOpen) {
+      setPendingProject(null);
+      return;
+    }
+    if (snapshot.config === undefined) return;
+    data.choose(pendingProject);
+    setPendingProject(null);
+  }, [data, openKey, inboxOpen, pendingProject, snapshot.config]);
+  useEffect(() => {
     data.open(openKey);
   }, [data, openKey]);
+  useEffect(() => {
+    if (wasInboxOpen.current && !inboxOpen) inboxTrigger.current?.querySelector('button')?.focus();
+    wasInboxOpen.current = inboxOpen;
+  }, [inboxOpen]);
   const onHistory = useCallback(
     (shown: boolean) => {
       data.showHistory(shown);
@@ -70,7 +114,7 @@ export function Board({ data }: { data: BoardData }) {
   // Runs after the task view's layer returned focus to its opener on unmount.
   useEffect(() => {
     const key = closed.current;
-    if (task !== undefined || key === null) return;
+    if (task !== undefined || key === null || inboxOpen) return;
     closed.current = null;
     const active = document.activeElement;
     if (active !== null && active !== document.body) return;
@@ -78,7 +122,7 @@ export function Board({ data }: { data: BoardData }) {
     [...document.querySelectorAll<HTMLElement>('main a[href]')]
       .find((link) => link.getAttribute('href') === href)
       ?.focus();
-  }, [task]);
+  }, [task, inboxOpen]);
   const list = banners(snapshot);
   const view = columnsView(snapshot);
   const project = snapshot.config?.projects.find(({ id }) => id === task?.value?.task.project);
@@ -94,6 +138,13 @@ export function Board({ data }: { data: BoardData }) {
         onFilter={setFilter}
         indicator={indicator(snapshot)}
         inbox={snapshot.inbox?.items.length}
+        inboxTrigger={inboxTrigger}
+        inboxOpen={inboxOpen}
+        onInbox={() => {
+          history.pushState(null, '', openHref('inbox'));
+          setInboxOpen(true);
+          setOpenKey(null);
+        }}
       />
       {list.length > 0 && (
         <div className={styles.banners}>
@@ -139,6 +190,23 @@ export function Board({ data }: { data: BoardData }) {
           }}
         />
       </main>
+      {inboxOpen && (
+        <InboxPanel
+          snapshot={snapshot}
+          now={data.now()}
+          onClose={() => {
+            history.pushState(null, '', withoutOpen());
+            setInboxOpen(false);
+            setOpenKey(null);
+          }}
+          onOpen={(entry) => {
+            if (entry.task === null) return;
+            setPendingProject(entry.project);
+            history.pushState({ inbox: true, project: entry.project }, '', openHref(entry.task));
+            setOpenKey(entry.task);
+          }}
+        />
+      )}
       {task !== undefined && (
         <TaskView
           key={task.key}
@@ -163,7 +231,7 @@ export function Board({ data }: { data: BoardData }) {
           refreshTask={data.refreshTask}
           onClose={() => {
             closed.current = task.value?.task.key ?? task.key;
-            history.pushState(null, '', withoutOpen());
+            history.pushState(null, '', inboxOpen ? openHref('inbox') : withoutOpen());
             setOpenKey(null);
           }}
           onRetry={() => {

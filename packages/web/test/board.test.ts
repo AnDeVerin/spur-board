@@ -57,12 +57,166 @@ const type = (value: string) => {
 };
 /** Card links and done rows by task key; a dimmed card dims its wrapper. */
 const tasks = () => all('main a[href^="?open="]');
+// Layers are portalled beside the board root.
+const layerAll = (selector: string) => [...document.querySelectorAll<HTMLElement>(selector)];
+const layerOne = (selector: string) => {
+  const element = document.querySelector<HTMLElement>(selector);
+  if (!element) throw new Error(`no ${selector}`);
+  return element;
+};
 const dimmed = () =>
   tasks()
     .filter((link) => link.closest('[data-dimmed]') !== null)
     .map((l) => l.title);
 
 describe('board screen', () => {
+  const retry = 'retry delivery';
+  const failed = 'Delivery failed';
+  const token = 'check token: Slack';
+  it.each<[string, string | undefined, string]>([
+    [`${failed}: ${retry}`, retry, failed],
+    [`Slack: delivery failed: ${token}`, token, 'Slack: delivery failed'],
+    [`${failed}: ${retry}`, undefined, `${failed}: ${retry}`],
+    [`${failed}: inspect logs`, retry, `${failed}: inspect logs`],
+    [`${retry}: still failed: ${retry}`, retry, `${retry}: still failed`],
+  ])(
+    'inbox text %s / action %s preserves description and separate action in active and handled rows',
+    async (text, action, description) => {
+      const d = daemon();
+      const entry = { ...inbox(1).items[0], id: 'I1', kind: 'transport_health', text, action };
+      const handled = [{ ...entry, id: 'I2', handledAt: '2026-11-15T14:00:00.000Z' }];
+      d.routes['inbox.operator'] = () => Promise.resolve(envelope({ items: [entry], handled }));
+      mount(d);
+      await settle();
+      press(button('inbox'), 'click');
+      for (const id of ['I1', 'I2']) {
+        const row = layerOne(`[data-inbox-id="${id}"]`);
+        expect(row.children.item(1)?.textContent).toBe(description);
+        expect(row.children.item(2)?.textContent).toBe(action);
+        expect(row.children.length).toBe(action === undefined ? 2 : 3);
+      }
+    },
+  );
+
+  it('inbox filters active counts and both lists, orders failures first and preserves handled order', async () => {
+    const all = layerAll;
+    const one = layerOne;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const d = daemon();
+    const base = inbox(1).items[0];
+    const items = [
+      { ...base, id: 'B1', project: 'a', at: '2026-11-15T13:00:00.000Z' },
+      { ...base, id: 'B2', project: 'b', severity: 'failure', at: '2026-11-15T12:00:00.000Z' },
+      { ...base, id: 'T3', project: '_board', kind: 'turn', task: 'ex/repo#7', column: 'dev' },
+      { ...base, id: 'B4', project: 'a', severity: 'failure' },
+    ];
+    const handled = [
+      {
+        ...base,
+        id: 'B8',
+        project: 'b',
+        handledAt: '2026-11-15T14:00:00.000Z',
+        answeredVia: 'slack',
+      },
+      {
+        ...base,
+        id: 'B7',
+        project: 'a',
+        at: '2026-11-15T10:00:00.000Z',
+        handledAt: '2026-11-15T13:00:00.000Z',
+      },
+    ];
+    d.routes['inbox.operator'] = () => Promise.resolve(envelope({ items, handled }));
+    mount(d);
+    await settle();
+    d.send(hello);
+    await settle();
+    press(button('inbox'), 'click');
+    const ids = () => all('[data-inbox-id]').map((row) => row.dataset.inboxId);
+    expect(ids()).toEqual(['B4', 'B2', 'T3', 'B1', 'B8', 'B7']);
+    expect(all('[role="tab"]').map((tab) => tab.getAttribute('aria-label'))).toEqual([
+      'All 4',
+      'a 2',
+      'b 1',
+      'System 1',
+    ]);
+    expect(one('[data-inbox-id="T3"]').textContent).toContain('your turn T3 · attention#7dev');
+    expect(one('[data-inbox-id="B8"]').textContent).toContain('Handled · answered via slack');
+    expect(one('[data-inbox-id="B1"]').tabIndex).toBe(0);
+    press(one('[aria-label="a 2"]'), 'click');
+    expect(ids()).toEqual(['B4', 'B1', 'B7']);
+    press(one('[aria-label="a 2"]'), 'keydown', { key: 'ArrowRight' });
+    expect(ids()).toEqual(['B2', 'B8']);
+    press(one('[aria-label="b 1"]'), 'keydown', { key: 'End' });
+    expect(ids()).toEqual(['T3']);
+    expect(button('inbox').textContent).toBe('inbox4');
+    d.routes['inbox.operator'] = () => Promise.resolve(envelope({ items: [], handled }));
+    d.send('event: invalidate\ndata: {"projects":["b"],"tasks":[]}\n\n');
+    await settle();
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    await settle();
+    press(one('[aria-label="All 0"]'), 'click');
+    expect(ids()).toEqual(['B8', 'B7']);
+    expect(one('[role="tabpanel"]').textContent).toContain('Nothing waits for you here.');
+    d.routes['inbox.operator'] = failure;
+    d.send('event: reset\ndata: {}\n\n');
+    await settle();
+    expect(ids()).toEqual(['B8', 'B7']);
+  });
+
+  it('deep links, unknown first failure, collision-safe long project filters and removed projects', async () => {
+    const all = layerAll;
+    const one = layerOne;
+    history.replaceState(null, '', '/?theme=light&open=inbox#top');
+    const d = daemon();
+    const long = 'project-'.repeat(40);
+    const projects = ['all', 'system', long].map((id) => ({ ...config.projects[0], id }));
+    d.routes['config.get'] = () => Promise.resolve(envelope({ ...config, projects }));
+    d.routes['inbox.operator'] = failure;
+    mount(d);
+    await settle();
+    expect(one('[role="dialog"]').textContent).toContain('Inbox data is not available yet.');
+    expect(one('[role="dialog"]').textContent).not.toContain('Nothing waits');
+    expect(button('inbox').textContent).toBe('inbox–');
+    const base = inbox(1).items[0];
+    d.routes['inbox.operator'] = () =>
+      Promise.resolve(
+        envelope({
+          items: [
+            { ...base, id: 'B1', project: 'all' },
+            { ...base, id: 'B2', project: 'system' },
+            { ...base, id: 'B3', project: long },
+          ],
+          handled: [],
+        }),
+      );
+    d.send('event: reset\ndata: {}\n\n');
+    await settle();
+    press(one('[aria-label="all 1"]'), 'click');
+    expect(all('[data-inbox-id]').map((row) => row.dataset.inboxId)).toEqual(['B1']);
+    press(one('[aria-label="all 1"]'), 'keydown', { key: 'ArrowRight' });
+    expect(all('[data-inbox-id]').map((row) => row.dataset.inboxId)).toEqual(['B2']);
+    press(one('[aria-label="system 1"]'), 'keydown', { key: 'ArrowRight' });
+    expect(one('[aria-selected="true"]').textContent).toBe(`${long}1`);
+    d.routes['config.get'] = () => Promise.resolve(envelope(config));
+    d.send('event: reset\ndata: {}\n\n');
+    await settle();
+    expect(one('[aria-selected="true"]').getAttribute('aria-label')).toBe('All 3');
+    press(one('[aria-label="Close"]'), 'click');
+    expect(location.search + location.hash).toBe('?theme=light#top');
+    expect(document.activeElement).toBe(button('inbox'));
+    act(() => {
+      history.replaceState(null, '', '/?open=inbox');
+      dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(one('[role="dialog"]').textContent).toContain('Inbox');
+    act(() => {
+      history.replaceState(null, '', '/?open=services');
+      dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(all('[role="dialog"]')).toHaveLength(0);
+  });
+
   it('inbox shows its count, – while loading, keeps the last count on failure, opens ?open=inbox', async () => {
     const d = daemon();
     const held = deferred();

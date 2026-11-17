@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { Button, Chip, Icon, Logo, StatusDot, TextInput, type StatusDotTone } from '../ds/index.ts';
-import { openHref, type BoardProject } from './model.ts';
+import { type BoardProject } from './model.ts';
 import styles from './Header.module.css';
 
 /**
@@ -99,6 +99,9 @@ export function Header({
   onFilter,
   indicator,
   inbox,
+  inboxTrigger,
+  inboxOpen,
+  onInbox,
 }: {
   projects: readonly BoardProject[] | undefined;
   project: BoardProject | undefined;
@@ -107,6 +110,9 @@ export function Header({
   onFilter: (value: string) => void;
   indicator: { tone: StatusDotTone; word: string };
   inbox: number | undefined;
+  inboxTrigger: RefObject<HTMLSpanElement | null>;
+  inboxOpen: boolean;
+  onInbox: () => void;
 }) {
   const mode = project?.dispatcher.mode;
   return (
@@ -140,19 +146,17 @@ export function Header({
         <StatusDot tone={indicator.tone} />
         {indicator.word}
       </span>
-      <Button
-        onClick={() => {
-          history.pushState(null, '', openHref('inbox'));
-        }}
-      >
-        <span className={styles.label}>
-          <Icon name="inbox" />
-          inbox
-          <Chip tone={inbox !== undefined && inbox > 0 ? 'you' : 'default'}>
-            {inbox === undefined ? '–' : String(inbox)}
-          </Chip>
-        </span>
-      </Button>
+      <span ref={inboxTrigger}>
+        <Button expanded={inboxOpen} onClick={onInbox}>
+          <span className={styles.label}>
+            <Icon name="inbox" />
+            inbox
+            <Chip tone={inbox !== undefined && inbox > 0 ? 'you' : 'default'}>
+              {inbox === undefined ? '–' : String(inbox)}
+            </Chip>
+          </span>
+        </Button>
+      </span>
     </header>
   );
 }
