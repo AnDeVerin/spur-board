@@ -211,7 +211,8 @@ describe('product skill sync', () => {
     expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(5120);
     const pages = ['tasks.md', 'blocks.md', 'config.md', 'errors.md'];
     expect(references.map((r) => r.fileName)).toEqual(pages);
-    for (const page of references.slice(0, 2)) expect(page.content).toContain('(errors.md)');
+    for (const page of references.slice(0, 2))
+      expect(page.content).toContain('[errors.md](errors.md)');
     expect(readdirSync(refsPath).sort()).toEqual(
       [...references.map((reference) => reference.fileName), ...guideNames].sort(),
     );

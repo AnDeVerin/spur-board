@@ -230,7 +230,7 @@ export function renderCommandReferences(): CommandReference[] {
   for (const { fileName, content } of references) {
     if (Buffer.byteLength(content) > referenceLimit) {
       throw new Error(
-        `Reference ${fileName} is ${String(Buffer.byteLength(content))} bytes; limit is ${String(referenceLimit)}, 80% of the ${String(referenceCap)}-byte cap. Move commands to another page in renderCommandReferences.`,
+        `Reference ${fileName} is ${String(Buffer.byteLength(content))} bytes; limit is ${String(referenceLimit)}, 80% of the ${String(referenceCap)}-byte cap. Move commands to another page in commandPages.`,
       );
     }
   }
@@ -247,9 +247,7 @@ export function renderBoardCommands(references = renderCommandReferences()): str
           const command = operation.cli.command;
           const reference = references.find((item) => item.commands.includes(command));
           if (reference === undefined)
-            throw new Error(
-              `No reference for ${operation.id}; add it to a page in renderCommandReferences.`,
-            );
+            throw new Error(`No reference for ${operation.id}; add it to a page in commandPages.`);
           return `- [\`board ${command}\`](references/${reference.fileName}#board-${command.replaceAll(' ', '-')})`;
         });
       return `### ${heading}\n\n${entries.join('\n')}`;
