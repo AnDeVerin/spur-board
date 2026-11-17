@@ -18,6 +18,10 @@ An exception to the SKILL.md rule "A missing or denied requested entity gets `no
 
 - Except a denied `closingIssuesReferences` (`deniedReference`) or a `null` `requestedReviewer`:
   drop it, keep `complete`.
+- Except an error under `repository.defaultBranchRef` in discovery, or an unknown shape there:
+  drop `Batch.defaultBranch`, keep discovery `ok` and `complete` (`readDiscovery`,
+  `defaultBranchFact`). `INSUFFICIENT_SCOPES` and rate limits there still fail the request in
+  `GithubClient.query` (`auth`, `throttled`) and blind the source, as on the PR detail read.
 
 ## PR poll chunks and index
 
