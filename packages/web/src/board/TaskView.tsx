@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   Banner,
   Button,
-  Chip,
   focusRing,
   Icon,
   CollapsibleSection,
