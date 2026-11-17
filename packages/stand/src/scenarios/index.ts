@@ -16,6 +16,7 @@ import type { StandManifest } from '../manifest.ts';
 import { cardLong } from './card.ts';
 import { columnsBasic, columnsBasicJira, columnsUnknown } from './columns-basic.ts';
 import { dispatchCourseCheck, dispatchCourseCheckTo } from './course-check.ts';
+import { defaultBranchRed } from './default-branch.ts';
 import {
   curatorAbsent,
   curatorEscalation,
@@ -178,6 +179,7 @@ export const SCENARIOS: readonly Scenario[] = [
   columnsBasicJira,
   workerKilledNoPrJira,
   sourceBlindJira,
+  defaultBranchRed,
   dispatchHappyPath,
   dispatchSplitPr,
   dispatchCloseAfterMerge,

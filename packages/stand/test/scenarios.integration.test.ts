@@ -260,6 +260,7 @@ describe('scenarios', () => {
       'columns-basic-jira',
       'worker-killed-no-pr-jira',
       'source-blind-jira',
+      'default-branch-red',
       'dispatch-happy-path',
       'dispatch-split-pr',
       'dispatch-close-after-merge',
@@ -865,6 +866,59 @@ describe('each scenario', () => {
     const { sources, items } = await status(current());
     expect(sources).toContainEqual(expect.objectContaining({ source, blindReason: 'auth' }));
     expect(items.map(({ key }) => key)).toContain(`source:${source}`);
+  }, 60_000);
+
+  it('default-branch-red: one failure item under _board; a green head clears it; a failed scheduled run raises nothing', async () => {
+    await up();
+    const { scenario } = await seed('default-branch-red');
+    const repo = 'stand-org/board';
+    const source = `github:stand:${repo}`;
+    const key = `default-branch:${source}`;
+    expect(scenario).toMatchObject({ sources: { red: source }, items: { red: key } });
+    interface Inbox {
+      items: { kind: string; severity: string; project: string; text: string; action: string }[];
+      handled: { text: string }[];
+    }
+    type Branch = { state: string; sha: string; check: string | null; url: string | null } | null;
+    const inbox = () => op<Inbox>(current(), 'inbox.operator', {});
+    const branchOf = async () =>
+      (
+        (await status(current())).sources as unknown as { source: string; defaultBranch?: Branch }[]
+      ).find((entry) => entry.source === source)?.defaultBranch;
+    const red = await inbox();
+    const url = `https://github.stand.invalid/${repo}/actions/runs/1`;
+    expect(red.items).toEqual([
+      {
+        ...red.items[0],
+        kind: 'board_observation',
+        severity: 'failure',
+        project: '_board',
+        action: 'open the failing run; fix or revert',
+      },
+    ]);
+    expect(red.items[0]?.text).toMatch(
+      new RegExp(
+        `^stand-org/board: main is red since [0-9a-f]{7} \\(build\\): fix main before merging more \\(run ${url}\\): open the failing run; fix or revert$`,
+      ),
+    );
+    expect(await branchOf()).toMatchObject({ state: 'red', check: 'build', url });
+
+    const branch = (args: object) =>
+      ok(current(), '/fake', { system: 'github', verb: 'branch', args: { repo, ...args } });
+    await branch({ state: 'green' });
+    await ok(current(), '/poll');
+    const green = await inbox();
+    expect(green.items.filter((entry) => entry.text.startsWith(`${repo}: main`))).toEqual([]);
+    expect(green.handled.filter((entry) => entry.text.startsWith(`${repo}: main`))).toHaveLength(1);
+    expect(await branchOf()).toMatchObject({ state: 'green' });
+
+    await branch({ state: 'green', scheduledFailure: 'nightly' });
+    await ok(current(), '/poll');
+    const scheduled = await inbox();
+    expect(await branchOf()).toMatchObject({ state: 'green' });
+    expect(scheduled.items.filter((entry) => entry.text.startsWith(`${repo}: main`))).toEqual([]);
+    expect(scheduled.handled).toHaveLength(green.handled.length);
+    expect((await status(current())).items.map((item) => item.key)).not.toContain(key);
   }, 60_000);
 
   it('columns-basic-jira: each column holds the stand-jira task the manifest names', async () => {
