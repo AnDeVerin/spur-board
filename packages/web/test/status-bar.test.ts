@@ -328,6 +328,61 @@ describe('status bar', () => {
     expect(list()?.hidden).toBe(true);
   });
 
+  it('one Escape closes only the project switcher or the theme menu, whichever holds focus', async () => {
+    const d = daemon();
+    d.routes['status.get'] = () => Promise.resolve(envelope(healthy()));
+    mount(d);
+    await settle();
+    const switcher = () =>
+      container.querySelector<HTMLButtonElement>('header button[aria-controls]') as HTMLElement;
+    const list = () => container.querySelector<HTMLElement>('ul[aria-label="Projects"]');
+    const theme = () => barButton('Theme');
+    const menuOpen = () => theme().getAttribute('aria-expanded') === 'true';
+
+    // Focus in the switcher list; the theme menu opens on mouse hover without taking focus.
+    press(switcher());
+    act(() => {
+      list()?.querySelector('button')?.focus();
+    });
+    act(() => {
+      theme().dispatchEvent(
+        new PointerEvent('pointerover', {
+          bubbles: true,
+          pointerType: 'mouse',
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(list()?.hidden).toBe(false);
+    expect(menuOpen()).toBe(true);
+    escape();
+    expect(list()?.hidden).toBe(true);
+    expect(document.activeElement).toBe(switcher());
+    expect(menuOpen()).toBe(true);
+    escape();
+    expect(menuOpen()).toBe(false);
+
+    // Focus in the pinned theme menu; a click without focus opens the switcher.
+    press(theme());
+    expect(theme().closest('div')?.contains(document.activeElement)).toBe(true);
+    act(() => {
+      switcher().click();
+    });
+    expect(list()?.hidden).toBe(false);
+    expect(menuOpen()).toBe(true);
+    escape();
+    expect(menuOpen()).toBe(false);
+    expect(document.activeElement).toBe(theme());
+    expect(list()?.hidden).toBe(false);
+    // The switcher sees only keys from inside it, so its Escape needs focus there.
+    act(() => {
+      list()?.querySelector('button')?.focus();
+    });
+    escape();
+    expect(list()?.hidden).toBe(true);
+    expect(menuOpen()).toBe(false);
+  });
+
   it('the bar stays live while the panel is open', async () => {
     const d = daemon();
     d.routes['status.get'] = () => Promise.resolve(envelope(healthy()));

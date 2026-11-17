@@ -8,6 +8,8 @@ import styles from './Header.module.css';
  * pointerdown, focus moving to an element outside it and a history move close it; Escape and a
  * choice return focus to the trigger, which ds Button reaches only through this wrapper. The
  * history move matters because a panel can open from the address while the list is open.
+ * Its Escape marks the event handled, so an open HoverMenu or layer does not close on the same
+ * key; an Escape already handled (`defaultPrevented`) or composing leaves the list open.
  */
 function Switcher({
   projects,
@@ -50,6 +52,8 @@ function Switcher({
       }}
       onKeyDown={(event) => {
         if (event.key !== 'Escape' || !open) return;
+        if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+        event.preventDefault();
         setOpen(false);
         focusTrigger();
       }}
