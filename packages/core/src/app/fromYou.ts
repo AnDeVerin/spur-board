@@ -21,6 +21,7 @@ import {
   BLOCK_ITEM_KINDS,
   BLOCK_KEY,
   CONVERSATION_KEY,
+  DEFAULT_BRANCH_KEY,
   fingerprint,
   ITEM_POLICY,
   OPERATOR_BLOCK_KEY,
@@ -35,6 +36,7 @@ import type { Row } from '../store/schema.ts';
 import { closeBlockIfOpen, openSystemBlock } from './blocks.ts';
 import {
   mergedTicket,
+  parseDefaultBranch,
   parsePr,
   pastReopenFloor,
   taskUrl,
@@ -144,6 +146,26 @@ export async function reconcileItems(
       priority: source.blind_reason === 'auth' || source.blind_reason === 'config' ? 2 : 4,
     });
   }
+  // A configured repository whose default-branch head is red; a repo dropped from config clears.
+  for (const project of config.projects)
+    for (const repo of project.repos) {
+      const source = prSourceId(project.id, repo);
+      const branch = parseDefaultBranch(sourceById.get(source)?.default_branch);
+      if (branch?.state !== 'red') continue;
+      const check = branch.check === null ? 'a failing check' : branch.check;
+      const run = branch.url === null ? '' : ` (run ${branch.url})`;
+      candidates.push({
+        key: `${DEFAULT_BRANCH_KEY}${source}`,
+        kind: 'board_observation',
+        taskId: null,
+        summary: `${repo}: ${branch.branch} is red since ${branch.sha.slice(0, 7)} (${check}): fix ${branch.branch} before merging more${run}`,
+        factAt: branch.since,
+        source,
+        priority: 2,
+        revision: branch.since,
+        ...(branch.url === null ? {} : { url: branch.url }),
+      });
+    }
   const tasks = await trx
     .selectFrom('task')
     .selectAll()
@@ -807,7 +829,9 @@ export async function reconcileItems(
       itemKey: candidate.key,
       kind: candidate.kind,
       text: candidate.summary,
-      url: task === null || task === undefined ? TASKLESS_ITEM_URL : taskUrl(task, config),
+      url:
+        candidate.url ??
+        (task === null || task === undefined ? TASKLESS_ITEM_URL : taskUrl(task, config)),
       at: new Date(now),
       fingerprint: hash,
       factAt: candidate.factAt,

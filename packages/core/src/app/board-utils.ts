@@ -1,5 +1,6 @@
 import {
   EVENT_VERSION,
+  defaultBranchViewSchema,
   encodeActorId,
   eventPayloadSchemas,
   parseActorId,
@@ -11,6 +12,7 @@ import {
   type ActorId,
   type ColumnId,
   type Config,
+  type DefaultBranchView,
   type EventKind,
   type EventPayload,
   type GateReason,
@@ -134,6 +136,16 @@ export function parsePr(detail: string | undefined): PrFacts | null {
   try {
     const parsed = prFactsSchema.safeParse(JSON.parse(detail));
     return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A source's stored default-branch colour, or null when none is stored or it is unreadable. */
+export function parseDefaultBranch(text: string | null | undefined): DefaultBranchView | null {
+  if (text == null) return null;
+  try {
+    return defaultBranchViewSchema.safeParse(JSON.parse(text)).data ?? null;
   } catch {
     return null;
   }

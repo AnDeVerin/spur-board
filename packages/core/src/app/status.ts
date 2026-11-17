@@ -15,7 +15,7 @@ import { sql } from 'kysely';
 import type { z } from 'zod';
 import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
-import { projectForSource } from './board-utils.ts';
+import { parseDefaultBranch, projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
 import { readOutageEnds, services } from './status-services.ts';
@@ -395,7 +395,10 @@ export async function getStatus(
         : null;
     return {
       source,
-      ...(source.startsWith('github:') ? { pointsLastHour: points.get(source) ?? 0 } : {}),
+      ...(source.startsWith('github:') && {
+        pointsLastHour: points.get(source) ?? 0,
+        defaultBranch: parseDefaultBranch(row?.default_branch),
+      }),
       observedAt: row?.observed_at ?? null,
       lastCompleteAt: last,
       blindReason,

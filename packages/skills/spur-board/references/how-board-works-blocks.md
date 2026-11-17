@@ -57,6 +57,7 @@ The actions use `board answer <block> <text>`,
 | `inbound_gap` | chat messages may be missing | check the conversation for missed messages | failure | you close the item |
 | `board_observation` | any other key | check the task, then close the item | attention | the condition ends or you close the item |
 | `board_observation` `source:` | a source is blind | check the token, settings, daemon or source it names | failure | the source reads again |
+| `board_observation` `default-branch:` | the latest check run of a push-triggered workflow on a linked repo's default-branch head finished without success (failed, cancelled, timed out), or a commit status there failed; scheduled, manual and other runs and check runs outside workflows never count, and branch protection is not read. The text names the repo, the first red commit, the check and the run; `status.get` shows `sources[].defaultBranch` | open the failing run; fix or revert | failure | a later default-branch head is green |
 | `board_observation` `pr-outcome:` | a linked PR closed unmerged or vanished | check the pull request, then close the item or archive the task | attention | the PR is seen again or you close the item; unlinking does not clear it |
 | `board_observation` `lookup:` | the ticket lookup failed | check the ticket in the tracker, then close the item or archive the task | attention | a lookup succeeds or you close the item |
 | `board_observation` `operator-block:` | a block waits for you | not listed: shown as its block | attention | the block closes |

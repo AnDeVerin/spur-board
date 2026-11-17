@@ -185,13 +185,19 @@ export const ITEM_POLICY = {
   },
 } as const satisfies Record<ItemKind, ItemPolicy>;
 
-/** The `inbox.operator` severity of an item; a blind source's item is a failure. */
+/**
+ * The `inbox.operator` severity of an item; a blind source's item and a red default branch's
+ * item are failures.
+ */
 export function itemSeverity(kind: ItemKind, key: string): Severity {
-  return key.startsWith(SOURCE_KEY) ? 'failure' : ITEM_POLICY[kind].severity;
+  return key.startsWith(SOURCE_KEY) || key.startsWith(DEFAULT_BRANCH_KEY)
+    ? 'failure'
+    : ITEM_POLICY[kind].severity;
 }
 
-/** Key prefixes of the items `reconcileItems` raises about a source or a block. */
+/** Key prefixes of the items `reconcileItems` raises about a source, its default branch or a block. */
 export const SOURCE_KEY = 'source:';
+export const DEFAULT_BRANCH_KEY = 'default-branch:';
 export const OPERATOR_BLOCK_KEY = 'operator-block:';
 export const BLOCK_KEY = 'block:';
 export const CONVERSATION_KEY = 'conversation:';
@@ -253,6 +259,8 @@ export interface ItemCandidate {
   source: string | null;
   priority: number;
   revision?: string | null;
+  /** The feed line's link when it is not the task's (or the board's, task-less). */
+  url?: string;
 }
 
 export function fingerprint(

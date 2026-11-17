@@ -12,6 +12,7 @@ import {
   JIRA_PROJECT_KEY,
   REF_NUMBER,
   RESERVED_PROJECT,
+  defaultBranchViewSchema,
   entityRefSchema,
   prFactsSchema,
   prSourceId,
@@ -44,6 +45,7 @@ import {
 import type { Store } from '../store/store.ts';
 import {
   emit,
+  parseDefaultBranch,
   pastReopenFloor,
   projectForKey,
   projectForSource,
@@ -149,6 +151,34 @@ async function blindReason(trx: Trx, source: string): Promise<string | null> {
   return row?.blind_reason ?? null;
 }
 
+/**
+ * The default-branch colour to store, or undefined to keep the stored one: a batch without a fact
+ * says nothing, and the same colour on the same branch keeps the first commit, check and run.
+ */
+async function nextDefaultBranch(
+  trx: Trx,
+  source: string,
+  fact: Batch['defaultBranch'],
+  at: string | undefined,
+): Promise<string | undefined> {
+  if (fact === undefined || at === undefined) return undefined;
+  const row = await trx
+    .selectFrom('source_state')
+    .select('default_branch')
+    .where('source', '=', source)
+    .executeTakeFirst();
+  const stored = parseDefaultBranch(row?.default_branch);
+  if (stored?.state === fact.state && stored.branch === fact.branch) return undefined;
+  return toJson(defaultBranchViewSchema, {
+    branch: fact.branch,
+    state: fact.state,
+    sha: fact.sha,
+    since: at,
+    check: fact.state === 'red' ? fact.check : null,
+    url: fact.state === 'red' ? fact.url : null,
+  });
+}
+
 async function sourceState(
   trx: Trx,
   source: string,
@@ -156,7 +186,9 @@ async function sourceState(
   observedAt?: string,
   cursor?: string,
   budget?: Batch['budget'],
+  defaultBranch?: Batch['defaultBranch'],
 ) {
+  const branch = await nextDefaultBranch(trx, source, defaultBranch, observedAt);
   await trx
     .insertInto('source_state')
     .values({
@@ -171,6 +203,7 @@ async function sourceState(
       budget_remaining: budget?.remaining ?? null,
       budget_limit: budget?.limit ?? null,
       budget_reset_at: budget?.resetAt ?? null,
+      default_branch: branch ?? null,
     })
     .onConflict((oc) =>
       oc.column('source').doUpdateSet((eb) => ({
@@ -188,6 +221,7 @@ async function sourceState(
           budget === undefined ? eb.ref('source_state.budget_limit') : (budget.limit ?? null),
         budget_reset_at:
           budget === undefined ? eb.ref('source_state.budget_reset_at') : budget.resetAt,
+        default_branch: branch ?? eb.ref('source_state.default_branch'),
       })),
     )
     .execute();
@@ -1342,6 +1376,7 @@ export function createObservationCore(deps: {
           batch.observedAt,
           batch.cursor,
           batch.budget,
+          batch.defaultBranch,
         );
         await recordUsage(trx, source, batch.usage, now);
         for (const probe of batch.prProbes ?? []) {

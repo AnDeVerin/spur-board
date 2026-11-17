@@ -284,6 +284,7 @@ export const sampleRows: SampleRows = {
     budget_remaining: 4999,
     budget_limit: 5000,
     budget_reset_at: at,
+    default_branch: null,
   },
   source_miss: {
     source: 'github',

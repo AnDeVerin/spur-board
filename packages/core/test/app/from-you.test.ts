@@ -835,3 +835,151 @@ it('lists an operator conversation waiting for a live session in status items, w
     await store.db.selectFrom('operator_item').select('cleared_at').executeTakeFirstOrThrow(),
   ).not.toEqual({ cleared_at: null });
 });
+
+describe('default branch item', () => {
+  const prSource = 'github:board:o/r';
+  const key = `default-branch:${prSource}`;
+  const runUrl = 'https://github.com/o/r/actions/runs/1';
+  const redFact = (sha: string, url: string | null = runUrl) =>
+    ({ state: 'red', branch: 'main', sha, check: 'build', url }) as const;
+  const greenFact = (sha: string) => ({ state: 'green', branch: 'main', sha }) as const;
+  const first = 'a'.repeat(40);
+  const second = 'b'.repeat(40);
+
+  async function observeBranch(
+    core: ReturnType<typeof setup>['core'],
+    defaultBranch?: ReturnType<typeof redFact> | ReturnType<typeof greenFact>,
+  ) {
+    const at = new Date(now).toISOString();
+    await core.observe(prSource, {
+      batch: {
+        source: prSource,
+        observedAt: at,
+        complete: true,
+        items: [],
+        entities: [],
+        ...(defaultBranch === undefined ? {} : { defaultBranch }),
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    return at;
+  }
+  const openItems = (store: Store) =>
+    store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', '=', key)
+      .where('cleared_at', 'is', null)
+      .execute();
+  const events = (store: Store, kind: string) =>
+    store.db
+      .selectFrom('event')
+      .select('kind')
+      .where('kind', '=', kind)
+      .execute()
+      .then((rows) => rows.length);
+  const outbox = (store: Store, kind: string) =>
+    store.db.selectFrom('outbox').selectAll().where('kind', '=', kind).execute();
+
+  it('raises one failure item for a red head and keeps it while the branch stays red', async () => {
+    const { store, core } = setup();
+    await observeBranch(core, redFact(first));
+    now += 60_000;
+    await observeBranch(core, redFact(second, 'https://github.com/o/r/actions/runs/2'));
+    now += 60_000;
+    await observeBranch(core);
+    const items = await openItems(store);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: 'board_observation',
+      task_id: null,
+      url: runUrl,
+      text: `o/r: main is red since ${first.slice(0, 7)} (build): fix main before merging more (run ${runUrl})`,
+    });
+    expect(await events(store, 'from_you_raised')).toBe(1);
+    const lines = await outbox(store, 'feed.line');
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]?.payload ?? '{}')).toMatchObject({ url: runUrl, itemKey: key });
+  });
+
+  it('clears the item on a green head and raises anew on a later red', async () => {
+    const { store, core } = setup();
+    await observeBranch(core, redFact(first));
+    const [raised] = await openItems(store);
+    if (raised?.fingerprint == null) throw new Error('Missing item');
+    await store.db
+      .insertInto('dismissal')
+      .values({
+        item_key: key,
+        fingerprint: raised.fingerprint,
+        dismissed_by: 'operator',
+        dismissed_at: new Date(now).toISOString(),
+      })
+      .execute();
+    now += 60_000;
+    await observeBranch(core, greenFact(second));
+    expect(await openItems(store)).toEqual([]);
+    expect(
+      await store.db
+        .selectFrom('operator_item')
+        .select('cleared_at')
+        .where('id', '=', raised.id)
+        .executeTakeFirst(),
+    ).toMatchObject({ cleared_at: expect.any(String) as string });
+    expect(await events(store, 'from_you_cleared')).toBe(1);
+    expect(await outbox(store, 'feed.line.edit')).toHaveLength(1);
+    now += 60_000;
+    await observeBranch(core, redFact(second, null));
+    const again = await openItems(store);
+    expect(again).toHaveLength(1);
+    expect(again[0]?.text).toBe(
+      `o/r: main is red since ${second.slice(0, 7)} (build): fix main before merging more`,
+    );
+    expect(again[0]?.url).toBe('https://github.com');
+    expect(await events(store, 'from_you_raised')).toBe(2);
+  });
+
+  it('holds the fact through reportSourceState and a blind source', async () => {
+    const { store, core, status } = setup();
+    await observeBranch(core, redFact(first));
+    const before = (await status()).sources.find((entry) => entry.source === prSource);
+    now += 60_000;
+    await core.reportSourceState(prSource, {
+      blind: { reason: 'auth', message: 'Access rejected' },
+      gone: [],
+    });
+    now += 60_000;
+    await core.reportSourceState(prSource, { gone: [] });
+    expect((await status()).sources.find((entry) => entry.source === prSource)).toMatchObject({
+      defaultBranch: before?.defaultBranch,
+    });
+    expect(await openItems(store)).toHaveLength(1);
+    // The default-branch item once, plus the auth item of the blind source.
+    expect(await events(store, 'from_you_raised')).toBe(2);
+  });
+
+  it('status.get shows the stored fact on the github source', async () => {
+    const { core, status } = setup();
+    const view = async (id: string) =>
+      (await status()).sources.find((entry) => entry.source === id);
+    expect(await view(prSource)).toMatchObject({ defaultBranch: null });
+    expect(await view(source)).not.toHaveProperty('defaultBranch');
+    const at = await observeBranch(core, redFact(first));
+    expect((await view(prSource))?.defaultBranch).toEqual({
+      ...redFact(first),
+      since: at,
+    });
+    expect((await status()).items.find((item) => item.key === key)).toBeDefined();
+    now += 60_000;
+    const green = await observeBranch(core, greenFact(second));
+    expect((await view(prSource))?.defaultBranch).toEqual({
+      ...greenFact(second),
+      since: green,
+      check: null,
+      url: null,
+    });
+    expect(await view(source)).not.toHaveProperty('defaultBranch');
+  });
+});

@@ -403,6 +403,8 @@ export interface SourceStateTable {
   budget_remaining: number | null;
   budget_limit: number | null;
   budget_reset_at: string | null;
+  /** JSON `DefaultBranchView`, or null until a poll reads the default branch. */
+  default_branch: string | null;
 }
 
 export interface SourceMissTable {

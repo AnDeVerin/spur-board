@@ -1,6 +1,7 @@
 import { RESERVED_PROJECT, type Config, type Via } from '@spur-board/contracts';
 import {
   BLOCK_KEY,
+  DEFAULT_BRANCH_KEY,
   isItemKind,
   ITEM_POLICY,
   itemBlockRef,
@@ -74,6 +75,7 @@ function observationAction(item: Item): string {
     return 'check the pull request, then close the item or archive the task';
   if (key.startsWith('lookup:'))
     return 'check the ticket in the tracker, then close the item or archive the task';
+  if (key.startsWith(DEFAULT_BRANCH_KEY)) return 'open the failing run; fix or revert';
   if (key.startsWith(OPERATOR_BLOCK_KEY)) return `answer ${blockName(item)}`;
   if (key.startsWith(BLOCK_KEY))
     return `answer ${blockName(item)} if it is a question, or close it with a reason`;

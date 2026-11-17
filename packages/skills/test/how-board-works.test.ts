@@ -267,6 +267,7 @@ describe('how the Board works guide', () => {
     );
     const prefixes = [
       'source:',
+      'default-branch:',
       'pr-outcome:',
       'lookup:',
       'operator-block:',

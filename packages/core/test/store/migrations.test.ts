@@ -457,13 +457,20 @@ describe('migrate', () => {
     const { raw } = rawDb(join(tempDir(), 'board.db'));
     migrate(raw, real.slice(0, 22));
     const budget = ['budget_remaining', 'budget_limit', 'budget_reset_at'];
-    const row = without(sampleRows.source_state, budget);
+    // 0025 adds default_branch later, so the row written at 0022 has neither.
+    const row = without(sampleRows.source_state, [...budget, 'default_branch']);
     insertRaw(raw, 'source_state', row);
 
     migrate(raw, real);
 
     expect(rows(raw, 'source_state')).toEqual([
-      { ...row, budget_remaining: null, budget_limit: null, budget_reset_at: null },
+      {
+        ...row,
+        budget_remaining: null,
+        budget_limit: null,
+        budget_reset_at: null,
+        default_branch: null,
+      },
     ]);
   });
 
@@ -477,6 +484,17 @@ describe('migrate', () => {
     migrate(raw, real);
 
     expect(rows(raw, 'event')).toEqual([{ ...row, via: null }]);
+  });
+
+  it('leaves default_branch empty on source rows written before 0025', () => {
+    const { raw } = rawDb(join(tempDir(), 'board.db'));
+    migrate(raw, real.slice(0, 24));
+    const row = without(sampleRows.source_state, ['default_branch']);
+    insertRaw(raw, 'source_state', row);
+
+    migrate(raw, real);
+
+    expect(rows(raw, 'source_state')).toEqual([{ ...row, default_branch: null }]);
   });
 
   it('keeps rows written at N-1 when migrating to N', async () => {
@@ -1178,6 +1196,8 @@ describe('migration pins', () => {
     ].join(''),
     '0023_source_budget.sql': '30465faed50ff53978f63fcb75892f3add6d6f26bb74a1ea1bbfad3d2d4ce8bd',
     '0024_event_via.sql': 'e46ef205ce6b4f36fe83f986ef652db36c1a455b62533aaa5360d30e6055c69a',
+    '0025_source_default_branch.sql':
+      '27cc78e3cda93f6491a6e13affb416c60d49c03b51d9442188eeb6a97cf355a1',
   };
 
   interface MigrationFile {
