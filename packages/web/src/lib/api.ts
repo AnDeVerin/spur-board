@@ -8,6 +8,16 @@ import type { z } from 'zod';
 type OperationId = keyof typeof browserOperations;
 type Input<K extends OperationId> = z.input<(typeof browserOperations)[K]['input']>;
 export type Output<K extends OperationId> = z.output<(typeof browserOperations)[K]['output']>;
+type ProblemCode = z.output<typeof problemSchema>['code'];
+/** A daemon problem answer: the message as the error's, and its stable code. */
+export class ProblemError extends Error {
+  readonly code: ProblemCode;
+  constructor(message: string, code: ProblemCode) {
+    super(message);
+    this.name = 'ProblemError';
+    this.code = code;
+  }
+}
 /** Schema validation belongs on both sides of the transport boundary. */
 export function createApi(fetcher: typeof fetch = fetch) {
   return async <K extends OperationId>(
@@ -31,7 +41,7 @@ export function createApi(fetcher: typeof fetch = fetch) {
     const value: unknown = await response.json();
     if (!response.ok) {
       const problem = problemSchema.parse(value);
-      throw new Error(problem.message);
+      throw new ProblemError(problem.message, problem.code);
     }
     return operation.output.parse(successEnvelopeSchema.parse(value).value) as Output<K>;
   };

@@ -1,9 +1,26 @@
-import { coordinateRead, createApi, type Output } from '../lib/api.ts';
+import { browserOperations } from '@spur-board/contracts/browser';
+import { coordinateRead, createApi, ProblemError, type Output } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 
 export type BoardConfig = Output<'config.get'>;
 type BoardStatus = Output<'status.get'>;
 type BoardInbox = Output<'inbox.operator'>;
+export type BoardTask = Output<'task.get'>;
+
+/**
+ * The open task: `loading` until its first answer and while a Retry runs, `ready` with a good
+ * answer, `missing` when the daemon knows no such task or the key is not a task key, `failed` when
+ * the last read failed. `value` is the last good answer for this key, kept through a failure.
+ */
+export interface TaskState {
+  key: string;
+  state: 'loading' | 'ready' | 'missing' | 'failed';
+  value: BoardTask | undefined;
+  /** `retryTask` ran after a failure and its read has not settled yet. */
+  retrying: boolean;
+}
+type TaskResult =
+  { key: string; kind: 'ok'; value: BoardTask } | { key: string; kind: 'missing' | 'failed' };
 
 /** The facts the board screen derives its state from; a new object on every change. */
 export interface BoardSnapshot {
@@ -24,6 +41,8 @@ export interface BoardSnapshot {
   lastGoodAt: number | undefined;
   /** Retry now was pressed and its reads have not settled yet. */
   retrying: boolean;
+  /** The task `open` names; undefined when none is open. */
+  task: TaskState | undefined;
 }
 
 interface BoardDataOptions {
@@ -52,6 +71,7 @@ export function createBoardData(options: BoardDataOptions) {
     everLive: false,
     lastGoodAt: undefined,
     retrying: false,
+    task: undefined,
   };
   let preferred: string | null = null;
   try {
@@ -135,9 +155,41 @@ export function createBoardData(options: BoardDataOptions) {
     },
   );
 
+  // The requested task key; a key that is not a task key is never read.
+  let taskKey: string | null = null;
+  let taskReadable = false;
+  const task = coordinateRead<TaskResult>(
+    async (signal) => {
+      const key = taskKey ?? '';
+      try {
+        const value = await api('task.get', { task: key, why: true }, { signal });
+        return { key, kind: 'ok', value };
+      } catch (error) {
+        const missing =
+          error instanceof ProblemError &&
+          (error.code === 'not_found' || error.code === 'wrong_id_kind');
+        return { key, kind: missing ? 'missing' : 'failed' };
+      }
+    },
+    (result) => {
+      // An answer for a key that is no longer open is dropped; its trailing read follows.
+      if (result === undefined || result.key !== taskKey || state.task?.key !== result.key) return;
+      const { key } = result;
+      if (result.kind === 'ok')
+        update({ task: { key, state: 'ready', value: result.value, retrying: false } });
+      else if (result.kind === 'missing')
+        update({ task: { key, state: 'missing', value: undefined, retrying: false } });
+      else update({ task: { ...state.task, state: 'failed', retrying: false } });
+    },
+  );
+  const refreshTask = () => {
+    if (taskReadable) task.refresh();
+  };
+
   const readAll = () => {
     config.refresh();
     inbox.refresh();
+    refreshTask();
   };
   const refresh = (scope: RefreshScope | null) => {
     if (scope === null) {
@@ -147,6 +199,13 @@ export function createBoardData(options: BoardDataOptions) {
     if (state.project !== undefined && scope.projects.includes(state.project)) config.refresh();
     // The inbox spans every project.
     inbox.refresh();
+    // `task.get` answers the canonical key, which a short requested key may not equal.
+    const loaded = state.task?.value?.task.key;
+    if (
+      (taskKey !== null && scope.tasks.includes(taskKey)) ||
+      (loaded !== undefined && scope.tasks.includes(loaded))
+    )
+      refreshTask();
   };
   const onStream = (value: StreamState) => {
     const previous = state.stream;
@@ -170,7 +229,9 @@ export function createBoardData(options: BoardDataOptions) {
     snapshot: () => state,
     start() {
       if (stream || stopped) return;
-      readAll();
+      // A task opened before start already issued its read in `open`.
+      config.refresh();
+      inbox.refresh();
       stream = connectStream({ fetch: options.fetch, state: onStream, refresh });
     },
     /** End the controller for good: the stream closes and no read publishes again. */
@@ -180,6 +241,33 @@ export function createBoardData(options: BoardDataOptions) {
       status.dispose();
       config.dispose();
       inbox.dispose();
+      task.dispose();
+    },
+    /** The client clock the snapshot's times are read against. */
+    now: () => options.now(),
+    /**
+     * Open a task by key, or close it with null: read `task.get` with why, then again whenever the
+     * stream names the task, the board re-reads everything, or `retryTask` runs.
+     */
+    open(key: string | null) {
+      if (key === taskKey) return;
+      taskKey = key;
+      taskReadable =
+        key !== null &&
+        browserOperations['task.get'].input.safeParse({ task: key, why: true }).success;
+      if (key === null) update({ task: undefined });
+      else if (!taskReadable)
+        update({ task: { key, state: 'missing', value: undefined, retrying: false } });
+      else {
+        update({ task: { key, state: 'loading', value: undefined, retrying: false } });
+        task.refresh();
+      }
+    },
+    /** Re-read the open task after a failure; the last good answer stays while it runs. */
+    retryTask() {
+      if (!taskReadable || !state.task) return;
+      update({ task: { ...state.task, state: 'loading', retrying: true } });
+      task.refresh();
     },
     /** Choose a project `config.get` lists; its cards show only after its own `status.get`. */
     choose(project: string) {

@@ -1,6 +1,6 @@
 // The task card as data: what a `status.get` row shows on the board, before any markup.
 import type { ChipTone, IconName, StatusDotTone } from '../ds/index.ts';
-import { safeExternalUrl } from '../lib/links.ts';
+import { safeExternalUrl, sessionLinkHref } from '../lib/links.ts';
 import { formatDataTime, type BoardRow } from './model.ts';
 
 type Turn = NonNullable<BoardRow['turn']>;
@@ -163,8 +163,7 @@ const SESSION_CHARS = 20;
 
 const sessionUrl = (row: BoardRow, spurUiOrigin: string | null) => {
   const session = row.links.sessions[0];
-  if (session === undefined || spurUiOrigin === null) return null;
-  return safeExternalUrl(`${spurUiOrigin}/sessions/${encodeURIComponent(session.id)}`);
+  return session === undefined ? null : sessionLinkHref(spurUiOrigin, session.id);
 };
 
 /** The session as a plain chip when it has no link: no Spur UI origin, or an unsafe URL. */

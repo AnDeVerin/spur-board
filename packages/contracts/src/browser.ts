@@ -14,11 +14,17 @@ import { sourceViewSchema } from './ops/source-view-schema.ts';
 import {
   blockViewSchema,
   commentSchema,
+  linkViewSchema,
   statusItemSchema,
+  statusSessionFactsSchema,
   statusTaskSchema,
   statusUnlinkedPrSchema,
   statusUnlinkedSessionSchema,
+  taskBlockViewSchema,
+  taskViewSchema,
+  taskWhySchema,
 } from './ops/schemas.ts';
+import { taskTurnSchema } from './ops/turn-schemas.ts';
 import { errorDetailSchema } from './errors.ts';
 export { successEnvelopeSchema } from './errors.ts';
 export const problemSchema = errorDetailSchema.extend({
@@ -287,6 +293,42 @@ export const inboxOperatorOutputSchema = z.strictObject({
     .describe('At most 20 entries handled in the last 24 hours, newest first.'),
 });
 
+export const taskGetInputSchema = z.strictObject({
+  task: taskKeyInputSchema,
+  refresh: z
+    .boolean()
+    .optional()
+    .describe(
+      'Read every linked pull request from GitHub before showing the task; unavailable reads fail visibly.',
+    ),
+  detail: z
+    .boolean()
+    .optional()
+    .describe('Also list the last 5 closed turns, newest first; absent means none.'),
+  why: z
+    .boolean()
+    .optional()
+    .describe(
+      'Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.',
+    ),
+});
+export const taskGetOutputSchema = z.strictObject({
+  task: taskViewSchema,
+  turn: taskTurnSchema.nullable().describe("The task's unclosed turn; null when none is open."),
+  turns: z
+    .array(taskTurnSchema)
+    .optional()
+    .describe('Present only with detail: the last 5 closed turns, newest first.'),
+  links: z.array(linkViewSchema).describe('Effective pull request, session, and ticket links.'),
+  sessions: z
+    .array(statusSessionFactsSchema)
+    .optional()
+    .describe('Current facts of effective linked sessions.'),
+  blocks: z.array(taskBlockViewSchema).describe('Blocks on the task, open and unblocked.'),
+  comments: z.array(commentSchema).describe('Comments on the task, oldest first.'),
+  why: taskWhySchema.optional().describe('Present only with why.'),
+});
+
 export const browserOperations = {
   'config.get': {
     id: 'config.get',
@@ -305,6 +347,12 @@ export const browserOperations = {
     kind: 'query',
     input: statusInputSchema,
     output: statusOutputSchema,
+  },
+  'task.get': {
+    id: 'task.get',
+    kind: 'query',
+    input: taskGetInputSchema,
+    output: taskGetOutputSchema,
   },
   'comment.add': {
     id: 'comment.add',

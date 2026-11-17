@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createApi, createMutationIntent, coordinateRead } from '../src/lib/api.ts';
+import { createApi, createMutationIntent, coordinateRead, ProblemError } from '../src/lib/api.ts';
 import { statusOutputSchema } from '@spur-board/contracts/browser';
 
 const status = statusOutputSchema.parse({
@@ -97,6 +97,12 @@ describe('browser API', () => {
     await expect(
       createApi(() => Promise.resolve(Response.json(problem, { status: 403 })))('status.get', {}),
     ).rejects.toThrow('Access denied');
+    const thrown = await createApi(() => Promise.resolve(Response.json(problem, { status: 403 })))(
+      'status.get',
+      {},
+    ).catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(ProblemError);
+    expect(thrown).toMatchObject({ code: 'forbidden', message: 'Access denied' });
     await expect(
       createApi(() =>
         Promise.resolve(Response.json({ ...problem, code: 'invented' }, { status: 403 })),

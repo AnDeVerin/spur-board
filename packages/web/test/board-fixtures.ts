@@ -1,12 +1,31 @@
 import { browserOperations } from '@spur-board/contracts/browser';
 
 /** Board screen fixtures: config, `status.get` rows and a fake daemon with its event stream. */
-type OpId = 'config.get' | 'status.get' | 'inbox.operator';
+type OpId = 'config.get' | 'status.get' | 'inbox.operator' | 'task.get';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
 export const failure = () => Promise.resolve(Response.json({ broken: true }, { status: 500 }));
 export const never = () => new Promise<Response>(() => undefined);
+/** A daemon problem answer with its stable code. */
+export const problem = (code: string, status = 404) =>
+  Promise.resolve(
+    Response.json(
+      {
+        type: `https://spur-board.dev/docs/errors.md#${code}`,
+        title: code,
+        status,
+        code,
+        requestId: 'r1',
+        message: code,
+        hint: 'hint',
+        docs: `docs/errors.md#${code}`,
+        context: {},
+        recovery: { action: 'Check', sideEffects: 'none', maxRetries: 0, retryTiming: 'Never' },
+      },
+      { status, headers: { 'content-type': 'application/problem+json' } },
+    ),
+  );
 export function deferred() {
   let resolve!: (value: Response) => void;
   const promise = new Promise<Response>((yes) => {
@@ -182,12 +201,68 @@ export const inbox = (count: number) => ({
   handled: [],
 });
 
-/** Fake daemon: the three reads by route and an event stream the test writes to. */
+/**
+ * `task.get` with why for `ex/repo#7` in Dev of project `a`: a PR and a session link, Dev's
+ * `checks_green` failed, an open worker turn not taken yet and one move into Dev.
+ */
+export const taskGet = (extra: Record<string, unknown> = {}) => ({
+  task: { key: 'ex/repo#7', project: 'a', column: 'dev', membership: 'active' },
+  turn: {
+    id: 'T4',
+    column: 'dev',
+    addressee: 'worker',
+    at: '2026-11-15T13:00:00.000Z',
+    taken: null,
+    handed: [],
+    closed: null,
+  },
+  links: [
+    { kind: 'pr', ref: 'ex/repo#7', role: null, state: 'open' },
+    { kind: 'session', ref: 's1', role: 'worker' },
+  ],
+  blocks: [],
+  comments: [],
+  why: {
+    column: 'dev',
+    dispatcher: 'on',
+    holds: [],
+    gates: [
+      {
+        column: 'dev',
+        enabled: true,
+        ok: false,
+        blockedIn: 'dev',
+        conditions: [
+          { condition: 'pr_open', state: 'met', reason: null },
+          { condition: 'checks_green', state: 'failed', reason: 'checks_red' },
+        ],
+      },
+    ],
+    checksWaivedBy: null,
+    turn: null,
+    moves: [
+      {
+        at: '2026-11-15T12:00:00.000Z',
+        kind: 'task_moved',
+        actor: 'system',
+        from: 'todo',
+        to: 'dev',
+        reason: 'gate_passed',
+        gate: [],
+        text: null,
+      },
+    ],
+  },
+  ...extra,
+});
+
+/** Fake daemon: the four reads by route and an event stream the test writes to. */
 export function daemon() {
   const routes: Record<OpId, Route> = {
     'config.get': () => Promise.resolve(envelope(config)),
     'status.get': () => Promise.resolve(envelope(status())),
     'inbox.operator': () => Promise.resolve(envelope(inbox(2))),
+    'task.get': () => Promise.resolve(envelope(taskGet())),
   };
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
   let streamFails = false;

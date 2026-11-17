@@ -6,12 +6,21 @@ import styles from './Card.module.css';
 
 const classes = (...names: (string | undefined)[]) => names.filter(Boolean).join(' ');
 
-/** A plain left click opens the task in place; modified clicks keep the browser's new tab. */
-export function open(event: MouseEvent<HTMLAnchorElement>) {
+/**
+ * A plain left click, or Enter, opens the task in place; modified clicks keep the browser's new
+ * tab. The card takes focus first, since Safari and Firefox do not focus a clicked link, so the
+ * task view returns focus to it.
+ */
+export function open(
+  event: MouseEvent<HTMLAnchorElement>,
+  key: string,
+  onOpen: (key: string) => void,
+) {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
     return;
   event.preventDefault();
-  history.pushState(null, '', event.currentTarget.getAttribute('href'));
+  event.currentTarget.focus();
+  onOpen(key);
 }
 
 /** `+N` beside the cells: the other linked PRs. */
@@ -113,11 +122,14 @@ export function Card({
   filter,
   now,
   spurUiOrigin,
+  onOpen,
 }: {
   row: BoardRow;
   filter: string;
   now: number | undefined;
   spurUiOrigin: string | null;
+  /** Asks the board to open the task. */
+  onOpen: (key: string) => void;
 }) {
   const id = useId();
   const title = row.ticket?.title;
@@ -137,7 +149,9 @@ export function Card({
         title={row.key}
         aria-label={title === undefined ? row.key : `${row.key} ${title}`}
         aria-describedby={describedBy(status, id, marks.length > 0, turn !== null)}
-        onClick={open}
+        onClick={(event) => {
+          open(event, row.key, onOpen);
+        }}
       >
         <div className={styles.keyRow}>
           <span className={styles.key}>{shortKey(row.key)}</span>

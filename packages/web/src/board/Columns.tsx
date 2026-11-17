@@ -18,11 +18,13 @@ const classes = (...names: (string | undefined)[]) => names.filter(Boolean).join
 function TaskLink({
   row,
   filter,
+  onOpen,
   className,
   children,
 }: {
   row: BoardRow;
   filter: string;
+  onOpen: (key: string) => void;
   className: string | undefined;
   children: ReactNode;
 }) {
@@ -34,7 +36,9 @@ function TaskLink({
       title={row.key}
       aria-label={title === undefined ? row.key : `${row.key} ${title}`}
       data-dimmed={matchesFilter(row, filter) ? undefined : ''}
-      onClick={open}
+      onClick={(event) => {
+        open(event, row.key, onOpen);
+      }}
     >
       {children}
     </a>
@@ -47,12 +51,14 @@ function Column({
   stale,
   now,
   spurUiOrigin,
+  onOpen,
 }: {
   column: BoardColumn;
   filter: string;
   stale: boolean;
   now: number | undefined;
   spurUiOrigin: string | null;
+  onOpen: (key: string) => void;
 }) {
   if (column.rows.length === 0)
     return (
@@ -78,7 +84,7 @@ function Column({
         <ul className={classes(styles.body, styles.done, quiet)}>
           {column.rows.map((row) => (
             <li key={row.key}>
-              <TaskLink row={row} filter={filter} className={styles.doneRow}>
+              <TaskLink row={row} filter={filter} onOpen={onOpen} className={styles.doneRow}>
                 <span className={styles.check}>
                   <Icon name="check" />
                 </span>
@@ -91,7 +97,14 @@ function Column({
       ) : (
         <div className={styles.body}>
           {column.rows.map((row) => (
-            <Card key={row.key} row={row} filter={filter} now={now} spurUiOrigin={spurUiOrigin} />
+            <Card
+              key={row.key}
+              row={row}
+              filter={filter}
+              now={now}
+              spurUiOrigin={spurUiOrigin}
+              onOpen={onOpen}
+            />
           ))}
         </div>
       )}
@@ -109,12 +122,15 @@ export function Columns({
   stale,
   now,
   spurUiOrigin,
+  onOpen,
 }: {
   view: ColumnsView;
   filter: string;
   stale: boolean;
   now: number | undefined;
   spurUiOrigin: string | null;
+  /** A card asks to open its task. */
+  onOpen: (key: string) => void;
 }) {
   switch (view.kind) {
     case 'failed':
@@ -155,6 +171,7 @@ export function Columns({
           stale={stale}
           now={now}
           spurUiOrigin={spurUiOrigin}
+          onOpen={onOpen}
         />
       ));
   }
