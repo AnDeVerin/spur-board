@@ -117,7 +117,7 @@ const ACTIONS: Record<Exclude<ItemKind, 'turn'>, (item: Item, at: ActionContext)
   course_check: (item) => `wait for the answer to ${blockName(item)}, or answer it yourself`,
   cycle_limit: (item) => `answer or close ${blockName(item)} to reset the cycle count`,
   conversation_waiting: (item, { block }) =>
-    `start a session in ${block?.addressee_spur_project ?? 'its Spur project'}, or withdraw ${blockName(item)}`,
+    `start a session in ${block?.addressee_spur_project ?? 'its Spur project'}, or close ${blockName(item)} with a reason`,
 };
 
 const PROBLEMS: Partial<Record<string, string>> = {

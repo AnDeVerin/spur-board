@@ -35,7 +35,7 @@ Archived tasks are left out.
 
 The actions use `board answer <block> <text>`,
 `board unblock <block> --reason <reason>`,
-`board unblock <block> --withdraw <answer>`, `board item retry <item>`,
+`board item retry <item>`,
 `board item close <item>`,
 `board task archive <task>` and
 `board unlink <task> --pr <pr> --reason <reason>`.
@@ -65,5 +65,5 @@ The actions use `board answer <block> <text>`,
 | `anomaly` | a session or turn of the task is stuck, done or lost | wait for the answer to `B<n>`, or answer it yourself; listed only when addressed to the curator; otherwise shown as its block | attention | the condition ends or its block closes |
 | `cycle_limit` | the task reached its column's cycle limit | not listed: shown as its block | attention | its block closes |
 | `course_check` | the task keeps returning from a column | wait for the answer to `B<n>`, or answer it yourself; listed only when addressed to the curator or orchestrator; otherwise shown as its block | attention | its block closes |
-| `conversation_waiting` | your conversation waits for a live session | start a session in its Spur project, or withdraw `B<n>` | attention | a session starts or the block closes |
+| `conversation_waiting` | your conversation waits for a live session | start a session in its Spur project, or close `B<n>` with a reason | attention | a session starts or the block closes |
 <!-- prettier-ignore-end -->

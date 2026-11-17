@@ -77,7 +77,7 @@ describe('inbox.operator actions', () => {
       const rows: [string, string][] = [
         [
           await raise(`conversation:${String(conversation)}`, 'conversation_waiting'),
-          `start a session in spur-x, or withdraw B${String(conversation)}`,
+          `start a session in spur-x, or close B${String(conversation)} with a reason`,
         ],
         [await raise(`${health}:worker_idle`, 'board_observation'), 'check session s9 in Spur'],
         [
