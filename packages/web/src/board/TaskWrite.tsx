@@ -73,9 +73,8 @@ export function TaskWrite({
   });
   useLayoutEffect(() => {
     const cancel = cancelIn(area.current);
-    const active = document.activeElement;
-    if (unavailable === undefined || !cancel || cancel.disabled || active === cancel) return;
-    if (area.current?.contains(active)) cancel.focus();
+    if (unavailable === undefined || !cancel || cancel.disabled) return;
+    if (area.current?.contains(document.activeElement)) cancel.focus();
   }, [unavailable]);
   const reconcile = async (refresh: Promise<boolean>, submittedRevision: number) => {
     const ok = await refresh;

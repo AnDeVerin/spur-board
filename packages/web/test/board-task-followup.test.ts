@@ -46,6 +46,11 @@ function button(text: string) {
 const followUp = () => button('Follow up');
 const field = () => item().querySelector('textarea');
 const cancel = () => item().querySelector<HTMLButtonElement>('button[aria-label="Cancel"]');
+function pressCancel() {
+  const close = cancel();
+  if (!close) throw new Error('no Cancel');
+  press(close, 'click');
+}
 const send = () => item().querySelector<HTMLButtonElement>('button[type="submit"]');
 const replies = () =>
   [...item().querySelectorAll(':scope > div > p:not([role])')].map((p) => p.textContent);
@@ -100,9 +105,7 @@ describe('follow-up on an answered block', () => {
     const { writes } = await open();
     press(followUp(), 'click');
     type('more');
-    const close = cancel();
-    if (!close) throw new Error('no Cancel');
-    press(close, 'click');
+    pressCancel();
     expect(field()).toBeNull();
     expect(document.activeElement).toBe(followUp());
     await settle();
@@ -118,9 +121,7 @@ describe('follow-up on an answered block', () => {
     type('more');
     submit();
     await settle();
-    const close = cancel();
-    if (!close) throw new Error('no Cancel');
-    press(close, 'click');
+    pressCancel();
     expect(field()).toBeNull();
     expect(document.activeElement).toBe(followUp());
     expect(writes).toHaveLength(1);
@@ -189,9 +190,7 @@ describe('follow-up on an answered block', () => {
     submit();
     await settle();
     expect(writes).toHaveLength(0);
-    const close = cancel();
-    if (!close) throw new Error('no Cancel');
-    press(close, 'click');
+    pressCancel();
     expect(document.activeElement).toBe(followUp());
   });
 
