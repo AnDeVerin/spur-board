@@ -54,6 +54,7 @@ import {
   dispatchSubmitNoPr,
 } from './new-head.ts';
 import { questionToOperator } from './question-to-operator.ts';
+import { readmeBoard } from './readme-board.ts';
 import { dispatchApprovalWithNotes, dispatchUnresolvedThread } from './review-threads.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import {
@@ -214,6 +215,7 @@ export const SCENARIOS: readonly Scenario[] = [
   spurTransitionsKilledHolder,
   spurTurnStall,
   cardLong,
+  readmeBoard,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>

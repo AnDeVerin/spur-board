@@ -295,6 +295,7 @@ describe('scenarios', () => {
       'spur-transitions-killed-holder',
       'spur-turn-stall',
       'card-long',
+      'readme-board',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -3072,5 +3073,49 @@ describe('card scenario', () => {
       threads: { unresolved: 3, total: 3 },
       reviewsOnHead: { changesRequested: ['stand-reviewer'] },
     });
+  }, 90_000);
+});
+
+describe('readme scenario', () => {
+  it('readme-board: real closed issues fill every column with the Dev, Review and Ready to Merge turns', async () => {
+    await up();
+    const { scenario } = await seed('readme-board');
+    interface Row {
+      key: string;
+      column: string;
+      ticket?: { title: string } | null;
+      turn: { addressee: string; column: string; taken: { by: string } | null } | null;
+      blocks: { id: string; addressee: string }[];
+    }
+    const { tasks } = await op<{ tasks: Row[] }>(current(), 'status.get', {
+      project: 'stand',
+      detail: true,
+    });
+    const counts: Record<string, number> = {};
+    for (const { column } of tasks) counts[column] = (counts[column] ?? 0) + 1;
+    expect(counts).toEqual({ todo: 2, dev: 1, review: 1, 'ready-to-merge': 1, done: 7 });
+    const numbers = [627, 631, 621, 620, 611, 558, 559, 560, 561, 562, 563, 564];
+    const named = Object.entries(scenario.tasks ?? {});
+    expect(named).toHaveLength(numbers.length);
+    for (const [name, key] of named) {
+      const [column, number] = [name.slice(0, name.lastIndexOf('-')), name.split('-').at(-1)];
+      expect(key).toBe(`stand-org/board#${number ?? ''}`);
+      expect(numbers).toContain(Number(number));
+      expect(tasks.find((row) => row.key === key)?.column, key).toBe(column);
+    }
+    for (const row of tasks) expect(row.ticket?.title, row.key).not.toMatch(/^Stand issue/);
+    const at = (column: string) => tasks.filter((row) => row.column === column);
+    const [dev] = at('dev');
+    expect(dev?.turn).toMatchObject({
+      addressee: 'worker',
+      taken: { by: expect.stringContaining(current().roles.worker) as unknown },
+    });
+    expect(dev?.blocks.map(({ id, addressee }) => [id, addressee])).toEqual([
+      [scenario.blocks?.['question'], 'operator'],
+    ]);
+    expect(at('review')[0]?.turn?.addressee).toBe('orchestrator:review');
+    expect(at('ready-to-merge')[0]?.turn).toMatchObject({ column: 'ready-to-merge' });
+    for (const row of at('todo')) expect(row.turn, row.key).toBeNull();
+    expect(await ok(current(), '/violations')).toMatchObject({ total: 0 });
   }, 90_000);
 });
