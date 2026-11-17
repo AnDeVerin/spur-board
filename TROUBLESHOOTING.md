@@ -36,6 +36,18 @@ saying "UI is not built" means the UI assets are absent: run
 restart the daemon to reload assets. Health and operations
 remain usable. See [Security](SECURITY.md) before enabling anonymous operator access.
 
+### web.spurUiOrigin
+
+Online doctor checks the optional Spur UI origin independently of `web.port`. When unset, it
+warns without blocking: set `web.spurUiOrigin` for the intended session links at
+`<origin>/sessions/<session id>`; otherwise the fallback is plain session IDs.
+One unauthenticated GET to the origin root passes on any HTTP response, including redirects
+and error statuses, without following redirects or reading the body. This does not check
+individual session pages. A transport error or a two-second timeout fails with a safe error
+class. Start the Spur UI, fix the proxy or TLS setup, or correct `web.spurUiOrigin` in
+`config.yaml`. Restart the daemon after config changes and rerun `board doctor --json`.
+Offline doctor validates configuration only and sends no probe.
+
 ### stand.port_range
 
 Reports the effective stand port range, including offline. Omission uses 4780..4799 and preserves

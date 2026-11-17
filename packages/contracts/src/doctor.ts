@@ -19,7 +19,7 @@ export const doctorReportSchema = z.strictObject({
     .array(
       z.strictObject({
         ...checkShape,
-        id: checkShape.id.regex(/^[a-z][a-z._]+$/).max(60),
+        id: checkShape.id.regex(/^(?:[a-z][a-z._]+|web\.spurUiOrigin)$/).max(60),
         fix: z.string().max(DOCTOR_FIX_MAX).nullable(),
       }),
     )

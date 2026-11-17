@@ -8,7 +8,7 @@ import {
   sampleLinkRules,
   teamScopeDenied,
 } from '@spur-board/adapters';
-import { configSchema, type ConfigInput } from '@spur-board/contracts';
+import { configSchema, doctorReportSchema, type ConfigInput } from '@spur-board/contracts';
 import {
   createOperationRegistry,
   openStore,
@@ -376,6 +376,192 @@ describe('listenerPort', () => {
 });
 
 describe('daemon doctor checks', () => {
+  it('warns once for an unset UI origin without sending a UI request', async () => {
+    const fetcher = vi.fn(doctorFetch());
+    const report = await runDaemonDoctor(doctorContext({ slack: false }), '1.2.3', fetcher);
+    expect(report.checks.filter(({ id }) => id === 'web.spurUiOrigin')).toEqual([
+      {
+        id: 'web.spurUiOrigin',
+        status: 'warning',
+        blocking: false,
+        fix: 'Set web.spurUiOrigin to the Spur UI origin for session links; without it, the intended fallback is plain session IDs.',
+      },
+    ]);
+    expect(
+      fetcher.mock.calls.every(
+        ([input]) => !(input instanceof URL && input.origin === 'https://ui.example.test'),
+      ),
+    ).toBe(true);
+    expect(doctorReportSchema.safeParse(report).success).toBe(true);
+  });
+
+  it.each([200, 302, 401, 404, 500])(
+    'passes on UI HTTP %i without reading or awaiting its body',
+    async (status) => {
+      const ctx = doctorContext({ slack: false });
+      ctx.config.web.spurUiOrigin = 'https://ui.example.test';
+      const cancel = vi.fn(() => new Promise<void>(() => undefined));
+      const body = new ReadableStream({ cancel });
+      const response = new Response(body, {
+        status,
+        headers: { Location: 'https://redirect-private-canary.test' },
+      });
+      const readBody = vi.spyOn(response, 'text');
+      const fallback = doctorFetch();
+      const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+        input instanceof URL && input.origin === ctx.config.web.spurUiOrigin
+          ? Promise.resolve(response)
+          : fallback(input, init),
+      );
+      const report = await runDaemonDoctor(ctx, '1.2.3', fetcher);
+      expect(report.checks.filter(({ id }) => id === 'web.spurUiOrigin')).toEqual([
+        { id: 'web.spurUiOrigin', status: 'pass', blocking: false, fix: null },
+      ]);
+      const calls = fetcher.mock.calls.filter(
+        ([input]) => input instanceof URL && input.href === 'https://ui.example.test/',
+      );
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.[1]).toMatchObject({
+        method: 'GET',
+        redirect: 'manual',
+      });
+      expect(Object.keys(calls[0]?.[1] ?? {}).sort()).toEqual(['method', 'redirect', 'signal']);
+      expect(calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(readBody).not.toHaveBeenCalled();
+      expect(JSON.stringify(report)).not.toContain('redirect-private-canary');
+    },
+  );
+
+  it.each([
+    [
+      'connection refused',
+      new TypeError('message-canary', { cause: new Error('refused-cause-canary') }),
+      'TypeError',
+    ],
+    [
+      'TLS',
+      new TypeError('tls-message-canary', { cause: new Error('tls-cause-canary') }),
+      'TypeError',
+    ],
+    ['non-Error', 'non-error-canary', 'Error'],
+    [
+      'malicious name',
+      Object.assign(new Error('message-canary'), { name: 'name-canary' }),
+      'Error',
+    ],
+    ['abort', new DOMException('abort-canary', 'AbortError'), 'AbortError'],
+  ])(
+    'reports a safe UI failure for %s and sanitizes before real logging',
+    async (_case, error, errorClass) => {
+      const ctx = doctorContext({ slack: false });
+      // A long valid origin must not overflow the report fix limit.
+      ctx.config.web.spurUiOrigin = `https://${'a'.repeat(300)}.example.test`;
+      let logs = '';
+      const log = createLogger(
+        {
+          write: (line) => {
+            logs += line;
+          },
+        },
+        {},
+      );
+      ctx.logCall = (call, fn) => logCall(log, ctx.clock, call, fn);
+      const fallback = doctorFetch();
+      const report = await runDaemonDoctor(ctx, '1.2.3', (input, init) =>
+        input instanceof URL && input.origin === ctx.config.web.spurUiOrigin
+          ? // A fetch implementation can reject with an arbitrary value; exercise that boundary.
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- exercise arbitrary fetch rejections
+            Promise.reject(error)
+          : fallback(input, init),
+      );
+      const ui = report.checks.find(({ id }) => id === 'web.spurUiOrigin');
+      expect(ui).toMatchObject({
+        id: 'web.spurUiOrigin',
+        status: 'fail',
+        blocking: true,
+      });
+      expect(ui?.fix).toContain(`(${errorClass})`);
+      expect(doctorReportSchema.safeParse(report).success).toBe(true);
+      expect(logs).toContain('doctor.web.spurUiOrigin');
+      expect(logs).toContain('"outcome":"error"');
+      expect(JSON.stringify(report) + logs).not.toContain('canary');
+    },
+  );
+
+  it.each([
+    [false, 50, 50],
+    [true, 50, 50],
+    [false, 5_000, 2_000],
+  ] as const)(
+    'bounds UI probes even when fetch ignores abort (%s, %i ms)',
+    async (abortAware, deadlineMs, budget) => {
+      vi.useFakeTimers();
+      try {
+        const ctx = doctorContext({ slack: false });
+        ctx.config.web.spurUiOrigin = 'https://ui.example.test';
+        let signal: AbortSignal | null | undefined;
+        const fallback = doctorFetch();
+        const pending = runDaemonDoctor(
+          ctx,
+          '1.2.3',
+          (input, init) => {
+            if (!(input instanceof URL && input.origin === ctx.config.web.spurUiOrigin))
+              return fallback(input, init);
+            signal = init?.signal;
+            return new Promise<Response>((_resolve, reject) => {
+              if (abortAware)
+                signal?.addEventListener('abort', () => {
+                  reject(new TypeError('abort-canary'));
+                });
+            });
+          },
+          { deadlineMs },
+        );
+        expect(signal?.aborted).toBe(false);
+        await vi.advanceTimersByTimeAsync(budget - 1);
+        expect(signal?.aborted).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        const report = await pending;
+        expect(signal?.aborted).toBe(true);
+        const ui = report.checks.find(({ id }) => id === 'web.spurUiOrigin');
+        expect(ui).toMatchObject({
+          status: 'fail',
+          blocking: true,
+        });
+        expect(ui?.fix).toContain('(TimeoutError)');
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('accepts only the exact mixed-case doctor ID and preserves report bounds', () => {
+    const report = (id: string, fix: string | null = null) => ({
+      version: '1',
+      checks: [{ id, status: 'pass', blocking: false, fix }],
+    });
+    expect(doctorReportSchema.safeParse(report('web.spurUiOrigin')).success).toBe(true);
+    for (const id of [
+      'web.spurUIOrigin',
+      'Other.check',
+      'web.spurUiOrigin.extra',
+      'bad-id',
+      'a'.repeat(61),
+    ])
+      expect(doctorReportSchema.safeParse(report(id)).success).toBe(false);
+    expect(doctorReportSchema.safeParse(report('web.spurUiOrigin', 'x'.repeat(301))).success).toBe(
+      false,
+    );
+    expect(
+      doctorReportSchema.safeParse({
+        version: '1',
+        checks: Array.from({ length: 31 }, () => report('web').checks[0]),
+      }).success,
+    ).toBe(false);
+  });
+
   it('rejects a token denied access to CheckRun data after repository access succeeds', async () => {
     const report = await runDaemonDoctor(
       doctorContext({ operator: true, slack: false }),
@@ -511,7 +697,9 @@ describe('daemon doctor checks', () => {
     const guide = readFileSync(new URL('../../../TROUBLESHOOTING.md', import.meta.url), 'utf8');
     const section = guide.split('## Doctor checks\n')[1]?.split('\n## ')[0] ?? '';
     const documented = new Set(
-      [...section.matchAll(/^### ([a-z][a-z0-9_.]+)$/gm)].map((match) => match[1]),
+      [...section.matchAll(/^### ([a-z][a-z0-9_.]+|web\.spurUiOrigin)$/gm)].map(
+        (match) => match[1],
+      ),
     );
     expect(emitted.filter((id) => !documented.has(id))).toEqual([]);
   });
@@ -548,6 +736,7 @@ describe('daemon doctor checks', () => {
       'operator.tokens',
       'curator.sessions',
       'orchestrator.sessions',
+      'web.spurUiOrigin',
     ]);
     expect(report.checks.find((check) => check.id === 'slack.configured')).toEqual({
       id: 'slack.configured',
@@ -597,10 +786,12 @@ describe('daemon doctor checks', () => {
 
   it('reports every daemon-owned check as passing without returning credential values', async () => {
     const ctx = doctorContext({ operator: true });
-    const report = await runDaemonDoctor(
-      ctx,
-      '1.2.3',
-      doctorFetch(undefined, [samplePr(1, 'BOARD-1-x')]),
+    ctx.config.web.spurUiOrigin = 'https://ui.example.test';
+    const fallback = doctorFetch(undefined, [samplePr(1, 'BOARD-1-x')]);
+    const report = await runDaemonDoctor(ctx, '1.2.3', (input, init) =>
+      input instanceof URL && input.href === 'https://ui.example.test/'
+        ? Promise.resolve(new Response(null))
+        : fallback(input, init),
     );
     expect(report.version).toBe('1.2.3');
     expect(report.checks.map((check) => check.id)).toEqual([
@@ -618,6 +809,7 @@ describe('daemon doctor checks', () => {
       'operator.tokens',
       'curator.sessions',
       'orchestrator.sessions',
+      'web.spurUiOrigin',
     ]);
     expect(report.checks.find((check) => check.id === 'link.rules')).toEqual({
       id: 'link.rules',
@@ -1457,13 +1649,7 @@ describe('daemon doctor link rules', () => {
         '1.2.3',
         fetcher,
       );
-      // Limits of doctorReportSchema in packages/core/src/api/server.ts.
-      expect(report.checks.length).toBeLessThanOrEqual(30);
-      for (const entry of report.checks) {
-        expect(entry.id).toMatch(/^[a-z][a-z._]+$/);
-        expect(entry.id.length).toBeLessThanOrEqual(60);
-        if (entry.fix !== null) expect(entry.fix.length).toBeLessThanOrEqual(300);
-      }
+      expect(doctorReportSchema.safeParse(report).success).toBe(true);
       const check = linkRules(report);
       expect(check).toMatchObject({ status: 'warning', blocking: false });
       return check?.fix ?? '';

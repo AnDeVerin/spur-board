@@ -7,6 +7,22 @@ const cli = readFileSync(new URL('../docs/cli.md', import.meta.url), 'utf8');
 const configuration = readFileSync(new URL('../docs/configuration.md', import.meta.url), 'utf8');
 
 describe('generated public references', () => {
+  it('documents the intended Spur UI session route, fallback and reachability check', () => {
+    const section = configuration.split('## Spur UI session links')[1]?.split('\n## ')[0];
+    expect(section).toBeDefined();
+    for (const text of [
+      'web.spurUiOrigin',
+      '<origin>/sessions/<session id>',
+      'plain session IDs',
+      '`board doctor --json`',
+      'any HTTP response',
+      'TLS',
+      'restart the daemon',
+    ])
+      expect(section).toContain(text);
+    const doctor = registeredCommands().find(({ path }) => path === 'doctor');
+    expect(doctor?.command.options.some(({ flags }) => flags.includes('--json'))).toBe(true);
+  });
   it('keeps the committed references equal to source generation', async () => {
     const rendered = await formattedDocs();
     expect(cli).toBe(rendered.cli);

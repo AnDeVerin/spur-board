@@ -274,6 +274,7 @@ function nodeFromUnit(unit: string): string | null {
 }
 
 const remoteBaseIds = [
+  'web.spurUiOrigin',
   'secrets',
   'jira.credentials',
   'github.credentials',

@@ -496,6 +496,75 @@ async function request(
   }
 }
 
+async function spurUiCheck(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  deadlineMs: number,
+): Promise<Check> {
+  const id = 'web.spurUiOrigin';
+  const origin = ctx.config.web.spurUiOrigin;
+  if (origin === undefined)
+    return warning(
+      id,
+      'Set web.spurUiOrigin to the Spur UI origin for session links; without it, the intended fallback is plain session IDs.',
+    );
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener(
+      'abort',
+      () => {
+        reject(new Error('TimeoutError'));
+      },
+      {
+        once: true,
+      },
+    );
+  });
+  const timer = setTimeout(
+    () => {
+      timedOut = true;
+      controller.abort();
+    },
+    Math.min(2_000, deadlineMs),
+  );
+  try {
+    await ctx.logCall('doctor.web.spurUiOrigin', async () => {
+      try {
+        const response = await Promise.race([
+          fetcher(new URL('/', origin), {
+            method: 'GET',
+            redirect: 'manual',
+            signal: controller.signal,
+          }),
+          timeout,
+        ]);
+        // A response proves reachability; releasing its body must not extend the deadline.
+        void response.body?.cancel().catch(() => undefined);
+      } catch (err) {
+        const name = timedOut
+          ? 'TimeoutError'
+          : (err instanceof Error || err instanceof DOMException) &&
+              ['Error', 'TypeError', 'AbortError', 'TimeoutError'].includes(err.name)
+            ? err.name
+            : 'Error';
+        // Sanitize before logCall sees the error, including its cause and stack.
+        throw new Error(name);
+      }
+    });
+    return { id, status: 'pass', blocking: false, fix: null };
+  } catch (err) {
+    const name = err instanceof Error ? err.message : 'Error';
+    return check(
+      id,
+      false,
+      `web.spurUiOrigin is unreachable (${name}). Start the Spur UI, fix proxy/TLS or correct web.spurUiOrigin in config.yaml; restart the daemon after config changes and rerun board doctor.`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const slackOkWire = z.object({ ok: z.literal(true) });
 const slackMemberWire = z.object({
   ok: z.literal(true),
@@ -533,6 +602,7 @@ export async function runDaemonDoctor(
 ): Promise<DoctorReport> {
   const { config, secrets } = ctx;
   const checks: Check[] = [];
+  const spurUi = spurUiCheck(ctx, fetcher, deadlineMs);
   if (config.web.port !== undefined)
     checks.push(
       check(
@@ -745,5 +815,6 @@ export async function runDaemonDoctor(
   checks.push(await operatorTokensCheck(ctx, config));
   checks.push(curatorSessionsCheck(await curatorSessions(ctx.store.db, config)));
   checks.push(orchestratorSessionsCheck(await orchestratorSessions(ctx.store.db, config)));
+  checks.push(await spurUi);
   return { version: productVersion, checks };
 }

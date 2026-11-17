@@ -27,6 +27,7 @@ digest:
 `;
 const remoteIds = [
   'secrets',
+  'web.spurUiOrigin',
   'jira.credentials',
   'github.credentials',
   'link.rules',
@@ -136,6 +137,35 @@ async function run(
 }
 
 describe('board doctor', () => {
+  it.each(['pass', 'warning', 'fail'] as const)(
+    'preserves the exact UI origin check in JSON (%s)',
+    async (status) => {
+      const check = {
+        id: 'web.spurUiOrigin',
+        status,
+        blocking: status === 'fail',
+        fix: status === 'pass' ? null : 'Set web.spurUiOrigin and rerun board doctor.',
+      };
+      const value = await run(
+        ['doctor', '--json'],
+        ports({
+          fetcher: (input) =>
+            Promise.resolve(
+              isSpur(input)
+                ? spurResponse(input)
+                : Response.json({
+                    version: '1.2.3',
+                    checks: remoteIds.map((id) =>
+                      id === check.id ? check : { id, status: 'pass', blocking: false, fix: null },
+                    ),
+                  }),
+            ),
+        }),
+      );
+      expect(value.checks.filter(({ id }) => id === check.id)).toEqual([check]);
+      expect(value.exitCode).toBe(status === 'fail' ? 1 : 0);
+    },
+  );
   it('exits with a blocking GitHub permission hint from the daemon', async () => {
     const fix =
       'Use a classic GitHub personal access token with the repo scope and SSO authorization.';
@@ -199,7 +229,9 @@ describe('board doctor', () => {
     ].sort();
     const guide = readFileSync(new URL('../../../TROUBLESHOOTING.md', import.meta.url), 'utf8');
     const section = guide.split('## Doctor checks\n')[1]?.split('\n## ')[0] ?? '';
-    const documented = [...section.matchAll(/^### ([a-z][a-z0-9_.]+)$/gm)].map((match) => match[1]);
+    const documented = [...section.matchAll(/^### ([a-z][a-z0-9_.]+|web\.spurUiOrigin)$/gm)].map(
+      (match) => match[1],
+    );
     expect(documented.length).toBe(new Set(documented).size);
     const web = await run(
       ['doctor', '--json'],
@@ -500,10 +532,11 @@ describe('board doctor', () => {
   it.each([
     ['a label filter', yaml],
     ['no filter', yaml.replace('\n      label: board', '')],
+    ['configured UI origin', `${yaml}web:\n  spurUiOrigin: https://ui.example.test\n`],
   ])(
     'uses only config validation offline and does not call any other port (%s)',
     async (filter, config) => {
-      expect(config.includes('label:')).toBe(filter === 'a label filter');
+      expect(config.includes('label:')).toBe(filter !== 'no filter');
       const fake = ports({
         readText(path) {
           if (path.endsWith('config.yaml')) return config;
@@ -842,34 +875,42 @@ describe('board doctor', () => {
     expect(human.output()).not.toContain('\u001b');
   });
 
-  it('warns about a known check the daemon did not report', async () => {
-    const value = await run(
-      ['doctor', '--json'],
-      ports({
-        fetcher: (input) =>
-          Promise.resolve(
-            isSpur(input)
-              ? Response.json([{ id: 'worker', path: '/main' }])
-              : Response.json({
-                  version: '1.2.3',
-                  checks: remoteIds
-                    .filter((id) => id !== 'spur.send')
-                    .map((id): DoctorCheck => ({ id, status: 'pass', blocking: false, fix: null })),
-                }),
-          ),
-      }),
-    );
-    expect(value.exitCode).toBe(0);
-    expect(value.checks.find((check) => check.id === 'daemon.available')?.status).toBe('pass');
-    expect(value.checks.filter((check) => check.id === 'spur.send')).toEqual([
-      {
-        id: 'spur.send',
-        status: 'warning',
-        blocking: false,
-        fix: 'The daemon did not report this check. Restart the user service so the daemon runs the installed version, then rerun board doctor.',
-      },
-    ]);
-  });
+  it.each(['spur.send', 'web.spurUiOrigin'])(
+    'warns about a known check the daemon did not report (%s)',
+    async (missingId) => {
+      const value = await run(
+        ['doctor', '--json'],
+        ports({
+          fetcher: (input) =>
+            Promise.resolve(
+              isSpur(input)
+                ? Response.json([{ id: 'worker', path: '/main' }])
+                : Response.json({
+                    version: '1.2.3',
+                    checks: remoteIds
+                      .filter((id) => id !== missingId)
+                      .map((id): DoctorCheck => ({
+                        id,
+                        status: 'pass',
+                        blocking: false,
+                        fix: null,
+                      })),
+                  }),
+            ),
+        }),
+      );
+      expect(value.exitCode).toBe(0);
+      expect(value.checks.find((check) => check.id === 'daemon.available')?.status).toBe('pass');
+      expect(value.checks.filter((check) => check.id === missingId)).toEqual([
+        {
+          id: missingId,
+          status: 'warning',
+          blocking: false,
+          fix: 'The daemon did not report this check. Restart the user service so the daemon runs the installed version, then rerun board doctor.',
+        },
+      ]);
+    },
+  );
 
   it('treats a report with an unknown status as unavailable', async () => {
     const value = await run(
