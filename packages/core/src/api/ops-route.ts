@@ -104,7 +104,7 @@ export function createOpsRoute(
       const run = () =>
         dispatchOperation(options, operation.id, parsed.data, caller.actor, body.key);
       const { via } = caller;
-      const dispatch = () => (via === undefined ? run() : withVia(via, run));
+      const dispatch = via === undefined ? run : () => withVia(via, run);
       const result = await (options.runOperation === undefined
         ? dispatch()
         : options.runOperation(operation.id, parsed.data, dispatch));
