@@ -392,7 +392,8 @@ export function createGithubPrFake(options: {
     };
   }
 
-  /** A new default-branch head with a push run and, when asked, a failed scheduled run. */
+  /** A new default-branch head with a push run of the CI workflow and, when asked, a failed
+   * scheduled run of the nightly workflow. */
   function setBranch(args: unknown): RouteResult {
     const parsed = branchControlSchema.safeParse(args ?? {});
     if (!parsed.success) return { status: 400, body: { error: z.prettifyError(parsed.error) } };
@@ -412,7 +413,13 @@ export function createGithubPrFake(options: {
       startedAt: at,
       completedAt: at,
       detailsUrl: `https://github.stand.invalid/${repo}/actions/runs/${String(heads)}`,
-      checkSuite: { createdAt: at, workflowRun: { event } },
+      checkSuite: {
+        createdAt: at,
+        workflowRun: {
+          event,
+          workflow: { id: event === 'push' ? 'W_stand_ci' : 'W_stand_nightly' },
+        },
+      },
     });
     const contexts = [run(check, state === 'red' ? 'FAILURE' : 'SUCCESS', 'push')];
     if (scheduledFailure !== undefined) contexts.push(run(scheduledFailure, 'FAILURE', 'schedule'));

@@ -833,11 +833,15 @@ describe('default branch', () => {
     expect(branch({ repo: BOARD, state: 'green', scheduledFailure: 'nightly' }).status).toBe(200);
     const ref = await runs();
     expect(ref?.target.statusCheckRollup.contexts.nodes).toMatchObject([
-      { name: 'build', conclusion: 'SUCCESS', checkSuite: { workflowRun: { event: 'push' } } },
+      {
+        name: 'build',
+        conclusion: 'SUCCESS',
+        checkSuite: { workflowRun: { event: 'push', workflow: { id: 'W_stand_ci' } } },
+      },
       {
         name: 'nightly',
         conclusion: 'FAILURE',
-        checkSuite: { workflowRun: { event: 'schedule' } },
+        checkSuite: { workflowRun: { event: 'schedule', workflow: { id: 'W_stand_nightly' } } },
       },
     ]);
     expect((await pollRepo(fakes, BOARD)).defaultBranch).toMatchObject({ state: 'green' });

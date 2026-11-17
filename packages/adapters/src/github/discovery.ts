@@ -88,7 +88,9 @@ const branchCheckRunWire = z.object({
   checkSuite: z
     .object({
       createdAt: z.string(),
-      workflowRun: z.object({ event: z.string() }).nullish(),
+      workflowRun: z
+        .object({ event: z.string(), workflow: z.object({ id: z.string().min(1) }) })
+        .nullish(),
     })
     .nullish(),
 });
@@ -120,6 +122,16 @@ const defaultBranchWire = z.object({
     }),
   }),
 });
+/**
+ * Only reruns of one check replace each other: a commit status by its context, a check run by
+ * its workflow and job name. A check run outside a push-triggered workflow has no key.
+ */
+function checkKey(node: BranchContext): string | undefined {
+  if (node.__typename === 'StatusContext') return `status:${node.context}`;
+  const run = node.checkSuite?.workflowRun;
+  if (run?.event !== 'push') return undefined;
+  return `check:${run.workflow.id}:${node.name}`;
+}
 const PASSED = new Set(['success', 'neutral', 'skipped']);
 const RUNNING = new Set(['pending', 'expected']);
 
@@ -127,24 +139,27 @@ const RUNNING = new Set(['pending', 'expected']);
  * The colour of the default-branch head in a discovery response's `repository`, or undefined
  * when it is unknown: an unexpected shape, a running head, no counted check, or a truncated page
  * with no failure in it. Only check runs of push-triggered workflows and commit statuses count;
- * the latest of each name decides. A run URL that is not http(s) becomes null.
+ * the latest run of each check decides (see `checkKey`). A run URL that is not http(s) becomes null.
  */
 export function defaultBranchFact(repository: unknown): Batch['defaultBranch'] {
   const parsed = defaultBranchWire.safeParse(repository);
   if (!parsed.success) return undefined;
   const { name: branch, target } = parsed.data.defaultBranchRef;
   const { nodes, pageInfo } = target.statusCheckRollup.contexts;
-  const latest = new Map<string, BranchContext>();
+  const latest = new Map<string, { check: string; node: BranchContext }>();
   for (const node of nodes) {
-    if (node.__typename === 'CheckRun' && node.checkSuite?.workflowRun?.event !== 'push') continue;
-    const name = node.__typename === 'StatusContext' ? node.context : node.name;
-    const old = latest.get(name);
-    if (old !== undefined && contextAt(old) > contextAt(node)) continue;
-    latest.set(name, node);
+    const key = checkKey(node);
+    if (key === undefined) continue;
+    const old = latest.get(key);
+    if (old !== undefined && contextAt(old.node) > contextAt(node)) continue;
+    latest.set(key, {
+      check: node.__typename === 'StatusContext' ? node.context : node.name,
+      node,
+    });
   }
   const kept = [...latest.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([check, node]) => ({ check, node, state: checkState(node) }));
+    .sort(([a, x], [b, y]) => x.check.localeCompare(y.check) || a.localeCompare(b))
+    .map(([, { check, node }]) => ({ check, node, state: checkState(node) }));
   const failing = kept.find(({ state }) => !PASSED.has(state) && !RUNNING.has(state));
   if (failing !== undefined) {
     const { check, node } = failing;

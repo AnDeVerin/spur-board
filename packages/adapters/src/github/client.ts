@@ -109,7 +109,7 @@ const discoveryStates = (bootstrap: boolean): string =>
 // The default-branch head's check runs, with the event that triggered each run's workflow, and
 // commit statuses; only the first discovery request selects them (`defaultBranchFact`).
 export const DEFAULT_BRANCH_FIELDS =
-  'defaultBranchRef { name target { __typename ... on Commit { oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } } } } }';
+  'defaultBranchRef { name target { __typename ... on Commit { oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } } } } }';
 // Discovery has no aliases; the trailing double space keeps the recorded request text.
 export function discoveryQuery(bootstrap = false): string {
   const states = discoveryStates(bootstrap);

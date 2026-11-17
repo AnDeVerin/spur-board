@@ -138,7 +138,7 @@ function replayBody(body: Json): string {
       ...body,
       query: body['query']
         .replace(
-          ' defaultBranchRef { name target { __typename ... on Commit { oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } } } } }',
+          ' defaultBranchRef { name target { __typename ... on Commit { oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } } } } }',
           '',
         )
         .replace('rateLimit { cost limit remaining resetAt }', 'rateLimit { remaining resetAt }')

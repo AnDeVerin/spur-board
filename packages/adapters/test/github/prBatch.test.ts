@@ -260,7 +260,7 @@ describe('GitHub PR batch', () => {
   it('pins the discovery and detail queries', () => {
     const query = discoveryQuery();
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      'f6425a7dd207d7cc317a79e21ec23f533a4eba1b649c00db3146f738d7e4578f',
+      '29fc24c05fec73a91ef181d9f0c3cbd3a81038003d9c278b88067dc6b2844184',
     );
     expect(query).toContain('rateLimit { cost limit remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
@@ -272,7 +272,7 @@ describe('GitHub PR batch', () => {
     expect(details).toContain('pr0: repository');
     const bootstrapQuery = discoveryQuery(true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      '74df6ac5cd5c120a34fbd85f62994f0c7d1064ccfe73039662823802822a4780',
+      '374cb477e217ef7cf86c63bf3ee8c66ce10d3da5eb226b7a39f6d07489f1b718',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
     expect(bootstrapQuery).toContain(
@@ -281,11 +281,11 @@ describe('GitHub PR batch', () => {
     expect(pageQuery('pullRequests', true)).toContain('states: [OPEN]');
     for (const discovery of [query, bootstrapQuery]) {
       expect(discovery).toContain('defaultBranchRef { name');
-      expect(discovery).toContain('workflowRun { event }');
+      expect(discovery).toContain('workflowRun { event workflow { id } }');
     }
     for (const other of [pageQuery('pullRequests'), pageQuery('pullRequests', true), details]) {
       expect(other).not.toContain('defaultBranchRef');
-      expect(other).not.toContain('workflowRun { event }');
+      expect(other).not.toContain('workflowRun { event workflow { id } }');
     }
     expect(details).not.toContain('closingIssuesReferences');
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');

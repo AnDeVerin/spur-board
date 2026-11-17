@@ -295,7 +295,7 @@ describe('default branch head', () => {
     name: string,
     conclusion: string | null,
     event: string | null,
-    { status = 'COMPLETED', startedAt = old, url = runUrl } = {},
+    { status = 'COMPLETED', startedAt = old, url = runUrl, workflow = 'W_ci' } = {},
   ) => ({
     __typename: 'CheckRun',
     name,
@@ -304,7 +304,10 @@ describe('default branch head', () => {
     startedAt,
     completedAt: status === 'COMPLETED' ? startedAt : null,
     detailsUrl: url,
-    checkSuite: { createdAt: old, workflowRun: event === null ? null : { event } },
+    checkSuite: {
+      createdAt: old,
+      workflowRun: event === null ? null : { event, workflow: { id: workflow } },
+    },
   });
   const commitStatus = (context: string, state: string, targetUrl: string | null = null) => ({
     __typename: 'StatusContext',
@@ -343,7 +346,7 @@ describe('default branch head', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     const body = fetcher.mock.calls[0]?.[1]?.body as string;
     expect(body).toContain('defaultBranchRef');
-    expect(body).toContain('workflowRun { event }');
+    expect(body).toContain('workflowRun { event workflow { id } }');
     expect(batch.defaultBranch).toEqual(red);
     expect(batch.complete).toBe(true);
     expect(batchSchema.parse(batch)).toEqual(batch);
@@ -479,5 +482,53 @@ describe('default branch head', () => {
       ...red,
       check: 'lint',
     });
+  });
+
+  it('replaces a check only with a later run of the same check', async () => {
+    const later = '2026-01-01T01:00:00.000Z';
+    const cases: [string, unknown[], unknown][] = [
+      [
+        'same job name in two push workflows, one failing',
+        [
+          run('build', 'FAILURE', 'push', { workflow: 'W_ci' }),
+          run('build', 'SUCCESS', 'push', { workflow: 'W_release', startedAt: later }),
+        ],
+        red,
+      ],
+      [
+        'a check run and a commit status sharing a name, the status failing',
+        [
+          commitStatus('build', 'FAILURE', runUrl),
+          run('build', 'SUCCESS', 'push', { startedAt: later }),
+        ],
+        red,
+      ],
+      [
+        'a check run and a commit status sharing a name, the check run failing',
+        [
+          run('build', 'FAILURE', 'push'),
+          { ...commitStatus('build', 'SUCCESS'), createdAt: later },
+        ],
+        red,
+      ],
+      [
+        'a rerun of the same job in the same workflow, failed then succeeded',
+        [
+          run('build', 'FAILURE', 'push', { workflow: 'W_ci' }),
+          run('build', 'SUCCESS', 'push', { workflow: 'W_ci', startedAt: later }),
+        ],
+        green,
+      ],
+      [
+        'a scheduled run of the same name in the same workflow',
+        [
+          run('build', 'SUCCESS', 'push', { workflow: 'W_ci' }),
+          run('build', 'FAILURE', 'schedule', { workflow: 'W_ci', startedAt: later }),
+        ],
+        green,
+      ],
+    ];
+    for (const [label, nodes, expected] of cases)
+      expect({ label, fact: await branchOf(nodes) }).toEqual({ label, fact: expected });
   });
 });
