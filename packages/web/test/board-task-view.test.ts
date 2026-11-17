@@ -10,6 +10,7 @@ import {
   deferred,
   envelope,
   hello,
+  inbox,
   problem,
   status,
   taskGet,
@@ -267,8 +268,102 @@ describe('task view', () => {
     history.replaceState(null, '', `/?open=${value}`);
     mount(daemon());
     await settle();
-    expect(dialog()).toBeNull();
+    if (value === 'inbox') expect(dialog()?.textContent).toContain('Inbox');
+    else expect(dialog()).toBeNull();
     expect(taskCalls()).toHaveLength(0);
+  });
+
+  it.each([false, true])(
+    'inbox task layers return focus with removed opener %s and preserve native modified clicks',
+    async (remove) => {
+      const d = daemon();
+      d.routes['inbox.operator'] = () =>
+        Promise.resolve(
+          envelope({
+            items: [{ ...inbox(1).items[0], project: 'b', task: 'ex/repo#7' }],
+            handled: [],
+          }),
+        );
+      d.routes['task.get'] = () =>
+        Promise.resolve(
+          envelope(
+            taskGet({
+              task: { key: 'ex/repo#7', project: 'b', column: 'todo', membership: 'active' },
+            }),
+          ),
+        );
+      const data = mount(d);
+      await settle();
+      const trigger = [...document.querySelectorAll('header button')].find((button) =>
+        button.textContent.includes('inbox'),
+      );
+      if (!trigger) throw new Error('missing inbox trigger');
+      click(trigger);
+      await settle();
+      const row = document.querySelector<HTMLElement>('[data-inbox-id="B1"]');
+      if (!row) throw new Error('missing inbox row');
+      for (const modifier of ['ctrlKey', 'metaKey', 'shiftKey', 'altKey']) {
+        const event = new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          [modifier]: true,
+        });
+        act(() => {
+          row.dispatchEvent(event);
+        });
+        expect(event.defaultPrevented).toBe(false);
+      }
+      expect(taskCalls()).toHaveLength(0);
+      d.routes['status.get'] = () => new Promise<Response>(() => undefined);
+      click(row);
+      await settle();
+      expect(data.snapshot().project).toBe('b');
+      expect(data.snapshot().status).toBeUndefined();
+      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2);
+      expect(history.state).toEqual({ inbox: true, project: 'b' });
+      if (remove) {
+        d.routes['inbox.operator'] = () => Promise.resolve(envelope(inbox(0)));
+        d.send('event: reset\ndata: {}\n\n');
+        await settle();
+      }
+      key('Escape');
+      await settle();
+      expect(location.search).toBe('?open=inbox');
+      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+      expect(document.activeElement).toBe(remove ? close() : row);
+      key('Escape');
+      await settle();
+      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
+      expect(document.activeElement?.textContent).toBe(remove ? 'inbox0' : 'inbox1');
+    },
+  );
+
+  it('initial inbox task history waits for config before selecting the task project and reading it', async () => {
+    history.replaceState({ inbox: true, project: 'b' }, '', '/?open=ex%2Frepo%237');
+    const d = daemon();
+    const held = deferred();
+    d.routes['config.get'] = () => held.promise;
+    const data = mount(d);
+    await settle();
+    expect(taskCalls()).toHaveLength(0);
+    held.resolve(envelope(config));
+    await settle();
+    expect(data.snapshot().project).toBe('b');
+    expect(taskCalls()).toHaveLength(1);
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2);
+    act(() => {
+      history.replaceState(null, '', '/?open=inbox');
+      dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await settle();
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    act(() => {
+      history.replaceState({ inbox: true, project: 'b' }, '', '/?open=ex%2Frepo%237');
+      dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await settle();
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2);
   });
 
   it('with a task open the only new request is task.get with why', async () => {

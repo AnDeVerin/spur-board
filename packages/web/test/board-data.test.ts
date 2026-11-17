@@ -293,6 +293,12 @@ describe('board data', () => {
     await settle();
     expect(d.reads()).toEqual(['inbox.operator']);
     d.calls.length = 0;
+    d.send('event: invalidate\ndata: {"projects":["_board"],"tasks":[]}\n\n');
+    await settle();
+    await vi.advanceTimersByTimeAsync(400);
+    await settle();
+    expect(d.reads()).toEqual(['inbox.operator']);
+    d.calls.length = 0;
     d.send('event: invalidate\ndata: {"projects":["a"],"tasks":["A-1"]}\n\n');
     await settle();
     await vi.advanceTimersByTimeAsync(400);
