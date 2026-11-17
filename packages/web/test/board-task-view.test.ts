@@ -343,14 +343,14 @@ describe('task view', () => {
     },
   );
 
-  it('initial inbox task history waits for config before selecting the task project and reading it', async () => {
+  it('initial inbox task history reads immediately and selects the project once config arrives', async () => {
     history.replaceState({ inbox: true, project: 'b' }, '', '/?open=ex%2Frepo%237');
     const d = daemon();
     const held = deferred();
     d.routes['config.get'] = () => held.promise;
     const data = mount(d);
     await settle();
-    expect(taskCalls()).toHaveLength(0);
+    expect(taskCalls()).toHaveLength(1);
     held.resolve(envelope(config));
     await settle();
     expect(data.snapshot().project).toBe('b');

@@ -88,13 +88,18 @@ export function Board({ data }: { data: BoardData }) {
     };
   }, []);
   useEffect(() => {
-    if (pendingProject !== null) {
-      if (snapshot.config === undefined) return;
-      data.choose(pendingProject);
+    if (pendingProject === null) return;
+    if (openKey === null || !inboxOpen) {
       setPendingProject(null);
+      return;
     }
+    if (snapshot.config === undefined) return;
+    data.choose(pendingProject);
+    setPendingProject(null);
+  }, [data, openKey, inboxOpen, pendingProject, snapshot.config]);
+  useEffect(() => {
     data.open(openKey);
-  }, [data, openKey, pendingProject, snapshot.config]);
+  }, [data, openKey]);
   useEffect(() => {
     if (wasInboxOpen.current && !inboxOpen) inboxTrigger.current?.querySelector('button')?.focus();
     wasInboxOpen.current = inboxOpen;

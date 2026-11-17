@@ -32,8 +32,8 @@ Header, left to right:
   attention, newest first within severity. Handled entries retain query order, marked handled
   with their answer channel when supplied. Supplied actions appear separately; an exact terminal
   `: <action>` is removed from the description. Before the first success, the panel says inbox data
-  is unavailable; later failures retain data. Task rows select their project and open above the
-  retained panel. Task close focuses its row or panel Close if removed; panel close focuses the
+  is unavailable; later failures retain data. Task rows open above the retained panel and select
+  their project when config arrives. Task close focuses its row or panel Close if removed; panel close focuses the
   header inbox button. Back/Forward follow these layers. Non-task rows are focusable; all are read-only.
 
 Columns follow configuration order:

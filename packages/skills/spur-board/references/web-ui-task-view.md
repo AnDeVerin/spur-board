@@ -10,8 +10,8 @@ A click or Enter on a card opens it and sets the address to `?open=<task key>`. 
 address opens it too, with the full key (`?open=ex%2Frepo%237`) or a short one
 (`?open=repo%237`). `?open=inbox` and `?open=services` open no task view.
 
-A task entry in the inbox selects its project and opens the task above the retained inbox
-panel. Back and Forward restore the task and its inbox background together.
+A task entry in the inbox opens above the retained panel, even without configuration. Its project
+is selected once configuration arrives. Back and Forward restore both layers.
 
 ## What it shows
 
