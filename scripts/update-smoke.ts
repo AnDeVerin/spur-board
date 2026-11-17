@@ -255,6 +255,8 @@ interface Registry {
   url: string;
   server: Server;
   publish(version: string, tarball: string): void;
+  /** Answers 404 to the next `misses` GETs of a published version's tarball, as CDN lag does. */
+  holdTarball(version: string, misses: number): void;
 }
 
 /**
@@ -270,6 +272,7 @@ export async function startRegistry(overrides: Partial<RegistryDeps> = {}): Prom
   };
   const published: PublishedVersion[] = [];
   const tarballs = new Map<string, Buffer>();
+  const held = new Map<string, number>();
   let url = '';
   const server = createServer((request, response) => {
     const path = request.url ?? '/';
@@ -282,6 +285,13 @@ export async function startRegistry(overrides: Partial<RegistryDeps> = {}): Prom
       return;
     }
     const tarball = tarballs.get(path);
+    const misses = held.get(path) ?? 0;
+    if (request.method === 'GET' && tarball !== undefined && misses > 0) {
+      held.set(path, misses - 1);
+      response.writeHead(404, { 'content-type': 'application/json' });
+      response.end('{"error":"Not found"}');
+      return;
+    }
     if (request.method === 'GET' && tarball !== undefined) {
       response.writeHead(200, { 'content-type': 'application/octet-stream' });
       response.end(tarball);
@@ -327,6 +337,9 @@ export async function startRegistry(overrides: Partial<RegistryDeps> = {}): Prom
       check(manifest['version'] === version, `tarball ${file} is not version ${version}`);
       published.push({ manifest, integrity: integrity(bytes) });
       tarballs.set(`/${NAME}/-/${NAME}-${version}.tgz`, bytes);
+    },
+    holdTarball(version, misses) {
+      held.set(`/${NAME}/-/${NAME}-${version}.tgz`, misses);
     },
   };
 }
@@ -624,8 +637,14 @@ async function scenarioA(stand: Stand, registry: Registry, files: Map<string, st
   const instanceBefore = await ready(stand);
   log(`V1 installed, blocking before: ${[...before.blocking].join(', ') || 'none'}`);
 
+  // The registry lists 1.1.0 but withholds its tarball twice, as a CDN does after a publish.
+  registry.holdTarball('1.1.0', 2);
   const update = await boardRun(stand, ['--json', 'update'], 900_000);
   expectExit(update, 0, 'board update to 1.1.0');
+  check(
+    update.stderr.includes('update: tarball wait'),
+    'update did not wait for the withheld 1.1.0 tarball',
+  );
   const result = parse(update.stdout, 'board update') as {
     to?: string;
     firstPoll?: string;

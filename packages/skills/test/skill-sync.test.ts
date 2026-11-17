@@ -505,14 +505,11 @@ describe('public guide command mentions', () => {
   it('documents board update and the rollback recovery', () => {
     const [, setup, troubleshooting] = publicGuides;
     const updateRun = setupTexts[setupNames.indexOf('update.md')];
-    expect(setup).toContain('`board update`');
-    expect(updateRun).toContain('`board update`');
     for (const guide of [setup, updateRun]) {
-      expect(guide).toContain('without `board update`');
-      expect(guide).toContain('`board service install`');
+      for (const token of ['`board update`', 'without `board update`', '`board service install`'])
+        expect(guide).toContain(token);
       expect(guide).toContain('`board service restart` only when the service was active before');
-      expect(guide).toContain('`npm pack`');
-      expect(guide).toContain('10 minutes');
+      for (const token of ['`npm pack`', '10 minutes']) expect(guide).toContain(token);
     }
     for (const token of ['update_rolled_back', 'rollback_failed', '`board rollback --yes`'])
       expect(troubleshooting).toContain(token);
