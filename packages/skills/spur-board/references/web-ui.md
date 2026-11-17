@@ -12,8 +12,8 @@ build the UI assets, then open `web.publicOrigin`. A 503 `UI is not built` means
 see
 [Building the web UI](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#building-the-web-ui).
 
-The UI reads `config.get`, `status.get` for the chosen project, `inbox.operator`, `task.get` for the
-open task and the `/v1/events` stream, and holds no data of its own.
+The UI reads `config.get`, `status.get` for the chosen project, `inbox.operator`, `task.get` and
+`task.history` for the open task and the `/v1/events` stream; it keeps no data.
 
 ## What it shows
 
@@ -104,8 +104,9 @@ history entry, so Back after a close reopens it.
 
 ## Task view
 
-A card or `?open=<task key>` opens the task view: its links and **Why it is here**, the conditions,
-holds, turn and blocks keeping it in its column. See the [task view](web-ui-task-view.md) guide.
+A card or `?open=<task key>` opens the task view: links, **Why it is here** and **History**
+(journal events with the actor's channel, as `operator (web)`). See the
+[task view](web-ui-task-view.md) guide.
 
 ## Live and stale states
 

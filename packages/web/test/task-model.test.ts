@@ -1,8 +1,10 @@
 import { browserOperations } from '@spur-board/contracts/browser';
 import { describe, expect, it } from 'vitest';
 import {
+  actorLabel,
   actorName,
   age,
+  historyRows,
   linkChips,
   nextColumn,
   taskParam,
@@ -10,7 +12,7 @@ import {
   whyRows,
   whySummary,
 } from '../src/board/task-model.ts';
-import { taskGet } from './board-fixtures.ts';
+import { historyEvent, T, T_TEXT, taskGet, taskHistory } from './board-fixtures.ts';
 
 const NOW = Date.parse('2026-11-15T14:00:00.000Z');
 const COLUMNS = ['todo', 'dev', 'review', 'done'];
@@ -280,5 +282,50 @@ describe('link chips', () => {
         label: 'session sb-1234, Spur session',
       },
     ]);
+  });
+});
+
+describe('history rows', () => {
+  it.each([
+    ['operator', 'web', 'operator (web)'],
+    ['operator', 'slack', 'operator (slack)'],
+    ['operator', 'carrier', 'operator (carrier)'],
+    ['agent:web/web-7', undefined, 'web-7'],
+    ['agent:web/web-7', 'slack', 'web-7 (slack)'],
+    ['operator', undefined, 'operator'],
+    ['system', undefined, 'system'],
+  ])('actor %s via %s reads %s', (actor, via, label) => {
+    expect(actorLabel(actor, via)).toBe(label);
+  });
+
+  it('lists events newest first, equal timestamps in reverse journal order, kinds verbatim', () => {
+    const { events } = browserOperations['task.history'].read.parse(taskHistory());
+    const rows = historyRows(events);
+    expect(rows.map((row) => row.kind)).toEqual([
+      'flag_raised',
+      'task_moved',
+      'block_unblocked',
+      'comment_added',
+      'turn_closed',
+      'turn_taken',
+      'turn_opened',
+      'task_added',
+    ]);
+    expect(rows.map((row) => row.key)).toEqual([7, 6, 5, 4, 3, 2, 1, 0]);
+    expect(rows.at(-1)).toEqual({
+      key: 0,
+      time: T_TEXT,
+      summary: 'Added to Dev.',
+      actor: 'operator',
+      kind: 'task_added',
+    });
+    expect(rows[2]?.actor).toBe('operator (slack)');
+    expect(rows[3]?.actor).toBe('operator (web)');
+    expect(rows[5]).toMatchObject({ time: '14:42 15/11/26', actor: 'web-7', kind: 'turn_taken' });
+    expect(historyRows([])).toEqual([]);
+    const unknown = browserOperations['task.history'].read.parse(
+      taskHistory([historyEvent(T, 'future_kind', 'system', 'Something new.')]),
+    ).events;
+    expect(historyRows(unknown)[0]).toMatchObject({ kind: 'future_kind' });
   });
 });

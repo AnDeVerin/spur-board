@@ -8,6 +8,7 @@ import {
   shellFixture,
   shellInbox,
   shellTask,
+  shellHistory,
   shellScenarios,
 } from './web-shell-qa.ts';
 import { browserOperations, statusOutputSchema } from '../packages/contracts/src/browser.ts';
@@ -403,6 +404,7 @@ describe('shell QA scenarios', () => {
     expect(browserOperations['config.get'].output.safeParse(shellConfig()).success).toBe(true);
     expect(browserOperations['inbox.operator'].output.safeParse(shellInbox()).success).toBe(true);
     expect(browserOperations['task.get'].output.safeParse(shellTask()).success).toBe(true);
+    expect(browserOperations['task.history'].output.safeParse(shellHistory()).success).toBe(true);
     expect(shellConfig().projects.map((project) => project.id)).toEqual([
       ...new Set(shellFixture('healthy').tasks.map((task) => task.project)),
     ]);
