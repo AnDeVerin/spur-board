@@ -54,6 +54,17 @@ export const columnsBasic = columnsScenario({
   open: openIssues,
 });
 
+export const columnsUnknown: Scenario = {
+  ...columnsScenario({
+    name: 'columns-unknown',
+    summary: 'Nine tasks with six in columns omitted from the project configuration.',
+    project: 'stand',
+    key: issueKey,
+    open: openIssues,
+  }),
+  config: { stand: { columns: [{ id: 'todo' }, { id: 'dev' }, { id: 'done' }] } },
+};
+
 export const columnsBasicJira = columnsScenario({
   name: 'columns-basic-jira',
   summary: 'Nine stand-jira tasks from Jira tickets STAND-1..9, one in each column.',

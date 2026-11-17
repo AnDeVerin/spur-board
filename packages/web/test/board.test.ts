@@ -2,7 +2,6 @@
 import { act, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { boardColumns } from '../src/board/model.ts';
 import { Chip, focusRing, quiet } from '../src/ds/index.ts';
 import {
   config,
@@ -17,7 +16,6 @@ import {
   ROWS,
   source,
   status,
-  parsed,
 } from './board-fixtures.ts';
 import {
   all,
@@ -298,19 +296,9 @@ describe('board screen', () => {
     const dev = one('main section:not([title])');
     expect(dev.querySelector('h2')?.parentElement?.textContent).toBe('dev2');
     expect(dev.textContent).toContain('worker stand-worker');
-    expect(all('main ul a').map((link) => link.title)).toEqual(DONE);
+    expect(all('main ul:not([hidden]) a').map((link) => link.title)).toEqual(DONE);
     expect(one('main').textContent).not.toContain('+');
-    expect(links().map((link) => link.title)).not.toContain('ex/repo#99');
-  });
-
-  it('boardColumns drops a row whose column config lacks', () => {
-    const columns = boardColumns(parsed().columns, parsed().rows);
-    expect(columns.map(({ id, rows }) => [id, rows.length])).toEqual([
-      ['todo', 0],
-      ['dev', 2],
-      ['review', 0],
-      ['done', 7],
-    ]);
+    expect(button('1 task in unknown columns').getAttribute('aria-expanded')).toBe('false');
   });
 
   it('cards are links to ?open=<key>', async () => {
@@ -368,6 +356,8 @@ describe('board screen', () => {
     const d = daemon();
     mount(d);
     await settle();
+    const marker = button('1 task in unknown columns');
+    press(marker, 'click');
     d.send(hello);
     await settle();
     expect(indicator()).toBe('live');
@@ -376,6 +366,8 @@ describe('board screen', () => {
     expect(indicator()).toBe('reconnecting');
     expect(banners()).toHaveLength(0);
     expect(all('[data-stale]')).toHaveLength(0);
+    expect(marker.getAttribute('aria-expanded')).toBe('true');
+    expect(one('main a[title="ex/repo#99"]').closest('[hidden]')).toBeNull();
   });
 
   it('banners stack error, warning, info', async () => {
@@ -464,7 +456,7 @@ describe('board screen', () => {
     expect(heads.every((head) => head?.classList.contains(quiet))).toBe(true);
     expect(all('main section[title]').every((spine) => spine.classList.contains(quiet))).toBe(true);
     expect(one('main ul').classList.contains(quiet)).toBe(true);
-    expect(links()).toHaveLength(9);
+    expect(links()).toHaveLength(10);
     for (const link of links()) expect(link.classList.contains(focusRing)).toBe(true);
     for (const link of all('main ul a')) expect(link.classList.contains(quiet)).toBe(true);
     const cards = all('main a[title="ex/repo#7"], main a[title="ABC-3"]');

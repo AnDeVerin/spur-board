@@ -119,7 +119,7 @@ export const prLink = (number: number) => ({
   url: `https://github.com/ex/repo/pull/${String(number)}`,
 });
 export const DONE = [20, 21, 22, 23, 24, 25, 26].map((n) => `ex/repo#${String(n)}`);
-// Done first and a row in a column config lacks: the screen orders by config and drops it.
+// Done first and an unmatched row: configured groups come first, then the unknown disclosure.
 export const ROWS = [
   ...DONE.map((key) =>
     row(

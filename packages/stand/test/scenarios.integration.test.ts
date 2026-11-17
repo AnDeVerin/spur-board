@@ -245,6 +245,7 @@ describe('scenarios', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
+      'columns-unknown',
       'question-to-operator',
       'question-to-curator',
       'curator-escalation',
@@ -542,6 +543,31 @@ describe('each scenario', () => {
       expect(key, column).toBeDefined();
       expect(tasks.filter((task) => task.column === column).map((task) => task.key)).toEqual([key]);
     }
+  }, 60_000);
+
+  it('columns-unknown: omitted-column tasks remain readable through production operations', async () => {
+    await up();
+    const { scenario } = await seed('columns-unknown');
+    const config = await op<{ projects: { id: string; columns: { id: string }[] }[] }>(
+      current(),
+      'config.get',
+      {},
+    );
+    const columns = config.projects
+      .find((project) => project.id === 'stand')
+      ?.columns.map(({ id }) => id);
+    expect(columns).toEqual(['todo', 'dev', 'done']);
+    const { tasks } = await status(current());
+    expect(tasks).toHaveLength(9);
+    const unknown = tasks.filter((task) => !columns?.includes(task.column));
+    expect(unknown).toHaveLength(6);
+    expect(tasks.filter((task) => columns?.includes(task.column))).toHaveLength(3);
+    const key = scenario.tasks?.['qa'];
+    expect(unknown.map((task) => task.key)).toContain(key);
+    const read = await op<{ task: { key: string; column: string } }>(current(), 'task.get', {
+      task: key,
+    });
+    expect(read.task).toMatchObject({ key, column: 'qa' });
   }, 60_000);
 
   it('question-to-operator: the block is open to the operator and an answer rings the worker', async () => {

@@ -50,8 +50,46 @@
   scrollbar-width: thin;
 }
 .column[data-stale],
+.unknown[data-stale],
 .spine[data-stale] {
   opacity: var(--opacity-stale);
+}
+
+.unknown {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: var(--size-column);
+  min-height: 0;
+}
+.unknownLabel {
+  color: var(--color-text-tertiary);
+}
+.unknownList {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 0;
+  margin: 0;
+  padding: calc(2 * var(--space-0-25));
+  overflow-y: auto;
+  scrollbar-width: thin;
+  list-style: none;
+}
+.unknownRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1-5) var(--space-0-25);
+  border-bottom: var(--size-hairline) solid var(--color-border-subtle);
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+.unknownRow[data-dimmed] {
+  opacity: var(--opacity-dimmed);
 }
 
 /* An empty column collapses to a spine. */

@@ -55,7 +55,8 @@ Columns follow configuration order:
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
     on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
     without a turn. Ages stop while the data is stale.
-- A task in an unconfigured column is hidden.
+- Unconfigured columns: a trailing count opens a list of task keys, titles and original columns.
+  Rows open the task view. At zero, both are absent.
 
 On a narrow screen columns scroll sideways; the mode and filter are hidden.
 
