@@ -34,14 +34,14 @@
   --color-modal-backdrop: rgba(0, 0, 0, 0.6);
 
   /* borders */
-  --color-border-subtle: rgba(35, 35, 38, 0.6);
-  --color-border-default: #232326;
-  --color-border-strong: #323236;
+  --color-border-subtle: #2a2a2e;
+  --color-border-default: #38383d;
+  --color-border-strong: #48484f;
 
   /* text */
   --color-text-primary: #e1e1e1;
   --color-text-secondary: #a1a1a1;
-  --color-text-tertiary: #6b6b70;
+  --color-text-tertiary: #85858c;
   --color-text-inverse: #0d0d0e;
   --color-text-attention: #ffd700;
 
@@ -60,6 +60,7 @@
   --color-fill-ready: rgba(63, 185, 80, 0.1);
   --color-fill-attention: rgba(255, 215, 0, 0.1);
   --color-fill-error: rgba(255, 77, 77, 0.12);
+  --color-fill-violet: rgba(163, 113, 247, 0.12);
 
   /* the one filled marker: something waits for the operator */
   --color-you-bg: #c9a227;
@@ -175,6 +176,7 @@
   --color-fill-ready: rgba(26, 127, 55, 0.08);
   --color-fill-attention: rgba(191, 135, 0, 0.12);
   --color-fill-error: rgba(207, 34, 46, 0.08);
+  --color-fill-violet: rgba(130, 80, 223, 0.08);
 
   --color-you-bg: #bf8700;
   --color-you-text: #ffffff;

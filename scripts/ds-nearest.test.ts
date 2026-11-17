@@ -50,9 +50,9 @@ describe('nearest colour', () => {
     expect(out.at(-1)).toBe('verdict: out');
   });
 
-  it('puts #7a7a80 out on dark at 5.99', () => {
-    expect(line(lines(['#7a7a80']), 'dark')).toBe(
-      'dark  #7a7a80: --color-text-tertiary #6b6b70 - ΔE00 5.99 - out',
+  it('puts #76767b out on dark at 5.91', () => {
+    expect(line(lines(['#76767b']), 'dark')).toBe(
+      'dark  #76767b: --color-text-tertiary #85858c - ΔE00 5.91 - out',
     );
   });
 

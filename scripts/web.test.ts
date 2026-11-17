@@ -126,7 +126,7 @@ describe('web design assets and policy', () => {
       for (const token of [main, binding('.detail', 'color')]) pairs.push([token, background]);
     }
     for (const [kind, names] of [
-      ['text', ['primary', 'secondary']],
+      ['text', ['primary', 'secondary', 'tertiary']],
       ['status', ['working', 'ready', 'attention', 'error']],
     ] as const)
       for (const name of names)
