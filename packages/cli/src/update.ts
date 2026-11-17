@@ -806,7 +806,6 @@ function blockingIds(report: DoctorReport): Set<string> {
   return new Set(report.filter((check) => check.blocking).map((check) => check.id));
 }
 
-/** `board update [version]`: preflight, snapshot, stop, backup, install, then health checks. */
 /**
  * Downloads `target` with `npm pack` before anything changes, so a registry that lists a version
  * but does not serve its tarball yet stops the update while the service still runs. A 404 is
@@ -852,6 +851,7 @@ async function confirmTarball(
   }
 }
 
+/** `board update [version]`: preflight, snapshot, stop, backup, install, then health checks. */
 export async function updatePackage(
   options: UpdateOptions,
   requested: string | undefined,
