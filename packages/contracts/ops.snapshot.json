@@ -1,5 +1,5 @@
 {
-  "version": "8393b906caf82a0aa6aef64b4efaaf0fda916fc2e6992a51d52f9672c987b01b",
+  "version": "940cde0cb3393b80d9eee4ea60ec922ec68e0f8d8386ba78436f52306ee88de9",
   "grants": [
     "operator",
     "project-agent",
@@ -1461,7 +1461,7 @@
                   "description": "Whether this source needs a complete poll in this daemon run."
                 },
                 "defaultBranch": {
-                  "description": "GitHub pull request sources only: the default-branch colour, counting only failed check runs of push-triggered workflows and failed commit statuses (scheduled and other runs ignored, branch protection not read); null until a poll reads it.",
+                  "description": "GitHub pull request sources only: the default-branch colour, red when the latest check run of a push-triggered workflow finished without success (failed, cancelled, timed out) or a commit status failed (scheduled and other runs ignored, branch protection not read); null until a poll reads it.",
                   "anyOf": [
                     {
                       "type": "object",
@@ -1498,7 +1498,7 @@
                       },
                       "required": ["branch", "state", "sha", "since", "check", "url"],
                       "additionalProperties": false,
-                      "description": "Colour of the default-branch head. Only failed check runs of push-triggered workflows and failed commit statuses make it red; scheduled, manual and other runs and check runs outside workflows are ignored, and branch protection is not read."
+                      "description": "Colour of the default-branch head. It is red when the latest check run of a push-triggered workflow finished without success (failed, cancelled, timed out) or a commit status failed; scheduled, manual and other runs and check runs outside workflows are ignored, and branch protection is not read."
                     },
                     { "type": "null" }
                   ]

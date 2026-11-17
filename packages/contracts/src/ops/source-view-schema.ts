@@ -14,7 +14,7 @@ export const defaultBranchViewSchema = z
     url: webUrl.nullable().describe('Web URL of the failing run, or null.'),
   })
   .describe(
-    'Colour of the default-branch head. Only failed check runs of push-triggered workflows and failed commit statuses make it red; scheduled, manual and other runs and check runs outside workflows are ignored, and branch protection is not read.',
+    'Colour of the default-branch head. It is red when the latest check run of a push-triggered workflow finished without success (failed, cancelled, timed out) or a commit status failed; scheduled, manual and other runs and check runs outside workflows are ignored, and branch protection is not read.',
   );
 export type DefaultBranchView = z.output<typeof defaultBranchViewSchema>;
 
@@ -64,7 +64,7 @@ export const sourceViewSchema = z
       .nullable()
       .optional()
       .describe(
-        'GitHub pull request sources only: the default-branch colour, counting only failed check runs of push-triggered workflows and failed commit statuses (scheduled and other runs ignored, branch protection not read); null until a poll reads it.',
+        'GitHub pull request sources only: the default-branch colour, red when the latest check run of a push-triggered workflow finished without success (failed, cancelled, timed out) or a commit status failed (scheduled and other runs ignored, branch protection not read); null until a poll reads it.',
       ),
   })
   .describe('Freshness and availability of one source.');

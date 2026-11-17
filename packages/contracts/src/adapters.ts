@@ -148,7 +148,11 @@ export const defaultBranchFactSchema = z
       ...defaultBranchHead,
     }),
     z.strictObject({
-      state: z.literal('red').describe('At least one counted check failed.'),
+      state: z
+        .literal('red')
+        .describe(
+          'At least one counted check finished without success (failed, cancelled, timed out).',
+        ),
       ...defaultBranchHead,
       check: z.string().min(1).nullable().describe('Name of the first failing check, if known.'),
       url: webUrl.nullable().describe('Web URL of the failing run, or null when unknown.'),
