@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
 import { request } from 'node:http';
@@ -58,6 +58,24 @@ let checked: StandManifest | undefined;
 
 const DRIFT_URL = 'http://spur.stand.invalid/drift';
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
+const CHECKOUT = fileURLToPath(new URL('../../../', import.meta.url));
+
+function expectedVersion(): string {
+  try {
+    return (
+      execFileSync('git', ['describe', '--tags', '--abbrev=0', '--match', 'v*'], {
+        cwd: CHECKOUT,
+        env: { PATH: process.env['PATH'] ?? '' },
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+        .trim()
+        .replace(/^v/, '') || 'dev'
+    );
+  } catch {
+    return 'dev';
+  }
+}
 
 beforeEach(() => {
   base = mkdtempSync(join(tmpdir(), 'stand-it-'));
@@ -422,12 +440,13 @@ async function waitForSendRequest(manifest: StandManifest, session: string): Pro
 function standCli(
   args: string[],
   extra: Record<string, string> = {},
+  cwd?: string,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [CLI, ...args],
-      { env: { ...extra, PATH: process.env['PATH'] ?? '', HOME: osHome, TMPDIR: root } },
+      { cwd, env: { ...extra, PATH: process.env['PATH'] ?? '', HOME: osHome, TMPDIR: root } },
       (error, stdout, stderr) => {
         resolve({ code: error === null ? 0 : Number(error.code ?? -1), stdout, stderr });
       },
@@ -1033,10 +1052,25 @@ describe('stand', () => {
     const status = await operatorStatus(manifest);
     expect(status.code, status.stderr).toBe(0);
     const parsed = statusOutputSchema.parse(JSON.parse(status.stdout));
-    const cliPackage = JSON.parse(
-      readFileSync(new URL('../../cli/package.json', import.meta.url), 'utf8'),
-    ) as { version: string };
-    expect(parsed.daemon.version).toBe(cliPackage.version);
+    expect(parsed.daemon.version).toBe(expectedVersion());
+  }, 60_000);
+
+  it('reports the checkout release when launched from an unrelated directory', async () => {
+    const started = await standCli(['up', '--port', '0'], {}, base);
+    expect(started.code, started.stderr).toBe(0);
+    const { home } = JSON.parse(started.stdout) as { home: string };
+    try {
+      const manifest = readManifest(home);
+      if (manifest === undefined) throw new Error('the stand wrote no manifest');
+      const status = await operatorStatus(manifest);
+      expect(status.code, status.stderr).toBe(0);
+      expect(statusOutputSchema.parse(JSON.parse(status.stdout)).daemon.version).toBe(
+        expectedVersion(),
+      );
+    } finally {
+      const stopped = await standCli(['down', '--home', home]);
+      expect(stopped.code, stopped.stderr).toBe(0);
+    }
   }, 60_000);
 
   it('leaves no source blind', async () => {
@@ -1112,7 +1146,11 @@ describe('stand', () => {
     expect(await fingerprint(after)).toEqual(fresh);
     expectPrivateDatabase(after.home);
     expect(await instance(after)).not.toBe(before);
-    expect((await operatorStatus(after)).code).toBe(0);
+    const status = await operatorStatus(after);
+    expect(status.code, status.stderr).toBe(0);
+    expect(statusOutputSchema.parse(JSON.parse(status.stdout)).daemon.version).toBe(
+      expectedVersion(),
+    );
   }, 60_000);
 
   it('gives each stand its own random role sessions and keeps them across reset', async () => {
