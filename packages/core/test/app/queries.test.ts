@@ -1,4 +1,13 @@
-import { EVENT_KINDS, OPERATIONS, configSchema, sourceCursorSchema } from '@spur-board/contracts';
+import {
+  EVENT_KINDS,
+  OPERATIONS,
+  configSchema,
+  sourceCursorSchema,
+  type EventKind,
+  type PrFacts,
+  type SessionFacts,
+  type TicketFacts,
+} from '@spur-board/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createApply,
@@ -1065,4 +1074,478 @@ it('task.get and detailed status expose known reset facts and clear them only on
     trx.updateTable('link').set({ banned: 1 }).where('entity', '=', 'session').execute(),
   );
   expect((await query(taskGet, { task: KEY }, 'operator')).sessions).toEqual([]);
+});
+
+describe('task history summaries', () => {
+  const SHA = 'abcdef1'.padEnd(40, '0');
+  const pr: PrFacts = {
+    repo: 'o/r',
+    number: 7,
+    url: 'https://github.com/o/r/pull/7',
+    title: 'Work',
+    author: 'worker',
+    headSha: SHA,
+    headBranch: 'feature',
+    state: 'open',
+    draft: false,
+    mergeable: 'mergeable',
+    mergeState: 'clean',
+    requiredChecks: [],
+    checks: [],
+    reviews: [],
+    reviewThreads: [],
+    reviewRequests: [],
+    ticketKeys: ['o/r#101'],
+    updatedAt: AT,
+  };
+  const session: SessionFacts = {
+    id: 'worker-1',
+    spurProject: 'web',
+    branch: 'a',
+    pr: null,
+    links: {},
+    lifecycle: 'running',
+    health: 'working',
+    healthSince: AT,
+    lastActivityAt: AT,
+    endedAt: null,
+    endReason: null,
+  };
+  const ticket: TicketFacts = {
+    trackerId: 'github-issues:board:o/r',
+    id: 'node-101',
+    key: 'o/r#101',
+    title: 'A ticket',
+    status: 'open',
+    assignee: null,
+    sprint: null,
+    labels: [],
+    inFilter: true,
+    url: 'https://github.com/o/r/issues/101',
+    updatedAt: AT,
+  };
+  const LATER = '2026-11-04T09:00:00.000Z';
+  const check = (name: string, state: PrFacts['checks'][number]['state']) => ({
+    name,
+    state,
+    completedAt: null,
+  });
+  const checks = (all: PrFacts['checks'], required: PrFacts['checks'] = []) => ({
+    repo: 'o/r',
+    pr: 7,
+    from: null,
+    to: JSON.stringify([all, required]),
+    sha: SHA,
+  });
+  type Row = readonly [kind: EventKind, payload: unknown, at?: string];
+
+  async function history(rows: readonly Row[]) {
+    const { store, registry, query } = await seeded();
+    await store.transaction(async (trx) => {
+      for (const [kind, payload, at = AT] of rows) {
+        await trx
+          .insertInto('event')
+          .values({
+            at,
+            project: 'board',
+            task_id: 1,
+            kind,
+            actor: 'system',
+            actor_ref: null,
+            payload: typeof payload === 'string' ? payload : JSON.stringify(payload),
+            v: 1,
+            request_id: null,
+          })
+          .execute();
+      }
+    });
+    return (await query(required(registry['task.history']), { task: KEY }, worker)).events;
+  }
+
+  it.each<{ name: string; rows: readonly Row[]; summary: string }>([
+    {
+      name: 'a session end',
+      rows: [
+        [
+          'session_state_changed',
+          { session: 'worker-1', from: 'running', to: 'killed', endReason: 'kill' },
+        ],
+      ],
+      summary: 'Session worker-1: running → killed, ended (killed)',
+    },
+    {
+      name: 'a session state with no previous state',
+      rows: [['session_state_changed', { session: 'worker-1', from: null, to: 'running' }]],
+      summary: 'Session worker-1: running',
+    },
+    {
+      name: 'a session state equal to the previous one',
+      rows: [
+        [
+          'session_state_changed',
+          { session: 'worker-1', from: 'running', to: 'running', endReason: 'vanished' },
+        ],
+      ],
+      summary: 'Session worker-1: running, ended (vanished)',
+    },
+    {
+      name: 'all green checks',
+      rows: [['checks_changed', checks([check('lint', 'success'), check('test', 'neutral')])]],
+      summary: 'Checks on o/r#7: 2/2 green',
+    },
+    {
+      name: 'pending checks without skipped ones',
+      rows: [
+        [
+          'checks_changed',
+          checks([check('lint', 'success'), check('test', 'pending'), check('docs', 'skipped')]),
+        ],
+      ],
+      summary: 'Checks on o/r#7: 1/2 green, 1 pending',
+    },
+    {
+      name: 'more than three failed required checks',
+      rows: [
+        [
+          'checks_changed',
+          checks(
+            [check('extra', 'failure')],
+            [
+              check('a', 'failure'),
+              check('b', 'error'),
+              check('ok', 'success'),
+              check('c', 'cancelled'),
+              check('d', 'skipped'),
+            ],
+          ),
+        ],
+      ],
+      summary: 'Checks on o/r#7: 4 failed: a, b, c +1 more',
+    },
+    {
+      name: 'no checks',
+      rows: [['checks_changed', checks([check('docs', 'skipped')])]],
+      summary: 'Checks on o/r#7: none',
+    },
+    {
+      name: 'unreadable checks',
+      rows: [['checks_changed', { ...checks([]), to: 'not json' }]],
+      summary: 'Checks changed',
+    },
+    {
+      name: 'a new head',
+      rows: [['head_moved', { repo: 'o/r', pr: 7, from: null, to: SHA }]],
+      summary: 'New head abcdef1 on o/r#7',
+    },
+    {
+      name: 'a mergeability change',
+      rows: [['mergeable_changed', { repo: 'o/r', pr: 7, from: 'mergeable', to: 'conflicting' }]],
+      summary: 'Mergeable on o/r#7: mergeable → conflicting',
+    },
+    {
+      name: 'a PR state change',
+      rows: [['pr_state_changed', { repo: 'o/r', pr: 7, from: 'open', to: 'merged' }]],
+      summary: 'PR o/r#7: open → merged',
+    },
+    {
+      name: 'a first ticket status',
+      rows: [['ticket_status_changed', { from: null, to: 'open' }]],
+      summary: 'Ticket status: open',
+    },
+    {
+      name: 'a ticket status change',
+      rows: [['ticket_status_changed', { from: 'open', to: 'closed' }]],
+      summary: 'Ticket status: open → closed',
+    },
+    {
+      name: 'a review',
+      rows: [['review_submitted', { repo: 'o/r', pr: 7, reviewer: 'rev', state: 'approved' }]],
+      summary: 'Review by rev on o/r#7: approved',
+    },
+    {
+      name: 'a move with reason and gates',
+      rows: [
+        [
+          'task_moved',
+          { from: 'review', to: 'dev', reason: 'gate_broken', gate: ['checks_red', 'conflict'] },
+        ],
+      ],
+      summary: 'Moved review → dev: gate_broken (checks_red, conflict)',
+    },
+    {
+      name: 'a move without reason or gates',
+      rows: [['task_moved', { from: 'review', to: 'dev', gate: [] }]],
+      summary: 'Moved review → dev',
+    },
+    {
+      name: 'a shadow move with gates and a course check',
+      rows: [
+        [
+          'task_shadow_moved',
+          {
+            from: 'review',
+            to: 'dev',
+            reason: 'gate_broken',
+            gate: ['external_comments'],
+            courseCheck: true,
+          },
+        ],
+      ],
+      summary:
+        'Would move review → dev (shadow mode): gate_broken (external_comments), with a course check',
+    },
+    {
+      name: 'a plain shadow move',
+      rows: [['task_shadow_moved', { from: 'dev', to: 'review', reason: 'gate_passed' }]],
+      summary: 'Would move dev → review (shadow mode): gate_passed',
+    },
+    {
+      name: 'an opened block',
+      rows: [['block_opened', { block: 'B1', type: 'needs_input', addressee: 'operator' }]],
+      summary: 'Block B1 opened: needs_input for operator',
+    },
+    {
+      name: 'an escalation with a reason',
+      rows: [
+        [
+          'block_escalated',
+          { block: 'B1', from: 'orchestrator:dev', to: 'operator', reason: 'timeout' },
+        ],
+      ],
+      summary: 'Block B1 escalated from orchestrator:dev to operator: timeout',
+    },
+    {
+      name: 'an escalation without a reason',
+      rows: [['block_escalated', { block: 'B1', from: 'curator', to: 'operator' }]],
+      summary: 'Block B1 escalated from curator to operator',
+    },
+    {
+      name: 'an unblock with a reason',
+      rows: [['block_unblocked', { block: 'B1', outcome: 'reason', reason: 'not  needed\n' }]],
+      summary: 'Block B1 unblocked: reason, not needed',
+    },
+    {
+      name: 'an unblock without a reason',
+      rows: [['block_unblocked', { block: 'B1', outcome: 'done' }]],
+      summary: 'Block B1 unblocked: done',
+    },
+    {
+      name: 'a forwarded comment',
+      rows: [['comment_added', { comment: 'C2', addressee: 'operator', forwardedFrom: 'C1' }]],
+      summary: 'Comment C2 for operator, forwarded from C1',
+    },
+    {
+      name: 'a comment',
+      rows: [['comment_added', { comment: 'C1', addressee: 'curator' }]],
+      summary: 'Comment C1 for curator',
+    },
+    {
+      name: 'a clarification edit',
+      rows: [['comment_edited', { comment: 'C1', revision: 2, clarification: true }]],
+      summary: 'Comment C1 edited, revision 2, clarification',
+    },
+    {
+      name: 'an edit',
+      rows: [['comment_edited', { comment: 'C1', revision: 3, clarification: false }]],
+      summary: 'Comment C1 edited, revision 3',
+    },
+    {
+      name: 'a deleted comment',
+      rows: [['comment_deleted', { comment: 'C1' }]],
+      summary: 'Comment C1 deleted',
+    },
+    {
+      name: 'an acknowledged comment',
+      rows: [['comment_acked', { comment: 'C1', revision: 1 }]],
+      summary: 'Comment C1 acknowledged',
+    },
+    {
+      name: 'a doorbell ring',
+      rows: [['doorbell_rung', { doorbell: 'N1', addressee: 'operator', attempt: 2 }]],
+      summary: 'Doorbell rung: N1 for operator, attempt 2',
+    },
+    {
+      name: 'a read doorbell',
+      rows: [['doorbell_read', { doorbell: 'N1' }]],
+      summary: 'Doorbell read: N1',
+    },
+    {
+      name: 'an undelivered doorbell',
+      rows: [['doorbell_undelivered', { doorbell: 'N1', reason: 'attempts exhausted' }]],
+      summary: 'Doorbell delivery exhausted: N1, attempts exhausted',
+    },
+    {
+      name: 'first PR facts',
+      rows: [['pr_facts_changed', { facts: pr }]],
+      summary: 'PR o/r#7: first observed',
+    },
+    {
+      name: 'five named PR changes',
+      rows: [
+        ['pr_facts_changed', { facts: pr }],
+        [
+          'pr_facts_changed',
+          {
+            facts: {
+              ...pr,
+              title: 'Renamed',
+              headBranch: 'other',
+              draft: true,
+              mergeState: 'dirty',
+              reviewThreads: [{ resolved: false }],
+            },
+          },
+        ],
+      ],
+      summary: 'PR o/r#7: title changed, head branch feature → other, ready → draft +2 more',
+    },
+    {
+      name: 'PR facts whose own-event fields changed',
+      rows: [
+        ['pr_facts_changed', { facts: pr }],
+        [
+          'pr_facts_changed',
+          {
+            facts: {
+              ...pr,
+              headSha: 'b'.repeat(40),
+              checks: [check('lint', 'failure')],
+              state: 'merged',
+              mergeable: 'conflicting',
+              mergedAt: LATER,
+              updatedAt: LATER,
+              feedbackComplete: true,
+              reviewThreads: [{ resolved: true }],
+            },
+          },
+        ],
+      ],
+      summary: 'PR o/r#7: threads changed, feedback complete',
+    },
+    {
+      name: 'PR facts after the facts of their link',
+      rows: [
+        [
+          'link_added',
+          { entity: 'pr', repo: 'o/r', pr: 7, state: 'active', source: 'branch', facts: pr },
+        ],
+        [
+          'pr_facts_changed',
+          { facts: { ...pr, reviewRequests: [{ kind: 'user', id: 'rev', asCodeOwner: false }] } },
+        ],
+      ],
+      summary: 'PR o/r#7: review requests 0 → 1',
+    },
+    {
+      name: 'a session end in facts',
+      rows: [
+        ['session_facts_changed', { facts: session }],
+        [
+          'session_facts_changed',
+          {
+            facts: {
+              ...session,
+              lifecycle: 'completed',
+              endedAt: LATER,
+              endReason: 'complete',
+              pr: { repo: 'o/r', number: 7 },
+            },
+          },
+        ],
+      ],
+      summary:
+        'Session worker-1: PR none → o/r#7, lifecycle running → completed, ended (completed)',
+    },
+    {
+      name: 'ticket facts',
+      rows: [
+        ['ticket_facts_changed', { facts: ticket }],
+        [
+          'ticket_facts_changed',
+          { facts: { ...ticket, status: 'closed', assignee: 'me', inFilter: false } },
+        ],
+      ],
+      summary: 'Ticket o/r#101: assignee none → me, out of filter',
+    },
+    {
+      name: 'session facts after an unreadable one',
+      rows: [
+        ['session_facts_changed', { facts: session }],
+        ['session_facts_changed', { facts: { ...session, branch: 'b', lifecycle: 42 } }],
+        ['session_facts_changed', { facts: { ...session, branch: 'c' } }],
+      ],
+      summary: 'Session worker-1: branch a → c',
+    },
+  ])('summarises $name', async ({ rows, summary }) => {
+    const events = await history(rows);
+    expect(events.at(-1)?.summary).toBe(summary);
+  });
+
+  it('shows an unreadable facts row with its fixed text', async () => {
+    const events = await history([
+      ['session_facts_changed', { facts: session }],
+      ['session_facts_changed', { facts: { ...session, lifecycle: 42 } }],
+    ]);
+    expect(events.map(({ summary }) => summary)).toEqual([
+      'Session worker-1: first observed',
+      'Session facts changed',
+    ]);
+  });
+
+  it('hides facts rows that changed only a heartbeat field', async () => {
+    const events = await history([
+      ['pr_facts_changed', { facts: pr }],
+      ['pr_facts_changed', { facts: { ...pr, updatedAt: LATER } }],
+      ['ticket_facts_changed', { facts: ticket }],
+      ['ticket_facts_changed', { facts: { ...ticket, updatedAt: LATER } }],
+      ['session_facts_changed', { facts: session }],
+      ['session_facts_changed', { facts: { ...session, lastActivityAt: LATER } }],
+      [
+        'session_facts_changed',
+        { facts: { ...session, lastActivityAt: LATER, healthSince: LATER } },
+      ],
+      ['session_facts_changed', { facts: { ...session, lastActivityAt: LATER, branch: 'b' } }],
+    ]);
+    expect(events.map(({ summary }) => summary)).toEqual([
+      'PR o/r#7: first observed',
+      'Ticket o/r#101: first observed',
+      'Session worker-1: first observed',
+      'Session worker-1: branch a → b',
+    ]);
+  });
+
+  it('names session lifecycle and health in facts rows', async () => {
+    const link = { entity: 'session', session: 'worker-1', role: 'worker', source: 'branch' };
+    const events = await history([
+      ['link_added', { ...link, facts: session }],
+      [
+        'session_facts_changed',
+        { facts: { ...session, lifecycle: 'stopped', healthSince: LATER } },
+      ],
+      [
+        'session_facts_changed',
+        { facts: { ...session, lifecycle: 'stopped', health: 'waiting', healthSince: LATER } },
+      ],
+    ]);
+    expect(events.map(({ summary }) => summary)).toEqual([
+      'Link added: session worker-1',
+      'Session worker-1: lifecycle running → stopped',
+      'Session worker-1: health working → waiting',
+    ]);
+  });
+
+  it('orders history by time, then id', async () => {
+    const events = await history([
+      ['comment_deleted', { comment: 'C1' }, '2026-11-04T08:00:01Z'],
+      ['comment_deleted', { comment: 'C2' }, '2026-11-04T08:00:00.500Z'],
+      ['comment_deleted', { comment: 'C3' }, '2026-11-04T08:00:00Z'],
+      ['comment_deleted', { comment: 'C4' }, '2026-11-04T08:00:01.000Z'],
+    ]);
+    expect(events.map(({ summary }) => summary)).toEqual([
+      'Comment C3 deleted',
+      'Comment C2 deleted',
+      'Comment C1 deleted',
+      'Comment C4 deleted',
+    ]);
+  });
 });

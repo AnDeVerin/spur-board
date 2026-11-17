@@ -354,7 +354,11 @@ const taskHistoryEventSchema = z
   .describe('One journal event.');
 export const taskHistoryOutputSchema = z.strictObject({
   task: taskViewSchema,
-  events: z.array(taskHistoryEventSchema).describe('Journal events of the task, oldest first.'),
+  events: z
+    .array(taskHistoryEventSchema)
+    .describe(
+      'Journal events of the task, oldest first by time; facts events with nothing new to name, such as an update time alone, are left out.',
+    ),
 });
 /** The browser's read of `task.history`: a kind or channel a newer daemon added still parses. */
 const taskHistoryReadSchema = taskHistoryOutputSchema.extend({

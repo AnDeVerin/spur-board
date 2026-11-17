@@ -1,5 +1,5 @@
 {
-  "version": "90fe436877071ffaa9d500bc7ba2b9334895e4837a6254d7cab977b210631035",
+  "version": "39e2bf0d18377fd8b2994e1c42c1d8e135aa098c00903df4084a370b6af23636",
   "grants": [
     "operator",
     "project-agent",
@@ -5649,7 +5649,7 @@
               "additionalProperties": false,
               "description": "One journal event."
             },
-            "description": "Journal events of the task, oldest first."
+            "description": "Journal events of the task, oldest first by time; facts events with nothing new to name, such as an update time alone, are left out."
           }
         },
         "required": ["task", "events"],

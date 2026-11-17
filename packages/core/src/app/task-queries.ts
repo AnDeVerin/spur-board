@@ -1,14 +1,10 @@
 import {
-  EVENT_KINDS,
-  eventPayloadSchemas,
   parseActorId,
   parseRef,
   PR_STATES,
   TASK_HOLDS,
-  VIAS,
   type ActorId,
   type Config,
-  type EventKind,
 } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
 import { dispatchHolds } from '../domain/dispatch.ts';
@@ -16,15 +12,16 @@ import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../d
 import type { TaskTable } from '../store/schema.ts';
 import { authorize, projectTarget } from './authorize.ts';
 import { blockView, commentView, subjectTarget, taskBlockViews, taskTarget } from './blocks.ts';
-import { eventActor, linkView, moveViews, taskView, type Trx } from './board-utils.ts';
+import { linkView, moveViews, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
 import { blindSources, readInput } from './dispatch.ts';
 import { notificationAddressedTo } from './doorbells.ts';
+import { historyEvents } from './history.ts';
 import { canonicalKey } from './membership.ts';
 import type { Query } from './queries.ts';
 import { blockSubject, rowSubject, taskSubject } from './subject.ts';
-import { taskTurns, turnSummary } from './task-turns.ts';
+import { taskTurns } from './task-turns.ts';
 import { taskSessions } from './task-sessions.ts';
 import { turnView } from './turn-view.ts';
 import { turnNotification } from './turns.ts';
@@ -40,112 +37,6 @@ const WAITING_FOR: Record<HoldOnlyReason, string> = {
   mergeable_unknown: 'waiting for GitHub to compute mergeability',
   comment_history_incomplete: 'waiting for the board to read the full PR comment history',
 };
-
-const EVENT_SUMMARIES = {
-  head_moved: 'Pull request head moved',
-  pr_facts_changed: 'Pull request facts changed',
-  checks_changed: 'Checks changed',
-  review_submitted: 'Review submitted',
-  mergeable_changed: 'Mergeability changed',
-  pr_state_changed: 'Pull request state changed',
-  ticket_status_changed: 'Ticket status changed',
-  ticket_facts_changed: 'Ticket facts changed',
-  session_state_changed: 'Session state changed',
-  session_facts_changed: 'Session facts changed',
-  spur_unknown_state: 'Unknown session state observed',
-  link_added: 'Link added',
-  link_removed: 'Link removed',
-  task_added: 'Task added',
-  task_archived: 'Task archived',
-  task_submitted: 'Turn submitted',
-  task_moved: 'Task moved',
-  task_shadow_moved: 'Shadow move',
-  task_corrected: 'Column corrected by the operator',
-  dispatcher_mode_changed: 'Dispatcher mode changed',
-  turn_opened: 'Turn opened',
-  turn_taken: 'Turn taken',
-  turn_closed: 'Turn closed',
-  block_opened: 'Block opened',
-  block_escalated: 'Block escalated',
-  block_unblocked: 'Block unblocked',
-  comment_added: 'Comment added',
-  comment_edited: 'Comment edited',
-  comment_deleted: 'Comment deleted',
-  comment_acked: 'Comment acknowledged',
-  doorbell_rung: 'Doorbell rung',
-  doorbell_read: 'Doorbell read',
-  doorbell_undelivered: 'Doorbell delivery exhausted',
-  inbound_failed: 'Inbound message failed',
-  inbound_skipped: 'Inbound message skipped',
-  from_you_raised: 'Operator item raised',
-  from_you_cleared: 'Operator item cleared',
-  flag_raised: 'Flag raised',
-  flag_cleared: 'Flag cleared',
-  operation_denied: 'Operation denied',
-  token_requested: 'Token requested',
-  token_approved: 'Token approved',
-  token_denied: 'Token denied',
-  token_expired: 'Token expired',
-  token_revoked: 'Token revoked',
-} satisfies Record<EventKind, string>;
-
-function linkOrEscalationSummary(kind: EventKind, payloadText: string): string | null {
-  if (kind !== 'link_added' && kind !== 'link_removed' && kind !== 'block_escalated') return null;
-  try {
-    if (kind === 'block_escalated') {
-      const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
-      if (!payload.success || payload.data.reason !== 'asker_is_addressee') return null;
-      return `Block ${payload.data.block} escalated from ${payload.data.from} to ${payload.data.to}: ${payload.data.reason}`;
-    }
-    const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
-    if (!payload.success) return null;
-    const target =
-      payload.data.entity === 'pr'
-        ? `${payload.data.repo}#${String(payload.data.pr)}`
-        : payload.data.entity === 'session'
-          ? payload.data.session
-          : payload.data.ticket;
-    const verb = kind === 'link_added' ? 'Link added' : 'Link removed';
-    return `${verb}: ${payload.data.entity} ${target}${payload.data.reason === undefined ? '' : ` — ${payload.data.reason}`}`;
-  } catch {
-    return null;
-  }
-}
-
-/** The summary of a shadow move that reached its column's course check. */
-function shadowSummary(kind: EventKind, payloadText: string): string | null {
-  if (kind !== 'task_shadow_moved') return null;
-  try {
-    const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
-    return payload.success && payload.data.courseCheck === true
-      ? 'Shadow move with a course check'
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The summary of a submit whose head the board's newest poll confirmed, that waits for one, or
- * that a merge at another head superseded.
- */
-function submitSummary(kind: EventKind, payloadText: string): string | null {
-  if (kind !== 'task_submitted') return null;
-  try {
-    const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
-    if (!payload.success) return null;
-    const merged = payload.data.supersededByMerge;
-    if (merged !== undefined) {
-      return `Submit of ${payload.data.sha.slice(0, 7)} superseded: PR merged at ${merged.slice(0, 7)}`;
-    }
-    if (payload.data.pending === true) return 'Turn submitted, pending confirmation';
-    return payload.data.confirmedByPoll === true
-      ? 'Turn submitted on the head of the last poll'
-      : null;
-  } catch {
-    return null;
-  }
-}
 
 export function visibleProjects(config: Config, actor: ActorId): ReadonlySet<string> {
   return new Set(
@@ -367,26 +258,7 @@ export function createTaskQueries(deps: {
         .where('task_id', '=', task.id)
         .orderBy('id')
         .execute();
-      const events = rows.flatMap((row) => {
-        const kind = EVENT_KINDS.find((candidate) => candidate === row.kind);
-        if (kind === undefined) return [];
-        const via = VIAS.find((value) => value === row.via);
-        return [
-          {
-            at: row.at,
-            kind,
-            actor: eventActor(row),
-            ...(via === undefined ? {} : { via }),
-            summary:
-              linkOrEscalationSummary(kind, row.payload) ??
-              shadowSummary(kind, row.payload) ??
-              submitSummary(kind, row.payload) ??
-              turnSummary(kind, row.payload) ??
-              EVENT_SUMMARIES[kind],
-          },
-        ];
-      });
-      return { task: taskView(task), events };
+      return { task: taskView(task), events: historyEvents(rows) };
     },
   };
   /**

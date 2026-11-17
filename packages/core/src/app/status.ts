@@ -40,7 +40,7 @@ function counts(values: readonly string[], order: readonly string[]): string {
 }
 
 /** End reasons in the words of the "worker ended" item (`ENDED_WORKER_LABELS`, fromYou.ts). */
-const END_WORDS = {
+export const END_WORDS = {
   complete: 'completed',
   kill: 'killed',
   vanished: 'vanished',

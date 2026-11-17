@@ -1703,7 +1703,11 @@ describe('shadow mode', () => {
     expect(await ctx.count('operator_item')).toBe(0);
     const { events } = await ctx.history();
     expect(
-      events.filter((event) => event.summary === 'Shadow move with a course check'),
+      events.filter(
+        (event) =>
+          event.summary ===
+          'Would move review → dev (shadow mode): gate_broken (external_comments), with a course check',
+      ),
     ).toHaveLength(1);
   });
 
@@ -1892,11 +1896,20 @@ describe('re-evaluation and the journal', () => {
     expect(history.events.filter((event) => event.kind === 'task_moved')).toHaveLength(5);
     expect(
       history.events.filter((event) => event.kind === 'task_moved').map((event) => event.summary),
-    ).toEqual(Array(5).fill('Task moved'));
+    ).toEqual([
+      'Moved todo → dev: gate_passed',
+      'Moved dev → review: gate_passed',
+      'Moved review → dev',
+      'Moved dev → review: gate_passed',
+      'Moved review → dev: gate_broken (conflict)',
+    ]);
 
     const shadow = await started({ mode: 'shadow' });
     expect((await shadow.history()).events).toContainEqual(
-      expect.objectContaining({ kind: 'task_shadow_moved', summary: 'Shadow move' }),
+      expect.objectContaining({
+        kind: 'task_shadow_moved',
+        summary: 'Would move todo → dev (shadow mode): gate_passed',
+      }),
     );
   });
 

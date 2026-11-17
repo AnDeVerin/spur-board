@@ -34,12 +34,13 @@ is selected once configuration arrives. Back and Forward restore both layers.
   `ticketBrowseBase` only when its prefix before `-<number>` matches the task's, ignoring case.
   Other ticket refs, Jira keys from another project, or Jira keys without a browse base stay plain.
   All links open new tabs.
-- `History` lists the task's journal events, newest first; events at the same time keep the
-  reverse of their journal order. Each row shows the time (UTC, `hh:mm dd/mm/yy`), the summary
-  with who did it, and the raw event kind, such as `turn_taken`. An agent reads as its session;
+- `History` lists the task's journal events, newest first by event time; events at the same
+  time keep the reverse of their journal order. Each row shows the time (UTC, `hh:mm dd/mm/yy`),
+  the summary of what changed with who did it, and the raw event kind, such as `turn_taken`. An agent reads as its session;
   a write adds its channel: `operator (web)`, `operator (slack)`, `operator (cli)`,
   `operator (mcp)`; `cli` and `mcp` are what the client reported. An event kind
-  this version does not know still shows, with its raw kind.
+  this version does not know still shows, with its raw kind. A facts event that changed only
+  an update time, or only what another row already says, is not shown; a long summary wraps.
   On a narrow screen the kind is hidden. A task with no events reads
   `No journal events for this task.`
 

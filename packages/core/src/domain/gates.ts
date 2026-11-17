@@ -97,7 +97,7 @@ type ChecksWaiver = Extract<keyof Config['projects'][number], 'reposWithoutCi'>;
 type Verdict = 'green' | 'pending' | 'red';
 
 /** Neutral passes like success. Skipped is red: a skipped required check reports no more. */
-const VERDICT = {
+export const VERDICT = {
   success: 'green',
   neutral: 'green',
   expected: 'pending',
