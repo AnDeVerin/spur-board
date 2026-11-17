@@ -1,14 +1,56 @@
 # spur-board
 
-spur-board is a local kanban view for development with agents. It joins tasks from Jira and
-GitHub with Spur sessions, offers a `board` CLI and MCP server, and sends operator updates to
-Slack.
+**spur-board** — where your coding agents work together, and you stay in charge. Workers,
+reviewers and orchestrators pass tasks through columns with clear gates; the Board hands each turn
+to the right agent and brings you only what needs a human.
 
-It needs Linux with systemd user services, Node 24.12+ (24.x) or 26.x, a running
-[Spur](https://github.com/ashugaev/spur), a Slack app, and Jira and GitHub tokens. The project is
-in early development; work is tracked in [GitHub Issues](https://github.com/AnDeVerin/spur-board/issues).
+[![npm](https://img.shields.io/npm/v/spur-board)](https://www.npmjs.com/package/spur-board)
+[![CI](https://img.shields.io/github/actions/workflow/status/AnDeVerin/spur-board/ci.yml?branch=main&event=push&label=CI)](https://github.com/AnDeVerin/spur-board/actions/workflows/ci.yml?query=branch%3Amain)
+[![License](https://img.shields.io/github/license/AnDeVerin/spur-board)](LICENSE)
+[![Node](https://img.shields.io/node/v/spur-board)](packages/cli/package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
+[![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)](https://sqlite.org/)
+[![MCP](https://img.shields.io/badge/MCP-000000?logo=modelcontextprotocol&logoColor=white)](https://modelcontextprotocol.io/)
 
-## Set up with an agent
+![The Board in the dark theme: tasks in To Do, Dev, Review, Ready to Merge and Done, with pull request checks, turns and a question to the operator on the cards](docs/images/board-dark.png)
+
+Light theme too:
+
+<img src="docs/images/board-light.png" width="480" alt="The same Board in the light theme">
+
+The project is in early development; work is tracked in
+[GitHub Issues](https://github.com/AnDeVerin/spur-board/issues).
+
+## For agents
+
+Each column has one executor: the task's worker, a column orchestrator such as a reviewer, a
+curator, or the operator. Gates decide when a task moves on: an open pull request, passing checks,
+no conflict, handled feedback and review marks. With the dispatcher on, the Board moves the task
+and hands the next executor a turn; in shadow mode it only records where tasks would go. The agent
+that takes a turn submits it, or returns it to Dev with findings. Questions are blocks: they go to
+the column orchestrator, then the curator, then you. Agents work through the `board` CLI or its MCP
+server from their Spur sessions.
+
+## For the operator
+
+An optional web console shows the Board, with pull request checks, the turn and the blocks on each
+card. The task view explains **Why it is here**: the exit conditions, holds, the open turn and the
+blocks. The inbox gathers what waits for you across projects. The services panel shows the health
+of the daemon, the host, Slack, GitHub, Spur and Jira. Pick a light, dark or auto theme. Answer
+questions and follow up from the browser, a Slack thread or the CLI; add comments from the browser
+or the CLI.
+
+## What it needs
+
+Linux with systemd user services, Node 24.12+ (24.x) or 26.x, a running
+[Spur](https://github.com/ashugaev/spur), a Slack app, a GitHub token, and Jira credentials for
+Jira projects. The web console needs a private reverse proxy.
+
+## Get started
+
+### Set up with an agent
 
 Give your agent this command:
 
@@ -16,64 +58,24 @@ Give your agent this command:
 npx -y spur-board@latest skills install
 ```
 
-Then ask it to use the `spur-board-setup` skill. The skill checks the installation, asks for
-missing choices one at a time, and finishes with a green `board doctor` and a live announcement
-in the feed channel. Enter tokens through a private local method, never in chat.
+Then ask it to use the `spur-board-setup` skill. It checks the installation, asks for missing
+choices one at a time, and finishes with a green `board doctor`. Enter tokens through a private
+local method, never in chat.
 
-## Set up by hand
+### Set up by hand
 
-1. Check the prerequisites and install the package with the Node executable visible to Spur
-   sessions.
+1. Install the package with the Node executable visible to Spur sessions.
 2. Create the Slack app and put configuration and tokens in private local files.
-3. Install the user service, choose an operator access path, install the agent skills, and run
-   the doctor checks.
+3. Install the user service, install the agent skills, and run the doctor checks.
 
 Follow [SETUP.md](SETUP.md) for the commands and file locations. Use
-[TROUBLESHOOTING.md](TROUBLESHOOTING.md) when a check fails. The default Slack names are
-`#orchestrators`, `#board-feed`, and `/board`; all are configurable.
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md) when a check fails.
 
-## Reference and project files
+## Reference
 
 - [CLI commands](docs/cli.md), [configuration](docs/configuration.md), and the [docs index](docs/)
+- [How the Board works](docs/how-board-works.md) and the [web UI](docs/web-ui.md)
+- [Live Slack conformance](packages/gateway-testkit/README.md#live-slack-conformance) for
+  maintainers
 - [MIT license](LICENSE)
 - [Contributing](CONTRIBUTING.md) and the [security policy](SECURITY.md)
-
-## Live Slack conformance
-
-Run this check from a repository clone after `pnpm install`. Invite the Slack app to the designated
-private test channel, and stop any running daemon process that uses the same app token. Concurrent
-Socket Mode connections can split events between the daemon and this check.
-
-Run the live gateway check manually in that channel:
-
-```sh
-BOARD_LIVE_CHANNEL=<test-channel-id> BOARD_LIVE_CHANNEL_NAME=<test-channel-name> pnpm smoke:live
-```
-
-Use the daemon's local `config.yaml` and mode-protected `secrets.env`. The secrets file must provide
-`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`; the test channel ID and expected name come only from
-`BOARD_LIVE_CHANNEL` and `BOARD_LIVE_CHANNEL_NAME`. The command looks up the channel with
-`conversations.info` and requires its ID and name to match, its privacy flag to be true, and its
-type to be a channel rather than a direct message. The bot token needs `groups:read` to read private
-channel metadata. The command rejects configured delivery channels, shared channels, pending external shares, or archived channels,
-non-interactive input and `CI=true` before sending a live post. It never prints tokens, the channel
-ID or the channel name. It prints timed instructions for a thread reply,
-edit, button press, slash command, mention, and a reply while disconnected. Press Enter after each
-guided action. A case fails if its required observation does not arrive.
-The guided slash instruction uses `slack.command` from the local config.
-
-To rerun only the thread mention, use:
-
-```sh
-BOARD_LIVE_CHANNEL=<test-channel-id> BOARD_LIVE_CHANNEL_NAME=<test-channel-name> pnpm smoke:live --case guided-mention
-```
-
-The focused run creates a root thread and reports only the mention case. In Slack, use **Reply in
-thread** on that root message, type `@`, select the app from autocomplete, and include the prompt's
-marker. The mention prompt allows five minutes; other guided prompts allow 90 seconds. Rate-limit
-is outside the supported live case set. The report says `NOT RUN rate-limit` unless a normal
-delivery happens to receive a 429; then it records whether the `Retry-After` wait and retry worked.
-
-Run this check before M1 acceptance (#66), after each Slack SDK update, and before every release.
-Capture the final case report for the change review. The fake and live coverage is described in
-the [gateway testkit README](packages/gateway-testkit/README.md).
