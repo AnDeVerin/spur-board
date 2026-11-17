@@ -86,8 +86,9 @@ A map of the repo for agents and contributors. The rules live in the files and s
   `agents` step of `pnpm check`, pre-push and `check:full` runs it.
 - `pnpm ds:build` - build the design system kit (script, stylesheet, gallery, compiled prototypes
   and build info) into the git-ignored kit folder under design/; see `design/README.md`.
-- `pnpm ds:nearest '<hex>' ['<light hex>'] | <n>px` - nearest design token per theme and an
-  in/out verdict; thresholds and reason codes in `docs/design-system-decisions.md`.
+- `pnpm ds:nearest '<hex>' ['<light hex>'] | <n>px | <number> --family <name>` - nearest design
+  token per theme and an in/out verdict; thresholds and reason codes in
+  `docs/design-system-decisions.md`.
 - `pnpm package:build` - build the web shell, bundle the CLI and daemon, then copy the binary,
   migrations and web assets.
 - `pnpm package:pack [directory]` - build, pack, and validate the npm tarball.

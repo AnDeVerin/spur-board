@@ -35,9 +35,10 @@ prototype and the design system differ, the reason codes and the PR section form
   named in `packages/web/src/ds/tokens.css` with a value in both themes. A structural literal
   and a media query width take the `structural literal` and `breakpoint` codes instead
   (`docs/design-system-decisions.md`).
-- Decide with `pnpm ds:nearest '<hex>'`, `pnpm ds:nearest '<dark hex>' '<light hex>'` or
-  `pnpm ds:nearest <n>px`; quote a hex. `verdict: in` with a token of the value's family means
-  `nearest token`; any other verdict means `new token` (family rule in
+- Decide with `pnpm ds:nearest '<hex>'`, `pnpm ds:nearest '<dark hex>' '<light hex>'`,
+  `pnpm ds:nearest <n>px` or `pnpm ds:nearest <number> --family <name>`; quote a hex.
+  `verdict: in` with a token of the value's family means `nearest token`; otherwise look for an
+  equal token of the value's family in `tokens.css` before `new token` (family rule in
   `docs/design-system-decisions.md`). A refused value follows the route the script prints.
 
 ## Build
