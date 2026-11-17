@@ -1,0 +1,23 @@
+/* No outline of its own: the focusRing class draws the ds ring. */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.toggle:hover {
+  color: var(--color-text-primary);
+}
+.caret {
+  display: inline-flex;
+}
+/* Flipped, not turned: the caret is symmetric, so -1 points it up. */
+.caret[data-expanded] {
+  transform: scaleY(-1);
+}

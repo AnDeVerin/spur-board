@@ -85,6 +85,7 @@ describe('design system examples rule', () => {
         'Icon',
         'IconButton',
         'KeyValueBox',
+        'LineClamp',
         'Logo',
         'Meter',
         'Modal',
@@ -96,6 +97,7 @@ describe('design system examples rule', () => {
         'Tabs',
         'TextArea',
         'TextInput',
+        'TextToggle',
         'ThemeSwitch',
       ],
     });
@@ -527,6 +529,10 @@ describe('Chip', () => {
       'Titled',
       'Link',
       'LinkFocused',
+      'ReadyTint',
+      'ReadyTintIcon',
+      'ErrorTint',
+      'ErrorTintIcon',
     ]);
     for (const name of ['Link', 'LinkFocused']) {
       const html = markup(createElement(controlExamples('Chip')[name] as ComponentType));

@@ -24,6 +24,19 @@
   border-style: dashed;
   color: var(--color-text-tertiary);
 }
+/* Tints: a soft status fill and a coloured icon; text and border stay neutral. */
+.ready {
+  background: var(--color-fill-ready);
+}
+.ready svg {
+  color: var(--color-status-ready);
+}
+.error {
+  background: var(--color-fill-error);
+}
+.error svg {
+  color: var(--color-status-error);
+}
 /* The link form: external, opens a new tab. */
 .link {
   text-decoration: none;

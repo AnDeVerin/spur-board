@@ -44,6 +44,10 @@ describe('web design assets and policy', () => {
       expect(theme['--color-fill-violet']).toBe(value);
       original = original.replace(`  --color-fill-violet: ${value};\n`, '');
     }
+    // Issue 658 authorizes only this addition.
+    expect(tokens.match(/--lines-fold:/g)).toHaveLength(1);
+    expect(dark['--lines-fold']).toBe('3');
+    original = original.replace('  --lines-fold: 3;\n', '');
     // Issue 656 authorizes only these dark-theme substitutions.
     original = original.replace(/:root \{[^}]*\}/, (block) => {
       for (const [token, value, prototypeValue] of [

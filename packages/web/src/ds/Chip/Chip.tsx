@@ -2,7 +2,11 @@ import type { ReactNode } from 'react';
 import { focusRing } from '../FocusRing/FocusRing.tsx';
 import styles from './Chip.module.css';
 
-export type ChipTone = 'default' | 'warn' | 'you' | 'ghost';
+/**
+ * `ready` and `error` are tints: a soft status fill and a coloured icon; text and border stay
+ * neutral. Coloured text and border stay on `warn` and `you`, for what asks for attention.
+ */
+export type ChipTone = 'default' | 'warn' | 'you' | 'ghost' | 'ready' | 'error';
 
 /**
  * A small bordered label. `title` is its tooltip, for a chip that stands for more than it says.
