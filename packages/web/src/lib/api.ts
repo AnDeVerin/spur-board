@@ -54,7 +54,7 @@ export function createApi(fetcher: typeof fetch = fetch) {
   };
 }
 /** Own one instance per user intent. Retry uncertain outcomes on this same instance. */
-export function createMutationIntent<K extends 'comment.add' | 'block.answer'>(
+export function createMutationIntent<K extends 'comment.add' | 'block.answer' | 'block.followup'>(
   api: ReturnType<typeof createApi>,
   id: K,
   input: Input<K>,

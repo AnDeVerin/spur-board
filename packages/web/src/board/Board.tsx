@@ -235,6 +235,7 @@ export function Board({ data }: { data: BoardData }) {
                 : undefined
           }
           answerIntent={data.answerIntent}
+          followUpIntent={data.followUpIntent}
           commentIntent={data.commentIntent}
           refreshTask={data.refreshTask}
           onClose={() => {

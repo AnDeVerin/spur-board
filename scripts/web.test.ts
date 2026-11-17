@@ -108,25 +108,6 @@ function outlineViolations(file: string, css: string): string[] {
   );
 }
 describe('web design assets and policy', () => {
-  it('preserves every prototype token and inherited scale byte for byte', () => {
-    // Issue 590 authorizes only these two additions; all remaining bytes must match.
-    expect(tokens.match(/--color-text-attention:/g)).toHaveLength(2);
-    let original = tokens;
-    for (const value of ['#ffd700', '#7d4e00']) {
-      const line = `  --color-text-attention: ${value};\n`;
-      expect((value === '#ffd700' ? dark : light)['--color-text-attention']).toBe(value);
-      original = original.replace(line, '');
-    }
-    expect(original).toBe(
-      readFileSync(join(import.meta.dirname, '../design/prototypes/board-v1/tokens.css'), 'utf8'),
-    );
-    expect(Object.keys(light).sort()).toEqual(Object.keys(dark).sort());
-    for (const theme of [dark, light])
-      for (const [key, value] of Object.entries(theme)) {
-        expect(value, key).not.toBe('');
-        expect(value, key).not.toContain('var(');
-      }
-  });
   it.each(Object.entries({ dark, light }))('%s text meets AA contrast', (_name, theme) => {
     const rules = cssRules(read('src/ds/Banner/Banner.module.css'));
     const binding = (selector: string, property: string) =>

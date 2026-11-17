@@ -294,7 +294,7 @@ export function createBoardData(options: BoardDataOptions) {
       task.refresh();
     });
   };
-  const writeIntent = <K extends 'block.answer' | 'comment.add'>(
+  const writeIntent = <K extends 'block.answer' | 'block.followup' | 'comment.add'>(
     key: string,
     id: K,
     input: Parameters<typeof createMutationIntent<K>>[2],
@@ -365,9 +365,11 @@ export function createBoardData(options: BoardDataOptions) {
     },
     /** The client clock the snapshot's times are read against. */
     now: () => options.now(),
-    /** The only two task-view writes; each object owns one idempotent intent. */
+    /** The three task-view writes; each object owns one idempotent intent. */
     answerIntent: (key: string, block: string, text: string) =>
       writeIntent(key, 'block.answer', { block, text }),
+    followUpIntent: (key: string, block: string, text: string) =>
+      writeIntent(key, 'block.followup', { block, text }),
     commentIntent: (key: string, text: string) =>
       writeIntent(key, 'comment.add', { task: state.task?.value?.task.key ?? key, text }),
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),

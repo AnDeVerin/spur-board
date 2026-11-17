@@ -114,7 +114,7 @@ pnpm ds:nearest 500 --family weight  # a unitless value within one token family
 $ pnpm ds:nearest '#5aa8ff'
 CIEDE2000, sRGB to CIELAB D65; in when ΔE00 ≤ 5 in both themes
 dark  #5aa8ff: --color-status-working #58a6ff - ΔE00 0.58 - in
-light #5aa8ff: --color-text-tertiary #818b98 - ΔE00 18.64 - out
+light #5aa8ff: --color-border-strong #b7c0c9 - ΔE00 19.01 - out
 verdict: out
 ```
 

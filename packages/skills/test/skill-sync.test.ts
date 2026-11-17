@@ -27,7 +27,7 @@ const refsPath = fileURLToPath(new URL('../spur-board/references/', import.meta.
 const docsPath = fileURLToPath(new URL('../../../docs/', import.meta.url));
 const guideNames = ['', '-columns', '-turns', '-blocks', '-slack', '-done']
   .map((topic) => `how-board-works${topic}.md`)
-  .concat('web-ui.md', 'web-ui-task-view.md');
+  .concat(['', '-board', '-status', '-task-view', '-task-blocks'].map((p) => `web-ui${p}.md`));
 const guideDocs = guideNames.map((name) => readFileSync(`${docsPath}/${name}`, 'utf8'));
 const guideTexts = guideNames.map((name) => readFileSync(`${refsPath}/${name}`, 'utf8'));
 const skill = readFileSync(skillPath, 'utf8');
@@ -221,15 +221,18 @@ describe('product skill sync', () => {
   });
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
-    const guides = readdirSync(docsPath).filter((name) => /^how-board-works.*\.md$/.test(name));
-    expect(guides.sort()).toEqual(guideNames.filter((name) => name.startsWith('how-')).sort());
+    // guideDocs reads every listed guide, so the count rules out an unlisted docs page.
+    expect(readdirSync(docsPath).filter((n) => /^(how-board|web-ui)/.test(n))).toHaveLength(11);
     for (const [index, reference] of guideTexts.entries()) {
       expect(reference).toBe(guideDocs[index]);
       expect(Buffer.byteLength(reference)).toBeLessThan(8192);
       expect(validateInvocations(reference)).toEqual([]);
     }
-    const links = [...(guideTexts[0]?.matchAll(/\]\(([^)]+)\)/g) ?? [])];
-    expect(links.map((match) => match[1]).sort()).toEqual(guideNames.slice(1).sort());
+    // Relative links: web-ui.md (6) links every web-ui-* page (7+); how-board-works.md (0) links
+    // its topics and web-ui.md, and may link web-ui-* pages, but no page outside guideNames.
+    const links = (i: number) => new Set(guideTexts[i]?.match(/(?<=\]\()(?!https?:)[^)]+/g));
+    expect(links(6)).toEqual(new Set(guideNames.slice(7)));
+    expect(links(0).union(links(6))).toEqual(new Set(guideNames.slice(1)));
     expect(skill).toContain('[how the Board works](references/how-board-works.md)');
     expect(skill).toContain('untrusted: true');
   });

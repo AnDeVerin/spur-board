@@ -53,7 +53,7 @@ Each state opens by URL. Add `&theme=light`, `&theme=dark` or `&theme=auto`; the
 | Shadow project: dispatcher shadow, shadowColumn on every row | `/?state=shadow`        |
 | Block: answer not sent                                       | `/?state=block-failed`  |
 | Long title, many markers, a source not polled yet            | `/?state=long`          |
-| Follow-up, not in V1                                         | `/?open=509&followup=1` |
+| Follow-up on an answered block                               | `/?open=509&followup=1` |
 
 `?open=<n>` opens the task whose key ends with `#<n>`; an unknown number opens nothing. `&open=services` composes
 with `loading`, `offline`, `daemon-down` and `long`, and `&open=inbox` with `source-blind`. `long` carries three
@@ -132,11 +132,11 @@ All of them are hand-built here and are candidates for the design system or for 
   time of the data. A short reconnect changes only the indicator in the header.
 - **Known limit:** the light `you` chip is white on `#bf8700`, about 3.1:1, below 4.5:1 for small text. The token
   stays as it is; the chip text is bold and always paired with a block id.
+- **Follow-up:** built in #540: an answered question shows `Follow up`, which swaps in the answer field with
+  `Send follow-up` and an icon Cancel. The prototype shows it only with `/?open=509&followup=1`.
 
 ## Not in V1
 
-- **Follow-up on an answered block.** The board has no operation for it yet; see #540. The design is ready and
-  opens with `/?open=509&followup=1`.
 - **Mobile layout.** Narrow screens work: columns scroll sideways, the modal and the panels take the full screen.
   It was not designed further.
 - The project switcher menu.

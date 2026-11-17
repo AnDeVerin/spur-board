@@ -53,6 +53,7 @@ export function TaskView({
   config,
   unavailable,
   answerIntent,
+  followUpIntent,
   commentIntent,
   refreshTask,
 }: {
@@ -61,6 +62,7 @@ export function TaskView({
   config: BoardConfig | undefined;
   unavailable: string | undefined;
   answerIntent: BoardData['answerIntent'];
+  followUpIntent: BoardData['followUpIntent'];
   commentIntent: BoardData['commentIntent'];
   refreshTask: BoardData['refreshTask'];
   title: TaskTitle;
@@ -191,6 +193,7 @@ export function TaskView({
                       : unavailable
                   }
                   answerIntent={answerIntent}
+                  followUpIntent={followUpIntent}
                   commentIntent={commentIntent}
                   refreshTask={refreshTask}
                 />
@@ -219,6 +222,7 @@ function TaskDiscussion({
   now,
   unavailable,
   answerIntent,
+  followUpIntent,
   commentIntent,
   refreshTask,
 }: {
@@ -228,6 +232,7 @@ function TaskDiscussion({
   now: number;
   unavailable: string | undefined;
   answerIntent: BoardData['answerIntent'];
+  followUpIntent: BoardData['followUpIntent'];
   commentIntent: BoardData['commentIntent'];
   refreshTask: BoardData['refreshTask'];
 }) {
@@ -245,6 +250,8 @@ function TaskDiscussion({
   );
   const comments = value.comments.filter((comment) => comment.block === null);
   const metadata = (author: string, at: string) => `${name(author)} · ${age(at, now)}`;
+  // Blocks whose follow-up was opened: their answer's "Answer sent." line gives way to it.
+  const [followed, setFollowed] = useState<ReadonlySet<string>>(new Set());
   return (
     <>
       <CollapsibleSection
@@ -257,7 +264,7 @@ function TaskDiscussion({
           {blocks.map((block) => {
             const question = block.type === 'needs_input';
             const mine = block.state === 'open' && block.addressee === 'operator';
-            const reply = value.comments.filter((comment) => comment.block === block.id).at(-1);
+            const replies = value.comments.filter((comment) => comment.block === block.id);
             const answered = question && block.state === 'unblocked' && block.outcome === 'done';
             return (
               <article
@@ -277,25 +284,38 @@ function TaskDiscussion({
                   </Chip>
                 </div>
                 <p className={styles.text}>{block.reason}</p>
-                {reply && (
-                  <div className={styles.reply}>
+                {replies.map((reply) => (
+                  <div key={reply.id} className={styles.reply}>
                     <div className={styles.metadata}>
                       {reply.id} · {metadata(reply.author, reply.at)}
                     </div>
                     <p className={styles.text}>{reply.text}</p>
                   </div>
-                )}
+                ))}
                 {!answered && block.outcomeReason && (
                   <p className={styles.text}>{block.outcomeReason}</p>
                 )}
                 <TaskWrite
                   eligible={mine && question}
                   label={`Answer ${block.id}`}
-                  answer
+                  kind="answer"
+                  superseded={followed.has(block.id)}
                   unavailable={unavailable}
                   createIntent={(text) => answerIntent(taskKey, block.id, text)}
                   refreshTask={refreshTask}
                 />
+                {answered && (
+                  <TaskWrite
+                    label={`Follow-up on ${block.id}`}
+                    kind="followup"
+                    unavailable={unavailable}
+                    onOpen={() => {
+                      setFollowed((ids) => new Set(ids).add(block.id));
+                    }}
+                    createIntent={(text) => followUpIntent(taskKey, block.id, text)}
+                    refreshTask={refreshTask}
+                  />
+                )}
               </article>
             );
           })}
@@ -315,6 +335,7 @@ function TaskDiscussion({
           <div className={`${quiet} ${styles.item ?? ''}`}>
             <TaskWrite
               label="Comment"
+              kind="comment"
               unavailable={unavailable}
               createIntent={(text) => commentIntent(taskKey, text)}
               refreshTask={refreshTask}

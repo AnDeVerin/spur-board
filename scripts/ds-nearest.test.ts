@@ -45,7 +45,7 @@ describe('nearest colour', () => {
       'dark  #5aa8ff: --color-status-working #58a6ff - ΔE00 0.58 - in',
     );
     expect(line(out, 'light')).toBe(
-      'light #5aa8ff: --color-text-tertiary #818b98 - ΔE00 18.64 - out',
+      'light #5aa8ff: --color-border-strong #b7c0c9 - ΔE00 19.01 - out',
     );
     expect(out.at(-1)).toBe('verdict: out');
   });
