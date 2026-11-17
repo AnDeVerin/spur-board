@@ -69,18 +69,19 @@ const dimmed = () =>
     .filter((link) => link.closest('[data-dimmed]') !== null)
     .map((l) => l.title);
 
-type ActionCase = { text: string; action: string | undefined; description: string };
 describe('board screen', () => {
-  it.each<ActionCase>`
-    name          | text                                              | action                  | description
-    ${'ordinary'} | ${'Delivery failed: retry delivery'}              | ${'retry delivery'}     | ${'Delivery failed'}
-    ${'colons'}   | ${'Slack: delivery failed: check token: Slack'}   | ${'check token: Slack'} | ${'Slack: delivery failed'}
-    ${'absent'}   | ${'Delivery failed: retry delivery'}              | ${undefined}            | ${'Delivery failed: retry delivery'}
-    ${'mismatch'} | ${'Delivery failed: inspect logs'}                | ${'retry delivery'}     | ${'Delivery failed: inspect logs'}
-    ${'repeat'}   | ${'retry delivery: still failed: retry delivery'} | ${'retry delivery'}     | ${'retry delivery: still failed'}
-  `(
-    'inbox action $name preserves exact description and separate action in active and handled rows',
-    async ({ text, action, description }: ActionCase) => {
+  const retry = 'retry delivery';
+  const failed = 'Delivery failed';
+  const token = 'check token: Slack';
+  it.each<[string, string | undefined, string]>([
+    [`${failed}: ${retry}`, retry, failed],
+    [`Slack: delivery failed: ${token}`, token, 'Slack: delivery failed'],
+    [`${failed}: ${retry}`, undefined, `${failed}: ${retry}`],
+    [`${failed}: inspect logs`, retry, `${failed}: inspect logs`],
+    [`${retry}: still failed: ${retry}`, retry, `${retry}: still failed`],
+  ])(
+    'inbox text %s / action %s preserves description and separate action in active and handled rows',
+    async (text, action, description) => {
       const d = daemon();
       const entry = { ...inbox(1).items[0], id: 'I1', kind: 'transport_health', text, action };
       const handled = [{ ...entry, id: 'I2', handledAt: '2026-11-15T14:00:00.000Z' }];
