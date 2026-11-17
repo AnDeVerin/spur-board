@@ -5,6 +5,22 @@ import { formatDataTime, type BoardRow } from './model.ts';
 
 type Turn = NonNullable<BoardRow['turn']>;
 type PrSummary = NonNullable<BoardRow['prSummary']>[number];
+type PrLink = BoardRow['links']['prs'][number];
+
+/**
+ * The PR the card shows: the first linked one, the PR quick link opens, and its summary, matched
+ * by number and by repo ignoring case, as `status.get` joins repos. Every PR fact on the card
+ * comes from this summary; null when that PR is not observed yet.
+ */
+function displayedPr(row: BoardRow): { link: PrLink; summary: PrSummary | null } | null {
+  const link = row.links.prs[0];
+  if (link === undefined) return null;
+  const repo = link.repo.toLowerCase();
+  const summary = row.prSummary?.find(
+    (candidate) => candidate.number === link.number && candidate.repo.toLowerCase() === repo,
+  );
+  return { link, summary: summary ?? null };
+}
 
 /** `agent:<project>/<session>` reads as the session; any other actor stays as it is. */
 const actorName = (actor: string) =>
@@ -168,7 +184,7 @@ export function sessionChip(row: BoardRow, spurUiOrigin: string | null): Marker 
 /** Every marker in drawing order: blocks, returned, draft, shadow, then the session chip. */
 export function markers(row: BoardRow, spurUiOrigin: string | null): Marker[] {
   const draft: Marker | null =
-    row.prSummary?.[0]?.draft === true ? { tone: 'default', text: 'draft' } : null;
+    displayedPr(row)?.summary?.draft === true ? { tone: 'default', text: 'draft' } : null;
   return [
     ...blockMarkers(row.blocks),
     returnedMarker(row.returned),
@@ -269,8 +285,9 @@ function prCells(pr: PrSummary): [PrCell, PrCell, PrCell, PrCell] {
  * not-observed cells, with `+N` for the other linked PRs.
  */
 export function prStatus(row: BoardRow): PrStatus {
-  const [first, ...rest] = row.links.prs;
-  if (first === undefined) return { kind: row.turn === null ? 'none' : 'placeholder' };
+  const shown = displayedPr(row);
+  if (shown === null) return { kind: row.turn === null ? 'none' : 'placeholder' };
+  const rest = row.links.prs.slice(1);
   const more: MorePrs =
     rest.length === 0
       ? null
@@ -280,10 +297,8 @@ export function prStatus(row: BoardRow): PrStatus {
             .map(({ number }) => `#${String(number)}`)
             .join(', ')}`,
         };
-  const summary = row.prSummary?.find(
-    ({ repo, number }) => repo === first.repo && number === first.number,
-  );
-  if (summary === undefined) return { kind: 'unobserved', more };
+  const { summary } = shown;
+  if (summary === null) return { kind: 'unobserved', more };
   return { kind: 'cells', cells: prCells(summary), unconfirmed: summary.unconfirmed, more };
 }
 

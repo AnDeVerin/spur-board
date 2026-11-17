@@ -187,48 +187,96 @@ describe('task card', () => {
     });
   });
 
+  /*
+   * The card shows the first linked PR. Its summary has the same number and the same repo, ignoring
+   * case. `merge` names the summary the cells come from (#1 mergeable, #2 conflicting); `draft`
+   * says whether the draft marker shows.
+   */
   it.each([
-    {
-      name: 'one link observed',
-      prs: [1],
-      summaries: [{ number: 1 }],
-      expected: ['cells', 1, null],
-    },
+    { name: 'one link observed', prs: [1], summaries: [{}], kind: 'cells', from: 1, more: null },
     {
       name: 'two links, both observed',
       prs: [1, 2],
-      summaries: [{ number: 1 }, { number: 2 }],
-      expected: ['cells', 1, '1 more pull request: #2'],
+      summaries: [{}, { number: 2 }],
+      kind: 'cells',
+      from: 1,
+      more: '1 more pull request: #2',
     },
     {
       name: 'two links, only the second observed',
       prs: [1, 2],
-      summaries: [{ number: 2, mergeable: 'conflicting' }],
-      expected: ['unobserved', undefined, '1 more pull request: #2'],
+      summaries: [{ number: 2 }],
+      kind: 'unobserved',
+      from: null,
+      more: '1 more pull request: #2',
+    },
+    {
+      name: 'only the second observed, and a draft',
+      prs: [1, 2],
+      summaries: [{ number: 2, draft: true }],
+      kind: 'unobserved',
+      from: null,
+      more: '1 more pull request: #2',
+    },
+    {
+      name: 'the first a draft',
+      prs: [1, 2],
+      summaries: [{ number: 2 }, { draft: true }],
+      kind: 'cells',
+      from: 1,
+      more: '1 more pull request: #2',
+      draft: true,
     },
     {
       name: 'summaries in another order than the links',
       prs: [1, 2],
-      summaries: [{ number: 2, mergeable: 'conflicting' }, { number: 1 }],
-      expected: ['cells', 1, '1 more pull request: #2'],
+      summaries: [{ number: 2, draft: true }, {}],
+      kind: 'cells',
+      from: 1,
+      more: '1 more pull request: #2',
     },
     {
       name: 'same number in another repo',
       prs: [1],
-      summaries: [{ repo: 'ex/other', number: 1, mergeable: 'conflicting' }],
-      expected: ['unobserved', undefined, null],
+      summaries: [{ repo: 'ex/other', draft: true }],
+      kind: 'unobserved',
+      from: null,
+      more: null,
     },
-  ])('PR status follows the first linked PR: $name', ({ prs, summaries, expected }) => {
-    const view = prStatus(
-      card({ links: links(prs), prSummary: summaries.map((extra) => prSummary(extra)) }),
-    );
-    const merge = view.kind === 'cells' ? view.cells[1].label : undefined;
-    expect([
-      view.kind,
-      merge === undefined ? undefined : merge === 'Merge: no conflicts' ? 1 : 2,
-      view.kind === 'cells' || view.kind === 'unobserved' ? (view.more?.title ?? null) : null,
-    ]).toEqual(expected);
-  });
+    {
+      name: 'repo spelled in another case',
+      prs: [1],
+      linkRepo: 'Ex/Repo',
+      summaries: [{ draft: true }],
+      kind: 'cells',
+      from: 1,
+      more: null,
+      draft: true,
+    },
+  ])(
+    'PR status and draft follow the first linked PR: $name',
+    ({ prs, linkRepo, summaries, kind, from, more, draft = false }) => {
+      const prLinks = prs.map((number, index) => ({
+        ...prLink(number),
+        ...(index === 0 && linkRepo !== undefined ? { repo: linkRepo } : {}),
+      }));
+      const row = card({
+        links: { ticket: null, prs: prLinks, sessions: [] },
+        prSummary: summaries.map((extra: Record<string, unknown>) =>
+          prSummary({ mergeable: extra['number'] === 2 ? 'conflicting' : 'mergeable', ...extra }),
+        ),
+      });
+      const view = prStatus(row);
+      const merge = view.kind === 'cells' ? view.cells[1].label : undefined;
+      expect({
+        kind: view.kind,
+        from: merge === undefined ? null : merge === 'Merge: no conflicts' ? 1 : 2,
+        more:
+          view.kind === 'cells' || view.kind === 'unobserved' ? (view.more?.title ?? null) : null,
+        draft: markers(row, null).some(({ text }) => text === 'draft'),
+      }).toEqual({ kind, from, more, draft });
+    },
+  );
 
   it('draft and shadow markers, and the order of the markers row', () => {
     const marked = card({
