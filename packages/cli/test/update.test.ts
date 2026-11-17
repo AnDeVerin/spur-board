@@ -75,6 +75,8 @@ interface Behaviour {
   status: (pid: number) => string;
   view: () => CommandResult;
   dryRun: () => CommandResult;
+  /** `npm pack` of the target, by the run's number from 1. */
+  pack: (run: number) => CommandResult;
   install: () => CommandResult;
   doctor: (run: number) => CommandResult;
   stop: () => CommandResult;
@@ -114,6 +116,7 @@ function tree(root: string): Entry[] {
 function label(command: string, args: readonly string[]): string {
   if (command === 'npm') {
     if (args[0] === 'view') return 'npm view';
+    if (args[0] === 'pack') return 'npm pack';
     return args.includes('--dry-run') ? 'npm dry-run' : 'npm install';
   }
   if (command === 'systemctl') {
@@ -221,8 +224,9 @@ async function stand() {
     args: string[];
     env: NodeJS.ProcessEnv | undefined;
     lockFd: number | undefined;
+    timeoutMs: number | undefined;
   }[] = [];
-  const counts = { doctor: 0, service: 0, skills: 0 };
+  const counts = { doctor: 0, pack: 0, service: 0, skills: 0 };
   const backupDirs: { exists: boolean; directory: boolean; mode: number; state: string }[] = [];
   const clock = { t: Date.parse('2026-11-09T10:00:00.000Z') };
   const environPids: number[] = [];
@@ -235,6 +239,7 @@ async function stand() {
     status: () => statusText(process.getuid?.() ?? 0),
     view: () => ok('"1.1.0"\n'),
     dryRun: () => ok(),
+    pack: () => ok('spur-board-1.1.0.tgz\n'),
     install: () => {
       writeFileSync(join(packageRoot, 'package.json'), '{"name":"spur-board","version":"1.1.0"}\n');
       return ok();
@@ -278,6 +283,8 @@ async function stand() {
         return behaviour.view();
       case 'npm dry-run':
         return behaviour.dryRun();
+      case 'npm pack':
+        return behaviour.pack((counts.pack += 1));
       case 'npm install':
         return behaviour.install();
       case 'stop':
@@ -302,7 +309,13 @@ async function stand() {
     // The update lock is real, so runs in one process exclude each other as in two.
     if (command === 'flock' && args.at(-1) === '3') return runCommand(command, args, options);
     const name = label(command, args);
-    calls.push({ label: name, args: [...args], env: options?.env, lockFd: options?.lockFd });
+    calls.push({
+      label: name,
+      args: [...args],
+      env: options?.env,
+      lockFd: options?.lockFd,
+      timeoutMs: options?.timeoutMs,
+    });
     events.push(name);
     await hooks.beforeCall?.(name);
     return respond(name, args);
@@ -380,6 +393,7 @@ async function stand() {
     calls,
     events,
     counts,
+    clock,
     backupDirs,
     environPids,
     cwdPids,
@@ -433,7 +447,7 @@ const runner = async (command, args, options) => {
   if (command === 'systemctl') return ok(args.includes('show') ? setup.show : '');
   if (command === 'npm') {
     if (args[0] === 'view') return ok('"1.1.0"');
-    if (args.includes('--dry-run')) return ok();
+    if (args.includes('--dry-run') || args[0] === 'pack') return ok();
     return runCommand(process.execPath, ['-e', hold], options);
   }
   if (args[1] === 'copy-database') {
@@ -455,6 +469,13 @@ await runCli(['--json', 'update'], {
   io: { isTTY: false, stdout: () => {}, stderr: (text) => process.stderr.write(text) },
 });
 `;
+
+/** npm's stderr when the registry lists a version but its CDN does not serve the tarball yet. */
+const TARBALL_404 = [
+  'npm error code E404',
+  'npm error 404 Not Found - GET https://registry.npmjs.org/spur-board/-/spur-board-1.1.0.tgz',
+  '',
+].join('\n');
 
 function errorOf(stderr: string): { code: string; hint: string } {
   const line = stderr
@@ -496,6 +517,7 @@ describe('board update', () => {
       'show',
       'npm view',
       'npm dry-run',
+      'npm pack',
       'doctor',
       'stop',
       'flock',
@@ -505,6 +527,15 @@ describe('board update', () => {
       'skills install',
       'doctor',
     ]);
+    const pack = s.calls.find((call) => call.label === 'npm pack');
+    const packDir = pack?.args[3] ?? '';
+    expect(pack?.args).toEqual(['pack', 'spur-board@1.1.0', '--pack-destination', packDir]);
+    expect(packDir).toContain('board-update-pack-');
+    expect(existsSync(packDir)).toBe(false);
+    expect(pack?.env?.['PATH']).toBe(`${dirname(process.execPath)}:/usr/bin`);
+    expect(pack?.lockFd).toBeUndefined();
+    expect(pack?.timeoutMs).toBe(600_000);
+    expect(result.stderr).toContain('update: tarball check\n');
     expect(s.calls[0]?.args).toEqual([
       '--user',
       'show',
@@ -876,6 +907,22 @@ describe('board update', () => {
         s.behaviour.dryRun = () => fail(1, 'npm error code EBADENGINE\n');
       },
       'EBADENGINE',
+    ],
+    [
+      'a tarball that fails its integrity check',
+      4,
+      (s) => {
+        s.behaviour.pack = () => fail(1, 'npm error code EINTEGRITY\nnpm error sha512 mismatch\n');
+      },
+      'EINTEGRITY',
+    ],
+    [
+      'a tarball still 404 after the wait',
+      4,
+      (s) => {
+        s.behaviour.pack = () => fail(1, TARBALL_404);
+      },
+      'within 600 s',
     ],
     [
       'a pre-update doctor exit 2',
@@ -1431,6 +1478,108 @@ describe('board update', () => {
     const back = await s.run(['--json', 'rollback', '--yes']);
     expect(back.exit, back.stderr).toBe(0);
     expect(s.state().status).toBe('rolled-back');
+  });
+
+  it('U10: waits for a listed tarball that 404s, then updates', async () => {
+    const s = await stand();
+    s.behaviour.pack = (run) => (run <= 2 ? fail(1, TARBALL_404) : ok());
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(0);
+    expect(s.events.slice(s.events.indexOf('npm dry-run'), s.events.indexOf('stop') + 1)).toEqual([
+      'npm dry-run',
+      'npm pack',
+      'sleep 5000',
+      'npm pack',
+      'sleep 10000',
+      'npm pack',
+      'doctor',
+      'stop',
+    ]);
+    expect(result.stderr.match(/^update: tarball wait: /gm)).toHaveLength(2);
+    expect(result.stderr).toContain(
+      'update: tarball wait: spur-board@1.1.0 is listed but its tarball is not served yet (E404); retrying in 5 s, waited 0 s of 600 s\n',
+    );
+    expect(s.state()).toMatchObject({ status: 'succeeded', to: '1.1.0' });
+  });
+
+  it('U10: gives up a tarball 404 at the 600 s bound with nothing changed', async () => {
+    const s = await stand();
+    s.behaviour.pack = () => fail(1, TARBALL_404);
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(4);
+    const error = errorOf(result.stderr);
+    expect(error.code).toBe('config');
+    expect(error.hint).toContain('within 600 s');
+    expect(error.hint).toContain('the service was not stopped');
+    // Attempts at 0, 5, 15, 35 s and every 30 s from 65 to 575 s; a wait from 575 s would end
+    // at 605 s, past the bound, so the 22nd 404 refuses.
+    const packs = s.calls.filter((call) => call.label === 'npm pack');
+    const starts = [
+      0,
+      5_000,
+      15_000,
+      35_000,
+      ...Array.from({ length: 18 }, (_, k) => 65_000 + k * 30_000),
+    ];
+    expect(packs.map((call) => call.timeoutMs)).toEqual(starts.map((t) => 600_000 - t));
+    const sleeps = s.events.filter((event) => event.startsWith('sleep '));
+    expect(sleeps).toEqual([
+      'sleep 5000',
+      'sleep 10000',
+      'sleep 20000',
+      ...Array<string>(18).fill('sleep 30000'),
+    ]);
+    expect(sleeps.reduce((sum, event) => sum + Number(event.slice(6)), 0)).toBe(575_000);
+    expect(s.labels()).not.toContain('doctor');
+    expect(s.labels()).not.toContain('stop');
+    expect(s.labels()).not.toContain('npm install');
+    expect(existsSync(s.stateFile)).toBe(false);
+    expect(readdirSync(s.updateDir)).toEqual(['update.lock']);
+    const dirs = new Set(s.calls.filter((call) => call.label === 'npm pack').map((c) => c.args[3]));
+    expect(dirs.size).toBe(1);
+    expect(existsSync([...dirs][0] ?? '')).toBe(false);
+  });
+
+  it.each([
+    ['is killed at the bound', (): CommandResult => ({ ...fail(1, ''), timedOut: true })],
+    ['succeeds only after the bound', undefined],
+  ])('U10: a pack that %s refuses at the bound with nothing changed', async (_name, last) => {
+    const s = await stand();
+    s.behaviour.pack = (run) => {
+      if (run <= 2) return fail(1, TARBALL_404);
+      if (last !== undefined) return last();
+      s.clock.t += 600_000;
+      return ok();
+    };
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(4);
+    const error = errorOf(result.stderr);
+    expect(error.code).toBe('config');
+    expect(error.hint).toContain('within 600 s');
+    expect(error.hint).toContain('the service was not stopped');
+    const packs = s.calls.filter((call) => call.label === 'npm pack');
+    expect(packs.map((call) => call.timeoutMs)).toEqual([600_000, 595_000, 585_000]);
+    expect(s.labels()).not.toContain('doctor');
+    expect(s.labels()).not.toContain('stop');
+    expect(existsSync(s.stateFile)).toBe(false);
+    expect(readdirSync(s.updateDir)).toEqual(['update.lock']);
+  });
+
+  it('U10: an integrity failure or an EBADENGINE dry run refuses without a wait', async () => {
+    const s = await stand();
+    s.behaviour.pack = () => fail(1, 'npm error code EINTEGRITY\n');
+    expect((await s.run(['--json', 'update'])).exit).toBe(4);
+    expect(s.labels().filter((label) => label === 'npm pack')).toHaveLength(1);
+    expect(s.events.some((event) => event.startsWith('sleep '))).toBe(false);
+
+    const t = await stand();
+    t.behaviour.dryRun = () => fail(1, 'npm error code EBADENGINE\n');
+    expect((await t.run(['--json', 'update'])).exit).toBe(4);
+    expect(t.labels()).not.toContain('npm pack');
+    expect(t.events.some((event) => event.startsWith('sleep '))).toBe(false);
   });
 
   it('U9: an abort keeps the last successful update, so rollback still returns to it', async () => {

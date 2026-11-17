@@ -35,6 +35,7 @@ import {
   type CommandResult,
   type RunOptions,
 } from './service.ts';
+import { waitForTarball } from './tarball.ts';
 
 /**
  * Runs a command; the npm calls and the package's own children pass `env`. `lockFd` goes to the update lock's `flock` and
@@ -800,6 +801,41 @@ function blockingIds(report: DoctorReport): Set<string> {
   return new Set(report.filter((check) => check.blocking).map((check) => check.id));
 }
 
+/**
+ * Downloads `target` with `npm pack` before anything changes, so a registry that lists a version
+ * but does not serve its tarball yet stops the update while the service still runs
+ * (`waitForTarball`); any other failure, an integrity mismatch included, refuses at once.
+ */
+async function confirmTarball(
+  updater: Updater,
+  target: string,
+  npmEnv: NodeJS.ProcessEnv,
+): Promise<void> {
+  const { ports } = updater;
+  updater.progress('tarball check');
+  const outcome = await waitForTarball(target, {
+    runner: ports.runner,
+    sleep: ports.sleep,
+    now: ports.now,
+    env: npmEnv,
+    onWait: ({ waitMs, waitedMs, boundMs }) => {
+      updater.progress(
+        `tarball wait: ${target} is listed but its tarball is not served yet (E404); retrying in ${String(waitMs / 1000)} s, waited ${String(Math.floor(waitedMs / 1000))} s of ${String(boundMs / 1000)} s`,
+      );
+    },
+  });
+  if (outcome.ok) return;
+  const detail = childDetail(outcome.result);
+  if (outcome.reason === 'failed') {
+    throw config(
+      `${target} cannot be downloaded: ${detail}. Nothing was changed and the service was not stopped.`,
+    );
+  }
+  throw config(
+    `The registry lists ${target} but did not serve its tarball within ${String(outcome.boundMs / 1000)} s: ${outcome.ranPastBound ? `npm pack ran past the bound (${detail})` : detail}. Nothing was changed and the service was not stopped; run \`board update\` again later.`,
+  );
+}
+
 /** `board update [version]`: preflight, snapshot, stop, backup, install, then health checks. */
 export async function updatePackage(
   options: UpdateOptions,
@@ -907,6 +943,7 @@ async function update(
   if (dryRun.exitCode !== 0) {
     throw config(`${target} cannot be installed with this Node: ${childDetail(dryRun)}`);
   }
+  await confirmTarball(updater, target, npmEnv);
 
   updater.progress('doctor');
   let baseline: DoctorReport;

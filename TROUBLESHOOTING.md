@@ -398,9 +398,12 @@ when a later update stops early. A running update or rollback holds a lock on
 `update/update.lock`, shared with the service stop, the npm install and the other install steps
 it starts; the lock ends when all of them have exited, and the file stays.
 
-- `config` before any change: the hint names the reason. When another update or rollback holds
-  the lock, the hint gives the PID that took it; wait for it. If that process is gone, an npm
-  install it started may still run; wait for that too. Never remove `update/update.lock`: that
+- `config` before any change: the hint names the reason. A target whose tarball the registry
+  lists but did not serve within 10 minutes (`tarball wait` lines after each HTTP 404; a download
+  still running at the bound is stopped), or whose tarball fails its integrity check
+  (`EINTEGRITY`), is refused with the service still running; run the update again later. When another update or rollback holds the lock, the
+  hint gives the PID that took it; wait for it. If that process is gone, an npm install it
+  started may still run; wait for that too. Never remove `update/update.lock`: that
   does not stop the holder and lets a second update start beside it. A running service whose
   command differs from this shell's, or whose process uses another data directory or config
   file, is refused. Its `BOARD_HOME`, `XDG_*` and `HOME` come from the unit, its drop-ins and

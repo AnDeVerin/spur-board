@@ -37,8 +37,8 @@ Implement in small chunks, check each one, commit when green. The spec is a hypo
   examples in `packages/contracts/src/ops/catalog.ts` (`--help`, MCP tools, `board schema`);
   field `.describe(` texts in `packages/contracts/src/ops/schemas.ts` and `catalog.ts` (CLI
   flags, MCP inputs); local command help in `packages/cli/src/cli.ts`.
-- `docs/how-board-works*.md` and their copies in `packages/skills/spur-board/references/`
-  stay byte-identical.
+- `docs/how-board-works*.md`, `docs/web-ui*.md` and their copies in
+  `packages/skills/spur-board/references/` stay byte-identical.
 - Changed generator source -> `pnpm gen`; commit every file it changes.
 - A test or CI diff (modifier in `.agents/skills/manager/SKILL.md`) -> no doc edit.
 

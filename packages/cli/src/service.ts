@@ -15,6 +15,8 @@ export interface CommandResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** Set when `RunOptions.timeoutMs` ran out and the child was killed. */
+  timedOut?: true;
 }
 
 export type CommandRunner = (command: string, args: readonly string[]) => Promise<CommandResult>;
@@ -103,9 +105,14 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
   /** An open fd the child gets as fd 3, so it shares a lock on that file's description. */
   lockFd?: number;
+  /** Kills the child with SIGTERM after this many ms, and with SIGKILL if it outlives a grace. */
+  timeoutMs?: number;
 }
 
-/** Runs a command to completion. */
+/** How long a child killed for its timeout may take to exit before it gets SIGKILL. */
+const KILL_GRACE_MS = 1_000;
+
+/** Runs a command to completion, or until `options.timeoutMs` runs out. */
 export async function runCommand(
   command: string,
   args: readonly string[],
@@ -125,9 +132,32 @@ export async function runCommand(
     child.stderr?.setEncoding('utf8').on('data', (chunk: string) => {
       stderr += chunk;
     });
-    child.on('error', reject);
+    let timedOut = false;
+    let grace: NodeJS.Timeout | undefined;
+    const timer =
+      options.timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            timedOut = true;
+            child.kill('SIGTERM');
+            grace = setTimeout(() => {
+              child.kill('SIGKILL');
+            }, KILL_GRACE_MS);
+          }, options.timeoutMs);
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      clearTimeout(grace);
+      reject(error);
+    });
     child.on('close', (code) => {
-      resolveResult({ exitCode: code ?? 1, stdout, stderr });
+      clearTimeout(timer);
+      clearTimeout(grace);
+      resolveResult({
+        exitCode: code ?? 1,
+        stdout,
+        stderr,
+        ...(timedOut ? { timedOut: true as const } : {}),
+      });
     });
   });
 }
