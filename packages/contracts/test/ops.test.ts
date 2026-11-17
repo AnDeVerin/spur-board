@@ -113,6 +113,7 @@ describe('catalog', () => {
         ".projects[].spurProjects[].name",
         ".projects[].spurProjects[].role",
         ".projects[].spurProjects[].displayName",
+        ".projects[].ticketBrowseBase",
         ".web",
         ".web.publicOrigin",
         ".web.spurUiOrigin",

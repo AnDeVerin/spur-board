@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest';
-import { safeExternalUrl, sessionLinkHref, taskLinkHref } from '../src/lib/links.ts';
+import {
+  safeExternalUrl,
+  sessionLinkHref,
+  taskLinkHref,
+  ticketBrowseHref,
+} from '../src/lib/links.ts';
 it.each(['https://example.org/a', 'http://example.org/'])('accepts external URL %s', (url) => {
   expect(safeExternalUrl(url)).toBe(url);
 });
@@ -39,3 +44,20 @@ it.each([null, 'javascript:alert(1)', '//spur.example', 'spur.example'])(
     expect(sessionLinkHref(origin, 'sb-1234')).toBeNull();
   },
 );
+it.each([
+  ['https://j.test/browse/', 'ABC-3', 'https://j.test/browse/ABC-3'],
+  ['https://j.test/jira/browse/', 'abc_x-12', 'https://j.test/jira/browse/abc_x-12'],
+])('builds the Jira ticket URL from base %s and key %s', (base, key, url) => {
+  expect(ticketBrowseHref(base, key)).toBe(url);
+});
+it.each([
+  [null, 'ABC-3'],
+  ['https://j.test/browse/', 'o/r#5'],
+  ['https://j.test/browse/', 'repo#5'],
+  ['https://j.test/browse/', 'foo bar'],
+  ['https://j.test/browse/', 'ABC'],
+  ['https://j.test/browse/', 'ABC-3/../x'],
+  ['javascript:x/', 'ABC-3'],
+])('builds no Jira ticket URL from base %s and key %s', (base, key) => {
+  expect(ticketBrowseHref(base, key)).toBeNull();
+});

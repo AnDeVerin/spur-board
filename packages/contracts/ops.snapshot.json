@@ -1,5 +1,5 @@
 {
-  "version": "d1dab2f763d89b80a72e819a55bb3786ec4a8d63cfc92fe5bf29365bf2dadc9a",
+  "version": "ded0c60ccc542976e3bc0fa5dba0e61fa48ba889f62af80ca9ea28df6c02ede5",
   "grants": [
     "operator",
     "project-agent",
@@ -10530,7 +10530,8 @@
                 "dispatcher": { "mode": "on" },
                 "spurProjects": [
                   { "name": "web-worker", "role": "worker", "displayName": "web-worker" }
-                ]
+                ],
+                "ticketBrowseBase": "https://jira.example.com/browse/"
               }
             ],
             "web": { "publicOrigin": "http://127.0.0.1:4778", "spurUiOrigin": null }
@@ -10641,9 +10642,13 @@
                     "additionalProperties": false
                   },
                   "description": "Effective Spur project bindings."
+                },
+                "ticketBrowseBase": {
+                  "anyOf": [{ "type": "string", "format": "uri" }, { "type": "null" }],
+                  "description": "Ticket page prefix; append a task key such as PROJ-12. <baseUrl>/browse/ for a Jira project; null when the tracker has none, as for GitHub Issues."
                 }
               },
-              "required": ["id", "columns", "dispatcher", "spurProjects"],
+              "required": ["id", "columns", "dispatcher", "spurProjects", "ticketBrowseBase"],
               "additionalProperties": false
             },
             "description": "Effective projects visible to this caller."

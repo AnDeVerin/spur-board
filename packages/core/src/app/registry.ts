@@ -23,6 +23,21 @@ import { createTurnMutations } from './turn-commands.ts';
 
 const catalog = await buildCatalogSnapshot(OPERATIONS);
 
+/**
+ * `<baseUrl>/browse/` of a Jira tracker, without userinfo, query or fragment; null for a tracker
+ * whose keys do not append to one prefix, as GitHub Issues.
+ */
+function ticketBrowseBase(tracker: Config['projects'][number]['tracker']): string | null {
+  if (tracker.type !== 'jira') return null;
+  const url = new URL(tracker.baseUrl);
+  url.username = '';
+  url.password = '';
+  url.search = '';
+  url.hash = '';
+  url.pathname = `${url.pathname.replace(/\/+$/, '')}/browse/`;
+  return url.href;
+}
+
 /** Concrete handlers shared by the daemon's HTTP and inbound transports. */
 export function createOperationRegistry(deps: {
   config: Config;
@@ -147,6 +162,7 @@ export function createOperationRegistry(deps: {
               role: spur.role,
               displayName: spur.displayName ?? spur.name,
             })),
+            ticketBrowseBase: ticketBrowseBase(project.tracker),
           })),
         web: {
           publicOrigin: webOrigin() ?? null,

@@ -122,12 +122,15 @@ export function Card({
   filter,
   now,
   spurUiOrigin,
+  ticketBrowseBase,
   onOpen,
 }: {
   row: BoardRow;
   filter: string;
   now: number | undefined;
   spurUiOrigin: string | null;
+  /** `config.get` `projects[].ticketBrowseBase` of the card's project. */
+  ticketBrowseBase: string | null;
   /** Asks the board to open the task. */
   onOpen: (key: string) => void;
 }) {
@@ -136,7 +139,7 @@ export function Card({
   const turn = turnView(row.turn, now);
   const status = prStatus(row);
   const marks = markers(row, spurUiOrigin);
-  const links = quickLinks(row, spurUiOrigin);
+  const links = quickLinks(row, spurUiOrigin, ticketBrowseBase);
   return (
     <div
       className={classes(styles.wrap, quiet)}

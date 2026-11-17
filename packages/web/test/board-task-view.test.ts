@@ -163,6 +163,52 @@ describe('task view', () => {
     expect(dialog()?.querySelectorAll('a')).toHaveLength(2);
   });
 
+  it('links a Jira ticket chip to the project browse base and keeps it plain without one', async () => {
+    const links = [
+      { kind: 'ticket', ref: 'ABC-3', role: null },
+      { kind: 'pr', ref: 'ex/repo#7', role: null, state: 'open' },
+    ];
+    const [first, ...rest] = config.projects;
+    if (first === undefined) throw new Error('no project');
+    const linked = daemon();
+    linked.routes['config.get'] = () =>
+      Promise.resolve(
+        envelope({
+          ...config,
+          projects: [{ ...first, ticketBrowseBase: 'https://j.test/browse/' }, ...rest],
+        }),
+      );
+    const task = { ...taskGet().task, key: 'ABC-1' };
+    linked.routes['task.get'] = () => Promise.resolve(envelope(taskGet({ task, links })));
+    mount(linked);
+    await settle();
+    click(card());
+    await settle();
+    const ticket = inDialog(
+      'a[aria-label="ticket ABC-3, Jira"][rel="noopener noreferrer"][target="_blank"]',
+    );
+    expect(ticket.textContent).toBe('ticket ABC-3');
+    expect(ticket.getAttribute('href')).toBe('https://j.test/browse/ABC-3');
+
+    act(() => {
+      root.unmount();
+    });
+    for (const data of started.splice(0)) data.stop();
+    history.replaceState(null, '', '/');
+    root = createRoot(container);
+    const plain = daemon();
+    plain.routes['task.get'] = () => Promise.resolve(envelope(taskGet({ task, links })));
+    mount(plain);
+    await settle();
+    click(card());
+    await settle();
+    expect(dialog()?.querySelector('a[aria-label^="ticket"]')).toBeNull();
+    const chip = [...(dialog()?.querySelectorAll('span') ?? [])].find(
+      (span) => span.textContent === 'ticket ABC-3',
+    );
+    expect(chip?.closest('a')).toBeNull();
+  });
+
   it('a click on an unfocused card opens it; Escape closes, drops open and focuses the card', async () => {
     mount(daemon());
     await settle();

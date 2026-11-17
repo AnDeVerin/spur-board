@@ -44,6 +44,12 @@ export const configViewSchema = z
               }),
             )
             .describe('Effective Spur project bindings.'),
+          ticketBrowseBase: z
+            .url({ protocol: /^https?$/ })
+            .nullable()
+            .describe(
+              'Ticket page prefix; append a task key such as PROJ-12. <baseUrl>/browse/ for a Jira project; null when the tracker has none, as for GitHub Issues.',
+            ),
         }),
       )
       .describe('Effective projects visible to this caller.'),

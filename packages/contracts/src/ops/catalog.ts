@@ -1483,6 +1483,7 @@ export const OPERATIONS = [
               columns: [{ id: 'dev', executor: { kind: 'worker', name: null } }],
               dispatcher: { mode: 'on' },
               spurProjects: [{ name: 'web-worker', role: 'worker', displayName: 'web-worker' }],
+              ticketBrowseBase: 'https://jira.example.com/browse/',
             },
           ],
           web: { publicOrigin: 'http://127.0.0.1:4778', spurUiOrigin: null },

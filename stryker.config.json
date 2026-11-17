@@ -9,7 +9,8 @@
   "mutate": ["packages/core/src/domain/**/*.ts"],
   "ignorePatterns": ["/.agents", "/.claude", "/.codex", "/.gstack", "/.notes", "/.scratch"],
   "incremental": true,
-  "reporters": ["clear-text", "html", "json"],
+  "ignoreStatic": true,
+  "reporters": ["clear-text", "progress-append-only", "html", "json"],
   "thresholds": {
     "break": null
   }

@@ -3,6 +3,8 @@
 # Run it locally with `pnpm exec stryker run`; the HTML report lands in reports/mutation/.
 # The incremental file is cached between runs. GitHub evicts a cache unused for 7 days, and a miss
 # means a full run; a dispatch refreshes the cache.
+# The job timeout fits a full run: 14.5 min locally at concurrency 4 for 1229 mutants and 1759
+# tests, about 30 min on this 4-vCPU runner, which runs the same tests about 2x slower.
 name: weekly-mutation
 
 on:
@@ -19,7 +21,7 @@ concurrency:
 jobs:
   mutation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -33,11 +35,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @spur-board/web build
+      # Bump the key prefix whenever a Stryker option changes how mutants are planned: cached
+      # statuses win over such options (v2: ignoreStatic).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: reports/stryker-incremental.json
-          key: stryker-incremental-${{ github.run_id }}
-          restore-keys: stryker-incremental-
+          key: stryker-incremental-v2-${{ github.run_id }}
+          restore-keys: |
+            stryker-incremental-v2-
       # GITHUB_ACTIONS=false keeps the github-actions and junit reporters out of Stryker's Vitest
       # runs. Keep the plain assignment: wrapping the command in `env` hides the stryker binary
       # from the unused-dependency check, which then flags the Stryker packages.

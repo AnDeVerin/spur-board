@@ -1423,6 +1423,7 @@ it('allowlists effective configuration and applies status project visibility', a
           { name: 'reviewer', role: 'orchestrator', displayName: 'Reviewer' },
           { name: 'desk', role: 'operator', displayName: 'desk' },
         ],
+        ticketBrowseBase: null,
       },
     ],
     web: { publicOrigin: null, spurUiOrigin: null },
@@ -1450,6 +1451,72 @@ it('allowlists effective configuration and applies status project visibility', a
       await createQuery({ store, config, clock })(ordinary['config.get'], {}, 'operator')
     ).projects[0]?.columns.find((column) => column.id === 'dev')?.executor,
   ).toEqual({ kind: 'worker', name: null });
+});
+
+it('config.get gives a Jira project its ticket browse base', async () => {
+  const store = openTempStore('board-config-browse-').store;
+  stores.push(store);
+  const read = async (baseUrl: string, extra: Record<string, unknown> = {}) => {
+    const effective = configSchema.parse({
+      projects: [
+        {
+          id: 'alpha',
+          tracker: {
+            type: 'jira',
+            baseUrl,
+            jql: 'project = JQLSENTINEL',
+            doneStatuses: ['DoneSentinel'],
+            readyStatuses: ['ReadySentinel'],
+            projectKeys: ['KEYSENTINEL'],
+          },
+          repos: ['o/a'],
+          operatorGithubLogin: 'operator',
+          spurProjects: [{ name: 'alpha-worker', role: 'worker' }],
+        },
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    Object.assign(effective.projects[0]?.tracker ?? {}, extra);
+    const registry = createOperationRegistry({
+      config: effective,
+      clock,
+      completeSince: new Map(),
+    });
+    return createQuery({ store, config: effective, clock })(registry['config.get'], {}, 'operator');
+  };
+  for (const [baseUrl, expected] of [
+    ['https://jira.example.test', 'https://jira.example.test/browse/'],
+    ['https://jira.example.test/', 'https://jira.example.test/browse/'],
+    ['https://jira.example.test/jira', 'https://jira.example.test/jira/browse/'],
+  ] as const)
+    expect((await read(baseUrl)).projects[0]?.ticketBrowseBase, baseUrl).toBe(expected);
+
+  const result = await read(
+    'https://bot%40example.test:jira-token-sentinel@jira.example.test/jira/?jql=x#frag',
+    {
+      email: 'email-sentinel@example.test',
+      token: 'token-sentinel',
+      apiToken: 'api-token-sentinel',
+    },
+  );
+  expect(result.projects[0]?.ticketBrowseBase).toBe('https://jira.example.test/jira/browse/');
+  const json = JSON.stringify(result);
+  for (const sentinel of [
+    'jira-token-sentinel',
+    'email-sentinel',
+    'token-sentinel',
+    'api-token-sentinel',
+    'bot',
+    'JQLSENTINEL',
+    'DoneSentinel',
+    'ReadySentinel',
+    'KEYSENTINEL',
+    'jql',
+    'frag',
+    '@',
+  ])
+    expect(json).not.toContain(sentinel);
 });
 
 it('config.get reports resolved web origins', async () => {

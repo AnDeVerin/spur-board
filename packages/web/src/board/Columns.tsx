@@ -51,6 +51,7 @@ function Column({
   stale,
   now,
   spurUiOrigin,
+  ticketBrowseBase,
   onOpen,
 }: {
   column: BoardColumn;
@@ -58,6 +59,7 @@ function Column({
   stale: boolean;
   now: number | undefined;
   spurUiOrigin: string | null;
+  ticketBrowseBase: string | null;
   onOpen: (key: string) => void;
 }) {
   if (column.rows.length === 0)
@@ -103,6 +105,7 @@ function Column({
               filter={filter}
               now={now}
               spurUiOrigin={spurUiOrigin}
+              ticketBrowseBase={ticketBrowseBase}
               onOpen={onOpen}
             />
           ))}
@@ -122,6 +125,7 @@ export function Columns({
   stale,
   now,
   spurUiOrigin,
+  ticketBrowseBase,
   onOpen,
 }: {
   view: ColumnsView;
@@ -129,6 +133,8 @@ export function Columns({
   stale: boolean;
   now: number | undefined;
   spurUiOrigin: string | null;
+  /** `config.get` `projects[].ticketBrowseBase`: Jira ticket links start there. */
+  ticketBrowseBase: string | null;
   /** A card asks to open its task. */
   onOpen: (key: string) => void;
 }) {
@@ -171,6 +177,7 @@ export function Columns({
           stale={stale}
           now={now}
           spurUiOrigin={spurUiOrigin}
+          ticketBrowseBase={ticketBrowseBase}
           onOpen={onOpen}
         />
       ));

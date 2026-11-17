@@ -42,6 +42,11 @@
   Keep `vitest.pool: "forks"` so the testkit env scrub applies, and load the runner by its
   `./node_modules` path, which pnpm's plugin glob misses (`.github/workflows/mutation.yml`,
   `stryker.config.json`).
+- Size the mutation job timeout from a measured full run: the weekly cache is usually evicted, so
+  most runs are full. Keep `ignoreStatic` (a static mutant reruns every related test) and the
+  `progress-append-only` reporter, which tells a stall from a slow run in the log
+  (`stryker.config.json`). Bump the incremental cache key prefix when a Stryker option changes
+  how mutants are planned: cached statuses win over it (`.github/workflows/mutation.yml`).
 - Keep local Vitest reporters at their defaults. In CI, configure default, github-actions and
   junit reporters with `reports/junit.xml`; upload `reports/` on test failure so annotations and
   JUnit evidence survive (`vitest.config.ts`, `.github/workflows/ci.yml`).

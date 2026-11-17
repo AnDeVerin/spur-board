@@ -38,6 +38,7 @@ export function TaskView({
   title,
   columns,
   spurUiOrigin,
+  ticketBrowseBase,
   now,
   offline,
   onClose,
@@ -62,6 +63,8 @@ export function TaskView({
   columns: readonly string[];
   /** `config.get` `web.spurUiOrigin`: session chips link there; null keeps them plain. */
   spurUiOrigin: string | null;
+  /** Jira browse base of the task's own configured project; null keeps its chip plain. */
+  ticketBrowseBase: string | null;
   now: number;
   /** Live updates are lost: the board banner says so, so kept data shows no modal banner. */
   offline: boolean;
@@ -127,15 +130,16 @@ export function TaskView({
                   ? task.state === 'loading' && <Skeleton />
                   : value.links.length > 0 && (
                       <div className={styles.links}>
-                        {linkChips(value.links, spurUiOrigin).map((chip, index) =>
-                          // A link has no id of its own; its position in the list stays put.
-                          chip.href === null ? (
-                            <Chip key={index}>{chip.text}</Chip>
-                          ) : (
-                            <Chip key={index} href={chip.href} label={chip.label}>
-                              {chip.text}
-                            </Chip>
-                          ),
+                        {linkChips(value.links, key, spurUiOrigin, ticketBrowseBase).map(
+                          (chip, index) =>
+                            // A link has no id of its own; its position in the list stays put.
+                            chip.href === null ? (
+                              <Chip key={index}>{chip.text}</Chip>
+                            ) : (
+                              <Chip key={index} href={chip.href} label={chip.label}>
+                                {chip.text}
+                              </Chip>
+                            ),
                         )}
                       </div>
                     )}

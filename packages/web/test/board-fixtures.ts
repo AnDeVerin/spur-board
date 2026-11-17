@@ -49,6 +49,7 @@ const project = (id: string, mode: 'on' | 'shadow', columns: ReturnType<typeof c
   columns,
   dispatcher: { mode },
   spurProjects: [],
+  ticketBrowseBase: null as string | null,
 });
 export const config = {
   projects: [
