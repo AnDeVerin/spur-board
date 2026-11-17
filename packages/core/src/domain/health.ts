@@ -17,8 +17,6 @@ export interface TaskPrState {
    * from a poll that began at or after the moment it is judged against.
    */
   prCompleteAt: number | null;
-  /** Session ids holding an open worker turn of the task. */
-  turnSessions?: readonly string[];
 }
 
 export interface HostLoadEpisode {
@@ -33,8 +31,7 @@ export type SessionHealthFlagKind =
   | 'worker_idle'
   | 'worker_completed'
   | 'worker_killed'
-  | 'worker_vanished'
-  | 'worker_lost';
+  | 'worker_vanished';
 
 const ENDED_WORKER_KINDS = {
   complete: 'worker_completed',
@@ -138,21 +135,6 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
 
     const task = tasks[session.taskId];
     if (session.endedAt !== null) {
-      // A worker killed or gone while it holds an open turn is lost whatever its PRs are.
-      if (
-        session.role === 'worker' &&
-        (session.endReason === 'kill' || session.endReason === 'vanished') &&
-        task?.turnSessions?.includes(session.id) === true &&
-        !liveWorkerTasks.has(session.taskId)
-      ) {
-        const flag: SessionHealthFlag = {
-          taskId: session.taskId,
-          sessionId: session.id,
-          kind: 'worker_lost',
-        };
-        (spur.observationComplete ? flags : held).push(flag);
-        continue;
-      }
       if (
         session.role === 'worker' &&
         (session.endReason === 'complete' ||

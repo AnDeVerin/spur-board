@@ -35,6 +35,16 @@ One frozen explanation/dismissal per turn/session/state episode. Recovery,
 replacement, removal, archive or turn closure withdraws it. Blind Spur opens none,
 holds existing; gaps restart timing for new questions.
 
+An accepted ended session holding the current non-Done turn raises one
+`worker_ended` attention item immediately, with no stall block. Every end reason
+counts, including unknown; an open PR or another linked live session does not
+resolve the held turn. Start a replacement worker or archive the task. The item
+clears on turn closure, actual holder replacement, archive or departure from the
+column visit. Existing ended-holder stall blocks withdraw with a recorded reason,
+even while Spur is blind. Removing a link alone leaves the taken turn unresolved.
+Done wrap-up turns still close when their holder ends. A stopped session without
+an end time remains subject to live stall timing above.
+
 ## Doorbells
 
 A turn opened for you by your own confirmed submit or return is first rung only after `doorbells.firstRetryMs`; a turn opened for you any other way rings at once.

@@ -72,7 +72,6 @@ const ENDED_WORKER_LABELS: Partial<Record<SessionHealthFlagKind, string>> = {
   worker_completed: 'worker ended (completed), no PR',
   worker_killed: 'worker ended (killed), no PR',
   worker_vanished: 'worker vanished, no PR',
-  worker_lost: 'worker ended during its open turn',
 };
 
 /** Health flags only the operator can resolve; each opens an operator block. */
@@ -81,7 +80,6 @@ const ANOMALY_FLAGS: ReadonlySet<SessionHealthFlagKind> = new Set([
   'stuck_orchestrator',
   'needs_input',
   'worker_completed',
-  'worker_lost',
 ]);
 
 /**
@@ -178,6 +176,7 @@ export async function reconcileItems(
     .where('membership', '!=', 'archived')
     .execute();
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const endedHolders = await endedTurnItems(trx, taskById, candidates, new Date(now));
   const misses = await trx.selectFrom('source_miss').selectAll().execute();
   for (const miss of misses) {
     // A linked PR or ticket raises an item only once the runner counts it gone.
@@ -332,7 +331,7 @@ export async function reconcileItems(
     .where('link.banned', '=', 0)
     .where(pastReopenFloor)
     .execute();
-  const taskPrs: Record<string, TaskPrState & { turnSessions: string[] }> = {};
+  const taskPrs: Record<string, TaskPrState> = {};
   for (const task of tasks)
     taskPrs[String(task.id)] = {
       hasOpenPr: false,
@@ -341,7 +340,6 @@ export async function reconcileItems(
         config.projects.find((entry) => entry.id === task.project),
         sourceById,
       ),
-      turnSessions: [],
     };
   const tickets = await trx
     .selectFrom('ticket_snapshot')
@@ -377,18 +375,6 @@ export async function reconcileItems(
         task.manual_include === 1,
         at,
       ) !== 'open';
-  }
-  const workerTurns = await trx
-    .selectFrom('turn')
-    .select(['task_id', 'acked_by'])
-    .where('role', '=', 'worker')
-    .where('closed_at', 'is', null)
-    .where('acked_at', 'is not', null)
-    .execute();
-  for (const turn of workerTurns) {
-    const holder = turn.acked_by === null ? null : parseActorId(turn.acked_by);
-    if (holder?.actor === 'agent')
-      taskPrs[String(turn.task_id)]?.turnSessions.push(holder.actorRef.session);
   }
   const heldKeys: string[] = [];
   for (const task of tasks) {
@@ -680,6 +666,7 @@ export async function reconcileItems(
     )
     .execute();
   for (const flag of health.flags) {
+    if (endedHolders.has(`${flag.taskId}:${flag.sessionId}`)) continue;
     const task = taskById.get(Number(flag.taskId));
     if (task === undefined) continue;
     const fact = subjects.find(
@@ -731,7 +718,7 @@ export async function reconcileItems(
       trx,
     )) {
       const task = taskById.get(turn.task_id);
-      if (task === undefined || quietSince === null || flagged.has(sessionId)) continue;
+      if (ended || task === undefined || quietSince === null || flagged.has(sessionId)) continue;
       const quiet = Date.parse(quietSince);
       const reminded =
         reminder !== undefined &&
@@ -741,7 +728,7 @@ export async function reconcileItems(
       // A failed reminder counts only once the current quiet period reaches the threshold.
       const unreached =
         reminder !== undefined && reminder.exhausted_at !== null && now >= quiet + threshold;
-      if (!reminded && !unreached && !(ended && now >= quiet + threshold)) continue;
+      if (!reminded && !unreached) continue;
       candidates.push({
         key: `stuck-turn:${String(turn.id)}`,
         kind: 'anomaly',
@@ -757,6 +744,7 @@ export async function reconcileItems(
   const ordered = orderItems(candidates);
   const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {
+    if (endedHolders.has(`${flag.taskId}:${flag.sessionId}`)) continue;
     const task = taskById.get(Number(flag.taskId));
     if (task !== undefined && !stalled.has(`${flag.taskId}:${flag.sessionId}`))
       seen.add(healthKey(task.id, flag));
@@ -787,7 +775,12 @@ export async function reconcileItems(
             }),
           ),
   );
-  const spurHeld = spurBlind ? await blindHeldKeys(trx, subjects) : new Set<string>();
+  const spurHeld = spurBlind
+    ? await blindHeldKeys(
+        trx,
+        subjects.filter((subject) => !endedHolders.has(`${subject.taskId}:${subject.id}`)),
+      )
+    : new Set<string>();
   if (stallBlind) for (const key of stallHeld) spurHeld.add(key);
   for (const item of existing) {
     if (item.kind !== ('anomaly' satisfies ItemKind)) continue;
@@ -947,7 +940,7 @@ async function closeEndedDoneTurns(trx: Trx, at: Date): Promise<void> {
     await closeTurns(trx, { taskId: turn.task_id, reason: 'moved', at });
     const keys = [
       `stuck-turn:${String(turn.id)}`,
-      healthKey(turn.task_id, { taskId: String(turn.task_id), sessionId, kind: 'worker_lost' }),
+      `health:${String(turn.task_id)}:${sessionId}:worker_lost`,
     ];
     const items = await trx
       .selectFrom('operator_item')
@@ -958,6 +951,73 @@ async function closeEndedDoneTurns(trx: Trx, at: Date): Promise<void> {
     const reason = `turn T${String(turn.id)} closed: its holder ${sessionId} ended in Done`;
     for (const item of items) await clearReconciled(trx, item, at, reason);
   }
+}
+
+/** Raise ended-holder attention from ownership, independent of links, PRs and source freshness. */
+async function endedTurnItems(
+  trx: Trx,
+  tasks: ReadonlyMap<number, Row<'task'>>,
+  candidates: ItemCandidate[],
+  at: Date,
+): Promise<Set<string>> {
+  const holders = new Set<string>();
+  const turns = await trx
+    .selectFrom('turn')
+    .selectAll()
+    .where('closed_at', 'is', null)
+    .where('acked_at', 'is not', null)
+    .execute();
+  for (const turn of turns) {
+    const holder = turn.acked_by === null ? null : parseActorId(turn.acked_by);
+    if (holder?.actor !== 'agent') continue;
+    const sessionId = holder.actorRef.session;
+    const session = await trx
+      .selectFrom('session_snapshot')
+      .selectAll()
+      .where('id', '=', sessionId)
+      .executeTakeFirst();
+    if (session === undefined || session.ended_at === null) continue;
+    const parsed = sessionFactsSchema.safeParse(JSON.parse(session.detail));
+    if (
+      !parsed.success ||
+      parsed.data.id !== sessionId ||
+      parsed.data.spurProject !== holder.actorRef.project ||
+      parsed.data.endedAt === null
+    )
+      continue;
+    const keys = [
+      `stuck-turn:${String(turn.id)}`,
+      `health:${String(turn.task_id)}:${sessionId}:worker_lost`,
+    ];
+    const legacy = await trx
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', 'in', keys)
+      .where('cleared_at', 'is', null)
+      .execute();
+    const reason = `turn T${String(turn.id)} holder ${sessionId} ended; start a replacement worker or archive the task`;
+    for (const item of legacy) await clearReconciled(trx, item, at, reason);
+    const task = tasks.get(turn.task_id);
+    if (
+      task === undefined ||
+      task.column === 'done' ||
+      turn.column !== task.column ||
+      turn.epoch !== task.column_epoch
+    )
+      continue;
+    holders.add(`${String(task.id)}:${sessionId}`);
+    candidates.push({
+      key: `ended-turn:${String(turn.id)}:${sessionId}`,
+      kind: 'worker_ended',
+      taskId: task.id,
+      summary: `${task.key}: turn T${String(turn.id)} holder ${sessionId} ended`,
+      factAt: session.ended_at,
+      revision: session.ended_at,
+      source: 'spur',
+      priority: 4,
+    });
+  }
+  return holders;
 }
 
 /**
@@ -993,7 +1053,8 @@ async function blindHeldKeys(
       held.add(
         healthKey(Number(subject.taskId), { taskId: subject.taskId, sessionId: subject.id, kind }),
       );
-  for (const { turn } of await quietTurns(trx)) held.add(`stuck-turn:${String(turn.id)}`);
+  for (const { turn, ended } of await quietTurns(trx))
+    if (!ended) held.add(`stuck-turn:${String(turn.id)}`);
   return held;
 }
 

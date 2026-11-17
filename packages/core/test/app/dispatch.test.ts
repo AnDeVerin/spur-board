@@ -1332,8 +1332,16 @@ describe('a merged PR and the ticket', () => {
 
   it('withdraws a stuck-turn block when the task reaches Done', async () => {
     const ctx = await inDev();
-    await ctx.spur('ended');
+    await ctx.session({ ...sessionFacts('worker-1', 'worker'), health: 'waiting' });
     ctx.wait(IDLE);
+    await ctx.tick();
+    // Seed a failed reminder for the live holder; ended holders use worker_ended instead.
+    await ctx.store.db
+      .updateTable('notification')
+      .set({ exhausted_at: ctx.at() })
+      .where('kind', '=', 'turn_reminder')
+      .where('turn_id', '=', 1)
+      .execute();
     await ctx.tick();
     const items = () =>
       ctx.store.db
@@ -1357,6 +1365,8 @@ describe('a merged PR and the ticket', () => {
         .executeTakeFirstOrThrow(),
     ).toEqual({ outcome: 'withdrawn' });
     expect(await items()).toEqual([]);
+    await ctx.ack(WORKER, (await ctx.openTurn())?.id ?? '');
+    await ctx.spur('ended');
     expect(await ctx.openTurn()).toBeNull();
   });
 

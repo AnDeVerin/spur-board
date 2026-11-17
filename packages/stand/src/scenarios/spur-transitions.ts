@@ -73,7 +73,7 @@ export const spurTransitionsCursorExpired: Scenario = {
 export const spurTransitionsKilledHolder: Scenario = {
   name: 'spur-transitions-killed-holder',
   summary:
-    'A linked open turn holder is killed and raises worker_lost in the next successful poll.',
+    'A linked open turn holder is killed and raises worker_ended without a stall block in the next successful poll.',
   config: flow(),
   async seed(board, fakes) {
     const turn = await begin(board, fakes);
@@ -91,9 +91,9 @@ export const spurTransitionsKilledHolder: Scenario = {
       ) === true
         ? []
         : ['killed snapshot missing']),
-      ...(status.items.some((item) => item.summary.includes('worker ended during its open turn'))
+      ...(status.items.some((item) => item.summary.includes(`holder ${board.roles.worker} ended`))
         ? []
-        : ['worker_lost missing']),
+        : ['worker_ended missing']),
     ]);
   },
 };

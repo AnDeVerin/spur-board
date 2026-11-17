@@ -769,12 +769,12 @@ describe('each scenario', () => {
     }
   }, 60_000);
 
-  it('spur-transitions-killed-holder: ended facts and worker_lost arrive without a second poll', async () => {
+  it('spur-transitions-killed-holder: ended facts and worker_ended arrive without a second poll', async () => {
     await up();
     await seed('spur-transitions-killed-holder');
     expect(
       (await status(current())).items.some((item) =>
-        item.summary.includes('worker ended during its open turn'),
+        item.summary.includes(`holder ${current().roles.worker} ended`),
       ),
     ).toBe(true);
     const task = await op<{ sessions: { id: string; endReason: string | null }[] }>(
@@ -783,6 +783,18 @@ describe('each scenario', () => {
       { task: 'stand-org/board#1' },
     );
     expect(task.sessions.find(({ id }) => id === current().roles.worker)?.endReason).toBe('kill');
+    const inbox = await op<{ items: { kind: string; action: string }[] }>(
+      current(),
+      'inbox.operator',
+      {},
+    );
+    expect(inbox.items).toContainEqual(
+      expect.objectContaining({
+        kind: 'worker_ended',
+        action: 'start a new worker for the task, or archive the task',
+      }),
+    );
+    expect(inbox.items.filter((item) => item.kind === 'block')).toEqual([]);
   }, 60_000);
 
   it('worker-killed-no-pr: the ended worker item is raised and the task row agrees', async () => {
