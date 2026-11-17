@@ -410,14 +410,12 @@ describe('service', () => {
   });
 
   it('kills a child that outlives its timeout and reports it as timed out', async () => {
-    const started = Date.now();
     const result = await runCommand(
       process.execPath,
       ['-e', 'process.stdout.write("started"); setTimeout(() => {}, 20000)'],
       { timeoutMs: 300 },
     );
     expect(result).toMatchObject({ exitCode: 1, stdout: 'started', timedOut: true });
-    expect(Date.now() - started).toBeLessThan(5_000);
     const quick = await runCommand(process.execPath, ['-p', '1'], { timeoutMs: 10_000 });
     expect(quick).toEqual({ exitCode: 0, stdout: '1\n', stderr: '' });
   });

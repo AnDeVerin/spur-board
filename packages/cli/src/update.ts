@@ -7,7 +7,6 @@ import {
   cpSync,
   ftruncateSync,
   mkdirSync,
-  mkdtempSync,
   openSync,
   readFileSync,
   readdirSync,
@@ -20,7 +19,7 @@ import {
 } from 'node:fs';
 import { get as httpGet } from 'node:http';
 import { get as httpsGet } from 'node:https';
-import { tmpdir, userInfo } from 'node:os';
+import { userInfo } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +35,7 @@ import {
   type CommandResult,
   type RunOptions,
 } from './service.ts';
+import { waitForTarball } from './tarball.ts';
 
 /**
  * Runs a command; the npm calls and the package's own children pass `env`. `lockFd` goes to the update lock's `flock` and
@@ -166,11 +166,6 @@ function childDetail(result: CommandResult): string {
 function config(hint: string): CliError {
   return new CliError('config', undefined, undefined, hint);
 }
-
-/** How long a listed version's tarball may answer 404 (CDN lag after a publish). */
-const TARBALL_WAIT_MS = 600_000;
-/** Waits between tarball 404s; the last one repeats. No retry starts past the bound. */
-const TARBALL_DELAYS_MS = [5_000, 10_000, 20_000, 30_000];
 
 function migrationCount(packageRoot: string): number | undefined {
   try {
@@ -808,9 +803,8 @@ function blockingIds(report: DoctorReport): Set<string> {
 
 /**
  * Downloads `target` with `npm pack` before anything changes, so a registry that lists a version
- * but does not serve its tarball yet stops the update while the service still runs. A 404 is
- * retried while the next wait still ends inside `TARBALL_WAIT_MS`, and each attempt is killed when
- * the bound runs out; any other failure, an integrity mismatch included, refuses at once.
+ * but does not serve its tarball yet stops the update while the service still runs
+ * (`waitForTarball`); any other failure, an integrity mismatch included, refuses at once.
  */
 async function confirmTarball(
   updater: Updater,
@@ -819,39 +813,27 @@ async function confirmTarball(
 ): Promise<void> {
   const { ports } = updater;
   updater.progress('tarball check');
-  const dir = mkdtempSync(join(tmpdir(), 'board-update-pack-'));
-  try {
-    const started = ports.now();
-    const deadline = started + TARBALL_WAIT_MS;
-    const bound = (detail: string) =>
-      config(
-        `The registry lists ${target} but did not serve its tarball within ${String(TARBALL_WAIT_MS / 1000)} s: ${detail}. Nothing was changed and the service was not stopped; run \`board update\` again later.`,
-      );
-    for (let attempt = 0; ; attempt += 1) {
-      const result = await ports.runner('npm', ['pack', target, '--pack-destination', dir], {
-        env: npmEnv,
-        timeoutMs: deadline - ports.now(),
-      });
-      if (result.timedOut === true || ports.now() > deadline) {
-        throw bound(`npm pack ran past the bound (${childDetail(result)})`);
-      }
-      if (result.exitCode === 0) return;
-      if (!/\bE404\b/.test(result.stderr)) {
-        throw config(
-          `${target} cannot be downloaded: ${childDetail(result)}. Nothing was changed and the service was not stopped.`,
-        );
-      }
-      const now = ports.now();
-      const wait = TARBALL_DELAYS_MS[Math.min(attempt, TARBALL_DELAYS_MS.length - 1)] ?? 0;
-      if (now + wait >= deadline) throw bound(childDetail(result));
+  const outcome = await waitForTarball(target, {
+    runner: ports.runner,
+    sleep: ports.sleep,
+    now: ports.now,
+    env: npmEnv,
+    onWait: ({ waitMs, waitedMs, boundMs }) => {
       updater.progress(
-        `tarball wait: ${target} is listed but its tarball is not served yet (E404); retrying in ${String(wait / 1000)} s, waited ${String(Math.floor((now - started) / 1000))} s of ${String(TARBALL_WAIT_MS / 1000)} s`,
+        `tarball wait: ${target} is listed but its tarball is not served yet (E404); retrying in ${String(waitMs / 1000)} s, waited ${String(Math.floor(waitedMs / 1000))} s of ${String(boundMs / 1000)} s`,
       );
-      await ports.sleep(wait);
-    }
-  } finally {
-    removeQuietly(dir);
+    },
+  });
+  if (outcome.ok) return;
+  const detail = childDetail(outcome.result);
+  if (outcome.reason === 'failed') {
+    throw config(
+      `${target} cannot be downloaded: ${detail}. Nothing was changed and the service was not stopped.`,
+    );
   }
+  throw config(
+    `The registry lists ${target} but did not serve its tarball within ${String(outcome.boundMs / 1000)} s: ${outcome.ranPastBound ? `npm pack ran past the bound (${detail})` : detail}. Nothing was changed and the service was not stopped; run \`board update\` again later.`,
+  );
 }
 
 /** `board update [version]`: preflight, snapshot, stop, backup, install, then health checks. */
