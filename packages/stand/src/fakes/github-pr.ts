@@ -4,7 +4,6 @@ import { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import { FakeViolation, type FakeModule } from './fetch.ts';
 import {
-  BRANCH_VERB,
   branchControlSchema,
   PR_VERBS,
   prControlSchema,
@@ -422,7 +421,7 @@ export function createGithubPrFake(options: {
   }
 
   function control(verb: string, args: unknown): RouteResult | undefined {
-    if (verb === BRANCH_VERB) return setBranch(args);
+    if (verb === 'branch') return setBranch(args);
     if (verb === 'inspect')
       return z.strictObject({}).safeParse(args ?? {}).success
         ? { status: 200, body: { requests: requests.list() } }

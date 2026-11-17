@@ -141,7 +141,6 @@ export const branchControlSchema = z.strictObject({
   check: z.string().min(1).default('build'),
   scheduledFailure: z.string().min(1).optional(),
 });
-export const BRANCH_VERB = 'branch';
 export const PR_VERBS = new Set<string>(
   prControlSchema.options.map((option) => option.shape.verb.value),
 );

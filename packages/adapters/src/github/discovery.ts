@@ -142,20 +142,19 @@ export function defaultBranchFact(repository: unknown): Batch['defaultBranch'] {
     if (old !== undefined && contextAt(old) > contextAt(node)) continue;
     latest.set(name, node);
   }
-  const kept = [...latest.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const states = kept.map(([, node]) => checkState(node));
-  const failing = kept.find(
-    (_, i) => !PASSED.has(states[i] ?? '') && !RUNNING.has(states[i] ?? ''),
-  );
+  const kept = [...latest.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([check, node]) => ({ check, node, state: checkState(node) }));
+  const failing = kept.find(({ state }) => !PASSED.has(state) && !RUNNING.has(state));
   if (failing !== undefined) {
-    const [check, node] = failing;
+    const { check, node } = failing;
     const url = (node.__typename === 'StatusContext' ? node.targetUrl : node.detailsUrl) ?? null;
     const red = { state: 'red', branch, sha: target.oid, check, url };
     const fact = defaultBranchFactSchema.safeParse(red);
     if (fact.success) return fact.data;
     return url === null ? undefined : defaultBranchFactSchema.safeParse({ ...red, url: null }).data;
   }
-  if (kept.length === 0 || pageInfo.hasNextPage || states.some((state) => !PASSED.has(state)))
+  if (kept.length === 0 || pageInfo.hasNextPage || kept.some(({ state }) => !PASSED.has(state)))
     return undefined;
   return defaultBranchFactSchema.safeParse({ state: 'green', branch, sha: target.oid }).data;
 }
