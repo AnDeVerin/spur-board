@@ -8,6 +8,21 @@ reached its agent, or a planned pause, follow the [runbook](docs/runbook.md).
 
 ## Doctor checks
 
+Warnings never block readiness or an update. Blocking failures retain these gates:
+
+| Checks                                                                                                                                                         | Policy and reason                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `config`                                                                                                                                                       | Blocking: invalid daemon config.                                                                              |
+| `service.installed`, `service.node`, `service.running`, `flock`, `http.port`, `daemon.available`                                                               | Blocking: runtime, lock, API and service prerequisites.                                                       |
+| `database.private`, `secrets`                                                                                                                                  | Blocking: private storage and configured credentials.                                                         |
+| `jira.credentials`, `github.credentials`, `spur.api`, `spur.send`                                                                                              | Blocking when configured: polling, enrichment or doorbell work fails; GitHub throttle warnings stay advisory. |
+| `slack.auth`, `slack.orchestrators_member`, `slack.feed_member`, known `slack.command` mismatch                                                                | Blocking when configured: delivery and inbound commands; unknown or unconfigured results warn.                |
+| `operator.path`                                                                                                                                                | Blocking: no operator session or approved token for required operator work.                                   |
+| `web.listening`, `web.spurUiOrigin`, `path.current`, `path.spur`, `skills.codex_visibility`                                                                    | Warning: optional browser or agent tooling; the daemon continues.                                             |
+| `versions`                                                                                                                                                     | Blocking daemon/running CLI mismatch; warning auxiliary PATH binary or skill versions.                        |
+| `web`                                                                                                                                                          | Passing configured-state report; no independent failure gate.                                                 |
+| `stand.port_range`, `link.rules`, `sessions.codex_skill`, `sessions.stale`, `operator.tokens`, `curator.sessions`, `orchestrator.sessions`, `slack.configured` | Advisory; preserve their warnings.                                                                            |
+
 ### config
 
 Create or correct `config.yaml` using the [configuration reference](docs/configuration.md) and
@@ -25,7 +40,7 @@ origin; it accepts no placeholders.
 
 ### web.listening
 
-The daemon reports whether its optional web listener is bound. A busy web port fails this
+The daemon reports whether its optional web listener is bound. A busy web port warns in this
 check while the agent API continues running. Free `web.port` or select another port and restart
 the daemon. This differs from `web`, which checks configuration offline.
 
@@ -43,10 +58,35 @@ warns without blocking: set `web.spurUiOrigin` for the intended session links at
 `<origin>/sessions/<session id>`; otherwise the fallback is plain session IDs.
 One unauthenticated GET to the origin root passes on any HTTP response, including redirects
 and error statuses, without following redirects or reading the body. This does not check
-individual session pages. A transport error or a two-second timeout fails with a safe error
-class. Start the Spur UI, fix the proxy or TLS setup, or correct `web.spurUiOrigin` in
+individual session pages. Every transport error or two-second timeout warns without blocking
+doctor, setup, updates or rollback. Recognized cause codes identify refused connections, DNS,
+unreachable networks, TLS and timeouts without exposing raw transport text.
+Start the Spur UI or correct `web.spurUiOrigin` in
 `config.yaml`. Restart the daemon after config changes and rerun `board doctor --json`.
 Offline doctor validates configuration only and sends no probe.
+
+For an expired certificate (`CERT_HAS_EXPIRED`), renew it. For a private or self-signed CA
+(`DEPTH_ZERO_SELF_SIGNED_CERT`, `SELF_SIGNED_CERT_IN_CHAIN`,
+`UNABLE_TO_VERIFY_LEAF_SIGNATURE`, `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`), install the CA in
+system trust or supply its PEM root through `NODE_EXTRA_CA_CERTS` at daemon startup. A shell
+export alone does not change an already running user service. Create a separate drop-in:
+
+```sh
+mkdir -p ~/.config/systemd/user/spur-board.service.d
+```
+
+Write `~/.config/systemd/user/spur-board.service.d/ca.conf` with an absolute CA path:
+
+```ini
+[Service]
+Environment="NODE_EXTRA_CA_CERTS=/path/to/ca-root.pem"
+```
+
+Then run `systemctl --user daemon-reload` and `systemctl --user restart spur-board.service`.
+Install and update replace the generated main unit while preserving this separate drop-in;
+update accepts the additional effective CA environment variable. Alternatively use an HTTP UI
+origin on any host without voice. `web.publicOrigin` and credential-bearing adapter URLs keep
+their HTTP loopback restrictions. Never disable TLS verification globally.
 
 ### stand.port_range
 
@@ -101,12 +141,12 @@ checkout, then checks two things there:
 - `projects.<id>.symlinks` in the project's `spur.yaml` (or `spur.yml`) lists
   `.agents/skills/spur-board`, so Spur links the skill into each new worktree.
 
-A failure means a project used by Codex misses one of the two. A project counts as used by
+A warning can mean a project used by Codex misses one of the two. A project counts as used by
 Codex when a live Codex session runs in it, its `spur.yaml` entry sets `defaultAgent: codex`,
 its `symlinks` list the path, or the main-checkout link resolves. A Codex-only project with
 none of these signals is not checked.
 
-A warning means the doctor could not decide: Spur is not reachable at `adapters.spur.baseUrl`,
+A warning also means the doctor could not decide: Spur is not reachable at `adapters.spur.baseUrl`,
 a `spurProjects` name in `config.yaml` is not a Spur project ID, or the project's `spur.yaml`
 does not define the project. Start Spur, correct the name or the `spur.yaml` entry, then rerun
 the doctor. The [setup skill](packages/skills/setup/SKILL.md) gives the project-checkout steps.
@@ -276,6 +316,9 @@ Board projects whose curator has no live session: start a Spur session of that c
 project with no curator is listed and does not warn. This check never blocks readiness.
 
 ### versions
+
+Only a mismatch between the daemon and the running CLI blocks. Other PATH binaries and skill
+stamps warn, including when they also differ during a blocking daemon mismatch.
 
 Install matching CLI and skill versions with `board update`: it restarts the daemon and
 reinstalls the skills. Then check `board --version` in both the current and live Spur session

@@ -250,7 +250,7 @@ export function renderConfigurationDocs(): string {
     '',
     '## Spur UI session links',
     '',
-    '`web.spurUiOrigin` is the optional Spur UI origin, independent of the Board web listener. The intended session link URL is `<origin>/sessions/<session id>`; when unset, the fallback is plain session IDs. Run `board doctor --json` to check reachability: `web.spurUiOrigin` warns when unset, passes on any HTTP response from the origin root, and fails on transport errors or a short timeout. Start the Spur UI or fix the origin, proxy or TLS configuration, then restart the daemon after config changes and rerun doctor. This checks the origin, not individual session pages.',
+    '`web.spurUiOrigin` is the optional Spur UI origin, independent of the Board web listener. The intended session link URL is `<origin>/sessions/<session id>`; when unset, the fallback is plain session IDs. Run `board doctor --json` to check reachability: `web.spurUiOrigin` warns when unset, passes on any HTTP response from the origin root, and only warns on transport errors or a short timeout; UI problems never block readiness or updates. HTTP UI origins work on any host without voice, while web.publicOrigin keeps HTTP loopback-only. Start the Spur UI or fix the origin, proxy or TLS configuration, then restart the daemon after config changes and rerun doctor. This checks the origin, not individual session pages.',
     '',
     '## config.yaml fields',
     '',

@@ -542,6 +542,27 @@ async function spurUiCheck(
         // A response proves reachability; releasing its body must not extend the deadline.
         void response.body?.cancel().catch(() => undefined);
       } catch (err) {
+        const code = z
+          .object({
+            cause: z.object({
+              code: z.enum([
+                'DEPTH_ZERO_SELF_SIGNED_CERT',
+                'SELF_SIGNED_CERT_IN_CHAIN',
+                'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+                'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+                'CERT_HAS_EXPIRED',
+                'ECONNREFUSED',
+                'ENOTFOUND',
+                'EAI_AGAIN',
+                'ENETUNREACH',
+                'EHOSTUNREACH',
+                'ETIMEDOUT',
+                'UND_ERR_CONNECT_TIMEOUT',
+                'ERR_TLS_CERT_ALTNAME_INVALID',
+              ]),
+            }),
+          })
+          .safeParse(err);
         const name = timedOut
           ? 'TimeoutError'
           : (err instanceof Error || err instanceof DOMException) &&
@@ -549,16 +570,28 @@ async function spurUiCheck(
             ? err.name
             : 'Error';
         // Sanitize before logCall sees the error, including its cause and stack.
-        throw new Error(name);
+        throw new Error(timedOut ? name : code.success ? code.data.cause.code : name);
       }
     });
     return { id, status: 'pass', blocking: false, fix: null };
   } catch (err) {
     const name = err instanceof Error ? err.message : 'Error';
-    return check(
+    const fix =
+      name === 'CERT_HAS_EXPIRED'
+        ? 'Renew the Spur UI certificate.'
+        : [
+              'DEPTH_ZERO_SELF_SIGNED_CERT',
+              'SELF_SIGNED_CERT_IN_CHAIN',
+              'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+              'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+            ].includes(name)
+          ? 'Set NODE_EXTRA_CA_CERTS to your CA root in the service environment, trust the CA system-wide, or use HTTP without voice.'
+          : name === 'ERR_TLS_CERT_ALTNAME_INVALID'
+            ? 'Correct the Spur UI certificate hostname or web.spurUiOrigin.'
+            : 'Start the Spur UI or correct web.spurUiOrigin in config.yaml.';
+    return warning(
       id,
-      false,
-      `web.spurUiOrigin is unreachable (${name}). Start the Spur UI, fix proxy/TLS or correct web.spurUiOrigin in config.yaml; restart the daemon after config changes and rerun board doctor.`,
+      `Spur UI unreachable (${name}). ${fix} Restart the daemon after changes; rerun board doctor.`,
     );
   } finally {
     clearTimeout(timer);
@@ -605,11 +638,9 @@ export async function runDaemonDoctor(
   const spurUi = spurUiCheck(ctx, fetcher, deadlineMs);
   if (config.web.port !== undefined)
     checks.push(
-      check(
-        'web.listening',
-        webListening?.() === true,
-        'Free the configured web port and restart the daemon.',
-      ),
+      webListening?.() === true
+        ? check('web.listening', true, '')
+        : warning('web.listening', 'Free the configured web port and restart the daemon.'),
     );
   const jiraTrackers = config.projects.flatMap((project) =>
     project.tracker.type === 'jira' ? [project.tracker] : [],

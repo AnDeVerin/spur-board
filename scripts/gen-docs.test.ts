@@ -16,6 +16,9 @@ describe('generated public references', () => {
       'plain session IDs',
       '`board doctor --json`',
       'any HTTP response',
+      'only warns on transport errors',
+      'never block readiness or updates',
+      'HTTP UI origins work on any host without voice',
       'TLS',
       'restart the daemon',
     ])

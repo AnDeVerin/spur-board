@@ -144,7 +144,10 @@ Anyone who reaches it can use the web-bound reads and `comment.add` / `block.ans
 or local users; keep the network limited to the operator's devices. See [Security](SECURITY.md).
 
 A busy web port leaves the agent API running; `board doctor --json` reports `web.listening`
-failed. Free the port or change the settings, then restart the daemon. Missing UI assets return
+as a nonblocking warning. Free the port or change the settings, then restart the daemon. An unset
+or unreachable `web.spurUiOrigin` also only warns and never blocks setup or update; see the
+[UI diagnostics and private CA recipe](TROUBLESHOOTING.md#webspuruiorigin).
+Missing UI assets return
 503 with the hint ``UI is not built: run `pnpm --filter @spur-board/web build` ``; health and
 operations still work. The UI build is supplied separately from this listener.
 

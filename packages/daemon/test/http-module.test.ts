@@ -376,6 +376,17 @@ describe('listenerPort', () => {
 });
 
 describe('daemon doctor checks', () => {
+  it('warns when the optional web listener is unavailable', async () => {
+    const ctx = doctorContext({ slack: false });
+    ctx.config.web = { port: 12345, publicOrigin: 'http://localhost:12345' };
+    const report = await runDaemonDoctor(ctx, '1.2.3', doctorFetch(), {
+      webListening: () => false,
+    });
+    expect(report.checks.find(({ id }) => id === 'web.listening')).toMatchObject({
+      status: 'warning',
+      blocking: false,
+    });
+  });
   it('warns once for an unset UI origin without sending a UI request', async () => {
     const fetcher = vi.fn(doctorFetch());
     const report = await runDaemonDoctor(doctorContext({ slack: false }), '1.2.3', fetcher);
@@ -433,7 +444,35 @@ describe('daemon doctor checks', () => {
     },
   );
 
-  it.each([
+  it.each<[string, unknown, string]>([
+    ...[
+      'DEPTH_ZERO_SELF_SIGNED_CERT',
+      'SELF_SIGNED_CERT_IN_CHAIN',
+      'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+      'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+      'CERT_HAS_EXPIRED',
+      'ECONNREFUSED',
+      'ENOTFOUND',
+      'EAI_AGAIN',
+      'ENETUNREACH',
+      'EHOSTUNREACH',
+      'ETIMEDOUT',
+      'UND_ERR_CONNECT_TIMEOUT',
+      'ERR_TLS_CERT_ALTNAME_INVALID',
+    ].map((code): [string, unknown, string] => [
+      code,
+      new TypeError('message-canary', {
+        cause: Object.assign(new Error('cause-canary'), { code }),
+      }),
+      code,
+    ]),
+    [
+      'unknown code',
+      new TypeError('message-canary', {
+        cause: { code: 'unknown-code-canary\u001b' },
+      }),
+      'TypeError',
+    ],
     [
       'connection refused',
       new TypeError('message-canary', { cause: new Error('refused-cause-canary') }),
@@ -452,7 +491,7 @@ describe('daemon doctor checks', () => {
     ],
     ['abort', new DOMException('abort-canary', 'AbortError'), 'AbortError'],
   ])(
-    'reports a safe UI failure for %s and sanitizes before real logging',
+    'reports a safe UI warning for %s and sanitizes before real logging',
     async (_case, error, errorClass) => {
       const ctx = doctorContext({ slack: false });
       // A long valid origin must not overflow the report fix limit.
@@ -478,10 +517,20 @@ describe('daemon doctor checks', () => {
       const ui = report.checks.find(({ id }) => id === 'web.spurUiOrigin');
       expect(ui).toMatchObject({
         id: 'web.spurUiOrigin',
-        status: 'fail',
-        blocking: true,
+        status: 'warning',
+        blocking: false,
       });
       expect(ui?.fix).toContain(`(${errorClass})`);
+      if (errorClass === 'CERT_HAS_EXPIRED') expect(ui?.fix).toContain('Renew');
+      else if (
+        [
+          'DEPTH_ZERO_SELF_SIGNED_CERT',
+          'SELF_SIGNED_CERT_IN_CHAIN',
+          'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+          'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+        ].includes(errorClass)
+      )
+        expect(ui?.fix).toContain('NODE_EXTRA_CA_CERTS');
       expect(doctorReportSchema.safeParse(report).success).toBe(true);
       expect(logs).toContain('doctor.web.spurUiOrigin');
       expect(logs).toContain('"outcome":"error"');
@@ -526,8 +575,8 @@ describe('daemon doctor checks', () => {
         expect(signal?.aborted).toBe(true);
         const ui = report.checks.find(({ id }) => id === 'web.spurUiOrigin');
         expect(ui).toMatchObject({
-          status: 'fail',
-          blocking: true,
+          status: 'warning',
+          blocking: false,
         });
         expect(ui?.fix).toContain('(TimeoutError)');
         expect(vi.getTimerCount()).toBe(0);
