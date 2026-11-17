@@ -35,11 +35,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @spur-board/web build
+      # Bump the key prefix whenever a Stryker option changes how mutants are planned: cached
+      # statuses win over such options (v2: ignoreStatic).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: reports/stryker-incremental.json
-          key: stryker-incremental-${{ github.run_id }}
-          restore-keys: stryker-incremental-
+          key: stryker-incremental-v2-${{ github.run_id }}
+          restore-keys: |
+            stryker-incremental-v2-
       # GITHUB_ACTIONS=false keeps the github-actions and junit reporters out of Stryker's Vitest
       # runs. Keep the plain assignment: wrapping the command in `env` hides the stryker binary
       # from the unused-dependency check, which then flags the Stryker packages.
