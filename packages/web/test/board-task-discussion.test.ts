@@ -303,6 +303,8 @@ describe('task discussion', () => {
         block({ id: 'B13', addressee: 'worker' }),
         block({ id: 'B14', state: 'unblocked', outcome: 'withdrawn', answeredVia: 'web' }),
         block({ id: 'B15', state: 'unblocked', outcome: 'done', answeredVia: 'web' }),
+        block({ id: 'B16', state: 'unblocked', outcome: 'done', answeredVia: 'cli' }),
+        block({ id: 'B17', state: 'unblocked', outcome: 'done', answeredVia: 'mcp' }),
       ],
       comments: [
         comment({ block: 'B10', text: 'old reply' }),
@@ -311,12 +313,14 @@ describe('task discussion', () => {
       ],
     });
     const items = [...(dialog()?.querySelectorAll('article') ?? [])];
-    expect(items.map((item) => item.querySelector('strong')?.textContent).slice(0, 5)).toEqual([
+    expect(items.map((item) => item.querySelector('strong')?.textContent).slice(0, 7)).toEqual([
       'B12',
       'B13',
       'B10',
       'B14',
       'B15',
+      'B16',
+      'B17',
     ]);
     expect(dialog()?.querySelectorAll('textarea')).toHaveLength(2);
     expect(items[2]?.querySelector('form')).toBeNull();
@@ -326,7 +330,9 @@ describe('task discussion', () => {
     expect(items[3]?.textContent).toContain('withdrawn');
     expect(items[3]?.textContent).not.toContain('answered');
     expect(items[4]?.textContent).toContain('answered via web');
-    expect(items[5]?.textContent).toContain('C3 · you');
+    expect(items[5]?.textContent).toContain('answered via cli');
+    expect(items[6]?.textContent).toContain('answered via mcp');
+    expect(items[7]?.textContent).toContain('C3 · you');
   });
 
   it.each([false, true])(

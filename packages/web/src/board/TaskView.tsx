@@ -242,7 +242,7 @@ function TaskDiscussion({
                     {block.state === 'open'
                       ? 'open'
                       : answered
-                        ? `answered${block.answeredVia ? ` via ${block.answeredVia === 'slack' ? 'Slack' : 'web'}` : ''}`
+                        ? `answered${block.answeredVia ? ` via ${block.answeredVia === 'slack' ? 'Slack' : block.answeredVia}` : ''}`
                         : (block.outcome ?? 'closed')}
                   </Chip>
                 </div>
