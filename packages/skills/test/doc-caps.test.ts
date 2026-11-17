@@ -1,7 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { renderCommandReferences } from '../../../scripts/gen-skill.ts';
 
 // The byte caps that skill-sync.test.ts enforces. This file only warns early, never fails on size.
 type CappedDoc = { name: string; size: number; cap: number };
@@ -33,15 +32,14 @@ function filesIn(directory: string, pattern: RegExp, cap: number): CappedDoc[] {
 }
 
 // Read from the directories skill-sync.test.ts pins to its lists, so a new page is included.
+// Command pages are read from disk, not rendered: the renderer throws above its cap, and
+// skill-sync.test.ts pins the committed pages to fresh output. Guide copies in references/ are
+// skipped; skill-sync.test.ts pins them to the docs/ pages scanned here.
 function cappedDocs(): CappedDoc[] {
   return [
     ...filesIn('packages/skills/spur-board/', /^SKILL\.md$/, 5120),
     ...filesIn('packages/skills/setup/', /^SKILL\.md$/, 5120),
-    ...renderCommandReferences().map((r) => ({
-      name: `packages/skills/spur-board/references/${r.fileName}`,
-      size: Buffer.byteLength(r.content),
-      cap: 6553,
-    })),
+    ...filesIn('packages/skills/spur-board/references/', /^(?!how-board|web-ui).*\.md$/, 6553),
     ...filesIn('docs/', /^(how-board|web-ui).*\.md$/, 8192),
     ...filesIn('packages/skills/setup/references/', /\.md$/, 8192),
   ];
@@ -52,6 +50,7 @@ describe('capped doc sizes', () => {
     const docs = cappedDocs();
     expect(docs.filter((doc) => doc.name.endsWith('/SKILL.md'))).toHaveLength(2);
     expect(docs.filter((doc) => doc.name.startsWith('docs/how-board-works'))).not.toHaveLength(0);
+    expect(docs.map((doc) => doc.name)).toContain('packages/skills/spur-board/references/tasks.md');
     warnNearCap(docs);
   });
 
