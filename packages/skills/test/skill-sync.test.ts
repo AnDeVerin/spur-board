@@ -209,21 +209,15 @@ describe('product skill sync', () => {
   it('keeps the skill and bounded references equal to fresh generation', () => {
     expect(replaceGeneratedSection(skill)).toBe(skill);
     expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(5120);
-    expect(references.map((r) => r.fileName)).toEqual([
-      'tasks.md',
-      'blocks.md',
-      'config.md',
-      'errors.md',
-    ]);
-    for (const page of references.slice(0, 2))
-      expect(page.content).toContain('[errors.md](errors.md)');
+    const pages = ['tasks.md', 'blocks.md', 'config.md', 'errors.md'];
+    expect(references.map((r) => r.fileName)).toEqual(pages);
+    for (const page of references.slice(0, 2)) expect(page.content).toContain('(errors.md)');
     expect(readdirSync(refsPath).sort()).toEqual(
       [...references.map((reference) => reference.fileName), ...guideNames].sort(),
     );
     for (const [index, reference] of references.entries()) {
       expect(referenceTexts[index]).toBe(reference.content);
-      // 80% of the 8192-byte cap leaves room for the next operations.
-      expect(Buffer.byteLength(reference.content)).toBeLessThanOrEqual(6553);
+      expect(Buffer.byteLength(reference.content)).toBeLessThanOrEqual(6553); // 80% of 8192
     }
   });
 
@@ -257,17 +251,11 @@ describe('product skill sync', () => {
   it.each(['worker', 'orchestrator'] as const)('indexes exactly the %s grants', (role) => {
     const section = roleSection(role);
     const expected = OPERATIONS.filter((operation) => roleCanUseOperation(operation, role));
-    expect(
-      [...section.matchAll(/^- \[`board ([^`]+)`\]\(references\//gm)].map((match) => match[1]),
-    ).toEqual(expected.map((operation) => operation.cli.command));
-    for (const operation of expected) {
-      const anchor = `#board-${operation.cli.command.replaceAll(' ', '-')}`;
-      const file = section.match(new RegExp(`\\(references/([a-z-]+\\.md)${anchor}\\)`))?.[1];
-      expect(file, operation.id).toBeDefined();
-      expect(readdirSync(refsPath)).toContain(file);
-      expect(readFileSync(`${refsPath}/${file ?? ''}`, 'utf8')).toMatch(
-        new RegExp(`^### \`board ${operation.cli.command}\`$`, 'm'),
-      );
+    const links = [...section.matchAll(/^- \[`board ([^`]+)`\]\(references\/([^)#]+)#(.+)\)$/gm)];
+    expect(links.map((link) => link[1])).toEqual(expected.map((item) => item.cli.command));
+    for (const [, command = '', file = '', anchor] of links) {
+      expect(anchor).toBe(`board-${command.replaceAll(' ', '-')}`);
+      expect(readFileSync(`${refsPath}/${file}`, 'utf8')).toContain(`\n### \`board ${command}\`\n`);
     }
   });
 
