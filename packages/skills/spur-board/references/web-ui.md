@@ -90,8 +90,8 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
 - host: CPU, RAM and Disk percent bars, amber at 80% and red at 90%; an unread value shows `— /
 100`, never 0. A host load wait adds an amber row.
 - slack: when down, Down since, Reason and Spaces.
-- One box per GitHub or Jira source and spur, headed by its own state: Last complete poll,
-  Last observation, Blind (when blind), Freshness, Warming up, Points last hour (pull request
+- One box per GitHub source, spur, one per Jira source, headed by its own state: Last complete
+  poll, Last observation, Blind (when blind), Freshness, Warming up, Points last hour (pull request
   sources) and Budget: a bar of requests left over the limit with its reset time, amber at 20% and
   red at 5%; `<n> left` without a limit; `—` without a budget. The spur box adds an availability
   line while Spur is unavailable.
