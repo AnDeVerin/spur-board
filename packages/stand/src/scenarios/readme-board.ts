@@ -1,6 +1,9 @@
 // The Board in the README screenshots (`docs/images/board-dark.png` and `board-light.png`): real
 // closed spur-board issues, verbatim titles, spread over To Do, Dev, Review, Ready to Merge and
-// Done with the dispatcher on. Recipe: seed `readme-board`, open the stand webUrl at 1680x1000.
+// Done with the dispatcher on. Recipe: seed `readme-board`, open the stand webUrl in gstack browse
+// at a 1680x440 viewport, set localStorage `board-theme` to dark then light, `screenshot
+// --viewport` each, and shrink each to a 256-colour palette with ffmpeg (`palettegen`,
+// `paletteuse=dither=none`, `-pred mixed`).
 import { randomUUID } from 'node:crypto';
 import { flow, REPO, STEP_MS, submit, take } from './dispatcher.ts';
 import { issueKey, settledUnless } from './helpers.ts';
