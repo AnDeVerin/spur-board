@@ -2,7 +2,7 @@
 
 The task view of the [web UI](web-ui.md) shows one task in a dialog over the columns; on a
 narrow screen it fills the screen. It reads `task.get` with `why` for the open task and, like
-the rest of the UI, only reads.
+the rest of the UI, refreshes from the event stream. It also offers the two writes below.
 
 ## Opening it
 
@@ -39,6 +39,32 @@ next column: `When dev exit conditions pass → review`.
 
 The section header sums up the failed and waiting conditions and the open blocks, or reads
 `all pass` or `unknown`.
+
+## Blocks and comments
+
+**Blocks** shows the total and the number open, with open blocks first. Each item names its
+author, addressee, age and reason, its resolution and answer channel when known, and its latest
+associated reply. Agent names use configured Spur project display names, with project and
+session identifiers as fallbacks; the operator reads as `you`. Empty blocks read
+`No blocks on this task.`
+
+Only an open block addressed to the operator has an answer form. **Send answer** calls
+`block.answer`. **Comments** lists task comments with their authors, ids and ages, excluding
+block replies. Its composer stays available with count zero. **Add comment** calls
+`comment.add` for the task. Follow-up, answering agent blocks, and editing or deleting comments
+remain outside this view.
+
+Both forms retain exact text on failure and announce the error. Blank or whitespace-only text
+and text longer than 20,000 characters are rejected locally. Sending guards against duplicate
+clicks. Retrying unchanged text after an uncertain failure reuses its intent key; editing it
+creates a new intent. Drafts remain while the daemon or live updates are unavailable; fields
+and send actions are disabled with a reason until recovery. A short reconnect keeps them usable.
+
+After success the view rereads authoritative task data. While that read runs it says
+`Answer sent. Refreshing task…` or `Comment added. Refreshing task…`. If the read fails, the
+success remains confirmed and **Refresh task** retries only the read. It cannot resend that
+successful intent. Text edited during a send survives completion of the earlier revision.
+Closing the dialog does not persist drafts.
 
 ## States
 

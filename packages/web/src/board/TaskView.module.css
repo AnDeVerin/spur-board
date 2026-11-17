@@ -23,3 +23,40 @@
   padding: var(--space-4) 0;
   color: var(--color-text-secondary);
 }
+.items {
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.item {
+  padding: var(--space-2) var(--space-2-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+.item + .item {
+  border-top: var(--size-hairline) solid var(--color-border-default);
+}
+.forYou {
+  border-left: var(--size-hairline) solid var(--color-you-bg);
+}
+.metadata {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
+  overflow-wrap: anywhere;
+}
+.text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.reply {
+  padding-left: var(--space-2);
+  border-left: var(--size-hairline) solid var(--color-border-strong);
+}
+.feedback {
+  color: var(--color-text-secondary);
+  margin: var(--space-2) 0;
+}

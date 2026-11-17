@@ -1,8 +1,8 @@
 # Web UI
 
 The web UI shows the Board for one project in a browser: its columns, the tasks in them and
-whether the data on screen is current. It only reads. Answers, comments and every other action
-stay in the CLI, the MCP tools and Slack.
+whether the data on screen is current. The task view can answer open operator blocks and add
+task comments. Other actions stay in the CLI, the MCP tools and Slack.
 
 ## Opening it
 
@@ -102,7 +102,8 @@ the panel.
 ## Task view
 
 A card or `?open=<task key>` opens the task view: the task's links and **Why it is here**, the
-conditions, holds, turn and blocks that keep it in its column. See the
+conditions, holds, turn and blocks that keep it in its column, followed by **Blocks** and
+**Comments** with answer and comment forms. See the
 [task view](web-ui-task-view.md) guide.
 
 ## Live and stale states

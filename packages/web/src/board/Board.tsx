@@ -139,6 +139,17 @@ export function Board({ data }: { data: BoardData }) {
           spurUiOrigin={snapshot.config?.web.spurUiOrigin ?? null}
           now={data.now()}
           offline={snapshot.stream === 'offline'}
+          config={snapshot.config}
+          unavailable={
+            snapshot.readFailed
+              ? 'The board daemon does not answer. Answers and comments cannot be sent.'
+              : snapshot.stream === 'offline'
+                ? 'Live updates are lost. Answers and comments cannot be sent.'
+                : undefined
+          }
+          answerIntent={data.answerIntent}
+          commentIntent={data.commentIntent}
+          refreshTask={data.refreshTask}
           onClose={() => {
             closed.current = task.value?.task.key ?? task.key;
             history.pushState(null, '', withoutOpen());
