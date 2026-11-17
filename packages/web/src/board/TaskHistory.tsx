@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { Banner, Button, Skeleton, quiet } from '../ds/index.ts';
+import { Banner, Button, Skeleton, TextToggle, quiet } from '../ds/index.ts';
 import type { HistoryState } from './data.ts';
 import { historyRuns } from './task-model.ts';
 import styles from './TaskHistory.module.css';
@@ -69,7 +69,8 @@ export function TaskHistory({
                         {grouped && index === 0 && (
                           <>
                             {' '}
-                            <Button
+                            <TextToggle
+                              caret
                               expanded={expanded}
                               onClick={() => {
                                 setExpandedRuns((current) => {
@@ -86,7 +87,7 @@ export function TaskHistory({
                               <span className={styles.actionText}>
                                 {expanded ? ', collapse matching rows' : ', show matching rows'}
                               </span>
-                            </Button>
+                            </TextToggle>
                             {!expanded && <span className={styles.since}> since {run.since}</span>}
                           </>
                         )}
