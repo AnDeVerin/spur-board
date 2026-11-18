@@ -8,7 +8,7 @@ import { openTempStore } from '../support/store.ts';
 
 const AT = new Date('2026-11-04T09:00:01.000Z');
 const TEXT =
-  'spur-board skill updated to 1.2.3. Before your next board command, read the spur-board skill file again: ~/.claude/skills/spur-board/SKILL.md (Claude Code) or $CODEX_HOME/skills/spur-board/SKILL.md, by default ~/.codex/skills/spur-board/SKILL.md (Codex).';
+  'spur-board skill updated to 1.2.3. Before your next board command, read the spur-board skill again, SKILL.md and every file in its references/ folder: ~/.claude/skills/spur-board/ (Claude Code) or $CODEX_HOME/skills/spur-board/, by default ~/.codex/skills/spur-board/ (Codex).';
 const config = configSchema.parse({
   projects: [
     {
@@ -98,6 +98,7 @@ async function setup() {
 
 describe('requestSkillReload', () => {
   it('queues one message per live session of a configured Spur project and sends it once', async () => {
+    expect(TEXT.length).toBeLessThanOrEqual(300);
     const ctx = await setup();
     expect(await requestSkillReload(ctx.store, config, '1.2.3', AT)).toEqual({ queued: 2 });
     const rows = await ctx.store.db

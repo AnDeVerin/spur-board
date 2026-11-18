@@ -39,3 +39,10 @@ export function Expanded() {
     </TextToggle>
   );
 }
+export function Busy() {
+  return (
+    <TextToggle busy onClick={noop}>
+      Closing I7
+    </TextToggle>
+  );
+}

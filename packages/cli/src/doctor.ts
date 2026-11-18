@@ -805,7 +805,7 @@ export async function runDoctor(
           [
             ...(unreached.length > 0 || unknownStarts
               ? [
-                  `Stop and wake ${sessionCount(unreached)} started before the last skill install that have no delivered reload message${forVersion}${listing(safeIds(unreached))}; stopping and waking restarts the agent and keeps the conversation. A session can instead read the spur-board skill file again: ~/.claude/skills/spur-board/SKILL.md for Claude Code, ~/.codex/skills/spur-board/SKILL.md for Codex ($CODEX_HOME/skills/spur-board/SKILL.md when set); doctor keeps listing it after that.${unknownStarts ? ' Do the same for connected sessions whose start time is unavailable.' : ''}`,
+                  `Stop and wake ${sessionCount(unreached)} started before the last skill install that have no delivered reload message${forVersion}${listing(safeIds(unreached))}; stopping and waking restarts the agent and keeps the conversation. A session can instead read the spur-board skill again, SKILL.md and every file in its references/ folder: ~/.claude/skills/spur-board/ for Claude Code, ~/.codex/skills/spur-board/ for Codex ($CODEX_HOME/skills/spur-board/ when set); doctor keeps listing it after that.${unknownStarts ? ' Do the same for connected sessions whose start time is unavailable.' : ''}`,
                 ]
               : []),
             ...(pending.length > 0

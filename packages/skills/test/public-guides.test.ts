@@ -42,6 +42,21 @@ describe('public guide contents', () => {
     expect(troubleshooting).toContain('A Spur project can be listed under only one Board project.');
   });
 
+  it('documents that a stale session rereads SKILL.md and every references/ file', () => {
+    const troubleshooting = publicGuides[2]?.replace(/\s+/g, ' ') ?? '';
+    const section = troubleshooting.split('### sessions.stale')[1]?.split(' ### ')[0];
+    expect(section).toBeDefined();
+    for (const token of [
+      'SKILL.md',
+      'references/',
+      '~/.claude/skills/spur-board/',
+      '~/.codex/skills/spur-board/',
+      '$CODEX_HOME/skills/spur-board/',
+    ])
+      expect(section).toContain(token);
+    expect(section).not.toContain('skill file again');
+  });
+
   it('documents when token create replaces an existing token file', () => {
     const troubleshooting = publicGuides[2]?.replace(/\s+/g, ' ') ?? '';
     expect(troubleshooting).toContain(

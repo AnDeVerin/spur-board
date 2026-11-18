@@ -1101,7 +1101,7 @@ describe('board doctor', () => {
   });
 
   const stopAndWake = (count: string, ids: string, forVersion = ' for 1.2.3') =>
-    `Stop and wake ${count} started before the last skill install that have no delivered reload message${forVersion}${ids}; stopping and waking restarts the agent and keeps the conversation. A session can instead read the spur-board skill file again: ~/.claude/skills/spur-board/SKILL.md for Claude Code, ~/.codex/skills/spur-board/SKILL.md for Codex ($CODEX_HOME/skills/spur-board/SKILL.md when set); doctor keeps listing it after that.`;
+    `Stop and wake ${count} started before the last skill install that have no delivered reload message${forVersion}${ids}; stopping and waking restarts the agent and keeps the conversation. A session can instead read the spur-board skill again, SKILL.md and every file in its references/ folder: ~/.claude/skills/spur-board/ for Claude Code, ~/.codex/skills/spur-board/ for Codex ($CODEX_HOME/skills/spur-board/ when set); doctor keeps listing it after that.`;
   const undatedToo = 'Do the same for connected sessions whose start time is unavailable.';
 
   it('warns for confirmed stale sessions without failing doctor', async () => {

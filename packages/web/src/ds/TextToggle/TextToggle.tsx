@@ -4,10 +4,12 @@ import { Icon } from '../Icon/Icon.tsx';
 import styles from './TextToggle.module.css';
 
 /**
- * A quiet text button that folds or unfolds text, such as "Show all": tertiary at rest, primary
- * on hover, with the ds focus ring. `caret` adds a caret after the text that points down, and up
- * while `expanded`. `aria-expanded` is set only when `expanded` is given; `controls` is the id of
- * the region it folds (`aria-controls`).
+ * A quiet text button that folds or unfolds text, such as "Show all", or runs one small action,
+ * such as "Close I3": tertiary at rest, primary on hover, with the ds focus ring. `caret` adds a
+ * caret after the text that points down, and up while `expanded`. `aria-expanded` is set only
+ * when `expanded` is given; `controls` is the id of the region it folds (`aria-controls`). As with
+ * `Button`, `busy` keeps it focusable, sets `aria-busy` and `aria-disabled` and ignores clicks;
+ * pass children naming the action in flight, since busy looks like rest apart from the cursor.
  */
 export function TextToggle({
   children,
@@ -15,12 +17,14 @@ export function TextToggle({
   expanded,
   controls,
   caret = false,
+  busy = false,
 }: {
   children: ReactNode;
   onClick: () => void;
   expanded?: boolean | undefined;
   controls?: string | undefined;
   caret?: boolean | undefined;
+  busy?: boolean | undefined;
 }) {
   return (
     <button
@@ -28,7 +32,11 @@ export function TextToggle({
       className={`${styles.toggle ?? ''} ${focusRing}`}
       aria-expanded={expanded}
       aria-controls={controls}
-      onClick={onClick}
+      aria-busy={busy || undefined}
+      aria-disabled={busy || undefined}
+      onClick={() => {
+        if (!busy) onClick();
+      }}
     >
       {children}
       {caret ? (

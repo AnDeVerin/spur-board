@@ -187,7 +187,7 @@ describe('web listener', () => {
     expect((await starting.app.inject(post())).statusCode).toBe(503);
   });
 
-  it('runs the three anonymous operator writes with shared hooks and idempotency', async () => {
+  it('runs the four anonymous operator writes with shared hooks and idempotency', async () => {
     const order: string[] = [];
     const { app, store } = await setup({
       runOperation: async (id, _input, run) => {
@@ -234,6 +234,39 @@ describe('web listener', () => {
       headers: { ...headers, 'x-board-via': 'cli' },
     });
     expect(followup.statusCode).toBe(200);
+    const item = { ...sampleRows.operator_item, block_id: null, line_outbox_id: null };
+    const kind = 'board_observation';
+    await store.db
+      .insertInto('operator_item')
+      .values([
+        { ...item, kind, item_key: 'lookup:o/r#101' },
+        { ...item, id: 2, kind, item_key: 'default-branch:github:o/r', task_id: null },
+      ])
+      .execute();
+    // I1 twice on one key replays its answer; I2 is a board-wide item.
+    for (const [item, n] of [
+      ['I1', 1],
+      ['I1', 1],
+      ['I2', 2],
+    ] as const) {
+      const payload = JSON.stringify({ input: { item }, key: `web-close-${String(n)}` });
+      expect((await app.inject({ ...post('item.close'), payload })).statusCode).toBe(200);
+    }
+    const cleared = await store.db
+      .selectFrom('event')
+      .select(['project', 'payload'])
+      .where('kind', '=', 'from_you_cleared')
+      .orderBy('id')
+      .execute();
+    expect(
+      cleared.map((row) => [row.project, (JSON.parse(row.payload) as { item: string }).item]),
+    ).toEqual([
+      ['proj', 'I1'],
+      ['_board', 'I2'],
+    ]);
+    const items = await store.db.selectFrom('operator_item').select('cleared_at').execute();
+    expect(items.every((row) => row.cleared_at !== null)).toBe(true);
+    expect(await store.db.selectFrom('dismissal').selectAll().execute()).toHaveLength(2);
     const comments = await store.db.selectFrom('comment').selectAll().execute();
     expect(comments).toHaveLength(3);
     expect(comments.every((entry) => entry.author === 'operator')).toBe(true);
@@ -247,6 +280,8 @@ describe('web listener', () => {
       { kind: 'comment_added', actor: 'operator', via: 'web' },
       { kind: 'block_unblocked', actor: 'operator', via: 'web' },
       { kind: 'comment_added', actor: 'operator', via: 'web' },
+      { kind: 'from_you_cleared', actor: 'operator', via: 'web' },
+      { kind: 'from_you_cleared', actor: 'operator', via: 'web' },
     ]);
 
     expect(order).toEqual([
@@ -258,6 +293,7 @@ describe('web listener', () => {
       'after',
       'block.followup',
       'after',
+      ...['item.close', 'after', 'item.close', 'after', 'item.close', 'after'],
     ]);
     expect((await app.inject(post('task.get', { task: 'o/r#101' }))).statusCode).toBe(200);
     const history = await app.inject(post('task.history', { task: 'o/r#101' }));
@@ -269,6 +305,7 @@ describe('web listener', () => {
           { kind: 'comment_added', actor: 'operator', via: 'web' },
           { kind: 'block_unblocked', actor: 'operator', via: 'web' },
           { kind: 'comment_added', actor: 'operator', via: 'web' },
+          { kind: 'from_you_cleared', actor: 'operator', via: 'web' },
         ],
       },
     });

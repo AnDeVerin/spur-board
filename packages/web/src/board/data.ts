@@ -9,6 +9,14 @@ import {
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
 
+/** `closeItemIntent` refused to send because the board is unavailable. */
+export class BoardUnavailableError extends Error {
+  constructor() {
+    super('the board is unavailable.');
+    this.name = 'BoardUnavailableError';
+  }
+}
+
 export type BoardConfig = Output<'config.get'>;
 type BoardStatus = Output<'status.get'>;
 type BoardInbox = Output<'inbox.operator'>;
@@ -374,6 +382,33 @@ export function createBoardData(options: BoardDataOptions) {
       writeIntent(key, 'block.followup', { block, text }),
     commentIntent: (key: string, text: string) =>
       writeIntent(key, 'comment.add', { task: state.task?.value?.task.key ?? key, text }),
+    /**
+     * Close one operator inbox item; the object owns one idempotent intent. Refused while the
+     * board is unavailable; a confirmed close re-reads the inbox and later runs return at once.
+     */
+    closeItemIntent: (item: string) => {
+      const intent = createMutationIntent(api, 'item.close', { item });
+      let pending: Promise<void> | undefined;
+      let confirmed = false;
+      return {
+        run(): Promise<void> {
+          if (confirmed) return Promise.resolve();
+          if (pending) return pending;
+          if (stopped || state.readFailed || state.stream === 'offline')
+            return Promise.reject(new BoardUnavailableError());
+          pending = intent
+            .run()
+            .then(() => {
+              confirmed = true;
+              inbox.refresh();
+            })
+            .finally(() => {
+              pending = undefined;
+            });
+          return pending;
+        },
+      };
+    },
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
     /**
      * Open a task by key, or close it with null: read `task.get` with why, then again whenever the

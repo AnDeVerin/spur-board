@@ -26,7 +26,14 @@ Header, left to right:
   header inbox button. Back/Forward follow these layers. Task-less rows with a known HTTP(S)
   destination open it in a new tab on click or Enter, retaining the inbox. This applies to active
   and handled entries. Task navigation takes precedence even when a URL is supplied. Rows without
-  a safe destination remain focusable; all are read-only.
+  a safe destination remain focusable. Each active item entry (`I<n>`) has a quiet `Close I<n>`
+  below its row that sends one `item.close`, as Slack's Close does: a ledger item's block closes
+  with it and a failed post stays unsent. Blocks, turns and handled entries have none. It reads
+  `Closing I<n>` while sent, then `Closed I<n>, waiting for the board.` until the re-read moves
+  the entry to handled; focus then goes to the next row, else the previous one, else panel Close.
+  A failure keeps the entry with `Could not close I<n>: <message>`: the daemon's problem message,
+  `the request failed.` for any other failure, or `the board is unavailable.` while the daemon or
+  live updates are unavailable.
 
 Columns follow configuration order:
 

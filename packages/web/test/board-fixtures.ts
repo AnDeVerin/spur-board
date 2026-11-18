@@ -9,7 +9,8 @@ type OpId =
   | 'task.history'
   | 'block.answer'
   | 'block.followup'
-  | 'comment.add';
+  | 'comment.add'
+  | 'item.close';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
@@ -329,6 +330,17 @@ export function daemon(tasks: unknown[] = ROWS) {
     'block.followup': () =>
       Promise.resolve(envelope({ comment: comment({ id: 'C9', block: 'B12' }) })),
     'task.history': () => Promise.resolve(envelope(taskHistory())),
+    'item.close': (input) =>
+      Promise.resolve(
+        envelope({
+          item: {
+            id: input['item'],
+            task: null,
+            at: '2026-11-15T14:00:00.000Z',
+            summary: 'Closed',
+          },
+        }),
+      ),
   };
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
   let streamFails = false;

@@ -256,6 +256,7 @@ describe('operator item feed', () => {
     ['a blocked post', 'post_blocked', 'secret-post:abc', ['close']],
     ['another observation', 'board_observation', 'block:1', ['close']],
     ['an inbound gap', 'inbound_gap', 'inbound:gap:x', ['close']],
+    ['an ended worker', 'worker_ended', 'ended-turn:1:w', ['close']],
     ['a token request', 'token_request', 'token:1', ['approve', 'deny', 'close']],
   ])('gives %s line its item buttons', async (_name, kind, itemKey, verbs) => {
     const ctx = await setup();
@@ -275,7 +276,7 @@ describe('operator item feed', () => {
     );
   });
 
-  it.each<ItemKind>(['post_failed', 'answer_undelivered', 'transport_health', 'worker_ended'])(
+  it.each<ItemKind>(['post_failed', 'answer_undelivered', 'transport_health'])(
     'does not enqueue a feed line for %s',
     async (kind) => {
       const ctx = await setup();

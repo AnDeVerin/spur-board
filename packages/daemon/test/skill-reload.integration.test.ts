@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -15,7 +15,8 @@ afterEach(async () => {
 
 const AT = '2026-11-04T08:00:00.000Z';
 const TEXT =
-  'spur-board skill updated to 1.2.3. Before your next board command, read the spur-board skill file again: ~/.claude/skills/spur-board/SKILL.md (Claude Code) or $CODEX_HOME/skills/spur-board/SKILL.md, by default ~/.codex/skills/spur-board/SKILL.md (Codex).';
+  'spur-board skill updated to 1.2.3. Before your next board command, read the spur-board skill again, SKILL.md and every file in its references/ folder: ~/.claude/skills/spur-board/ (Claude Code) or $CODEX_HOME/skills/spur-board/, by default ~/.codex/skills/spur-board/ (Codex).';
+const REFERENCE_RULE = 'Rule only in references/errors.md\n';
 
 async function insertSession(
   h: Harness,
@@ -49,10 +50,14 @@ async function packageFixture(): Promise<{ home: string; packageRoot: string }> 
   const home = join(root, 'home');
   const packageRoot = join(root, 'package');
   await mkdir(home);
-  await mkdir(join(packageRoot, 'skills', 'spur-board'), { recursive: true });
+  await mkdir(join(packageRoot, 'skills', 'spur-board', 'references'), { recursive: true });
   await mkdir(join(packageRoot, 'skills', 'setup'), { recursive: true });
   await writeFile(join(packageRoot, 'package.json'), JSON.stringify({ version: '1.2.3' }));
   await writeFile(join(packageRoot, 'skills', 'spur-board', 'SKILL.md'), 'Board skill\n');
+  await writeFile(
+    join(packageRoot, 'skills', 'spur-board', 'references', 'errors.md'),
+    REFERENCE_RULE,
+  );
   await writeFile(join(packageRoot, 'skills', 'setup', 'SKILL.md'), 'Setup skill\n');
   return { home, packageRoot };
 }
@@ -101,6 +106,11 @@ it('messages each live session of a configured project once after a skill instal
       .sort(),
   ).toEqual([h.session, 'worker-unlinked']);
   expect(reloads().every((send) => send.text === TEXT)).toBe(true);
+  expect(reloads().every((send) => send.text.includes('references/'))).toBe(true);
+  for (const agent of ['.claude', '.codex'])
+    expect(
+      await readFile(join(home, agent, 'skills', 'spur-board', 'references', 'errors.md'), 'utf8'),
+    ).toBe(REFERENCE_RULE);
 
   const second = await skillsInstall(h, home, packageRoot);
   expect(second.code).toBe(0);

@@ -8,7 +8,7 @@ import {
   VIAS,
 } from './enums.ts';
 import { EVENT_KINDS } from './events.ts';
-import { actorIdSchema, blockIdSchema, taskKeyInputSchema } from './ids.ts';
+import { actorIdSchema, blockIdSchema, itemIdSchema, taskKeyInputSchema } from './ids.ts';
 import { SPACE_IDS } from './gateway/schemas.ts';
 import { configViewSchema } from './ops/config-view-schema.ts';
 import { inboxEntrySchema, inboxHandledSchema } from './ops/inbox-schemas.ts';
@@ -16,6 +16,7 @@ import { sourceViewSchema } from './ops/source-view-schema.ts';
 import {
   blockViewSchema,
   commentSchema,
+  itemViewSchema,
   linkViewSchema,
   statusItemSchema,
   statusSessionFactsSchema,
@@ -287,6 +288,9 @@ export const blockFollowupInputSchema = z.strictObject({
   text: text('The follow-up.', TEXT_MAX),
 });
 
+export const itemInputSchema = z.strictObject({ item: itemIdSchema });
+export const itemOutputSchema = z.strictObject({ item: itemViewSchema });
+
 export const configGetInputSchema = z.strictObject({ project });
 
 export const inboxOperatorInputSchema = z.strictObject({});
@@ -429,5 +433,11 @@ export const browserOperations = {
     kind: 'mutation',
     input: blockFollowupInputSchema,
     output: commentAddOutputSchema,
+  },
+  'item.close': {
+    id: 'item.close',
+    kind: 'mutation',
+    input: itemInputSchema,
+    output: itemOutputSchema,
   },
 } as const;

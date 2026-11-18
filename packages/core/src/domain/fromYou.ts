@@ -123,7 +123,7 @@ export const ITEM_POLICY = {
   },
   worker_ended: {
     retry: 'none',
-    feed: false,
+    feed: true,
     priority: 4,
     buttons: 'item',
     reconciled: true,
