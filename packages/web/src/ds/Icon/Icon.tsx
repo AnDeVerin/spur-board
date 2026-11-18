@@ -37,7 +37,7 @@ export const iconNames = [
 export type IconName = (typeof iconNames)[number];
 
 // Path data copied from design/prototypes/board-v1/base.js, and for the last four from
-// design/prototypes/board-v1-2/app.jsx; ds.test.ts checks it stays equal.
+// design/prototypes/board-v1-2/app.jsx; ds-icon-logo.test.ts checks it stays equal.
 // Functions, so no JSX runs while the module loads.
 const glyphs: Record<IconName, () => ReactNode> = {
   mark: () => <path d="M8 1.5v13M2.4 4.75l11.2 6.5M13.6 4.75L2.4 11.25" />,
