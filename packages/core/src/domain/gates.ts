@@ -261,7 +261,7 @@ const CONDITION_DEFINITIONS: Record<GateCondition, ConditionDefinition> = {
     reasons: ({ pr }) => (pr?.draft ? ['pr_draft'] : []),
   },
   checks_green: {
-    text: 'Required checks, or all non-skipped checks when none are required, are green. An open PR in reposWithoutCi passes only with no checks and no required checks.',
+    text: 'Required checks, or all non-skipped checks when none are required, are green. For an open PR, reposWithoutCi additionally waives absent checks only when there are no checks and no required checks.',
     reasons: (facts, _project, _column, waived) => gateCheckReasons(facts, waived),
   },
   checks_not_red: {
