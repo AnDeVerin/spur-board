@@ -79,6 +79,7 @@ function input(changes: Changes = {}): Input {
     ticketDone: false,
     hasOpenLinkedPr: true,
     allGithubReposReady: true,
+    spurReady: true,
     openPr: true,
     githubBlind: false,
     spurBlind: false,
@@ -636,6 +637,7 @@ describe('dispatch', () => {
     { spurBlind: true },
     { githubBlind: true },
     { allGithubReposReady: false },
+    { spurReady: false },
     { submitPending: true },
   ])('does not finish while guarded: %j', (guard) => {
     expect(
@@ -644,9 +646,15 @@ describe('dispatch', () => {
   });
 
   it('preserves merge precedence without all repositories ready', () => {
-    const given = input({ ...idle, pr: { state: 'merged' }, allGithubReposReady: false });
+    const given = input({
+      ...idle,
+      pr: { state: 'merged' },
+      allGithubReposReady: false,
+      spurReady: false,
+    });
     expect(dispatch(given)).toEqual({ moves: [merged('dev')], turn: null });
     expect(dispatchHolds(given)).not.toContain('github_blind');
+    expect(dispatchHolds(given)).not.toContain('spur_blind');
   });
 
   it('keeps Done on a stale reopen and opens the configured orchestrator wrap-up', () => {
@@ -670,6 +678,20 @@ describe('dispatch', () => {
     expect(dispatchHolds(input({ ...idle, column: 'done', allGithubReposReady: false }))).toEqual(
       [],
     );
+  });
+
+  it('explains every stale absence source without duplicates or Done eligibility holds', () => {
+    expect(dispatchHolds(input({ ...idle, allGithubReposReady: false, spurReady: false }))).toEqual(
+      ['github_blind', 'spur_blind'],
+    );
+    expect(dispatchHolds(input({ ...idle, spurBlind: true, spurReady: false }))).toEqual([
+      'spur_blind',
+    ]);
+    expect(
+      dispatchHolds(
+        input({ ...idle, column: 'done', allGithubReposReady: false, spurReady: false }),
+      ),
+    ).toEqual([]);
   });
 
   it.each(cases)('%s', (_name, changes, expected) => {

@@ -47,6 +47,8 @@ interface DispatchInput {
   hasOpenLinkedPr: boolean;
   /** Every configured repository is unblind with a complete poll started after the task changed. */
   allGithubReposReady: boolean;
+  /** Spur is unblind with a complete poll started after the task changed. */
+  spurReady: boolean;
   /** The task has an open PR link past its reopen floor. */
   openPr: boolean;
   /** GitHub has no fresh view of the task: blind, or no complete poll since start. */
@@ -127,7 +129,11 @@ function workStarted(input: DispatchInput): boolean {
 }
 
 function ticketFinished(input: DispatchInput): boolean {
-  return input.ticketDone && !input.hasOpenLinkedPr && !input.liveWorker && !input.spurBlind;
+  return input.ticketDone && !input.hasOpenLinkedPr && !input.liveWorker;
+}
+
+function absenceReady(input: DispatchInput): boolean {
+  return ticketFinished(input) && input.allGithubReposReady && input.spurReady && !input.spurBlind;
 }
 
 /**
@@ -146,13 +152,20 @@ export function dispatchHolds(input: DispatchInput): TaskHold[] {
       !input.allGithubReposReady)
   )
     holds.push('github_blind');
-  if (input.spurBlind) holds.push('spur_blind');
+  if (
+    input.spurBlind ||
+    (input.column !== 'done' &&
+      input.facts.pr?.state !== 'merged' &&
+      ticketFinished(input) &&
+      !input.spurReady)
+  )
+    holds.push('spur_blind');
   if (input.submitPending) holds.push('submit_pending');
   if (input.cycleHeld) holds.push('cycle_limit');
   if (
     (input.column === 'todo' || input.column === 'ready-for-dev') &&
     !workStarted(input) &&
-    !(ticketFinished(input) && input.allGithubReposReady)
+    !absenceReady(input)
   )
     holds.push('work_not_started');
   return holds;
@@ -221,7 +234,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
       move('done', 'merged');
       continue;
     }
-    if (ticketFinished(input) && input.allGithubReposReady) {
+    if (absenceReady(input)) {
       move('done', 'ticket_done_no_pr');
       continue;
     }

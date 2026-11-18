@@ -328,6 +328,8 @@ function board(options: Options = {}) {
       worker: 'live' | 'ended' | 'none' | 'unlinked' = 'live',
       complete = true,
       gone: readonly string[] = [],
+      startedAt?: string,
+      blind = false,
     ) =>
       observe(
         'spur',
@@ -352,6 +354,8 @@ function board(options: Options = {}) {
             : []),
         ].filter((item) => !gone.includes(item.facts.id)),
         complete,
+        startedAt,
+        blind,
       ),
     blind: (source: string, blind: boolean) => {
       step();
@@ -1271,39 +1275,97 @@ describe('a done ticket without in-flight work', () => {
     const effective = (task: Awaited<ReturnType<Board['task']>>) =>
       mode === 'on' ? task.column : (task.shadow_column ?? task.column);
 
-    it.each([
-      ['none', 'missing'],
-      ['none', 'earlier'],
-      ['none', 'equal'],
-      ['none', 'later'],
-      ['closed', 'missing'],
-      ['closed', 'earlier'],
-      ['closed', 'equal'],
-      ['closed', 'later'],
-    ] as const)('%s PR with %s complete evidence', async (pr, evidence) => {
+    describe.each(['repository', 'spur'] as const)('%s source class', (source) => {
+      const confirm = (ctx: Board, complete = true, startedAt?: string, blind = false) =>
+        source === 'repository'
+          ? ctx.repo('o/r', complete, startedAt, blind)
+          : ctx.spur('none', complete, [], startedAt, blind);
+      const other = (ctx: Board) => (source === 'repository' ? ctx.spur('none') : ctx.repo('o/r'));
+
+      it.each([
+        ['none', 'missing'],
+        ['none', 'earlier'],
+        ['none', 'equal'],
+        ['none', 'later'],
+        ['closed', 'missing'],
+        ['closed', 'earlier'],
+        ['closed', 'equal'],
+        ['closed', 'later'],
+      ] as const)('%s PR with %s complete evidence', async (pr, evidence) => {
+        const ctx = await started({ mode }, 'none');
+        if (pr === 'closed') await ctx.pr({ state: 'closed' });
+        ctx.restart({ mode });
+        await ctx.ticket('closed');
+        const task = await ctx.task();
+        const boundary = Date.parse(task.last_change_at ?? task.created_at);
+        await other(ctx);
+        if (evidence !== 'missing') {
+          const offset = evidence === 'earlier' ? -1 : evidence === 'equal' ? 0 : 1;
+          await confirm(ctx, true, new Date(boundary + offset).toISOString());
+        }
+        const complete = evidence === 'later';
+        expect(effective(await ctx.task())).toBe(complete ? 'done' : 'todo');
+        const moves = await ctx.events(mode === 'on' ? 'task_moved' : 'task_shadow_moved');
+        expect(moves).toHaveLength(complete ? 1 : 0);
+        if (complete) expect(moves[0]?.payload).toMatchObject({ reason: 'ticket_done_no_pr' });
+        else
+          expect((await ctx.why()).holds).toContain(
+            source === 'repository' ? 'github_blind' : 'spur_blind',
+          );
+      });
+
+      it('unchanged final confirmation in either source order completes without a fact event', async () => {
+        const ctx = await started({ mode }, 'none');
+        await ctx.ticket('closed');
+        const facts = (await ctx.events()).filter(({ kind }) => kind.endsWith('_facts_changed'));
+        await other(ctx);
+        expect(effective(await ctx.task())).toBe('todo');
+        await confirm(ctx);
+        expect(effective(await ctx.task())).toBe('done');
+        expect((await ctx.events()).filter(({ kind }) => kind.endsWith('_facts_changed'))).toEqual(
+          facts,
+        );
+        expect(await ctx.events(mode === 'on' ? 'task_moved' : 'task_shadow_moved')).toHaveLength(
+          1,
+        );
+      });
+
+      it('incomplete or blind callbacks cannot prove absence', async () => {
+        const ctx = await started({ mode }, 'none');
+        await ctx.ticket('closed');
+        await other(ctx);
+        await confirm(ctx, false);
+        expect(effective(await ctx.task())).toBe('todo');
+        await confirm(ctx, true, undefined, true);
+        expect(effective(await ctx.task())).toBe('todo');
+        expect((await ctx.why()).holds).toContain(
+          source === 'repository' ? 'github_blind' : 'spur_blind',
+        );
+        await confirm(ctx);
+        expect(effective(await ctx.task())).toBe('done');
+      });
+    });
+
+    it('discovers a new live worker before trusting its absence', async () => {
       const ctx = await started({ mode }, 'none');
-      if (pr === 'closed') await ctx.pr({ state: 'closed' });
-      ctx.restart({ mode });
-      await ctx.spur('none');
       await ctx.ticket('closed');
-      const task = await ctx.task();
-      const boundary = Date.parse(task.last_change_at ?? task.created_at);
-      if (evidence !== 'missing') {
-        const offset = evidence === 'earlier' ? -1 : evidence === 'equal' ? 0 : 1;
-        await ctx.repo('o/r', true, new Date(boundary + offset).toISOString());
-      }
-      const complete = evidence === 'later';
-      expect(effective(await ctx.task())).toBe(complete ? 'done' : 'todo');
-      const moves = await ctx.events(mode === 'on' ? 'task_moved' : 'task_shadow_moved');
-      expect(moves).toHaveLength(complete ? 1 : 0);
-      if (complete) expect(moves[0]?.payload).toMatchObject({ reason: 'ticket_done_no_pr' });
-      else expect((await ctx.why()).holds).toContain('github_blind');
+      await ctx.repo('o/r');
+      expect(effective(await ctx.task())).toBe('todo');
+      await ctx.spur('live');
+      await ctx.repo('o/r');
+      expect(effective(await ctx.task())).toBe('dev');
+      expect(
+        (await ctx.events(mode === 'on' ? 'task_moved' : 'task_shadow_moved')).filter(
+          ({ payload }) => payload['to'] === 'done',
+        ),
+      ).toEqual([]);
     });
 
     it('an unchanged final repo confirmation dispatches without a tick or new fact event', async () => {
       const ctx = await started({ mode, secondRepo: true }, 'none');
       await ctx.repo('o/b');
       await ctx.ticket('closed');
+      await ctx.spur('none');
       expect(effective(await ctx.task())).toBe('todo');
       const facts = (await ctx.events()).filter(({ kind }) => kind.endsWith('_facts_changed'));
       await ctx.repo('o/r');
@@ -1320,6 +1382,7 @@ describe('a done ticket without in-flight work', () => {
     it('applies a newly discovered open PR before confirming absence', async () => {
       const ctx = await started({ mode }, 'none');
       await ctx.ticket('closed');
+      await ctx.spur('none');
       expect(effective(await ctx.task())).toBe('todo');
       await ctx.pr();
       await ctx.github();
@@ -1334,6 +1397,7 @@ describe('a done ticket without in-flight work', () => {
     it('rejects incomplete and blind confirmation callbacks', async () => {
       const ctx = await started({ mode }, 'none');
       await ctx.ticket('closed');
+      await ctx.spur('none');
       await ctx.repo('o/r', false);
       expect(effective(await ctx.task())).toBe('todo');
       await ctx.blind(GITHUB, true);
@@ -1357,6 +1421,8 @@ describe('a done ticket without in-flight work', () => {
       expect(effective(await ctx.task())).toBe('dev');
       expect((await ctx.why()).holds).toContain('github_blind');
       await ctx.repo('o/r');
+      expect(effective(await ctx.task())).toBe('dev');
+      await ctx.spur('ended');
       expect(effective(await ctx.task())).toBe('done');
       expect(
         (await ctx.events(mode === 'on' ? 'task_moved' : 'task_shadow_moved')).filter(
@@ -1370,6 +1436,7 @@ describe('a done ticket without in-flight work', () => {
     const ctx = await started({ doneOrchestrator: 'coord' }, 'none');
     await ctx.ticket('closed');
     await ctx.github();
+    await ctx.spur('none');
     expect((await ctx.task()).column).toBe('done');
     expect(await ctx.openTurn()).toMatchObject({
       column: 'done',
@@ -1405,6 +1472,7 @@ describe('a done ticket without in-flight work', () => {
         expect(mode === 'on' ? task.column : task.shadow_column).not.toBe('done');
         expect((await ctx.why()).holds).toContain('github_blind');
         if (state === 'blind') await ctx.blind('github:proj:o/b', false);
+        await ctx.spur('none');
         await ctx.repo('o/r');
         await ctx.repo('o/b');
         await ctx.tick();
@@ -1430,6 +1498,7 @@ describe('a done ticket without in-flight work', () => {
       expect(mode === 'on' ? task.column : task.shadow_column).not.toBe('done');
       await ctx.pr({ state: 'closed' });
       await ctx.github();
+      await ctx.spur('none');
       await ctx.tick();
       const after = await ctx.task();
       expect(mode === 'on' ? after.column : after.shadow_column).toBe('done');
@@ -1446,6 +1515,7 @@ describe('a done ticket without in-flight work', () => {
     await ctx.spur('ended');
     expect((await ctx.task()).column).toBe('dev');
     await ctx.github();
+    await ctx.spur('ended');
     expect((await ctx.task()).column).toBe('done');
     expect(await ctx.openTurn()).toBeNull();
     expect((await ctx.turns())[0]?.closed_at).not.toBeNull();
@@ -1464,6 +1534,7 @@ describe('a done ticket without in-flight work', () => {
       if (source === GITHUB) await ctx.github();
       else await ctx.spur('none');
       await ctx.github();
+      await ctx.spur('none');
       await ctx.tick();
       expect((await ctx.task()).column).toBe('done');
     },
@@ -1487,6 +1558,7 @@ describe('a done ticket without in-flight work', () => {
       const ctx = await started({ mode }, 'none');
       await ctx.ticket('closed');
       await ctx.github();
+      await ctx.spur('none');
       const effective = async () => {
         const task = await ctx.task();
         return mode === 'on' ? task.column : task.shadow_column;
@@ -1504,6 +1576,7 @@ describe('a done ticket without in-flight work', () => {
       expect(await effective()).toBe('todo');
       await ctx.ticket('closed');
       await ctx.github();
+      await ctx.spur('none');
       expect(await effective()).toBe('done');
       const events = await ctx.events();
       await ctx.tick();

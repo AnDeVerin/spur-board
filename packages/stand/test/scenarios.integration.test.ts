@@ -1710,23 +1710,82 @@ describe('dispatcher scenarios', () => {
   );
 
   it(
-    'dispatch-ticket-done-no-pr: closing an idle issue reaches Done in exactly one poll',
+    'dispatch-ticket-done-no-pr: default source confirmations finish within two polling rounds',
     async () => {
-      // Runner source order is tracker then repository. Distinct poll-start times prove the
-      // repo confirmation is newer than the close, even on a fast host within one millisecond.
-      let now = Date.parse('2026-11-04T08:00:00.000Z');
-      await up({ clock: { now: () => ++now } });
+      await up();
       await seed('dispatch-ticket-done-no-pr');
       expect(await column()).toBe('todo');
       await github('issue-close');
       await poll();
+      const first = await withStore(async (store) => ({
+        task: await store.db
+          .selectFrom('task')
+          .select(['column', 'last_change_at', 'created_at'])
+          .where('key', '=', ISSUE)
+          .executeTakeFirstOrThrow(),
+        ticket: await store.db
+          .selectFrom('ticket_snapshot')
+          .select(['observed_at'])
+          .executeTakeFirstOrThrow(),
+        sources: await store.db
+          .selectFrom('source_state')
+          .select(['source', 'last_complete_at', 'blind_reason'])
+          .where('source', 'in', ['github:stand:stand-org/board', 'spur'])
+          .execute(),
+      }));
+      const fresh =
+        first.sources.length === 2 &&
+        first.sources.every(
+          ({ last_complete_at, blind_reason }) =>
+            blind_reason === null &&
+            last_complete_at !== null &&
+            last_complete_at > first.ticket.observed_at,
+        );
+      if (!fresh) {
+        expect(first.task.column).toBe('todo');
+        expect(await fromTo()).toEqual([]);
+      }
+      await poll();
       expect(await column()).toBe('done');
+      const confirmed = await withStore((store) =>
+        store.db
+          .selectFrom('source_state')
+          .select(['source', 'last_complete_at', 'blind_reason'])
+          .where('source', 'in', ['github:stand:stand-org/board', 'spur'])
+          .execute(),
+      );
+      expect(confirmed).toHaveLength(2);
+      for (const source of confirmed) {
+        expect(source.blind_reason).toBeNull();
+        expect(
+          source.last_complete_at !== null && source.last_complete_at > first.ticket.observed_at,
+        ).toBe(true);
+      }
       expect(await fromTo()).toEqual([['todo', 'done', 'ticket_done_no_pr']]);
       expect(await turnOf(as('worker'))).toBeUndefined();
       const { links } = await op<{ links: { kind: string }[] }>(current(), 'task.get', {
         task: ISSUE,
       });
       expect(links.filter(({ kind }) => kind === 'pr' || kind === 'session')).toEqual([]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-ticket-done-no-pr: discovering a live worker never enters Done',
+    async () => {
+      await up();
+      await seed('dispatch-ticket-done-no-pr');
+      await github('issue-close');
+      await spur('session', {
+        id: as('worker'),
+        links: [{ label: 'board-worker', url: 'https://github.com/stand-org/board/issues/1' }],
+      });
+      await poll();
+      await poll();
+      expect(await column()).toBe('dev');
+      expect((await moves()).filter(({ to }) => to === 'done')).toEqual([]);
+      expect(await mustTurn(as('worker'))).toMatchObject({ column: 'dev' });
     },
     TIMEOUT,
   );
