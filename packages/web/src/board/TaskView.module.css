@@ -116,12 +116,14 @@
 }
 .mine .band {
   background: var(--color-fill-attention);
+  color: var(--color-text-secondary);
 }
 .agent {
   border-left: var(--size-rail) solid var(--color-status-working);
 }
 .agent .band {
   background: var(--color-fill-working);
+  color: var(--color-text-secondary);
 }
 .band {
   display: flex;
@@ -141,7 +143,10 @@
   text-align: left;
   overflow-wrap: anywhere;
 }
-/* No hover rule: quiet on the block lifts the band text while it is hovered or focused. */
+/*
+ * Tinted bands read secondary at rest to keep 4.5:1 on their fill; no hover rule: quiet on the
+ * block lifts only the closed band's tertiary text while it is hovered or focused.
+ */
 button.band {
   cursor: pointer;
 }

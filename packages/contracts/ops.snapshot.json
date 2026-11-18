@@ -1,5 +1,5 @@
 {
-  "version": "df391e82eb6e407921145b47e56520ab8a49a9ed29873cfc8e2acfcfe7cbc79d",
+  "version": "9eadccb6313548bcf0f9eab7cdf3e38e6d729264e8640e28d1425a7c8980ba67",
   "grants": [
     "operator",
     "project-agent",
@@ -981,10 +981,25 @@
                 "usedPercent": 50
               },
               "disk": {
+                "mount": "/",
                 "totalBytes": 107374182400,
                 "availableBytes": 64424509440,
                 "usedPercent": 40
-              }
+              },
+              "volumes": [
+                {
+                  "mount": "/",
+                  "totalBytes": 107374182400,
+                  "availableBytes": 64424509440,
+                  "usedPercent": 40
+                },
+                {
+                  "mount": "/home",
+                  "totalBytes": 536870912000,
+                  "availableBytes": 375809638400,
+                  "usedPercent": 30
+                }
+              ]
             },
             "services": [
               {
@@ -1236,6 +1251,11 @@
                       {
                         "type": "object",
                         "properties": {
+                          "mount": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Mount point of the volume: the topmost directory on the same device. A bind mount of the same device shows its parent mount."
+                          },
                           "totalBytes": {
                             "type": "number",
                             "minimum": 0,
@@ -1253,20 +1273,52 @@
                             "description": "Percent of the volume in use, as df shows it: used over used plus available, without root-reserved blocks; one decimal."
                           }
                         },
-                        "required": ["totalBytes", "availableBytes", "usedPercent"],
+                        "required": ["mount", "totalBytes", "availableBytes", "usedPercent"],
                         "additionalProperties": false
                       },
                       { "type": "null" }
                     ],
-                    "description": "The volume holding the board data; null when unreadable."
+                    "description": "The volume closest to running out: the first of volumes, with the least free bytes; null when no volume could be read."
+                  },
+                  "volumes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "mount": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Mount point of the volume: the topmost directory on the same device. A bind mount of the same device shows its parent mount."
+                        },
+                        "totalBytes": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Size of the volume in bytes, root-reserved blocks included."
+                        },
+                        "availableBytes": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Free bytes an unprivileged user can still write, without root-reserved blocks."
+                        },
+                        "usedPercent": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 100,
+                          "description": "Percent of the volume in use, as df shows it: used over used plus available, without root-reserved blocks; one decimal."
+                        }
+                      },
+                      "required": ["mount", "totalBytes", "availableBytes", "usedPercent"],
+                      "additionalProperties": false
+                    },
+                    "description": "Each distinct volume among /, the board data directory and the temp directory, least free bytes first. A volume that cannot be read is left out."
                   }
                 },
-                "required": ["sampledAt", "cpuPercent", "memory", "disk"],
+                "required": ["sampledAt", "cpuPercent", "memory", "disk", "volumes"],
                 "additionalProperties": false
               },
               { "type": "null" }
             ],
-            "description": "Host CPU, memory and data-volume disk usage from the last sample of the daemon; null before the first sample."
+            "description": "Host CPU, memory and disk usage from the last sample of the daemon; null before the first sample."
           },
           "services": {
             "type": "array",

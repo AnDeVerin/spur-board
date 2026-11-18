@@ -139,6 +139,8 @@ const rowsOf = (element: HTMLElement) =>
   });
 describe('status bar', () => {
   it('renders the panel from ?open=services with every box', async () => {
+    const root = { mount: '/', totalBytes: 100, availableBytes: 8, usedPercent: 92 };
+    const home = { mount: '/home', totalBytes: 100, availableBytes: 67, usedPercent: 33 };
     const d = daemon();
     d.routes['status.get'] = () =>
       Promise.resolve(
@@ -150,7 +152,8 @@ describe('status bar', () => {
               sampledAt: T,
               cpuPercent: 37.5,
               memory: null,
-              disk: { totalBytes: 100, availableBytes: 8, usedPercent: 92 },
+              disk: root,
+              volumes: [root, home],
             },
             daemon: { version: '9.8.7-rc.1', startedAt: T, lastDispatchAt: null },
           }),
@@ -170,8 +173,10 @@ describe('status bar', () => {
     expect(rowsOf(box('host'))).toEqual([
       ['CPU', '37.5 / 100'],
       ['RAM', 'RAM: unknown / 100'],
-      ['Disk', '92 / 100 · error'],
+      ['Disk /', '92 / 100 · error 8 B free'],
+      ['Disk /home', '33 / 100 67 B free'],
     ]);
+    expect(box('host').querySelector('[aria-valuetext*="free"]')).toBeNull();
     expect(rowsOf(box('slack'))).toEqual([]);
     expect(box(PR).textContent).toContain('github pull requests');
     expect(box(PR).textContent).toContain('polling');

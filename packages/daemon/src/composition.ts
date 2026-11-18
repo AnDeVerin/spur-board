@@ -36,7 +36,10 @@ export interface DaemonModulePorts {
   onListening?: (address: string) => void;
   onWebListening?: (address: string) => void;
   webRoot?: string | URL;
-  /** Directory whose volume `status.get` `host.disk` measures: the database's directory. */
+  /**
+   * One of the directories whose volumes `status.get` `host.volumes` measures: the database's
+   * directory.
+   */
   dataDir?: string;
   /** Replaces the host probe; defaults to the real host and `dataDir`. */
   hostProbe?: HostProbe;

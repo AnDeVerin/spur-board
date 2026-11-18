@@ -921,9 +921,19 @@ describe('catalog commands', () => {
           availableBytes: 8589934592
           usedPercent: 50
         disk:
+          mount: /
           totalBytes: 107374182400
           availableBytes: 64424509440
           usedPercent: 40
+        volumes:
+          - mount: /
+            totalBytes: 107374182400
+            availableBytes: 64424509440
+            usedPercent: 40
+          - mount: /home
+            totalBytes: 536870912000
+            availableBytes: 375809638400
+            usedPercent: 30
       services:
         - service: daemon
           state: healthy

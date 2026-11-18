@@ -98,13 +98,25 @@ const statusBindingsSchema = z
   .describe('Effective column orchestrators, operators and default Slack addressee.');
 
 const hostUsageSchema = (total: string, available: string, used: string) =>
-  z
-    .strictObject({
-      totalBytes: z.number().nonnegative().describe(total),
-      availableBytes: z.number().nonnegative().describe(available),
-      usedPercent: z.number().min(0).max(100).describe(used),
-    })
-    .nullable();
+  z.strictObject({
+    totalBytes: z.number().nonnegative().describe(total),
+    availableBytes: z.number().nonnegative().describe(available),
+    usedPercent: z.number().min(0).max(100).describe(used),
+  });
+
+const hostVolumeSchema = z.strictObject({
+  mount: z
+    .string()
+    .min(1)
+    .describe(
+      'Mount point of the volume: the topmost directory on the same device. A bind mount of the same device shows its parent mount.',
+    ),
+  ...hostUsageSchema(
+    'Size of the volume in bytes, root-reserved blocks included.',
+    'Free bytes an unprivileged user can still write, without root-reserved blocks.',
+    'Percent of the volume in use, as df shows it: used over used plus available, without root-reserved blocks; one decimal.',
+  ).shape,
+});
 
 const hostSchema = z
   .strictObject({
@@ -125,16 +137,23 @@ const hostSchema = z
       'Total host memory in bytes.',
       'Host memory available for new work without swapping, in bytes.',
       'Percent of host memory in use: total minus available, over total; one decimal.',
-    ).describe('Host memory; null when unreadable.'),
-    disk: hostUsageSchema(
-      'Size of the volume in bytes, root-reserved blocks included.',
-      'Free bytes an unprivileged user can still write, without root-reserved blocks.',
-      'Percent of the volume in use, as df shows it: used over used plus available, without root-reserved blocks; one decimal.',
-    ).describe('The volume holding the board data; null when unreadable.'),
+    )
+      .nullable()
+      .describe('Host memory; null when unreadable.'),
+    disk: hostVolumeSchema
+      .nullable()
+      .describe(
+        'The volume closest to running out: the first of volumes, with the least free bytes; null when no volume could be read.',
+      ),
+    volumes: z
+      .array(hostVolumeSchema)
+      .describe(
+        'Each distinct volume among /, the board data directory and the temp directory, least free bytes first. A volume that cannot be read is left out.',
+      ),
   })
   .nullable()
   .describe(
-    'Host CPU, memory and data-volume disk usage from the last sample of the daemon; null before the first sample.',
+    'Host CPU, memory and disk usage from the last sample of the daemon; null before the first sample.',
   );
 
 const serviceSchema = z

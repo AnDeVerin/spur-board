@@ -19,9 +19,10 @@
   `stopStage: 'final'` (`packages/daemon/test/outbox-module.test.ts`,
   `describe('outbox scheduler')`).
 - `board-core` ticks at once, then every 60 seconds after a tick settles.
-- `host-metrics` samples CPU, memory and the data volume (`statfs` of the database directory)
-  in the background at start, then every 30 seconds; `status.get` reads only the cached sample.
-  It stops in `pollers`; its stop aborts a pending disk read instead of awaiting it
+- `host-metrics` samples CPU, memory and every distinct volume among `/`, the data directory and
+  the temp directory in the background at start, then every 30 seconds; `status.get` reads only
+  the cached sample. It stops in `pollers`; its stop aborts pending disk reads instead of awaiting
+  them
   (`packages/daemon/test/host-metrics.test.ts`).
 - Command retention awaits its first purge in `start`, then purges daily; a failed first purge
   rejects `start` (`packages/daemon/test/scheduler.test.ts`,

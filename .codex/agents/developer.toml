@@ -28,7 +28,7 @@ Implement in small chunks, check each one, commit when green. The spec is a hypo
    Read each exit code directly, never through a pipe.
 3. Fix every failure before moving on.
 4. Commit: `git add <files> && git commit -m "<type>(<scope>): <summary>"`. Never amend pushed
-   commits, force-push, skip hooks, push to `main` or merge.
+   commits, force-push, skip hooks, push to `main` or merge a PR.
 
 ## Docs
 - A behaviour change ships its doc updates in the same commit, on every surface it touches:

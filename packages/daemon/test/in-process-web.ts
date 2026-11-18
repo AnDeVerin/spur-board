@@ -25,8 +25,9 @@ export async function readOp(webAddress: string, id: string): Promise<Record<str
 }
 
 /**
- * A host probe with fixed raw figures (75 % memory, 73.7 % disk) that counts its calls. CPU
- * times step through `cpu`, then repeat the last entry.
+ * A host probe with fixed raw figures (75 % memory, one volume `/` at 73.7 %) that counts its
+ * calls; `calls.disk` counts `volume` reads. CPU times step through `cpu`, then repeat the last
+ * entry.
  */
 export function countingHostProbe(
   cpu: readonly { idle: number; total: number }[] = [{ idle: 100, total: 200 }],
@@ -42,9 +43,17 @@ export function countingHostProbe(
       calls.memory += 1;
       return { totalBytes: 8000, availableBytes: 2000 };
     },
-    disk() {
+    diskPaths: ['/'],
+    volume() {
       calls.disk += 1;
-      return Promise.resolve({ blocks: 1000, bfree: 300, bavail: 250, bsize: 4096 });
+      return Promise.resolve({
+        dev: 1,
+        mount: '/',
+        blocks: 1000,
+        bfree: 300,
+        bavail: 250,
+        bsize: 4096,
+      });
     },
   };
 }

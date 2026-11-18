@@ -381,11 +381,18 @@ describe('web listener composition', () => {
       expect(hostProbe.calls).toEqual(sampled);
       expect(Date.parse(host?.sampledAt ?? '')).toBeGreaterThanOrEqual(startedAt);
       expect(Date.parse(host?.sampledAt ?? '')).toBeLessThanOrEqual(now);
+      const volume = {
+        mount: '/',
+        totalBytes: 4_096_000,
+        availableBytes: 1_024_000,
+        usedPercent: 73.7,
+      };
       expect(host).toEqual({
         sampledAt: host?.sampledAt,
         cpuPercent: null,
         memory: { totalBytes: 8000, availableBytes: 2000, usedPercent: 75 },
-        disk: { totalBytes: 4_096_000, availableBytes: 1_024_000, usedPercent: 73.7 },
+        disk: volume,
+        volumes: [volume],
       });
       expect(services[0]).toEqual({
         service: 'daemon',
@@ -434,11 +441,14 @@ describe('web listener composition', () => {
     const volume = statfsSync(dirname(join(home, 'board.sqlite')));
     const host = await hostOf({});
     expect(host?.memory).not.toBeNull();
-    expect(host?.disk?.totalBytes).toBe(volume.blocks * volume.bsize);
+    expect(host?.volumes.some((v) => v.totalBytes === volume.blocks * volume.bsize)).toBe(true);
+    expect(host?.disk).toEqual(host?.volumes[0]);
 
+    // A missing data directory is left out; `/` and the temp directory are still measured.
     const missing = await hostOf({ dataDir: join(home, 'missing') });
     expect(missing?.memory?.totalBytes).toBeGreaterThan(0);
-    expect(missing?.disk).toBeNull();
+    expect(missing?.disk).not.toBeNull();
+    expect(missing?.volumes.some((v) => v.mount === '/')).toBe(true);
   });
 
   it('starts a separate loopback listener and releases its socket on close', async () => {

@@ -1,5 +1,5 @@
 name = "designer"
-description = "UI design gate. Plan mode reviews the UI in a spec before code; code mode checks layout, tokens and states of the changed web UI. Use for visible web UI changes only."
+description = "UI design gate. Plan mode reviews the UI in a spec before code; code mode checks layout, tokens and states of the changed web UI. Use for visible web UI changes or `ds/` API changes."
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 developer_instructions = '''
@@ -35,7 +35,15 @@ Six passes on the spec, no mockups:
    `proto.css` class names, `proposed-` or `data-proposed`, imports from `design/`. A visible
    difference with no row in the decisions section, or a row with an invalid reason code, is
    MUST FIX. The containers the handoff names from the issue, and any the slice README names,
-   carry the `quiet` class.
+   carry the `quiet` class. Check the row of each Proposed parts part the screen uses, and of
+   each control inside it, against `## Proposed parts` in the decisions doc; a breach is
+   MUST FIX. For an export only on `main`, judge coverage from its doc comment and examples in
+   the handoff's ds-on-main patch; a covering one is MUST FIX
+   "merge `main` at `<sha>` and use `<Name>`".
+5. DS changes - only when the handoff carries the branch's `packages/web/src/ds/` patch. Each
+   API change in it has its own decisions row with the code from `## Design system changes` in
+   `docs/design-system-decisions.md`; a missing row, a wrong code, `None` or no section is
+   MUST FIX.
 
 ## Output
 ```
