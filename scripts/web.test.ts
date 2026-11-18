@@ -109,12 +109,15 @@ function outlineViolations(file: string, css: string): string[] {
 }
 describe('web design assets and policy', () => {
   it.each(Object.entries({ dark, light }))('%s text meets AA contrast', (_name, theme) => {
-    const rules = cssRules(read('src/ds/Banner/Banner.module.css'));
-    const binding = (selector: string, property: string) =>
-      rules
-        .find((rule) => rule.selector === selector)
-        ?.body.match(new RegExp(`\\b${property}: var\\((--[\\w-]+)\\);`))?.[1] ?? '';
-    const pairs: [string, string | number[]][] = [];
+    const bindings = (file: string) => {
+      const rules = cssRules(read(file));
+      return (selector: string, property: string) =>
+        rules
+          .find((rule) => rule.selector === selector)
+          ?.body.match(new RegExp(`\\b${property}: var\\((--[\\w-]+)\\);`))?.[1] ?? '';
+    };
+    const binding = bindings('src/ds/Banner/Banner.module.css');
+    const pairs: [string, string | number[], string?][] = [];
     for (const variant of ['error', 'warning', 'info']) {
       const selector = `.root[data-variant='${variant}']`;
       const main = binding(`${selector} .main`, 'color') || binding(selector, 'color');
@@ -125,6 +128,17 @@ describe('web design assets and policy', () => {
       const background = base.map((v, i) => (fill[i] ?? 0) * alpha + v * (1 - alpha));
       for (const token of [main, binding('.detail', 'color')]) pairs.push([token, background]);
     }
+    // Task view block bands (#687): meta text on the operator, agent and closed band fills.
+    const taskBinding = bindings('src/board/TaskView.module.css');
+    for (const selector of ['.mine .band', '.agent .band', '.band']) {
+      const fill = rgb(theme[taskBinding(selector, 'background')] ?? '');
+      const alpha = fill[3] ?? 1;
+      // Tinted fills replace the elevated band background and sit on the page.
+      const base = rgb(theme['--color-bg-base'] ?? '');
+      const background = base.map((v, i) => (fill[i] ?? 0) * alpha + v * (1 - alpha));
+      const meta = taskBinding(selector, 'color') || taskBinding('.band', 'color');
+      pairs.push([meta, background, `TaskView ${selector} ${meta}`]);
+    }
     for (const [kind, names] of [
       ['text', ['primary', 'secondary', 'tertiary']],
       ['status', ['working', 'ready', 'attention', 'error']],
@@ -132,11 +146,11 @@ describe('web design assets and policy', () => {
       for (const name of names)
         for (const bg of ['base', 'elevated'])
           pairs.push([`--color-${kind}-${name}`, theme[`--color-bg-${bg}`] ?? '']);
-    for (const [token, background] of pairs) {
+    for (const [token, background, label] of pairs) {
       const a = luminance(theme[token] ?? '');
       const b = luminance(background);
       const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-      expect(ratio, token).toBeGreaterThanOrEqual(4.5);
+      expect(ratio, label ?? token).toBeGreaterThanOrEqual(4.5);
     }
   });
   it('rejects raw color literals outside the token file, including negative fixtures', () => {
