@@ -33,15 +33,7 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
 - `pnpm stand board` and `pnpm stand mcp` take `--as operator|worker|orchestrator|curator`; the
   default is `operator`. `--as` and `--home` go right after `board` or `mcp`:
   `pnpm stand board --as worker status`; later they pass to the board CLI.
-- `operator` carries the stand's operator token and no session.
-- `worker` carries a session of the worker project `stand-worker`; `orchestrator` a session of
-  `stand-qa`, the orchestrator of the stand's `qa` column, and of Review in the `dispatch-*`
-  scenarios; also of Product Review and Ready to Merge in `dispatch-new-head-in-ready-to-merge`
-  and `dispatch-ci-red-new-head-in-product-review`.
-- `curator` carries a session of `stand-curator`, the stand project's curator only in the curator
-  scenarios; elsewhere its calls are refused.
-- After `dispatch-dead-executor`, `--as worker` answers `forbidden`: its session is killed.
-- After `curator-absent`, the curator session is killed.
+- The session each role carries, and the scenarios that change it: read `references/roles.md`.
 - Drive `pnpm stand mcp` from a shell with the example in `docs/qa-stand.md`.
 - The wrapper refuses `service`, `update`, `rollback`, `skills` and `token create` with exit 2:
   they act on the real machine or write outside the stand. Test token-file flows in
@@ -60,20 +52,7 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
 
 ## Refusals
 
-`up` refuses with exit 3 and `stand refused (<reason>)`:
-
-| Reason | Cause | Fix |
-|---|---|---|
-| `live_home` | stand root inside the live board's home | set `TMPDIR` elsewhere |
-| `unsafe_root` | `TMPDIR` or a parent owned by another user, or group- or world-writable without the sticky bit | `TMPDIR` = a private directory, mode 700 |
-| `live_config` | the live config is missing, unreadable or invalid, or this checkout's schema rejects it (e.g. an older A/B base) | fix it or set `BOARD_HOME`; for schema skew, run the stand from a checkout whose schema accepts the live config |
-| `live_port` | the live config's `http.port` or `web.port` | `--port 0` or a port from the live `stand.portRange` |
-| `port_range` | port outside the live `stand.portRange` | `--port 0` or a port from the live `stand.portRange` |
-| `port_clash` | `--port` equals `--web-port` | two different ports |
-| `web_origin` | `--web-port` given, but the live `web.publicOrigin` has no `{port}` | omit `--web-port` |
-| `external_secrets` | real credential variables in the environment | rerun the printed `env -u <NAME> ... pnpm stand up` with your `--scenario` and `--port` added |
-| `env_proxy` | the Node env proxy is on | start without it |
-
+- `up` refuses with exit 3; each reason, its cause and fix: `references/refusals.md`.
 - Never put real credentials back to get past a refusal; the guard keeps the stand off real
   services.
 - Exit 2 is also bad arguments, no stand found, or a refused wrapper command.

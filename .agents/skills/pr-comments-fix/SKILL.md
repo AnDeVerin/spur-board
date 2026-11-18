@@ -10,26 +10,7 @@ Fix or answer every open PR point once, with a reason for each rejection.
 ## 1. Collect
 
 - Head commit and reviews: `gh pr view <N> --json headRefOid,reviews,comments,isDraft`.
-- Review threads, every page (`--paginate` follows `endCursor`):
-
-  ```
-  gh api graphql --paginate -f owner=<owner> -f repo=<repo> -F pr=<N> -f query='
-    query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
-      repository(owner:$owner,name:$repo){pullRequest(number:$pr){
-        reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
-          nodes{id isResolved path line comments(first:100){pageInfo{hasNextPage}
-            nodes{body author{login}}}}}}}}'
-  ```
-
-  Keep the threads with `isResolved: false`. A thread whose `comments.pageInfo.hasNextPage` is
-  true has more replies: fetch them all the same way.
-
-  ```
-  gh api graphql --paginate -f id=<thread-id> -f query='
-    query($id:ID!,$endCursor:String){node(id:$id){... on PullRequestReviewThread{
-      comments(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
-        nodes{body author{login}}}}}}'
-  ```
+- Unresolved review threads, every page and every reply: `references/collect-threads.md`.
 - Review bodies whose `commit.oid` equals `headRefOid`, and PR conversation comments posted after
   the head commit.
 - Skip posts that carry this session's marker; they are your own.
@@ -76,10 +57,7 @@ Fix or answer every open PR point once, with a reason for each rejection.
     mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
   ```
 
-- An answered but unresolved thread still returns the task to Dev (`requireResolvedThreads`,
-  `docs/how-board-works-columns.md`). A reviewer who disagrees reopens it: reply to the comments
-  after your last reply, then resolve again. No such comment -> ask once in the thread what is
-  still missing and leave it unresolved; do not repeat the question in a later round.
+- A reopened thread -> `references/reopened-threads.md`.
 
 ## 5. Repeat and report
 
