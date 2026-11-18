@@ -207,7 +207,10 @@ function devReasons(
 
 /**
  * The failing reasons of one column's exit condition. Only Dev's resolved-threads condition depends
- * on the column asked: `threads` says whether it counts.
+ * on the column asked: `threads` says whether it counts. A `gate_broken` move re-evaluates at Dev,
+ * where that condition may not count, so a reason or hand-over that must survive it keys on the
+ * facts and `threadsGated(project)` (`withThreads`, `turnThreads`), and `explainGates` takes
+ * `blockedIn` from `evaluateGate`.
  */
 function columnCondition(
   column: ColumnId,
