@@ -76,6 +76,9 @@ function input(changes: Changes = {}): Input {
       ...facts,
     },
     reopened: false,
+    ticketDone: false,
+    hasOpenLinkedPr: true,
+    allGithubReposReady: true,
     openPr: true,
     githubBlind: false,
     spurBlind: false,
@@ -608,11 +611,69 @@ const cases: [string, Changes, Result][] = [
 ];
 
 describe('dispatch', () => {
+  const idle = {
+    ticketDone: true,
+    hasOpenLinkedPr: false,
+    liveWorker: false,
+    openPr: false,
+    pr: null,
+    facts: { marks: [] },
+  } as const;
+
+  it.each(['todo', 'dev'] as const)('finishes an idle done ticket from %s', (column) => {
+    const given = input({ ...idle, column });
+    expect(dispatch(given)).toEqual({
+      moves: [{ from: column, to: 'done', reason: 'ticket_done_no_pr' }],
+      turn: null,
+    });
+    expect(dispatchHolds(given)).toEqual([]);
+  });
+
+  it.each<Changes>([
+    { ticketDone: false },
+    { hasOpenLinkedPr: true },
+    { liveWorker: true },
+    { spurBlind: true },
+    { githubBlind: true },
+    { allGithubReposReady: false },
+    { submitPending: true },
+  ])('does not finish while guarded: %j', (guard) => {
+    expect(
+      dispatch(input({ ...idle, column: 'todo', ...guard })).moves.map(({ to }) => to),
+    ).not.toContain('done');
+  });
+
+  it('preserves merge precedence without all repositories ready', () => {
+    const given = input({ ...idle, pr: { state: 'merged' }, allGithubReposReady: false });
+    expect(dispatch(given)).toEqual({ moves: [merged('dev')], turn: null });
+    expect(dispatchHolds(given)).not.toContain('github_blind');
+  });
+
+  it('keeps Done on a stale reopen and opens the configured orchestrator wrap-up', () => {
+    expect(
+      dispatch(input({ ...idle, reopened: true, board: orchestrate(SB, 'done', 'closer') })),
+    ).toEqual({ moves: [{ from: 'dev', to: 'done', reason: 'ticket_done_no_pr' }], turn: wrapUp });
+  });
+
+  it('keeps the existing reopen and work-start rules when live work prevents completion', () => {
+    expect(dispatch(input({ ...idle, reopened: true, liveWorker: true }))).toEqual({
+      moves: [{ from: 'dev', to: 'todo', reason: 'ticket_reopened' }],
+      turn: null,
+    });
+  });
+
+  it('explains all-repository blindness without duplicate holds', () => {
+    expect(dispatchHolds(input({ ...idle, allGithubReposReady: false }))).toEqual(['github_blind']);
+    expect(
+      dispatchHolds(input({ ...idle, allGithubReposReady: false, githubBlind: true })),
+    ).toEqual(['github_blind']);
+  });
+
   it.each(cases)('%s', (_name, changes, expected) => {
     expect(dispatch(input(changes))).toEqual(expected);
   });
 
-  it('never moves right into Done', () => {
+  it('ordinary gate progression never moves right into Done', () => {
     for (const column of COLUMN_IDS.filter((id) => id !== 'done')) {
       const { moves } = dispatch(
         input({

@@ -67,6 +67,7 @@ type Options = {
   curator?: boolean;
   externalReview?: boolean;
   devOrchestrator?: string;
+  doneOrchestrator?: string;
   /** The task's project left the config: the only project tracks another repo. */
   projectRemoved?: boolean;
   /** The project also tracks the repo `o/b`. */
@@ -126,7 +127,12 @@ function boardConfig(options: Options = {}) {
               ? {}
               : { requireResolvedThreads: options.rtmThreads }),
           },
-          { id: 'done' },
+          {
+            id: 'done',
+            ...(options.doneOrchestrator === undefined
+              ? {}
+              : { orchestrator: options.doneOrchestrator }),
+          },
         ],
         dispatcher: { mode: options.mode ?? 'on' },
       },
@@ -1254,6 +1260,145 @@ describe('unresolved review threads', () => {
   });
 });
 
+describe('a done ticket without in-flight work', () => {
+  it('preserves the Done orchestrator wrap-up without a worker', async () => {
+    const ctx = await started({ doneOrchestrator: 'coord' }, 'none');
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    expect(await ctx.openTurn()).toMatchObject({
+      column: 'done',
+      role: 'orchestrator:done',
+      reason: 'done: wrap up',
+    });
+    const turns = await ctx.turns();
+    await ctx.tick();
+    expect(await ctx.turns()).toEqual(turns);
+  });
+
+  it('leaves archived tasks untouched', async () => {
+    const ctx = await started({}, 'none');
+    await ctx.archive();
+    const moves = await ctx.moves();
+    await ctx.ticket('closed');
+    await ctx.tick();
+    expect(await ctx.moves()).toEqual(moves);
+  });
+
+  it.each(['on', 'shadow'] as const)(
+    '%s waits for every repo with a selected closed PR',
+    async (mode) => {
+      for (const state of ['unpolled', 'blind'] as const) {
+        const ctx = await started({ mode, secondRepo: true }, 'none');
+        await ctx.pr({ state: 'closed' });
+        if (state === 'blind') {
+          await ctx.repo('o/b');
+          await ctx.blind('github:proj:o/b', true);
+        }
+        await ctx.ticket('closed');
+        const task = await ctx.task();
+        expect(mode === 'on' ? task.column : task.shadow_column).not.toBe('done');
+        expect((await ctx.why()).holds).toContain('github_blind');
+        if (state === 'blind') await ctx.blind('github:proj:o/b', false);
+        await ctx.repo('o/b');
+        await ctx.tick();
+        const after = await ctx.task();
+        expect(mode === 'on' ? after.column : after.shadow_column).toBe('done');
+        expect((await ctx.why()).holds).not.toContain('github_blind');
+      }
+    },
+  );
+
+  it.each(['on', 'shadow'] as const)(
+    '%s counts an open conflict link as work in flight',
+    async (mode) => {
+      const ctx = await started({ mode }, 'none');
+      await ctx.pr();
+      await ctx.store.db
+        .updateTable('link')
+        .set({ pr_state: 'conflict' })
+        .where('entity', '=', 'pr')
+        .execute();
+      await ctx.ticket('closed');
+      const task = await ctx.task();
+      expect(mode === 'on' ? task.column : task.shadow_column).not.toBe('done');
+      await ctx.pr({ state: 'closed' });
+      await ctx.tick();
+      const after = await ctx.task();
+      expect(mode === 'on' ? after.column : after.shadow_column).toBe('done');
+    },
+  );
+
+  it('a live or paused worker blocks completion; an ended worker permits it and closes the prior turn', async () => {
+    const ctx = await started();
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('dev');
+    await ctx.session({ ...sessionFacts('worker-1', 'worker'), lifecycle: 'paused' });
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('dev');
+    await ctx.spur('ended');
+    expect((await ctx.task()).column).toBe('done');
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await ctx.turns())[0]?.closed_at).not.toBeNull();
+    expect((await ctx.moves()).at(-1)).toMatchObject({ reason: 'ticket_done_no_pr' });
+  });
+
+  it.each(['spur', GITHUB] as const)(
+    'waits for %s startup completeness and recovery',
+    async (source) => {
+      const ctx = board();
+      await ctx.ticket();
+      if (source !== GITHUB) await ctx.github();
+      if (source !== 'spur') await ctx.spur('none');
+      await ctx.ticket('closed');
+      expect((await ctx.task()).column).toBe('todo');
+      if (source === GITHUB) await ctx.github();
+      else await ctx.spur('none');
+      await ctx.tick();
+      expect((await ctx.task()).column).toBe('done');
+    },
+  );
+
+  it('waits for Spur blindness to recover', async () => {
+    const ctx = await started({}, 'none');
+    await ctx.blind('spur', true);
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('todo');
+    await ctx.blind('spur', false);
+    await ctx.spur('none');
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('done');
+  });
+
+  it.each(['on', 'shadow'] as const)(
+    '%s completes, reopens and recloses without a PR',
+    async (mode) => {
+      const ctx = await started({ mode }, 'none');
+      await ctx.ticket('closed');
+      const effective = async () => {
+        const task = await ctx.task();
+        return mode === 'on' ? task.column : task.shadow_column;
+      };
+      expect(await effective()).toBe('done');
+      const kind = mode === 'on' ? 'task_moved' : 'task_shadow_moved';
+      expect(await ctx.events(kind)).toMatchObject([
+        { payload: { from: 'todo', to: 'done', reason: 'ticket_done_no_pr' } },
+      ]);
+      expect((await ctx.why()).holds).not.toContain('work_not_started');
+      expect((await ctx.why()).moves.at(-1)).toMatchObject({ reason: 'ticket_done_no_pr' });
+      expect(await ctx.turns()).toEqual([]);
+      if (mode === 'shadow') expect((await ctx.task()).column).toBe('todo');
+      await ctx.ticket('open');
+      expect(await effective()).toBe('todo');
+      await ctx.ticket('closed');
+      expect(await effective()).toBe('done');
+      const events = await ctx.events();
+      await ctx.tick();
+      await ctx.ticket('closed');
+      expect(await ctx.events()).toEqual(events);
+    },
+  );
+});
+
 describe('a merged PR and the ticket', () => {
   const NOTE = 'dev: no_pr (PR o/r#7 merged, ticket still open)';
   /** Merges PR #7 in the next step, with `mergedAt` at that step. */
@@ -1465,7 +1610,7 @@ describe('a merged PR and the ticket', () => {
     },
   );
 
-  it('a task with no merged PR stays off Done when its ticket closes', async () => {
+  it('a task with an open PR and live worker stays off Done when its ticket closes', async () => {
     const ctx = await pastProductReview();
     const before = await ctx.moves();
     await ctx.ticket('closed');

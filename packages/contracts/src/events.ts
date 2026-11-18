@@ -90,6 +90,7 @@ export const MOVE_REASONS = [
   'gate_passed',
   'gate_broken',
   'merged',
+  'ticket_done_no_pr',
   'ticket_reopened',
   'mode_changed',
 ] as const;

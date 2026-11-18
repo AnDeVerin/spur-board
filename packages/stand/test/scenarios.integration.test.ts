@@ -263,6 +263,7 @@ describe('scenarios', () => {
       'default-branch-red',
       'dispatch-happy-path',
       'dispatch-split-pr',
+      'dispatch-ticket-done-no-pr',
       'dispatch-close-after-merge',
       'pr-finality',
       'dispatch-review-loop',
@@ -1704,6 +1705,25 @@ describe('dispatcher scenarios', () => {
         expect.objectContaining({ ref: 'stand-org/board#1', state: 'merged' }),
         expect.objectContaining({ ref: 'stand-org/board#2', state: 'merged' }),
       ]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-ticket-done-no-pr: closing an idle issue reaches Done in exactly one poll',
+    async () => {
+      await up();
+      await seed('dispatch-ticket-done-no-pr');
+      expect(await column()).toBe('todo');
+      await github('issue-close');
+      await poll();
+      expect(await column()).toBe('done');
+      expect(await fromTo()).toEqual([['todo', 'done', 'ticket_done_no_pr']]);
+      expect(await turnOf(as('worker'))).toBeUndefined();
+      const { links } = await op<{ links: { kind: string }[] }>(current(), 'task.get', {
+        task: ISSUE,
+      });
+      expect(links.filter(({ kind }) => kind === 'pr' || kind === 'session')).toEqual([]);
     },
     TIMEOUT,
   );

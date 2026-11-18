@@ -39,8 +39,14 @@ interface DispatchInput {
   column: ColumnId;
   project: GateProject;
   facts: TaskGateFacts;
-  /** The task has a PR link hidden by a reopen: its ticket reopened after a merge. */
+  /** Reopen evidence from a hidden PR, or a reopened ticket while the task is in Done. */
   reopened: boolean;
+  /** The current ticket is in a configured done status. */
+  ticketDone: boolean;
+  /** Any open unbanned linked PR, including conflict links, past the reopen floor. */
+  hasOpenLinkedPr: boolean;
+  /** Every configured GitHub repository has a complete, unblind view since startup. */
+  allGithubReposReady: boolean;
   /** The task has an open PR link past its reopen floor. */
   openPr: boolean;
   /** GitHub has no fresh view of the task: blind, or no complete poll since start. */
@@ -120,6 +126,10 @@ function workStarted(input: DispatchInput): boolean {
   return input.openPr || (!input.reopened && workerLive);
 }
 
+function ticketFinished(input: DispatchInput): boolean {
+  return input.ticketDone && !input.hasOpenLinkedPr && !input.liveWorker && !input.spurBlind;
+}
+
 /**
  * What holds the dispatcher on the task now: a blind GitHub or a pending submit stops it, a blind
  * Spur defers a worker's turn, an active cycle-limit or course-check item stops every turn and
@@ -128,11 +138,19 @@ function workStarted(input: DispatchInput): boolean {
  */
 export function dispatchHolds(input: DispatchInput): TaskHold[] {
   const holds: TaskHold[] = [];
-  if (input.githubBlind) holds.push('github_blind');
+  if (
+    input.githubBlind ||
+    (input.facts.pr?.state !== 'merged' && ticketFinished(input) && !input.allGithubReposReady)
+  )
+    holds.push('github_blind');
   if (input.spurBlind) holds.push('spur_blind');
   if (input.submitPending) holds.push('submit_pending');
   if (input.cycleHeld) holds.push('cycle_limit');
-  if ((input.column === 'todo' || input.column === 'ready-for-dev') && !workStarted(input))
+  if (
+    (input.column === 'todo' || input.column === 'ready-for-dev') &&
+    !workStarted(input) &&
+    !(ticketFinished(input) && input.allGithubReposReady)
+  )
     holds.push('work_not_started');
   return holds;
 }
@@ -187,7 +205,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
   for (let step = 0; step < STEP_BOUND; step++) {
     const merged = facts.pr?.state === 'merged';
     if (column === 'done') {
-      if (reopened && !merged) {
+      if (reopened && !merged && !input.ticketDone) {
         move('todo', 'ticket_reopened');
         continue;
       }
@@ -198,6 +216,10 @@ export function dispatch(input: DispatchInput): DispatchResult {
     }
     if (merged) {
       move('done', 'merged');
+      continue;
+    }
+    if (ticketFinished(input) && input.allGithubReposReady) {
+      move('done', 'ticket_done_no_pr');
       continue;
     }
     // The reopen hid the task's only PR, merged before it but seen merged later: To Do, as from Done.

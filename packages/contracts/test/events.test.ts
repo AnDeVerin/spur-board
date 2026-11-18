@@ -337,6 +337,21 @@ describe('parseEvent', () => {
     ).toBe('invalid');
   });
 
+  it.each(['task_moved', 'task_shadow_moved'] as const)(
+    'accepts ticket completion and legacy reasons in %s',
+    (kind) => {
+      for (const reason of ['ticket_done_no_pr', 'merged', 'ticket_reopened']) {
+        expect(
+          parseEvent({
+            ...samples[kind],
+            payload: { from: 'todo', to: 'done', reason },
+          }).status,
+        ).toBe('ok');
+      }
+      expect(parseEvent(samples[kind]).status).toBe('ok');
+    },
+  );
+
   it('accepts an optional rule on a raised operator item', () => {
     const event = {
       ...samples.from_you_raised,

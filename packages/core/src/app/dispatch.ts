@@ -23,6 +23,7 @@ import {
   emit,
   mergedTicket,
   parsePr,
+  pastReopenFloor,
   projectForSource,
   taskMergedPr,
   taskPr,
@@ -803,6 +804,19 @@ export async function readInput(
   if (mergedOpen !== undefined) pr = null;
   const repos = pr === null ? project.repos : [pr.repo];
   const githubBlind = repos.some((repo) => blind(prSourceId(project.id, repo)));
+  const allGithubReposReady = project.repos.every((repo) => !blind(prSourceId(project.id, repo)));
+  const ticket = await readTicket();
+  const done = ticket !== undefined && ticketDone(project, ticket.status);
+  const hasOpenLinkedPr =
+    (await trx
+      .selectFrom('link')
+      .select('id')
+      .where('task_id', '=', task.id)
+      .where('entity', '=', 'pr')
+      .where('banned', '=', 0)
+      .where('pr_open', '=', 1)
+      .where(pastReopenFloor)
+      .executeTakeFirst()) !== undefined;
   const last =
     mode === 'shadow'
       ? undefined
@@ -875,12 +889,16 @@ export async function readInput(
       },
       reopened:
         mergedOpen === undefined &&
-        (await trx
-          .selectFrom('link')
-          .select('id')
-          .where('task_id', '=', task.id)
-          .where('reopen_hidden_at', 'is not', null)
-          .executeTakeFirst()) !== undefined,
+        ((column === 'done' && !done && task.reopened_at !== null) ||
+          (await trx
+            .selectFrom('link')
+            .select('id')
+            .where('task_id', '=', task.id)
+            .where('reopen_hidden_at', 'is not', null)
+            .executeTakeFirst()) !== undefined),
+      ticketDone: done,
+      hasOpenLinkedPr,
+      allGithubReposReady,
       openPr: link?.open === true,
       githubBlind,
       spurBlind: blind('spur'),

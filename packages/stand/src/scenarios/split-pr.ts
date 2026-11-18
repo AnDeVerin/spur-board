@@ -1,5 +1,5 @@
 // The split-PR scenarios: a merged PR whose issue stays open, and an issue closed after the merge.
-import { settledUnless } from './helpers.ts';
+import { openIssues, settledUnless } from './helpers.ts';
 import type { Scenario } from './index.ts';
 import { awaitTurn, check, entities, flow, ISSUE, PR, REPO, toReadyToMerge } from './dispatcher.ts';
 
@@ -7,6 +7,18 @@ const SPLIT_NOTE = `dev: no_pr (PR ${PR} merged, ticket still open)`;
 const SPLIT = { column: 'dev', role: 'worker', reason: SPLIT_NOTE, taken: false } as const;
 const WRAP_UP = { column: 'done', role: 'worker', reason: 'done: wrap up' } as const;
 const CLOSES = { closingIssuesReferences: [{ number: 1, repository: { nameWithOwner: REPO } }] };
+
+export const dispatchTicketDoneNoPr: Scenario = {
+  name: 'dispatch-ticket-done-no-pr',
+  summary: `An open ${ISSUE} has no PR or linked worker; closing it reaches Done in one poll.`,
+  config: flow(),
+  async seed(board, fakes) {
+    await openIssues(fakes, 1);
+    await board.poll();
+    return entities(board);
+  },
+  settled: async ({ board }) => settledUnless(await check(board, { column: 'todo' })),
+};
 
 export const dispatchSplitPr: Scenario = {
   name: 'dispatch-split-pr',

@@ -40,7 +40,7 @@ import {
   dispatchOrchestratorRole,
   dispatchSourceBlind,
 } from './dispatcher.ts';
-import { dispatchCloseAfterMerge, dispatchSplitPr } from './split-pr.ts';
+import { dispatchCloseAfterMerge, dispatchSplitPr, dispatchTicketDoneNoPr } from './split-pr.ts';
 import { empty } from './empty.ts';
 import { feedCodeHints } from './feed-code-hints.ts';
 import { prFinality } from './pr-finality.ts';
@@ -183,6 +183,7 @@ export const SCENARIOS: readonly Scenario[] = [
   defaultBranchRed,
   dispatchHappyPath,
   dispatchSplitPr,
+  dispatchTicketDoneNoPr,
   dispatchCloseAfterMerge,
   prFinality,
   dispatchReviewLoop,
