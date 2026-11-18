@@ -5,6 +5,7 @@ import {
   actorName,
   age,
   historyRows,
+  historyRuns,
   linkChips,
   nextColumn,
   taskParam,
@@ -387,6 +388,72 @@ describe('link chips', () => {
 });
 
 describe('history rows', () => {
+  const repeated = (at = T) =>
+    historyEvent(at, 'session_facts_changed', 'system', 'Session changed.');
+  const runs = (events: ReturnType<typeof historyEvent>[]) =>
+    historyRuns(browserOperations['task.history'].read.parse(taskHistory(events)).events);
+
+  it.each([1, 2, 3, 4])('folds only runs of at least three: %s events', (count) => {
+    const result = runs(Array.from({ length: count }, () => repeated()));
+    expect(result.map((run) => run.rows.length)).toEqual(
+      count < 3 ? Array<number>(count).fill(1) : [count],
+    );
+    expect(result.flatMap((run) => run.rows.map((row) => row.key))).toEqual(
+      Array.from({ length: count }, (_, index) => count - index - 1),
+    );
+  });
+
+  it.each([
+    ['kind', { kind: 'future_kind' }],
+    ['actor', { actor: 'operator' }],
+    ['channel', { via: 'web' }],
+    ['summary', { summary: 'Another summary.' }],
+  ])('keeps maximal adjacent runs separate at a changed %s', (_, difference) => {
+    const result = runs([
+      repeated(),
+      repeated(),
+      repeated(),
+      { ...repeated(), ...difference },
+      repeated(),
+      repeated(),
+      repeated(),
+    ]);
+    expect(result.map((run) => run.rows.map((row) => row.key))).toEqual([
+      [6, 5, 4],
+      [3],
+      [2, 1, 0],
+    ]);
+  });
+
+  it('compares raw actors even when their displayed names collide', () => {
+    const events = ['agent:one/session', 'agent:two/session', 'agent:one/session'].map((actor) => ({
+      ...repeated(),
+      actor,
+    }));
+    const result = runs(events);
+    expect(result).toHaveLength(3);
+    expect(result.flatMap((run) => run.rows.map((row) => row.actor))).toEqual([
+      'session',
+      'session',
+      'session',
+    ]);
+  });
+
+  it('retains the oldest position when a newer match joins, and formats oldest UTC time', () => {
+    const events = [
+      repeated('2026-11-15T23:58:00Z'),
+      repeated('2026-11-16T00:01:00Z'),
+      repeated('2026-11-16T00:02:00Z'),
+    ];
+    expect(runs(events)[0]).toMatchObject({ key: 0, since: '23:58 15/11/26' });
+    const appended = runs([...events, repeated('2026-11-16T00:03:00Z')]);
+    expect(appended[0]).toMatchObject({ key: 0, since: '23:58 15/11/26' });
+    expect(appended[0]?.rows).toHaveLength(4);
+    expect(appended[0]?.rows[0]?.time).toBe('00:03 16/11/26');
+    expect(runs(events.slice(1).concat(repeated('2026-11-16T00:03:00Z')))[0]?.since).toBe('00:01');
+    expect(runs([])).toEqual([]);
+  });
+
   it.each([
     ['operator', 'web', 'operator (web)'],
     ['operator', 'slack', 'operator (slack)'],

@@ -246,6 +246,25 @@ describe('how the Board works guide', () => {
       ],
       keys: ['projects[].columns[].orchestrator'],
     },
+    {
+      section: 'Browser access',
+      topic: 'web',
+      clauses: [
+        /second loopback listener serves browser\s*assets/,
+        /Only `comment.add`, `block.answer` and `block.followup` are enabled writes/,
+        /a failed bind does not stop the agent API/,
+      ],
+      keys: ['web.port', 'web.publicOrigin'],
+    },
+    {
+      section: 'Web shell',
+      topic: 'web',
+      clauses: [
+        /streams `GET \/v1\/events` as server-sent events/,
+        /show offline after five failed\s*attempts/,
+      ],
+      keys: ['block.answer', 'comment.add'],
+    },
   ])('pins the operational contract in $section', ({ section, topic, clauses, keys }) => {
     const howBoardWorks = readFileSync(
       new URL(`../../../docs/how-board-works-${topic}.md`, import.meta.url),
