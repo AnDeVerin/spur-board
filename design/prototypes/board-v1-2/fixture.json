@@ -1,0 +1,3646 @@
+{
+  "now": "2026-11-18T15:00:00Z",
+  "config.get": {
+    "projects": [
+      {
+        "id": "acme-web",
+        "curator": {
+          "project": "acme-notes",
+          "session": "acme-notes-7c1e"
+        },
+        "columns": [
+          {
+            "id": "todo",
+            "group": "todo",
+            "executor": {
+              "kind": "operator",
+              "name": null
+            },
+            "source": {
+              "kind": "manual"
+            }
+          },
+          {
+            "id": "ready-for-dev",
+            "group": "todo",
+            "executor": {
+              "kind": "operator",
+              "name": null
+            },
+            "label": "ready",
+            "source": {
+              "kind": "mirror",
+              "tracker": "github-project",
+              "name": "Web roadmap",
+              "field": "Status = Ready",
+              "health": "healthy",
+              "readAt": "2026-11-18T14:57:00Z"
+            }
+          },
+          {
+            "id": "dev",
+            "group": null,
+            "executor": {
+              "kind": "worker",
+              "name": null
+            }
+          },
+          {
+            "id": "review",
+            "group": null,
+            "executor": {
+              "kind": "orchestrator",
+              "name": "review-desk"
+            }
+          },
+          {
+            "id": "product-review",
+            "group": null,
+            "executor": {
+              "kind": "curator",
+              "name": "acme-notes"
+            }
+          },
+          {
+            "id": "ready-to-merge",
+            "group": null,
+            "executor": {
+              "kind": "operator",
+              "name": null
+            }
+          },
+          {
+            "id": "done",
+            "group": null,
+            "executor": {
+              "kind": "worker",
+              "name": null
+            }
+          }
+        ],
+        "approvalWatch": []
+      },
+      {
+        "id": "orbit-api",
+        "curator": null,
+        "columns": [
+          {
+            "id": "todo",
+            "group": "todo",
+            "executor": {
+              "kind": "operator",
+              "name": null
+            },
+            "source": {
+              "kind": "manual"
+            }
+          },
+          {
+            "id": "triage",
+            "group": "todo",
+            "executor": {
+              "kind": "operator",
+              "name": null
+            },
+            "source": {
+              "kind": "manual"
+            }
+          },
+          {
+            "id": "ready-for-dev",
+            "group": "todo",
+            "executor": {
+              "kind": "operator",
+              "name": null
+            },
+            "label": "ready",
+            "source": {
+              "kind": "manual"
+            }
+          },
+          {
+            "id": "dev",
+            "group": null,
+            "executor": {
+              "kind": "worker",
+              "name": null
+            }
+          },
+          {
+            "id": "review",
+            "group": null,
+            "executor": {
+              "kind": "orchestrator",
+              "name": "orbit-review"
+            }
+          },
+          {
+            "id": "external-review",
+            "group": null,
+            "executor": {
+              "kind": "dispatcher",
+              "name": null
+            }
+          },
+          {
+            "id": "qa",
+            "group": null,
+            "executor": {
+              "kind": "orchestrator",
+              "name": "orbit-qa"
+            }
+          },
+          {
+            "id": "product-review",
+            "group": null,
+            "executor": {
+              "kind": "operator",
+              "name": null
+            }
+          },
+          {
+            "id": "ready-to-merge",
+            "group": null,
+            "executor": {
+              "kind": "operator",
+              "name": null
+            }
+          },
+          {
+            "id": "done",
+            "group": null,
+            "executor": {
+              "kind": "worker",
+              "name": null
+            }
+          }
+        ],
+        "approvalWatch": ["back/", "front/"]
+      }
+    ]
+  },
+  "status.get": {
+    "tasks": [
+      {
+        "key": "acme/web#431",
+        "project": "acme-web",
+        "column": "todo",
+        "membership": "board",
+        "ticket": {
+          "title": "Show the daemon version in the status bar"
+        },
+        "columnEnteredAt": "2026-11-17T17:00:00Z",
+        "position": 1,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/431",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#436",
+        "project": "acme-web",
+        "column": "todo",
+        "membership": "board",
+        "ticket": {
+          "title": "Remember the last opened project"
+        },
+        "columnEnteredAt": "2026-11-18T06:00:00Z",
+        "position": 2,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/436",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#440",
+        "project": "acme-web",
+        "column": "todo",
+        "membership": "board",
+        "ticket": {
+          "title": "Empty state for a project with no columns"
+        },
+        "columnEnteredAt": "2026-11-18T11:30:00Z",
+        "position": 3,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/440",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#418",
+        "project": "acme-web",
+        "column": "ready-for-dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Keyboard shortcut to open the inbox"
+        },
+        "columnEnteredAt": "2026-11-17T09:00:00Z",
+        "position": 1,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/418",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#422",
+        "project": "acme-web",
+        "column": "ready-for-dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Filter cards by open blocks"
+        },
+        "columnEnteredAt": "2026-11-17T13:00:00Z",
+        "position": 2,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/422",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#427",
+        "project": "acme-web",
+        "column": "ready-for-dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Copy the task key from the card"
+        },
+        "columnEnteredAt": "2026-11-18T09:00:00Z",
+        "position": 3,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/427",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#433",
+        "project": "acme-web",
+        "column": "ready-for-dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Sticky column heads on a short screen"
+        },
+        "columnEnteredAt": "2026-11-18T13:48:00Z",
+        "position": 4,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/433",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#409",
+        "project": "acme-web",
+        "column": "dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Group alike history rows"
+        },
+        "columnEnteredAt": "2026-11-18T10:00:00Z",
+        "position": 1,
+        "turn": {
+          "id": "T731",
+          "addressee": "worker:web",
+          "at": "2026-11-18T10:00:00Z",
+          "taken": {
+            "by": "web/acme-web-4a1f",
+            "at": "2026-11-18T10:06:00Z"
+          }
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 9,
+              "fail": 0,
+              "pending": 5
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/409",
+          "prs": ["https://example.test/acme/web/pull/809"],
+          "sessions": ["acme-web-4a1f"]
+        }
+      },
+      {
+        "key": "acme/web#412",
+        "project": "acme-web",
+        "column": "dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Service panel: show the last poll time"
+        },
+        "columnEnteredAt": "2026-11-18T12:48:00Z",
+        "position": 2,
+        "turn": {
+          "id": "T735",
+          "addressee": "worker:web",
+          "at": "2026-11-18T12:48:00Z",
+          "taken": {
+            "by": "web/acme-web-9d02",
+            "at": "2026-11-18T12:54:00Z"
+          }
+        },
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/412",
+          "prs": [],
+          "sessions": ["acme-web-9d02"]
+        }
+      },
+      {
+        "key": "acme/web#402",
+        "project": "acme-web",
+        "column": "review",
+        "membership": "board",
+        "ticket": {
+          "title": "Fold closed blocks to three lines"
+        },
+        "columnEnteredAt": "2026-11-18T13:54:00Z",
+        "position": 1,
+        "turn": {
+          "id": "T738",
+          "addressee": "orchestrator:review-desk",
+          "at": "2026-11-18T13:54:00Z",
+          "taken": {
+            "by": "review-desk/rd-22b0",
+            "at": "2026-11-18T14:06:00Z"
+          }
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/402",
+          "prs": ["https://example.test/acme/web/pull/802"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#398",
+        "project": "acme-web",
+        "column": "product-review",
+        "membership": "board",
+        "ticket": {
+          "title": "Tint the PR cells on the card"
+        },
+        "columnEnteredAt": "2026-11-18T14:18:00Z",
+        "position": 1,
+        "turn": {
+          "id": "T740",
+          "addressee": "curator:acme-notes",
+          "at": "2026-11-18T14:18:00Z",
+          "taken": null
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/398",
+          "prs": ["https://example.test/acme/web/pull/798"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#391",
+        "project": "acme-web",
+        "column": "ready-to-merge",
+        "membership": "board",
+        "ticket": {
+          "title": "Column sort by key and time"
+        },
+        "columnEnteredAt": "2026-11-18T14:36:00Z",
+        "position": 1,
+        "turn": {
+          "id": "T741",
+          "addressee": "operator",
+          "at": "2026-11-18T14:36:00Z",
+          "taken": null
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["sam"],
+              "changesRequested": []
+            },
+            "head": "d4e5f6a",
+            "approvals": [
+              {
+                "author": "sam",
+                "sha": "d4e5f6a",
+                "onHead": true,
+                "commitsAfter": 0,
+                "dirsChanged": [],
+                "notCounted": null
+              }
+            ]
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/391",
+          "prs": ["https://example.test/acme/web/pull/791"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#385",
+        "project": "acme-web",
+        "column": "done",
+        "membership": "board",
+        "ticket": {
+          "title": "Raise muted text contrast in the dark theme"
+        },
+        "columnEnteredAt": "2026-11-17T19:00:00Z",
+        "position": 1,
+        "turn": null,
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/385",
+          "prs": ["https://example.test/acme/web/pull/785"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "acme/web#380",
+        "project": "acme-web",
+        "column": "done",
+        "membership": "board",
+        "ticket": {
+          "title": "Board header with the project switch"
+        },
+        "columnEnteredAt": "2026-11-16T19:00:00Z",
+        "position": 2,
+        "turn": null,
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/acme/web/issues/380",
+          "prs": ["https://example.test/acme/web/pull/780"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#208",
+        "project": "orbit-api",
+        "column": "todo",
+        "membership": "board",
+        "ticket": {
+          "title": "Rate limit the export endpoint"
+        },
+        "columnEnteredAt": "2026-11-16T13:00:00Z",
+        "position": 1,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/208",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#214",
+        "project": "orbit-api",
+        "column": "todo",
+        "membership": "board",
+        "ticket": {
+          "title": "Paginate the audit log"
+        },
+        "columnEnteredAt": "2026-11-17T11:00:00Z",
+        "position": 2,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/214",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#219",
+        "project": "orbit-api",
+        "column": "todo",
+        "membership": "board",
+        "ticket": {
+          "title": "Return 409 on a duplicate webhook"
+        },
+        "columnEnteredAt": "2026-11-18T08:00:00Z",
+        "position": 3,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/219",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#211",
+        "project": "orbit-api",
+        "column": "triage",
+        "membership": "board",
+        "ticket": {
+          "title": "Token refresh fails after a clock skew"
+        },
+        "columnEnteredAt": "2026-11-18T11:00:00Z",
+        "position": 1,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/211",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#196",
+        "project": "orbit-api",
+        "column": "ready-for-dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Add an idempotency key to payments"
+        },
+        "columnEnteredAt": "2026-11-17T08:00:00Z",
+        "position": 1,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/196",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#201",
+        "project": "orbit-api",
+        "column": "ready-for-dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Health endpoint lists the queue depth"
+        },
+        "columnEnteredAt": "2026-11-18T03:00:00Z",
+        "position": 2,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/201",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#205",
+        "project": "orbit-api",
+        "column": "ready-for-dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Drop the legacy v1 routes"
+        },
+        "columnEnteredAt": "2026-11-18T12:30:00Z",
+        "position": 3,
+        "turn": null,
+        "prSummary": null,
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/205",
+          "prs": [],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#188",
+        "project": "orbit-api",
+        "column": "dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Retry policy for the mail worker"
+        },
+        "columnEnteredAt": "2026-11-18T08:30:00Z",
+        "position": 1,
+        "turn": {
+          "id": "T512",
+          "addressee": "worker:api",
+          "at": "2026-11-18T08:30:00Z",
+          "taken": {
+            "by": "api/orbit-api-31c8",
+            "at": "2026-11-18T08:36:00Z"
+          }
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 20,
+              "fail": 2,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": true,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/188",
+          "prs": ["https://example.test/orbit/api/pull/588"],
+          "sessions": ["orbit-api-31c8"]
+        }
+      },
+      {
+        "key": "orbit/api#190",
+        "project": "orbit-api",
+        "column": "dev",
+        "membership": "board",
+        "ticket": {
+          "title": "Batch insert for import jobs"
+        },
+        "columnEnteredAt": "2026-11-18T13:30:00Z",
+        "position": 2,
+        "turn": {
+          "id": "T519",
+          "addressee": "worker:api",
+          "at": "2026-11-18T13:30:00Z",
+          "taken": {
+            "by": "api/orbit-api-77aa",
+            "at": "2026-11-18T13:36:00Z"
+          }
+        },
+        "prSummary": null,
+        "openBlocks": 1,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/190",
+          "prs": [],
+          "sessions": ["orbit-api-77aa"]
+        }
+      },
+      {
+        "key": "orbit/api#181",
+        "project": "orbit-api",
+        "column": "review",
+        "membership": "board",
+        "ticket": {
+          "title": "Structured errors for the search API"
+        },
+        "columnEnteredAt": "2026-11-18T14:12:00Z",
+        "position": 1,
+        "turn": {
+          "id": "T521",
+          "addressee": "orchestrator:orbit-review",
+          "at": "2026-11-18T14:12:00Z",
+          "taken": {
+            "by": "orbit-review/or-90f1",
+            "at": "2026-11-18T14:24:00Z"
+          }
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/181",
+          "prs": ["https://example.test/orbit/api/pull/581"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#176",
+        "project": "orbit-api",
+        "column": "external-review",
+        "membership": "board",
+        "ticket": {
+          "title": "Partial refunds"
+        },
+        "columnEnteredAt": "2026-11-18T06:00:00Z",
+        "position": 1,
+        "turn": null,
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": [],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/176",
+          "prs": ["https://example.test/orbit/api/pull/576"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#172",
+        "project": "orbit-api",
+        "column": "qa",
+        "membership": "board",
+        "ticket": {
+          "title": "Webhook signature rotation"
+        },
+        "columnEnteredAt": "2026-11-18T13:06:00Z",
+        "position": 1,
+        "turn": {
+          "id": "T515",
+          "addressee": "orchestrator:orbit-qa",
+          "at": "2026-11-18T13:06:00Z",
+          "taken": {
+            "by": "orbit-qa/oq-5e12",
+            "at": "2026-11-18T13:48:00Z"
+          }
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/172",
+          "prs": ["https://example.test/orbit/api/pull/572"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#174",
+        "project": "orbit-api",
+        "column": "qa",
+        "membership": "board",
+        "ticket": {
+          "title": "Soft delete for projects"
+        },
+        "columnEnteredAt": "2026-11-18T14:30:00Z",
+        "position": 2,
+        "turn": {
+          "id": "T523",
+          "addressee": "orchestrator:orbit-qa",
+          "at": "2026-11-18T14:30:00Z",
+          "taken": null
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/174",
+          "prs": ["https://example.test/orbit/api/pull/574"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#169",
+        "project": "orbit-api",
+        "column": "product-review",
+        "membership": "board",
+        "ticket": {
+          "title": "Usage report by workspace"
+        },
+        "columnEnteredAt": "2026-11-18T14:24:00Z",
+        "position": 1,
+        "turn": {
+          "id": "T522",
+          "addressee": "operator",
+          "at": "2026-11-18T14:24:00Z",
+          "taken": null
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/169",
+          "prs": ["https://example.test/orbit/api/pull/569"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#163",
+        "project": "orbit-api",
+        "column": "ready-to-merge",
+        "membership": "board",
+        "ticket": {
+          "title": "Cursor pagination for events"
+        },
+        "columnEnteredAt": "2026-11-18T14:42:00Z",
+        "position": 1,
+        "turn": {
+          "id": "T524",
+          "addressee": "operator",
+          "at": "2026-11-18T14:42:00Z",
+          "taken": null
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            },
+            "head": "a1b2c3d",
+            "approvals": [
+              {
+                "author": "dana",
+                "sha": "a1b2c3d",
+                "onHead": true,
+                "commitsAfter": 0,
+                "dirsChanged": [],
+                "notCounted": null
+              }
+            ]
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/163",
+          "prs": ["https://example.test/orbit/api/pull/563"],
+          "sessions": []
+        },
+        "submission": {
+          "column": "qa",
+          "by": "orbit-qa/oq-5e12",
+          "sha": "a1b2c3d",
+          "basis": "tested"
+        }
+      },
+      {
+        "key": "orbit/api#165",
+        "project": "orbit-api",
+        "column": "ready-to-merge",
+        "membership": "board",
+        "ticket": {
+          "title": "Compress large responses"
+        },
+        "columnEnteredAt": "2026-11-18T12:36:00Z",
+        "position": 2,
+        "turn": {
+          "id": "T510",
+          "addressee": "operator",
+          "at": "2026-11-18T12:36:00Z",
+          "taken": null
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            },
+            "head": "9f8e7d6",
+            "approvals": [
+              {
+                "author": "dana",
+                "sha": "2b4c6d8",
+                "onHead": false,
+                "commitsAfter": 3,
+                "dirsChanged": ["back/", "front/", "docs/"],
+                "notCounted": null
+              }
+            ]
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/165",
+          "prs": ["https://example.test/orbit/api/pull/565"],
+          "sessions": []
+        },
+        "submission": {
+          "column": "qa",
+          "by": "orbit-qa/oq-5e12",
+          "sha": "9f8e7d6",
+          "basis": "tested"
+        }
+      },
+      {
+        "key": "orbit/api#158",
+        "project": "orbit-api",
+        "column": "done",
+        "membership": "board",
+        "ticket": {
+          "title": "Request ids in every log line"
+        },
+        "columnEnteredAt": "2026-11-17T13:00:00Z",
+        "position": 1,
+        "turn": null,
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            }
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/158",
+          "prs": ["https://example.test/orbit/api/pull/558"],
+          "sessions": []
+        }
+      },
+      {
+        "key": "orbit/api#160",
+        "project": "orbit-api",
+        "column": "ready-to-merge",
+        "membership": "board",
+        "ticket": {
+          "title": "Trim trailing slashes in routes"
+        },
+        "columnEnteredAt": "2026-11-18T13:36:00Z",
+        "position": 3,
+        "turn": {
+          "id": "T530",
+          "addressee": "operator",
+          "at": "2026-11-18T13:36:00Z",
+          "taken": null
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["lee"],
+              "changesRequested": []
+            },
+            "head": "5c1d9e2",
+            "approvals": [
+              {
+                "author": "lee",
+                "sha": "0d3f5a7",
+                "onHead": false,
+                "commitsAfter": 2,
+                "dirsChanged": ["docs/"],
+                "notCounted": null
+              }
+            ]
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/160",
+          "prs": ["https://example.test/orbit/api/pull/560"],
+          "sessions": []
+        },
+        "submission": {
+          "column": "qa",
+          "by": "orbit-qa/oq-5e12",
+          "sha": "5c1d9e2",
+          "basis": "carried",
+          "from": "0d3f5a7",
+          "reason": "Only docs changed since the tested head."
+        }
+      },
+      {
+        "key": "orbit/api#161",
+        "project": "orbit-api",
+        "column": "ready-to-merge",
+        "membership": "board",
+        "ticket": {
+          "title": "Audit log export as CSV"
+        },
+        "columnEnteredAt": "2026-11-18T11:54:00Z",
+        "position": 4,
+        "turn": {
+          "id": "T531",
+          "addressee": "operator",
+          "at": "2026-11-18T11:54:00Z",
+          "taken": null
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana", "lee"],
+              "changesRequested": []
+            },
+            "head": "b7e2a40",
+            "approvals": [
+              {
+                "author": "dana",
+                "sha": "71c9e05",
+                "onHead": false,
+                "commitsAfter": 4,
+                "dirsChanged": ["back/"],
+                "notCounted": null
+              },
+              {
+                "author": "lee",
+                "sha": "b7e2a40",
+                "onHead": true,
+                "commitsAfter": 0,
+                "dirsChanged": [],
+                "notCounted": null
+              }
+            ]
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/161",
+          "prs": ["https://example.test/orbit/api/pull/561"],
+          "sessions": []
+        },
+        "submission": {
+          "column": "qa",
+          "by": "orbit-qa/oq-5e12",
+          "sha": "b7e2a40",
+          "basis": "skipped",
+          "reason": "No testable surface: an offline export script."
+        }
+      },
+      {
+        "key": "orbit/api#166",
+        "project": "orbit-api",
+        "column": "ready-to-merge",
+        "membership": "board",
+        "ticket": {
+          "title": "Move rate limits to config"
+        },
+        "columnEnteredAt": "2026-11-18T14:06:00Z",
+        "position": 5,
+        "turn": {
+          "id": "T536",
+          "addressee": "operator",
+          "at": "2026-11-18T14:06:00Z",
+          "taken": null
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": null,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["dana"],
+              "changesRequested": []
+            },
+            "head": "e90a3f7",
+            "approvals": [
+              {
+                "author": "dana",
+                "sha": "c05b1aa",
+                "onHead": false,
+                "commitsAfter": null,
+                "dirsChanged": null,
+                "notCounted": "history_rewritten"
+              }
+            ]
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/166",
+          "prs": ["https://example.test/orbit/api/pull/566"],
+          "sessions": []
+        },
+        "submission": {
+          "column": "qa",
+          "by": "orbit-qa/oq-5e12",
+          "sha": "e90a3f7",
+          "basis": "tested"
+        }
+      },
+      {
+        "key": "orbit/api#167",
+        "project": "orbit-api",
+        "column": "ready-to-merge",
+        "membership": "board",
+        "ticket": {
+          "title": "Regenerate the API client"
+        },
+        "columnEnteredAt": "2026-11-18T09:48:00Z",
+        "position": 6,
+        "turn": {
+          "id": "T537",
+          "addressee": "operator",
+          "at": "2026-11-18T09:48:00Z",
+          "taken": null
+        },
+        "prSummary": [
+          {
+            "checks": {
+              "pass": 14,
+              "fail": 0,
+              "pending": 0
+            },
+            "mergeable": true,
+            "threads": {
+              "unresolved": 0,
+              "total": 3
+            },
+            "reviewsOnHead": {
+              "approved": ["lee"],
+              "changesRequested": []
+            },
+            "head": "44d0c1b",
+            "approvals": [
+              {
+                "author": "lee",
+                "sha": "8ab3e19",
+                "onHead": false,
+                "commitsAfter": null,
+                "dirsChanged": null,
+                "notCounted": "pr_too_large"
+              }
+            ]
+          }
+        ],
+        "openBlocks": 0,
+        "returned": false,
+        "links": {
+          "ticket": "https://example.test/orbit/api/issues/167",
+          "prs": ["https://example.test/orbit/api/pull/567"],
+          "sessions": []
+        },
+        "submission": {
+          "column": "qa",
+          "by": "orbit-qa/oq-5e12",
+          "sha": "44d0c1b",
+          "basis": "carried",
+          "from": "8ab3e19",
+          "reason": "Generated client only; the tested head covers the API."
+        }
+      }
+    ]
+  },
+  "columns.describe": {
+    "projects": {
+      "acme-web": {
+        "columns": {
+          "todo": {
+            "executor": {
+              "kind": "operator"
+            },
+            "escalation": {
+              "chain": [
+                "worker",
+                {
+                  "role": "curator",
+                  "project": "acme-notes",
+                  "session": "acme-notes-7c1e"
+                },
+                "operator"
+              ],
+              "silent": null
+            },
+            "exit": {
+              "to": "dev",
+              "conditions": [
+                {
+                  "id": "work_started",
+                  "text": "Work started: an open PR or a live worker"
+                }
+              ]
+            },
+            "movedBy": {
+              "kind": "manual"
+            },
+            "returns": [],
+            "limits": null
+          },
+          "ready-for-dev": {
+            "executor": {
+              "kind": "operator"
+            },
+            "escalation": {
+              "chain": [
+                "worker",
+                {
+                  "role": "curator",
+                  "project": "acme-notes",
+                  "session": "acme-notes-7c1e"
+                },
+                "operator"
+              ],
+              "silent": null
+            },
+            "exit": {
+              "to": "dev",
+              "conditions": [
+                {
+                  "id": "work_started",
+                  "text": "Work started: an open PR or a live worker"
+                }
+              ]
+            },
+            "movedBy": {
+              "kind": "mirror",
+              "tracker": "github-project",
+              "name": "Web roadmap",
+              "field": "Status = Ready",
+              "health": "healthy",
+              "readAt": "2026-11-18T14:57:00Z"
+            },
+            "returns": [],
+            "limits": null
+          },
+          "dev": {
+            "executor": {
+              "kind": "worker"
+            },
+            "escalation": {
+              "chain": [
+                "worker",
+                {
+                  "role": "curator",
+                  "project": "acme-notes",
+                  "session": "acme-notes-7c1e"
+                },
+                "operator"
+              ],
+              "silent": {
+                "remindAfterMin": 30,
+                "operatorItemAfterMin": null
+              }
+            },
+            "exit": {
+              "to": "review",
+              "conditions": [
+                {
+                  "id": "pr_open",
+                  "text": "PR open"
+                },
+                {
+                  "id": "not_draft",
+                  "text": "PR is not a draft"
+                },
+                {
+                  "id": "checks_green",
+                  "text": "Checks green"
+                },
+                {
+                  "id": "no_conflict",
+                  "text": "No merge conflict"
+                },
+                {
+                  "id": "external_comments_handled",
+                  "text": "External comments handled"
+                },
+                {
+                  "id": "comment_history_read",
+                  "text": "Comment history read"
+                },
+                {
+                  "id": "threads_resolved",
+                  "text": "Threads resolved"
+                },
+                {
+                  "id": "submit_on_head",
+                  "text": "Submit on the head"
+                }
+              ]
+            },
+            "returns": [],
+            "limits": null
+          },
+          "review": {
+            "executor": {
+              "kind": "orchestrator",
+              "role": "review",
+              "project": "review-desk",
+              "displayName": "Review Desk",
+              "session": {
+                "id": "review-desk-5e12",
+                "ringing": true
+              }
+            },
+            "escalation": {
+              "chain": [
+                "worker",
+                {
+                  "role": "curator",
+                  "project": "acme-notes",
+                  "session": "acme-notes-7c1e"
+                },
+                "operator"
+              ],
+              "silent": {
+                "remindAfterMin": 20,
+                "operatorItemAfterMin": 10
+              }
+            },
+            "exit": {
+              "to": "product-review",
+              "conditions": [
+                {
+                  "id": "review_on_head",
+                  "text": "Review on the head"
+                }
+              ]
+            },
+            "returns": [
+              "The reviewer returns the task",
+              "A new head: the mark is void",
+              "Checks turn red",
+              "A new external comment",
+              "A merge conflict"
+            ],
+            "limits": {
+              "cycleLimit": 3,
+              "courseCheckAfter": 2,
+              "courseCheckTo": "curator"
+            }
+          },
+          "product-review": {
+            "executor": {
+              "kind": "curator",
+              "role": "curator",
+              "project": "acme-notes",
+              "displayName": "Acme Notes",
+              "session": {
+                "id": "acme-notes-5e12",
+                "ringing": true
+              }
+            },
+            "escalation": {
+              "chain": [
+                "worker",
+                {
+                  "role": "curator",
+                  "project": "acme-notes",
+                  "session": "acme-notes-7c1e"
+                },
+                "operator"
+              ],
+              "silent": {
+                "remindAfterMin": 20,
+                "operatorItemAfterMin": 10
+              }
+            },
+            "exit": {
+              "to": "ready-to-merge",
+              "conditions": [
+                {
+                  "id": "review_on_head",
+                  "text": "Review on the head"
+                }
+              ]
+            },
+            "returns": [
+              "The reviewer returns the task",
+              "A new head: the mark is void",
+              "Checks turn red",
+              "A new external comment",
+              "A merge conflict"
+            ],
+            "limits": {
+              "cycleLimit": 3,
+              "courseCheckAfter": 2,
+              "courseCheckTo": "curator"
+            }
+          },
+          "ready-to-merge": {
+            "executor": {
+              "kind": "operator"
+            },
+            "escalation": {
+              "chain": [
+                "worker",
+                {
+                  "role": "curator",
+                  "project": "acme-notes",
+                  "session": "acme-notes-7c1e"
+                },
+                "operator"
+              ],
+              "silent": null
+            },
+            "exit": {
+              "to": "done",
+              "conditions": [
+                {
+                  "id": "merged",
+                  "text": "PR merged"
+                }
+              ]
+            },
+            "returns": ["Checks turn red", "A new external comment", "A merge conflict"],
+            "limits": null
+          },
+          "done": {
+            "executor": {
+              "kind": "worker"
+            },
+            "escalation": {
+              "chain": [
+                "worker",
+                {
+                  "role": "curator",
+                  "project": "acme-notes",
+                  "session": "acme-notes-7c1e"
+                },
+                "operator"
+              ],
+              "silent": null
+            },
+            "exit": {
+              "to": null,
+              "conditions": []
+            },
+            "returns": [],
+            "limits": null
+          }
+        }
+      },
+      "orbit-api": {
+        "columns": {
+          "todo": {
+            "executor": {
+              "kind": "operator"
+            },
+            "escalation": {
+              "chain": ["worker", "operator"],
+              "silent": null
+            },
+            "exit": {
+              "to": "dev",
+              "conditions": [
+                {
+                  "id": "work_started",
+                  "text": "Work started: an open PR or a live worker"
+                }
+              ]
+            },
+            "movedBy": {
+              "kind": "manual"
+            },
+            "returns": [],
+            "limits": null
+          },
+          "triage": {
+            "executor": {
+              "kind": "operator"
+            },
+            "escalation": {
+              "chain": ["worker", "operator"],
+              "silent": null
+            },
+            "exit": {
+              "to": "dev",
+              "conditions": [
+                {
+                  "id": "work_started",
+                  "text": "Work started: an open PR or a live worker"
+                }
+              ]
+            },
+            "movedBy": {
+              "kind": "manual"
+            },
+            "returns": [],
+            "limits": null
+          },
+          "ready-for-dev": {
+            "executor": {
+              "kind": "operator"
+            },
+            "escalation": {
+              "chain": ["worker", "operator"],
+              "silent": null
+            },
+            "exit": {
+              "to": "dev",
+              "conditions": [
+                {
+                  "id": "work_started",
+                  "text": "Work started: an open PR or a live worker"
+                }
+              ]
+            },
+            "movedBy": {
+              "kind": "manual"
+            },
+            "returns": [],
+            "limits": null
+          },
+          "dev": {
+            "executor": {
+              "kind": "worker"
+            },
+            "escalation": {
+              "chain": ["worker", "operator"],
+              "silent": {
+                "remindAfterMin": 30,
+                "operatorItemAfterMin": null
+              }
+            },
+            "exit": {
+              "to": "review",
+              "conditions": [
+                {
+                  "id": "pr_open",
+                  "text": "PR open"
+                },
+                {
+                  "id": "not_draft",
+                  "text": "PR is not a draft"
+                },
+                {
+                  "id": "checks_green",
+                  "text": "Checks green"
+                },
+                {
+                  "id": "no_conflict",
+                  "text": "No merge conflict"
+                },
+                {
+                  "id": "external_comments_handled",
+                  "text": "External comments handled"
+                },
+                {
+                  "id": "comment_history_read",
+                  "text": "Comment history read"
+                },
+                {
+                  "id": "threads_resolved",
+                  "text": "Threads resolved"
+                },
+                {
+                  "id": "submit_on_head",
+                  "text": "Submit on the head"
+                }
+              ]
+            },
+            "returns": [],
+            "limits": null
+          },
+          "review": {
+            "executor": {
+              "kind": "orchestrator",
+              "role": "review",
+              "project": "orbit-review",
+              "displayName": "Orbit Review",
+              "session": {
+                "id": "orbit-review-5e12",
+                "ringing": true
+              }
+            },
+            "escalation": {
+              "chain": ["worker", "operator"],
+              "silent": {
+                "remindAfterMin": 20,
+                "operatorItemAfterMin": 10
+              }
+            },
+            "exit": {
+              "to": "external-review",
+              "conditions": [
+                {
+                  "id": "review_on_head",
+                  "text": "Review on the head"
+                }
+              ]
+            },
+            "returns": [
+              "The reviewer returns the task",
+              "A new head: the mark is void",
+              "Checks turn red",
+              "A new external comment",
+              "A merge conflict"
+            ],
+            "limits": {
+              "cycleLimit": 3,
+              "courseCheckAfter": 2,
+              "courseCheckTo": "operator"
+            }
+          },
+          "external-review": {
+            "executor": {
+              "kind": "dispatcher"
+            },
+            "escalation": {
+              "chain": ["worker", "operator"],
+              "silent": null
+            },
+            "exit": {
+              "to": "qa",
+              "conditions": [
+                {
+                  "id": "approved",
+                  "text": "Approved by an external reviewer"
+                },
+                {
+                  "id": "no_changes_requested",
+                  "text": "No changes requested"
+                },
+                {
+                  "id": "github_review_rule",
+                  "text": "GitHub review rule does not block the merge"
+                }
+              ]
+            },
+            "returns": [
+              "Changes requested",
+              "Checks turn red",
+              "A new external comment",
+              "A merge conflict"
+            ],
+            "limits": {
+              "cycleLimit": 3,
+              "courseCheckAfter": 2,
+              "courseCheckTo": "operator"
+            }
+          },
+          "qa": {
+            "executor": {
+              "kind": "orchestrator",
+              "role": "qa",
+              "project": "orbit-qa",
+              "displayName": "Orbit Qa",
+              "session": {
+                "id": "orbit-qa-5e12",
+                "ringing": true
+              }
+            },
+            "escalation": {
+              "chain": ["worker", "operator"],
+              "silent": {
+                "remindAfterMin": 90,
+                "operatorItemAfterMin": 10
+              }
+            },
+            "exit": {
+              "to": "product-review",
+              "conditions": [
+                {
+                  "id": "checks_green",
+                  "text": "Checks green"
+                },
+                {
+                  "id": "submit_on_head",
+                  "text": "Submit on the head: tested, carried or skipped"
+                }
+              ]
+            },
+            "returns": [
+              "The QA orchestrator returns the task",
+              "Checks turn red",
+              "A new external comment",
+              "A merge conflict"
+            ],
+            "limits": {
+              "cycleLimit": 3,
+              "courseCheckAfter": 2,
+              "courseCheckTo": "operator"
+            }
+          },
+          "product-review": {
+            "executor": {
+              "kind": "operator"
+            },
+            "escalation": {
+              "chain": ["worker", "operator"],
+              "silent": null
+            },
+            "exit": {
+              "to": "ready-to-merge",
+              "conditions": [
+                {
+                  "id": "review_on_head",
+                  "text": "Review on the head"
+                }
+              ]
+            },
+            "returns": [
+              "The reviewer returns the task",
+              "A new head: the mark is void",
+              "Checks turn red",
+              "A new external comment",
+              "A merge conflict"
+            ],
+            "limits": {
+              "cycleLimit": 3,
+              "courseCheckAfter": 2,
+              "courseCheckTo": "operator"
+            }
+          },
+          "ready-to-merge": {
+            "executor": {
+              "kind": "operator"
+            },
+            "escalation": {
+              "chain": ["worker", "operator"],
+              "silent": null
+            },
+            "exit": {
+              "to": "done",
+              "conditions": [
+                {
+                  "id": "merged",
+                  "text": "PR merged"
+                }
+              ]
+            },
+            "returns": ["Checks turn red", "A new external comment", "A merge conflict"],
+            "limits": null
+          },
+          "done": {
+            "executor": {
+              "kind": "worker"
+            },
+            "escalation": {
+              "chain": ["worker", "operator"],
+              "silent": null
+            },
+            "exit": {
+              "to": null,
+              "conditions": []
+            },
+            "returns": [],
+            "limits": null
+          }
+        }
+      }
+    }
+  },
+  "task.get": {
+    "acme/web#431": {
+      "task": {
+        "key": "acme/web#431",
+        "column": "todo",
+        "project": "acme-web"
+      },
+      "title": "Show the daemon version in the status bar",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "acme/web#436": {
+      "task": {
+        "key": "acme/web#436",
+        "column": "todo",
+        "project": "acme-web"
+      },
+      "title": "Remember the last opened project",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "acme/web#440": {
+      "task": {
+        "key": "acme/web#440",
+        "column": "todo",
+        "project": "acme-web"
+      },
+      "title": "Empty state for a project with no columns",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "acme/web#418": {
+      "task": {
+        "key": "acme/web#418",
+        "column": "ready-for-dev",
+        "project": "acme-web"
+      },
+      "title": "Keyboard shortcut to open the inbox",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "acme/web#422": {
+      "task": {
+        "key": "acme/web#422",
+        "column": "ready-for-dev",
+        "project": "acme-web"
+      },
+      "title": "Filter cards by open blocks",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "acme/web#427": {
+      "task": {
+        "key": "acme/web#427",
+        "column": "ready-for-dev",
+        "project": "acme-web"
+      },
+      "title": "Copy the task key from the card",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "acme/web#433": {
+      "task": {
+        "key": "acme/web#433",
+        "column": "ready-for-dev",
+        "project": "acme-web"
+      },
+      "title": "Sticky column heads on a short screen",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "acme/web#409": {
+      "task": {
+        "key": "acme/web#409",
+        "column": "dev",
+        "project": "acme-web"
+      },
+      "title": "Group alike history rows",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T731",
+        "addressee": "worker:web",
+        "at": "2026-11-18T10:00:00Z",
+        "taken": {
+          "by": "web/acme-web-4a1f",
+          "at": "2026-11-18T10:06:00Z"
+        }
+      },
+      "pr": {
+        "number": 809,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "acme/web#412": {
+      "task": {
+        "key": "acme/web#412",
+        "column": "dev",
+        "project": "acme-web"
+      },
+      "title": "Service panel: show the last poll time",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T735",
+        "addressee": "worker:web",
+        "at": "2026-11-18T12:48:00Z",
+        "taken": {
+          "by": "web/acme-web-9d02",
+          "at": "2026-11-18T12:54:00Z"
+        }
+      },
+      "pr": null,
+      "submission": null
+    },
+    "acme/web#402": {
+      "task": {
+        "key": "acme/web#402",
+        "column": "review",
+        "project": "acme-web"
+      },
+      "title": "Fold closed blocks to three lines",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T738",
+        "addressee": "orchestrator:review-desk",
+        "at": "2026-11-18T13:54:00Z",
+        "taken": {
+          "by": "review-desk/rd-22b0",
+          "at": "2026-11-18T14:06:00Z"
+        }
+      },
+      "pr": {
+        "number": 802,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "acme/web#398": {
+      "task": {
+        "key": "acme/web#398",
+        "column": "product-review",
+        "project": "acme-web"
+      },
+      "title": "Tint the PR cells on the card",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T740",
+        "addressee": "curator:acme-notes",
+        "at": "2026-11-18T14:18:00Z",
+        "taken": null
+      },
+      "pr": {
+        "number": 798,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "acme/web#391": {
+      "task": {
+        "key": "acme/web#391",
+        "column": "ready-to-merge",
+        "project": "acme-web"
+      },
+      "title": "Column sort by key and time",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T741",
+        "addressee": "operator",
+        "at": "2026-11-18T14:36:00Z",
+        "taken": null
+      },
+      "pr": {
+        "number": 791,
+        "head": "d4e5f6a",
+        "approvals": [
+          {
+            "author": "sam",
+            "sha": "d4e5f6a",
+            "onHead": true,
+            "commitsAfter": 0,
+            "dirsChanged": [],
+            "notCounted": null
+          }
+        ]
+      },
+      "submission": null
+    },
+    "acme/web#385": {
+      "task": {
+        "key": "acme/web#385",
+        "column": "done",
+        "project": "acme-web"
+      },
+      "title": "Raise muted text contrast in the dark theme",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": {
+        "number": 785,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "acme/web#380": {
+      "task": {
+        "key": "acme/web#380",
+        "column": "done",
+        "project": "acme-web"
+      },
+      "title": "Board header with the project switch",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": {
+        "number": 780,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "orbit/api#208": {
+      "task": {
+        "key": "orbit/api#208",
+        "column": "todo",
+        "project": "orbit-api"
+      },
+      "title": "Rate limit the export endpoint",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "orbit/api#214": {
+      "task": {
+        "key": "orbit/api#214",
+        "column": "todo",
+        "project": "orbit-api"
+      },
+      "title": "Paginate the audit log",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "orbit/api#219": {
+      "task": {
+        "key": "orbit/api#219",
+        "column": "todo",
+        "project": "orbit-api"
+      },
+      "title": "Return 409 on a duplicate webhook",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "orbit/api#211": {
+      "task": {
+        "key": "orbit/api#211",
+        "column": "triage",
+        "project": "orbit-api"
+      },
+      "title": "Token refresh fails after a clock skew",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "orbit/api#196": {
+      "task": {
+        "key": "orbit/api#196",
+        "column": "ready-for-dev",
+        "project": "orbit-api"
+      },
+      "title": "Add an idempotency key to payments",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "orbit/api#201": {
+      "task": {
+        "key": "orbit/api#201",
+        "column": "ready-for-dev",
+        "project": "orbit-api"
+      },
+      "title": "Health endpoint lists the queue depth",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "orbit/api#205": {
+      "task": {
+        "key": "orbit/api#205",
+        "column": "ready-for-dev",
+        "project": "orbit-api"
+      },
+      "title": "Drop the legacy v1 routes",
+      "why": {
+        "rows": [
+          {
+            "key": "Work started: an open PR or a live worker",
+            "value": "not started",
+            "status": "unchecked"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": null,
+      "submission": null
+    },
+    "orbit/api#188": {
+      "task": {
+        "key": "orbit/api#188",
+        "column": "dev",
+        "project": "orbit-api"
+      },
+      "title": "Retry policy for the mail worker",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T512",
+        "addressee": "worker:api",
+        "at": "2026-11-18T08:30:00Z",
+        "taken": {
+          "by": "api/orbit-api-31c8",
+          "at": "2026-11-18T08:36:00Z"
+        }
+      },
+      "pr": {
+        "number": 588,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "orbit/api#190": {
+      "task": {
+        "key": "orbit/api#190",
+        "column": "dev",
+        "project": "orbit-api"
+      },
+      "title": "Batch insert for import jobs",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T519",
+        "addressee": "worker:api",
+        "at": "2026-11-18T13:30:00Z",
+        "taken": {
+          "by": "api/orbit-api-77aa",
+          "at": "2026-11-18T13:36:00Z"
+        }
+      },
+      "pr": null,
+      "submission": null
+    },
+    "orbit/api#181": {
+      "task": {
+        "key": "orbit/api#181",
+        "column": "review",
+        "project": "orbit-api"
+      },
+      "title": "Structured errors for the search API",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T521",
+        "addressee": "orchestrator:orbit-review",
+        "at": "2026-11-18T14:12:00Z",
+        "taken": {
+          "by": "orbit-review/or-90f1",
+          "at": "2026-11-18T14:24:00Z"
+        }
+      },
+      "pr": {
+        "number": 581,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "orbit/api#176": {
+      "task": {
+        "key": "orbit/api#176",
+        "column": "external-review",
+        "project": "orbit-api"
+      },
+      "title": "Partial refunds",
+      "why": {
+        "rows": [
+          {
+            "key": "Approved by an external reviewer",
+            "value": "not approved",
+            "status": "fail"
+          },
+          {
+            "key": "No changes requested",
+            "value": "met",
+            "status": "pass"
+          },
+          {
+            "key": "GitHub review rule does not block the merge",
+            "value": "merge is blocked by a GitHub review rule",
+            "status": "fail"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": {
+        "number": 576,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "orbit/api#172": {
+      "task": {
+        "key": "orbit/api#172",
+        "column": "qa",
+        "project": "orbit-api"
+      },
+      "title": "Webhook signature rotation",
+      "why": {
+        "rows": [
+          {
+            "key": "Checks green",
+            "value": "checks are running: leaving qa waits for green",
+            "status": "wait"
+          },
+          {
+            "key": "Submit on the head",
+            "value": "no submit on head",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn T515",
+            "value": "orchestrator orbit-qa \u00b7 taken \u00b7 1h 12m",
+            "status": null
+          }
+        ]
+      },
+      "turn": {
+        "id": "T515",
+        "addressee": "orchestrator:orbit-qa",
+        "at": "2026-11-18T13:06:00Z",
+        "taken": {
+          "by": "orbit-qa/oq-5e12",
+          "at": "2026-11-18T13:48:00Z"
+        }
+      },
+      "pr": {
+        "number": 572,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "orbit/api#174": {
+      "task": {
+        "key": "orbit/api#174",
+        "column": "qa",
+        "project": "orbit-api"
+      },
+      "title": "Soft delete for projects",
+      "why": {
+        "rows": [
+          {
+            "key": "Checks green",
+            "value": "met",
+            "status": "pass"
+          },
+          {
+            "key": "Submit on the head",
+            "value": "no submit on head",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn T523",
+            "value": "orchestrator orbit-qa \u00b7 not taken \u00b7 30m",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T523",
+        "addressee": "orchestrator:orbit-qa",
+        "at": "2026-11-18T14:30:00Z",
+        "taken": null
+      },
+      "pr": {
+        "number": 574,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "orbit/api#169": {
+      "task": {
+        "key": "orbit/api#169",
+        "column": "product-review",
+        "project": "orbit-api"
+      },
+      "title": "Usage report by workspace",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T522",
+        "addressee": "operator",
+        "at": "2026-11-18T14:24:00Z",
+        "taken": null
+      },
+      "pr": {
+        "number": 569,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "orbit/api#163": {
+      "task": {
+        "key": "orbit/api#163",
+        "column": "ready-to-merge",
+        "project": "orbit-api"
+      },
+      "title": "Cursor pagination for events",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T524",
+        "addressee": "operator",
+        "at": "2026-11-18T14:42:00Z",
+        "taken": null
+      },
+      "pr": {
+        "number": 563,
+        "head": "a1b2c3d",
+        "approvals": [
+          {
+            "author": "dana",
+            "sha": "a1b2c3d",
+            "onHead": true,
+            "commitsAfter": 0,
+            "dirsChanged": [],
+            "notCounted": null
+          }
+        ]
+      },
+      "submission": {
+        "column": "qa",
+        "by": "orbit-qa/oq-5e12",
+        "sha": "a1b2c3d",
+        "basis": "tested"
+      }
+    },
+    "orbit/api#165": {
+      "task": {
+        "key": "orbit/api#165",
+        "column": "ready-to-merge",
+        "project": "orbit-api"
+      },
+      "title": "Compress large responses",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T510",
+        "addressee": "operator",
+        "at": "2026-11-18T12:36:00Z",
+        "taken": null
+      },
+      "pr": {
+        "number": 565,
+        "head": "9f8e7d6",
+        "approvals": [
+          {
+            "author": "dana",
+            "sha": "2b4c6d8",
+            "onHead": false,
+            "commitsAfter": 3,
+            "dirsChanged": ["back/", "front/", "docs/"],
+            "notCounted": null
+          }
+        ]
+      },
+      "submission": {
+        "column": "qa",
+        "by": "orbit-qa/oq-5e12",
+        "sha": "9f8e7d6",
+        "basis": "tested"
+      }
+    },
+    "orbit/api#158": {
+      "task": {
+        "key": "orbit/api#158",
+        "column": "done",
+        "project": "orbit-api"
+      },
+      "title": "Request ids in every log line",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": null,
+      "pr": {
+        "number": 558,
+        "head": "0a1b2c3",
+        "approvals": []
+      },
+      "submission": null
+    },
+    "orbit/api#160": {
+      "task": {
+        "key": "orbit/api#160",
+        "column": "ready-to-merge",
+        "project": "orbit-api"
+      },
+      "title": "Trim trailing slashes in routes",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T530",
+        "addressee": "operator",
+        "at": "2026-11-18T13:36:00Z",
+        "taken": null
+      },
+      "pr": {
+        "number": 560,
+        "head": "5c1d9e2",
+        "approvals": [
+          {
+            "author": "lee",
+            "sha": "0d3f5a7",
+            "onHead": false,
+            "commitsAfter": 2,
+            "dirsChanged": ["docs/"],
+            "notCounted": null
+          }
+        ]
+      },
+      "submission": {
+        "column": "qa",
+        "by": "orbit-qa/oq-5e12",
+        "sha": "5c1d9e2",
+        "basis": "carried",
+        "from": "0d3f5a7",
+        "reason": "Only docs changed since the tested head."
+      }
+    },
+    "orbit/api#161": {
+      "task": {
+        "key": "orbit/api#161",
+        "column": "ready-to-merge",
+        "project": "orbit-api"
+      },
+      "title": "Audit log export as CSV",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T531",
+        "addressee": "operator",
+        "at": "2026-11-18T11:54:00Z",
+        "taken": null
+      },
+      "pr": {
+        "number": 561,
+        "head": "b7e2a40",
+        "approvals": [
+          {
+            "author": "dana",
+            "sha": "71c9e05",
+            "onHead": false,
+            "commitsAfter": 4,
+            "dirsChanged": ["back/"],
+            "notCounted": null
+          },
+          {
+            "author": "lee",
+            "sha": "b7e2a40",
+            "onHead": true,
+            "commitsAfter": 0,
+            "dirsChanged": [],
+            "notCounted": null
+          }
+        ]
+      },
+      "submission": {
+        "column": "qa",
+        "by": "orbit-qa/oq-5e12",
+        "sha": "b7e2a40",
+        "basis": "skipped",
+        "reason": "No testable surface: an offline export script."
+      }
+    },
+    "orbit/api#166": {
+      "task": {
+        "key": "orbit/api#166",
+        "column": "ready-to-merge",
+        "project": "orbit-api"
+      },
+      "title": "Move rate limits to config",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Merge state",
+            "value": "GitHub has not computed the merge state yet",
+            "status": "wait"
+          },
+          {
+            "key": "Open turn T536",
+            "value": "yours \u00b7 open \u00b7 54m",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T536",
+        "addressee": "operator",
+        "at": "2026-11-18T14:06:00Z",
+        "taken": null
+      },
+      "pr": {
+        "number": 566,
+        "head": "e90a3f7",
+        "approvals": [
+          {
+            "author": "dana",
+            "sha": "c05b1aa",
+            "onHead": false,
+            "commitsAfter": null,
+            "dirsChanged": null,
+            "notCounted": "history_rewritten"
+          }
+        ]
+      },
+      "submission": {
+        "column": "qa",
+        "by": "orbit-qa/oq-5e12",
+        "sha": "e90a3f7",
+        "basis": "tested"
+      }
+    },
+    "orbit/api#167": {
+      "task": {
+        "key": "orbit/api#167",
+        "column": "ready-to-merge",
+        "project": "orbit-api"
+      },
+      "title": "Regenerate the API client",
+      "why": {
+        "rows": [
+          {
+            "key": "PR merged",
+            "value": "not merged",
+            "status": "fail"
+          },
+          {
+            "key": "Open turn",
+            "value": "yours \u00b7 open",
+            "status": "wait"
+          }
+        ]
+      },
+      "turn": {
+        "id": "T537",
+        "addressee": "operator",
+        "at": "2026-11-18T09:48:00Z",
+        "taken": null
+      },
+      "pr": {
+        "number": 567,
+        "head": "44d0c1b",
+        "approvals": [
+          {
+            "author": "lee",
+            "sha": "8ab3e19",
+            "onHead": false,
+            "commitsAfter": null,
+            "dirsChanged": null,
+            "notCounted": "pr_too_large"
+          }
+        ]
+      },
+      "submission": {
+        "column": "qa",
+        "by": "orbit-qa/oq-5e12",
+        "sha": "44d0c1b",
+        "basis": "carried",
+        "from": "8ab3e19",
+        "reason": "Generated client only; the tested head covers the API."
+      }
+    }
+  },
+  "task.history": {
+    "acme/web#431": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "acme/web#436": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "acme/web#440": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "acme/web#418": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_moved",
+          "actor": "operator",
+          "summary": "Moved to ready-for-dev: Scope agreed, ready to pick up"
+        }
+      ]
+    },
+    "acme/web#422": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-17T13:00:00Z",
+          "kind": "task_moved",
+          "actor": "operator",
+          "summary": "Moved to ready-for-dev: Scope agreed, ready to pick up"
+        }
+      ]
+    },
+    "acme/web#427": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T09:00:00Z",
+          "kind": "task_moved",
+          "actor": "operator",
+          "summary": "Moved to ready-for-dev: Scope agreed, ready to pick up"
+        }
+      ]
+    },
+    "acme/web#433": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T13:48:00Z",
+          "kind": "task_moved",
+          "actor": "operator",
+          "summary": "Moved to ready-for-dev: Scope agreed, ready to pick up"
+        }
+      ]
+    },
+    "acme/web#409": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "acme/web#412": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "acme/web#402": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "acme/web#398": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "acme/web#391": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "acme/web#385": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "acme/web#380": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#208": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#214": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#219": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#211": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T11:00:00Z",
+          "kind": "task_moved",
+          "actor": "operator",
+          "summary": "Moved to triage: Scope agreed, ready to pick up"
+        }
+      ]
+    },
+    "orbit/api#196": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-17T08:00:00Z",
+          "kind": "task_moved",
+          "actor": "operator",
+          "summary": "Moved to ready-for-dev: Scope agreed, ready to pick up"
+        }
+      ]
+    },
+    "orbit/api#201": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T03:00:00Z",
+          "kind": "task_moved",
+          "actor": "operator",
+          "summary": "Moved to ready-for-dev: Scope agreed, ready to pick up"
+        }
+      ]
+    },
+    "orbit/api#205": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T12:30:00Z",
+          "kind": "task_moved",
+          "actor": "operator",
+          "summary": "Moved to ready-for-dev: Scope agreed, ready to pick up"
+        }
+      ]
+    },
+    "orbit/api#188": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#190": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#181": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#176": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#172": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#174": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#169": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#163": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T11:00:00Z",
+          "kind": "turn_submitted",
+          "actor": "agent:orbit-qa/oq-5e12",
+          "summary": "QA submit on a1b2c3d: tested"
+        }
+      ]
+    },
+    "orbit/api#165": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T11:00:00Z",
+          "kind": "turn_submitted",
+          "actor": "agent:orbit-qa/oq-5e12",
+          "summary": "QA submit on 9f8e7d6: tested"
+        },
+        {
+          "at": "2026-11-18T12:00:00Z",
+          "kind": "turn_taken_over",
+          "actor": "operator",
+          "summary": "Took over T508 from orbit-review/or-90f1 and submitted on 9f8e7d6"
+        }
+      ]
+    },
+    "orbit/api#158": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        }
+      ]
+    },
+    "orbit/api#160": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T11:00:00Z",
+          "kind": "turn_submitted",
+          "actor": "agent:orbit-qa/oq-5e12",
+          "summary": "QA submit on 5c1d9e2: carried from 0d3f5a7. Only docs changed since the tested head."
+        }
+      ]
+    },
+    "orbit/api#161": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T11:00:00Z",
+          "kind": "turn_submitted",
+          "actor": "agent:orbit-qa/oq-5e12",
+          "summary": "QA submit on b7e2a40: skipped. No testable surface: an offline export script."
+        }
+      ]
+    },
+    "orbit/api#166": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T11:00:00Z",
+          "kind": "turn_submitted",
+          "actor": "agent:orbit-qa/oq-5e12",
+          "summary": "QA submit on e90a3f7: tested"
+        }
+      ]
+    },
+    "orbit/api#167": {
+      "events": [
+        {
+          "at": "2026-11-17T09:00:00Z",
+          "kind": "task_created",
+          "actor": "dispatcher",
+          "summary": "Task created in todo"
+        },
+        {
+          "at": "2026-11-18T11:00:00Z",
+          "kind": "turn_submitted",
+          "actor": "agent:orbit-qa/oq-5e12",
+          "summary": "QA submit on 44d0c1b: carried from 8ab3e19. Generated client only; the tested head covers the API."
+        }
+      ]
+    }
+  },
+  "inbox.list": {
+    "items": [
+      {
+        "id": "I41",
+        "kind": "no_recipient",
+        "project": "orbit-api",
+        "column": "qa",
+        "expects": "orbit-qa",
+        "turnsWaiting": 2,
+        "oldestAt": "2026-11-18T13:06:00Z"
+      },
+      {
+        "id": "I40",
+        "kind": "turn",
+        "project": "orbit-api",
+        "key": "orbit/api#163",
+        "at": "2026-11-18T14:42:00Z",
+        "text": "T524 your turn: ready to merge"
+      },
+      {
+        "id": "I38",
+        "kind": "block",
+        "project": "orbit-api",
+        "key": "orbit/api#190",
+        "at": "2026-11-18T13:54:00Z",
+        "text": "B88 needs your input"
+      }
+    ]
+  },
+  "services.get": {
+    "services": [
+      {
+        "id": "daemon",
+        "name": "Daemon",
+        "health": "healthy",
+        "detail": "0.118.0 \u00b7 up 3d"
+      },
+      {
+        "id": "github",
+        "name": "GitHub",
+        "health": "healthy",
+        "detail": "polled 20s ago"
+      },
+      {
+        "id": "github-project",
+        "name": "GitHub Project",
+        "health": "healthy",
+        "detail": "Web roadmap \u00b7 read 3m ago",
+        "project": "acme-web"
+      },
+      {
+        "id": "spur",
+        "name": "Spur",
+        "health": "healthy",
+        "detail": "6 live sessions"
+      }
+    ]
+  }
+}

@@ -46,7 +46,7 @@ Example: {}",
   },
   {
     "description": "Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.
-Use when: Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled.
+Use when: Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take over an open orchestrator turn, taken or not.
 When not to use: Use inbox_get to inspect them first.
 Example: {"entries":[{"id":"C3","revision":1}],"idempotencyKey":"inbox_ack-example-001"}
 Choose a unique idempotencyKey for each action; reuse it on retries.",
@@ -188,7 +188,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "block_unblock",
   },
   {
-    "description": "Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.
+    "description": "Submit the task's pull request head for a turn the caller took; the turn closes; a pending result is final.
 Use when: Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.
 When not to use: Use task_return to send the task back to Dev instead.
 Example: {"turn":"T4","sha":"9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4","idempotencyKey":"task_submit-example-001"}
@@ -196,7 +196,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "task_submit",
   },
   {
-    "description": "Return the task of a turn this session took to Dev; the reason opens a worker code block.
+    "description": "Return the task of a turn the caller took to Dev; the reason opens a worker code block.
 Use when: Send the task back to Dev when the work needs code changes.
 When not to use: Use task_submit to hand in the work instead.
 Example: {"turn":"T4","reason":"Handle the empty list in the parser.","idempotencyKey":"task_return-example-001"}

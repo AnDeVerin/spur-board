@@ -570,7 +570,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board submit`
 
-Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.
+Submit the task's pull request head for a turn the caller took; the turn closes; a pending result is final.
 
 Arguments: `<turn> <sha>`.
 
@@ -588,7 +588,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board return`
 
-Return the task of a turn this session took to Dev; the reason opens a worker code block.
+Return the task of a turn the caller took to Dev; the reason opens a worker code block.
 
 Arguments: `<turn> <reason>`.
 

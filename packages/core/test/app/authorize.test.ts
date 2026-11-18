@@ -78,7 +78,7 @@ const projectAgents: readonly ActorLabel[] = [
   'author',
 ];
 const allowed = {
-  'inbox.ack': projectAgents,
+  'inbox.ack': ['operator', ...projectAgents],
   'token.revoke': ['operator'],
   'task.add': ['operator'],
   'task.archive': ['operator'],
@@ -95,8 +95,8 @@ const allowed = {
   'block.answer': ['operator', 'worker', 'addressee'],
   'block.followup': ['operator'],
   'block.unblock': ['worker', 'addressee'],
-  'task.submit': ['worker', 'orchestrator', 'addressee'],
-  'task.return': ['worker', 'orchestrator', 'addressee'],
+  'task.submit': ['operator', 'worker', 'orchestrator', 'addressee'],
+  'task.return': ['operator', 'worker', 'orchestrator', 'addressee'],
   'task.move': ['operator'],
 } satisfies Record<MutationId, readonly ActorLabel[]>;
 
@@ -173,6 +173,9 @@ describe('authorize catalog grants', () => {
     const archive = operation('task.archive');
     const state = { config, target: { kind: 'found' as const, value: target } };
     expect(authorize(archive.grants, 'agent:ops/ops-1', state).status).toBe('allowed');
+    expect(authorize(operation('task.submit').grants, 'agent:ops/ops-1', state).status).toBe(
+      'allowed',
+    );
     const unblock = operation('block.unblock');
     expect(authorize(unblock.grants, actors.sameSession, { ...state, mode: 'done' }).status).toBe(
       'denied',
@@ -786,6 +789,34 @@ describe('authorization at the command boundary', () => {
         payload: '{"operation":"inbox.ack","reason":"Caller does not match the operation grants."}',
         request_id: 'K',
       },
+    ]);
+  });
+
+  it('refuses the operator token a non-turn inbox entry with a denial row', async () => {
+    const store = await seeded();
+    const apply = createApply({ store, clock, config });
+    const refusal = await apply(ack, entries('C1'), actors.operator, 'K').catch(
+      (error: unknown) => error,
+    );
+    expect(refusal).toBeInstanceOf(CommandError);
+    if (!(refusal instanceof CommandError)) throw new Error('Expected a command refusal');
+    expect(refusal.code).toBe('forbidden');
+    expect(refusal.hint).toContain('T<number>');
+    expect(runs).toBe(0);
+    expect(await store.db.selectFrom('command').selectAll().execute()).toHaveLength(0);
+    expect(
+      (
+        await store.db
+          .selectFrom('comment')
+          .select('acked_revision')
+          .where('id', '=', 1)
+          .executeTakeFirstOrThrow()
+      ).acked_revision,
+    ).toBeNull();
+    const events = await store.db.selectFrom('event').selectAll().execute();
+    expect(events).toHaveLength(1);
+    expect(events).toMatchObject([
+      { kind: 'operation_denied', actor: 'operator', task_id: 1, request_id: 'K' },
     ]);
   });
 

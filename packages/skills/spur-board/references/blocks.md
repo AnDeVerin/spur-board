@@ -46,7 +46,7 @@ Other errors: `wrong_id_kind`, `not_found`, `block_not_open`, `task_archived`, `
 
 ### `board submit`
 
-Purpose: Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.
+Purpose: Submit the task's pull request head for a turn the caller took; the turn closes; a pending result is final.
 Arguments: `<turn>`, `<sha>`.
 Flags: `--basis <value>`, `--from <value>`, `--reason <value>`, `--key <key>`, `--json`.
 Use when: Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.
@@ -56,7 +56,7 @@ Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `su
 
 ### `board return`
 
-Purpose: Return the task of a turn this session took to Dev; the reason opens a worker code block.
+Purpose: Return the task of a turn the caller took to Dev; the reason opens a worker code block.
 Arguments: `<turn>`, `<reason>`.
 Flags: `--findings <value>`, `--key <key>`, `--json`.
 Use when: Send the task back to Dev when the work needs code changes.

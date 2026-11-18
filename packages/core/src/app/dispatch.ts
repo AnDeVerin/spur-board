@@ -176,7 +176,7 @@ async function voidSubmits(trx: Trx, taskId: number, to: ColumnId, at: Date): Pr
 /**
  * Moves a task left to `to` as a new visit: bumps `column_epoch` and `left_moves`, voids the
  * submits of `to` and right of it, closes its turns (`returned` for a `task.return` of `turn`,
- * else `moved`) and journals `task_moved`. In `on` mode a counted return that reaches the
+ * else `moved`, named on `turn_closed` as `closedBy` when given) and journals `task_moved`. In `on` mode a counted return that reaches the
  * column's cycle limit raises its cycle-limit block; otherwise one that reaches its course check
  * raises the course check. Either holds the task, and
  * `limitReached` tells the dispatcher to stop the cascade.
@@ -195,9 +195,10 @@ export async function moveLeft(
     gate?: readonly GateReason[];
     /** Number of review findings a return sends; journaled only when given. */
     findings?: number | undefined;
+    closedBy?: ActorId | undefined;
   },
 ): Promise<{ task: Task; limitReached: boolean }> {
-  const { task, to, at, actor, config, turn, block, reason, gate, findings } = input;
+  const { task, to, at, actor, config, turn, block, reason, gate, findings, closedBy } = input;
   const moved = await trx
     .updateTable('task')
     .set({
@@ -210,7 +211,12 @@ export async function moveLeft(
     .returningAll()
     .executeTakeFirstOrThrow();
   await voidSubmits(trx, task.id, to, at);
-  await closeTurns(trx, { taskId: task.id, reason: turn === undefined ? 'moved' : 'returned', at });
+  await closeTurns(trx, {
+    taskId: task.id,
+    reason: turn === undefined ? 'moved' : 'returned',
+    at,
+    actor: closedBy,
+  });
   await emit(
     trx,
     'task_moved',

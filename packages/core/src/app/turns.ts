@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
+import { isOperator } from './authorize.ts';
 import { emit, parsePr, taskPr, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import {
@@ -32,11 +33,15 @@ import { clearItem, raiseItem } from './feed.ts';
 
 type Turn = Row<'turn'>;
 type Handed = z.output<typeof turnHandedSchema>;
+type CloseReason = NonNullable<Turn['closed_reason']>;
 
 const handedSchema = z.array(turnHandedSchema);
 
 const turnItemKey = (turnId: number) => `turn:${String(turnId)}`;
 const turnRef = (turnId: number) => `T${String(turnId)}`;
+const taskProject = async (trx: Trx, id: number) =>
+  (await trx.selectFrom('task').select('project').where('id', '=', id).executeTakeFirstOrThrow())
+    .project;
 
 /**
  * Who executes a column's turn: its orchestrator project, the operator, or for a column with
@@ -167,7 +172,8 @@ export async function openTurn(
 /**
  * Takes a turn for `actor`. False for a missing, closed, operator or taken worker turn. An
  * untaken turn needs its unread notification addressed to the actor; a taken orchestrator turn
- * may be taken over by whoever its notification is now addressed to. Others get `forbidden`.
+ * may be taken over by whoever its notification is now addressed to. An operator on the task's
+ * project may take any open orchestrator turn, taken or not. Others get `forbidden`.
  * Every take starts a new ownership episode: an unsent reminder of an earlier one is acked, so
  * `ringStillCurrent` drops its ring.
  */
@@ -178,10 +184,14 @@ export async function takeTurn(
   const { turnId, actor, at, config } = input;
   const turn = await trx.selectFrom('turn').selectAll().where('id', '=', turnId).executeTakeFirst();
   if (turn === undefined || turn.closed_at !== null || turn.role === 'operator') return false;
+  const project = await taskProject(trx, turn.task_id);
+  const orchestrated = parseAddressee(turn.role).kind === 'orchestrator';
+  const takeover = orchestrated && isOperator(actor, config, project);
   if (turn.acked_at === null) {
-    if (!(await acknowledgeNotification(trx, { turnId, actor, at, config }))) return false;
-  } else {
-    if (parseAddressee(turn.role).kind !== 'orchestrator') return false;
+    if (!(await acknowledgeNotification(trx, { ...input, takeover }))) return false;
+  } else if (!orchestrated) {
+    return false;
+  } else if (!takeover) {
     const notice = await turnNotification(trx, turnId);
     if (notice === undefined || !(await notificationAddressedTo(trx, notice, actor, config))) {
       throw new CommandError('forbidden', 'Only the addressed task role can take this turn.');
@@ -200,15 +210,10 @@ export async function takeTurn(
     .where('acked_at', 'is', null)
     .where('exhausted_at', 'is', null)
     .execute();
-  const task = await trx
-    .selectFrom('task')
-    .select('project')
-    .where('id', '=', turn.task_id)
-    .executeTakeFirstOrThrow();
   await emit(
     trx,
     'turn_taken',
-    task.project,
+    project,
     turn.task_id,
     at.toISOString(),
     { turn: turnRef(turnId), taker: actor },
@@ -219,13 +224,14 @@ export async function takeTurn(
 
 /**
  * Closes every unclosed turn of a task: its rings stop and its items end as "condition ended".
- * A ring already queued is dropped by the sender (`ringStillCurrent`).
+ * A ring already queued is dropped by the sender (`ringStillCurrent`). `turn_closed` names
+ * `actor` when given, else `system`.
  */
 export async function closeTurns(
   trx: Trx,
-  input: { taskId: number; reason: NonNullable<Turn['closed_reason']>; at: Date },
+  input: { taskId: number; reason: CloseReason; at: Date; actor?: ActorId | undefined },
 ): Promise<void> {
-  const { taskId, reason, at } = input;
+  const { taskId, reason, at, actor } = input;
   const closed = await trx
     .updateTable('turn')
     .set({ closed_at: at.toISOString(), closed_reason: reason })
@@ -234,16 +240,10 @@ export async function closeTurns(
     .returning('id')
     .execute();
   if (closed.length === 0) return;
-  const task = await trx
-    .selectFrom('task')
-    .select('project')
-    .where('id', '=', taskId)
-    .executeTakeFirstOrThrow();
+  const project = await taskProject(trx, taskId);
   for (const { id } of closed) {
-    await emit(trx, 'turn_closed', task.project, taskId, at.toISOString(), {
-      turn: turnRef(id),
-      outcome: reason,
-    });
+    const closedPayload = { turn: turnRef(id), outcome: reason };
+    await emit(trx, 'turn_closed', project, taskId, at.toISOString(), closedPayload, actor);
     await closeTurnNotification(trx, id, at);
     const item = await trx
       .selectFrom('operator_item')
