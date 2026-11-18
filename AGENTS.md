@@ -66,7 +66,9 @@ A map of the repo for agents and contributors. The rules live in the files and s
   `prepare`: run `pnpm run prepare` to turn the hooks on.
 - `pnpm check` - format, lint, types and tests for changed files and affected packages, plus the
   `agents` step (`pnpm lint:agents`) when `.agents/`, `.claude/`, `.codex/`, `AGENTS.md` or
-  `scripts/agents.ts` change; knip runs only when a global change triggers full mode.
+  `scripts/agents.ts` change; knip runs only when a global change triggers full mode. A change
+  under `scripts/` is global (`testing-and-ci`); if the whole-repo lint then fails out of memory,
+  rerun with `NODE_OPTIONS=--max-old-space-size=8192`.
 - `pnpm run check --pre-push` - checks the Git refs being pushed: changed-file format and lint,
   plus types and unit tests for changed packages (all packages for shared root changes) and the
   `agents` step for changed agent files. It checks only refs at the current HEAD and uses two
