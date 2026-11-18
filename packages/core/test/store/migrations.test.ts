@@ -781,7 +781,7 @@ describe('migrate', () => {
       ['running-1', 'running'],
       ['stopped-1', 'stopped'],
       ['completed-1', 'completed'],
-    ])
+    ] as const)
       insertRaw(raw, 'session_snapshot', { ...row, id, state, observed_at: `${id}-at` });
 
     migrate(raw, real);
