@@ -259,6 +259,15 @@ export function sourceInterval(config: Config, source: string): number {
   return config.adapters.github.intervalMs;
 }
 
+/** Counts of each value, rendered as `<n> <value>` in the given order. */
+export function counts(values: readonly string[], order: readonly string[]): string {
+  return order
+    .map((value) => [value, values.filter((entry) => entry === value).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([value, n]) => `${String(n)} ${value}`)
+    .join(', ');
+}
+
 /** Session facts rendered in status detail. */
 export function sessionView(fact: SessionFacts) {
   return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
