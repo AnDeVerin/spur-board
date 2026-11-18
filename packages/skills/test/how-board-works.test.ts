@@ -56,7 +56,11 @@ describe('how the Board works guide', () => {
         /Retained QA cannot supply Dev's submit\s*requirement/,
         /Taken turns hold until submit, return or a new head/,
         /Fixed gate rules have no configuration switch/,
-        /Fixed gate rules have no configuration switch\s*except enabled columns, no-CI and resolved threads/,
+        /Fixed gate rules have no configuration switch\s*except enabled columns, no-CI, checks gate and resolved threads/,
+        /`projects\[\]\.checksGate` \(default `dev`/,
+        /Red\s*checks return the task to Dev from any column, after the submit of a taken turn/,
+        /Only right of `dev` a cancelled check counts as running\s*for about two GitHub poll intervals/,
+        /takes effect after a restart/,
         /`projects\[\]\.columns\[\]\.requireResolvedThreads` \(default: `ready-to-merge` only\)\s*gates that column and those right of it/,
         /an unresolved review thread, outdated\s*or by anyone, returns the task to Dev, whose turn lists each thread link/,
         /worker fixes or answers, then resolves each; reviewers never do/,
@@ -299,6 +303,17 @@ describe('how the Board works guide', () => {
     const body = howBoardWorks.slice(start + heading.length, end < 0 ? undefined : end);
     for (const clause of clauses) expect(body).toMatch(clause);
     for (const key of keys) expect(body).toContain(`\`${key}\``);
+  });
+
+  it('names checksGate among the config get fields', () => {
+    const index = readFileSync(
+      new URL('../../../docs/how-board-works.md', import.meta.url),
+      'utf8',
+    );
+    const start = index.indexOf('Read effective project configuration');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = index.indexOf('\n\n', start);
+    expect(index.slice(start, end < 0 ? undefined : end)).toContain("each project's `checksGate`");
   });
 
   it('lists every item kind in the operator inbox table', () => {

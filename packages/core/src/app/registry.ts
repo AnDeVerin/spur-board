@@ -166,6 +166,7 @@ export function createOperationRegistry(deps: {
               displayName: spur.displayName ?? spur.name,
             })),
             ticketBrowseBase: ticketBrowseBase(project.tracker),
+            checksGate: project.checksGate,
           })),
         web: {
           publicOrigin: webOrigin() ?? null,

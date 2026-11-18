@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  CHECKS_GATE_COLUMNS,
   COLUMNS,
   COLUMN_IDS,
   DISPATCHER_MODES,
@@ -376,6 +377,17 @@ const projectSchema = z
       .describe(
         'Repos from repos that run no CI checks, in any letter case. In a listed repo, a PR whose check list on head is empty passes the Dev gate check condition instead of waiting in Dev. A list of only skipped checks still waits, and red or pending checks still count. A listed repo whose branch protection requires checks that have not reported yet also passes, so list only repos that run no checks. Without this key, a PR with no checks waits in Dev.',
       ),
+    checksGate: z
+      .enum(CHECKS_GATE_COLUMNS, {
+        error: (issue) =>
+          typeof issue.input === 'string'
+            ? `checksGate ${JSON.stringify(issue.input)} is not allowed: use one of ${CHECKS_GATE_COLUMNS.join(', ')}`
+            : `checksGate must be one of ${CHECKS_GATE_COLUMNS.join(', ')}`,
+      })
+      .default('dev')
+      .describe(
+        "The column whose exit requires green checks on the PR head: dev (the default), review, product-review or external-review, and the column must be enabled. Running checks, or no checks yet, hold a task only at the exit of this column. Red checks return the task to Dev from any column; a task whose turn is taken returns right after that turn's submit. A task enters ready-to-merge only with green checks. With dev, a cancelled check is red at once. With another column, a cancelled check counts as running until two complete GitHub polls after the one that saw it, about two GitHub poll intervals, and then counts as red; a new run in that window replaces it, and a source whose polls stay incomplete keeps it running. The daemon reads the key at start, so a change takes effect after a restart.",
+      ),
     link: z
       .strictObject({
         sources: z
@@ -482,6 +494,12 @@ const projectSchema = z
         message: `Repository ${JSON.stringify(repo)} is not in repos`,
       });
     });
+    if (!project.columns.some((column) => column.id === project.checksGate && column.enabled))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['checksGate'],
+        message: `checksGate ${JSON.stringify(project.checksGate)} names a column that is absent or disabled: use one of ${CHECKS_GATE_COLUMNS.join(', ')} whose column is enabled`,
+      });
     const spurNames = new Set(
       project.spurProjects
         .filter((p) => p.role === 'orchestrator' || p.role === 'curator')

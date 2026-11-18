@@ -269,9 +269,9 @@ describe('board doctor', () => {
     ].sort();
     const guide = readFileSync(new URL('../../../TROUBLESHOOTING.md', import.meta.url), 'utf8');
     const section = guide.split('## Doctor checks\n')[1]?.split('\n## ')[0] ?? '';
-    const documented = [...section.matchAll(/^### ([a-z][a-z0-9_.]+|web\.spurUiOrigin)$/gm)].map(
-      (match) => match[1],
-    );
+    const documented = [
+      ...section.matchAll(/^### ([a-z][a-z0-9_.]+|web\.spurUiOrigin|projects\.checksGate)$/gm),
+    ].map((match) => match[1]);
     expect(documented.length).toBe(new Set(documented).size);
     const web = await run(
       ['doctor', '--json'],
@@ -392,6 +392,7 @@ describe('board doctor', () => {
       'config',
       'web',
       'stand.port_range',
+      'projects.checksGate',
       'service.installed',
       'service.node',
       'service.running',
@@ -610,6 +611,13 @@ describe('board doctor', () => {
         { id: 'config', status: 'pass', blocking: false, fix: null },
         { id: 'web', status: 'pass', blocking: false, fix: null, present: ['off'] },
         { id: 'stand.port_range', status: 'pass', blocking: false, fix: null },
+        {
+          id: 'projects.checksGate',
+          status: 'pass',
+          blocking: false,
+          fix: null,
+          present: ['board=dev'],
+        },
       ]);
     },
   );
@@ -683,6 +691,54 @@ describe('board doctor', () => {
         status: 'fail',
         blocking: true,
         fix: `Correct ${path} in config.yaml using the configuration schema.`,
+      },
+    ]);
+  });
+
+  const gated = (gate: string) =>
+    yaml
+      .replace('  - id: board\n', '  - id: web\n')
+      .replace(
+        '    operatorGithubLogin: operator\n',
+        `    operatorGithubLogin: operator\n    checksGate: ${gate}\n`,
+      );
+
+  it('reports each project checksGate from config.yaml offline', async () => {
+    const fake = ports({ readText: () => gated('external-review') });
+    const value = await run(['doctor', '--offline', '--json'], fake);
+    expect(value.exitCode).toBe(0);
+    expect(value.checks.find(({ id }) => id === 'projects.checksGate')).toEqual({
+      id: 'projects.checksGate',
+      status: 'pass',
+      blocking: false,
+      fix: null,
+      present: ['web=external-review'],
+    });
+    const output = capture();
+    output.io.isTTY = true;
+    expect(
+      await runCli(['doctor', '--offline'], {
+        io: output.io,
+        home: '/home',
+        env: { BOARD_HOME: '/board' },
+        doctor: fake,
+      }),
+    ).toBe(0);
+    expect(output.output()).toContain('PASS projects.checksGate (present: web=external-review)');
+  });
+
+  it('fails config offline on checksGate qa', async () => {
+    const value = await run(
+      ['doctor', '--offline', '--json'],
+      ports({ readText: () => gated('qa') }),
+    );
+    expect(value.exitCode).toBe(1);
+    expect(value.checks).toEqual([
+      {
+        id: 'config',
+        status: 'fail',
+        blocking: true,
+        fix: 'Correct projects.0.checksGate in config.yaml using the configuration schema.',
       },
     ]);
   });

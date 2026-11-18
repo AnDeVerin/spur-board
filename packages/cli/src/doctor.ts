@@ -658,6 +658,11 @@ export async function runDoctor(
           `Implicit stand port range ${String(range.min)}..${String(range.max)} overlaps ${overlaps.join(', ')}. Set a nonoverlapping stand.portRange. The stand refuses the overlapping ports.`,
         ),
   );
+  // From config.yaml: the running daemon reads the key at start (`board config get` shows its value).
+  checks.push({
+    ...result('projects.checksGate', true, ''),
+    present: config.projects.map((project) => `${project.id}=${project.checksGate}`),
+  });
   if (options.offline) return checks;
 
   const unitPath = unitFile(env, home);

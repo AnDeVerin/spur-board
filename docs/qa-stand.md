@@ -102,6 +102,9 @@ A stand serves the web UI from `packages/web/dist` of the checkout it runs from.
 - Build the UI from the tested checkout first: `pnpm --filter @spur-board/web build`. Without
   it, `/` answers 503 `UI is not built`.
 - The stand reads the UI files when it starts: after a rebuild, run `pnpm stand reset`.
+- `pnpm stand reset --product-version <v>` restarts the daemon reporting version `v`, as after a
+  board update: an open page sees the new version and reloads itself. The version stays for
+  later resets of that stand; it also becomes the version `/v1/skills/reload` accepts there.
 - `pnpm stand up` prints `webUrl` when the live board's `web.publicOrigin` has `{port}`, e.g.
   `https://{port}.<domain>`. The stand fills `{port}` with its own web port from the live
   `stand.portRange`: the first free one, or the next free one when a concurrent stand binds it

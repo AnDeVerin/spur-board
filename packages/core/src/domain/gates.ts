@@ -2,6 +2,7 @@ import {
   assertNever,
   COLUMN_IDS,
   isTodoGroupColumn,
+  type CheckGateColumn,
   type CheckState,
   type ColumnId,
   type Config,
@@ -50,10 +51,14 @@ type GateColumn = Pick<
   'id' | 'enabled' | 'orchestrator' | 'requireResolvedThreads'
 >;
 
-/** What the gates read about the task's project: its board and its repos without CI. */
+/**
+ * What the gates read about the task's project: its board, its repos without CI and the column
+ * whose exit requires green checks.
+ */
 export type GateProject = {
   columns: readonly GateColumn[];
   reposWithoutCi: readonly string[];
+  checksGate: CheckGateColumn;
 };
 
 /**
@@ -186,11 +191,12 @@ export function threadsGated(project: GateProject): boolean {
 
 /**
  * Dev's failing reasons. `threads` adds the resolved-threads condition: it holds for the gate of
- * every column at or right of the leftmost column requiring resolved threads.
+ * every column at or right of the leftmost column requiring resolved threads. Red checks fail Dev
+ * whatever `checksGate` is; pending checks hold Dev only when `checksGate` is Dev.
  */
 function devReasons(
   facts: TaskGateFacts,
-  columns: readonly GateColumn[],
+  project: GateProject,
   waived: boolean,
   threads: boolean,
 ): GateReason[] {
@@ -201,14 +207,25 @@ function devReasons(
   if (pr.draft) reasons.push('pr_draft');
   const verdict = checksVerdict(pr, waived);
   if (verdict === 'red') reasons.push('checks_red');
-  if (verdict === 'pending') reasons.push('checks_pending');
+  if (verdict === 'pending' && project.checksGate === 'dev') reasons.push('checks_pending');
   if (pr.mergeable === 'conflicting') reasons.push('conflict');
   if (pr.mergeable === 'unknown') reasons.push('mergeable_unknown');
   if (facts.unhandledExternalComments > 0) reasons.push('external_comments');
   if (facts.commentHistory === 'incomplete') reasons.push('comment_history_incomplete');
   if (threads && facts.unresolvedThreads > 0) reasons.push('unresolved_threads');
-  if (!executorDone('dev', facts, columns)) reasons.push('no_submit_on_head');
+  if (!executorDone('dev', facts, project.columns)) reasons.push('no_submit_on_head');
   return reasons;
+}
+
+/**
+ * The check reasons of a `checksGate` column right of Dev: red or pending checks on the open PR's
+ * head. Dev already fails on red, so in a cumulative gate only pending reaches this column.
+ */
+function gateCheckReasons(facts: TaskGateFacts, waived: boolean): GateReason[] {
+  const { pr } = facts;
+  if (pr === null || pr.state !== 'open') return [];
+  const verdict = checksVerdict(pr, waived);
+  return verdict === 'red' ? ['checks_red'] : verdict === 'pending' ? ['checks_pending'] : [];
 }
 
 /**
@@ -221,16 +238,25 @@ function devReasons(
 function columnCondition(
   column: ColumnId,
   facts: TaskGateFacts,
-  columns: readonly GateColumn[],
+  project: GateProject,
   waived: boolean,
   threads: boolean,
+): GateReason[] {
+  if (column === 'dev') return devReasons(facts, project, waived, threads);
+  const own = ownCondition(column, facts, project.columns);
+  return column === project.checksGate ? [...gateCheckReasons(facts, waived), ...own] : own;
+}
+
+/** The failing reasons of a column's exit condition other than Dev, without checks. */
+function ownCondition(
+  column: Exclude<ColumnId, 'dev'>,
+  facts: TaskGateFacts,
+  columns: readonly GateColumn[],
 ): GateReason[] {
   if (isTodoGroupColumn(column)) return [];
   switch (column) {
     case 'done':
       return [];
-    case 'dev':
-      return devReasons(facts, columns, waived, threads);
     case 'review':
     case 'product-review':
       return executorDone(column, facts, columns) ? [] : ['no_review_on_head'];
@@ -266,7 +292,7 @@ export function evaluateGate(
   for (const id of COLUMN_IDS.slice(0, COLUMN_IDS.indexOf(column) + 1)) {
     if (project.columns.find((c) => c.id === id)?.enabled !== true) continue;
     if (id === 'dev' && waived) marker = { checksWaivedBy: 'reposWithoutCi' };
-    const [first, ...rest] = columnCondition(id, facts, project.columns, waived, threads);
+    const [first, ...rest] = columnCondition(id, facts, project, waived, threads);
     if (first !== undefined) return { ok: false, column: id, reasons: [first, ...rest], ...marker };
   }
   return { ok: true, ...marker };
@@ -274,7 +300,7 @@ export function evaluateGate(
 
 /**
  * The exit conditions of each column outside the Todo group, which has none, in the order the
- * gates report their reasons.
+ * gates report their reasons, with checks green at Dev.
  */
 const COLUMN_CONDITIONS = {
   dev: [
@@ -295,7 +321,37 @@ const COLUMN_CONDITIONS = {
   done: [],
 } as const satisfies Record<Exclude<ColumnId, TodoGroupColumnId>, readonly GateCondition[]>;
 
-/** The condition each gate reason fails. */
+/**
+ * The exit conditions of `column` under `checksGate`: with a gate right of Dev, Dev requires
+ * checks not red, and the gate column requires checks green before its own conditions.
+ */
+function columnConditions(
+  column: Exclude<ColumnId, TodoGroupColumnId>,
+  checksGate: CheckGateColumn,
+): readonly GateCondition[] {
+  if (checksGate === 'dev') return COLUMN_CONDITIONS[column];
+  if (column === 'dev')
+    return COLUMN_CONDITIONS.dev.map((condition) =>
+      condition === 'checks_green' ? 'checks_not_red' : condition,
+    );
+  if (column === checksGate) return ['checks_green', ...COLUMN_CONDITIONS[column]];
+  return COLUMN_CONDITIONS[column];
+}
+
+/**
+ * The condition a gate reason fails in `column`: with a gate right of Dev, red checks fail Dev's
+ * checks not red, and every other check reason fails checks green.
+ */
+function conditionOf(
+  reason: GateReason,
+  column: ColumnId,
+  checksGate: CheckGateColumn,
+): GateCondition {
+  if (reason === 'checks_red' && column === 'dev' && checksGate !== 'dev') return 'checks_not_red';
+  return CONDITION_OF[reason];
+}
+
+/** The condition each gate reason fails, with checks green at Dev. */
 const CONDITION_OF = {
   no_pr: 'pr_open',
   pr_closed: 'pr_open',
@@ -348,14 +404,15 @@ export function explainGates(
   let checksWaivedBy: ChecksWaiver | null = null;
   const gates = COLUMN_IDS.map((column): GateExplanation => {
     const enabled = project.columns.find((c) => c.id === column)?.enabled === true;
-    const reasons = merged ? [] : columnCondition(column, facts, project.columns, waived, threads);
+    const reasons = merged ? [] : columnCondition(column, facts, project, waived, threads);
     if (enabled && !merged && column === 'dev' && waived) checksWaivedBy = 'reposWithoutCi';
     const gate = evaluateGate(column, facts, project);
     const blockedIn = gate.ok ? null : gate.column;
     const stopped = reasons.some((reason) => STOPS_DEV.has(reason));
-    const own = isTodoGroupColumn(column) ? [] : COLUMN_CONDITIONS[column];
+    const own = isTodoGroupColumn(column) ? [] : columnConditions(column, project.checksGate);
     const conditions = own.map((condition): ConditionExplanation => {
-      const reason = reasons.find((r) => CONDITION_OF[r] === condition) ?? null;
+      const reason =
+        reasons.find((r) => conditionOf(r, column, project.checksGate) === condition) ?? null;
       if (reason === null) return { condition, state: stopped ? 'unchecked' : 'met', reason: null };
       return { condition, state: HOLD_ONLY.has(reason) ? 'waiting' : 'failed', reason };
     });

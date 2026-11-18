@@ -1,4 +1,10 @@
-import { CHECK_STATES, COLUMN_IDS, configSchema, type ColumnId } from '@spur-board/contracts';
+import {
+  CHECK_STATES,
+  CHECKS_GATE_COLUMNS,
+  COLUMN_IDS,
+  configSchema,
+  type ColumnId,
+} from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
 import {
   countCycles,
@@ -90,7 +96,7 @@ const gate = (
   facts: TaskGateFacts,
   board: Board,
   reposWithoutCi: readonly string[] = [],
-): Expected => evaluateGate(column, facts, { columns: board, reposWithoutCi });
+): Expected => evaluateGate(column, facts, { columns: board, reposWithoutCi, checksGate: 'dev' });
 
 const SB = disable(ORCH, 'external-review', 'qa');
 const reviewMarks = [submit('dev', A), mark('review', A), mark('product-review', A)];
@@ -650,9 +656,71 @@ describe('repositories without CI', () => {
   });
 });
 
+describe('checksGate', () => {
+  const passed = ready({ marks: reviewMarks, externalReviewApproved: true });
+  const at = (
+    gateColumn: (typeof CHECKS_GATE_COLUMNS)[number],
+    column: ColumnId,
+    facts: TaskGateFacts,
+  ) => evaluateGate(column, facts, { columns: ORCH, reposWithoutCi: [], checksGate: gateColumn });
+
+  it.each(CHECKS_GATE_COLUMNS)('%s: red checks fail at Dev from every column', (gateColumn) => {
+    const facts = { ...passed, pr: { ...readyPr, requiredChecks: [check('failure')] } };
+    for (const column of COLUMN_IDS.filter(
+      (id) => COLUMN_IDS.indexOf(id) >= COLUMN_IDS.indexOf('dev'),
+    ))
+      expect(at(gateColumn, column, facts), column).toEqual(broken('dev', 'checks_red'));
+  });
+
+  it.each(CHECKS_GATE_COLUMNS)('%s: pending checks hold only at the gate column', (gateColumn) => {
+    const facts = { ...passed, pr: { ...readyPr, requiredChecks: [check('pending')] } };
+    expect(at(gateColumn, 'dev', facts)).toEqual(
+      gateColumn === 'dev' ? broken('dev', 'checks_pending') : ok,
+    );
+    expect(at(gateColumn, 'qa', facts)).toEqual(broken(gateColumn, 'checks_pending'));
+  });
+
+  it('puts the check reason before the gate column own reason', () => {
+    const facts = ready({ pr: { requiredChecks: [check('pending')] }, marks: [submit('dev', A)] });
+    expect(at('review', 'review', facts)).toEqual(
+      broken('review', 'checks_pending', 'no_review_on_head'),
+    );
+  });
+
+  it('explains a red Dev as checks not red and pending at the gate as checks green waiting', () => {
+    const project = { columns: ORCH, reposWithoutCi: [], checksGate: 'external-review' } as const;
+    const redDev = explainGates(
+      { ...passed, pr: { ...readyPr, requiredChecks: [check('failure')] } },
+      project,
+    ).gates.find((entry) => entry.column === 'dev');
+    expect(redDev?.conditions).toContainEqual({
+      condition: 'checks_not_red',
+      state: 'failed',
+      reason: 'checks_red',
+    });
+    expect(redDev?.conditions.map((c) => c.condition)).not.toContain('checks_green');
+    const pendingGates = explainGates(
+      { ...passed, pr: { ...readyPr, requiredChecks: [check('pending')] } },
+      project,
+    ).gates;
+    expect(pendingGates.find((entry) => entry.column === 'dev')?.conditions).toContainEqual({
+      condition: 'checks_not_red',
+      state: 'met',
+      reason: null,
+    });
+    expect(pendingGates.find((entry) => entry.column === 'external-review')).toMatchObject({
+      ok: false,
+      conditions: [
+        { condition: 'checks_green', state: 'waiting', reason: 'checks_pending' },
+        { condition: 'approved', state: 'met', reason: null },
+      ],
+    });
+  });
+});
+
 describe('explainGates', () => {
   const explain = (facts: TaskGateFacts, board: Board, reposWithoutCi: readonly string[] = []) =>
-    explainGates(facts, { columns: board, reposWithoutCi });
+    explainGates(facts, { columns: board, reposWithoutCi, checksGate: 'dev' });
   const blockedIn = (expected: Expected) => (expected.ok ? null : expected.column);
 
   it('agrees with evaluateGate at every column for every gate and thread case', () => {
@@ -776,8 +844,8 @@ describe('explainGates', () => {
     for (const [name, , facts, board, expected] of markerCases) {
       const explained = explain(facts, board, ['o/r']);
       expect(explained.checksWaivedBy, name).toBe(
-        evaluateGate('done', facts, { columns: board, reposWithoutCi: ['o/r'] }).checksWaivedBy ??
-          null,
+        evaluateGate('done', facts, { columns: board, reposWithoutCi: ['o/r'], checksGate: 'dev' })
+          .checksWaivedBy ?? null,
       );
       const dev = explained.gates.find((entry) => entry.column === 'dev');
       if (expected.checksWaivedBy !== undefined) {

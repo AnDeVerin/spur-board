@@ -164,6 +164,7 @@ const CONDITIONS: Record<string, string> = {
   pr_open: 'PR open',
   not_draft: 'Not a draft',
   checks_green: 'Checks green',
+  checks_not_red: 'Checks not red',
   no_conflict: 'No conflict',
   external_comments_handled: 'External comments handled',
   comment_history_read: 'Comment history read',

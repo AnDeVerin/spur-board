@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Banner,
   Button,
@@ -53,18 +53,23 @@ export function TaskView({
   onRetryHistory,
   config,
   unavailable,
+  notice,
   answerIntent,
   followUpIntent,
   commentIntent,
+  drafts,
   refreshTask,
 }: {
   task: TaskState;
   history: HistoryState | undefined;
   config: BoardConfig | undefined;
   unavailable: string | undefined;
+  /** A board banner the view repeats on both tabs, since the board behind it is inert. */
+  notice: ReactNode;
   answerIntent: BoardData['answerIntent'];
   followUpIntent: BoardData['followUpIntent'];
   commentIntent: BoardData['commentIntent'];
+  drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
   title: TaskTitle;
   row: BoardRow | undefined;
@@ -121,6 +126,7 @@ export function TaskView({
       detail={detail}
       actions={<Tabs id={TABS_ID} label="Task view" tabs={TABS} value={tab} onChange={setTab} />}
     >
+      {notice}
       <TabPanel tabsId={TABS_ID} value={tab}>
         {/* Keep drafts and intent guards for this modal's lifetime, including on History. */}
         <div hidden={tab !== 'now'}>
@@ -234,6 +240,7 @@ export function TaskView({
                   answerIntent={answerIntent}
                   followUpIntent={followUpIntent}
                   commentIntent={commentIntent}
+                  drafts={drafts}
                   refreshTask={refreshTask}
                 />
               )}
@@ -263,6 +270,7 @@ function TaskDiscussion({
   answerIntent,
   followUpIntent,
   commentIntent,
+  drafts,
   refreshTask,
 }: {
   value: BoardTask;
@@ -273,6 +281,7 @@ function TaskDiscussion({
   answerIntent: BoardData['answerIntent'];
   followUpIntent: BoardData['followUpIntent'];
   commentIntent: BoardData['commentIntent'];
+  drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
 }) {
   const name = (actor: string) => {
@@ -319,6 +328,7 @@ function TaskDiscussion({
                 }}
                 answerIntent={answerIntent}
                 followUpIntent={followUpIntent}
+                drafts={drafts}
                 refreshTask={refreshTask}
               />
             ))}
@@ -343,6 +353,8 @@ function TaskDiscussion({
               unavailable={unavailable}
               createIntent={(text) => commentIntent(taskKey, text)}
               refreshTask={refreshTask}
+              drafts={drafts}
+              draftId={JSON.stringify(['comment', taskKey, null])}
             />
           </div>
         </div>

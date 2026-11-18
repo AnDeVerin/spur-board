@@ -59,7 +59,13 @@ for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
 External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits of other worker columns. Fixed gate rules have no configuration switch
-except enabled columns, no-CI and resolved threads.
+except enabled columns, no-CI, checks gate and resolved threads.
+
+`projects[].checksGate` (default `dev`; `review`, `product-review` or
+`external-review`, enabled) moves the pending-CI wait to that column's exit. Red
+checks return the task to Dev from any column, after the submit of a taken turn;
+Ready to Merge needs green. Only right of `dev` a cancelled check counts as running
+for about two GitHub poll intervals. It takes effect after a restart.
 
 `projects[].columns[].requireResolvedThreads` (default: `ready-to-merge` only)
 gates that column and those right of it: an unresolved review thread, outdated

@@ -20,7 +20,7 @@ Warnings never block readiness or an update. Blocking failures retain these gate
 | `operator.path`                                                                                                                                                | Blocking: no operator session or approved token for required operator work.                                   |
 | `web.listening`, `web.spurUiOrigin`, `path.current`, `path.spur`, `skills.codex_visibility`                                                                    | Warning: optional browser or agent tooling; the daemon continues.                                             |
 | `versions`                                                                                                                                                     | Blocking daemon/running CLI mismatch; warning auxiliary PATH binary or skill versions.                        |
-| `web`                                                                                                                                                          | Passing configured-state report; no independent failure gate.                                                 |
+| `web`, `projects.checksGate`                                                                                                                                   | Passing configured-state report; no independent failure gate.                                                 |
 | `stand.port_range`, `link.rules`, `sessions.codex_skill`, `sessions.stale`, `operator.tokens`, `curator.sessions`, `orchestrator.sessions`, `slack.configured` | Advisory; preserve their warnings.                                                                            |
 
 ### config
@@ -96,6 +96,14 @@ each port. Set a nonoverlapping `stand.portRange` to clear it. Explicit ranges, 
 with default endpoints, reject overlaps during config validation. The stand takes its web port,
 and an explicit API port, from this range and refuses `http.port` and `web.port`; an API port of
 0, the default, is assigned by the kernel.
+
+### projects.checksGate
+
+Reports the `checksGate` of each project in `config.yaml` as `<project>=<column>`, including
+offline; `dev` when the key is absent. It always passes: a value other than `dev`, `review`,
+`product-review` or `external-review`, or a column that is absent or disabled, fails `config`.
+The daemon reads the key at start, so a change takes effect after a restart; `board config get`
+shows the value the running daemon uses.
 
 ### service.installed
 
@@ -544,7 +552,8 @@ listener. When the live indicator in the header stays on reconnecting or offline
 - The proxy's read timeout must exceed 15 seconds: the daemon sends a heartbeat comment every
   15 seconds and nothing else on a quiet board.
 - A 502 or a dropped stream while the daemon restarts is expected; the shell reconnects with
-  backoff and rereads everything once the new daemon answers.
+  backoff and rereads everything once the new daemon answers. When the new daemon runs another
+  version, after an update, the page reloads itself and keeps unsent text.
 - A 503 with `Retry-After: 5` and a plain-text body means 32 streams are already open, one per
   browser tab. Close unused tabs of the shell. A client that stops reading keeps its slot until it
   disconnects.
@@ -554,7 +563,8 @@ listener. When the live indicator in the header stays on reconnecting or offline
 Reconnecting changes only the header indicator. Once the stream is offline, or a configuration
 or status read fails, the columns dim under an error banner that gives the time of the data on
 screen and offers Retry now: it reconnects at once when the stream waits between attempts, and
-rereads. A failed read keeps the last data; a first load that fails shows the banner with no
+rereads; while an update reload is pending it reloads the page instead. When the page cannot
+reload itself after an update, the banner names the version and offers Reload. A failed read keeps the last data; a first load that fails shows the banner with no
 data and no columns. See the [web UI](docs/web-ui.md) guide for every state. The status bar keeps
 the theme menu, which works independently of reads and tolerates blocked browser storage. Auto
 follows the system; explicit Light/Dark choices stay fixed.

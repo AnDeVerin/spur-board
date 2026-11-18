@@ -232,15 +232,25 @@ export const taskWhySchema = z
       .array(
         z
           .strictObject({
-            reason: z.enum(GATE_REASONS).describe('The gate reason that waits on the fact.'),
+            reason: z
+              .enum(GATE_REASONS)
+              .describe(
+                'The gate reason that waits on the fact; checks_red only when the project checksGate is not dev.',
+              ),
             head: commitShaSchema.describe('Head commit of the pull request the fact is about.'),
-            text: z.string().describe('The fact in one line, e.g. waiting for CI on <sha>.'),
+            text: z
+              .string()
+              .describe(
+                'The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red.',
+              ),
           })
           .describe('One fact the task waits for.'),
       )
       .min(1)
       .optional()
-      .describe('Facts the task waits for that GitHub has not settled yet; absent when none.'),
+      .describe(
+        'Facts the task waits for that GitHub has not settled yet, plus red checks the task returns to Dev on when the project checksGate is not dev; absent when none.',
+      ),
   })
   .describe('Why the task is in its column and what the dispatcher waits for.');
 

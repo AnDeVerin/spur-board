@@ -62,10 +62,12 @@ import {
   dispatchJournaled,
   dispatchMergedTickets,
   dispatchSource,
+  dispatchTasks,
   pollFeedbackCursors,
   voidMarksOffHead,
 } from './dispatch.ts';
 import { closeTurns, rerouteDemotedWorkerTurn } from './turns.ts';
+import { countCancelledChecks } from './cancelled-checks.ts';
 
 function refKey(ref: EntityRef): string {
   switch (ref.kind) {
@@ -546,13 +548,18 @@ function comparableFacts(
   );
 }
 
+/**
+ * Applies one PR fact. `scheduled` is a complete scheduled poll, the only kind that advances the
+ * cancelled-check count. Returns true when this poll confirmed a cancelled check as red.
+ */
 async function pr(
   trx: Trx,
   config: Config,
   fact: PrFacts,
   at: string,
   source: string,
-): Promise<void> {
+  scheduled: boolean,
+): Promise<boolean> {
   // Positive full facts supersede this source's stale absence, including demand reads.
   await trx
     .deleteFrom('source_miss')
@@ -616,7 +623,9 @@ async function pr(
     });
   }
   const project = projectForSource(config, source);
-  if (project === undefined) return;
+  if (project === undefined) return false;
+  const confirmed =
+    project.checksGate !== 'dev' && (await countCancelledChecks(trx, source, fact, scheduled));
   for (const key of fact.ticketKeys) {
     const task = await trx
       .selectFrom('task')
@@ -688,7 +697,7 @@ async function pr(
     }
   }
   await applyPendingReopen(trx, fact, at);
-  if (!changed) return;
+  if (!changed) return confirmed;
   const links = await trx
     .selectFrom('link')
     .select(['task_id'])
@@ -752,6 +761,7 @@ async function pr(
     await emit(trx, 'pr_facts_changed', task.project, task.id, at, { facts: fact });
     await markTaskChanged(trx, task.id, at);
   }
+  return confirmed;
 }
 
 // The key matches in any letter case, not after a letter or digit and not before a digit,
@@ -1486,11 +1496,24 @@ export function createObservationCore(deps: {
                   : 2;
           return rank(left) - rank(right);
         });
+        // PRs whose cancelled check this poll confirmed red: no fact changed, so no event
+        // dispatches their tasks.
+        const confirmedCancels: PrFacts[] = [];
         for (const item of orderedItems) {
           if (item.kind === 'ticket')
             await ticket(trx, config, item.facts, batch.observedAt, source);
           else if (item.kind === 'pr') {
-            await pr(trx, config, item.facts, batch.observedAt, source);
+            if (
+              await pr(
+                trx,
+                config,
+                item.facts,
+                batch.observedAt,
+                source,
+                observation.effectiveComplete,
+              )
+            )
+              confirmedCancels.push(item.facts);
             await holdContinuation(trx, source, item);
           } else
             await session(
@@ -1651,6 +1674,18 @@ export function createObservationCore(deps: {
           await dispatchSource(trx, source, dispatchContext);
         if (observation.effectiveComplete) await dispatchDoneTickets(trx, source, dispatchContext);
         await dispatchMergedTickets(trx, source, dispatchContext);
+        const confirmedTasks: number[] = [];
+        for (const fact of confirmedCancels) {
+          const links = await trx
+            .selectFrom('link')
+            .select('task_id')
+            .where('entity', '=', 'pr')
+            .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
+            .where('number', '=', fact.number)
+            .execute();
+          confirmedTasks.push(...links.map((link) => link.task_id));
+        }
+        if (confirmedTasks.length > 0) await dispatchTasks(trx, confirmedTasks, dispatchContext);
         await dispatchJournaled(trx, dispatchContext);
         await reconcileItems(
           trx,

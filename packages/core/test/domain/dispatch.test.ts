@@ -1,7 +1,9 @@
 import {
+  CHECKS_GATE_COLUMNS,
   COLUMN_IDS,
   isTodoGroupColumn,
   TODO_GROUP_COLUMN_IDS,
+  type CheckGateColumn,
   type ColumnId,
   type GateReason,
 } from '@spur-board/contracts';
@@ -63,15 +65,16 @@ type Changes = Partial<Omit<Input, 'facts' | 'project' | 'turn'>> & {
   pr?: Partial<Pr> | null;
   facts?: Partial<Omit<TaskGateFacts, 'pr'>>;
   board?: Board;
+  checksGate?: CheckGateColumn;
   turn?: Partial<Input['turn']>;
 };
 
 /** A task in Dev on the sb board with a green open PR on A, a Dev submit and a live worker. */
 function input(changes: Changes = {}): Input {
-  const { pr, facts, board, turn, ...rest } = changes;
+  const { pr, facts, board, checksGate, turn, ...rest } = changes;
   return {
     column: 'dev',
-    project: { columns: board ?? SB, reposWithoutCi: [] },
+    project: { columns: board ?? SB, reposWithoutCi: [], checksGate: checksGate ?? 'dev' },
     facts: {
       pr: pr === null ? null : { ...greenPr, ...pr },
       externalReviewApproved: false,
@@ -791,6 +794,60 @@ describe('dispatch', () => {
       expect(moves.filter((move) => move.to === 'done')).toEqual([]);
     }
   });
+});
+
+describe('dispatch with a checksGate', () => {
+  const passed = {
+    marks: [submit('dev'), mark('review'), mark('product-review')],
+    externalReviewApproved: true,
+  };
+  const board = orchestrate(ALL, 'external-review', 'ext');
+
+  it.each(['review', 'product-review', 'external-review'] as const)(
+    'own column %s, visit none, only checks_pending: no turn',
+    (column) => {
+      expect(
+        dispatch(input({ column, board, checksGate: column, pr: pending, facts: passed })),
+      ).toEqual(nothing);
+    },
+  );
+
+  it('opens the Review turn on pending checks under an External Review gate', () => {
+    expect(
+      dispatch(
+        input({
+          board,
+          checksGate: 'external-review',
+          pr: pending,
+          facts: { marks: [submit('dev')] },
+        }),
+      ),
+    ).toEqual({
+      moves: [right('dev', 'review')],
+      turn: turn('entry', 'review', 'no_review_on_head'),
+    });
+  });
+
+  const verdicts = { green: {}, pending, red } as const;
+  const starts = ['dev', 'review', 'product-review', 'external-review', 'qa'] as const;
+  it.each(
+    CHECKS_GATE_COLUMNS.flatMap((gate) =>
+      (['green', 'pending', 'red'] as const).flatMap((verdict) =>
+        starts.map((column) => ({ gate, verdict, column })),
+      ),
+    ),
+  )(
+    '$gate gate, $verdict checks, from $column: ready-to-merge only when green',
+    ({ gate, verdict, column }) => {
+      const { moves } = dispatch(
+        input({ column, board: ALL, checksGate: gate, pr: verdicts[verdict], facts: passed }),
+      );
+      const reached = moves.some((move) => move.to === 'ready-to-merge');
+      expect(reached).toBe(verdict === 'green');
+      if (verdict === 'red' && column !== 'dev')
+        expect(moves.at(-1)).toEqual(left(column, 'dev', 'checks_red'));
+    },
+  );
 });
 
 describe('dispatchHolds', () => {

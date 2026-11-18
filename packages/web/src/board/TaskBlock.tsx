@@ -26,6 +26,7 @@ export function TaskBlock({
   onFollowOpen,
   answerIntent,
   followUpIntent,
+  drafts,
   refreshTask,
 }: {
   block: Block;
@@ -38,6 +39,7 @@ export function TaskBlock({
   onFollowOpen: () => void;
   answerIntent: BoardData['answerIntent'];
   followUpIntent: BoardData['followUpIntent'];
+  drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
 }) {
   const open = block.state === 'open';
@@ -194,6 +196,8 @@ export function TaskBlock({
             unavailable={unavailable}
             createIntent={(text) => answerIntent(taskKey, block.id, text)}
             refreshTask={refreshTask}
+            drafts={drafts}
+            draftId={JSON.stringify(['answer', taskKey, block.id])}
             onHeldChange={hold(setAnswerHeld)}
           />
           {(answered || foldable) && (
@@ -206,6 +210,8 @@ export function TaskBlock({
                   onOpen={onFollowOpen}
                   createIntent={(text) => followUpIntent(taskKey, block.id, text)}
                   refreshTask={refreshTask}
+                  drafts={drafts}
+                  draftId={JSON.stringify(['followup', taskKey, block.id])}
                   onHeldChange={hold(setFollowHeld)}
                 />
               )}

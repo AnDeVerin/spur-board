@@ -141,6 +141,19 @@ export const REQUIRED_COLUMN_IDS: readonly ColumnId[] = COLUMNS.filter(
   (column) => column.required,
 ).map((column) => column.id);
 
+/**
+ * The columns `projects[].checksGate` may name: running or missing checks hold a task only at the
+ * exit of that column. Each is left of qa and ready-to-merge, so a task never reaches them without
+ * green checks.
+ */
+export const CHECKS_GATE_COLUMNS = [
+  'dev',
+  'review',
+  'product-review',
+  'external-review',
+] as const satisfies readonly ColumnId[];
+export type CheckGateColumn = (typeof CHECKS_GATE_COLUMNS)[number];
+
 /** Where a column's effective orchestrator comes from: its own column entry or top-level `spurProjects`. */
 export const COLUMN_BINDING_SOURCES = ['project', 'board-wide'] as const;
 export type ColumnBindingSource = (typeof COLUMN_BINDING_SOURCES)[number];
@@ -224,6 +237,7 @@ export const GATE_CONDITIONS = [
   'pr_open',
   'not_draft',
   'checks_green',
+  'checks_not_red',
   'no_conflict',
   'external_comments_handled',
   'comment_history_read',

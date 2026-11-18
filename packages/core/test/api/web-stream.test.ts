@@ -124,9 +124,10 @@ const ended = (opened: Opened) =>
 describe('web event stream', () => {
   it('streams hello with SSE and browser headers', async () => {
     const instance = '0b7e5d1c-0000-4000-8000-000000000533';
-    const { address } = await setup({ instance });
+    const { address } = await setup({ instance, productVersion: '1.2.3' });
     const opened = await stream(address, { origin });
     expect(opened.response.statusCode).toBe(200);
+    expect(opened.response.headers['x-board-version']).toBe('1.2.3');
     expect(opened.response.headers['content-type']).toBe('text/event-stream');
     expect(opened.response.headers['cache-control']).toBe('no-cache');
     expect(opened.response.headers['x-accel-buffering']).toBe('no');

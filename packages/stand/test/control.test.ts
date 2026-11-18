@@ -243,6 +243,31 @@ describe('control endpoint', () => {
     expect(seed).toHaveBeenCalledExactlyOnceWith({ scenario: 'empty' });
   });
 
+  it('forwards a reset product version and refuses an invalid one', async () => {
+    const reset = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset },
+    });
+    const resetBody = (body: string) =>
+      fetch(`${control?.url ?? ''}/reset`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body,
+      });
+    for (const body of [
+      '{"version":""}',
+      '{"version":1}',
+      '{"version":"9.9 9"}',
+      `{"version":"${'9'.repeat(65)}"}`,
+    ])
+      expect((await resetBody(body)).status, body).toBe(400);
+    expect(reset).not.toHaveBeenCalled();
+    expect((await resetBody('{"version":"9.9.9-rc.1+b"}')).status).toBe(200);
+    expect((await resetBody('{}')).status).toBe(200);
+    expect(reset.mock.calls).toEqual([[{ version: '9.9.9-rc.1+b' }], [{}]]);
+  });
+
   it('rejects a missing token, a foreign Host and an Origin on /clock', async () => {
     const clock = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
     control = await startControl({
