@@ -275,12 +275,16 @@ describe('inbox.operator actions', () => {
     }
   });
 
-  it('adds the waiting turns and the minutes without a session to an open no-session item', async () => {
+  it('adds the waiting turns of non-archived tasks and the minutes without a session to an open no-session item', async () => {
     const { store, inbox } = setup();
     const text = 'first review: turns wait for a live session of Spur project first-orch';
     const ids = await store.transaction(async (trx) => {
       const first = await task(trx, { project: 'first', key: 'o/first#1' });
-      const tasks = [first, await task(trx, { project: 'first', key: 'o/first#2' })];
+      const tasks = [
+        first,
+        await task(trx, { project: 'first', key: 'o/first#2' }),
+        await task(trx, { project: 'first', key: 'o/first#3', membership: 'archived' }),
+      ];
       for (const [index, taskId] of tasks.entries()) {
         const row = await trx
           .insertInto('turn')

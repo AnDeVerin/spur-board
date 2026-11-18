@@ -239,8 +239,9 @@ function noSessionColumn(key: string): { project: string; column: string } {
 }
 
 /**
- * Untaken orchestrator turns with a ringing turn notification, by `<project>:<column>`: one
- * batched read, run only when an open `no-session:` item is listed.
+ * Untaken orchestrator turns of non-archived tasks with a ringing turn notification, as the
+ * reconcile counts them, by `<project>:<column>`: one batched read, run only when an open
+ * `no-session:` item is listed.
  */
 async function waitingTurns(trx: Trx, items: readonly Item[]): Promise<Map<string, number>> {
   if (!items.some((item) => item.item_key.startsWith(NO_SESSION_KEY))) return new Map();
@@ -248,6 +249,7 @@ async function waitingTurns(trx: Trx, items: readonly Item[]): Promise<Map<strin
     .selectFrom('turn')
     .innerJoin('task', 'task.id', 'turn.task_id')
     .select(['task.project', 'turn.column', (eb) => eb.fn.count<number>('turn.id').as('waiting')])
+    .where('task.membership', '!=', 'archived')
     .where('turn.closed_at', 'is', null)
     .where('turn.acked_at', 'is', null)
     .where(sql<boolean>`turn.role = 'orchestrator:' || turn."column"`)
