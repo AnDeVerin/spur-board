@@ -10,7 +10,7 @@ const CLOSES = { closingIssuesReferences: [{ number: 1, repository: { nameWithOw
 
 export const dispatchTicketDoneNoPr: Scenario = {
   name: 'dispatch-ticket-done-no-pr',
-  summary: `An open ${ISSUE} has no PR or linked worker; closing it reaches Done in one poll.`,
+  summary: `An open ${ISSUE} has no PR or linked worker; closing it reaches Done after fresh source confirmation.`,
   config: flow(),
   async seed(board, fakes) {
     await openIssues(fakes, 1);
