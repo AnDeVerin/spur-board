@@ -1,22 +1,140 @@
+/** Column groups. The dispatcher never moves a task between two columns of one group. */
+export const COLUMN_GROUPS = ['todo'] as const;
+export type ColumnGroup = (typeof COLUMN_GROUPS)[number];
+
+/** The properties every built-in column declares; a missing one fails compile. */
+interface ColumnSpec {
+  readonly id: string;
+  readonly name: string;
+  /** Every project board has it, enabled. */
+  readonly required: boolean;
+  /** Its group, or `null` outside every group. */
+  readonly group: ColumnGroup | null;
+  /** `task.return` may send a task back from it to Dev. */
+  readonly returnable: boolean;
+  /** Its orchestrator's `task.mark` records a head-bound mark there. */
+  readonly marks: boolean;
+  /** Enabled on a project that omits `columns`. */
+  readonly defaultEnabled: boolean;
+}
+
 /**
  * Built-in board columns in canonical order, left to right. Everything stored or addressed
  * (journal, store, addressee roles) uses the `id`; `name` is display text only.
  */
 export const COLUMNS = [
-  { id: 'todo', name: 'To Do', required: true },
-  { id: 'ready-for-dev', name: 'Ready for Dev', required: false },
-  { id: 'dev', name: 'Dev', required: true },
-  { id: 'review', name: 'Review', required: false },
-  { id: 'product-review', name: 'Product Review', required: false },
-  { id: 'external-review', name: 'External Review', required: false },
-  { id: 'qa', name: 'QA', required: false },
-  { id: 'ready-to-merge', name: 'Ready to Merge', required: false },
-  { id: 'done', name: 'Done', required: true },
-] as const;
+  {
+    id: 'todo',
+    name: 'To Do',
+    required: true,
+    group: 'todo',
+    returnable: false,
+    marks: false,
+    defaultEnabled: true,
+  },
+  {
+    id: 'triage',
+    name: 'Triage',
+    required: false,
+    group: 'todo',
+    returnable: false,
+    marks: false,
+    defaultEnabled: false,
+  },
+  {
+    id: 'ready-for-dev',
+    name: 'Ready for Dev',
+    required: false,
+    group: 'todo',
+    returnable: false,
+    marks: false,
+    defaultEnabled: true,
+  },
+  {
+    id: 'dev',
+    name: 'Dev',
+    required: true,
+    group: null,
+    returnable: false,
+    marks: false,
+    defaultEnabled: true,
+  },
+  {
+    id: 'review',
+    name: 'Review',
+    required: false,
+    group: null,
+    returnable: true,
+    marks: true,
+    defaultEnabled: true,
+  },
+  {
+    id: 'product-review',
+    name: 'Product Review',
+    required: false,
+    group: null,
+    returnable: true,
+    marks: true,
+    defaultEnabled: true,
+  },
+  {
+    id: 'external-review',
+    name: 'External Review',
+    required: false,
+    group: null,
+    returnable: true,
+    marks: false,
+    defaultEnabled: true,
+  },
+  {
+    id: 'qa',
+    name: 'QA',
+    required: false,
+    group: null,
+    returnable: true,
+    marks: false,
+    defaultEnabled: true,
+  },
+  {
+    id: 'ready-to-merge',
+    name: 'Ready to Merge',
+    required: false,
+    group: null,
+    returnable: true,
+    marks: false,
+    defaultEnabled: true,
+  },
+  {
+    id: 'done',
+    name: 'Done',
+    required: true,
+    group: null,
+    returnable: false,
+    marks: false,
+    defaultEnabled: true,
+  },
+] as const satisfies readonly ColumnSpec[];
 export type ColumnId = (typeof COLUMNS)[number]['id'];
+type ColumnEntry = (typeof COLUMNS)[number];
 
 /** Column ids in canonical order. */
 export const COLUMN_IDS: readonly ColumnId[] = COLUMNS.map((column) => column.id);
+
+/** Columns of the Todo group: a task rests there until work starts. */
+export type TodoGroupColumnId = Extract<ColumnEntry, { group: 'todo' }>['id'];
+
+/** Columns of the Todo group in canonical order. */
+export const TODO_GROUP_COLUMN_IDS: readonly TodoGroupColumnId[] = COLUMNS.filter(
+  (column): column is Extract<ColumnEntry, { group: 'todo' }> => column.group === 'todo',
+).map((column) => column.id);
+
+/** True for a column of the Todo group. */
+export function isTodoGroupColumn(column: ColumnId): column is TodoGroupColumnId {
+  return (TODO_GROUP_COLUMN_IDS as readonly ColumnId[]).includes(column);
+}
+
+/** Columns where an orchestrator records a head-bound mark. */
+export type MarkColumnId = Extract<ColumnEntry, { marks: true }>['id'];
 
 /** Columns every project board has, enabled. */
 export const REQUIRED_COLUMN_IDS: readonly ColumnId[] = COLUMNS.filter(

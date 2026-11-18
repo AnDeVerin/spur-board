@@ -35,6 +35,8 @@ async function fakeDaemon(initial: { version: string; instance?: string | undefi
     /** `/v1/schema` answers 200 with a body that is not JSON. */
     brokenSchema: false,
     unknownOps: false,
+    /** Replaces the catalog example output of every operation, as a newer daemon would. */
+    output: undefined as unknown,
   };
   const log: string[] = [];
   let held: Promise<void> | undefined;
@@ -83,7 +85,11 @@ async function fakeDaemon(initial: { version: string; instance?: string | undefi
         }
         response.writeHead(200, { 'content-type': 'application/json', ...instanceHeader });
         response.end(
-          JSON.stringify({ ok: true, requestId: 'req-op', value: op.examples[0].output }),
+          JSON.stringify({
+            ok: true,
+            requestId: 'req-op',
+            value: state.output ?? op.examples[0].output,
+          }),
         );
       })();
     });
@@ -355,6 +361,28 @@ describe('catalog version check', () => {
     expect(error.code).toBe('version_mismatch');
     expect(error.hint).toContain('board service restart');
     expect(daemon.log).toEqual([statusPost]);
+  });
+
+  it('a value from a newer daemon that this client cannot parse fails as version_mismatch in board mcp and exits 5 in the CLI', async () => {
+    const example = OPERATIONS.find((op) => op.id === 'status.get')?.examples[0].output;
+    if (example === undefined) throw new Error('status.get has no example');
+    const [task] = example.tasks;
+    if (task === undefined) throw new Error('the status.get example has no task');
+    const daemon = await fakeDaemon({ version: otherVersion, instance: randomUUID() });
+    daemon.state.output = { ...example, tasks: [{ ...task, column: 'later-column' }] };
+
+    await withMcp(daemon.url, async (client) => {
+      const result = await client.callTool(query());
+      expect(result.isError).toBe(true);
+      expect(structured(result).code).toBe('version_mismatch');
+      expect(structured(result).hint).toContain(restartHint);
+    });
+
+    const result = await cli(daemon.url, boardHome());
+    expect(result.code).toBe(5);
+    expect(warnings(result.stderr)).toHaveLength(1);
+    expect(warnings(result.stderr)[0]).toContain('board service restart');
+    expect(result.stderr).toContain('outcome_unknown');
   });
 
   it('skips the check when the instance header is absent or the schema is unavailable', async () => {

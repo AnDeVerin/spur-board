@@ -21,23 +21,16 @@ import { itemOwner } from './items.ts';
 import { latestSubmissions } from './submissions.ts';
 import { readOutageEnds, services } from './status-services.ts';
 import {
-  sessionView,
+  columnGroupViews,
+  counts,
   readStatusBlocks,
   readStatusColumnEntries,
   readStatusReturns,
   readStatusTurns,
+  sessionView,
   summarizePr,
   sourceInterval,
 } from './status-views.ts';
-
-/** Counts of each value, rendered as `<n> <value>` in the given order. */
-function counts(values: readonly string[], order: readonly string[]): string {
-  return order
-    .map((value) => [value, values.filter((entry) => entry === value).length] as const)
-    .filter(([, n]) => n > 0)
-    .map(([value, n]) => `${String(n)} ${value}`)
-    .join(', ');
-}
 
 /** End reasons in the words of the "worker ended" item (`ENDED_WORKER_LABELS`, fromYou.ts). */
 export const END_WORDS = {
@@ -522,6 +515,7 @@ export async function getStatus(
     transport,
     sources,
     tasks,
+    columnGroups: columnGroupViews(),
     projectBlocks,
     unlinkedPrs,
     unlinkedSessions,

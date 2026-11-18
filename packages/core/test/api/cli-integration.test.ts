@@ -654,6 +654,7 @@ describe('CLI against the real HTTP API', () => {
         run() {
           return Promise.resolve({
             tasks: [],
+            columnGroups: [{ id: 'todo', columns: ['todo', 'triage', 'ready-for-dev'] }],
             projectBlocks: [],
             items: [],
             unlinkedPrs: [],
@@ -724,6 +725,7 @@ describe('CLI against the real HTTP API', () => {
       expect(await runCli(['status', '--json'], { clientConfig, io: success.io })).toBe(0);
       expect(JSON.parse(success.stdout)).toEqual({
         tasks: [],
+        columnGroups: [{ id: 'todo', columns: ['todo', 'triage', 'ready-for-dev'] }],
         projectBlocks: [],
         items: [],
         unlinkedPrs: [],

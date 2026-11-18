@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { configSchema } from '../config.ts';
-import { COLUMN_IDS, DISPATCHER_MODES } from '../enums.ts';
+import { COLUMN_GROUPS, COLUMN_IDS, DISPATCHER_MODES } from '../enums.ts';
 
 export const configViewSchema = z
   .strictObject({
@@ -25,6 +25,10 @@ export const configViewSchema = z
                       .describe('Named Spur project, or null for automatic routing.'),
                   })
                   .describe('Effective column executor.'),
+                group: z
+                  .enum(COLUMN_GROUPS)
+                  .optional()
+                  .describe('Column group; present only on Todo-group columns.'),
               }),
             )
             .describe('Enabled board columns.'),

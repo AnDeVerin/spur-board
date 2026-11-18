@@ -1,5 +1,7 @@
 import { sql } from 'kysely';
 import {
+  COLUMN_GROUPS,
+  COLUMNS,
   eventPayloadSchemas,
   type ActorId,
   type AddresseeRole,
@@ -10,6 +12,14 @@ import {
 } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
 import { eventActor } from './board-utils.ts';
+
+/** The column groups with their built-in columns in canonical order, the same for every project. */
+export function columnGroupViews() {
+  return COLUMN_GROUPS.map((id) => ({
+    id,
+    columns: COLUMNS.filter((c) => c.group === id).map((c) => c.id),
+  }));
+}
 
 /** Factual PR rollup; the caller owns snapshot freshness and all reads. */
 export function summarizePr(fact: PrFacts, factAt: string, unconfirmed: boolean) {
@@ -247,6 +257,15 @@ export function sourceInterval(config: Config, source: string): number {
   if (source.startsWith('jira:')) return config.adapters.jira.intervalMs;
   if (source.startsWith('github-issues:')) return config.adapters.githubIssues.intervalMs;
   return config.adapters.github.intervalMs;
+}
+
+/** Counts of each value, rendered as `<n> <value>` in the given order. */
+export function counts(values: readonly string[], order: readonly string[]): string {
+  return order
+    .map((value) => [value, values.filter((entry) => entry === value).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([value, n]) => `${String(n)} ${value}`)
+    .join(', ');
 }
 
 /** Session facts rendered in status detail. */

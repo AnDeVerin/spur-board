@@ -178,10 +178,11 @@ describe('fixtures', () => {
     expect(project?.columns.filter((c) => !c.enabled).map((c) => c.id)).toEqual(['ready-for-dev']);
   });
 
-  it('gives a project without columns all nine columns, enabled, orchestrator none', () => {
+  it('gives a project without columns every built-in column with orchestrator none, triage listed disabled', () => {
     const config = configSchema.parse(validConfig());
     expect(config.projects[0]?.columns).toEqual([
       { id: 'todo', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'triage', enabled: false, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
       { id: 'ready-for-dev', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
       { id: 'dev', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
       { id: 'review', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
@@ -197,8 +198,33 @@ describe('fixtures', () => {
       { id: 'ready-to-merge', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
       { id: 'done', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
     ]);
+    // The enabled columns are the nine of 0.117.1.
+    expect(config.projects[0]?.columns.filter((c) => c.enabled).map((c) => c.id)).toEqual([
+      'todo',
+      'ready-for-dev',
+      'dev',
+      'review',
+      'product-review',
+      'external-review',
+      'qa',
+      'ready-to-merge',
+      'done',
+    ]);
     expect(config.projects[0]?.spurProjects).toEqual([]);
     expect(config.projects[0]?.reposWithoutCi).toEqual([]);
+  });
+
+  it('accepts the whole Todo group: todo, triage and ready-for-dev', () => {
+    const config = configSchema.parse(
+      validConfig({ columns: columns('todo', 'triage', 'ready-for-dev', 'dev', 'done') }),
+    );
+    expect(config.projects[0]?.columns.map((c) => [c.id, c.enabled])).toEqual([
+      ['todo', true],
+      ['triage', true],
+      ['ready-for-dev', true],
+      ['dev', true],
+      ['done', true],
+    ]);
   });
 
   it('accepts courseCheck 0, which turns the course check off', () => {
@@ -690,8 +716,8 @@ describe('invalid configs', () => {
     ],
     [
       'custom column id',
-      validConfig({ columns: columns('todo', 'triage', 'dev', 'done') }),
-      'Unknown column "triage": custom columns arrive with custom matchers and are not supported yet',
+      validConfig({ columns: columns('todo', 'backlog', 'dev', 'done') }),
+      'Unknown column "backlog": custom columns arrive with custom matchers and are not supported yet. Built-in columns: todo, triage, ready-for-dev, dev, review, product-review, external-review, qa, ready-to-merge, done',
       'projects[0].columns[1].id',
     ],
     [
@@ -735,10 +761,28 @@ describe('invalid configs', () => {
       'projects[0].columns[2].requireResolvedThreads',
     ],
     [
+      'resolved threads required on triage',
+      validConfig({
+        columns: [
+          ...columns('todo'),
+          { id: 'triage', requireResolvedThreads: true },
+          ...columns('dev', 'done'),
+        ],
+      }),
+      'Column "triage" cannot require resolved threads: set it on a column from dev to ready-to-merge',
+      'projects[0].columns[1].requireResolvedThreads',
+    ],
+    [
       'built-in columns out of order',
       validConfig({ columns: columns('todo', 'dev', 'qa', 'review', 'done') }),
-      'Column "review" is out of order: built-in columns go in the order todo, ready-for-dev, dev, review, product-review, external-review, qa, ready-to-merge, done',
+      'Column "review" is out of order: built-in columns go in the order todo, triage, ready-for-dev, dev, review, product-review, external-review, qa, ready-to-merge, done',
       'projects[0].columns[3].id',
+    ],
+    [
+      'triage before todo',
+      validConfig({ columns: columns('triage', 'todo', 'dev', 'done') }),
+      'Column "todo" is out of order',
+      'projects[0].columns[1].id',
     ],
     [
       'external review before product review',

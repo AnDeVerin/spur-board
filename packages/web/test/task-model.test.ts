@@ -7,50 +7,34 @@ import {
   historyRows,
   historyRuns,
   linkChips,
-  nextColumn,
   taskParam,
   timeInColumn,
   whyRows,
   whySummary,
 } from '../src/board/task-model.ts';
 import {
+  allMet,
+  condition,
+  gate,
   historyEvent,
   parsed,
+  parsedTask as task,
   row as statusRow,
   status,
   T,
   T_TEXT,
-  taskGet,
   taskHistory,
 } from './board-fixtures.ts';
 
 const NOW = Date.parse('2026-11-15T14:00:00.000Z');
-const COLUMNS = ['todo', 'dev', 'review', 'done'];
+const COLUMNS: Parameters<typeof whyRows>[1] = [
+  { id: 'todo' },
+  { id: 'dev' },
+  { id: 'review' },
+  { id: 'done' },
+];
 const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
-const condition = (name: string, state: string, reason: string | null = null) => ({
-  condition: name,
-  state,
-  reason,
-});
-const gate = (column: string, conditions: unknown[], enabled = true) => ({
-  column,
-  enabled,
-  ok: false,
-  blockedIn: null,
-  conditions,
-});
-const base = taskGet();
-/** A parsed `task.get` answer; `why` fields and top-level fields override the fixture. */
-function task(why: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
-  return browserOperations['task.get'].output.parse({
-    ...base,
-    turn: null,
-    why: { ...base.why, ...why },
-    ...extra,
-  });
-}
 const rows = (value: ReturnType<typeof task>) => whyRows(value, COLUMNS, NOW);
-const allMet = gate('dev', [condition('pr_open', 'met'), condition('checks_green', 'met')]);
 
 describe('why rows', () => {
   it.each([
@@ -173,39 +157,6 @@ describe('why rows', () => {
       gates: [gate('dev', [condition('checks_green', 'waiting', 'checks_pending')])],
     });
     expect(whySummary(waiting)).toBe('1 waiting');
-  });
-});
-
-describe('next column', () => {
-  const why = (column: string, gates: unknown[]) => task({ column, gates }).why;
-
-  it('shows the next config column only when every condition of why.column is met', () => {
-    expect(nextColumn(why('dev', [allMet]), COLUMNS)).toBe('review');
-    for (const state of ['waiting', 'failed', 'unchecked']) {
-      const gates = [gate('dev', [condition('pr_open', 'met'), condition('checks_green', state)])];
-      expect(nextColumn(why('dev', gates), COLUMNS)).toBeUndefined();
-    }
-    expect(nextColumn(why('dev', []), COLUMNS)).toBeUndefined();
-    expect(nextColumn(why('dev', [gate('review', [])]), COLUMNS)).toBeUndefined();
-    expect(nextColumn(undefined, COLUMNS)).toBeUndefined();
-  });
-
-  it('hides it after the last column and for a column config does not list', () => {
-    const doneMet = gate('done', [condition('merged', 'met')]);
-    expect(nextColumn(why('done', [doneMet]), COLUMNS)).toBeUndefined();
-    const qaMet = gate('qa', [condition('submit_on_head', 'met')]);
-    expect(nextColumn(why('qa', [qaMet]), COLUMNS)).toBeUndefined();
-  });
-
-  it('shows it for a known gate with no exit conditions', () => {
-    expect(nextColumn(why('dev', [gate('dev', [])]), COLUMNS)).toBe('review');
-  });
-
-  it('follows the shadow column in shadow mode', () => {
-    const reviewMet = gate('review', [condition('review_on_head', 'met')]);
-    const value = task({ column: 'review', dispatcher: 'shadow', gates: [allMet, reviewMet] });
-    expect(value.task.column).toBe('dev');
-    expect(nextColumn(value.why, COLUMNS)).toBe('done');
   });
 });
 

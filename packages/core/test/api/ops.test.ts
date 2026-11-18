@@ -868,6 +868,7 @@ describe('catalog HTTP API', () => {
         read();
         return Promise.resolve({
           tasks: [],
+          columnGroups: [{ id: 'todo', columns: ['todo', 'triage', 'ready-for-dev'] }],
           projectBlocks: [],
           items: [],
           unlinkedPrs: [],

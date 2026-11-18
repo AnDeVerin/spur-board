@@ -10,7 +10,9 @@ describe('how the Board works guide', () => {
       section: 'Columns and executors',
       topic: 'columns',
       clauses: [
-        /`todo`, `ready-for-dev`, `dev`, `review`, `product-review`,\s*`external-review`, `qa`, `ready-to-merge`, `done`/,
+        /`todo`, `triage`, `ready-for-dev`, `dev`, `review`, `product-review`,\s*`external-review`, `qa`, `ready-to-merge`, `done`/,
+        /Todo group is `todo`, `triage` and `ready-for-dev`/,
+        /never moves a task between them/,
         /Each column has one executor/,
         /worker owns the code and branch/,
         /`worker`, `operator`, `curator` and\s*`orchestrator`/,

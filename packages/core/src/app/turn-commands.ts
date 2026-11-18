@@ -1,4 +1,5 @@
 import {
+  COLUMNS,
   parseActorId,
   parseRef,
   prSourceId,
@@ -31,13 +32,7 @@ type Turn = Selectable<TurnTable>;
 type SubmitInput = Parameters<Mutation<'task.submit'>['run']>[1];
 
 /** Columns a task returns to Dev from: right of Dev, before the terminal Done. */
-const RETURNABLE: readonly ColumnId[] = [
-  'review',
-  'product-review',
-  'external-review',
-  'qa',
-  'ready-to-merge',
-];
+const RETURNABLE: readonly ColumnId[] = COLUMNS.filter((c) => c.returnable).map((c) => c.id);
 
 const turnNumber = (id: string) => Number(id.slice(1));
 const turnLabel = (id: number) => `T${String(id)}`;

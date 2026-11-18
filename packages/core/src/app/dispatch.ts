@@ -1,4 +1,5 @@
 import {
+  COLUMNS,
   COLUMN_IDS,
   DISPATCHER_MODES,
   isExternalAuthor,
@@ -10,6 +11,7 @@ import {
   type Config,
   type DispatcherMode,
   type GateReason,
+  type MarkColumnId,
   type MoveReason,
   type PrFacts,
 } from '@spur-board/contracts';
@@ -77,8 +79,13 @@ const modeKey = (project: string) => `dispatcher_mode:${project}`;
 const cursorSchema = z.int().min(0);
 const modeSchema = z.enum(DISPATCHER_MODES);
 
-/** Columns whose evidence lasts for their head across visits. QA remains a submit. */
-const HEAD_COLUMNS: readonly ColumnId[] = ['review', 'product-review', 'qa'];
+/** Columns whose submissions are marks: they last for their head across visits. */
+const MARK_COLUMNS: readonly ColumnId[] = COLUMNS.filter((c) => c.marks).map((c) => c.id);
+
+const isMarkColumn = (column: ColumnId): column is MarkColumnId => MARK_COLUMNS.includes(column);
+
+/** Evidence that lasts for its head across visits. QA remains a submit. */
+const HEAD_COLUMNS: readonly ColumnId[] = [...MARK_COLUMNS, 'qa'];
 
 const indexOf = (column: ColumnId) => COLUMN_IDS.indexOf(column);
 
@@ -877,7 +884,7 @@ export async function readInput(
   );
   const marks = counted.map((row): GateMark => {
     const headSha = row.commit_sha.toLowerCase();
-    return row.column === 'review' || row.column === 'product-review'
+    return isMarkColumn(row.column)
       ? { kind: 'mark', column: row.column, headSha }
       : { kind: 'submit', column: row.column, headSha };
   });

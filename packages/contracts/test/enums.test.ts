@@ -6,6 +6,7 @@ import {
   BLOCK_OUTCOMES,
   BLOCK_STATES,
   BLOCK_TYPES,
+  COLUMN_GROUPS,
   COLUMNS,
   COLUMN_IDS,
   DISPATCHER_MODES,
@@ -13,6 +14,7 @@ import {
   GATE_CONDITION_STATES,
   INBOX_KINDS,
   INBOX_SEVERITIES,
+  isTodoGroupColumn,
   ITEM_KINDS,
   LINK_SOURCES,
   MEMBERSHIPS,
@@ -21,26 +23,32 @@ import {
   SESSION_END_REASONS,
   SESSION_LINK_ROLES,
   TASK_HOLDS,
+  TODO_GROUP_COLUMN_IDS,
   TOKEN_STATUSES,
   TURN_OUTCOMES,
   SUBMISSION_BASES,
   VIAS,
 } from '../src/index.ts';
 
-it('lists the built-in columns from To Do to Done, with ids and display names', () => {
+it('lists the built-in columns from To Do to Done, with ids, display names and properties', () => {
+  const off = { group: null, returnable: false, marks: false, defaultEnabled: true };
+  const todo = { group: 'todo', returnable: false, marks: false };
+  const back = { group: null, returnable: true, defaultEnabled: true };
   expect(COLUMNS).toEqual([
-    { id: 'todo', name: 'To Do', required: true },
-    { id: 'ready-for-dev', name: 'Ready for Dev', required: false },
-    { id: 'dev', name: 'Dev', required: true },
-    { id: 'review', name: 'Review', required: false },
-    { id: 'product-review', name: 'Product Review', required: false },
-    { id: 'external-review', name: 'External Review', required: false },
-    { id: 'qa', name: 'QA', required: false },
-    { id: 'ready-to-merge', name: 'Ready to Merge', required: false },
-    { id: 'done', name: 'Done', required: true },
+    { id: 'todo', name: 'To Do', required: true, ...todo, defaultEnabled: true },
+    { id: 'triage', name: 'Triage', required: false, ...todo, defaultEnabled: false },
+    { id: 'ready-for-dev', name: 'Ready for Dev', required: false, ...todo, defaultEnabled: true },
+    { id: 'dev', name: 'Dev', required: true, ...off },
+    { id: 'review', name: 'Review', required: false, ...back, marks: true },
+    { id: 'product-review', name: 'Product Review', required: false, ...back, marks: true },
+    { id: 'external-review', name: 'External Review', required: false, ...back, marks: false },
+    { id: 'qa', name: 'QA', required: false, ...back, marks: false },
+    { id: 'ready-to-merge', name: 'Ready to Merge', required: false, ...back, marks: false },
+    { id: 'done', name: 'Done', required: true, ...off },
   ]);
   expect(COLUMN_IDS).toEqual([
     'todo',
+    'triage',
     'ready-for-dev',
     'dev',
     'review',
@@ -51,6 +59,12 @@ it('lists the built-in columns from To Do to Done, with ids and display names', 
     'done',
   ]);
   expect(REQUIRED_COLUMN_IDS).toEqual(['todo', 'dev', 'done']);
+});
+
+it('derives the Todo group', () => {
+  expect(COLUMN_GROUPS).toEqual(['todo']);
+  expect(TODO_GROUP_COLUMN_IDS).toEqual(['todo', 'triage', 'ready-for-dev']);
+  expect(COLUMN_IDS.filter(isTodoGroupColumn)).toEqual(['todo', 'triage', 'ready-for-dev']);
 });
 
 it('lists memberships', () => {
@@ -82,6 +96,7 @@ it('lists addressee roles: operator, curator, one orchestrator per column id, wo
     'operator',
     'curator',
     'orchestrator:todo',
+    'orchestrator:triage',
     'orchestrator:ready-for-dev',
     'orchestrator:dev',
     'orchestrator:review',

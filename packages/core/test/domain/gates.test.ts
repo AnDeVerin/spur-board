@@ -105,6 +105,7 @@ const broken = (column: ColumnId, ...reasons: [Reason, ...Reason[]]): Expected =
 const gateCases: [string, ColumnId, TaskGateFacts, Board, Expected][] = [
   ['1 to do without a PR', 'todo', ready({ pr: null, marks: [] }), ORCH, ok],
   ['2 ready for dev without a PR', 'ready-for-dev', ready({ pr: null, marks: [] }), ORCH, ok],
+  ['2a triage without a PR', 'triage', ready({ pr: null, marks: [] }), ORCH, ok],
   ['3 dev without a PR', 'dev', ready({ pr: null, marks: [] }), ORCH, broken('dev', 'no_pr')],
   ['4 dev without a submit', 'dev', ready({ marks: [] }), ORCH, broken('dev', 'no_submit_on_head')],
   ['5 dev submitted', 'dev', ready(), ORCH, ok],
@@ -653,7 +654,15 @@ describe('explainGates', () => {
       unhandledExternalComments: 1,
       marks: [],
     });
-    const [, , dev, review] = explain(facts, ORCH).gates;
+    const [todo, triage, readyForDev, dev, review] = explain(facts, ORCH).gates;
+    // The Todo group has no exit condition.
+    for (const [column, entry] of [
+      ['todo', todo],
+      ['triage', triage],
+      ['ready-for-dev', readyForDev],
+    ] as const) {
+      expect(entry).toEqual({ column, enabled: true, ok: true, blockedIn: null, conditions: [] });
+    }
     expect(dev).toEqual({
       column: 'dev',
       enabled: true,

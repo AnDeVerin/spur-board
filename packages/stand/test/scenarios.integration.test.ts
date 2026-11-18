@@ -561,9 +561,9 @@ describe('each scenario', () => {
       ?.columns.map(({ id }) => id);
     expect(columns).toEqual(['todo', 'dev', 'done']);
     const { tasks } = await status(current());
-    expect(tasks).toHaveLength(9);
+    expect(tasks).toHaveLength(COLUMN_IDS.length);
     const unknown = tasks.filter((task) => !columns?.includes(task.column));
-    expect(unknown).toHaveLength(6);
+    expect(unknown).toHaveLength(COLUMN_IDS.length - 3);
     expect(tasks.filter((task) => columns?.includes(task.column))).toHaveLength(3);
     const key = scenario.tasks?.['qa'];
     expect(unknown.map((task) => task.key)).toContain(key);
@@ -2768,7 +2768,7 @@ describe('snapshots', () => {
     const jira = (args: object) =>
       control(current(), '/fake', { system: 'jira', verb: 'issue', args });
     expect((await jira({ key: 'STAND-1', status: 'Done' })).status).toBe(200);
-    expect((await jira({ key: 'STAND-10' })).status).toBe(200);
+    expect((await jira({ key: 'STAND-11' })).status).toBe(200);
     await ok(current(), '/fake', { system: 'jira', verb: 'fail', args: { mode: 'auth' } });
     await ok(current(), '/poll');
 
@@ -2777,13 +2777,13 @@ describe('snapshots', () => {
     expect(seeds()).toBe(1);
     await ok(current(), '/wait', SEED_WAIT);
     expect((await capture(current())).tasks).toEqual(before.tasks);
-    // STAND-1 is back at its seeded status, STAND-10 is gone and takes the id it took before.
+    // STAND-1 is back at its seeded status, STAND-11 is gone and takes the id it took before.
     expect((await jira({ key: 'STAND-1' })).status).toBe(409);
     expect(await jira({ key: 'STAND-1', title: 'probe' })).toMatchObject({
       status: 200,
       body: { id: '10001', status: 'To Do' },
     });
-    expect(await jira({ key: 'STAND-10' })).toMatchObject({ status: 200, body: { id: '10010' } });
+    expect(await jira({ key: 'STAND-11' })).toMatchObject({ status: 200, body: { id: '10011' } });
     // The snapshot's failure plan had no Jira failure.
     await ok(current(), '/poll');
     const { sources } = await status(current());

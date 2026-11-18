@@ -44,6 +44,7 @@ const status = (project: string) => ({
   transport: [],
   sources: [],
   tasks: [task(project, 1), task(project, 2)],
+  columnGroups: [{ id: 'todo', columns: ['todo', 'triage', 'ready-for-dev'] }],
   projectBlocks: [],
   unlinkedPrs: [],
   unlinkedSessions: [],

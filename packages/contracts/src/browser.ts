@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   ADDRESSEE_SOURCES,
   COLUMN_BINDING_SOURCES,
+  COLUMN_GROUPS,
   COLUMN_IDS,
   OPERATOR_BINDING_SOURCES,
   VIAS,
@@ -231,6 +232,20 @@ export const statusOutputSchema = z.strictObject({
   tasks: z
     .array(statusTaskSchema)
     .describe('Tasks with state, turn, PR summary arrays and navigation; full facts with detail.'),
+  columnGroups: z
+    .array(
+      z
+        .strictObject({
+          id: z.enum(COLUMN_GROUPS).describe('Column group.'),
+          columns: z
+            .array(z.enum(COLUMN_IDS))
+            .describe('Built-in columns of the group in canonical order, enabled or not.'),
+        })
+        .describe('One column group.'),
+    )
+    .describe(
+      'Column groups, the same for every project. The dispatcher never moves a task between columns of one group; once work starts it moves the task to the first enabled column right of the group.',
+    ),
   projectBlocks: z
     .array(
       z

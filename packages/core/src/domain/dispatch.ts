@@ -1,6 +1,8 @@
 import {
+  COLUMNS,
   COLUMN_IDS,
   GATE_REASONS,
+  isTodoGroupColumn,
   type ColumnId,
   type GateReason,
   type MoveReason,
@@ -112,9 +114,18 @@ function orchestratorOf(project: GateProject, column: ColumnId): string {
   return project.columns.find((c) => c.id === column)?.orchestrator ?? 'none';
 }
 
-/** The next enabled column of the project right of `column`, if any. */
+const groupOf = (column: ColumnId) => COLUMNS.find((c) => c.id === column)?.group ?? null;
+
+/**
+ * The next enabled column of the project right of `column`, if any. From a column of a group it
+ * skips the rest of that group, so a task leaves the group in one move.
+ */
 function nextColumn(project: GateProject, column: ColumnId): ColumnId | undefined {
-  return project.columns.find((c) => c.enabled && indexOf(c.id) > indexOf(column))?.id;
+  const group = groupOf(column);
+  return project.columns.find(
+    (c) =>
+      c.enabled && indexOf(c.id) > indexOf(column) && (group === null || groupOf(c.id) !== group),
+  )?.id;
 }
 
 /** A left move voids visit submits of `to` and right of it; review marks and QA stay. */
@@ -141,8 +152,9 @@ function absenceReady(input: DispatchInput): boolean {
 /**
  * What holds the dispatcher on the task now: a blind GitHub or a pending submit stops it, a blind
  * Spur defers a worker's turn, an active cycle-limit or course-check item stops every turn and
- * move right, and To Do and Ready for Dev wait for the work to start. The last is judged at the
- * task's column, while `dispatch` judges it at each column the cascade reaches.
+ * move right, and the Todo group (To Do, Triage, Ready for Dev) waits for the work to start. The
+ * last is judged at the task's column, while `dispatch` judges it at each column the cascade
+ * reaches.
  */
 export function dispatchHolds(input: DispatchInput): TaskHold[] {
   const holds: TaskHold[] = [];
@@ -164,11 +176,7 @@ export function dispatchHolds(input: DispatchInput): TaskHold[] {
     holds.push('spur_blind');
   if (input.submitPending) holds.push('submit_pending');
   if (input.cycleHeld) holds.push('cycle_limit');
-  if (
-    (input.column === 'todo' || input.column === 'ready-for-dev') &&
-    !workStarted(input) &&
-    !absenceReady(input)
-  )
+  if (isTodoGroupColumn(input.column) && !workStarted(input) && !absenceReady(input))
     holds.push('work_not_started');
   return holds;
 }
@@ -247,7 +255,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
     }
     const gate = evaluateGate(column, facts, project);
     if (gate.ok) {
-      if ((column === 'todo' || column === 'ready-for-dev') && !started) return result(null);
+      if (isTodoGroupColumn(column) && !started) return result(null);
       const next = nextColumn(project, column);
       if (cycleHeld || next === undefined || next === 'done') return result(null);
       move(next, 'gate_passed');

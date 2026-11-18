@@ -60,6 +60,7 @@ export function shellFixture(scenario: Scenario) {
       prSummary: null,
       links: { ticket: null, prs: [], sessions: [] },
     })),
+    columnGroups: [{ id: 'todo', columns: ['todo', 'triage', 'ready-for-dev'] }],
     projectBlocks: [],
     unlinkedPrs: [],
     unlinkedSessions: [],

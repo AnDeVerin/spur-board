@@ -194,6 +194,7 @@ export const status = (
   transport: [],
   sources,
   tasks,
+  columnGroups: [{ id: 'todo', columns: ['todo', 'triage', 'ready-for-dev'] }],
   projectBlocks: [],
   unlinkedPrs: [],
   unlinkedSessions: [],
@@ -270,6 +271,37 @@ export const taskGet = (extra: Record<string, unknown> = {}) => ({
   },
   ...extra,
 });
+
+/** One exit condition of a `task.get` gate. */
+export const condition = (name: string, state: string, reason: string | null = null) => ({
+  condition: name,
+  state,
+  reason,
+});
+
+/** A `task.get` gate that is not ok, with the given conditions. */
+export const gate = (column: string, conditions: unknown[], enabled = true) => ({
+  column,
+  enabled,
+  ok: false,
+  blockedIn: null,
+  conditions,
+});
+
+/** A Dev gate whose every condition is met. */
+export const allMet = gate('dev', [condition('pr_open', 'met'), condition('checks_green', 'met')]);
+
+const parsedTaskBase = taskGet();
+
+/** A parsed `task.get` answer; `why` fields and top-level fields override the fixture. */
+export function parsedTask(why: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+  return browserOperations['task.get'].output.parse({
+    ...parsedTaskBase,
+    turn: null,
+    why: { ...parsedTaskBase.why, ...why },
+    ...extra,
+  });
+}
 
 /** A journal event of `task.history`; `via` only when given. */
 export const historyEvent = (

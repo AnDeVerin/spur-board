@@ -199,6 +199,7 @@ const failed = (
  */
 const reviewGates: GateView[] = [
   { column: 'todo', enabled: true, ok: true, blockedIn: null, conditions: [] },
+  { column: 'triage', enabled: false, ok: true, blockedIn: null, conditions: [] },
   { column: 'ready-for-dev', enabled: false, ok: true, blockedIn: null, conditions: [] },
   {
     column: 'dev',
@@ -332,6 +333,7 @@ export const OPERATIONS = [
               links: { ticket: null, prs: [], sessions: [] },
             },
           ],
+          columnGroups: [{ id: 'todo', columns: ['todo', 'triage', 'ready-for-dev'] }],
           projectBlocks: [{ project: 'web', openBlocks: 0 }],
           unlinkedPrs: [],
           unlinkedSessions: [],
@@ -376,6 +378,7 @@ export const OPERATIONS = [
               sessions: [],
             },
           ],
+          columnGroups: [{ id: 'todo', columns: ['todo', 'triage', 'ready-for-dev'] }],
           projectBlocks: [{ project: 'web', openBlocks: 0 }],
           unlinkedPrs: [],
           unlinkedSessions: [],

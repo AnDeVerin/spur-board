@@ -1,4 +1,10 @@
-import { COLUMN_IDS, type ColumnId, type GateReason } from '@spur-board/contracts';
+import {
+  COLUMN_IDS,
+  isTodoGroupColumn,
+  TODO_GROUP_COLUMN_IDS,
+  type ColumnId,
+  type GateReason,
+} from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
 import { dispatch, dispatchHolds, returnCauses, turnReason } from '../../src/domain/dispatch.ts';
 import type { TaskGateFacts } from '../../src/domain/gates.ts';
@@ -50,8 +56,8 @@ const disable = (board: Board, ...ids: ColumnId[]): Board =>
   board.map((c) => (ids.includes(c.id) ? { ...c, enabled: false } : c));
 const orchestrate = (board: Board, id: ColumnId, orchestrator: string): Board =>
   board.map((c) => (c.id === id ? { ...c, orchestrator } : c));
-/** The sb-like board: no Ready for Dev, External Review or QA. */
-const SB = disable(ALL, 'ready-for-dev', 'external-review', 'qa');
+/** The sb-like board: no Triage, Ready for Dev, External Review or QA. */
+const SB = disable(ALL, 'triage', 'ready-for-dev', 'external-review', 'qa');
 
 type Changes = Partial<Omit<Input, 'facts' | 'project' | 'turn'>> & {
   pr?: Partial<Pr> | null;
@@ -156,6 +162,35 @@ const cases: [string, Changes, Result][] = [
     'holds To Do on a live worker while Spur is blind',
     { column: 'todo', pr: null, facts: { marks: [] }, openPr: false, spurBlind: true },
     nothing,
+  ],
+  [
+    'holds Triage without work',
+    {
+      column: 'triage',
+      board: ALL,
+      pr: null,
+      facts: { marks: [] },
+      openPr: false,
+      liveWorker: false,
+    },
+    nothing,
+  ],
+  [
+    'leaves Triage for Dev in one move on an open PR',
+    { column: 'triage', board: ALL, facts: { marks: [] }, liveWorker: false },
+    { moves: [right('triage', 'dev')], turn: turn('entry', 'dev', 'no_submit_on_head') },
+  ],
+  [
+    'a reopen that hid the PR goes from Triage to To Do',
+    {
+      column: 'triage',
+      board: ALL,
+      reopened: true,
+      pr: null,
+      facts: { marks: [] },
+      openPr: false,
+    },
+    { moves: [{ from: 'triage', to: 'todo', reason: 'ticket_reopened' }], turn: null },
   ],
   [
     'holds a reopened task in To Do with a live worker',
@@ -542,8 +577,7 @@ const cases: [string, Changes, Result][] = [
     },
     {
       moves: [
-        right('todo', 'ready-for-dev'),
-        right('ready-for-dev', 'dev'),
+        right('todo', 'dev'),
         right('dev', 'review'),
         right('review', 'product-review'),
         right('product-review', 'external-review'),
@@ -711,6 +745,37 @@ describe('dispatch', () => {
     expect(dispatch(input(changes))).toEqual(expected);
   });
 
+  it('never moves a task between Todo-group columns', () => {
+    const boards: [string, Board][] = [
+      ['triage and ready-for-dev', ALL],
+      ['triage only', disable(ALL, 'ready-for-dev')],
+      ['ready-for-dev only', disable(ALL, 'triage')],
+      ['neither', SB],
+    ];
+    const starts: [string, Changes][] = [
+      ['an open PR', { facts: { marks: [] }, liveWorker: false }],
+      ['a live worker', { pr: null, facts: { marks: [] }, openPr: false }],
+      ['no work', { pr: null, facts: { marks: [] }, openPr: false, liveWorker: false }],
+    ];
+    for (const [boardName, board] of boards) {
+      for (const column of TODO_GROUP_COLUMN_IDS) {
+        for (const [start, changes] of starts) {
+          const label = `${column} on ${boardName}, ${start}`;
+          const { moves, turn: opened } = dispatch(input({ ...changes, column, board }));
+          if (start === 'no work') {
+            expect({ moves, opened }, label).toEqual({ moves: [], opened: null });
+            continue;
+          }
+          expect(moves[0], label).toEqual(right(column, 'dev'));
+          expect(
+            moves.filter((move) => isTodoGroupColumn(move.from) && isTodoGroupColumn(move.to)),
+            label,
+          ).toEqual([]);
+        }
+      }
+    }
+  });
+
   it('ordinary gate progression never moves right into Done', () => {
     for (const column of COLUMN_IDS.filter((id) => id !== 'done')) {
       const { moves } = dispatch(
@@ -754,6 +819,11 @@ describe('dispatchHolds', () => {
       ['spur_blind', 'work_not_started'],
     ],
     [
+      'Triage with no PR and no worker',
+      { column: 'triage', board: ALL, openPr: false, liveWorker: false },
+      ['work_not_started'],
+    ],
+    [
       'To Do with a live worker after a reopen',
       { column: 'todo', openPr: false, reopened: true },
       ['work_not_started'],
@@ -762,7 +832,7 @@ describe('dispatchHolds', () => {
   ])('%s', (_name, changes, expected) => {
     const held = input(changes);
     expect(dispatchHolds(held)).toEqual(expected);
-    // A not-started task in To Do or Ready for Dev makes no move and opens no turn.
+    // A not-started task in a Todo-group column makes no move and opens no turn.
     if (expected.includes('work_not_started') && !held.githubBlind)
       expect(dispatch(held)).toEqual({ moves: [], turn: null });
   });
