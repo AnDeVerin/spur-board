@@ -105,8 +105,8 @@ A stand serves the web UI from `packages/web/dist` of the checkout it runs from.
   template `up` says so on stderr and the stand runs API-only.
 - The stand sets `web.spurUiOrigin` to `https://spur.stand.invalid`, so task cards draw the Spur
   session link. That host does not resolve: check the link's `href`, never follow it.
-- Shortcuts for a browser round: `<webUrl>/?open=<task key>` opens a task view
-  (`docs/web-ui-task-view.md`), the localStorage key `board-project` holds the selected project,
+- Shortcuts for a browser round: `<webUrl>/?open=<task key>` with the key URL-encoded
+  (`?open=stand-org%2Fboard%234`) opens a task view (`docs/web-ui-task-view.md`), the localStorage key `board-project` holds the selected project,
   and `document.documentElement.dataset.theme` names the active theme.
 - Open the build only at that `webUrl`; never the live board's web address. Prototype static
   files may use a loopback static server
