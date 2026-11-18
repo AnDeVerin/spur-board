@@ -27,7 +27,7 @@ type PrChecks = Pick<
   'repo' | 'number' | 'state' | 'headSha' | 'checks' | 'requiredChecks'
 >;
 
-export const cancelledChecksKey = (source: string, ref: { repo: string; number: number }): string =>
+const cancelledChecksKey = (source: string, ref: { repo: string; number: number }): string =>
   `checks-cancel:${source}:pr:${ref.repo.toLowerCase()}#${String(ref.number)}`;
 
 /** The stored count, or undefined when it is absent or unreadable. */
