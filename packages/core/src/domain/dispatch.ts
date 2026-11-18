@@ -45,7 +45,7 @@ interface DispatchInput {
   ticketDone: boolean;
   /** Any open unbanned linked PR, including conflict links, past the reopen floor. */
   hasOpenLinkedPr: boolean;
-  /** Every configured GitHub repository has a complete, unblind view since startup. */
+  /** Every configured repository is unblind with a complete poll started after the task changed. */
   allGithubReposReady: boolean;
   /** The task has an open PR link past its reopen floor. */
   openPr: boolean;
@@ -140,7 +140,10 @@ export function dispatchHolds(input: DispatchInput): TaskHold[] {
   const holds: TaskHold[] = [];
   if (
     input.githubBlind ||
-    (input.facts.pr?.state !== 'merged' && ticketFinished(input) && !input.allGithubReposReady)
+    (input.column !== 'done' &&
+      input.facts.pr?.state !== 'merged' &&
+      ticketFinished(input) &&
+      !input.allGithubReposReady)
   )
     holds.push('github_blind');
   if (input.spurBlind) holds.push('spur_blind');

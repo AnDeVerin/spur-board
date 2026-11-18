@@ -56,6 +56,7 @@ import { enqueueLiveAfterFirstPoll } from './doctor.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
 import {
+  dispatchDoneTickets,
   dispatchJournaled,
   dispatchMergedTickets,
   dispatchSource,
@@ -1643,6 +1644,7 @@ export function createObservationCore(deps: {
         const recovered = wasBlind !== null && observation.state.blind === undefined;
         if ((observation.effectiveComplete && !completeSince.has(source)) || recovered)
           await dispatchSource(trx, source, dispatchContext);
+        if (observation.effectiveComplete) await dispatchDoneTickets(trx, source, dispatchContext);
         await dispatchMergedTickets(trx, source, dispatchContext);
         await dispatchJournaled(trx, dispatchContext);
         await reconcileItems(

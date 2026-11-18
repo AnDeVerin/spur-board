@@ -804,7 +804,15 @@ export async function readInput(
   if (mergedOpen !== undefined) pr = null;
   const repos = pr === null ? project.repos : [pr.repo];
   const githubBlind = repos.some((repo) => blind(prSourceId(project.id, repo)));
-  const allGithubReposReady = project.repos.every((repo) => !blind(prSourceId(project.id, repo)));
+  const allGithubReposReady = project.repos.every((repo) => {
+    const source = prSourceId(project.id, repo);
+    const complete = clock.complete.get(source);
+    return (
+      !blind(source) &&
+      complete !== undefined &&
+      complete > (task.last_change_at ?? task.created_at)
+    );
+  });
   const ticket = await readTicket();
   const done = ticket !== undefined && ticketDone(project, ticket.status);
   const hasOpenLinkedPr =
@@ -1206,6 +1214,37 @@ export async function dispatchSource(
   await dispatchTasks(
     trx,
     tasks.map((task) => task.id),
+    ctx,
+  );
+}
+
+/** An unchanged complete repository poll can confirm absence after the task's latest change. */
+export async function dispatchDoneTickets(
+  trx: Trx,
+  source: string,
+  ctx: DispatchContext,
+): Promise<void> {
+  const project = ctx.config.projects.find((entry) =>
+    entry.repos.some((repo) => prSourceId(entry.id, repo) === source),
+  );
+  if (project === undefined) return;
+  const tasks = await trx
+    .selectFrom('task')
+    .innerJoin('ticket_snapshot', 'ticket_snapshot.task_id', 'task.id')
+    .select(['task.id', 'ticket_snapshot.status'])
+    .where('task.project', '=', project.id)
+    .where('task.membership', '!=', 'archived')
+    .where(
+      project.dispatcher.mode === 'shadow'
+        ? sql<string>`coalesce(task.shadow_column, task.column)`
+        : sql<string>`task.column`,
+      '!=',
+      'done',
+    )
+    .execute();
+  await dispatchTasks(
+    trx,
+    tasks.filter((task) => ticketDone(project, task.status)).map((task) => task.id),
     ctx,
   );
 }

@@ -1712,7 +1712,10 @@ describe('dispatcher scenarios', () => {
   it(
     'dispatch-ticket-done-no-pr: closing an idle issue reaches Done in exactly one poll',
     async () => {
-      await up();
+      // Runner source order is tracker then repository. Distinct poll-start times prove the
+      // repo confirmation is newer than the close, even on a fast host within one millisecond.
+      let now = Date.parse('2026-11-04T08:00:00.000Z');
+      await up({ clock: { now: () => ++now } });
       await seed('dispatch-ticket-done-no-pr');
       expect(await column()).toBe('todo');
       await github('issue-close');

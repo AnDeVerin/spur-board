@@ -667,6 +667,9 @@ describe('dispatch', () => {
     expect(
       dispatchHolds(input({ ...idle, allGithubReposReady: false, githubBlind: true })),
     ).toEqual(['github_blind']);
+    expect(dispatchHolds(input({ ...idle, column: 'done', allGithubReposReady: false }))).toEqual(
+      [],
+    );
   });
 
   it.each(cases)('%s', (_name, changes, expected) => {
