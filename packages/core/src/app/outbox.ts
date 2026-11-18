@@ -315,9 +315,12 @@ export async function promoteWorkerDoorbells(
     .execute();
 }
 
+/** Every skill reload key starts with it; the next key after the range ends in `;`. */
+export const SKILL_RELOAD_KEY_PREFIX = 'doorbell:skill-reload:';
+
 /** The key holds no install time, so a session gets at most one reload message per version. */
 export function skillReloadKey(version: string, session: string): string {
-  return `doorbell:skill-reload:${version}:${session}`;
+  return `${SKILL_RELOAD_KEY_PREFIX}${version}:${session}`;
 }
 
 /**

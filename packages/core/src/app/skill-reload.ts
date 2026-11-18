@@ -1,9 +1,11 @@
-import { actorIdSchema, type Config } from '@spur-board/contracts';
+import { actorIdSchema, SKILL_RELOAD_NAMED_MAX, type Config } from '@spur-board/contracts';
+import { sql } from 'kysely';
 import { z } from 'zod';
 import type { OutboxState } from '../store/schema.ts';
+import type { Trx } from './board-utils.ts';
 import type { Store } from '../store/store.ts';
 import { FINISHED_STATES } from './doorbells.ts';
-import { enqueueSkillReload, skillReloadKey } from './outbox.ts';
+import { enqueueSkillReload, SKILL_RELOAD_KEY_PREFIX, skillReloadKey } from './outbox.ts';
 
 /** An installed spur-board version: strict semver with an optional prerelease. */
 export const SKILL_VERSION = z
@@ -24,13 +26,58 @@ export const RELOAD_SESSIONS = z
 
 type SkillReloadState = 'delivered' | 'pending' | 'failed';
 
-/** The fixed message a live session gets after an install of `version`. */
-function skillReloadText(version: string): string {
-  return `spur-board skill updated to ${version}. Before your next board command, read the spur-board skill again, SKILL.md and every file in its references/ folder: ~/.claude/skills/spur-board/ (Claude Code) or $CODEX_HOME/skills/spur-board/, by default ~/.codex/skills/spur-board/ (Codex).`;
+const SKILL_RELOAD_TEXT_MAX = 600;
+const SKILL_PATHS =
+  '~/.claude/skills/spur-board/ (Claude Code) or $CODEX_HOME/skills/spur-board/, by default ~/.codex/skills/spur-board/ (Codex)';
+
+/**
+ * The message a live session gets after an install of `version`. With `names` it lists those
+ * files, `SKILL.md` first; more than six names or a text over 600 characters asks for every file.
+ */
+function skillReloadText(version: string, names?: readonly string[]): string {
+  const every = `spur-board skill updated to ${version}. Before your next board command, read the spur-board skill again, SKILL.md and every file in its references/ folder: ${SKILL_PATHS}.`;
+  if (names === undefined || names.length === 0 || names.length > SKILL_RELOAD_NAMED_MAX) {
+    return every;
+  }
+  const sorted = names.toSorted((left, right) =>
+    left === 'SKILL.md' ? -1 : right === 'SKILL.md' ? 1 : left < right ? -1 : left > right ? 1 : 0,
+  );
+  const named = `spur-board skill updated to ${version}. Before your next board command, read these files of the spur-board skill again: ${sorted.join(', ')}. They are under ${SKILL_PATHS}.`;
+  return named.length <= SKILL_RELOAD_TEXT_MAX ? named : every;
+}
+
+/** The newest delivered reload time of each named session; pending or failed rows never count. */
+async function deliveredReloads(
+  trx: Trx,
+  sessions: readonly string[],
+): Promise<Map<string, number>> {
+  const newest = new Map<string, number>();
+  if (sessions.length === 0) return newest;
+  const rows = await trx
+    .selectFrom('outbox')
+    .select([
+      sql`json_extract(payload, '$.session')`.as('session'),
+      sql`json_extract(payload, '$.queuedAt')`.as('queuedAt'),
+    ])
+    .where('kind', '=', 'doorbell')
+    .where('dedupe_key', '>=', SKILL_RELOAD_KEY_PREFIX)
+    .where('dedupe_key', '<', `${SKILL_RELOAD_KEY_PREFIX.slice(0, -1)};`)
+    .where('state', '=', 'done')
+    .where(sql`json_extract(payload, '$.session')`, 'in', [...sessions])
+    .execute();
+  for (const row of rows) {
+    if (typeof row.session !== 'string' || typeof row.queuedAt !== 'string') continue;
+    const at = Date.parse(row.queuedAt);
+    if (!Number.isFinite(at)) continue;
+    newest.set(row.session, Math.max(newest.get(row.session) ?? -Infinity, at));
+  }
+  return newest;
 }
 
 /**
  * Queues the reload message for every live session of a configured Spur project, any role.
+ * With `files`, a session gets a message only when a file changed after its baseline, the later
+ * of its first poll and its newest delivered reload, and the message names only those files.
  * Returns how many rows this call inserted: a session told about `version` before gets none.
  */
 export async function requestSkillReload(
@@ -38,24 +85,49 @@ export async function requestSkillReload(
   config: Config,
   version: string,
   at: Date,
+  files?: Readonly<Record<string, string>>,
 ): Promise<{ queued: number }> {
   const projects = [
     ...new Set(config.projects.flatMap((project) => project.spurProjects.map((spur) => spur.name))),
   ];
   if (projects.length === 0) return { queued: 0 };
-  const text = skillReloadText(version);
+  const changes = Object.entries(files ?? {}).map(([name, changedAt]) => ({
+    name,
+    changedAt: Date.parse(changedAt),
+  }));
   return store.transaction(async (trx) => {
     const sessions = await trx
       .selectFrom('session_snapshot')
-      .select('id')
+      .select(['id', 'first_seen'])
       .where('spur_project', 'in', projects)
       .where('ended_at', 'is', null)
       .where('absent_since', 'is', null)
       .where('state', 'not in', FINISHED_STATES)
       .orderBy('id')
       .execute();
+    const delivered =
+      files === undefined
+        ? new Map<string, number>()
+        : await deliveredReloads(
+            trx,
+            sessions.map((session) => session.id),
+          );
     let queued = 0;
     for (const session of sessions) {
+      let text: string;
+      if (files === undefined) text = skillReloadText(version);
+      else {
+        const firstSeen = Date.parse(session.first_seen);
+        const baseline = Math.max(
+          Number.isFinite(firstSeen) ? firstSeen : -Infinity,
+          delivered.get(session.id) ?? -Infinity,
+        );
+        const names = changes
+          .filter((change) => change.changedAt > baseline)
+          .map((change) => change.name);
+        if (names.length === 0) continue;
+        text = skillReloadText(version, names);
+      }
       if (await enqueueSkillReload(trx, { session: session.id, version, text, at })) queued += 1;
     }
     return { queued };

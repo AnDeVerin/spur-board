@@ -90,7 +90,9 @@ function reloads(body: unknown) {
   };
 }
 
-const RELOAD_USAGE = 'Send {"version": "<x.y.z>"} with the installed spur-board version.';
+const RELOAD_USAGE =
+  'Send {"version": "<x.y.z>"} with the installed spur-board version, and optionally "files": {"<SKILL.md or references/<name>.md>": "<ISO time it changed>"}.';
+const CHANGED = '2026-11-04T09:00:00.000Z';
 const RELOADS_USAGE =
   'Send {"version": "<x.y.z>", "sessions": ["<session id>", ...]} with 1 to 200 session ids.';
 
@@ -117,6 +119,19 @@ describe('POST /v1/skills/reload', () => {
     ['an extra field', { version: '1.2.3', force: true }],
     ['no version', {}],
     ['a non-object body', ['1.2.3']],
+    ['a file outside the skill', { version: '1.2.3', files: { '../x.md': CHANGED } }],
+    ['a nested reference', { version: '1.2.3', files: { 'references/sub/x.md': CHANGED } }],
+    ['a file outside references/', { version: '1.2.3', files: { 'README.md': CHANGED } }],
+    ['a non-ISO change time', { version: '1.2.3', files: { 'SKILL.md': 'yesterday' } }],
+    [
+      '65 files',
+      {
+        version: '1.2.3',
+        files: Object.fromEntries(
+          Array.from({ length: 65 }, (_, i) => [`references/r-${String(i)}.md`, CHANGED]),
+        ),
+      },
+    ],
   ])('answers usage for %s', async (_name, body) => {
     const { app } = await server({ productVersion: '1.2.3' });
     try {
@@ -156,6 +171,31 @@ describe('POST /v1/skills/reload', () => {
       );
       const again = await app.inject(reload({ version: '1.2.3-rc.1' }));
       expect(again.json()).toMatchObject({ value: { version: '1.2.3-rc.1', queued: 0 } });
+    } finally {
+      await app.close();
+    }
+  });
+  it('names only the listed files that changed after each session was first seen', async () => {
+    const { app, store } = await server({ productVersion: '1.2.3' });
+    try {
+      const response = await app.inject(
+        reload({
+          version: '1.2.3',
+          files: {
+            'SKILL.md': sampleRows.session_snapshot.first_seen,
+            'references/inbox.md': CHANGED,
+          },
+        }),
+      );
+      expect(response.json()).toMatchObject({ value: { version: '1.2.3', queued: 3 } });
+      const rows = await store.db.selectFrom('outbox').select('payload').execute();
+      expect(rows.map((row) => (JSON.parse(row.payload) as { text: string }).text)).toEqual(
+        Array.from(
+          { length: 3 },
+          () =>
+            'spur-board skill updated to 1.2.3. Before your next board command, read these files of the spur-board skill again: references/inbox.md. They are under ~/.claude/skills/spur-board/ (Claude Code) or $CODEX_HOME/skills/spur-board/, by default ~/.codex/skills/spur-board/ (Codex).',
+        ),
+      );
     } finally {
       await app.close();
     }
