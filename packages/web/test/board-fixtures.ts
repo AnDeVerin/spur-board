@@ -52,6 +52,7 @@ const project = (id: string, mode: 'on' | 'shadow', columns: ReturnType<typeof c
   dispatcher: { mode },
   spurProjects: [],
   ticketBrowseBase: null as string | null,
+  checksGate: 'dev' as const,
 });
 export const config = {
   projects: [

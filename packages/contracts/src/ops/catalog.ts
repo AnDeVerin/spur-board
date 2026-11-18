@@ -1571,6 +1571,7 @@ export const OPERATIONS = [
               dispatcher: { mode: 'on' },
               spurProjects: [{ name: 'web-worker', role: 'worker', displayName: 'web-worker' }],
               ticketBrowseBase: 'https://jira.example.com/browse/',
+              checksGate: 'dev',
             },
           ],
           web: { publicOrigin: 'http://127.0.0.1:4778', spurUiOrigin: null },

@@ -1,0 +1,19 @@
+projects:
+  - id: web
+    tracker:
+      type: github-issues
+      repo: example-org/web
+    repos: [example-org/web]
+    operatorGithubLogin: octocat
+    columns:
+      - id: todo
+      - id: dev
+      - id: review
+      - id: external-review
+      - id: ready-to-merge
+      - id: done
+    checksGate: external-review
+operator:
+  slack: U0000000000
+digest:
+  tz: UTC

@@ -144,6 +144,7 @@ describe('fixtures', () => {
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
+    expect(project?.checksGate).toBe('dev');
     expect(project?.spurProjects).toEqual([{ name: 'qa-bot', role: 'orchestrator' }]);
     expect(project?.columns).toEqual([
       { id: 'todo', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
@@ -168,6 +169,7 @@ describe('fixtures', () => {
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker).not.toHaveProperty('projectKeys');
+    expect(project?.checksGate).toBe('dev');
     expect(project?.link).toEqual({
       sources: ['closing', 'branch', 'title'],
       branchPattern: '^[A-Za-z]+-([1-9][0-9]*)',
@@ -213,6 +215,20 @@ describe('fixtures', () => {
     expect(config.projects[0]?.spurProjects).toEqual([]);
     expect(config.projects[0]?.reposWithoutCi).toEqual([]);
   });
+
+  it('parses the checks gate fixture with External Review as the green checks column', () => {
+    const config = configSchema.parse(readFixture('checks-gate-project.yaml'));
+    expect(config.projects[0]?.checksGate).toBe('external-review');
+  });
+
+  it.each(['dev', 'review', 'product-review', 'external-review'])(
+    'accepts checksGate %s on the default board',
+    (gate) => {
+      expect(configSchema.parse(validConfig({ checksGate: gate })).projects[0]?.checksGate).toBe(
+        gate,
+      );
+    },
+  );
 
   it('accepts the whole Todo group: todo, triage and ready-for-dev', () => {
     const config = configSchema.parse(
@@ -1291,6 +1307,27 @@ describe('invalid configs', () => {
     const error = errorFor(input);
     expect(error).toContain(message);
     expect(pathLines(error)).toContain(`→ at ${path}`);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['qa', { checksGate: 'qa' }],
+    [
+      'a disabled review',
+      {
+        columns: [...columns('todo', 'dev'), { id: 'review', enabled: false }, ...columns('done')],
+        checksGate: 'review',
+      },
+    ],
+    ['an absent review', { columns: columns('todo', 'dev', 'done'), checksGate: 'review' }],
+  ])('rejects checksGate on %s at projects[0].checksGate', (_name, project) => {
+    const result = configSchema.safeParse(validConfig(project));
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toHaveLength(1);
+    expect(result.error?.issues[0]?.path).toEqual(['projects', 0, 'checksGate']);
+    expect(result.error?.issues[0]?.message).toContain('checksGate');
+    expect(result.error?.issues[0]?.message).toContain(
+      'dev, review, product-review, external-review',
+    );
   });
 
   it('rejects the reserved project id with one issue', () => {

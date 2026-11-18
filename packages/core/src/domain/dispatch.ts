@@ -275,6 +275,9 @@ export function dispatch(input: DispatchInput): DispatchResult {
     if (reasons.includes('pr_closed') && !handsBack) return result(null);
     switch (turn.visit) {
       case 'none':
+        // Right of Dev a hold-only wait (checks running at the checksGate column) is no work.
+        if (column !== 'dev' && reasons.every((reason) => HOLD_ONLY.has(reason)))
+          return result(null);
         return result({ column, reasons, kind: 'entry' });
       case 'unclosed':
         return result(

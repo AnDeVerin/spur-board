@@ -1,9 +1,11 @@
 import {
+  CHECKS_GATE_COLUMNS,
   configSchema,
   err,
   eventPayloadSchemas,
   ok,
   type ActorId,
+  type CheckGateColumn,
   type ColumnId,
   type EventKind,
   type PrFacts,
@@ -84,6 +86,8 @@ type Options = {
    * Triage and Ready for Dev follow To Do.
    */
   columns?: 'omitted' | 'todo-group';
+  /** The project's `checksGate`; unset by default. */
+  checksGate?: CheckGateColumn;
 };
 
 function boardConfig(options: Options = {}) {
@@ -109,6 +113,7 @@ function boardConfig(options: Options = {}) {
           ...(options.curator === true ? [{ name: 'cur', role: 'curator' }] : []),
         ],
         ...(options.columns === 'omitted' ? {} : { columns: columnsOf(options) }),
+        ...(options.checksGate === undefined ? {} : { checksGate: options.checksGate }),
         dispatcher: { mode: options.mode ?? 'on' },
       },
       ...(options.unrelatedProject === true
@@ -4054,6 +4059,29 @@ describe('design flows 2.5 and 2.10', () => {
     ],
   });
 
+  it.each([false, true])(
+    'checksGate external-review, qa %s: an approved task with a cancel in grace never moves right',
+    async (qa) => {
+      const ctx = await pastProductReview({
+        externalReview: true,
+        qa,
+        checksGate: 'external-review',
+      });
+      await ctx.pr({
+        ...review(EXTERNAL, 'approved', 30),
+        requiredChecks: [{ name: 'ci', state: 'cancelled', completedAt: at(40) }],
+      });
+      expect((await ctx.task()).column).toBe('external-review');
+      await ctx.github();
+      expect((await ctx.task()).column).toBe('external-review');
+      await ctx.github();
+      expect((await ctx.task()).column).toBe('dev');
+      expect(
+        (await ctx.moves()).filter((move) => move.to === 'qa' || move.to === 'ready-to-merge'),
+      ).toEqual([]);
+    },
+  );
+
   it('External Review holds with no turn until an external approval', async () => {
     const ctx = await pastProductReview({ externalReview: true });
     expect((await ctx.task()).column).toBe('external-review');
@@ -5362,4 +5390,238 @@ describe('reviewer-service status comments', () => {
       expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
     },
   );
+});
+
+describe('checksGate', () => {
+  const GATED = { externalReview: true, checksGate: 'external-review' } as const;
+  const ci = (state: 'pending' | 'failure' | 'cancelled' | 'success', minute?: number) => ({
+    requiredChecks: [{ name: 'ci', state, completedAt: minute === undefined ? null : at(minute) }],
+  });
+  const approved = {
+    reviews: [
+      { reviewer: EXTERNAL, state: 'approved' as const, commitSha: A, submittedAt: at(30) },
+    ],
+    feedback: [
+      {
+        kind: 'review' as const,
+        id: `r-${EXTERNAL}`,
+        author: { login: EXTERNAL, type: 'user' as const },
+        postedAt: at(30),
+      },
+    ],
+  };
+  const cancelRows = (ctx: Board) =>
+    ctx.store.db
+      .selectFrom('meta')
+      .select(['key', 'value'])
+      .where('key', 'like', 'checks-cancel:%')
+      .execute();
+  const cancelCount = async (ctx: Board) =>
+    (await cancelRows(ctx)).map((row) => JSON.parse(row.value) as unknown);
+
+  it('checksGate external-review: pending passes Dev, Review, Product Review and holds at External Review', async () => {
+    const ctx = await started(GATED);
+    await ctx.ack(WORKER, 'T1');
+    await ctx.pr(ci('pending'));
+    await ctx.submit(WORKER, 'T1', A);
+    expect((await ctx.task()).column).toBe('review');
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2', A);
+    await ctx.ack(COORD, 'T3');
+    await ctx.submit(COORD, 'T3', A);
+    expect((await ctx.task()).column).toBe('external-review');
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await ctx.turns()).map((turn) => turn.column)).toEqual([
+      'dev',
+      'review',
+      'product-review',
+    ]);
+    const why = await ctx.why();
+    expect(why.waiting).toEqual([
+      {
+        reason: 'checks_pending',
+        head: A,
+        text: 'checks running, exit from external-review waits for green',
+      },
+    ]);
+    expect(why.gates.find((gate) => gate.column === 'external-review')?.conditions).toContainEqual({
+      condition: 'checks_green',
+      state: 'waiting',
+      reason: 'checks_pending',
+    });
+
+    await ctx.pr({ ...approved, ...ci('pending') });
+    expect((await ctx.task()).column).toBe('external-review');
+    await ctx.pr(ci('success'));
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+  });
+
+  it('checksGate external-review: green releases from External Review', async () => {
+    const ctx = await pastProductReview(GATED);
+    expect((await ctx.task()).column).toBe('external-review');
+    await ctx.pr(approved);
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+  });
+
+  it('checksGate external-review: a review mark on head survives a red return', async () => {
+    const ctx = await inReview(GATED);
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2', A);
+    expect((await ctx.task()).column).toBe('product-review');
+    await ctx.pr(ci('failure', 20));
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from: 'product-review',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['checks_red'],
+    });
+    const why = await ctx.why();
+    expect(why.gates.find((gate) => gate.column === 'dev')?.conditions).toContainEqual({
+      condition: 'checks_not_red',
+      state: 'failed',
+      reason: 'checks_red',
+    });
+    await ctx.pr(ci('success', 25));
+    const turn = await ctx.openTurn();
+    await ctx.ack(WORKER, turn?.id ?? '');
+    await expect(ctx.submit(WORKER, turn?.id ?? '', A)).resolves.toMatchObject({
+      task: { column: 'product-review' },
+    });
+    expect((await ctx.turns()).map((entry) => entry.column)).toEqual([
+      'dev',
+      'review',
+      'product-review',
+      'dev',
+      'product-review',
+    ]);
+  });
+
+  /** The task in `column` with no taken turn, under `checksGate`. */
+  async function inColumn(column: CheckGateColumn, checksGate: CheckGateColumn): Promise<Board> {
+    const options = { externalReview: true, checksGate };
+    if (column === 'dev') return inDev(options);
+    const ctx = await inReview(options);
+    if (column === 'review') return ctx;
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2', A);
+    if (column === 'product-review') return ctx;
+    await ctx.ack(COORD, 'T3');
+    await ctx.submit(COORD, 'T3', A);
+    return ctx;
+  }
+
+  it.each(
+    CHECKS_GATE_COLUMNS.flatMap((checksGate) =>
+      CHECKS_GATE_COLUMNS.map((column) => ({ checksGate, column })),
+    ),
+  )('checksGate $checksGate: red returns to Dev from $column', async ({ checksGate, column }) => {
+    const ctx = await inColumn(column, checksGate);
+    expect((await ctx.task()).column).toBe(column);
+    await ctx.pr(ci('failure', 20));
+    expect((await ctx.task()).column).toBe('dev');
+    if (column !== 'dev')
+      expect((await ctx.moves()).at(-1)).toEqual({
+        from: column,
+        to: 'dev',
+        reason: 'gate_broken',
+        gate: ['checks_red'],
+      });
+  });
+
+  it('checksGate external-review: red while a Review turn is taken returns after its submit', async () => {
+    const ctx = await inReview(GATED);
+    await ctx.ack(REV, 'T2');
+    await ctx.pr(ci('failure', 20));
+    expect((await ctx.task()).column).toBe('review');
+    expect(await ctx.openTurn()).toMatchObject({ id: 'T2' });
+    expect((await ctx.why()).waiting).toContainEqual({
+      reason: 'checks_red',
+      head: A,
+      text: 'checks red',
+    });
+
+    await ctx.submit(REV, 'T2', A);
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from: 'review',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['checks_red'],
+    });
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: checks_red, no_submit_on_head'),
+    );
+  });
+
+  it('checksGate external-review: a cancelled check turns red on the second complete poll after its sighting', async () => {
+    const ctx = await pastProductReview(GATED);
+    await ctx.pr(ci('cancelled', 40));
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await ctx.why()).waiting).toEqual([
+      {
+        reason: 'checks_pending',
+        head: A,
+        text: 'checks running, exit from external-review waits for green',
+      },
+    ]);
+    await ctx.github();
+    expect((await ctx.task()).column).toBe('external-review');
+    await ctx.github();
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from: 'external-review',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['checks_red'],
+    });
+  });
+
+  it('checksGate external-review: a new run after a cancel keeps the task in place', async () => {
+    const ctx = await pastProductReview(GATED);
+    await ctx.pr(ci('cancelled', 40));
+    await ctx.pr(ci('pending'));
+    await ctx.github();
+    await ctx.github();
+    await ctx.pr(ci('success', 50));
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await ctx.moves()).filter((move) => move.to === 'dev')).toHaveLength(1);
+    expect(await cancelRows(ctx)).toEqual([]);
+  });
+
+  it('checksGate external-review: incomplete polls and demand reads do not count a cancel', async () => {
+    const ctx = await pastProductReview(GATED);
+    await ctx.pr(ci('cancelled', 40));
+    await ctx.pr({}, false);
+    await ctx.pr({}, false);
+    expect((await ctx.task()).column).toBe('external-review');
+    expect(await cancelCount(ctx)).toEqual([
+      { headSha: A, cancelled: [{ name: 'ci', completedAt: at(40), polls: 0 }] },
+    ]);
+    await ctx.github();
+    expect((await ctx.task()).column).toBe('external-review');
+    await ctx.github();
+    expect((await ctx.task()).column).toBe('dev');
+  });
+
+  it('checksGate external-review: a head change restarts the cancel count', async () => {
+    const ctx = await pastProductReview(GATED);
+    await ctx.pr(ci('cancelled', 40));
+    await ctx.github();
+    expect(await cancelCount(ctx)).toEqual([
+      { headSha: A, cancelled: [{ name: 'ci', completedAt: at(40), polls: 1 }] },
+    ]);
+    await ctx.pr({ headSha: B, ...ci('cancelled', 45) });
+    expect(await cancelCount(ctx)).toEqual([
+      { headSha: B, cancelled: [{ name: 'ci', completedAt: at(45), polls: 0 }] },
+    ]);
+  });
+
+  it('without the key a cancelled required check returns the task to Dev at once', async () => {
+    const ctx = await inReview();
+    await ctx.pr(ci('cancelled', 20));
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['checks_red'] });
+    expect(await cancelRows(ctx)).toEqual([]);
+  });
 });

@@ -41,6 +41,7 @@ import {
   shadowCourseCheck,
   uncounted,
 } from './course-check.ts';
+import { withUnconfirmedCancels } from './cancelled-checks.ts';
 import { linkedSession } from './doorbells.ts';
 import { raiseCycleLimit } from './fromYou.ts';
 import {
@@ -902,9 +903,16 @@ export async function readInput(
   return {
     input: {
       column,
-      project: { columns: project.columns, reposWithoutCi: project.reposWithoutCi },
+      project: {
+        columns: project.columns,
+        reposWithoutCi: project.reposWithoutCi,
+        checksGate: project.checksGate,
+      },
       facts: {
-        pr,
+        pr:
+          pr !== null && pr.state === 'open' && project.checksGate !== 'dev'
+            ? await withUnconfirmedCancels(trx, prSourceId(project.id, pr.repo), pr)
+            : pr,
         externalReviewApproved: pr !== null && externalApproval(pr, project.operatorGithubLogin),
         commentHistory: pr?.feedbackComplete === true ? 'complete' : 'incomplete',
         unhandledExternalComments: unhandled.length,

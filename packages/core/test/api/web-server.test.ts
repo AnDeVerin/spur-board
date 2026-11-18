@@ -60,14 +60,12 @@ async function setup(overrides: Partial<WebOptions> = {}, built = true) {
   cleanups.push(() => app.close());
   return { app, store, logRequest, root };
 }
-function post(id = 'status.get', input: unknown = {}) {
-  return {
-    method: 'POST' as const,
-    url: `/v1/ops/${id}`,
-    headers,
-    payload: JSON.stringify({ input }),
-  };
-}
+const post = (id = 'status.get', input: unknown = {}) => ({
+  method: 'POST' as const,
+  url: `/v1/ops/${id}`,
+  headers,
+  payload: JSON.stringify({ input }),
+});
 function secure(response: { headers: Record<string, unknown> }) {
   expect(response.headers['content-security-policy']).toContain("default-src 'self'");
   expect(response.headers['content-security-policy']).toContain("frame-ancestors 'none'");
@@ -145,6 +143,7 @@ describe('web listener', () => {
             dispatcher: { mode: 'shadow' },
             spurProjects: [],
             ticketBrowseBase: null,
+            checksGate: 'dev',
           },
         ],
         web: { publicOrigin: 'https://web.example.test', spurUiOrigin: null },

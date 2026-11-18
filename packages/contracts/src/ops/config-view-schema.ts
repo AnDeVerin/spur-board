@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { configSchema } from '../config.ts';
-import { COLUMN_GROUPS, COLUMN_IDS, DISPATCHER_MODES } from '../enums.ts';
+import { CHECKS_GATE_COLUMNS, COLUMN_GROUPS, COLUMN_IDS, DISPATCHER_MODES } from '../enums.ts';
 
 export const configViewSchema = z
   .strictObject({
@@ -53,6 +53,11 @@ export const configViewSchema = z
             .nullable()
             .describe(
               'Ticket page prefix; append a task key such as PROJ-12. <baseUrl>/browse/ for a Jira project; null when the tracker has none, as for GitHub Issues.',
+            ),
+          checksGate: z
+            .enum(CHECKS_GATE_COLUMNS)
+            .describe(
+              'The column whose exit waits for green checks, as the running daemon read it at start; dev when not configured.',
             ),
         }),
       )

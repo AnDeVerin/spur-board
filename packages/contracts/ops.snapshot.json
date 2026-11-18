@@ -1,5 +1,5 @@
 {
-  "version": "e7968c58f60dc97b7d33fb0dd09d0f168dadaa02a4375017a81049bab1df95d2",
+  "version": "416b30cdcaec12b283991565c2d4ee82c0a21fe20660ff8b1ca300455a7ab1db",
   "grants": [
     "operator",
     "project-agent",
@@ -5320,6 +5320,7 @@
                               "pr_open",
                               "not_draft",
                               "checks_green",
+                              "checks_not_red",
                               "no_conflict",
                               "external_comments_handled",
                               "comment_history_read",
@@ -5761,7 +5762,7 @@
                 "description": "The last 5 column moves, oldest first."
               },
               "waiting": {
-                "description": "Facts the task waits for that GitHub has not settled yet; absent when none.",
+                "description": "Facts the task waits for that GitHub has not settled yet, plus red checks the task returns to Dev on when the project checksGate is not dev; absent when none.",
                 "minItems": 1,
                 "type": "array",
                 "items": {
@@ -5785,7 +5786,7 @@
                         "not_approved",
                         "not_merged"
                       ],
-                      "description": "The gate reason that waits on the fact."
+                      "description": "The gate reason that waits on the fact; checks_red only when the project checksGate is not dev."
                     },
                     "head": {
                       "type": "string",
@@ -5794,7 +5795,7 @@
                     },
                     "text": {
                       "type": "string",
-                      "description": "The fact in one line, e.g. waiting for CI on <sha>."
+                      "description": "The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red."
                     }
                   },
                   "required": ["reason", "head", "text"],
@@ -11226,7 +11227,8 @@
                 "spurProjects": [
                   { "name": "web-worker", "role": "worker", "displayName": "web-worker" }
                 ],
-                "ticketBrowseBase": "https://jira.example.com/browse/"
+                "ticketBrowseBase": "https://jira.example.com/browse/",
+                "checksGate": "dev"
               }
             ],
             "web": { "publicOrigin": "http://127.0.0.1:4778", "spurUiOrigin": null }
@@ -11347,9 +11349,21 @@
                 "ticketBrowseBase": {
                   "anyOf": [{ "type": "string", "format": "uri" }, { "type": "null" }],
                   "description": "Ticket page prefix; append a task key such as PROJ-12. <baseUrl>/browse/ for a Jira project; null when the tracker has none, as for GitHub Issues."
+                },
+                "checksGate": {
+                  "type": "string",
+                  "enum": ["dev", "review", "product-review", "external-review"],
+                  "description": "The column whose exit waits for green checks, as the running daemon read it at start; dev when not configured."
                 }
               },
-              "required": ["id", "columns", "dispatcher", "spurProjects", "ticketBrowseBase"],
+              "required": [
+                "id",
+                "columns",
+                "dispatcher",
+                "spurProjects",
+                "ticketBrowseBase",
+                "checksGate"
+              ],
               "additionalProperties": false
             },
             "description": "Effective projects visible to this caller."

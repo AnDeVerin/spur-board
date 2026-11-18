@@ -6,6 +6,7 @@ import {
   BLOCK_OUTCOMES,
   BLOCK_STATES,
   BLOCK_TYPES,
+  CHECKS_GATE_COLUMNS,
   COLUMN_GROUPS,
   COLUMNS,
   COLUMN_IDS,
@@ -153,11 +154,18 @@ it('lists turn outcomes', () => {
   ]);
 });
 
+it('lists the columns a project checks gate may name, each left of qa', () => {
+  expect(CHECKS_GATE_COLUMNS).toEqual(['dev', 'review', 'product-review', 'external-review']);
+  for (const id of CHECKS_GATE_COLUMNS)
+    expect(COLUMN_IDS.indexOf(id)).toBeLessThan(COLUMN_IDS.indexOf('qa'));
+});
+
 it('lists gate conditions and their states', () => {
   expect(GATE_CONDITIONS).toEqual([
     'pr_open',
     'not_draft',
     'checks_green',
+    'checks_not_red',
     'no_conflict',
     'external_comments_handled',
     'comment_history_read',

@@ -157,16 +157,22 @@ export function createTaskQueries(deps: {
     const { gates, checksWaivedBy } = explainGates(facts, read.input.project);
     const gate = evaluateGate(column, facts, read.input.project);
     const head = facts.pr?.headSha.toLowerCase();
+    const { checksGate } = project;
+    // Under a checksGate right of Dev, running checks name the gate and red checks are listed too.
+    const waitText = (reason: HoldOnlyReason, sha: string) =>
+      reason === 'checks_pending' && checksGate !== 'dev'
+        ? `checks running, exit from ${checksGate} waits for green`
+        : `${WAITING_FOR[reason]} on ${sha}`;
     const waiting =
       gate.ok || head === undefined
         ? []
-        : gate.reasons
-            .filter((reason): reason is HoldOnlyReason => HOLD_ONLY.has(reason))
-            .map((reason) => ({
-              reason,
-              head,
-              text: `${WAITING_FOR[reason]} on ${head}`,
-            }));
+        : gate.reasons.flatMap((reason) =>
+            HOLD_ONLY.has(reason)
+              ? [{ reason, head, text: waitText(reason as HoldOnlyReason, head) }]
+              : reason === 'checks_red' && checksGate !== 'dev'
+                ? [{ reason, head, text: 'checks red' }]
+                : [],
+          );
     const holds = [
       ...dispatchHolds(read.input),
       ...(read.ticketUnconfirmed ? ['ticket_unconfirmed' as const] : []),
