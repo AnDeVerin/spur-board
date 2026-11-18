@@ -12,6 +12,7 @@ import {
   hello,
   inbox,
   problem,
+  ROWS_TIMED,
   status,
   taskGet,
   taskHistory,
@@ -107,8 +108,10 @@ const scrim = () => {
 
 describe('task view', () => {
   it('Enter on a focused card opens the task: key, title, column and age, chips and why', async () => {
-    mount(daemon());
+    // The card and the header read the same status row columnEnteredAt.
+    mount(daemon(ROWS_TIMED));
     await settle();
+    expect(card().textContent).toContain('2h');
     act(() => {
       card().focus();
     });

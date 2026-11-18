@@ -48,31 +48,4 @@ A stored target is a known structured HTTP(S) destination, never a generic place
 URL extracted from text. Unknown or invalid targets are omitted. Active and handled entries
 carry the same optional `url`; blocks and turns have no synthetic target.
 
-<!-- prettier-ignore-start -->
-| Kind | Condition | Action | Severity | Clears when | URL |
-| --- | --- | --- | --- | --- | --- |
-| `token_request` | an agent asks for a token | approve or deny it in Slack within 15 minutes of the request | attention | approved, denied, expired or revoked | stored target |
-| `post_blocked` | a text looked like a secret and was not sent | close the item once you have read it | attention | its block closes or you close the item | stored target |
-| `post_failed` | a chat delivery failed | check the chat gateway, then retry the item | failure | you retry or close the item | own delivered message permalink, else immediate parent permalink when known |
-| `transport_health` | a chat connection is down | check the Slack app tokens | failure | the connection is back | stored target |
-| `answer_undelivered` | an answer did not reach the asking session | check the asking session, then retry the item | failure | you retry the item, the session reads it or its block or turn closes | stored target |
-| `worker_not_reading` | the worker does not read its doorbell | check the worker session, then retry the item | failure | you retry the item, the worker reads it or its block or turn closes | stored target |
-| `answer_author_unavailable` | no live session can take an answer | with a task: comment on the task so a live session reads the answer, then close the item; without: pass the answer to the asking session yourself, then close the item | attention | you close the item | stored target |
-| `inbound_failure` | a chat message could not be applied | check the daemon log, then retry the item | failure | a retry applies it or you close the item | stored target |
-| `inbound_gap` | chat messages may be missing | check the conversation for missed messages | failure | you close the item | stored target |
-| `board_observation` | any other key | check the task, then close the item | attention | the condition ends or you close the item | stored target |
-| `board_observation` `source:` | a source is blind | check the token, settings, daemon or source it names | failure | the source reads again | official GitHub REST troubleshooting or Jira REST docs; absent for Spur or unknown sources |
-| `board_observation` `default-branch:` | the latest check run of a push-triggered workflow on a linked repo's default-branch head finished without success (failed, cancelled, timed out), or a commit status there failed; scheduled, manual and other runs and check runs outside workflows never count, and branch protection is not read. The text names the repo, the first red commit, the check and the run; each poll that reads it red again moves its fact time, not the text; `status.get` shows `sources[].defaultBranch` | open the failing run; fix or revert | failure | a later default-branch head is green | stored failing run or status target, retained after handling |
-| `board_observation` `pr-outcome:` | a linked PR closed unmerged or vanished | check the pull request, then close the item or archive the task | attention | the PR is seen again or you close the item; unlinking does not clear it | stored target |
-| `board_observation` `lookup:` | the ticket lookup failed | check the ticket in the tracker, then close the item or archive the task | attention | a lookup succeeds or you close the item | stored target |
-| `board_observation` `operator-block:` | a block waits for you | not listed: shown as its block | attention | the block closes | stored target |
-| `board_observation` `block:` | a block waits for its addressee | answer `B<n>` if it is a question, or close it with a reason; listed only when the block is not addressed to you; otherwise shown as its block | attention | the block closes | stored target |
-| `board_observation` `filter:` | the ticket left the tracker filter but work is live | return the ticket to the tracker filter, or finish or unlink the linked work (`board unlink <task> --pr <pr> --reason <reason>`) | attention | the ticket is back in the filter or no linked open PR or live session is left | stored target |
-| `board_observation` `health:` | a session health flag | check session `<session>` in Spur; a vanished worker: start a new worker for the task, or archive the task | attention | the flag ends | stored target |
-| `worker_ended` | an agent holding the current open non-Done turn ended, with any end reason and regardless of PRs or links; also a killed worker without a PR | start a new worker for the task, or archive the task | attention | the turn closes, its holder changes, the task leaves the column visit or is archived; for a worker without a turn, the health flag ends | stored target |
-| `turn` | a turn is yours | listed as its `T…` entry | attention | the turn closes | absent |
-| `anomaly` | a live session or turn of the task is stuck, or a worker completed without a PR and has no current open turn | wait for the answer to `B<n>`, or answer it yourself; listed only when addressed to the curator; otherwise shown as its block | attention | the condition ends or its block closes | stored target |
-| `cycle_limit` | the task reached its column's cycle limit | not listed: shown as its block | attention | its block closes | stored target |
-| `course_check` | the task keeps returning from a column | wait for the answer to `B<n>`, or answer it yourself; listed only when addressed to the curator or orchestrator; otherwise shown as its block | attention | its block closes | stored target |
-| `conversation_waiting` | your conversation waits for a live session | start a session in its Spur project, or close `B<n>` with a reason | attention | a session starts or the block closes | stored target |
-<!-- prettier-ignore-end -->
+[Operator inbox items](how-board-works-inbox.md) lists each item kind, its action, severity, when it clears and its URL.

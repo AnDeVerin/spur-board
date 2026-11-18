@@ -7,47 +7,123 @@ import { config, daemon, envelope, problem, status, row, taskGet } from './board
 import { mount, mountEachTest, one, press, settle } from './board-harness.ts';
 
 mountEachTest();
+const NOW = Date.parse('2026-11-15T14:00:00.000Z');
+const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
+/** A why.moves entry into `to` as `task.get` returns it. */
+const moveView = (to: string, at: string, kind = 'task_moved') => ({
+  at,
+  kind,
+  actor: 'system',
+  from: 'todo',
+  to,
+  reason: kind === 'task_corrected' ? 'corrected' : 'gate_passed',
+  gate: [],
+  text: kind === 'task_corrected' ? 'Operator correction' : null,
+});
+/** Opens `ex/repo#7` with the given why.moves and status row entry; returns the header facts. */
+async function header(moves: unknown[], columnEnteredAt: string | null) {
+  const d = daemon();
+  d.routes['status.get'] = () =>
+    Promise.resolve(envelope(status([row('ex/repo#7', 'dev', { columnEnteredAt })])));
+  d.routes['task.get'] = () =>
+    Promise.resolve(envelope(taskGet({ why: { ...taskGet().why, moves } })));
+  mount(d, {}, () => NOW);
+  await settle();
+  press(one('main a[title="ex/repo#7"]'), 'click');
+  await settle();
+  const title = document.querySelector('[role="dialog"] [title="ex/repo#7"]');
+  if (!title) throw new Error('missing header key');
+  return {
+    title,
+    detail: title.parentElement?.nextElementSibling?.textContent,
+    duration: document.querySelector(`.${taskStyles.duration ?? ''}`)?.textContent ?? null,
+  };
+}
 it.each([
-  [120, '2h'],
-  [106, '1h 46m'],
-  [3, '3m'],
-  [null, null],
-] as const)(
-  'header separates key, uppercase column and lowercase duration (%s minutes)',
-  async (minutes, duration) => {
-    const d = daemon();
-    const now = Date.parse('2026-11-15T14:00:00.000Z');
-    const why = taskGet().why;
-    d.routes['task.get'] = () =>
-      Promise.resolve(
-        envelope(
-          taskGet({
-            why: {
-              ...why,
-              moves:
-                minutes === null
-                  ? []
-                  : [{ ...why.moves[0], at: new Date(now - minutes * 60_000).toISOString() }],
-            },
-          }),
-        ),
-      );
-    mount(d, {}, () => now);
-    await settle();
-    press(one('main a[title="ex/repo#7"]'), 'click');
-    await settle();
-    const title = document.querySelector('[role="dialog"] [title="ex/repo#7"]');
-    if (!title) throw new Error('missing header key');
-    expect(title.textContent).toBe('#7');
+  { entered: 120, moves: [moveView('dev', ago(120))], duration: '2h' },
+  {
+    entered: 106,
+    moves: [moveView('dev', ago(106)), moveView('dev', ago(3), 'task_corrected')],
+    duration: '1h 46m',
+  },
+  { entered: 3, moves: [moveView('dev', ago(3))], duration: '3m' },
+  { entered: null, moves: [moveView('dev', ago(120))], duration: null },
+])(
+  'header separates key, uppercase column and lowercase duration ($entered minutes in the row)',
+  async ({ entered, moves, duration }) => {
+    const facts = await header(moves, entered === null ? null : ago(entered));
+    expect(facts.title.textContent).toBe('#7');
     expect(document.querySelector(`.${taskStyles.columnName ?? ''}`)?.textContent).toBe('DEV');
-    expect(title.parentElement?.nextElementSibling?.textContent).toBe(
-      duration === null ? ' · DEV' : ` · DEV · ${duration}`,
-    );
-    expect(document.querySelector(`.${taskStyles.duration ?? ''}`)?.textContent ?? null).toBe(
-      duration,
-    );
+    expect(facts.detail).toBe(duration === null ? ' · DEV' : ` · DEV · ${duration}`);
+    expect(facts.duration).toBe(duration);
   },
 );
+// The same 8 shapes as core's registry.test.ts column-entry table: why.moves as task.get
+// returns it, the row with the entry status.get reports; the header follows the row in each.
+const T = (hour: number) => ago((6 - hour) * 60);
+it.each([
+  { name: 'original add', moves: [], entered: 0, duration: '6h' },
+  {
+    name: 'two real moves',
+    moves: [moveView('review', T(1)), moveView('dev', T(2))],
+    entered: 2,
+    duration: '4h',
+  },
+  {
+    name: 'later shadow move',
+    moves: [moveView('dev', T(1)), moveView('dev', T(2), 'task_shadow_moved')],
+    entered: 1,
+    duration: '5h',
+  },
+  {
+    name: 'exit and return',
+    moves: [moveView('dev', T(1)), moveView('review', T(2)), moveView('dev', T(3))],
+    entered: 3,
+    duration: '3h',
+  },
+  {
+    name: 'real correction',
+    moves: [moveView('dev', T(1)), moveView('dev', T(2), 'task_corrected')],
+    entered: 2,
+    duration: '4h',
+  },
+  {
+    name: 'shadow correction',
+    moves: [moveView('dev', T(1)), moveView('dev', T(2), 'task_corrected')],
+    entered: 1,
+    duration: '5h',
+  },
+  {
+    name: 'journal order over timestamp',
+    moves: [moveView('dev', T(3)), moveView('dev', T(1))],
+    entered: 1,
+    duration: '5h',
+  },
+  { name: 'reactivation preserves original add', moves: [], entered: 0, duration: '6h' },
+])(
+  'header time follows status columnEnteredAt for core entry shape: $name',
+  async ({ moves, entered, duration }) => {
+    const facts = await header(moves, T(entered));
+    expect(facts.duration).toBe(duration);
+    expect(facts.detail).toBe(` · DEV · ${duration}`);
+  },
+);
+it('header and card count time in column to the status read, not to the clock at open', async () => {
+  const d = daemon();
+  d.routes['status.get'] = () =>
+    Promise.resolve(envelope(status([row('ex/repo#7', 'dev', { columnEnteredAt: ago(106) })])));
+  let clock = NOW;
+  mount(d, {}, () => clock);
+  await settle();
+  // The status read answered at NOW; the task opens 10 minutes later with no new status read.
+  clock = NOW + 10 * 60_000;
+  press(one('main a[title="ex/repo#7"]'), 'click');
+  await settle();
+  const card = one(`main a[title="ex/repo#7"] .${cardStyles.entered ?? ''}`).textContent;
+  const duration = document.querySelector(`.${taskStyles.duration ?? ''}`)?.textContent;
+  expect(card).toBe('1h 46m');
+  expect(duration).toBe(card);
+});
 it('header retains the key tooltip without orphan separators when details are unavailable', async () => {
   const d = daemon();
   d.routes['task.get'] = () => problem('not_found');
