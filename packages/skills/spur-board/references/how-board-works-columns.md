@@ -6,9 +6,13 @@ silence timing for visible enabled columns. JSON keeps condition and column IDs;
 a terminal shows their readable text. Gates accumulate from columns to the left;
 each rule is listed once at its effective owner. This is policy, not task state:
 use `board task <KEY> --why` for current gates and turns. Named sessions are the
-project-selected live sessions used by doctor; a task link or author can override
-the actual recipient. An absent ordinary orchestrator waits for a session;
-an absent curator or course-check recipient falls back to the operator.
+project-selected live sessions used by doctor. Orchestrator recipients, including
+executor turns bound to a curator, may instead use a live author or task-linked
+orchestrator session. Questions and course checks addressed to the curator always
+use its current project-selected session. Executor turns bound to an orchestrator
+or curator and ordinary orchestrator questions wait for a live recipient. Questions
+addressed to the curator and course checks addressed to an agent fall back to the
+operator when no live recipient exists.
 
 ## Columns and executors
 
