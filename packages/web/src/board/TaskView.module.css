@@ -35,6 +35,27 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.link[data-kind] {
+  color: var(--color-text-secondary);
+}
+.link[data-kind='ticket'] {
+  background: var(--color-fill-violet);
+}
+.link[data-kind='ticket'] svg {
+  color: var(--color-accent-violet);
+}
+.link[data-kind='pr'] {
+  background: var(--color-fill-ready);
+}
+.link[data-kind='pr'] svg {
+  color: var(--color-status-ready);
+}
+.link[data-kind='session'] {
+  background: var(--color-fill-working);
+}
+.link[data-kind='session'] svg {
+  color: var(--color-status-working);
+}
 /* One line in place of the panel: the task is not found. */
 .note {
   margin: 0;

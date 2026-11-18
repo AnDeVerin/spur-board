@@ -152,7 +152,8 @@ export function TaskView({
                           chip.href === null ? (
                             <span
                               key={index}
-                              className={`${cardStyles.cell ?? ''} ${cardStyles.standalone ?? ''}`}
+                              className={`${cardStyles.cell ?? ''} ${cardStyles.standalone ?? ''} ${styles.link ?? ''}`}
+                              data-kind={chip.kind}
                               title={chip.text}
                             >
                               <Icon name={chip.icon} />
@@ -161,7 +162,8 @@ export function TaskView({
                           ) : (
                             <a
                               key={index}
-                              className={`${cardStyles.cell ?? ''} ${cardStyles.standalone ?? ''} ${focusRing}`}
+                              className={`${cardStyles.cell ?? ''} ${cardStyles.standalone ?? ''} ${styles.link ?? ''} ${focusRing}`}
+                              data-kind={chip.kind}
                               href={chip.href}
                               aria-label={chip.label}
                               title={chip.text}

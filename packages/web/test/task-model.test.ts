@@ -293,21 +293,23 @@ describe('link chips', () => {
       },
     );
     expect(linkChips(value.links, 'ABC-1', null, null)).toEqual([
-      { icon: 'ticket', text: 'ticket ABC-3', href: null, label: undefined },
+      { kind: 'ticket', icon: 'ticket', text: 'ticket ABC-3', href: null, label: undefined },
       {
         text: 'ticket #5',
+        kind: 'ticket',
         icon: 'ticket',
         href: 'https://github.com/ex/repo/issues/5',
         label: 'ticket #5, ex/repo',
       },
       {
         text: 'PR #7',
+        kind: 'pr',
         icon: 'pr',
         href: 'https://github.com/ex/repo/pull/7',
         label: 'PR #7, ex/repo',
       },
-      { icon: 'pr', text: 'PR repo#8', href: null, label: undefined },
-      { icon: 'term', text: 'session s1', href: null, label: undefined },
+      { kind: 'pr', icon: 'pr', text: 'PR repo#8', href: null, label: undefined },
+      { kind: 'session', icon: 'term', text: 'session s1', href: null, label: undefined },
     ]);
   });
   it('links a session to the Spur UI when the origin is set', () => {
@@ -315,6 +317,7 @@ describe('link chips', () => {
     expect(linkChips(value.links, 'ABC-1', 'https://spur.example', null)).toEqual([
       {
         text: 'session sb-1234',
+        kind: 'session',
         icon: 'term',
         href: 'https://spur.example/sessions/sb-1234',
         label: 'session sb-1234, Spur session',
@@ -330,18 +333,20 @@ describe('link chips', () => {
     expect(linkChips(value.links, 'ABC-1', null, 'https://j.test/browse/')).toEqual([
       {
         text: 'ticket ABC-3',
+        kind: 'ticket',
         icon: 'ticket',
         href: 'https://j.test/browse/ABC-3',
         label: 'ticket ABC-3, Jira',
       },
       {
         text: 'ticket #5',
+        kind: 'ticket',
         icon: 'ticket',
         href: 'https://github.com/ex/repo/issues/5',
         label: 'ticket #5, ex/repo',
       },
-      { icon: 'ticket', text: 'ticket #6', href: null, label: undefined },
-      { icon: 'ticket', text: 'ticket foo bar', href: null, label: undefined },
+      { kind: 'ticket', icon: 'ticket', text: 'ticket #6', href: null, label: undefined },
+      { kind: 'ticket', icon: 'ticket', text: 'ticket foo bar', href: null, label: undefined },
     ]);
   });
   it.each([

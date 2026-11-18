@@ -23,6 +23,7 @@ export interface WhyRow {
 
 /** A link chip: a link when `href` is set, else plain text. */
 export interface LinkChip {
+  kind: TaskLink['kind'];
   icon: IconName;
   text: string;
   href: string | null;
@@ -244,13 +245,25 @@ function linkChip(
   if (link.kind === 'session') {
     const text = `session ${link.ref}`;
     const href = sessionLinkHref(spurUiOrigin, link.ref);
-    return { icon: 'term', text, href, label: href === null ? undefined : `${text}, Spur session` };
+    return {
+      kind: link.kind,
+      icon: 'term',
+      text,
+      href,
+      label: href === null ? undefined : `${text}, Spur session`,
+    };
   }
   if (link.kind === 'ticket' && taskLinkHref(link) === null) {
     const text = `ticket ${shortKey(link.ref)}`;
     const base = sameJiraProject(link.ref, taskKey) ? ticketBrowseBase : null;
     const href = ticketBrowseHref(base, link.ref);
-    return { icon: 'ticket', text, href, label: href === null ? undefined : `${text}, Jira` };
+    return {
+      kind: link.kind,
+      icon: 'ticket',
+      text,
+      href,
+      label: href === null ? undefined : `${text}, Jira`,
+    };
   }
   const href = taskLinkHref(link);
   const ref = githubRef(link.ref);
@@ -261,6 +274,7 @@ function linkChip(
         ? `PR #${ref.number}`
         : `PR ${link.ref}`;
   return {
+    kind: link.kind,
     icon: link.kind === 'ticket' ? 'ticket' : 'pr',
     text,
     href,

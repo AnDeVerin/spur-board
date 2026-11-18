@@ -108,6 +108,13 @@ it.each([true, false])(
       `session ${long}`,
     ]);
     expect(cells.every((cell) => cell.querySelector('svg'))).toBe(true);
+    expect(cells.map((cell) => cell.getAttribute('data-kind'))).toEqual([
+      'ticket',
+      'pr',
+      'session',
+    ]);
+    expect(cells.every((cell) => cell.classList.contains(taskStyles.link ?? ''))).toBe(true);
+    expect(document.querySelector(`main .${taskStyles.link ?? ''}`)).toBeNull();
     expect(cells[0]?.getAttribute('href')).toBe('https://observed.test/issues/7');
     for (const cell of cells.slice(0, linked ? 3 : 2)) {
       expect(cell.getAttribute('target')).toBe('_blank');
@@ -124,3 +131,38 @@ it.each([true, false])(
     expect(cells[2]?.getAttribute('title')).toBe(`session ${long}`);
   },
 );
+it('keeps semantic kinds on plain ticket, PR and session cells', async () => {
+  const d = daemon();
+  d.routes['task.get'] = () =>
+    Promise.resolve(
+      envelope(
+        taskGet({
+          links: [
+            { kind: 'session', ref: 's1', role: 'worker' },
+            { kind: 'pr', ref: 'repo#8', role: null },
+            { kind: 'ticket', ref: 'ABC-3', role: null },
+          ],
+        }),
+      ),
+    );
+  mount(d);
+  await settle();
+  press(one('main a[title="ex/repo#7"]'), 'click');
+  await settle();
+  const cells = [...document.querySelectorAll(`.${taskStyles.link ?? ''}`)];
+  expect(
+    cells.map((cell) => [cell.tagName, cell.getAttribute('data-kind'), cell.textContent]),
+  ).toEqual([
+    ['SPAN', 'ticket', 'ticket #7'],
+    ['SPAN', 'ticket', 'ticket ABC-3'],
+    ['SPAN', 'pr', 'PR repo#8'],
+    ['SPAN', 'session', 'session s1'],
+  ]);
+  for (const cell of cells) {
+    expect(cell.getAttribute('href')).toBeNull();
+    expect(cell.getAttribute('tabindex')).toBeNull();
+    expect(cell.getAttribute('title')).toBe(cell.textContent);
+    expect(cell.classList.contains(focusRing)).toBe(false);
+    expect(cell.querySelector('svg')).not.toBeNull();
+  }
+});
