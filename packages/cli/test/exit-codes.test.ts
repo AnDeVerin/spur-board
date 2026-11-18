@@ -510,6 +510,12 @@ describe('CLI exit classes and mutation keys', () => {
       ERRORS.identity_missing.hint,
     );
     expect((await run(['status'])).hint).toBe(ERRORS.identity_missing.hint);
+    const ackTurn = await run(['inbox', 'ack', 'T1']);
+    expect(ackTurn.code).toBe('identity_missing');
+    expect(ackTurn.hint).toBe(ERRORS.identity_missing.hint);
+    const submit = await run(['submit', 'T1', 'b'.repeat(40), '--key', 'k']);
+    expect(submit.code).toBe('identity_missing');
+    expect(submit.hint).toBe(ERRORS.identity_missing.hint);
   });
 
   it('explains how to reach a daemon configured with a runtime-assigned port', async () => {

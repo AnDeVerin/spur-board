@@ -45,6 +45,11 @@ act only on a current turn; reread after `turn_closed`.
 [Task history](how-board-works-history.md#task-history) lists journal events `turn_opened`,
 `turn_taken` and `turn_closed`: executor, taker, outcome.
 
+An operator takes over an open orchestrator turn, taken or not, with keyed
+`board inbox ack <entries>`, then submits or returns it. The earlier holder gets
+`not_turn_taker`, then `turn_closed`. The takeover is not sticky: the addressed
+orchestrator can ack the turn back.
+
 Open-turn executors in `needs_input`, `error`, `rate_limited` or `stopped` raise
 one question after `health.turnStallAfterMs` (default 600000): curator unless self, else
 operator. Time starts at the later turn/state start; taking never resets it.

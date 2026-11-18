@@ -178,6 +178,17 @@ function emptyAllowed(entry: CatalogMutation): boolean {
   return true;
 }
 
+// The `operator` grant on `inbox.ack` exists for turn takeover: the operator token acking any
+// other entry is refused at authorization, so the denial is journaled as before the grant.
+function operatorAckRefused(entry: CatalogMutation, actor: ActorId, target: ResolvedTarget) {
+  return (
+    entry.id === 'inbox.ack' &&
+    actor === 'operator' &&
+    target.kind === 'found' &&
+    target.id?.startsWith('T') !== true
+  );
+}
+
 /** Parse, replay, authorize, then apply one catalog mutation in one transaction. */
 export function createApply(deps: { store: Store; clock: Clock; config: Config }): Apply {
   const { store, clock, config } = deps;
@@ -249,11 +260,16 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
                   ? [...resolved, { kind: 'missing' }]
                   : resolved;
             for (const target of targets) {
-              const decision = authorize(entry.grants, actor, {
-                config,
-                target,
-                ...(mode === undefined ? {} : { mode }),
-              });
+              const decision = operatorAckRefused(entry, actor, target)
+                ? {
+                    status: 'denied' as const,
+                    hint: 'The operator token acks only turns: board inbox ack T<number>.',
+                  }
+                : authorize(entry.grants, actor, {
+                    config,
+                    target,
+                    ...(mode === undefined ? {} : { mode }),
+                  });
               if (decision.status === 'denied') {
                 await writeDeniedEvent(trx, {
                   config,

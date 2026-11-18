@@ -611,7 +611,7 @@ describe('grants', () => {
     ['schema.get', 'query', 'any', null, []],
     ['inbox.get', 'query', [projectAgent, operator], null, ['not_found']],
     ['inbox.operator', 'query', [operator], null, []],
-    ['inbox.ack', 'mutation', [projectAgent], null, [...id, 'stale_comment_revision']],
+    ['inbox.ack', 'mutation', [projectAgent, operator], null, [...id, 'stale_comment_revision']],
     ['token.list', 'query', [operator], null, []],
     ['token.revoke', 'mutation', [operator], null, ['not_found']],
     ['task.add', 'mutation', [operator], null, id],
@@ -668,7 +668,7 @@ describe('grants', () => {
     [
       'task.submit',
       'mutation',
-      [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
+      [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, operator],
       null,
       [
         ...archived,
@@ -683,7 +683,7 @@ describe('grants', () => {
     [
       'task.return',
       'mutation',
-      [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
+      [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, operator],
       null,
       [...archived, 'turn_closed', 'not_turn_taker', 'return_not_allowed'],
     ],

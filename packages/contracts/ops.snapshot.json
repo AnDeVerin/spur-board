@@ -1,5 +1,5 @@
 {
-  "version": "0cbe154c9c3bf494bd013f030b4c4a9755fc67cca5a21226eafbb1923c87559c",
+  "version": "e7968c58f60dc97b7d33fb0dd09d0f168dadaa02a4375017a81049bab1df95d2",
   "grants": [
     "operator",
     "project-agent",
@@ -7227,7 +7227,7 @@
       "id": "inbox.ack",
       "kind": "mutation",
       "description": "Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.",
-      "grants": [{ "grant": "project-agent" }],
+      "grants": [{ "grant": "project-agent" }, { "grant": "operator" }],
       "preconditions": null,
       "errors": [
         "usage",
@@ -7245,7 +7245,7 @@
       "mcp": {
         "name": "inbox_ack",
         "key": "idempotencyKey",
-        "whenToUse": "Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled.",
+        "whenToUse": "Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take over an open orchestrator turn, taken or not.",
         "whenNotToUse": "Use inbox_get to inspect them first.",
         "destructive": true
       },
@@ -10342,8 +10342,12 @@
     {
       "id": "task.submit",
       "kind": "mutation",
-      "description": "Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.",
-      "grants": [{ "grant": "task-worker" }, { "grant": "column-orchestrator" }],
+      "description": "Submit the task's pull request head for a turn the caller took; the turn closes; a pending result is final.",
+      "grants": [
+        { "grant": "task-worker" },
+        { "grant": "column-orchestrator" },
+        { "grant": "operator" }
+      ],
       "preconditions": null,
       "errors": [
         "usage",
@@ -10562,8 +10566,12 @@
     {
       "id": "task.return",
       "kind": "mutation",
-      "description": "Return the task of a turn this session took to Dev; the reason opens a worker code block.",
-      "grants": [{ "grant": "task-worker" }, { "grant": "column-orchestrator" }],
+      "description": "Return the task of a turn the caller took to Dev; the reason opens a worker code block.",
+      "grants": [
+        { "grant": "task-worker" },
+        { "grant": "column-orchestrator" },
+        { "grant": "operator" }
+      ],
       "preconditions": null,
       "errors": [
         "usage",

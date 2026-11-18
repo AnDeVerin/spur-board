@@ -1254,7 +1254,7 @@ export async function ringTask(
   return trx.selectFrom('task').selectAll().where('id', 'in', owner).executeTakeFirst();
 }
 
-/** Stop notifications acknowledged by the addressed session. */
+/** Stop notifications acknowledged by the addressed session, or by any actor on a `takeover`. */
 export async function acknowledgeNotification(
   trx: Trx,
   input: {
@@ -1265,6 +1265,7 @@ export async function acknowledgeNotification(
     actor: ActorId;
     at: Date;
     config: Config;
+    takeover?: boolean | undefined;
   },
 ): Promise<boolean> {
   let query = trx.selectFrom('notification').selectAll().where('acked_at', 'is', null);
@@ -1278,7 +1279,10 @@ export async function acknowledgeNotification(
   const notices = await query.orderBy('id', 'desc').execute();
   const n = notices[0];
   if (n === undefined) return false;
-  if (!(await notificationAddressedTo(trx, n, input.actor, input.config))) {
+  if (
+    input.takeover !== true &&
+    !(await notificationAddressedTo(trx, n, input.actor, input.config))
+  ) {
     throw new CommandError('forbidden', 'Only the addressed task role can acknowledge.');
   }
   for (const notice of notices) {

@@ -11,7 +11,7 @@ import {
 } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
 import type { TaskTable, TurnTable } from '../store/schema.ts';
-import type { ResolvedTarget } from './authorize.ts';
+import { isOperator, type ResolvedTarget } from './authorize.ts';
 import { queueBlockOpen } from './block-thread.ts';
 import { authorizationTarget, blockView, openBlock, taskTarget } from './blocks.ts';
 import { emit, moveViews, taskPr, taskView, type Trx } from './board-utils.ts';
@@ -358,6 +358,9 @@ export function createTurnMutations(deps: {
     await dispatchTasks(trx, [id], { config, at: new Date(at), complete: completeSince, actor });
     return taskById(trx, id);
   }
+  /** The operator who closes a turn is named on `turn_closed`; any other closer stays `system`. */
+  const operatorCloser = (task: Task, actor: ActorId) =>
+    isOperator(actor, config, task.project) ? actor : undefined;
   async function submitShadow(trx: Trx, input: SubmitInput, ctx: CommandContext<SubmitPrepared>) {
     const task = await shadowTask(trx, input.turn, config);
     if (task === undefined) throw new CommandError('not_found', 'Check the task key.');
@@ -428,7 +431,12 @@ export function createTurnMutations(deps: {
         completeSince,
         config.projects.find((entry) => entry.id === task.project)?.dispatcher.submitConfirmMs,
       );
-      await closeTurns(trx, { taskId: task.id, reason: 'submitted', at: new Date(ctx.at) });
+      await closeTurns(trx, {
+        taskId: task.id,
+        reason: 'submitted',
+        at: new Date(ctx.at),
+        actor: operatorCloser(task, ctx.actor),
+      });
       await emit(
         trx,
         'task_submitted',
@@ -474,6 +482,7 @@ export function createTurnMutations(deps: {
         turn: turnLabel(turn.id),
         block: `B${String(block.id)}`,
         findings: input.findings,
+        closedBy: operatorCloser(task, ctx.actor),
       });
       const moved = await dispatched(trx, task.id, ctx.at, ctx.actor);
       return { task: taskView(moved), block: blockView(block, taskSubject(moved)) };

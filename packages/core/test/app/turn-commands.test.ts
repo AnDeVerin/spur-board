@@ -31,6 +31,7 @@ const B = 'b'.repeat(40);
 const REV_1: ActorId = 'agent:rev/rev-1';
 const REV_2: ActorId = 'agent:rev/rev-2';
 const QA_1: ActorId = 'agent:qa/qa-1';
+const OPS_1: ActorId = 'agent:ops/ops-1';
 const WORKER_1: ActorId = 'agent:worker/worker-1';
 const SOURCE = 'github:proj:o/r';
 const TABLES = [
@@ -64,6 +65,7 @@ function board(reviewOrchestrator = 'rev', mode: 'shadow' | 'on' = 'shadow') {
           { name: 'worker', role: 'worker' },
           { name: 'rev', role: 'orchestrator' },
           { name: 'qa', role: 'orchestrator' },
+          { name: 'ops', role: 'operator' },
         ],
         columns: [
           { id: 'todo', orchestrator: 'none' },
@@ -2210,5 +2212,167 @@ describe('board-wide column orchestrator', () => {
     await expect(ctx.ack(BR_1, 'T1')).rejects.toMatchObject({ code: 'forbidden' });
     await expect(ctx.ack(REV_1, 'T1')).resolves.toBeDefined();
     await expect(ctx.ack(BR_1, 'T2')).resolves.toBeDefined();
+  });
+});
+
+describe('operator takeover', () => {
+  const OPERATORS: readonly ActorId[] = ['operator', OPS_1];
+
+  /** The journal rows after the first `seen`, as kind and actor. */
+  const eventsSince = async (ctx: Awaited<ReturnType<typeof setup>>, seen: number) =>
+    (
+      await ctx.store.db
+        .selectFrom('event')
+        .select(['kind', 'actor', 'actor_ref'])
+        .orderBy('id')
+        .execute()
+    )
+      .slice(seen)
+      .map((row) => row.kind);
+  const actorOf = (actor: ActorId) =>
+    actor === 'operator'
+      ? { actor: 'operator', actor_ref: null }
+      : { actor: 'agent', actor_ref: JSON.stringify({ project: 'ops', session: 'ops-1' }) };
+  const closedRows = async (ctx: Awaited<ReturnType<typeof setup>>) =>
+    ctx.store.db
+      .selectFrom('event')
+      .select(['actor', 'actor_ref'])
+      .where('kind', '=', 'turn_closed')
+      .execute();
+  const closedHistory = async (ctx: Awaited<ReturnType<typeof setup>>) =>
+    (await ctx.history())
+      .filter((event) => event.kind === 'turn_closed')
+      .map((event) => [event.actor, event.summary]);
+
+  it.each(OPERATORS)(
+    '%s takes an untaken or a taken turn and submits it with a basis',
+    async (actor) => {
+      const untaken = await setup();
+      await untaken.openTurn();
+      await expect(untaken.ack(actor)).resolves.toMatchObject({ acked: ['T1'] });
+      expect(await untaken.turn()).toMatchObject({ acked_by: actor, acked_at: AT });
+      expect((await untaken.turnNotice(1)).acked_at).toBe(AT);
+      expect(
+        await untaken.store.db
+          .selectFrom('event')
+          .select(['actor', 'actor_ref', 'payload'])
+          .where('kind', '=', 'turn_taken')
+          .execute(),
+      ).toEqual([{ ...actorOf(actor), payload: JSON.stringify({ turn: 'T1', taker: actor }) }]);
+
+      const ctx = await taken();
+      await expect(ctx.ack(actor)).resolves.toMatchObject({ acked: ['T1'] });
+      expect((await ctx.turn()).acked_by).toBe(actor);
+      await expect(ctx.submit(REV_1, A, 'rev-early')).rejects.toMatchObject({
+        code: 'not_turn_taker',
+      });
+      ctx.commits(A);
+      await expect(
+        ctx.submit(actor, A, 'op-submit', 'T1', { basis: 'skipped', reason: 'Checked by hand.' }),
+      ).resolves.toMatchObject({ turn: 'T1', status: 'confirmed' });
+      expect(ctx.calls).toHaveLength(1);
+      expect(await ctx.store.db.selectFrom('submission').selectAll().execute()).toMatchObject([
+        { author: actor, commit_sha: A, basis: 'skipped' },
+      ]);
+      expect(await ctx.turn()).toMatchObject({ closed_at: AT, closed_reason: 'submitted' });
+      await expect(ctx.submit(REV_1, A, 'late')).rejects.toMatchObject({ code: 'turn_closed' });
+      await expect(ctx.return(REV_1, 'late-r')).rejects.toMatchObject({ code: 'turn_closed' });
+    },
+  );
+
+  it.each(OPERATORS)('%s is named as the closer of a submitted turn', async (actor) => {
+    const ctx = await taken();
+    await ctx.ack(actor);
+    ctx.commits(A);
+    await ctx.submit(actor, A, 'op-submit');
+    expect(await closedRows(ctx)).toEqual([actorOf(actor)]);
+    expect(await closedHistory(ctx)).toEqual([[actor, 'Turn T1 closed: submitted']]);
+  });
+
+  it.each(OPERATORS)('%s returns a taken-over turn and is named as its closer', async (actor) => {
+    const ctx = await taken();
+    await ctx.ack(actor);
+    await expect(ctx.return(actor, 'op-return')).resolves.toMatchObject({
+      task: { key: 'o/r#9', column: 'dev' },
+      block: { id: 'B1', author: actor, addressee: 'worker' },
+    });
+    expect(await ctx.turn()).toMatchObject({ closed_reason: 'returned' });
+    expect(await closedRows(ctx)).toEqual([actorOf(actor)]);
+    expect(await closedHistory(ctx)).toEqual([[actor, 'Turn T1 closed: returned']]);
+    await expect(ctx.submit(REV_1, A, 'late')).rejects.toMatchObject({ code: 'turn_closed' });
+    await expect(ctx.return(REV_1, 'late-r')).rejects.toMatchObject({ code: 'turn_closed' });
+  });
+
+  it('refuses a worker and another column orchestrator with forbidden', async () => {
+    const untaken = await setup();
+    await untaken.openTurn();
+    const before = await untaken.tables();
+    const seenUntaken = (await untaken.events()).length;
+    for (const actor of [WORKER_1, QA_1]) {
+      await expect(untaken.ack(actor)).rejects.toMatchObject({ code: 'forbidden' });
+    }
+    expect(await eventsSince(untaken, seenUntaken)).toEqual([]);
+    expect(await untaken.tables()).toEqual(before);
+
+    const ctx = await taken();
+    const held = await ctx.tables();
+    const seen = (await ctx.events()).length;
+    for (const actor of [WORKER_1, QA_1]) {
+      await expect(ctx.ack(actor)).rejects.toMatchObject({ code: 'forbidden' });
+    }
+    expect(await eventsSince(ctx, seen)).toEqual([]);
+    const hint = 'Allowed role: task-worker, column-orchestrator, operator.';
+    await expect(ctx.submit(QA_1, A, 'qa-submit')).rejects.toMatchObject({
+      code: 'forbidden',
+      hint,
+    });
+    expect(await eventsSince(ctx, seen)).toEqual(['operation_denied']);
+    await expect(ctx.return(QA_1, 'qa-return')).rejects.toMatchObject({ code: 'forbidden', hint });
+    expect(await eventsSince(ctx, seen)).toEqual(['operation_denied', 'operation_denied']);
+    expect(ctx.calls).toHaveLength(0);
+    expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(held));
+  });
+
+  it('keeps the bare operator to orchestrator turns', async () => {
+    const ctx = await taken();
+    const notice = await ctx.turnNotice(1);
+    const ring = `N${String(notice.id)}`;
+    const seen = (await ctx.events()).length;
+    const unchanged = await ctx.tables();
+    await expect(ctx.ack('operator', ring)).rejects.toMatchObject({
+      code: 'forbidden',
+      hint: expect.stringContaining('T<number>') as unknown,
+    });
+    expect(await eventsSince(ctx, seen)).toEqual(['operation_denied']);
+    expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(unchanged));
+    expect((await ctx.turn()).acked_by).toBe(REV_1);
+
+    await expect(ctx.return('operator', 'r0')).rejects.toMatchObject({ code: 'not_turn_taker' });
+    expect(await eventsSince(ctx, seen)).toEqual(['operation_denied']);
+
+    await expect(ctx.return(REV_1, 'r1')).resolves.toMatchObject({ block: { id: 'B1' } });
+    const returned = (await ctx.events()).length;
+    await expect(ctx.ack('operator', 'B1')).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await eventsSince(ctx, returned)).toEqual(['operation_denied']);
+    const denied = (await ctx.events()).length;
+    await expect(ctx.ack('operator', 'B999')).rejects.toMatchObject({ code: 'not_found' });
+    await expect(ctx.submit('operator', A, 'shadow', 'o/r#9')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    expect(await eventsSince(ctx, denied)).toEqual([]);
+
+    const worker = await setup({ reviewOrchestrator: 'none' });
+    await worker.openTurn();
+    expect((await worker.turn()).role).toBe('worker');
+    const workerSeen = (await worker.events()).length;
+    await expect(worker.ack('operator')).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await eventsSince(worker, workerSeen)).toEqual([]);
+    await worker.ack(WORKER_1);
+    await expect(worker.ack('operator')).rejects.toMatchObject({ code: 'not_found' });
+
+    const own = await setup({ reviewOrchestrator: 'operator' });
+    await own.openTurn();
+    expect((await own.turn()).role).toBe('operator');
+    await expect(own.ack('operator')).rejects.toMatchObject({ code: 'not_found' });
   });
 });

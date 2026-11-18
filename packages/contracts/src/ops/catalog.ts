@@ -678,7 +678,7 @@ export const OPERATIONS = [
       'Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.',
     mcp: {
       whenToUse:
-        'Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled.',
+        'Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take over an open orchestrator turn, taken or not.',
       whenNotToUse: 'Use inbox_get to inspect them first.',
     },
     input: z.strictObject({
@@ -707,7 +707,7 @@ export const OPERATIONS = [
         .optional()
         .describe('Entries that were already handled; nothing new was acknowledged for them.'),
     }),
-    grants: [{ grant: 'project-agent' }],
+    grants: [{ grant: 'project-agent' }, { grant: 'operator' }],
     errors: ['wrong_id_kind', 'not_found', 'stale_comment_revision'],
     cli: { command: 'inbox ack', args: ['entries'] },
     slack: null,
@@ -1297,7 +1297,7 @@ export const OPERATIONS = [
     id: 'task.submit',
     kind: 'mutation',
     description:
-      "Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.",
+      "Submit the task's pull request head for a turn the caller took; the turn closes; a pending result is final.",
     mcp: {
       whenToUse:
         'Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.',
@@ -1345,7 +1345,7 @@ export const OPERATIONS = [
           'confirmed: the board saw the PR head at sha. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block.',
         ),
     }),
-    grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
+    grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, { grant: 'operator' }],
     errors: [
       'wrong_id_kind',
       'not_found',
@@ -1407,7 +1407,7 @@ export const OPERATIONS = [
     id: 'task.return',
     kind: 'mutation',
     description:
-      'Return the task of a turn this session took to Dev; the reason opens a worker code block.',
+      'Return the task of a turn the caller took to Dev; the reason opens a worker code block.',
     mcp: {
       whenToUse: 'Send the task back to Dev when the work needs code changes.',
       whenNotToUse: 'Use task_submit to hand in the work instead.',
@@ -1422,7 +1422,7 @@ export const OPERATIONS = [
         .describe("Number of review findings the return sends; shown on the task's status row."),
     }),
     output: z.strictObject({ task: taskViewSchema, block: blockViewSchema }),
-    grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
+    grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, { grant: 'operator' }],
     errors: [
       'wrong_id_kind',
       'not_found',

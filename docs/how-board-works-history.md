@@ -22,6 +22,9 @@ says what changed:
 | `block_*`, `comment_*`, `doorbell_*`                                | the ID with its addressee, outcome, revision or reason                                                              |
 | `turn_opened`, `turn_taken`, `turn_closed`                          | executor, taker, outcome                                                                                            |
 
+`turn_closed` names the operator as actor when an operator's submit or return
+closed the turn; every other close names `system`.
+
 Checks count the required ones, else all but skipped. A facts row leaves out what
 other rows say (head, checks, PR state, mergeability, reviews, ticket status) and
 update and activity times; with nothing else changed it is not shown.
