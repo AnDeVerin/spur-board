@@ -1,5 +1,5 @@
 {
-  "version": "b2272d13589b33d9c285a751d4ce18662f4d67640328e944af6e35a211eca29e",
+  "version": "6290c0d26c81a2fba853e6f0e55170782d0d6ce5e655f49ae2f5a4d041372dbd",
   "grants": [
     "operator",
     "project-agent",
@@ -7903,7 +7903,7 @@
         "destructive": true
       },
       "slack": { "kind": "button", "label": "Close" },
-      "web": null,
+      "web": true,
       "examples": [
         {
           "summary": "Close a board-wide item",

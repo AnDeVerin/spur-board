@@ -110,7 +110,7 @@ describe('catalog', () => {
     if (!isObject(property)) throw new Error('Missing column entry schema');
     expect(property['description']).toContain('original add');
   });
-  it('defaults web off and exposes exactly the screen reads and three operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and four operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
@@ -122,6 +122,7 @@ describe('catalog', () => {
       'config.get',
       'inbox.get',
       'inbox.operator',
+      'item.close',
       'status.get',
       'task.get',
       'task.history',
@@ -130,7 +131,7 @@ describe('catalog', () => {
       OPERATIONS.filter((op) => op.kind === 'mutation' && op.web !== null)
         .map((op) => op.id)
         .sort(),
-    ).toEqual(['block.answer', 'block.followup', 'comment.add']);
+    ).toEqual(['block.answer', 'block.followup', 'comment.add', 'item.close']);
     expect(OPERATIONS.find((op) => op.id === 'schema.get')?.web).toBeNull();
     expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
       true,

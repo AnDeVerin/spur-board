@@ -1,6 +1,7 @@
 # Web UI
 
-View the Board and freshness, answer operator questions, follow up on them and comment.
+View the Board and freshness, answer operator questions, follow up on them, comment and close
+an operator inbox item.
 Archived tasks are read-only; other actions use CLI, MCP or Slack.
 
 ## Opening it

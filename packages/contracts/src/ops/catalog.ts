@@ -9,6 +9,8 @@ import {
   configGetInputSchema,
   inboxOperatorInputSchema,
   inboxOperatorOutputSchema,
+  itemInputSchema,
+  itemOutputSchema,
   taskGetInputSchema,
   taskGetOutputSchema,
   taskHistoryInputSchema,
@@ -20,7 +22,6 @@ import { BLOCK_TYPES, COLUMN_IDS, TOKEN_STATUSES } from '../enums.ts';
 import {
   blockIdSchema,
   commentIdSchema,
-  itemIdSchema,
   ringIdSchema,
   taskKeyInputSchema,
   taskKeySchema,
@@ -32,7 +33,6 @@ import {
   SCHEMA_ROLES,
   blockViewSchema,
   commentSchema,
-  itemViewSchema,
   moveViewSchema,
   schemaGetOutputSchema,
   taskViewSchema,
@@ -256,7 +256,6 @@ const reviewGates: GateView[] = [
 
 const taskOutput = z.strictObject({ task: taskViewSchema });
 const blockOutput = z.strictObject({ block: blockViewSchema });
-const itemOutput = z.strictObject({ item: itemViewSchema });
 const linkOutput = z.strictObject({ task: taskKeySchema, target });
 
 const operatorOrProjectAgent = [{ grant: 'operator' }, { grant: 'project-agent' }] as const;
@@ -894,8 +893,8 @@ export const OPERATIONS = [
       whenToUse: 'Retry an actionable item.',
       whenNotToUse: 'Use item_close when no retry is wanted.',
     },
-    input: z.strictObject({ item: itemIdSchema }),
-    output: itemOutput,
+    input: itemInputSchema,
+    output: itemOutputSchema,
     grants: operatorOnly,
     errors: ['wrong_id_kind', 'not_found', 'task_archived', 'retry_not_applicable'],
     cli: { command: 'item retry', args: ['item'] },
@@ -904,14 +903,15 @@ export const OPERATIONS = [
   }),
   defineOperation({
     id: 'item.close',
+    web: true,
     kind: 'mutation',
     description: 'Close a "from you" item without acting on it.',
     mcp: {
       whenToUse: 'Dismiss an item without retrying.',
       whenNotToUse: 'Use item_retry to try again.',
     },
-    input: z.strictObject({ item: itemIdSchema }),
-    output: itemOutput,
+    input: itemInputSchema,
+    output: itemOutputSchema,
     grants: operatorOnly,
     errors: ['wrong_id_kind', 'not_found'],
     cli: { command: 'item close', args: ['item'] },

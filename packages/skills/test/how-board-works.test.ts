@@ -251,7 +251,7 @@ describe('how the Board works guide', () => {
       topic: 'web',
       clauses: [
         /second loopback listener serves browser\s*assets/,
-        /Only `comment.add`, `block.answer` and `block.followup` are enabled writes/,
+        /Only `comment.add`, `block.answer`, `block.followup` and `item.close` are\s+enabled writes/,
         /a failed bind does not stop the agent API/,
       ],
       keys: ['web.port', 'web.publicOrigin'],

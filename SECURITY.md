@@ -59,8 +59,8 @@ one of the limits below is not a vulnerability; a way around a guarantee below i
 Web is off by default. Setting both `web.port` and `web.publicOrigin` starts a separate
 `127.0.0.1` listener. A reverse proxy may expose it to the operator's private network and must
 preserve the original `Host`. Everyone who can reach that port can act as the operator through
-web-bound reads and the three writes, `comment.add`, `block.answer` and `block.followup`,
-without a token.
+web-bound reads and the four writes, `comment.add`, `block.answer`, `block.followup` and
+`item.close`, without a token.
 The private network is the boundary: it must contain only the operator and their devices.
 
 Exact Host and Origin checks, JSON POST bodies, cross-site fetch rejection and no CORS stop

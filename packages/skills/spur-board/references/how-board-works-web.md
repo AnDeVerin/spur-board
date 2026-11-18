@@ -6,7 +6,7 @@ With `web.port` and `web.publicOrigin` configured, a second loopback listener se
 assets, health and catalog operations whose `web` binding is enabled. It uses the same registry,
 authorization, idempotency and operation hooks as the agent API, with the operator caller.
 Effective project configuration is available through `config.get`.
-Only `comment.add`, `block.answer` and `block.followup` are enabled writes. Token and skill routes stay on the
+Only `comment.add`, `block.answer`, `block.followup` and `item.close` are enabled writes. Token and skill routes stay on the
 agent API. The web listener is off by default and a failed bind does not stop the agent API.
 
 A private-network proxy must preserve Host. Exact Origin, Host, JSON and fetch-metadata checks
@@ -25,7 +25,7 @@ the open task, and `task.history` while History shows. A card click or the addre
 [task view](web-ui-task-view.md) with its "Why it is here", Blocks and Comments sections and History tab.
 The task view can answer open operator questions through `block.answer`, follow up on answered
 ones through `block.followup` and add task comments
-through `comment.add`; other actions stay in the CLI, MCP and Slack. Failed sends preserve
+through `comment.add`. The operator inbox can close an active item through `item.close`; other actions stay in the CLI, MCP and Slack. Failed sends preserve
 drafts, and confirmed writes refresh authoritative task data. While the daemon or live updates
 are unavailable, the forms are disabled with a reason and retain their drafts.
 Archived tasks also disable the writes while keeping drafts. If a question closes or is
