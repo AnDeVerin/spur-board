@@ -16,7 +16,7 @@ import type { BoardConfig, BoardData, BoardTask, HistoryState, TaskState } from 
 import { TaskBlock } from './TaskBlock.tsx';
 import { TaskWrite } from './TaskWrite.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
-import { shortKey } from './model.ts';
+import { shortKey, type BoardColumnConfig } from './model.ts';
 import { age, linkChips, timeInColumn, whyRows, whySummary } from './task-model.ts';
 import styles from './TaskView.module.css';
 import cardStyles from './Card.module.css';
@@ -68,8 +68,8 @@ export function TaskView({
   refreshTask: BoardData['refreshTask'];
   title: TaskTitle;
   row: BoardRow | undefined;
-  /** Enabled column ids of the task's project in `config.get` order. */
-  columns: readonly string[];
+  /** Enabled columns of the task's project in `config.get` order, with their group. */
+  columns: readonly BoardColumnConfig[];
   /** `config.get` `web.spurUiOrigin`: session chips link there; null keeps them plain. */
   spurUiOrigin: string | null;
   /** Jira browse base of the task's own configured project; null keeps its chip plain. */

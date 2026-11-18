@@ -3,7 +3,7 @@ import type { Output } from '../lib/api.ts';
 import type { BoardConfig, BoardSnapshot } from './data.ts';
 
 export type BoardProject = BoardConfig['projects'][number];
-type BoardColumnConfig = BoardProject['columns'][number];
+export type BoardColumnConfig = BoardProject['columns'][number];
 export type BoardRow = Output<'status.get'>['tasks'][number];
 type BoardSource = Output<'status.get'>['sources'][number];
 

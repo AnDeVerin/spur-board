@@ -25,7 +25,12 @@ import {
 } from './board-fixtures.ts';
 
 const NOW = Date.parse('2026-11-15T14:00:00.000Z');
-const COLUMNS = ['todo', 'dev', 'review', 'done'];
+const COLUMNS: Parameters<typeof nextColumn>[1] = [
+  { id: 'todo' },
+  { id: 'dev' },
+  { id: 'review' },
+  { id: 'done' },
+];
 const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
 const condition = (name: string, state: string, reason: string | null = null) => ({
   condition: name,
@@ -199,6 +204,45 @@ describe('next column', () => {
 
   it('shows it for a known gate with no exit conditions', () => {
     expect(nextColumn(why('dev', [gate('dev', [])]), COLUMNS)).toBe('review');
+  });
+
+  it('never names a Todo-group column from a Todo-group column', () => {
+    const g = (column: string) => why(column, [gate(column, [])]);
+    const whole: Parameters<typeof nextColumn>[1] = [
+      { id: 'todo', group: 'todo' },
+      { id: 'triage', group: 'todo' },
+      { id: 'ready-for-dev', group: 'todo' },
+      { id: 'dev' },
+      { id: 'review' },
+      { id: 'done' },
+    ];
+    for (const column of ['todo', 'triage', 'ready-for-dev'])
+      expect(nextColumn(g(column), whole), column).toBe('dev');
+    expect(nextColumn(g('dev'), whole)).toBe('review');
+    expect(
+      whyRows(task({ column: 'triage', gates: [gate('triage', [])] }), whole, NOW).at(-1),
+    ).toEqual({ key: 'When triage exit conditions pass', value: '→ dev' });
+
+    const noTriage: Parameters<typeof nextColumn>[1] = [
+      { id: 'todo', group: 'todo' },
+      { id: 'ready-for-dev', group: 'todo' },
+      { id: 'dev' },
+      { id: 'done' },
+    ];
+    for (const column of ['todo', 'ready-for-dev'])
+      expect(nextColumn(g(column), noTriage), column).toBe('dev');
+
+    const groupOnly: Parameters<typeof nextColumn>[1] = [
+      { id: 'todo', group: 'todo' },
+      { id: 'triage', group: 'todo' },
+    ];
+    for (const column of ['todo', 'triage']) {
+      expect(nextColumn(g(column), groupOnly), column).toBeUndefined();
+      const value = task({ column, gates: [gate(column, [])] });
+      expect(whyRows(value, groupOnly, NOW).filter((row) => row.key.startsWith('When '))).toEqual(
+        [],
+      );
+    }
   });
 
   it('follows the shadow column in shadow mode', () => {

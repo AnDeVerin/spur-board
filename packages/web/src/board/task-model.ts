@@ -7,7 +7,7 @@ import {
   ticketBrowseHref,
 } from '../lib/links.ts';
 import type { BoardHistory, BoardTask } from './data.ts';
-import { formatDataTime, shortKey, type BoardRow } from './model.ts';
+import { formatDataTime, shortKey, type BoardColumnConfig, type BoardRow } from './model.ts';
 import { age as cardAge, quickLinks } from './card.ts';
 
 type TaskWhy = NonNullable<BoardTask['why']>;
@@ -138,19 +138,26 @@ function currentGate(why: TaskWhy | undefined): TaskGate | undefined {
   return why?.gates.find((gate) => gate.column === why.column);
 }
 
+/** The `config.get` column fields the next-column line reads. */
+type NextColumnConfig = Pick<BoardColumnConfig, 'id' | 'group'>;
+
 /**
  * The column after `why.column` when every one of its exit conditions is met, a known gate with
- * no conditions included; none when the gate is unknown.
+ * no conditions included; none when the gate is unknown. From a column of a group it skips the
+ * rest of that group, as the dispatcher does.
  */
 export function nextColumn(
   why: TaskWhy | undefined,
-  columns: readonly string[],
+  columns: readonly NextColumnConfig[],
 ): string | undefined {
   const gate = currentGate(why);
   if (!why || !gate) return undefined;
   if (!gate.conditions.every((condition) => condition.state === 'met')) return undefined;
-  const index = columns.indexOf(why.column);
-  return index === -1 ? undefined : columns[index + 1];
+  const index = columns.findIndex((column) => column.id === why.column);
+  if (index === -1) return undefined;
+  const group = columns[index]?.group;
+  return columns.slice(index + 1).find((column) => group === undefined || column.group !== group)
+    ?.id;
 }
 
 const CONDITIONS: Record<string, string> = {
@@ -204,7 +211,11 @@ const openBlocks = (value: BoardTask) => value.blocks.filter((block) => block.st
  * "Why it is here": the exit conditions of the `why.column` gate (or why they are unknown), each
  * hold, the open turn, the open blocks, and the next column when every condition is met.
  */
-export function whyRows(value: BoardTask, columns: readonly string[], now: number): WhyRow[] {
+export function whyRows(
+  value: BoardTask,
+  columns: readonly NextColumnConfig[],
+  now: number,
+): WhyRow[] {
   const { why } = value;
   const gate = currentGate(why);
   const rows: WhyRow[] = [];
@@ -221,6 +232,7 @@ export function whyRows(value: BoardTask, columns: readonly string[], now: numbe
       : { key: 'Open blocks', value: 'none', status: 'pass' },
   );
   const next = nextColumn(why, columns);
+  // For a Todo-group task the arrow means work started (an open PR or a live worker), not an exit condition.
   if (why && next !== undefined)
     rows.push({ key: `When ${why.column} exit conditions pass`, value: `→ ${next}` });
   return rows;
