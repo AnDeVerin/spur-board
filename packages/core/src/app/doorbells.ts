@@ -1090,7 +1090,7 @@ function ringPauses(config: Config): readonly number[] {
 }
 
 /** The session's last observed Spur facts, or null when its detail does not parse. */
-function observedFacts(session: Session): SessionFacts | null {
+export function observedFacts(session: Session): SessionFacts | null {
   let detail: unknown;
   try {
     detail = JSON.parse(session.detail);

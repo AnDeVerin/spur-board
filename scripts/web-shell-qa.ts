@@ -155,6 +155,7 @@ export function shellHistory() {
   });
 }
 const shellReads = {
+  'columns.describe': () => browserOperations['columns.describe'].output.parse({ projects: [] }),
   'status.get': shellFixture,
   'config.get': shellConfig,
   'inbox.operator': shellInbox,

@@ -18,6 +18,7 @@ import {
 } from '../browser.ts';
 import { z } from 'zod';
 import { configViewSchema } from './config-view-schema.ts';
+import { columnsDescribeOutputSchema } from './columns-schema.ts';
 import { BLOCK_TYPES, COLUMN_IDS, TOKEN_STATUSES, SUBMISSION_BASES } from '../enums.ts';
 import {
   blockIdSchema,
@@ -1575,6 +1576,72 @@ export const OPERATIONS = [
             },
           ],
           web: { publicOrigin: 'http://127.0.0.1:4778', spurUiOrigin: null },
+        },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'columns.describe',
+    web: true,
+    kind: 'query',
+    description: 'Describe effective column exit rules, returns, executors and escalation.',
+    mcp: {
+      whenToUse:
+        'Read the project column policy before deciding how to progress work; selected sessions are project-level choices, not task-specific recipients.',
+      whenNotToUse:
+        'Use task_get with why for a task’s current gates and turn, or config_get for compact bindings and web origins.',
+    },
+    input: configGetInputSchema,
+    output: columnsDescribeOutputSchema,
+    grants: operatorOrProjectAgent,
+    errors: ['not_found'],
+    cli: { command: 'columns describe', args: [] },
+    slack: null,
+    examples: [
+      {
+        summary: 'Describe project column policies',
+        input: { project: 'web' },
+        output: {
+          projects: [
+            {
+              id: 'web',
+              dispatcher: { mode: 'on' },
+              checksGate: 'dev',
+              reposWithoutCi: [],
+              resolvedThreadsFrom: null,
+              columns: [
+                {
+                  id: 'todo',
+                  name: 'To Do',
+                  group: 'todo',
+                  exit: {
+                    to: 'dev',
+                    conditions: [
+                      {
+                        id: 'work_started',
+                        text: 'Work has started: an open PR, or a live worker with a fresh source and no reopened ticket.',
+                      },
+                    ],
+                  },
+                  returns: [],
+                  limits: null,
+                  executor: {
+                    kind: 'worker',
+                    project: null,
+                    role: null,
+                    displayName: null,
+                    session: null,
+                    text: 'No executor turn opens in the Todo group, even with a configured binding.',
+                  },
+                  escalation: { chain: [], silent: null },
+                  movedBy: {
+                    kind: 'manual',
+                    text: 'Manual placement; work starting leaves the whole Todo group.',
+                  },
+                },
+              ],
+            },
+          ],
         },
       },
     ],

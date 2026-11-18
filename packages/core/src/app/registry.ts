@@ -11,6 +11,7 @@ import type { statusOutputSchema } from '@spur-board/contracts/browser';
 import type { z } from 'zod';
 import { authorize, projectTarget } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
+import { createColumnsQuery } from './columns.ts';
 import { createItemMutations, type ReapplyInbound } from './items.ts';
 import { createLinkMutations } from './links.ts';
 import { createMembershipMutations } from './membership.ts';
@@ -218,6 +219,7 @@ export function createOperationRegistry(deps: {
     'schema.get': schema,
     'status.get': status,
     'config.get': configGet,
+    'columns.describe': createColumnsQuery(config),
     'task.get': taskQueries.get,
     'task.history': taskQueries.history,
     'inbox.get': taskQueries.inbox,

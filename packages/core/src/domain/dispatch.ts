@@ -120,7 +120,7 @@ const groupOf = (column: ColumnId) => COLUMNS.find((c) => c.id === column)?.grou
  * The next enabled column of the project right of `column`, if any. From a column of a group it
  * skips the rest of that group, so a task leaves the group in one move.
  */
-function nextColumn(project: GateProject, column: ColumnId): ColumnId | undefined {
+export function nextColumn(project: GateProject, column: ColumnId): ColumnId | undefined {
   const group = groupOf(column);
   return project.columns.find(
     (c) =>

@@ -156,7 +156,11 @@ export async function raiseCourseCheck(
  * orchestrator of this column or else of the first column it orchestrates. Without the key, or
  * with a name that no longer fits, the curator, or the operator when the project has none.
  */
-function courseAddressee(config: Config, projectId: string, column: ColumnId): AddresseeRole {
+export function courseAddressee(
+  config: Config,
+  projectId: string,
+  column: ColumnId,
+): AddresseeRole {
   const fallback = curatorProject(config, projectId) === null ? 'operator' : 'curator';
   const columns = config.projects.find((project) => project.id === projectId)?.columns ?? [];
   const to = columns.find((c) => c.id === column)?.courseCheckTo;

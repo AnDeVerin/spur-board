@@ -63,5 +63,6 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
 - [`board submit`](references/blocks.md#board-submit)
 - [`board return`](references/blocks.md#board-return)
 - [`board config get`](references/config.md#board-config-get)
+- [`board columns describe`](references/config.md#board-columns-describe)
 
 <!-- END GENERATED BOARD COMMANDS -->

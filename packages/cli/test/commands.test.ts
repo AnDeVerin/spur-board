@@ -580,6 +580,8 @@ describe('catalog commands', () => {
       return op.examples[0].output;
     });
     const commands = [
+      ['columns', 'describe', '--project', 'demo'],
+      ['columns', 'describe'],
       ['config', 'get', '--project', 'demo'],
       ['config', 'get'],
       ['status', '--project', 'demo'],
@@ -620,6 +622,8 @@ describe('catalog commands', () => {
       expect(await runCli(command, { env: env(url), io: output.io }), command.join(' ')).toBe(0);
     }
     expect(calls).toEqual([
+      { id: 'columns.describe', input: { project: 'demo' } },
+      { id: 'columns.describe', input: {} },
       { id: 'config.get', input: { project: 'demo' } },
       { id: 'config.get', input: {} },
       { id: 'status.get', input: { project: 'demo' } },
@@ -937,6 +941,39 @@ describe('catalog commands', () => {
     expect(output.stdout).toContain(entry.url);
     expect(output.stdout).toContain(value.handled[0]?.url);
     if (!tty || flags.length) expect(JSON.parse(output.stdout)).toEqual(value);
+  });
+
+  it('renders readable column policy and preserves structured IDs while escaping terminal controls', async () => {
+    const operation = OPERATIONS.find((operation) => operation.id === 'columns.describe');
+    if (!operation) throw new Error('missing columns operation');
+    const example = operation.examples[0].output;
+    const value = {
+      ...example,
+      projects: example.projects.map((project) => ({
+        ...project,
+        columns: project.columns.map((column) => ({ ...column, name: 'To Do\u001b[2J' })),
+      })),
+    };
+    const url = await fakeServer(() => value);
+    for (const [tty, args] of [
+      [true, []],
+      [true, ['--json']],
+      [false, []],
+    ] as const) {
+      const output = capture(tty);
+      expect(
+        await runCli(['columns', 'describe', '--project', 'web', ...args], {
+          env: env(url),
+          io: output.io,
+        }),
+      ).toBe(0);
+      expect(output.stderr).toBe('');
+      if (tty && args.length === 0) {
+        expect(output.stdout).toContain('Work has started');
+        expect(output.stdout).toContain('No executor turn opens');
+        expect(output.stdout).not.toContain('\u001b');
+      } else expect(JSON.parse(output.stdout)).toEqual(value);
+    }
   });
 
   it('quotes untrusted comments in human output', async () => {

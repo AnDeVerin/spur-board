@@ -1,5 +1,5 @@
 {
-  "version": "416b30cdcaec12b283991565c2d4ee82c0a21fe20660ff8b1ca300455a7ab1db",
+  "version": "43403952dc7f3988fce175127fdae353c6a1a7733cda350f62e0c5c133cd30c9",
   "grants": [
     "operator",
     "project-agent",
@@ -11388,6 +11388,598 @@
         "required": ["projects", "web"],
         "additionalProperties": false,
         "description": "Allowlisted effective configuration without credentials or adapter settings."
+      }
+    },
+    {
+      "id": "columns.describe",
+      "kind": "query",
+      "description": "Describe effective column exit rules, returns, executors and escalation.",
+      "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
+      "preconditions": null,
+      "errors": [
+        "usage",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "identity_unavailable",
+        "starting",
+        "stopping"
+      ],
+      "cli": { "command": "columns describe", "args": [], "modes": null, "key": null },
+      "mcp": {
+        "name": "columns_describe",
+        "key": null,
+        "whenToUse": "Read the project column policy before deciding how to progress work; selected sessions are project-level choices, not task-specific recipients.",
+        "whenNotToUse": "Use task_get with why for a task’s current gates and turn, or config_get for compact bindings and web origins.",
+        "destructive": false
+      },
+      "slack": null,
+      "web": true,
+      "examples": [
+        {
+          "summary": "Describe project column policies",
+          "input": { "project": "web" },
+          "output": {
+            "projects": [
+              {
+                "id": "web",
+                "dispatcher": { "mode": "on" },
+                "checksGate": "dev",
+                "reposWithoutCi": [],
+                "resolvedThreadsFrom": null,
+                "columns": [
+                  {
+                    "id": "todo",
+                    "name": "To Do",
+                    "group": "todo",
+                    "exit": {
+                      "to": "dev",
+                      "conditions": [
+                        {
+                          "id": "work_started",
+                          "text": "Work has started: an open PR, or a live worker with a fresh source and no reopened ticket."
+                        }
+                      ]
+                    },
+                    "returns": [],
+                    "limits": null,
+                    "executor": {
+                      "kind": "worker",
+                      "project": null,
+                      "role": null,
+                      "displayName": null,
+                      "session": null,
+                      "text": "No executor turn opens in the Todo group, even with a configured binding."
+                    },
+                    "escalation": { "chain": [], "silent": null },
+                    "movedBy": {
+                      "kind": "manual",
+                      "text": "Manual placement; work starting leaves the whole Todo group."
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "project": {
+            "description": "Project to limit the answer to; absent means every project the caller may see.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1, "description": "Board project ID." },
+                "dispatcher": {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "enum": ["shadow", "on"],
+                      "description": "Effective dispatcher mode."
+                    }
+                  },
+                  "required": ["mode"],
+                  "additionalProperties": false,
+                  "description": "Dispatcher configuration."
+                },
+                "checksGate": {
+                  "type": "string",
+                  "enum": ["dev", "review", "product-review", "external-review"],
+                  "description": "Effective column requiring green checks."
+                },
+                "reposWithoutCi": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Repositories whose open PR with no checks and no required checks passes CI; does not waive failed or pending checks."
+                },
+                "resolvedThreadsFrom": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "todo",
+                        "triage",
+                        "ready-for-dev",
+                        "dev",
+                        "review",
+                        "product-review",
+                        "external-review",
+                        "qa",
+                        "ready-to-merge",
+                        "done"
+                      ]
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Leftmost enabled thread gate, or null when none."
+                },
+                "columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "enum": [
+                          "todo",
+                          "triage",
+                          "ready-for-dev",
+                          "dev",
+                          "review",
+                          "product-review",
+                          "external-review",
+                          "qa",
+                          "ready-to-merge",
+                          "done"
+                        ],
+                        "description": "Enabled column in canonical order."
+                      },
+                      "name": { "type": "string", "description": "Human column name." },
+                      "group": {
+                        "description": "Group, present only for Todo columns.",
+                        "type": "string",
+                        "enum": ["todo"]
+                      },
+                      "exit": {
+                        "type": "object",
+                        "properties": {
+                          "to": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "todo",
+                                  "triage",
+                                  "ready-for-dev",
+                                  "dev",
+                                  "review",
+                                  "product-review",
+                                  "external-review",
+                                  "qa",
+                                  "ready-to-merge",
+                                  "done"
+                                ]
+                              },
+                              { "type": "null" }
+                            ],
+                            "description": "Next enabled destination, skipping the remaining Todo group; null at Done."
+                          },
+                          "conditions": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "enum": [
+                                    "pr_open",
+                                    "not_draft",
+                                    "checks_green",
+                                    "checks_not_red",
+                                    "no_conflict",
+                                    "external_comments_handled",
+                                    "comment_history_read",
+                                    "threads_resolved",
+                                    "submit_on_head",
+                                    "review_on_head",
+                                    "approved",
+                                    "merged",
+                                    "work_started"
+                                  ],
+                                  "description": "Condition identifier; each rule appears at its effective owner."
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "description": "Canonical positive exit rule, independent of task state."
+                                }
+                              },
+                              "required": ["id", "text"],
+                              "additionalProperties": false
+                            },
+                            "description": "Own exit conditions; gates accumulate from earlier enabled columns. Merged PRs pass all gates."
+                          }
+                        },
+                        "required": ["to", "conditions"],
+                        "additionalProperties": false,
+                        "description": "Exit destination and effective own rules."
+                      },
+                      "returns": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Applicable return triggers and completion/reopening qualifications."
+                      },
+                      "limits": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "cycleLimit": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 9007199254740991,
+                                "description": "Counted returns before operator hold; takes precedence over courseCheck."
+                              },
+                              "courseCheck": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991,
+                                "description": "Counted returns before a course check; zero disables it. Executor, feedback and thread returns count; draft, conflict and red CI do not."
+                              },
+                              "courseCheckTo": {
+                                "type": "object",
+                                "properties": {
+                                  "role": {
+                                    "type": "string",
+                                    "enum": [
+                                      "operator",
+                                      "curator",
+                                      "orchestrator:todo",
+                                      "orchestrator:triage",
+                                      "orchestrator:ready-for-dev",
+                                      "orchestrator:dev",
+                                      "orchestrator:review",
+                                      "orchestrator:product-review",
+                                      "orchestrator:external-review",
+                                      "orchestrator:qa",
+                                      "orchestrator:ready-to-merge",
+                                      "orchestrator:done",
+                                      "worker"
+                                    ],
+                                    "description": "Runtime addressee role."
+                                  },
+                                  "project": {
+                                    "description": "Named Spur project, or null for the operator or task worker.",
+                                    "type": ["string", "null"]
+                                  },
+                                  "displayName": {
+                                    "description": "Configured display name, falling back to project name.",
+                                    "type": ["string", "null"]
+                                  },
+                                  "session": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "string",
+                                            "pattern": "^[A-Za-z0-9._-]+$",
+                                            "description": "Spur session name."
+                                          },
+                                          "links": {
+                                            "type": "array",
+                                            "items": {
+                                              "type": "object",
+                                              "properties": {
+                                                "label": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "description": "Published link label."
+                                                },
+                                                "url": {
+                                                  "type": "string",
+                                                  "format": "uri",
+                                                  "description": "Published link URL."
+                                                }
+                                              },
+                                              "required": ["label", "url"],
+                                              "additionalProperties": false
+                                            },
+                                            "description": "Links published by this session."
+                                          }
+                                        },
+                                        "required": ["id", "links"],
+                                        "additionalProperties": false
+                                      },
+                                      { "type": "null" }
+                                    ],
+                                    "description": "Project-selected live session, as in doctor; task-linked or author sessions can override it. Null when absent or task-specific."
+                                  },
+                                  "text": {
+                                    "type": "string",
+                                    "description": "Routing and no-session behavior."
+                                  }
+                                },
+                                "required": ["role", "project", "displayName", "session", "text"],
+                                "additionalProperties": false,
+                                "description": "Resolved course-check destination; missing live recipient falls back to operator."
+                              }
+                            },
+                            "required": ["cycleLimit", "courseCheck", "courseCheckTo"],
+                            "additionalProperties": false
+                          },
+                          { "type": "null" }
+                        ],
+                        "description": "Return limits, or null when the column cannot return to Dev."
+                      },
+                      "executor": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": ["dispatcher", "worker", "orchestrator", "curator", "operator"],
+                            "description": "Configured executor; worker falls back to operator without a live worker."
+                          },
+                          "project": {
+                            "description": "Named Spur project, or null for the operator or task worker.",
+                            "type": ["string", "null"]
+                          },
+                          "role": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": ["worker", "operator", "curator", "orchestrator"],
+                                "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
+                              },
+                              { "type": "null" }
+                            ],
+                            "description": "Configured Spur role, or null for automatic/operator routing."
+                          },
+                          "displayName": {
+                            "description": "Configured display name, falling back to project name.",
+                            "type": ["string", "null"]
+                          },
+                          "session": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "pattern": "^[A-Za-z0-9._-]+$",
+                                    "description": "Spur session name."
+                                  },
+                                  "links": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "description": "Published link label."
+                                        },
+                                        "url": {
+                                          "type": "string",
+                                          "format": "uri",
+                                          "description": "Published link URL."
+                                        }
+                                      },
+                                      "required": ["label", "url"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "Links published by this session."
+                                  }
+                                },
+                                "required": ["id", "links"],
+                                "additionalProperties": false
+                              },
+                              { "type": "null" }
+                            ],
+                            "description": "Project-selected live session, as in doctor; task-linked or author sessions can override it. Null when absent or task-specific."
+                          },
+                          "text": {
+                            "type": "string",
+                            "description": "Turn ownership, fallback and project-selected session scope."
+                          }
+                        },
+                        "required": ["kind", "project", "role", "displayName", "session", "text"],
+                        "additionalProperties": false,
+                        "description": "Effective executor; Todo does not open turns, Done may open an agent wrap-up turn."
+                      },
+                      "escalation": {
+                        "type": "object",
+                        "properties": {
+                          "chain": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "operator",
+                                    "curator",
+                                    "orchestrator:todo",
+                                    "orchestrator:triage",
+                                    "orchestrator:ready-for-dev",
+                                    "orchestrator:dev",
+                                    "orchestrator:review",
+                                    "orchestrator:product-review",
+                                    "orchestrator:external-review",
+                                    "orchestrator:qa",
+                                    "orchestrator:ready-to-merge",
+                                    "orchestrator:done",
+                                    "worker"
+                                  ],
+                                  "description": "Runtime addressee role."
+                                },
+                                "project": {
+                                  "description": "Named Spur project, or null for the operator or task worker.",
+                                  "type": ["string", "null"]
+                                },
+                                "displayName": {
+                                  "description": "Configured display name, falling back to project name.",
+                                  "type": ["string", "null"]
+                                },
+                                "session": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "pattern": "^[A-Za-z0-9._-]+$",
+                                          "description": "Spur session name."
+                                        },
+                                        "links": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "object",
+                                            "properties": {
+                                              "label": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "description": "Published link label."
+                                              },
+                                              "url": {
+                                                "type": "string",
+                                                "format": "uri",
+                                                "description": "Published link URL."
+                                              }
+                                            },
+                                            "required": ["label", "url"],
+                                            "additionalProperties": false
+                                          },
+                                          "description": "Links published by this session."
+                                        }
+                                      },
+                                      "required": ["id", "links"],
+                                      "additionalProperties": false
+                                    },
+                                    { "type": "null" }
+                                  ],
+                                  "description": "Project-selected live session, as in doctor; task-linked or author sessions can override it. Null when absent or task-specific."
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "description": "Routing and no-session behavior."
+                                }
+                              },
+                              "required": ["role", "project", "displayName", "session", "text"],
+                              "additionalProperties": false
+                            },
+                            "description": "Question escalation starting at the executor; self-role steps are skipped using runtime routing."
+                          },
+                          "silent": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "remindAfterMs": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991,
+                                    "description": "Idle time for a taken agent turn before reminder."
+                                  },
+                                  "operatorItemAfterReminderReadMs": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991,
+                                    "description": "Further quiet time after reminder read/current quiet period before operator item."
+                                  },
+                                  "unhealthyAfterMs": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991,
+                                    "description": "Unhealthy executor episode before operator item."
+                                  },
+                                  "text": {
+                                    "type": "string",
+                                    "description": "Timing origins, pauses and dispatcher-mode qualification."
+                                  }
+                                },
+                                "required": [
+                                  "remindAfterMs",
+                                  "operatorItemAfterReminderReadMs",
+                                  "unhealthyAfterMs",
+                                  "text"
+                                ],
+                                "additionalProperties": false
+                              },
+                              { "type": "null" }
+                            ],
+                            "description": "Taken-agent-turn silence policy; null for operator, dispatcher and Todo."
+                          }
+                        },
+                        "required": ["chain", "silent"],
+                        "additionalProperties": false,
+                        "description": "Question and silent-executor escalation."
+                      },
+                      "movedBy": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": ["manual", "dispatcher"],
+                            "description": "Current placement mechanism."
+                          },
+                          "text": {
+                            "type": "string",
+                            "description": "How the column is entered, including shadow-mode qualification."
+                          }
+                        },
+                        "required": ["kind", "text"],
+                        "additionalProperties": false,
+                        "description": "Column placement policy."
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "exit",
+                      "returns",
+                      "limits",
+                      "executor",
+                      "escalation",
+                      "movedBy"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "Enabled columns only, in canonical order."
+                }
+              },
+              "required": [
+                "id",
+                "dispatcher",
+                "checksGate",
+                "reposWithoutCi",
+                "resolvedThreadsFrom",
+                "columns"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Effective configured projects visible to the caller; bounded by config and built-in columns."
+          }
+        },
+        "required": ["projects"],
+        "additionalProperties": false
       }
     }
   ]

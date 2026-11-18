@@ -222,8 +222,8 @@ export function renderCommandReferences(): CommandReference[] {
     })),
     {
       fileName: 'config.md',
-      commands: ['config get'],
-      content: `# Board configuration command\n\n${pageOperations(['config get']).map(renderOperation).join('\n\n')}\n`,
+      commands: ['config get', 'columns describe'],
+      content: `# Board configuration commands\n\n${pageOperations(['config get', 'columns describe']).map(renderOperation).join('\n\n')}\n`,
     },
     { fileName: 'errors.md', commands: [], content: errors },
   ];

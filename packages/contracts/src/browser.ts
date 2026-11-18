@@ -12,6 +12,8 @@ import { EVENT_KINDS } from './events.ts';
 import { actorIdSchema, blockIdSchema, itemIdSchema, taskKeyInputSchema } from './ids.ts';
 import { SPACE_IDS } from './gateway/schemas.ts';
 import { configViewSchema } from './ops/config-view-schema.ts';
+import { columnsDescribeOutputSchema } from './ops/columns-schema.ts';
+export { columnsDescribeOutputSchema } from './ops/columns-schema.ts';
 import { inboxEntrySchema, inboxHandledSchema } from './ops/inbox-schemas.ts';
 import { sourceViewSchema } from './ops/source-view-schema.ts';
 import {
@@ -420,6 +422,12 @@ const taskHistoryReadSchema = taskHistoryOutputSchema.extend({
  * whole answer.
  */
 export const browserOperations = {
+  'columns.describe': {
+    id: 'columns.describe',
+    kind: 'query',
+    input: configGetInputSchema,
+    output: columnsDescribeOutputSchema,
+  },
   'config.get': {
     id: 'config.get',
     kind: 'query',

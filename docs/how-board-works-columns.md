@@ -1,5 +1,15 @@
 # Columns and executors
 
+`board columns describe [--project <project>]` (`columns_describe` in MCP) reads
+effective exit rules, return triggers and limits, executors, question escalation and
+silence timing for visible enabled columns. JSON keeps condition and column IDs;
+a terminal shows their readable text. Gates accumulate from columns to the left;
+each rule is listed once at its effective owner. This is policy, not task state:
+use `board task <KEY> --why` for current gates and turns. Named sessions are the
+project-selected live sessions used by doctor; a task link or author can override
+the actual recipient. An absent ordinary orchestrator waits for a session;
+an absent curator or course-check recipient falls back to the operator.
+
 ## Columns and executors
 
 `todo`, `triage`, `ready-for-dev`, `dev`, `review`, `product-review`,

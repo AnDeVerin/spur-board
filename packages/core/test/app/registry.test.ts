@@ -15,6 +15,11 @@ import {
 import { clearItem, raiseItem } from '../../src/app/feed.ts';
 import type { OperationHandlers } from '../../src/app/operations.ts';
 import { openTempStore } from '../support/store.ts';
+import { liveSession } from '../support/conversation.ts';
+import { bestProjectSession } from '../../src/app/doorbells.ts';
+import { blockAddressee, escalateBlock } from '../../src/domain/blocks/blocks.ts';
+import { courseAddressee } from '../../src/app/course-check.ts';
+import { stuckTurnAfterMs } from '../../src/app/turns.ts';
 
 const config = configSchema.parse({
   projects: [
@@ -40,6 +45,279 @@ const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
 const stores: Store[] = [];
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close();
+});
+
+it('describes only visible enabled column policies without changing board state', async () => {
+  const store = openTempStore('board-column-policy-').store;
+  stores.push(store);
+  const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+  const query = createQuery({ store, config, clock });
+  const before = await store.db.selectFrom('event').selectAll().execute();
+  const result = await query(registry['columns.describe'], {}, 'agent:first-worker/session');
+  expect(result.projects.map((project) => project.id)).toEqual(['first']);
+  const project = result.projects[0];
+  expect(project?.columns.map((column) => column.id)).toEqual(
+    config.projects[0]?.columns.filter((column) => column.enabled).map((column) => column.id),
+  );
+  const todo = project?.columns.find((column) => column.id === 'todo');
+  expect(todo).toMatchObject({
+    group: 'todo',
+    exit: { to: 'dev', conditions: [{ id: 'work_started' }] },
+    limits: null,
+    movedBy: { kind: 'manual' },
+    escalation: { chain: [], silent: null },
+  });
+  expect(todo?.executor.text).toContain('No executor turn');
+  const external = project?.columns.find((column) => column.id === 'external-review');
+  expect(external).toMatchObject({
+    executor: { kind: 'dispatcher', project: null, session: null },
+    exit: { conditions: [{ id: 'approved', text: 'Approved by an external reviewer.' }] },
+    escalation: { chain: [], silent: null },
+  });
+  expect(external?.returns.join(' ')).not.toContain('executor can return');
+  expect(external?.limits?.courseCheckTo).toMatchObject({
+    role: 'operator',
+    project: null,
+    session: null,
+  });
+  expect(
+    project?.columns
+      .find((column) => column.id === 'dev')
+      ?.escalation.chain.map((step) => step.role),
+  ).toEqual(['worker', 'operator']);
+  expect(project?.columns.find((column) => column.id === 'dev')?.executor).toMatchObject({
+    kind: 'worker',
+    project: null,
+    session: null,
+  });
+  expect(project?.columns.find((column) => column.id === 'done')).toMatchObject({
+    exit: { to: null, conditions: [] },
+    limits: null,
+  });
+  expect(project?.columns.find((column) => column.id === 'done')?.executor.text).toContain(
+    'wrap-up turn',
+  );
+  expect(
+    (await query(registry['columns.describe'], {}, 'operator')).projects.map((entry) => entry.id),
+  ).toEqual(['first', 'second']);
+  expect(
+    (await query(registry['columns.describe'], { project: 'second' }, 'operator')).projects.map(
+      (entry) => entry.id,
+    ),
+  ).toEqual(['second']);
+  expect(await store.db.selectFrom('event').selectAll().execute()).toEqual(before);
+  for (const table of ['turn', 'notification', 'block', 'outbox', 'operator_item'] as const)
+    expect(await store.db.selectFrom(table).selectAll().execute()).toEqual([]);
+  await expect(
+    query(registry['columns.describe'], { project: 'second' }, 'agent:first-worker/session'),
+  ).rejects.toMatchObject({ code: 'forbidden' });
+  await expect(
+    query(registry['columns.describe'], { project: 'missing' }, 'operator'),
+  ).rejects.toMatchObject({ code: 'not_found' });
+  await expect(
+    query(registry['columns.describe'], {}, 'agent:outsider/session'),
+  ).rejects.toMatchObject({ code: 'not_found' });
+  await expect(query(registry['config.get'], {}, 'agent:outsider/session')).rejects.toMatchObject({
+    code: 'not_found',
+  });
+});
+
+it('uses effective bindings, project session selection, routing and configured timings', async () => {
+  const store = openTempStore('board-column-routing-').store;
+  stores.push(store);
+  const effective = configSchema.parse({
+    ...config,
+    projects: [
+      {
+        ...config.projects[0],
+        spurProjects: [
+          { name: 'first-worker', role: 'worker' },
+          { name: 'cur', role: 'curator', displayName: 'Course guide' },
+          { name: 'reviewer', role: 'orchestrator' },
+        ],
+        checksGate: 'review',
+        repos: ['o/first', 'o/no-ci'],
+        reposWithoutCi: ['o/no-ci'],
+        columns: [
+          { id: 'todo' },
+          { id: 'triage' },
+          { id: 'dev' },
+          {
+            id: 'review',
+            orchestrator: 'reviewer',
+            requireResolvedThreads: true,
+            cycleLimit: 7,
+            courseCheck: 0,
+            courseCheckTo: 'reviewer',
+          },
+          { id: 'product-review', orchestrator: 'cur' },
+          { id: 'external-review', orchestrator: 'operator' },
+          { id: 'qa' },
+          { id: 'done', orchestrator: 'operator' },
+        ],
+      },
+      config.projects[1],
+    ],
+    spurProjects: [
+      { name: 'global', role: 'orchestrator', columns: ['qa'], displayName: 'Global QA' },
+    ],
+    health: { idleInDevAfterMs: 12345, turnStallAfterMs: 23456 },
+    doorbells: { firstRetryMs: 1000, secondRetryMs: 2000, unansweredAfterMs: 3000 },
+  });
+  const registry = createOperationRegistry({ config: effective, clock, completeSince: new Map() });
+  const query = createQuery({ store, config: effective, clock });
+  await liveSession(store, 'old', 'reviewer');
+  await liveSession(store, 'selected', 'reviewer');
+  await liveSession(store, 'finished', 'reviewer');
+  await liveSession(store, 'absent', 'reviewer');
+  await liveSession(store, 'arbitrary-worker', 'first-worker');
+  await store.transaction(async (trx) => {
+    await trx
+      .updateTable('session_snapshot')
+      .set({ first_seen: '2026-11-04T07:00:00Z' })
+      .where('id', 'in', ['selected', 'finished', 'absent'])
+      .execute();
+    await trx
+      .updateTable('session_snapshot')
+      .set({ ended_at: '2026-11-04T07:30:00Z' })
+      .where('id', '=', 'finished')
+      .execute();
+    await trx
+      .updateTable('session_snapshot')
+      .set({ absent_since: '2026-11-04T07:30:00Z' })
+      .where('id', '=', 'absent')
+      .execute();
+    const selected = await trx
+      .selectFrom('session_snapshot')
+      .selectAll()
+      .where('id', '=', 'selected')
+      .executeTakeFirstOrThrow();
+    await trx
+      .updateTable('session_snapshot')
+      .set({
+        detail: JSON.stringify({
+          ...JSON.parse(selected.detail),
+          links: { logs: 'https://example.test/logs' },
+        }),
+      })
+      .where('id', '=', 'selected')
+      .execute();
+  });
+  const result = await query(registry['columns.describe'], { project: 'first' }, 'operator');
+  const project = result.projects[0];
+  if (project === undefined) throw new Error('missing policy');
+  const byId = (id: string) => {
+    const column = project.columns.find((column) => column.id === id);
+    if (column === undefined) throw new Error(`missing ${id}`);
+    return column;
+  };
+  expect(project).toMatchObject({
+    checksGate: 'review',
+    reposWithoutCi: ['o/no-ci'],
+    resolvedThreadsFrom: 'review',
+  });
+  expect(byId('triage').exit.to).toBe('dev');
+  expect(byId('review').executor).toMatchObject({
+    kind: 'orchestrator',
+    project: 'reviewer',
+    role: 'orchestrator',
+    displayName: 'reviewer',
+    session: {
+      id: (await bestProjectSession(store.db, 'reviewer'))?.id,
+      links: [{ label: 'logs', url: 'https://example.test/logs' }],
+    },
+  });
+  expect(byId('qa').executor).toMatchObject({
+    kind: 'orchestrator',
+    project: 'global',
+    displayName: 'Global QA',
+    session: null,
+  });
+  expect(byId('qa').executor.text).toContain('ordinary questions wait');
+  expect(byId('product-review').executor).toMatchObject({
+    kind: 'curator',
+    project: 'cur',
+    displayName: 'Course guide',
+    session: null,
+  });
+  expect(byId('product-review').executor.text).toContain('falls back to the operator');
+  expect(byId('external-review').executor.kind).toBe('operator');
+  expect(byId('external-review').returns.join(' ')).toContain('executor can return');
+  expect(byId('external-review').escalation).toMatchObject({
+    chain: [{ role: 'operator' }],
+    silent: null,
+  });
+  expect(byId('dev').executor.session).toBeNull();
+  expect(byId('review').exit.conditions.map((rule) => rule.id)).toEqual([
+    'checks_green',
+    'threads_resolved',
+    'review_on_head',
+  ]);
+  expect(byId('review').returns.join(' ')).toContain('Unresolved review threads');
+  expect(byId('review').limits).toMatchObject({
+    cycleLimit: 7,
+    courseCheck: 0,
+    courseCheckTo: {
+      role: courseAddressee(effective, 'first', 'review'),
+      project: 'reviewer',
+      session: { id: 'selected' },
+    },
+  });
+  expect(byId('qa').limits?.courseCheckTo).toMatchObject({
+    role: 'curator',
+    project: 'cur',
+    session: null,
+  });
+  expect(byId('qa').limits?.courseCheckTo.text).toContain('falls back to the operator');
+  const routed = blockAddressee({
+    type: 'needs_input',
+    author: 'agent:reviewer/selected',
+    authorRole: 'orchestrator:review',
+    column: 'review',
+    orchestrator: 'reviewer',
+    curator: 'cur',
+    hasWorker: false,
+  });
+  expect(byId('review').escalation.chain.map((step) => step.role)).toEqual([
+    'orchestrator:review',
+    routed,
+    escalateBlock(
+      {
+        type: 'needs_input',
+        state: 'open',
+        outcome: null,
+        unblockedBy: null,
+        author: 'agent:reviewer/selected',
+        addressee: routed,
+      },
+      true,
+    ).addressee,
+  ]);
+  expect(byId('product-review').escalation.chain.map((step) => step.role)).toEqual([
+    'curator',
+    'operator',
+  ]);
+  expect(byId('dev').escalation.chain.map((step) => step.role)).toEqual([
+    'worker',
+    'curator',
+    'operator',
+  ]);
+  expect(byId('dev').escalation.silent).toMatchObject({
+    remindAfterMs: stuckTurnAfterMs(effective),
+    operatorItemAfterReminderReadMs: 12345,
+    unhealthyAfterMs: 23456,
+  });
+  expect(byId('dev').escalation.silent?.text).toContain('1000, then 2000');
+  expect(byId('dev').escalation.silent?.text).toContain('shadow');
+  await store.db
+    .updateTable('session_snapshot')
+    .set({ detail: '{broken' })
+    .where('id', '=', 'selected')
+    .execute();
+  const malformed = await query(registry['columns.describe'], { project: 'first' }, 'operator');
+  expect(
+    malformed.projects[0]?.columns.find((column) => column.id === 'review')?.executor.session,
+  ).toEqual({ id: 'selected', links: [] });
 });
 
 it('registers one handler with a matching id for every catalog operation', () => {

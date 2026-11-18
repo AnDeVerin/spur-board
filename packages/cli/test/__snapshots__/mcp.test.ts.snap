@@ -218,5 +218,12 @@ When not to use: Use status_get for task state and freshness.
 Example: {}",
     "name": "config_get",
   },
+  {
+    "description": "Describe effective column exit rules, returns, executors and escalation.
+Use when: Read the project column policy before deciding how to progress work; selected sessions are project-level choices, not task-specific recipients.
+When not to use: Use task_get with why for a task’s current gates and turn, or config_get for compact bindings and web origins.
+Example: {"project":"web"}",
+    "name": "columns_describe",
+  },
 ]
 `;

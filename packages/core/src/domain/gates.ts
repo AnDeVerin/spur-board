@@ -1,5 +1,4 @@
 import {
-  assertNever,
   COLUMN_IDS,
   isTodoGroupColumn,
   type CheckGateColumn,
@@ -178,7 +177,7 @@ function executorDone(
  * The leftmost enabled column that requires resolved threads: `requireResolvedThreads`, by default
  * true on Ready to Merge only. Undefined when no enabled column requires them.
  */
-function threadsFrom(project: GateProject): ColumnId | undefined {
+export function threadsFrom(project: GateProject): ColumnId | undefined {
   return project.columns.find(
     (c) => c.enabled && (c.requireResolvedThreads ?? c.id === 'ready-to-merge'),
   )?.id;
@@ -200,21 +199,13 @@ function devReasons(
   waived: boolean,
   threads: boolean,
 ): GateReason[] {
-  const { pr } = facts;
-  if (pr === null) return ['no_pr'];
-  if (pr.state === 'closed') return ['pr_closed'];
-  const reasons: GateReason[] = [];
-  if (pr.draft) reasons.push('pr_draft');
-  const verdict = checksVerdict(pr, waived);
-  if (verdict === 'red') reasons.push('checks_red');
-  if (verdict === 'pending' && project.checksGate === 'dev') reasons.push('checks_pending');
-  if (pr.mergeable === 'conflicting') reasons.push('conflict');
-  if (pr.mergeable === 'unknown') reasons.push('mergeable_unknown');
-  if (facts.unhandledExternalComments > 0) reasons.push('external_comments');
-  if (facts.commentHistory === 'incomplete') reasons.push('comment_history_incomplete');
-  if (threads && facts.unresolvedThreads > 0) reasons.push('unresolved_threads');
-  if (!executorDone('dev', facts, project.columns)) reasons.push('no_submit_on_head');
-  return reasons;
+  const opening = CONDITION_DEFINITIONS.pr_open.reasons(facts, project, 'dev', waived);
+  if (opening.length > 0) return opening;
+  return columnConditions('dev', project.checksGate).flatMap((id) =>
+    id === 'threads_resolved' && !threads
+      ? []
+      : CONDITION_DEFINITIONS[id].reasons(facts, project, 'dev', waived),
+  );
 }
 
 /**
@@ -243,32 +234,104 @@ function columnCondition(
   threads: boolean,
 ): GateReason[] {
   if (column === 'dev') return devReasons(facts, project, waived, threads);
-  const own = ownCondition(column, facts, project.columns);
-  return column === project.checksGate ? [...gateCheckReasons(facts, waived), ...own] : own;
+  if (isTodoGroupColumn(column)) return [];
+  return columnConditions(column, project.checksGate).flatMap((id) =>
+    CONDITION_DEFINITIONS[id].reasons(facts, project, column, waived),
+  );
 }
 
-/** The failing reasons of a column's exit condition other than Dev, without checks. */
-function ownCondition(
-  column: Exclude<ColumnId, 'dev'>,
-  facts: TaskGateFacts,
-  columns: readonly GateColumn[],
-): GateReason[] {
-  if (isTodoGroupColumn(column)) return [];
-  switch (column) {
-    case 'done':
-      return [];
-    case 'review':
-    case 'product-review':
-      return executorDone(column, facts, columns) ? [] : ['no_review_on_head'];
-    case 'external-review':
-      return facts.externalReviewApproved ? [] : ['not_approved'];
-    case 'qa':
-      return executorDone(column, facts, columns) ? [] : ['no_submit_on_head'];
-    case 'ready-to-merge':
-      return facts.pr?.state === 'merged' ? [] : ['not_merged'];
-    default:
-      return assertNever(column);
+interface ConditionDefinition {
+  text: string;
+  reasons(
+    facts: TaskGateFacts,
+    project: GateProject,
+    column: ColumnId,
+    waived: boolean,
+  ): GateReason[];
+}
+
+/** The positive rule and its predicate have one owner for evaluation and policy reads. */
+const CONDITION_DEFINITIONS: Record<GateCondition, ConditionDefinition> = {
+  pr_open: {
+    text: 'An open pull request is linked.',
+    reasons: ({ pr }) => (pr === null ? ['no_pr'] : pr.state === 'closed' ? ['pr_closed'] : []),
+  },
+  not_draft: {
+    text: 'The pull request is not a draft.',
+    reasons: ({ pr }) => (pr?.draft ? ['pr_draft'] : []),
+  },
+  checks_green: {
+    text: 'Required checks, or all non-skipped checks when none are required, are green. An open PR in reposWithoutCi passes only with no checks and no required checks.',
+    reasons: (facts, _project, _column, waived) => gateCheckReasons(facts, waived),
+  },
+  checks_not_red: {
+    text: 'Checks are not red; pending checks may continue until checksGate. reposWithoutCi never waives failed, pending or required checks.',
+    reasons: ({ pr }, _project, _column, waived) =>
+      pr !== null && checksVerdict(pr, waived) === 'red' ? ['checks_red'] : [],
+  },
+  no_conflict: {
+    text: 'GitHub has computed mergeability and reports no conflict.',
+    reasons: ({ pr }) =>
+      pr?.mergeable === 'conflicting'
+        ? ['conflict']
+        : pr?.mergeable === 'unknown'
+          ? ['mergeable_unknown']
+          : [],
+  },
+  external_comments_handled: {
+    text: 'External feedback, including changes requested, has been handled.',
+    reasons: (facts) => (facts.unhandledExternalComments > 0 ? ['external_comments'] : []),
+  },
+  comment_history_read: {
+    text: 'The external comment history has been read to the end.',
+    reasons: (facts) =>
+      facts.commentHistory === 'incomplete' ? ['comment_history_incomplete'] : [],
+  },
+  threads_resolved: {
+    text: 'Every review thread is resolved, including outdated threads regardless of author.',
+    reasons: (facts) => (facts.unresolvedThreads > 0 ? ['unresolved_threads'] : []),
+  },
+  submit_on_head: {
+    text: 'The executor has submitted on the current PR head. Worker submits can satisfy other unbound worker stages; a QA submit does not satisfy Dev.',
+    reasons: (facts, project, column) =>
+      executorDone(column, facts, project.columns) ? [] : ['no_submit_on_head'],
+  },
+  review_on_head: {
+    text: 'The executor has reviewed or submitted on the current PR head.',
+    reasons: (facts, project, column) =>
+      executorDone(column, facts, project.columns) ? [] : ['no_review_on_head'],
+  },
+  approved: {
+    text: 'Approved by an external reviewer.',
+    reasons: (facts) => (facts.externalReviewApproved ? [] : ['not_approved']),
+  },
+  merged: {
+    text: 'The pull request is merged.',
+    reasons: (facts) => (facts.pr?.state === 'merged' ? [] : ['not_merged']),
+  },
+};
+
+/** Effective ownership differs from legacy task explanations: thread failures still name Dev. */
+export function describeConditions(
+  column: ColumnId,
+  project: GateProject,
+): { id: GateCondition | 'work_started'; text: string }[] {
+  if (isTodoGroupColumn(column))
+    return [
+      {
+        id: 'work_started',
+        text: 'Work has started: an open PR, or a live worker with a fresh, non-blind Spur source and no reopened ticket. A reopened ticket needs an open PR. Source readiness and holds still apply; no executor turn opens in the Todo group.',
+      },
+    ];
+  const from = threadsFrom(project);
+  const ids = columnConditions(column, project.checksGate).filter(
+    (id) => id !== 'threads_resolved' || from === column,
+  );
+  if (from === column && column !== 'dev') {
+    const checks = ids[0] === 'checks_green' ? 1 : 0;
+    ids.splice(checks, 0, 'threads_resolved');
   }
+  return ids.map((id) => ({ id, text: CONDITION_DEFINITIONS[id].text }));
 }
 
 /**

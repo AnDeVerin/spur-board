@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import {
   countCycles,
+  describeConditions,
   evaluateGate,
   explainGates,
   type TaskGateFacts,
@@ -99,6 +100,153 @@ const gate = (
 ): Expected => evaluateGate(column, facts, { columns: board, reposWithoutCi, checksGate: 'dev' });
 
 const SB = disable(ORCH, 'external-review', 'qa');
+
+describe('effective policy condition ownership and gate parity', () => {
+  it.each(CHECKS_GATE_COLUMNS)(
+    'owns green checks at %s and retains Dev red attribution',
+    (checksGate) => {
+      const project = { columns: ORCH, reposWithoutCi: ['O/R'], checksGate };
+      const base = ready({
+        externalReviewApproved: true,
+        marks: COLUMN_IDS.map((id) => submit(id, A)),
+      });
+      for (const required of [false, true]) {
+        for (const state of CHECK_STATES) {
+          const list = [check(state)];
+          const facts = {
+            ...base,
+            pr: { ...readyPr, requiredChecks: required ? list : [], checks: list },
+          };
+          for (const column of COLUMN_IDS.filter(
+            (id) => ORCH.find((entry) => entry.id === id)?.enabled,
+          )) {
+            const accumulated = COLUMN_IDS.slice(0, COLUMN_IDS.indexOf(column) + 1).flatMap((id) =>
+              describeConditions(id, project).map((rule) => rule.id),
+            );
+            const result = evaluateGate(column, facts, project);
+            const legacy = explainGates(facts, project).gates.find(
+              (gate) => gate.column === column,
+            );
+            expect(legacy?.blockedIn).toBe(result.ok ? null : result.column);
+            if (
+              !result.ok &&
+              result.reasons.some(
+                (reason) => reason === 'checks_red' || reason === 'checks_pending',
+              )
+            ) {
+              expect(accumulated).toContain(
+                result.column === 'dev' && checksGate !== 'dev' ? 'checks_not_red' : 'checks_green',
+              );
+            }
+            if (!result.ok && result.reasons.includes('checks_red'))
+              expect(result.column).toBe('dev');
+          }
+        }
+      }
+      const owners = COLUMN_IDS.filter((id) =>
+        describeConditions(id, project).some((rule) => rule.id === 'checks_green'),
+      );
+      expect(owners).toEqual([checksGate]);
+      expect(describeConditions('dev', project).map((rule) => rule.id)).toEqual([
+        'pr_open',
+        'not_draft',
+        checksGate === 'dev' ? 'checks_green' : 'checks_not_red',
+        'no_conflict',
+        'external_comments_handled',
+        'comment_history_read',
+        'submit_on_head',
+      ]);
+      const empty = { ...base, pr: { ...readyPr, checks: [], requiredChecks: [] } };
+      expect(evaluateGate(checksGate, empty, project)).toEqual({
+        ok: true,
+        checksWaivedBy: 'reposWithoutCi',
+      });
+      expect(evaluateGate(checksGate, empty, { ...project, reposWithoutCi: [] })).toMatchObject({
+        ok: false,
+        column: checksGate,
+        reasons: ['checks_pending'],
+      });
+      expect(
+        evaluateGate(
+          'done',
+          {
+            ...base,
+            pr: { ...readyPr, state: 'merged', draft: true },
+            unresolvedThreads: 2,
+            marks: [],
+          },
+          project,
+        ),
+      ).toEqual({ ok: true });
+      expect(evaluateGate('done', { ...base, pr: null }, project)).toEqual({
+        ok: false,
+        column: 'dev',
+        reasons: ['no_pr'],
+      });
+    },
+  );
+
+  it.each(['dev', 'review', 'qa', 'ready-to-merge', null] as const)(
+    'owns threads once at %s, preserving legacy Dev failure attribution',
+    (from) => {
+      const columns = ORCH.map((column) => ({
+        ...column,
+        requireResolvedThreads: column.id === from || (column.id === 'qa' && from === 'review'),
+      }));
+      const project = { columns, reposWithoutCi: [], checksGate: 'dev' as const };
+      const facts = ready({
+        externalReviewApproved: true,
+        unresolvedThreads: 1,
+        marks: COLUMN_IDS.map((id) => submit(id, A)),
+      });
+      expect(
+        COLUMN_IDS.filter((id) =>
+          describeConditions(id, project).some((rule) => rule.id === 'threads_resolved'),
+        ),
+      ).toEqual(from === null ? [] : [from]);
+      for (const column of [
+        'dev',
+        'review',
+        'product-review',
+        'external-review',
+        'qa',
+        'ready-to-merge',
+      ] as const) {
+        const result = evaluateGate(column, facts, project);
+        const applies = from !== null && COLUMN_IDS.indexOf(column) >= COLUMN_IDS.indexOf(from);
+        expect(result).toEqual(
+          applies
+            ? { ok: false, column: 'dev', reasons: ['unresolved_threads'] }
+            : column === 'ready-to-merge'
+              ? { ok: false, column: 'ready-to-merge', reasons: ['not_merged'] }
+              : { ok: true },
+        );
+      }
+      // Legacy task.get --why always contains Dev's threads row, even with no configured gate.
+      expect(
+        explainGates(facts, project).gates.find((gate) => gate.column === 'dev')?.conditions,
+      ).toContainEqual({
+        condition: 'threads_resolved',
+        state: from === null ? 'met' : 'failed',
+        reason: from === null ? null : 'unresolved_threads',
+      });
+      const disabled = {
+        ...project,
+        columns: columns.map((column) => ({
+          ...column,
+          enabled: column.id === from ? false : column.enabled,
+          requireResolvedThreads: column.id === from,
+        })),
+      };
+      expect(
+        COLUMN_IDS.flatMap((id) => describeConditions(id, disabled)).some(
+          (rule) => rule.id === 'threads_resolved',
+        ),
+      ).toBe(false);
+    },
+  );
+});
+
 const reviewMarks = [submit('dev', A), mark('review', A), mark('product-review', A)];
 const ok: Expected = { ok: true };
 type Reason = Extract<Expected, { ok: false }>['reasons'][number];
