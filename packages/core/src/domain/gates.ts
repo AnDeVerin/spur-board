@@ -1,7 +1,6 @@
 import {
   assertNever,
   COLUMN_IDS,
-  GATE_REASONS,
   isTodoGroupColumn,
   type CheckGateColumn,
   type CheckState,
@@ -242,9 +241,7 @@ function columnCondition(
 ): GateReason[] {
   if (column === 'dev') return devReasons(facts, project, waived, threads);
   const own = ownCondition(column, facts, project.columns);
-  if (column !== project.checksGate) return own;
-  const reasons = new Set([...gateCheckReasons(facts, waived), ...own]);
-  return GATE_REASONS.filter((reason) => reasons.has(reason));
+  return column === project.checksGate ? [...gateCheckReasons(facts, waived), ...own] : own;
 }
 
 /** The failing reasons of a column's exit condition other than Dev, without checks. */

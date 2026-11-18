@@ -1,6 +1,6 @@
 import { prFactsSchema, type PrFacts } from '@spur-board/contracts';
 import { z } from 'zod';
-import { toJson } from '../store/json.ts';
+import { parseJson, toJson } from '../store/json.ts';
 import type { Trx } from './board-utils.ts';
 
 // Under a `checksGate` right of Dev, a cancelled check counts as running until two complete
@@ -30,19 +30,23 @@ type PrChecks = Pick<
 const cancelledChecksKey = (source: string, ref: { repo: string; number: number }): string =>
   `checks-cancel:${source}:pr:${ref.repo.toLowerCase()}#${String(ref.number)}`;
 
-/** The stored count, or undefined when it is absent or unreadable. */
-async function readCount(trx: Trx, key: string): Promise<CancelledChecks | undefined> {
+/** The stored counts on `headSha`; none when the row is absent, unreadable or for another head. */
+async function countsOnHead(
+  trx: Trx,
+  key: string,
+  headSha: string,
+): Promise<CancelledChecks['cancelled']> {
   const row = await trx
     .selectFrom('meta')
     .select('value')
     .where('key', '=', key)
     .executeTakeFirst();
-  if (row === undefined) return;
+  if (row === undefined) return [];
   try {
-    const parsed = cancelledChecksSchema.safeParse(JSON.parse(row.value));
-    return parsed.success ? parsed.data : undefined;
+    const saved = parseJson(cancelledChecksSchema, row.value);
+    return saved.headSha.toLowerCase() === headSha.toLowerCase() ? saved.cancelled : [];
   } catch {
-    return;
+    return [];
   }
 }
 
@@ -81,8 +85,7 @@ export async function countCancelledChecks(
     return false;
   }
   const head = fact.headSha.toLowerCase();
-  const saved = await readCount(trx, key);
-  const previous = saved?.headSha.toLowerCase() === head ? saved.cancelled : [];
+  const previous = await countsOnHead(trx, key, head);
   let confirmed = false;
   const next = cancelled.map((check) => {
     const before = previous.find((entry) => sameRun(entry, check));
@@ -110,8 +113,7 @@ export async function withUnconfirmedCancels(
   pr: PrFacts,
 ): Promise<PrFacts> {
   if (cancelledOnHead(pr).length === 0) return pr;
-  const saved = await readCount(trx, cancelledChecksKey(source, pr));
-  const counted = saved?.headSha.toLowerCase() === pr.headSha.toLowerCase() ? saved.cancelled : [];
+  const counted = await countsOnHead(trx, cancelledChecksKey(source, pr), pr.headSha);
   const map = (checks: PrFacts['checks']): PrFacts['checks'] =>
     checks.map((check) =>
       check.state === 'cancelled' &&
