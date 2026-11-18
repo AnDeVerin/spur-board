@@ -47,6 +47,10 @@ Read `.agents/skills/working-with-contracts/references/enum-value.md`.
   package, so only `board rollback` hits it. It keeps the live database when the migration count
   is unchanged, so the older reader meets these values, and across a migration it restores the
   pre-update backup (#220).
+- Fact schemas (`prFactsSchema`, `sessionFactsSchema`, `ticketFactsSchema` in
+  `packages/contracts/src/facts.ts`) are strict, and core reads stored snapshots with a throwing
+  `parseJson` (`packages/core/src/store/json.ts`). A new optional fact field breaks
+  `board rollback` to the previous release on snapshots that carry it: name it under Risk.
 - Do not bump `EVENT_VERSION` for a new kind, a new optional field or a new enum value. Bump it
   only for an envelope change the current reader cannot read; that bump is a user-visible break,
   and the reader keeps parsing every earlier `v`.

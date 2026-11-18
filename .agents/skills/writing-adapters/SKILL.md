@@ -81,7 +81,7 @@ rule names another. A PR changing a practice named here updates this skill.
 
 - No shared suite runs every adapter against the port.
 - Fakes: `packages/adapters/src/testing.ts`.
-- Recordings: `packages/stand/recordings/`; refresh with `pnpm record:fakes` after a request change.
+- Recordings: `packages/stand/recordings/`; after a request change, follow `testing-and-ci`.
 
 ## Checks
 
