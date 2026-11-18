@@ -150,8 +150,9 @@ function absenceReady(input: DispatchInput): boolean {
 /**
  * What holds the dispatcher on the task now: a blind GitHub or a pending submit stops it, a blind
  * Spur defers a worker's turn, an active cycle-limit or course-check item stops every turn and
- * move right, and the Todo group (To Do, Triage, Ready for Dev) waits for the work to start. The last is judged at the
- * task's column, while `dispatch` judges it at each column the cascade reaches.
+ * move right, and the Todo group (To Do, Triage, Ready for Dev) waits for the work to start. The
+ * last is judged at the task's column, while `dispatch` judges it at each column the cascade
+ * reaches.
  */
 export function dispatchHolds(input: DispatchInput): TaskHold[] {
   const holds: TaskHold[] = [];

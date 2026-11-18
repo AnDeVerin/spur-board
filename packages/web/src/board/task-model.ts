@@ -232,7 +232,8 @@ export function whyRows(
       : { key: 'Open blocks', value: 'none', status: 'pass' },
   );
   const next = nextColumn(why, columns);
-  // For a Todo-group task the arrow means work started (an open PR or a live worker), not an exit condition.
+  // For a Todo-group task the arrow means work started (an open PR or a live worker), not an
+  // exit condition.
   if (why && next !== undefined)
     rows.push({ key: `When ${why.column} exit conditions pass`, value: `→ ${next}` });
   return rows;

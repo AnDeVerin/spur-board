@@ -269,7 +269,10 @@ export function evaluateGate(
   return { ok: true, ...marker };
 }
 
-/** The exit conditions of each column outside the Todo group, which has none, in the order the gates report their reasons. */
+/**
+ * The exit conditions of each column outside the Todo group, which has none, in the order the
+ * gates report their reasons.
+ */
 const COLUMN_CONDITIONS = {
   dev: [
     'pr_open',
