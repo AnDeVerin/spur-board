@@ -35,7 +35,7 @@
 
 ## Design System decisions
 
-<!--- UI change only: one row per difference between the prototype and the build, or the single line "None" when there is none; reason codes and rules in docs/design-system-decisions.md. Delete this section when the PR changes no UI. -->
+<!--- UI change only: one row per difference between a prototype and the build and one per change to a `ds/` part's API, or the single line "None" when there is none; reason codes and rules in docs/design-system-decisions.md. Delete this section when the PR changes no UI. -->
 
 | Part   | Case   | Decision   | Reason code   | Evidence            |
 | ------ | ------ | ---------- | ------------- | ------------------- |

@@ -164,8 +164,8 @@ values, and these values carry none. Neither is an operator decision.
 
 A PR that changes UI carries a `## Design System decisions` section between `## Risk` and
 `## Changed checks` (`.github/pull_request_template.md`): one row per difference between the
-prototype and the build, or the single line `None` when there is none. A PR that changes no UI
-deletes the section.
+prototype and the build and one per change to a `ds/` part's API (`## Design system changes`),
+or the single line `None` when there is none. A PR that changes no UI deletes the section.
 
 The reviewer accepts or rejects each row; a difference missing from the section is a finding.
 
@@ -188,6 +188,43 @@ None:
 
 None
 ```
+
+## Design system changes
+
+A change to the API of a part in `packages/web/src/ds/` is a UI change, prototype or not, so the
+PR carries the decisions section with one row per API change. `None`, or no section, with a ds
+API change is a finding. In a manager run the `developer` returns the section after its output
+block.
+
+API changes:
+
+- an export added to or removed from `ds/index.ts`;
+- a prop added, removed or renamed, or its type or default changed, a state prop such as `busy`
+  included;
+- a new member of an exported variant or tone union;
+- a token added, removed, renamed or given another value in `tokens.css`;
+- a part's CSS taking another token for an existing state.
+
+Not API changes, no row of their own:
+
+- a `<Name>.examples.tsx` change alone, doc comments and tests;
+- CSS that serves only a new prop's state; that prop's row covers it;
+- a change that keeps the props and the rendered output, such as a refactor or a bug fix.
+
+Codes, all from the table above:
+
+| Change                                                                       | Code                        |
+| ---------------------------------------------------------------------------- | --------------------------- |
+| New export                                                                   | `new base`                  |
+| New prop or state prop                                                       | `functional gap → prop`     |
+| New variant or tone member                                                   | `DS override → new variant` |
+| New token                                                                    | `new token`                 |
+| Changed prop default, a token given another value, another token for a state | `operator decision`         |
+| Removed or renamed export, prop, variant member or token                     | `operator decision`         |
+
+The last two rows follow `default change avoided`: changing a default needs `operator decision`.
+Without one recorded, a changed default, removal or rename is a finding: keep the default or the
+name and add a prop or a variant; for a token, keep the value, or add a `new token` and use it.
 
 ## Proposed parts
 

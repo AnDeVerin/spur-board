@@ -35,6 +35,8 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
   `describe('design system boundary'`) and `packages/web/test/ds.test.ts`.
 - Each status color sits next to a visible word, or next to its own value text with the word
   visually hidden; a decorative dot is `aria-hidden`.
+- A ds API change takes its own decisions row, returned after your output in a manager
+  run: `docs/design-system-decisions.md`, `## Design system changes`.
 
 ## Tokens and themes
 
@@ -45,8 +47,6 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 - Styles use tokens only, except structural literals and `@media` widths from `breakpoints`
   (`docs/design-system-decisions.md`). A raw hex or `rgb()` color outside `tokens.css` fails
   `scripts/web.test.ts`, which also scans the gallery sources.
-- That scan matches "#" followed by three to eight hex-like characters anywhere in source, so
-  example labels avoid text such as "PR #1234"; write "PR 1234".
 
 ## Kit and gallery
 

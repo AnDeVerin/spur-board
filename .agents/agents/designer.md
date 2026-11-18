@@ -42,6 +42,10 @@ Six passes on the spec, no mockups:
    each control inside it, against `## Proposed parts` in the decisions doc; a breach is
    MUST FIX. A file in the handoff's ds-on-main list that belongs to a covering export is MUST FIX
    "merge `main` at `<sha>` and use `<Name>`".
+5. DS changes - only when the handoff carries a `packages/web/src/ds/` patch. Each API change in
+   it has its own decisions row with the code from `## Design system changes` in
+   `docs/design-system-decisions.md`; a missing row, a wrong code, `None` or no section is
+   MUST FIX.
 
 ## Output
 ```

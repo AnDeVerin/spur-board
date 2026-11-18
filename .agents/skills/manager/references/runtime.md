@@ -43,6 +43,9 @@ Every spawn gets, and only gets:
   naming `design/prototypes/<slice>/`, also the prototype folder, the listed states, the quiet
   containers the issue names, the decisions section the `developer` returned and the ds-on-main
   list from `git diff --name-only HEAD...<sha> -- packages/web/src/ds/` with that fetched SHA;
+  when the changed files touch `packages/web/src/ds/`, also the patch from
+  `git diff <sha>...HEAD -- packages/web/src/ds/` and the decisions section the `developer`
+  returned;
 - `tester` on a UI change whose issue names `design/prototypes/<slice>/`: the prototype folder,
   the listed states and the decisions section;
 - `tester`, `designer` (code) and `doc-reviewer`: `Head: <sha>`, from `git rev-parse HEAD` run

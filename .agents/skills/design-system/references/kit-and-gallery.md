@@ -9,5 +9,7 @@
   band 4780-4799 (it belongs to the board-stand Sidecar): port 0, or e.g.
   `python3 -m http.server 4391 --bind 127.0.0.1 --directory design`; open `/kit/gallery/` and stop
   the server when done. It needs no network.
+- `scripts/web.test.ts`'s raw-colour scan matches "#" followed by three to eight hex-like
+  characters anywhere in source, so example labels avoid text such as "PR #1234"; write "PR 1234".
 - `packages/web/test/kit.test.ts` builds the kit twice and checks the outputs. It runs in the
   process project; the command is in `CONTRIBUTING.md` `## Web shell`.
