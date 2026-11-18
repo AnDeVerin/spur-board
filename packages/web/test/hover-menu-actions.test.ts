@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react';
+import { act, createElement, type ComponentType } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { HoverMenu, type HoverMenuItem } from '../src/ds/index.ts';
 
-// The theme menu's behaviour is in hover-menu.test.ts; this file covers the opening direction,
-// the action variant, disabled items, causes, groups and the note.
+// The theme menu's behaviour is in hover-menu.test.ts; this file covers the text trigger, the
+// opening direction, the action variant, disabled items, causes, groups and the note.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type Choice = 'light' | 'dark' | 'auto';
@@ -21,6 +21,17 @@ const moves: readonly HoverMenuItem<string>[] = [
   { value: 'ready', label: 'Move to ready…', group: 'part', disabled: true, cause: 'Mirrored' },
 ];
 type Props = Parameters<typeof HoverMenu<string>>[0];
+const examples = import.meta.glob<Record<string, ComponentType>>(
+  '../src/ds/HoverMenu/HoverMenu.examples.tsx',
+  { eager: true },
+);
+const examplesSource = Object.values(
+  import.meta.glob<string>('../src/ds/HoverMenu/HoverMenu.examples.tsx', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+  }),
+).join('');
 
 let container: HTMLDivElement;
 let root: Root;
@@ -92,6 +103,16 @@ const described = (element: Element) => {
 };
 
 describe('HoverMenu opening and actions', () => {
+  it('(n) a text trigger shows its text and no icon; an icon trigger shows the icon', () => {
+    mount({ variant: 'choice', items, icon: undefined, text: 'T', label: 'Theme' });
+    expect(trigger().textContent).toBe('T');
+    expect(trigger().querySelector('svg')).toBeNull();
+    expect(trigger().getAttribute('aria-label')).toBe('Theme');
+    mount({ variant: 'choice', items, icon: 'moon', label: 'Theme' });
+    expect(trigger().querySelectorAll('svg')).toHaveLength(1);
+    expect(trigger().textContent).toBe('');
+  });
+
   it('(o) marks the root data-opens="down" only when it opens downward', () => {
     mount({ variant: 'choice', items, opens: 'down', defaultOpen: true });
     expect(menuRoot().dataset['opens']).toBe('down');
@@ -216,5 +237,33 @@ describe('HoverMenu opening and actions', () => {
       variant: 'action' as const,
       value: 'dark' as const,
     }).not.toExtend<ChoiceProps>();
+  });
+
+  it('types: the trigger takes an icon or a text, never both or neither; no class or style', () => {
+    type ChoiceProps = Parameters<typeof HoverMenu<Choice>>[0];
+    const base = { label: 'Sort', items, onSelect: vi.fn<(value: Choice) => void>() };
+    expectTypeOf({ ...base, text: 'T' }).toExtend<ChoiceProps>();
+    expectTypeOf({ ...base, icon: 'moon' as const }).toExtend<ChoiceProps>();
+    expectTypeOf({ ...base, icon: 'moon' as const, text: 'T' }).not.toExtend<ChoiceProps>();
+    expectTypeOf(base).not.toExtend<ChoiceProps>();
+    expectTypeOf<ChoiceProps>().not.toHaveProperty('className');
+    expectTypeOf<ChoiceProps>().not.toHaveProperty('style');
+  });
+
+  it('(w) the prototype menus use only HoverMenu styles', () => {
+    expect(examplesSource).toContain('export function CardMenu()');
+    expect(examplesSource).not.toMatch(/from '[^']*\.css'/);
+    const module = Object.values(examples)[0] ?? {};
+    for (const name of ['SortMenu', 'CardMenu', 'CardMenuMirror']) {
+      const Example = module[name];
+      if (!Example) throw new Error(`no example ${name}`);
+      act(() => {
+        root.render(createElement(Example));
+      });
+      expect(menu(), name).not.toBeNull();
+      const menuRoot = trigger().parentElement;
+      expect(menuRoot?.hasAttribute('style'), name).toBe(false);
+      expect(menuRoot?.querySelectorAll('[style]'), name).toHaveLength(0);
+    }
   });
 });

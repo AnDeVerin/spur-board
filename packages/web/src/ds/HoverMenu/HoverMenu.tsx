@@ -57,6 +57,8 @@ function removeOpenMenu(entry: OpenMenu): void {
 
 /**
  * A small icon trigger whose menu opens upward and end-aligned, with one radio choice checked.
+ * The trigger takes `icon` or `text`, never both: `text` shows a short word or letter (a sort
+ * field, `⋯`) at chevron size in place of the icon. `label` names the trigger and the menu.
  * `opens="down"` opens it downward instead, still end-aligned and touching the trigger.
  * `variant="action"` lists commands instead (`menuitem`, no checked state or tick, no `value`):
  * an enabled item calls `onSelect`, closes the menu and focuses the trigger.
@@ -89,6 +91,7 @@ function removeOpenMenu(entry: OpenMenu): void {
 export function HoverMenu<V extends string>({
   label,
   icon,
+  text,
   items,
   value,
   onSelect,
@@ -98,13 +101,13 @@ export function HoverMenu<V extends string>({
   note,
 }: {
   label: string;
-  icon: IconName;
   items: readonly HoverMenuItem<V>[];
   onSelect: (value: V) => void;
   defaultOpen?: boolean;
   opens?: 'up' | 'down';
   note?: string | undefined;
-} & ({ variant?: 'choice'; value?: V | undefined } | { variant: 'action'; value?: undefined })) {
+} & ({ icon: IconName; text?: undefined } | { text: string; icon?: undefined }) &
+  ({ variant?: 'choice'; value?: V | undefined } | { variant: 'action'; value?: undefined })) {
   const [open, setOpen] = useState(defaultOpen);
   const pinned = useRef(defaultOpen);
   const focusOnOpen = useRef(false);
@@ -191,7 +194,9 @@ export function HoverMenu<V extends string>({
     >
       <button
         ref={trigger}
-        className={styles.trigger}
+        className={[styles.trigger, text === undefined ? undefined : styles.text]
+          .filter(Boolean)
+          .join(' ')}
         type="button"
         aria-label={label}
         aria-haspopup="menu"
@@ -208,7 +213,7 @@ export function HoverMenu<V extends string>({
           }
         }}
       >
-        <Icon name={icon} />
+        {icon === undefined ? text : <Icon name={icon} />}
       </button>
       {open && (
         <div

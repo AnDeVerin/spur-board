@@ -32,6 +32,18 @@
 .trigger[aria-expanded='true'] {
   color: var(--color-text-primary);
 }
+/* A text trigger: one short word or letter in a chevron-sized box that grows with the text. */
+.text {
+  width: auto;
+  min-width: var(--size-chevron);
+  height: var(--size-chevron);
+  padding: 0 var(--space-1);
+  font-family: inherit;
+  font-size: var(--text-micro);
+}
+.text[aria-expanded='true'] {
+  background: var(--color-row-hover);
+}
 /* The menu touches the root's top edge, so the pointer crosses into it without leaving. */
 .menu {
   position: absolute;
@@ -118,6 +130,9 @@
 @media (hover: hover) {
   .root:hover .trigger {
     color: var(--color-text-primary);
+  }
+  .root:hover .text {
+    background: var(--color-row-hover);
   }
   .item:hover:not([aria-disabled='true']) {
     background: var(--color-row-hover);

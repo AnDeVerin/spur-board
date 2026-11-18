@@ -11,6 +11,35 @@ const items: readonly HoverMenuItem<Choice>[] = [
 const icons: Record<Choice, IconName> = { light: 'sun', dark: 'moon', auto: 'auto' };
 
 // The menu opens end-aligned, so each example reserves room on the side it opens to.
+function Frame({
+  caption,
+  opens,
+  rows = 4,
+  children,
+}: {
+  caption: string;
+  opens: 'up' | 'down';
+  rows?: number;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>{caption}</p>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: 'calc(var(--space-8) + var(--space-8) + var(--space-8) + var(--space-8))',
+          maxWidth: 'var(--size-column)',
+          [opens === 'up' ? 'paddingBlockStart' : 'paddingBlockEnd']:
+            `calc(var(--size-control) * ${String(rows)})`,
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 function Demo({
   caption,
   initial,
@@ -26,30 +55,18 @@ function Demo({
 }) {
   const [value, setValue] = useState<Choice | undefined>(initial);
   return (
-    <div>
-      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>{caption}</p>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          gap: 'calc(var(--space-8) + var(--space-8) + var(--space-8) + var(--space-8))',
-          maxWidth: 'var(--size-column)',
-          [opens === 'up' ? 'paddingBlockStart' : 'paddingBlockEnd']:
-            'calc(var(--size-control) * 4)',
-        }}
-      >
-        <HoverMenu
-          label="Theme"
-          icon={value === undefined ? 'auto' : icons[value]}
-          items={items}
-          value={value}
-          onSelect={setValue}
-          defaultOpen={open}
-          opens={opens}
-        />
-        {children}
-      </div>
-    </div>
+    <Frame caption={caption} opens={opens}>
+      <HoverMenu
+        label="Theme"
+        icon={value === undefined ? 'auto' : icons[value]}
+        items={items}
+        value={value}
+        onSelect={setValue}
+        defaultOpen={open}
+        opens={opens}
+      />
+      {children}
+    </Frame>
   );
 }
 type Accent = 'warm' | 'cool' | 'plain';
@@ -108,6 +125,126 @@ export function OpensDown() {
       initial="dark"
       open
       opens="down"
+    />
+  );
+}
+
+// The sort menu of a column head: the trigger shows the first letter of the chosen field.
+type Field = 'time' | 'key' | 'manual';
+const fields: readonly HoverMenuItem<Field>[] = [
+  { value: 'time', label: 'Time' },
+  { value: 'key', label: 'Key' },
+  { value: 'manual', label: 'Manual' },
+];
+function SortDemo({ caption, open = false }: { caption: string; open?: boolean }) {
+  const [value, setValue] = useState<Field>('time');
+  return (
+    <Frame caption={caption} opens="down">
+      <HoverMenu
+        label="Sort ready"
+        text={(fields.find((field) => field.value === value)?.label ?? '').slice(0, 1)}
+        items={fields}
+        value={value}
+        onSelect={setValue}
+        opens="down"
+        defaultOpen={open}
+      />
+    </Frame>
+  );
+}
+// The card menu: moves inside the manual order, then a rule and the moves to other parts.
+const cardMoves: readonly HoverMenuItem<string>[] = [
+  { value: 'top', label: 'Move to top', disabled: true },
+  { value: 'bottom', label: 'Move to bottom' },
+  { value: 'todo', label: 'Move to todo…', group: 'part' },
+  { value: 'triage', label: 'Move to triage…', group: 'part' },
+];
+const mirrorMoves: readonly HoverMenuItem<string>[] = [
+  { value: 'ready', label: 'Move to ready…', disabled: true, group: 'part' },
+];
+const causeMoves: readonly HoverMenuItem<string>[] = [
+  {
+    value: 'top',
+    label: 'Move to top',
+    disabled: true,
+    cause: 'Already first in the manual order',
+  },
+  { value: 'bottom', label: 'Move to bottom' },
+  { value: 'todo', label: 'Move to todo…', group: 'part' },
+  {
+    value: 'ready',
+    label: 'Move to ready…',
+    group: 'part',
+    disabled: true,
+    cause: 'Ready mirrors a GitHub Project; change the status there',
+  },
+];
+function CardDemo({
+  caption,
+  moves,
+  note,
+  open = false,
+}: {
+  caption: string;
+  moves: readonly HoverMenuItem<string>[];
+  note?: string;
+  open?: boolean;
+}) {
+  return (
+    <Frame caption={caption} opens="down" rows={7}>
+      <HoverMenu
+        label="Move this task"
+        text="⋯"
+        variant="action"
+        items={moves}
+        note={note}
+        onSelect={() => undefined}
+        opens="down"
+        defaultOpen={open}
+      />
+    </Frame>
+  );
+}
+
+export function TextTrigger() {
+  return <SortDemo caption="A text trigger: the letter of the chosen sort field; hover or click" />;
+}
+export function SortMenu() {
+  return <SortDemo caption="The sort menu open downward from its letter, Time checked" open />;
+}
+export function CardMenu() {
+  return (
+    <CardDemo
+      caption="Card menu in a manual part: the first card cannot move up, a rule before the parts"
+      moves={cardMoves}
+      open
+    />
+  );
+}
+export function CardMenuMirror() {
+  return (
+    <CardDemo
+      caption="Card menu in todo: the move into a mirrored part is disabled, the note says why"
+      moves={mirrorMoves}
+      note={'Ready mirrors the GitHub Project "Web roadmap". Change the status there.'}
+      open
+    />
+  );
+}
+export function CauseLine() {
+  return (
+    <CardDemo
+      caption="A cause line under each disabled item, named by its aria-describedby"
+      moves={causeMoves}
+      open
+    />
+  );
+}
+export function ActionsFocused() {
+  return (
+    <CardDemo
+      caption="Tab to ⋯, press ArrowDown: focus lands on the disabled Move to top; Enter does nothing; ArrowDown moves on; Escape returns to the trigger"
+      moves={causeMoves}
     />
   );
 }
