@@ -56,6 +56,8 @@ Modifiers, on any tier:
   code pass, and `tester` browser QA on the stand webUrl before `reviewer` (gates steps 11-12).
 - An issue naming `design/prototypes/<slice>/`: `tester` adds the prototype and build pairs and
   `designer` (code) adds its prototype pass.
+- A diff under `packages/web/src/ds/`: `designer` (code) with its DS changes pass, even with no
+  visible change (gates step 12).
 - Tier 2 and up: a simplify pass by `developer` after implementation.
 - `.agents/`, `.claude/`, `.codex/` or `AGENTS.md` touched: `reviewer` checks the copies match.
 - Any committed change except a test or CI diff: `doc-reviewer` after the simplify pass and before

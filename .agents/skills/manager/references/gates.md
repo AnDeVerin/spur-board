@@ -38,7 +38,8 @@ The numbers are the canonical gate order.
     `.agents/skills/qa-report/references/prototype-vs-build.md`. A FAIL for no stand webUrl, or
     because the browser tool cannot run or cannot reach 127.0.0.1, is an external blocker:
     `Missing: tester - external blocker: <reason>`, no `developer` fix, no rerun; the run goes on.
-12. Design review (UI) - `designer` (code) with its inputs in `references/runtime.md`, Handoff.
+12. Design review (UI or `ds/` diff) - `designer` (code) with its inputs in
+    `references/runtime.md`, Handoff.
 13. Review - a PR exists: push, and bring its `## Changed checks` section up to date with the
     developer's output per `gitflow`. Then `reviewer` with the spec, every `developer` output of
     the run and `PR: <url> | none`.

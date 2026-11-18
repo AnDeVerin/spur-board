@@ -1,6 +1,6 @@
 ---
 name: designer
-description: UI design gate. Plan mode reviews the UI in a spec before code; code mode checks layout, tokens and states of the changed web UI. Use for visible web UI changes only.
+description: UI design gate. Plan mode reviews the UI in a spec before code; code mode checks layout, tokens and states of the changed web UI. Use for visible web UI changes or `ds/` API changes.
 model: sonnet
 effort: medium
 tools: Read, Grep, Glob
