@@ -71,6 +71,18 @@ next column: `When dev exit conditions pass → review`.
 The section header sums up the failed and waiting conditions and the open blocks, or reads
 `all pass` or `unknown`.
 
+## Latest submission
+
+After Why it is here and before discussion, Now shows the latest accepted
+submission: column, UTC time, full submitted SHA, declared basis, applicable source
+and original tested SHA, literal reason, and explicit pending and voided state.
+`tested` records provenance and does not mean checks passed. The latest row includes
+pending or voided submissions. No submissions reads `No submissions yet`; an older
+server without this field omits the block. The block shares the task's loading,
+retry and retained-data behavior. Long SHAs and reasons wrap in Now and History.
+Normal submission history also shows basis, source, tested origin and reason while
+preserving head-confirmation wording; legacy submissions read as tested.
+
 ## Blocks and comments
 
 **Blocks** and **Comments** and the three writes (answer, follow up and comment) are described on

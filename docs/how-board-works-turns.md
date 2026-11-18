@@ -11,6 +11,25 @@ shadow mode, use keyed `board submit <task> <sha>`.
 Unseen heads answer `pending`: that submit is final; do not resubmit or raise a
 block. Confirm timeout: `projects[].dispatcher.submitConfirmMs`.
 
+Submissions declare provenance with `--basis tested|carried|skipped`; omitted means
+`tested`. This records the submitter's declaration, not a claim that checks passed.
+`carried` requires `--from <full lowercase SHA>` and `--reason <text>`: the source
+must be a tested submission on this task or a carried submission with a tested
+origin. Carry chains retain the supplied source and pin the original tested row;
+no git ancestry is checked. `skipped` requires a reason. `tested` permits a reason;
+only `carried` permits `from`. Supplied reasons must be nonblank, literal text of
+at most 2,000 UTF-16 units. Workers and column orchestrators keep their existing
+submit permissions for every basis. All bases close turns and follow the same
+head confirmation and gates; only returns increment course and cycle counts.
+
+`board task`, `board status` and task history show provenance. The latest
+submission includes its pending and voided state: historical tested submissions
+remain carryable even when pending or voided, independently of gate validity.
+Legacy rows with nullable provenance read as tested; stored command results and
+omitted-input fingerprints remain compatible. Migration rollback uses the normal
+pre-update backup restore, with no downgrade guarantee for the migrated database.
+After a catalog upgrade, restart the daemon and MCP clients together.
+
 A new head closes taken turns outside Dev and Done; taken Dev turns and Done
 wrap-up turns survive pushes, and a wrap-up turn closes when its holder ends.
 Right of Dev, red CI, a draft, a conflict, an external comment or an unresolved

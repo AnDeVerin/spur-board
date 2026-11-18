@@ -79,6 +79,10 @@ export type SessionEndReason = (typeof SESSION_END_REASONS)[number];
 export const DISPATCHER_MODES = ['shadow', 'on'] as const;
 export type DispatcherMode = (typeof DISPATCHER_MODES)[number];
 
+/** The submitter's declared testing provenance. */
+export const SUBMISSION_BASES = ['tested', 'carried', 'skipped'] as const;
+export type SubmissionBasis = (typeof SUBMISSION_BASES)[number];
+
 /**
  * How a turn closed: `submitted` by the executor's submit, `returned` by `task.return`, `moved`
  * when the task moved on (it also covers returns and mode switches recorded by older versions),

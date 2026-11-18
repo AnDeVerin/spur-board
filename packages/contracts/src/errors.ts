@@ -169,6 +169,20 @@ export const ERRORS = {
       'Take the turn first; only the session that took it can submit or return it.',
     ),
   }),
+  submit_basis_invalid: spec('submit_basis_invalid', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The submission basis fields are inconsistent.',
+    hint: 'Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried.',
+    recovery: noRetry('Correct the basis fields and submit again.'),
+  }),
+  submit_source_not_tested: spec('submit_source_not_tested', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The source has no tested origin on this task.',
+    hint: 'Choose a tested submission SHA on this task, or a carried SHA with a tested origin; otherwise test or explicitly skip with a reason.',
+    recovery: noRetry('Choose a source with a tested origin on this task or change the basis.'),
+  }),
   head_mismatch: spec('head_mismatch', {
     status: 409,
     exit: EXIT_CODES.refused,

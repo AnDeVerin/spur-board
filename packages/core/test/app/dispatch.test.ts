@@ -2319,7 +2319,11 @@ describe('shadow mode', () => {
       { column: 'review', epoch: 0, author: REV },
       { column: 'product-review', epoch: 0, author: COORD },
     ]);
-    expect((await ctx.events('task_submitted'))[0]?.payload).toEqual({ column: 'dev', sha: A });
+    expect((await ctx.events('task_submitted'))[0]?.payload).toEqual({
+      column: 'dev',
+      sha: A,
+      basis: 'tested',
+    });
   });
 
   it('status shows the shadow column next to the column on every row', async () => {
@@ -2337,6 +2341,7 @@ describe('shadow mode', () => {
       membership: 'active',
       shadowColumn: 'todo',
       shadowDiffers: false,
+      submission: null,
       state: 'ticket open',
       prCount: 0,
       sessionCount: 0,
@@ -2360,6 +2365,17 @@ describe('shadow mode', () => {
       membership: 'active',
       shadowColumn: 'review',
       shadowDiffers: true,
+      submission: {
+        column: 'dev',
+        sha: A,
+        at: ctx.at(),
+        basis: 'tested',
+        from: null,
+        testedOrigin: null,
+        reason: null,
+        pending: false,
+        voided: false,
+      },
       state: 'ticket open; PRs 1 open; sessions 1 working',
       prCount: 1,
       sessionCount: 1,
@@ -3378,6 +3394,7 @@ describe('mode switch', () => {
       'project',
       'column',
       'membership',
+      'submission',
       'columnEnteredAt',
       'state',
       'prCount',
@@ -3389,6 +3406,7 @@ describe('mode switch', () => {
       'links',
     ]);
     expect(row).toEqual({
+      submission: null,
       key: KEY,
       project: 'proj',
       column: 'dev',

@@ -19,6 +19,7 @@ import { blindSources, readInput } from './dispatch.ts';
 import { notificationAddressedTo } from './doorbells.ts';
 import { historyEvents } from './history.ts';
 import { canonicalKey } from './membership.ts';
+import { latestSubmissions } from './submissions.ts';
 import type { Query } from './queries.ts';
 import { blockSubject, rowSubject, taskSubject } from './subject.ts';
 import { taskTurns } from './task-turns.ts';
@@ -259,6 +260,7 @@ export function createTaskQueries(deps: {
       const subject = taskSubject(task);
       return {
         sessions: await taskSessions(trx, task.id),
+        submission: (await latestSubmissions(trx, [task])).get(task.id) ?? null,
         task: taskView(task),
         ...(await taskTurns(trx, task, input.detail === true)),
         links: links.map(({ state, ...link }) => {

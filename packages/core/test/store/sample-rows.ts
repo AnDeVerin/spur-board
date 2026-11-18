@@ -116,6 +116,10 @@ export const sampleRows: SampleRows = {
     pr_repo: 'x/y',
     pr_number: 7,
     pending_until: null,
+    basis: null,
+    source_sha: null,
+    basis_reason: null,
+    tested_source_id: null,
   },
   turn: {
     id: 1,

@@ -48,11 +48,11 @@ Other errors: `wrong_id_kind`, `not_found`, `block_not_open`, `task_archived`, `
 
 Purpose: Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.
 Arguments: `<turn>`, `<sha>`.
-Flags: `--key <key>`, `--json`.
-Use when: Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.
+Flags: `--basis <value>`, `--from <value>`, `--reason <value>`, `--key <key>`, `--json`.
+Use when: Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.
 Avoid when: Use `board return <turn> <reason>` to send the task back to Dev instead.
 Example: `board submit T4 9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4 --key submit-PROJ-123-submit-pull-1432` — Submit the pull request head.
-Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `head_mismatch`, `task_archived`, `idempotency_key_mismatch`, `github_unavailable`.
+Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `submit_basis_invalid`, `submit_source_not_tested`, `head_mismatch`, `task_archived`, `idempotency_key_mismatch`, `github_unavailable`.
 
 ### `board return`
 

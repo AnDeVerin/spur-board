@@ -310,8 +310,13 @@ const SUMMARIES: { [K in EventKind]?: (payload: Payload<K>) => string | null } =
   task_submitted: (p) => {
     if (p.supersededByMerge !== undefined)
       return `Submit of ${p.sha.slice(0, 7)} superseded: PR merged at ${p.supersededByMerge.slice(0, 7)}`;
-    if (p.pending === true) return 'Turn submitted, pending confirmation';
-    return p.confirmedByPoll === true ? 'Turn submitted on the head of the last poll' : null;
+    const confirmation =
+      p.pending === true
+        ? ', pending confirmation'
+        : p.confirmedByPoll === true
+          ? ' on the head of the last poll'
+          : '';
+    return `Turn submitted${confirmation}: ${p.sha}, basis ${p.basis ?? 'tested'}${optional(', from ', p.from)}${optional(', tested origin ', p.testedOrigin)}${optional(' — ', p.reason)}`;
   },
 };
 

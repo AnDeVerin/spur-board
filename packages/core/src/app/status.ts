@@ -18,8 +18,10 @@ import type { Store } from '../store/store.ts';
 import { parseDefaultBranch, projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
+import { latestSubmissions } from './submissions.ts';
 import { readOutageEnds, services } from './status-services.ts';
 import {
+  sessionView,
   readStatusBlocks,
   readStatusColumnEntries,
   readStatusReturns,
@@ -27,10 +29,6 @@ import {
   summarizePr,
   sourceInterval,
 } from './status-views.ts';
-
-function sessionView(fact: SessionFacts) {
-  return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
-}
 
 /** Counts of each value, rendered as `<n> <value>` in the given order. */
 function counts(values: readonly string[], order: readonly string[]): string {
@@ -162,6 +160,7 @@ export async function getStatus(
   const entries = await readStatusColumnEntries(store.db, projectIds);
   const columnEntries = new Map(entries.map((entry) => [entry.task_id, entry.at]));
   const tasks = [];
+  const submissions = await latestSubmissions(store.db, rows);
   for (const task of rows) {
     if (!projectIds.has(task.project)) continue;
     const ticket = await store.db
@@ -243,6 +242,7 @@ export async function getStatus(
     const returned = returns.get(task.id);
     tasks.push({
       key: task.key,
+      submission: submissions.get(task.id) ?? null,
       project: task.project,
       column: task.column,
       columnEnteredAt: columnEntries.get(task.id) ?? task.created_at,

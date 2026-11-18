@@ -28,7 +28,7 @@ import {
   ticketFactsSchema,
 } from '../facts.ts';
 import { OPERATION_KINDS, cliModeSchema, grantRuleSchema } from './define.ts';
-import { statusReturnedSchema, statusTurnSchema, turnViewSchema } from './turn-schemas.ts';
+import * as turns from './turn-schemas.ts';
 
 // Shapes several operations return. Every object is strict and every field is described, so the
 // generated CLI help, MCP tool schemas and `board schema` carry the same text.
@@ -224,7 +224,9 @@ export const taskWhySchema = z
       .describe(
         "The config key that passed Dev's check condition for a repo without checks; null otherwise.",
       ),
-    turn: turnViewSchema.nullable().describe('The open turn of the task; null when none is open.'),
+    turn: turns.turnViewSchema
+      .nullable()
+      .describe('The open turn of the task; null when none is open.'),
     moves: z.array(moveViewSchema).describe('The last 5 column moves, oldest first.'),
     waiting: z
       .array(
@@ -285,44 +287,9 @@ export const linkViewSchema = z
 const detailOnly = 'Present only with detail.';
 const count = (what: string) => z.int().min(0).describe(what);
 
-const prSummarySchema = z
-  .strictObject({
-    repo: prFactsSchema.shape.repo,
-    number: prFactsSchema.shape.number,
-    checks: z
-      .strictObject({
-        pass: count('Successful or neutral checks.'),
-        fail: count('Failed checks, including skipped.'),
-        pending: count('Expected or pending checks.'),
-      })
-      .describe(
-        'Required checks when nonempty, otherwise all reported checks; a factual rollup, not a gate verdict.',
-      ),
-    mergeable: prFactsSchema.shape.mergeable,
-    threads: z
-      .strictObject({
-        unresolved: count('Unresolved review threads.'),
-        total: count('All review threads.'),
-      })
-      .describe('Review thread counts.'),
-    reviewsOnHead: z
-      .strictObject({
-        approved: z.array(z.string()).describe('Reviewers approving the current head.'),
-        changesRequested: z
-          .array(z.string())
-          .describe('Reviewers requesting changes on the current head.'),
-      })
-      .describe('Latest recorded reviews on the current head, without gate filtering.'),
-    draft: prFactsSchema.shape.draft,
-    factAt: z.iso.datetime().describe('Snapshot observation time, ISO 8601 UTC.'),
-    unconfirmed: z
-      .boolean()
-      .describe('Observation is stale or its supporting source is blind or missing.'),
-  })
-  .describe('Compact observed pull request facts.');
-
 export const statusTaskSchema = taskViewSchema
   .extend({
+    submission: turns.latestSubmissionSchema,
     columnEnteredAt: z.iso
       .datetime()
       .nullable()
@@ -367,7 +334,7 @@ export const statusTaskSchema = taskViewSchema
           .describe('One open block.'),
       )
       .describe('Open blocks on the task, oldest first, without their text.'),
-    returned: statusReturnedSchema
+    returned: turns.statusReturnedSchema
       .optional()
       .describe(
         'The return that put the task in Dev. Present only while the task stays in Dev after the return and before its next submit.',
@@ -384,9 +351,9 @@ export const statusTaskSchema = taskViewSchema
       .array(statusSessionFactsSchema)
       .optional()
       .describe(`Latest facts for linked sessions. ${detailOnly}`),
-    turn: statusTurnSchema.nullable().describe('Unclosed task turn, or null.'),
+    turn: turns.statusTurnSchema.nullable().describe('Unclosed task turn, or null.'),
     prSummary: z
-      .array(prSummarySchema)
+      .array(turns.prSummarySchema)
       .nullable()
       .describe('One summary per observed effective PR; null when none are observed.'),
     links: z

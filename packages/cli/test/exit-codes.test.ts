@@ -80,6 +80,8 @@ const SERVER_EXITS = {
   turn_closed: { exit: 1, code: 'turn_closed' },
   not_turn_taker: { exit: 1, code: 'not_turn_taker' },
   head_mismatch: { exit: 1, code: 'head_mismatch' },
+  submit_basis_invalid: { exit: 1, code: 'submit_basis_invalid' },
+  submit_source_not_tested: { exit: 1, code: 'submit_source_not_tested' },
   return_not_allowed: { exit: 1, code: 'return_not_allowed' },
   move_not_allowed: { exit: 1, code: 'move_not_allowed' },
   task_archived: { exit: 1, code: 'task_archived' },

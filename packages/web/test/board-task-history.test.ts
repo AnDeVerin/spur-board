@@ -68,6 +68,20 @@ const cells = () =>
   );
 
 describe('task history tab', () => {
+  it('renders full provenance and long unbroken reasons literally', async () => {
+    const d = daemon();
+    const reason = '<img src=x onerror=alert(1)> <!here> *bold*' + 'x'.repeat(1950);
+    const summary = `Turn submitted, pending confirmation: ${'b'.repeat(40)}, basis carried, from ${'c'.repeat(40)}, tested origin ${'a'.repeat(40)} — ${reason}`;
+    d.routes['task.history'] = () =>
+      Promise.resolve(
+        envelope(taskHistory([historyEvent(T, 'task_submitted', 'operator', summary)])),
+      );
+    await openHistory(d);
+    expect(panel().textContent).toContain(summary);
+    expect(panel().querySelector('img')).toBeNull();
+    expect(historyCalls()).toHaveLength(1);
+  });
+
   it.each([false, true])(
     'keeps the focused disclosure mounted across append (expanded=%s)',
     async (expanded) => {

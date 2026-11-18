@@ -23,6 +23,7 @@ import {
   TASK_HOLDS,
   TOKEN_STATUSES,
   TURN_OUTCOMES,
+  SUBMISSION_BASES,
   VIAS,
 } from '../src/index.ts';
 
@@ -54,6 +55,10 @@ it('lists the built-in columns from To Do to Done, with ids and display names', 
 
 it('lists memberships', () => {
   expect(MEMBERSHIPS).toEqual(['active', 'out_of_filter', 'archived']);
+});
+
+it('lists submission bases', () => {
+  expect(SUBMISSION_BASES).toEqual(['tested', 'carried', 'skipped']);
 });
 
 it('lists archive reasons', () => {

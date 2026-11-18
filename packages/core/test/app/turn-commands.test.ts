@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   configSchema,
   err,
@@ -7,6 +8,7 @@ import {
   type PollPrError,
   type PrFacts,
   type PrPoller,
+  type SubmissionBasis,
 } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -19,6 +21,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
+import { returnCounts } from '../../src/app/course-check.ts';
 import { closeTurns, openTurn, takeTurn } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
 
@@ -304,8 +307,15 @@ async function setup(
           })
           .execute();
       }),
-    submit: (actor: ActorId, sha: string, key: string, turn = 'T1') =>
-      apply(registry['task.submit'], { turn, sha }, actor, key),
+    submit: (
+      actor: ActorId,
+      sha: string,
+      key: string,
+      turn = 'T1',
+      provenance: { basis?: SubmissionBasis; from?: string; reason?: string } = {},
+    ) => apply(registry['task.submit'], { turn, sha, ...provenance }, actor, key),
+    get: () => query(registry['task.get'], { task: 'o/r#9' }, 'operator'),
+    status: () => query(registry['status.get'], {}, 'operator'),
     /** A submit through its own `createApply`, as each daemon request builds one. */
     submitAlone: (actor: ActorId, sha: string, key: string, turn = 'T1') =>
       createApply({ store, clock, config })(registry['task.submit'], { turn, sha }, actor, key),
@@ -405,7 +415,10 @@ async function expectPending(
   ]);
   expect(await ctx.turn()).toMatchObject({ closed_reason: 'submitted', closed_at: AT });
   expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([
-    { kind: 'task_submitted', payload: { turn: 'T1', column: 'review', sha, pending: true } },
+    {
+      kind: 'task_submitted',
+      payload: { turn: 'T1', column: 'review', sha, basis: 'tested', pending: true },
+    },
   ]);
 }
 
@@ -417,6 +430,210 @@ async function unlinkAll(ctx: Awaited<ReturnType<typeof setup>>) {
 }
 
 describe('task.submit', () => {
+  it.each(['tested', 'carried', 'skipped'] as const)(
+    'keeps pending and shadow behavior for %s',
+    async (basis) => {
+      for (const shadow of [false, true]) {
+        const ctx = shadow ? await setup() : await taken({ mode: 'on', complete: true });
+        if (!shadow) await unlinkAll(ctx);
+        await ctx.submitted('dev', A, WORKER_1);
+        ctx.commits(B);
+        await ctx.submit(REV_1, B, 'basis-mode', shadow ? 'o/r#9' : 'T1', {
+          basis,
+          ...(basis === 'carried' ? { from: A } : {}),
+          reason: 'Declared basis',
+        });
+        expect((await ctx.get()).submission).toMatchObject({ basis, pending: !shadow });
+        if (!shadow) expect(await ctx.turn()).toMatchObject({ closed_reason: 'submitted' });
+        await ctx.store.db.updateTable('submission').set({ voided_at: AT }).execute();
+        expect((await ctx.get()).submission).toMatchObject({ basis, pending: false, voided: true });
+      }
+    },
+  );
+
+  it.each(['skipped', 'other-task'] as const)(
+    'cannot carry a source that is %s',
+    async (source) => {
+      const ctx = await taken();
+      await ctx.submitted('dev', A, WORKER_1);
+      if (source === 'skipped')
+        await ctx.store.db.updateTable('submission').set({ basis: 'skipped' }).execute();
+      else {
+        const task = await ctx.task();
+        await ctx.store.db
+          .insertInto('task')
+          .values({ ...task, id: 2, key: 'o/r#10', tracker_id: '10' })
+          .execute();
+        await ctx.store.db.updateTable('submission').set({ task_id: 2 }).execute();
+      }
+      ctx.commits(B);
+      await expect(
+        ctx.submit(REV_1, B, 'bad-source', 'T1', {
+          basis: 'carried',
+          from: A,
+          reason: 'Try source',
+        }),
+      ).rejects.toMatchObject({ code: 'submit_source_not_tested' });
+      expect((await ctx.turn()).closed_at).toBeNull();
+      expect(await ctx.store.db.selectFrom('submission').selectAll().execute()).toHaveLength(1);
+    },
+  );
+
+  it.each([2000, 2001])('bounds reasons at %i UTF-16 units', async (length) => {
+    const ctx = await taken();
+    ctx.commits(B);
+    const result = ctx.submit(REV_1, B, 'reason-limit', 'T1', {
+      basis: 'skipped',
+      reason: 'x'.repeat(length),
+    });
+    if (length === 2000) {
+      await result;
+      expect((await ctx.get()).submission?.reason).toHaveLength(length);
+    } else {
+      await expect(result).rejects.toMatchObject({ code: 'usage' });
+      expect((await ctx.turn()).closed_at).toBeNull();
+      expect((await ctx.get()).submission).toBeNull();
+    }
+  });
+
+  it.each([undefined, 'tested', 'skipped'] as const)(
+    'persists and exposes basis %s after closing the turn',
+    async (basis) => {
+      const ctx = await taken();
+      ctx.commits(B);
+      const reason = '<script>test</script> <!here> *literal*';
+      await ctx.submit(REV_1, B, 'submit-basis', 'T1', {
+        ...(basis === undefined ? {} : { basis }),
+        reason,
+      });
+      const expected = {
+        column: 'review',
+        sha: B,
+        at: AT,
+        basis: basis ?? 'tested',
+        from: null,
+        testedOrigin: null,
+        reason,
+        pending: false,
+        voided: false,
+      };
+      expect((await ctx.get()).submission).toEqual(expected);
+      expect((await ctx.status()).tasks.find((task) => task.key === 'o/r#9')?.submission).toEqual(
+        expected,
+      );
+      expect(
+        (await ctx.history()).find((event) => event.kind === 'task_submitted')?.summary,
+      ).toContain(`basis ${basis ?? 'tested'} — ${reason}`);
+      expect(await ctx.turn()).toMatchObject({ closed_reason: 'submitted' });
+    },
+  );
+
+  it('resolves carry chains to a legacy tested row', async () => {
+    const ctx = await taken();
+    await ctx.submitted('dev', A, WORKER_1);
+    ctx.commits(B);
+    await ctx.submit(REV_1, B, 'carry-b', 'T1', { basis: 'carried', from: A, reason: 'Same work' });
+    const turn = `T${String((await ctx.openTurn()).id)}`;
+    await ctx.ack(REV_1, turn);
+    const c = 'c'.repeat(40);
+    ctx.commits(c);
+    await ctx.submit(REV_1, c, 'carry-c', turn, {
+      basis: 'carried',
+      from: B,
+      reason: 'Same work again',
+    });
+    expect((await ctx.get()).submission).toMatchObject({
+      sha: c,
+      basis: 'carried',
+      from: B,
+      testedOrigin: A,
+    });
+    const rows = await ctx.store.db.selectFrom('submission').selectAll().orderBy('id').execute();
+    expect(rows.map((row) => row.tested_source_id)).toEqual([null, rows[0]?.id, rows[0]?.id]);
+    // Equal timestamps still choose the newest identity. Voiding gate marks does not erase provenance.
+    await ctx.store.db.updateTable('submission').set({ voided_at: AT }).execute();
+    expect((await ctx.get()).submission).toMatchObject({ sha: c, voided: true });
+    const direct = await ctx.store.db
+      .insertInto('submission')
+      .values({
+        task_id: 1,
+        column: 'dev',
+        epoch: 0,
+        commit_sha: B,
+        author: WORKER_1,
+        submitted_at: AT,
+        note: null,
+        basis: 'tested',
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const next = `T${String((await ctx.openTurn()).id)}`;
+    await ctx.ack(REV_1, next);
+    await ctx.submit(REV_1, c, 'prefer-direct', next, {
+      basis: 'carried',
+      from: B,
+      reason: 'Prefer direct tested match',
+    });
+    const newest = await ctx.store.db
+      .selectFrom('submission')
+      .selectAll()
+      .orderBy('id', 'desc')
+      .executeTakeFirstOrThrow();
+    expect(newest.tested_source_id).toBe(direct.id);
+    expect((await ctx.get()).submission).toMatchObject({ from: B, testedOrigin: B });
+  });
+
+  it.each(['tested', 'carried', 'skipped'] as const)(
+    'keeps gate and return counts for %s',
+    async (basis) => {
+      const green = { name: 'ci', state: 'success' as const, completedAt: AT };
+      const ctx = await taken({
+        mode: 'on',
+        complete: true,
+        pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
+      });
+      await ctx.submitted('dev', A, WORKER_1);
+      ctx.commits(A);
+      await ctx.submit(REV_1, A, 'basis-gates', 'T1', {
+        basis,
+        reason: 'Declared provenance',
+        ...(basis === 'carried' ? { from: A } : {}),
+      });
+      expect((await ctx.task()).column).toBe('qa');
+      expect(await returnCounts(ctx.store.db, 1, 'qa')).toEqual({ cycle: 0, course: 0 });
+      const turn = await ctx.store.db
+        .selectFrom('turn')
+        .select('id')
+        .where('closed_at', 'is', null)
+        .executeTakeFirstOrThrow();
+      const id = `T${String(turn.id)}`;
+      await ctx.ack(QA_1, id);
+      await ctx.return(QA_1, 'return-after-basis', id);
+      expect(await returnCounts(ctx.store.db, 1, 'qa')).toEqual({ cycle: 1, course: 1 });
+    },
+  );
+
+  it.each([
+    { basis: 'carried', reason: 'carry', code: 'submit_basis_invalid' },
+    { basis: 'carried', from: A, code: 'submit_basis_invalid' },
+    { basis: 'skipped', code: 'submit_basis_invalid' },
+    { basis: 'skipped', reason: '  \n ', code: 'submit_basis_invalid' },
+    { basis: 'tested', reason: ' ', code: 'submit_basis_invalid' },
+    { basis: 'tested', from: A, code: 'submit_basis_invalid' },
+    { basis: 'skipped', from: A, reason: 'skip', code: 'submit_basis_invalid' },
+    { basis: 'carried', from: A, reason: 'unknown', code: 'submit_source_not_tested' },
+  ] as const)('refuses invalid provenance atomically: %j', async ({ code, ...provenance }) => {
+    const ctx = await taken();
+    ctx.commits(B);
+    const turn = await ctx.turn();
+    await expect(ctx.submit(REV_1, B, 'invalid-basis', 'T1', provenance)).rejects.toMatchObject({
+      code,
+    });
+    expect(await ctx.store.db.selectFrom('submission').selectAll().execute()).toEqual([]);
+    expect(await ctx.turn()).toEqual(turn);
+    expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([]);
+  });
+
   it('holds the ring of the next turn its submitter executes', async () => {
     const green = { name: 'ci', state: 'success' as const, completedAt: AT };
     const ctx = await taken({
@@ -467,7 +684,10 @@ describe('task.submit', () => {
     expect(await ctx.turn()).toMatchObject({ closed_reason: 'submitted', closed_at: AT });
     expect(task.column).toBe('review');
     expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([
-      { kind: 'task_submitted', payload: { turn: 'T1', column: 'review', sha: B } },
+      {
+        kind: 'task_submitted',
+        payload: { turn: 'T1', column: 'review', sha: B, basis: 'tested' },
+      },
     ]);
     expect(ctx.calls).toEqual([
       [SOURCE, { kind: 'pr', repo: 'o/r', number: 7 }, { timeoutMs: 10_000 }],
@@ -486,16 +706,24 @@ describe('task.submit', () => {
     // A result stored before the upgrade has no status: every submit then confirmed its head.
     await ctx.store.db
       .updateTable('command')
-      .set({ result: sql<string>`json_remove(result, '$.status')` })
+      .set({
+        result: sql<string>`json_remove(result, '$.status')`,
+        // Pre-provenance canonical input: no basis field existed or was defaulted.
+        fingerprint: createHash('sha256')
+          .update(JSON.stringify(['task.submit', { sha: B, turn: 'T1' }, REV_1]))
+          .digest('hex'),
+      })
       .where('key', '=', 'submit-1')
       .execute();
 
+    const before = await ctx.tables();
     await expect(ctx.submit(REV_1, B, 'submit-1')).resolves.toMatchObject({
       turn: 'T1',
       sha: B,
       status: 'confirmed',
     });
     expect(ctx.calls).toHaveLength(1);
+    expect(await ctx.tables()).toEqual(before);
   });
 
   it('refuses a stored key reused for a new turn without polling', async () => {
@@ -574,7 +802,7 @@ describe('task.submit', () => {
     expect((await ctx.task()).column).toBe('review');
     expect(await ctx.store.db.selectFrom('turn').select('id').execute()).toHaveLength(1);
     expect((await ctx.history()).filter((event) => event.kind === 'task_submitted')).toMatchObject([
-      { summary: 'Turn submitted, pending confirmation' },
+      { summary: `Turn submitted, pending confirmation: ${A}, basis tested` },
     ]);
     // The same key replays the pending result; a new key finds the turn closed.
     await expect(ctx.submit(REV_1, A, 'submit-1')).resolves.toMatchObject({ status: 'pending' });
@@ -689,12 +917,20 @@ describe('task.submit', () => {
         expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([
           {
             kind: 'task_submitted',
-            payload: { turn: 'T1', column: 'review', sha: A, confirmedByPoll: true },
+            payload: {
+              turn: 'T1',
+              column: 'review',
+              sha: A,
+              basis: 'tested',
+              confirmedByPoll: true,
+            },
           },
         ]);
         expect(
           (await ctx.history()).filter((event) => event.kind === 'task_submitted'),
-        ).toMatchObject([{ summary: 'Turn submitted on the head of the last poll' }]);
+        ).toMatchObject([
+          { summary: `Turn submitted on the head of the last poll: ${A}, basis tested` },
+        ]);
       },
     );
 
@@ -709,7 +945,10 @@ describe('task.submit', () => {
       });
 
       expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([
-        { kind: 'task_submitted', payload: { column: 'review', sha: A, confirmedByPoll: true } },
+        {
+          kind: 'task_submitted',
+          payload: { column: 'review', sha: A, basis: 'tested', confirmedByPoll: true },
+        },
       ]);
     });
 
@@ -721,7 +960,7 @@ describe('task.submit', () => {
 
       expect(
         (await ctx.history()).filter((event) => event.kind === 'task_submitted'),
-      ).toMatchObject([{ summary: 'Turn submitted' }]);
+      ).toMatchObject([{ summary: `Turn submitted: ${B}, basis tested` }]);
     });
 
     it('accepts a head the last poll did not see as pending', async () => {
@@ -946,7 +1185,7 @@ describe('task.submit', () => {
           .execute(),
       ).toEqual([{ column: 'review', epoch: 0, commit_sha: B, author: REV_1 }]);
       expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([
-        { kind: 'task_submitted', payload: { column: 'review', sha: B } },
+        { kind: 'task_submitted', payload: { column: 'review', sha: B, basis: 'tested' } },
       ]);
       expect(await ctx.store.db.selectFrom('turn').selectAll().execute()).toEqual([]);
       expect(ctx.calls).toEqual([

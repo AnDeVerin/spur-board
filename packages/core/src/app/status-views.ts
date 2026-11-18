@@ -6,6 +6,7 @@ import {
   type ColumnId,
   type Config,
   type PrFacts,
+  type SessionFacts,
 } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
 import { eventActor } from './board-utils.ts';
@@ -246,4 +247,9 @@ export function sourceInterval(config: Config, source: string): number {
   if (source.startsWith('jira:')) return config.adapters.jira.intervalMs;
   if (source.startsWith('github-issues:')) return config.adapters.githubIssues.intervalMs;
   return config.adapters.github.intervalMs;
+}
+
+/** Session facts rendered in status detail. */
+export function sessionView(fact: SessionFacts) {
+  return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
 }

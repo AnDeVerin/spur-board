@@ -1,8 +1,14 @@
 // The turn shapes operations return: the handed feedback, the return that opened a Dev visit, the
 // turn as its executor reads it, as `task.get` lists it and as a `status.get` row shows it.
 import { z } from 'zod';
-import { ADDRESSEE_ROLES, COLUMN_IDS, TURN_OUTCOMES } from '../enums.ts';
-import { FEEDBACK_KINDS, commitShaSchema, feedbackLinkShape, prRefSchema } from '../facts.ts';
+import { ADDRESSEE_ROLES, COLUMN_IDS, SUBMISSION_BASES, TURN_OUTCOMES } from '../enums.ts';
+import {
+  FEEDBACK_KINDS,
+  prFactsSchema,
+  commitShaSchema,
+  feedbackLinkShape,
+  prRefSchema,
+} from '../facts.ts';
 import { actorIdSchema, blockIdSchema, taskKeySchema, turnIdSchema } from '../ids.ts';
 
 /** One pull request comment or review a turn handed to its executor. */
@@ -137,3 +143,70 @@ export const statusReturnedSchema = z.strictObject({
     .nullable()
     .describe('Number of review findings the return sent; null when not given.'),
 });
+
+const submissionViewSchema = z
+  .strictObject({
+    column: z.enum(COLUMN_IDS).describe('Column submitted from.'),
+    sha: commitShaSchema.describe('Full submitted commit SHA.'),
+    at: z.iso.datetime().describe('Submission time, ISO 8601 UTC.'),
+    basis: z
+      .enum(SUBMISSION_BASES)
+      .describe('Declared testing provenance; tested does not claim tests passed.'),
+    from: commitShaSchema
+      .nullable()
+      .describe('Supplied source SHA for carried work, otherwise null.'),
+    testedOrigin: commitShaSchema
+      .nullable()
+      .describe('Original tested submission SHA for carried work, otherwise null.'),
+    reason: z
+      .string()
+      .max(2000)
+      .nullable()
+      .describe('Literal explanation supplied by the submitter.'),
+    pending: z.boolean().describe('Whether head confirmation is pending.'),
+    voided: z.boolean().describe('Whether this submission has been voided for gate purposes.'),
+  })
+  .describe('Latest accepted submission by row order, including pending and voided submissions.');
+export type SubmissionView = z.output<typeof submissionViewSchema>;
+export const latestSubmissionSchema = submissionViewSchema
+  .nullable()
+  .optional()
+  .describe('Latest submission; null when none, absent on older servers.');
+
+const summaryCount = (what: string) => z.int().min(0).describe(what);
+
+export const prSummarySchema = z
+  .strictObject({
+    repo: prFactsSchema.shape.repo,
+    number: prFactsSchema.shape.number,
+    checks: z
+      .strictObject({
+        pass: summaryCount('Successful or neutral checks.'),
+        fail: summaryCount('Failed checks, including skipped.'),
+        pending: summaryCount('Expected or pending checks.'),
+      })
+      .describe(
+        'Required checks when nonempty, otherwise all reported checks; a factual rollup, not a gate verdict.',
+      ),
+    mergeable: prFactsSchema.shape.mergeable,
+    threads: z
+      .strictObject({
+        unresolved: summaryCount('Unresolved review threads.'),
+        total: summaryCount('All review threads.'),
+      })
+      .describe('Review thread counts.'),
+    reviewsOnHead: z
+      .strictObject({
+        approved: z.array(z.string()).describe('Reviewers approving the current head.'),
+        changesRequested: z
+          .array(z.string())
+          .describe('Reviewers requesting changes on the current head.'),
+      })
+      .describe('Latest recorded reviews on the current head, without gate filtering.'),
+    draft: prFactsSchema.shape.draft,
+    factAt: z.iso.datetime().describe('Snapshot observation time, ISO 8601 UTC.'),
+    unconfirmed: z
+      .boolean()
+      .describe('Observation is stale or its supporting source is blind or missing.'),
+  })
+  .describe('Compact observed pull request facts.');

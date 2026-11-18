@@ -3,6 +3,42 @@ import { describe, expect, it } from 'vitest';
 import { commandReply } from '../../src/app/command-replies.ts';
 
 describe('commandReply', () => {
+  it.each([false, true])('quotes submission reasons literally, including why=%s', (why) => {
+    const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
+    if (!operation) throw new Error('Missing task.get');
+    const reason = '<script>test</script> ' + ['<!chan', 'nel> *bold*'].join('');
+    const reply = commandReply(
+      'task.get',
+      {
+        ...(why ? operation.examples[1].output : operation.examples[0].output),
+        submission: {
+          column: 'dev',
+          sha: 'b'.repeat(40),
+          at: '2026-11-15T13:00:00.000Z',
+          basis: 'carried',
+          from: 'c'.repeat(40),
+          testedOrigin: 'a'.repeat(40),
+          reason,
+          pending: true,
+          voided: true,
+        },
+      },
+      { task: 'PROJ-123', why },
+    );
+    expect(reply.body).toContainEqual({
+      kind: 'quote',
+      children: [{ kind: 'text', text: reason }],
+    });
+    expect(JSON.stringify(reply.body)).toContain('basis carried');
+    expect(JSON.stringify(reply.body)).toContain('pending true, voided true');
+    expect(reply.cliHint).toBe(`board task PROJ-123${why ? ' --why' : ''}`);
+    if (why)
+      expect(reply.body[0]).toEqual({
+        kind: 'paragraph',
+        children: [{ kind: 'text', text: 'Task PROJ-123 is in review.' }],
+      });
+  });
+
   it('renders each slash-bound operation and uses its matching CLI command', () => {
     const agentReason = ['<!chan', 'nel> *bold*'].join('');
     const statusOperation = OPERATIONS.find((entry) => entry.id === 'status.get');

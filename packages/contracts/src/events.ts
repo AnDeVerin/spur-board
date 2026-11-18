@@ -12,6 +12,7 @@ import {
   SESSION_END_REASONS,
   SESSION_LINK_ROLES,
   TURN_OUTCOMES,
+  SUBMISSION_BASES,
 } from './enums.ts';
 import { actorIdSchema, actorPartSchema } from './ids.ts';
 import { sessionTransitionSchema } from './adapters.ts';
@@ -160,6 +161,10 @@ export const eventPayloadSchemas = {
   task_added: z.looseObject({ column: z.enum(COLUMN_IDS) }),
   task_archived: z.looseObject({ reason: z.enum(ARCHIVE_REASONS) }),
   task_submitted: z.looseObject({
+    basis: z.enum(SUBMISSION_BASES).optional(),
+    from: S.optional(),
+    testedOrigin: S.optional(),
+    reason: S.optional(),
     turn: S.optional(),
     column: z.enum(COLUMN_IDS),
     sha: S,
