@@ -17,7 +17,6 @@ import { authorizationTarget, blockView, openBlock, taskTarget } from './blocks.
 import { emit, moveViews, taskPr, taskView, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import { correctColumn, dispatchTasks, moveLeft } from './dispatch.ts';
-import { coverDevRepair, importLegacyDevRepair } from './dev-repair.ts';
 import { canonicalKey } from './membership.ts';
 import { taskSubject } from './subject.ts';
 import { closeTurns } from './turns.ts';
@@ -314,7 +313,7 @@ async function insertSubmission(
       allowPending: pendingMs !== undefined,
     });
   }
-  const submission = await trx
+  await trx
     .insertInto('submission')
     .values({
       task_id: task.id,
@@ -332,9 +331,8 @@ async function insertSubmission(
           ? new Date(Date.parse(ctx.at) + pendingMs).toISOString()
           : null,
     })
-    .returning('id')
-    .executeTakeFirstOrThrow();
-  return { confirmed, event: provenance.event, submission: submission.id };
+    .execute();
+  return { confirmed, event: provenance.event };
 }
 
 /** The `task_submitted` payload mark of a head confirmed by the board's last poll, or pending. */
@@ -426,23 +424,13 @@ export function createTurnMutations(deps: {
     async run(trx, input, ctx) {
       if (!isTurnId(input.turn)) return submitShadow(trx, input, ctx);
       const { turn, task } = await takenTurn(trx, input.turn, ctx);
-      if (turn.column === 'dev')
-        await importLegacyDevRepair(trx, { task, at: ctx.at, actor: ctx.actor }, turn);
-      const { confirmed, event, submission } = await insertSubmission(
+      const { confirmed, event } = await insertSubmission(
         trx,
         { ...input, task, column: turn.column, epoch: turn.epoch },
         ctx,
         completeSince,
         config.projects.find((entry) => entry.id === task.project)?.dispatcher.submitConfirmMs,
       );
-      if (turn.column === 'dev')
-        await coverDevRepair(
-          trx,
-          { task, at: ctx.at, actor: ctx.actor },
-          turn.id,
-          submission,
-          confirmed !== 'pending',
-        );
       await closeTurns(trx, {
         taskId: task.id,
         reason: 'submitted',

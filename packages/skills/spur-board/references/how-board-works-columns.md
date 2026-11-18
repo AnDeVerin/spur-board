@@ -76,17 +76,8 @@ Product Review and QA evidence, even if the head later returns to that commit.
 Explicit operator correction into QA clears confirmed and pending QA evidence,
 keeping review marks. With passing upstream gates and a QA orchestrator or operator,
 this opens a fresh QA turn. Executor `none` keeps worker-column reuse: a valid Dev
-submit can satisfy QA after correction, and retained worker QA can satisfy Dev.
-A Dev turn carrying new feedback or unresolved threads requires a fresh Dev submit;
-retained QA stays valid but cannot discharge that repair.
-Only a confirmed Dev submission completes the repair. A pending receipt keeps its
-feedback obligation; failed confirmation hands that work back to Dev.
-Rerouting transfers adopted work without creating a duplicate repair.
-Recognition is recorded before a turn or move can be deferred by blind Spur or a
-cycle/course hold, including work recognized while already in Dev. Resolving a
-thread, changing head/executor/epoch, or disabling its rule does not cancel recorded
-work. Enabling a rule after a thread resolved does not invent earlier recognition.
-Ordinary worker reuse remains available when no recognized repair is outstanding.
+submit can satisfy QA after correction. Retained QA cannot supply Dev's submit
+requirement: after returning to Dev, submit the current Dev visit before advancing.
 
 PR closed without merge with no open PR, or closed
 ticket with live work and no merged PR. `board status` lists them as operator block threads.

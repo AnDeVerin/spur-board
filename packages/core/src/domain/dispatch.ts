@@ -96,8 +96,6 @@ interface DispatchResult {
    * past the work that turn hands over.
    */
   voids?: ColumnId;
-  /** Actual actionable Dev work, independent of whether a move/turn could be delivered. */
-  recognize?: ('external_comments' | 'unresolved_threads')[];
 }
 
 /** No rule cycles, so a real cascade ends long before this; the bound is a guard. */
@@ -190,7 +188,7 @@ export function dispatchHolds(input: DispatchInput): TaskHold[] {
  */
 export function dispatch(input: DispatchInput): DispatchResult {
   const moves: DispatchMove[] = [];
-  if (input.githubBlind) return { moves, turn: null };
+  if (input.githubBlind || input.submitPending) return { moves, turn: null };
   const { project, reopened, cycleHeld } = input;
   const workerLive = input.liveWorker && !input.spurBlind;
   const started = workStarted(input);
@@ -198,33 +196,9 @@ export function dispatch(input: DispatchInput): DispatchResult {
   // made in, or a visit with no turn yet that a deferred hand-back carried it to.
   const handsBack = input.submitFailed && input.turn.visit !== 'unclosed';
   let { column, facts, turn } = input;
-  const recognition = new Set<'external_comments' | 'unresolved_threads'>();
-  const recognize = () => {
-    if (facts.pr?.state !== 'open') return;
-    if (facts.commentHistory === 'complete' && facts.unhandledExternalComments > 0)
-      recognition.add('external_comments');
-    if (threadsGated(project) && facts.unresolvedThreads > 0) recognition.add('unresolved_threads');
-    if (
-      recognition.size > 0 &&
-      column === 'dev' &&
-      (turn.visit !== 'submitted' || input.submitFailed)
-    )
-      facts = { ...facts, devSubmitRequired: true };
-  };
   const move = (to: ColumnId, reason: MoveReason, gate?: GateReason[]) => {
     moves.push({ from: column, to, reason, ...(gate === undefined ? {} : { gate }) });
-    if (indexOf(to) < indexOf(column)) {
-      facts = {
-        ...facts,
-        marks: dropSubmits(facts.marks, to),
-        devSubmitRequired:
-          facts.devSubmitRequired === true ||
-          (to === 'dev' &&
-            gate?.some(
-              (reason) => reason === 'external_comments' || reason === 'unresolved_threads',
-            ) === true),
-      };
-    }
+    if (indexOf(to) < indexOf(column)) facts = { ...facts, marks: dropSubmits(facts.marks, to) };
     column = to;
     turn = NO_TURN;
   };
@@ -238,13 +212,8 @@ export function dispatch(input: DispatchInput): DispatchResult {
       facts.commentHistory === 'complete' &&
       facts.unhandledExternalComments > 0;
     return opened !== null && (opened.kind === 'after_submit' || handsOver)
-      ? {
-          moves,
-          turn: opened,
-          voids: opened.column,
-          ...(recognition.size === 0 ? {} : { recognize: [...recognition] }),
-        }
-      : { moves, turn: opened, ...(recognition.size === 0 ? {} : { recognize: [...recognition] }) };
+      ? { moves, turn: opened, voids: opened.column }
+      : { moves, turn: opened };
   };
 
   // A Dev turn names unresolved threads whenever a column of the project requires them resolved,
@@ -259,18 +228,6 @@ export function dispatch(input: DispatchInput): DispatchResult {
     return { ...next, reasons: GATE_REASONS.filter((reason) => added.has(reason)) };
   };
 
-  if (column === 'dev') recognize();
-  else {
-    const gate = evaluateGate(column, facts, project);
-    if (
-      !gate.ok &&
-      gate.column === 'dev' &&
-      gate.reasons.some((reason) => !HOLD_ONLY.has(reason)) &&
-      !(turn.open && !turn.headMoved)
-    )
-      recognize();
-  }
-  if (input.submitPending) return result(null);
   for (let step = 0; step < STEP_BOUND; step++) {
     const merged = facts.pr?.state === 'merged';
     if (column === 'done') {
@@ -312,7 +269,6 @@ export function dispatch(input: DispatchInput): DispatchResult {
         return result(null);
       }
       move(gate.column, 'gate_broken', reasons);
-      if (column === 'dev') recognize();
       continue;
     }
     const executor = orchestratorOf(project, column);

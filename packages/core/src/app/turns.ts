@@ -27,7 +27,6 @@ import {
   turnReminderKey,
 } from './doorbells.ts';
 import { clearItem, raiseItem } from './feed.ts';
-import { adoptDevRepair, importLegacyDevRepair } from './dev-repair.ts';
 
 // A turn hands a task's column visit `(column, column_epoch)` to the column's executor. Every
 // function takes `at` from the caller, so it is safe inside a scan transaction.
@@ -289,10 +288,7 @@ export async function rerouteDemotedWorkerTurn(
     .executeTakeFirstOrThrow();
   await closeTurns(trx, { taskId, reason: 'rerouted', at });
   const handed = await carriedFeedback(trx, turn);
-  const repair = { task, at: at.toISOString() };
-  await importLegacyDevRepair(trx, repair, turn);
-  const opened = await openTurn(trx, { task, reason: turn.reason, handed, at, config });
-  if (task.column === 'dev') await adoptDevRepair(trx, repair, opened.id, turn.id);
+  await openTurn(trx, { task, reason: turn.reason, handed, at, config });
   return true;
 }
 
@@ -519,7 +515,7 @@ export async function carriedFeedback(db: Trx, turn: Pick<Turn, 'handed'>): Prom
  * hands earlier handed feedback over again reads it through here (`recalledFeedback`,
  * `carriedFeedback`). An entry whose snapshot is missing or unreadable stays.
  */
-export async function withoutStatusComments(db: Trx, entries: readonly Handed[]) {
+async function withoutStatusComments(db: Trx, entries: readonly Handed[]): Promise<Handed[]> {
   const flagged: Handed[] = [];
   const read = new Set<string>();
   for (const entry of entries) {

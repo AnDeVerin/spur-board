@@ -27,7 +27,7 @@ import { archiveTask } from '../../src/app/archive.ts';
 import { returnCounts } from '../../src/app/course-check.ts';
 import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { emit, markTaskChanged } from '../../src/app/board-utils.ts';
+import { markTaskChanged } from '../../src/app/board-utils.ts';
 import { openTempStore } from '../support/store.ts';
 
 // The dispatcher end to end through the observation core, the registry and the tick, on an
@@ -57,6 +57,7 @@ const ROW_TABLES = [
 ] as const;
 
 type Options = {
+  compatibility?: 'effective' | 'default' | 'simple';
   workerRole?: 'worker' | 'orchestrator';
   mode?: 'on' | 'shadow';
   cycleLimit?: number;
@@ -106,10 +107,39 @@ function boardConfig(options: Options = {}) {
           { name: 'worker', role: options.workerRole ?? 'worker' },
           ...(options.workerRole === undefined ? [] : [{ name: 'replacement', role: 'worker' }]),
           { name: 'rev', role: 'orchestrator' },
-          { name: 'coord', role: 'orchestrator' },
+          {
+            name: 'coord',
+            role: options.compatibility === 'effective' ? 'curator' : 'orchestrator',
+          },
+          ...(options.compatibility === 'effective' ? [{ name: 'ops', role: 'operator' }] : []),
           ...(options.curator === true ? [{ name: 'cur', role: 'curator' }] : []),
         ],
-        ...(options.columns === 'omitted' ? {} : { columns: columnsOf(options) }),
+        ...(options.columns === 'omitted' || options.compatibility === 'default'
+          ? {}
+          : options.compatibility === 'effective'
+            ? {
+                columns: [
+                  { id: 'todo' },
+                  { id: 'dev' },
+                  { id: 'review', orchestrator: 'rev' },
+                  { id: 'product-review', orchestrator: 'coord' },
+                  { id: 'external-review' },
+                  { id: 'ready-to-merge', orchestrator: 'coord' },
+                  { id: 'done' },
+                ],
+              }
+            : options.compatibility === 'simple'
+              ? {
+                  columns: [
+                    { id: 'todo' },
+                    { id: 'dev' },
+                    { id: 'review' },
+                    { id: 'product-review' },
+                    { id: 'ready-to-merge' },
+                    { id: 'done' },
+                  ],
+                }
+              : { columns: columnsOf(options) }),
         dispatcher: { mode: options.mode ?? 'on' },
       },
       ...(options.unrelatedProject === true
@@ -236,7 +266,6 @@ afterEach(async () => {
 function board(options: Options = {}) {
   let config = boardConfig(options);
   let now = BASE;
-  let frozen = false;
   const clock = { now: () => (options.movingClock === true ? ++now : now) };
   const store = openTempStore('board-dispatch-').store;
   stores.push(store);
@@ -265,7 +294,7 @@ function board(options: Options = {}) {
   let { registry, apply, query } = build();
   let keys = 0;
   const step = () => {
-    if (!frozen) now += 60_000;
+    now += 60_000;
     return new Date(now).toISOString();
   };
   const observe = async (
@@ -292,9 +321,6 @@ function board(options: Options = {}) {
   const ctx = {
     store,
     at: () => new Date(now).toISOString(),
-    freeze: () => {
-      frozen = true;
-    },
     /** A daemon restart on the same store: a fresh core and registry, perhaps a new config. */
     restart(next: Options = options) {
       config = boardConfig(next);
@@ -670,756 +696,7 @@ async function inQa(): Promise<Board> {
   return ctx;
 }
 
-const repairs = async (ctx: Board) =>
-  (
-    await ctx.store.db
-      .selectFrom('event')
-      .select(['id', 'payload'])
-      .where('task_id', '=', (await ctx.task()).id)
-      .where('kind', '=', 'dev_repair')
-      .orderBy('id')
-      .execute()
-  ).map((row) => ({
-    id: row.id,
-    payload: eventPayloadSchemas.dev_repair.parse(JSON.parse(row.payload)),
-  }));
-
-async function workerQa() {
-  const ctx = await inQa();
-  await ctx.submit(COORD, 'T4');
-  ctx.restart({ qa: true, qaOrchestrator: 'none' });
-  await ctx.github();
-  await ctx.spur();
-  return ctx;
-}
-
 describe('QA evidence across visits', () => {
-  it.each([
-    ...(['manual-demotion', 'observed-demotion', 'normal-reroute'] as const).flatMap((path) =>
-      (['confirmed', 'pending', 'pending-before', 'pending-later'] as const).map((receipt) => ({
-        path,
-        receipt,
-      })),
-    ),
-    { path: 'legacy-demotion', receipt: 'confirmed' } as const,
-  ])('preserves repair identity through $path ($receipt)', async ({ path, receipt }) => {
-    const ctx = await workerQa();
-    const feedback = {
-      kind: 'comment' as const,
-      id: 'replacement-work',
-      author: { login: EXTERNAL, type: 'user' as const },
-      postedAt: ctx.at(),
-    };
-    const options = { qa: true, qaOrchestrator: 'none', workerRole: 'worker' as const };
-    ctx.restart(options);
-    await ctx.github();
-    await ctx.spur(path === 'normal-reroute' ? 'ended' : 'live');
-    await ctx.pr({ feedback: [feedback] });
-    const original = await ctx.openTurn();
-    let recognized = (await repairs(ctx)).filter((row) => row.payload.action === 'recognized');
-    expect(recognized).toHaveLength(1);
-    let ids = recognized.map((row) => row.id);
-    expect(
-      (await repairs(ctx)).find((row) => row.payload.action === 'adopted')?.payload,
-    ).toMatchObject({ turn: original?.id, recognitions: ids });
-    if (path !== 'normal-reroute') await ctx.ack(WORKER, original?.id ?? '');
-    if (receipt === 'pending-before')
-      await ctx.pr({ feedback: [{ ...feedback, editedAt: ctx.at() }] });
-    await ctx.session({
-      ...sessionFacts('replacement-1', 'replacement'),
-      links: { 'board-worker': 'https://github.com/o/r/issues/9' },
-    });
-    const actor: ActorId = 'agent:replacement/replacement-1';
-    if (path !== 'normal-reroute') {
-      if (path === 'legacy-demotion')
-        await ctx.store.db.deleteFrom('event').where('kind', '=', 'dev_repair').execute();
-      ctx.restart({ ...options, workerRole: 'orchestrator' });
-      if (path === 'manual-demotion') await ctx.linkSession('worker-1');
-      else await ctx.session(sessionFacts('worker-1', 'worker'));
-    }
-    const replacement = await ctx.openTurn();
-    if (path === 'legacy-demotion') {
-      recognized = (await repairs(ctx)).filter((row) => row.payload.action === 'recognized');
-      expect(recognized).toHaveLength(1);
-      expect(recognized[0]?.payload).toMatchObject({ legacyTurn: original?.id });
-      ids = recognized.map((row) => row.id);
-    }
-    expect(replacement).toMatchObject({ column: 'dev', role: 'worker' });
-    expect(replacement?.id).not.toBe(original?.id);
-    expect(JSON.parse(replacement?.handed ?? '[]')).toMatchObject([{ id: feedback.id }]);
-    await ctx.github();
-    await ctx.spur();
-    await ctx.ack(actor, replacement?.id ?? '');
-    const handedRecognitions = (await repairs(ctx)).filter(
-      (row) => row.payload.action === 'recognized',
-    );
-    const acceptedIds =
-      receipt === 'pending-before' && path === 'normal-reroute'
-        ? handedRecognitions.map((row) => row.id)
-        : ids;
-    if (receipt !== 'confirmed')
-      ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
-    await expect(
-      ctx.submit(actor, replacement?.id ?? '', receipt === 'confirmed' ? A : B),
-    ).resolves.toMatchObject({ status: receipt === 'confirmed' ? 'confirmed' : 'pending' });
-    const covered = (await repairs(ctx)).find((row) => row.payload.action === 'covered');
-    expect(covered?.payload).toMatchObject({ turn: replacement?.id, recognitions: acceptedIds });
-    expect((await repairs(ctx)).filter((row) => row.payload.action === 'recognized')).toEqual(
-      handedRecognitions,
-    );
-    if (receipt !== 'confirmed') {
-      if (receipt === 'pending-later')
-        await ctx.pr({ headSha: B, feedback: [{ ...feedback, editedAt: ctx.at() }] });
-      ctx.restart({
-        ...options,
-        ...(path === 'normal-reroute' ? {} : { workerRole: 'orchestrator' }),
-      });
-      await ctx.pr({ headSha: B });
-      await ctx.spur();
-    }
-    const completed = (await repairs(ctx)).filter((row) => row.payload.action === 'completed');
-    expect(completed).toHaveLength(1);
-    expect(completed[0]?.payload).toMatchObject({ recognitions: acceptedIds });
-    const laterTurn =
-      receipt === 'pending-later' || (receipt === 'pending-before' && path !== 'normal-reroute');
-    if (laterTurn) {
-      const next = await ctx.openTurn();
-      expect(next).toMatchObject({ column: 'dev' });
-      const later = (await repairs(ctx)).filter((row) => row.payload.action === 'recognized');
-      expect(later).toHaveLength(2);
-      expect(later[1]?.id).not.toBe(ids[0]);
-      await ctx.ack(actor, next?.id ?? '');
-      await ctx.submit(actor, next?.id ?? '', B);
-    }
-    expect((await ctx.task()).column).toBe(receipt === 'confirmed' ? 'ready-to-merge' : 'review');
-    expect((await ctx.turns()).filter((turn) => turn.column === 'dev')).toHaveLength(
-      laterTurn ? 4 : 3,
-    );
-  });
-
-  it('rolls receipt and coverage back together when a lifecycle write fails', async () => {
-    const ctx = await workerQa();
-    await ctx.pr({
-      feedback: [
-        {
-          kind: 'comment',
-          id: 'atomic-work',
-          author: { login: EXTERNAL, type: 'user' },
-          postedAt: ctx.at(),
-        },
-      ],
-    });
-    const turn = await ctx.openTurn();
-    await ctx.ack(WORKER, turn?.id ?? '');
-    const before = await ctx.snapshot();
-    await sql`create trigger reject_repair_coverage before insert on event when new.kind = 'dev_repair' and json_extract(new.payload, '$.action') = 'covered' begin select raise(abort, 'forced coverage failure'); end`.execute(
-      ctx.store.db,
-    );
-    await expect(ctx.submit(WORKER, turn?.id ?? '')).rejects.toThrow('forced coverage failure');
-    expect(await ctx.snapshot()).toEqual(before);
-  });
-
-  it('replays by task and reset identity despite misleading history times', async () => {
-    const ctx = await workerQa();
-    await ctx.blind('spur', true);
-    const thread = { id: 'scoped-thread', resolved: false };
-    await ctx.pr({ reviewThreads: [thread] });
-    await ctx.pr({ reviewThreads: [{ ...thread, resolved: true }] });
-    const task = await ctx.task();
-    await ctx.store.db
-      .insertInto('task')
-      .values({ ...task, id: task.id + 1, key: 'o/r#10', tracker_id: 'o/r#10' })
-      .execute();
-    await ctx.store.transaction((trx) =>
-      emit(trx, 'dev_repair', task.project, task.id + 1, '2099-01-01T00:00:00.000Z', {
-        action: 'reset',
-        reason: 'corrected',
-        sourceEvent: 1,
-        throughTurn: 9999,
-        throughSubmission: 9999,
-      }),
-    );
-    await ctx.spur();
-    await ctx.tick();
-    expect((await ctx.task()).column).toBe('dev');
-    expect(await ctx.openTurn()).toMatchObject({ column: 'dev' });
-    await ctx.store.db
-      .updateTable('event')
-      .set({ at: '2099-01-01T00:00:00.000Z' })
-      .where('task_id', '=', task.id)
-      .where('kind', '=', 'dev_repair')
-      .execute();
-    await ctx.move('dev');
-    expect((await ctx.task()).column).toBe('ready-to-merge');
-    const before = await ctx.snapshot();
-    await ctx.why();
-    await ctx.get(true);
-    await ctx.history();
-    expect(await ctx.snapshot()).toEqual(before);
-  });
-  it.each(['existing-cycle', 'new-cycle', 'new-course'] as const)(
-    'records repair before %s hold and deduplicates recovery',
-    async (hold) => {
-      const options = {
-        qa: true,
-        cycleLimit: hold === 'new-course' ? 10 : 1,
-        courseCheck: hold === 'new-course' ? 1 : 0,
-      };
-      const ctx = await inReview(options);
-      if (hold === 'existing-cycle') {
-        await ctx.ack(REV, 'T2');
-        await ctx.ret(REV, 'T2');
-      }
-      const feedback = {
-        kind: 'comment' as const,
-        id: 'held-work',
-        author: { login: EXTERNAL, type: 'user' as const },
-        postedAt: ctx.at(),
-      };
-      await ctx.pr({ feedback: [feedback] });
-      expect(await ctx.openTurn()).toBeNull();
-      expect(
-        (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
-      ).toHaveLength(1);
-      await ctx.pr({ feedback: [] });
-      ctx.restart(options);
-      await ctx.github();
-      await ctx.spur();
-      await ctx.tick();
-      await ctx.tick();
-      const before = await ctx.snapshot();
-      await ctx.get(true);
-      await ctx.why();
-      await ctx.history();
-      expect(await ctx.snapshot()).toEqual(before);
-      expect(
-        (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
-      ).toHaveLength(1);
-      const item = await ctx.store.db
-        .selectFrom('operator_item')
-        .selectAll()
-        .where('task_id', '=', (await ctx.task()).id)
-        .where('kind', '=', hold === 'new-course' ? 'course_check' : 'cycle_limit')
-        .where('cleared_at', 'is', null)
-        .executeTakeFirstOrThrow();
-      if (hold === 'new-course')
-        await ctx.answer(
-          'operator',
-          `B${String(item.block_id)}`,
-          'Complete the repair and submit.',
-        );
-      else await ctx.closeItem(`I${String(item.id)}`);
-      await ctx.tick();
-      const turn = await ctx.openTurn();
-      expect(turn).toMatchObject({ column: 'dev' });
-      expect(JSON.parse(turn?.handed ?? '[]')).toMatchObject([{ id: 'held-work' }]);
-      await ctx.ack(WORKER, turn?.id ?? '');
-      await ctx.submit(WORKER, turn?.id ?? '');
-      expect((await repairs(ctx)).filter((row) => row.payload.action === 'completed')).toHaveLength(
-        1,
-      );
-    },
-  );
-
-  it.each(['later-id', 'newer-edit', 'same-clock'] as const)(
-    'confirmation covers only accepted revisions: %s',
-    async (change) => {
-      const ctx = await workerQa();
-      const first = {
-        kind: 'comment' as const,
-        id: 'c-first',
-        author: { login: EXTERNAL, type: 'user' as const },
-        postedAt: ctx.at(),
-      };
-      await ctx.pr({ feedback: [first] });
-      const turn = await ctx.openTurn();
-      await ctx.ack(WORKER, turn?.id ?? '');
-      if (change === 'same-clock') ctx.freeze();
-      ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
-      await expect(ctx.submit(WORKER, turn?.id ?? '', B)).resolves.toMatchObject({
-        status: 'pending',
-      });
-      const acceptedAt = ctx.at();
-      const submission = await ctx.store.db
-        .selectFrom('submission')
-        .select('id')
-        .orderBy('id', 'desc')
-        .executeTakeFirstOrThrow();
-      const accepted = (await repairs(ctx)).find((row) => row.payload.action === 'covered');
-      expect(accepted?.payload).toMatchObject({
-        action: 'covered',
-        submission: submission.id,
-        turn: turn?.id,
-      });
-      const next =
-        change === 'newer-edit'
-          ? { ...first, editedAt: ctx.at() }
-          : { ...first, id: 'c-later', postedAt: ctx.at() };
-      const feedback = change === 'newer-edit' ? [next] : [first, next];
-      await ctx.pr({ feedback }, false, new Date(Date.parse(acceptedAt) - 1).toISOString());
-      expect(await ctx.openTurn()).toBeNull();
-      const recognized = (await repairs(ctx)).filter((row) => row.payload.action === 'recognized');
-      expect(recognized).toHaveLength(2);
-      await ctx.pr({ headSha: B, feedback });
-      const repair = await ctx.openTurn();
-      expect(repair).toMatchObject({ column: 'dev' });
-      const completed = (await repairs(ctx)).find((row) => row.payload.action === 'completed');
-      expect(completed?.payload).toMatchObject({
-        submission: submission.id,
-        recognitions: [recognized[0]?.id],
-      });
-      expect(JSON.parse(repair?.handed ?? '[]')).toMatchObject([{ id: next.id }]);
-      await ctx.ack(WORKER, repair?.id ?? '');
-      await ctx.submit(WORKER, repair?.id ?? '', B);
-      const receipts = (await repairs(ctx)).filter((row) => row.payload.action === 'covered');
-      expect(receipts.at(-1)?.payload).toMatchObject({ recognitions: [recognized[1]?.id] });
-      expect((await ctx.task()).column).toBe('review');
-    },
-  );
-
-  it.each([false, true])(
-    'shadow retains repair and settles only exact covered receipt (confirmed: %s)',
-    async (confirmed) => {
-      const ctx = await workerQa();
-      await ctx.pr({
-        feedback: [
-          {
-            kind: 'comment',
-            id: 'shadow-repair',
-            author: { login: EXTERNAL, type: 'user' },
-            postedAt: ctx.at(),
-          },
-        ],
-      });
-      const repair = await ctx.openTurn();
-      await ctx.ack(WORKER, repair?.id ?? '');
-      ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
-      await ctx.submit(WORKER, repair?.id ?? '', B);
-      const receipt = await ctx.store.db
-        .selectFrom('submission')
-        .select('id')
-        .orderBy('id', 'desc')
-        .executeTakeFirstOrThrow();
-      ctx.restart({ qa: true, qaOrchestrator: 'none', mode: 'shadow' });
-      await ctx.pr({ headSha: confirmed ? B : A, feedback: [] });
-      if (!confirmed) await ctx.submit(COORD, KEY, A);
-      const rows = await repairs(ctx);
-      expect(rows.filter((row) => row.payload.action === 'recognized')).toHaveLength(1);
-      expect(rows.filter((row) => row.payload.action === 'completed')).toHaveLength(
-        confirmed ? 1 : 0,
-      );
-      if (confirmed)
-        expect(rows.find((row) => row.payload.action === 'completed')?.payload).toMatchObject({
-          submission: receipt.id,
-        });
-      ctx.restart({ qa: true, qaOrchestrator: 'none' });
-      await ctx.github();
-      await ctx.spur();
-      await ctx.tick();
-      expect((await ctx.task()).column).toBe(confirmed ? 'review' : 'dev');
-      if (!confirmed) {
-        const handed = await ctx.openTurn();
-        expect(JSON.parse(handed?.handed ?? '[]')).toMatchObject([{ id: 'shadow-repair' }]);
-        await ctx.ack(WORKER, handed?.id ?? '');
-        await ctx.submit(WORKER, handed?.id ?? '');
-        expect((await ctx.task()).column).toBe('ready-to-merge');
-      }
-    },
-  );
-
-  it.each(['corrected', 'terminal', 'archived', 'completed-void'] as const)(
-    'supersedes repair only at explicit boundary: %s',
-    async (boundary) => {
-      const ctx = await workerQa();
-      await ctx.blind('spur', true);
-      const thread = {
-        id: 'reset-thread',
-        url: 'https://github.com/o/r/pull/7#discussion_reset',
-        resolved: false,
-      };
-      await ctx.pr({ reviewThreads: [thread] });
-      await ctx.pr({ reviewThreads: [{ ...thread, resolved: true }] });
-      if (boundary === 'corrected') await ctx.move('dev');
-      else if (boundary === 'archived') {
-        await ctx.archive();
-        await ctx.add();
-      } else if (boundary === 'terminal') {
-        await ctx.ticket('closed');
-        await ctx.pr({ state: 'merged', mergedAt: ctx.at() });
-      } else {
-        await ctx.spur();
-        await ctx.tick();
-        const turn = await ctx.openTurn();
-        await ctx.ack(WORKER, turn?.id ?? '');
-        await ctx.submit(WORKER, turn?.id ?? '');
-        const receipt = await ctx.store.db
-          .selectFrom('submission')
-          .select('id')
-          .where('column', '=', 'dev')
-          .where('voided_at', 'is', null)
-          .executeTakeFirstOrThrow();
-        const merge = await ctx.openTurn();
-        await ctx.ack(COORD, merge?.id ?? '');
-        await ctx.ret(COORD, merge?.id ?? '');
-        expect(
-          (
-            await ctx.store.db
-              .selectFrom('submission')
-              .select('voided_at')
-              .where('id', '=', receipt.id)
-              .executeTakeFirstOrThrow()
-          ).voided_at,
-        ).not.toBeNull();
-      }
-      ctx.restart({ qa: true, qaOrchestrator: 'none' });
-      await ctx.github();
-      await ctx.spur();
-      await ctx.tick();
-      expect(
-        (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
-      ).toHaveLength(1);
-      if (boundary === 'completed-void') {
-        expect((await repairs(ctx)).filter((row) => row.payload.action === 'reset')).toHaveLength(
-          0,
-        );
-        expect((await ctx.task()).column).toBe('ready-to-merge');
-      } else {
-        const reset = (await repairs(ctx)).find((row) => row.payload.action === 'reset');
-        expect(reset?.payload).toMatchObject({ action: 'reset', reason: boundary });
-        if (reset?.payload.action !== 'reset') throw new Error('missing repair reset');
-        const source = await ctx.store.db
-          .selectFrom('event')
-          .select('kind')
-          .where('id', '=', reset.payload.sourceEvent)
-          .executeTakeFirstOrThrow();
-        expect(source.kind).toBe(
-          boundary === 'corrected'
-            ? 'task_corrected'
-            : boundary === 'terminal'
-              ? 'task_moved'
-              : 'task_archived',
-        );
-        expect((await ctx.task()).column).toBe(boundary === 'terminal' ? 'done' : 'ready-to-merge');
-        if (boundary === 'terminal') {
-          await ctx.ticket('open');
-          await ctx.pr({
-            number: 8,
-            state: 'open',
-            headSha: B,
-            url: 'https://github.com/o/r/pull/8',
-          });
-          await ctx.tick();
-          const reopened = await ctx.openTurn();
-          expect(reopened).toMatchObject({ column: 'dev' });
-          expect(reopened?.reason).not.toContain('reset-thread');
-          expect(
-            (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
-          ).toHaveLength(1);
-        }
-      }
-    },
-  );
-
-  it.each(['open', 'pending', 'reset-pending', 'shadow-open'] as const)(
-    'imports exact legacy %s evidence once; queries stay read-only',
-    async (legacy) => {
-      const ctx = await workerQa();
-      await ctx.pr({
-        feedback: [
-          {
-            kind: 'comment',
-            id: 'legacy-comment',
-            author: { login: EXTERNAL, type: 'user' },
-            postedAt: ctx.at(),
-          },
-        ],
-      });
-      const turn = await ctx.openTurn();
-      if (legacy === 'pending' || legacy === 'reset-pending') {
-        await ctx.ack(WORKER, turn?.id ?? '');
-        ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
-        await ctx.submit(WORKER, turn?.id ?? '', B);
-      }
-      await ctx.store.db.deleteFrom('event').where('kind', '=', 'dev_repair').execute();
-      if (legacy === 'reset-pending') {
-        await ctx.move('dev');
-        await ctx.pr();
-        await ctx.tick();
-        expect(
-          (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
-        ).toHaveLength(0);
-        expect((await ctx.task()).column).toBe('ready-to-merge');
-        return;
-      }
-      const before = await ctx.snapshot();
-      await ctx.get(true);
-      await ctx.why();
-      await ctx.history();
-      expect(await ctx.snapshot()).toEqual(before);
-      ctx.restart({
-        qa: true,
-        qaOrchestrator: 'none',
-        ...(legacy === 'shadow-open' ? { mode: 'shadow' as const } : {}),
-      });
-      if (legacy !== 'pending') await ctx.github();
-      await ctx.spur();
-      await ctx.tick();
-      await ctx.tick();
-      expect(
-        (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
-      ).toHaveLength(1);
-      expect(
-        (await repairs(ctx)).find((row) => row.payload.action === 'recognized')?.payload,
-      ).toMatchObject({ legacyTurn: turn?.id });
-      if (legacy === 'shadow-open') {
-        ctx.restart({ qa: true, qaOrchestrator: 'none' });
-        await ctx.github();
-        await ctx.spur();
-        const resumed = await ctx.openTurn();
-        expect(resumed).toMatchObject({ column: 'dev' });
-        await ctx.ack(WORKER, resumed?.id ?? '');
-        await ctx.submit(WORKER, resumed?.id ?? '');
-        expect((await ctx.task()).column).toBe('ready-to-merge');
-        return;
-      }
-      if (legacy === 'pending') {
-        expect(
-          (await repairs(ctx)).find((row) => row.payload.action === 'covered')?.payload,
-        ).toMatchObject({ legacy: true, turn: turn?.id });
-        await ctx.pr({ headSha: B });
-        expect((await ctx.task()).column).toBe('review');
-      } else {
-        await ctx.ack(WORKER, turn?.id ?? '');
-        await ctx.submit(WORKER, turn?.id ?? '');
-        expect((await ctx.task()).column).toBe('ready-to-merge');
-      }
-    },
-  );
-  it.each([
-    { placement: 'return', gated: true, after: 'same' },
-    { placement: 'already-dev', gated: true, after: 'same' },
-    { placement: 'already-dev', gated: false, after: 'same' },
-    { placement: 'submitted-dev', gated: true, after: 'same' },
-    { placement: 'return', gated: true, after: 'disabled' },
-    { placement: 'return', gated: true, after: 'executor' },
-  ] as const)(
-    'retains first repair recognition at $placement (threads gated: $gated)',
-    async ({ placement, gated, after }) => {
-      const ctx = await inQa();
-      await ctx.submit(COORD, 'T4');
-      ctx.restart({ qa: true, qaOrchestrator: 'none', rtmThreads: gated });
-      await ctx.github();
-      await ctx.spur();
-      if (placement === 'submitted-dev') {
-        await ctx.pr({ requiredChecks: [{ name: 'ci', state: 'failure', completedAt: null }] });
-        const turn = await ctx.openTurn();
-        await ctx.ack(WORKER, turn?.id ?? '');
-        await ctx.blind('spur', true);
-        await ctx.submit(WORKER, turn?.id ?? '');
-      } else await ctx.blind('spur', true);
-      if (placement === 'already-dev') {
-        await ctx.pr({ requiredChecks: [{ name: 'ci', state: 'failure', completedAt: null }] });
-      }
-      const thread = {
-        id: 'deferred-thread',
-        url: 'https://github.com/o/r/pull/7#discussion_r2',
-        resolved: false,
-      };
-      await ctx.pr({ reviewThreads: [thread] });
-      expect((await ctx.task()).column).toBe('dev');
-      expect(await ctx.openTurn()).toBeNull();
-      await ctx.pr({
-        reviewThreads: [{ ...thread, resolved: true }],
-        requiredChecks: [{ name: 'ci', state: 'success', completedAt: ctx.at() }],
-      });
-      ctx.restart({
-        qa: true,
-        qaOrchestrator: 'none',
-        rtmThreads: after !== 'disabled',
-        ...(after === 'executor' ? { devOrchestrator: 'coord' } : {}),
-      });
-      await ctx.github();
-      await ctx.spur();
-      await ctx.tick();
-      if (gated) {
-        const repair = await ctx.openTurn();
-        expect(repair).toMatchObject({ column: 'dev' });
-        expect(repair?.reason).toContain(thread.url);
-        const actor = after === 'executor' ? COORD : WORKER;
-        await ctx.ack(actor, repair?.id ?? '');
-        await ctx.submit(actor, repair?.id ?? '');
-      }
-      expect((await ctx.task()).column).toBe('ready-to-merge');
-      expect(
-        await ctx.store.db
-          .selectFrom('submission')
-          .select('voided_at')
-          .where('column', '=', 'qa')
-          .executeTakeFirstOrThrow(),
-      ).toEqual({ voided_at: null });
-      expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
-    },
-  );
-
-  it.each(
-    (['comment', 'review', 'changes_requested', 'edited', 'thread', 'rerouted'] as const).flatMap(
-      (kind) =>
-        (
-          [
-            'current',
-            'confirmed',
-            'mismatch',
-            'moved',
-            'timeout',
-            'closed',
-            'deferred',
-            'sticky-failure',
-            'merged',
-          ] as const
-        ).map((settlement) => ({ kind, settlement })),
-    ),
-  )(
-    'requires confirmed Dev repair for $kind feedback ($settlement)',
-    async ({ kind, settlement }) => {
-      const ctx = await inQa();
-      await ctx.submit(COORD, 'T4');
-      ctx.restart({ qa: true, qaOrchestrator: 'none' });
-      await ctx.github();
-      await ctx.spur();
-      const feedback = {
-        kind:
-          kind === 'review' || kind === 'changes_requested'
-            ? ('review' as const)
-            : ('comment' as const),
-        id: 'feedback-1',
-        author: { login: EXTERNAL, type: 'user' as const },
-        postedAt: ctx.at(),
-        ...(kind === 'review' ? { state: 'commented' as const } : {}),
-        ...(kind === 'changes_requested' ? { state: 'changes_requested' as const } : {}),
-      };
-      if (kind === 'rerouted') await ctx.spur('ended');
-      const thread = {
-        id: 'thread-1',
-        url: 'https://github.com/o/r/pull/7#discussion_r1',
-        resolved: false,
-      };
-      if (kind === 'thread') await ctx.pr({ reviewThreads: [thread] });
-      else await ctx.pr({ feedback: [feedback] });
-      let repair = await ctx.openTurn();
-      let actor = WORKER;
-      if (kind === 'rerouted') {
-        expect(repair).toMatchObject({ column: 'dev', role: 'operator' });
-        await ctx.session(sessionFacts('worker-2', 'worker'));
-        actor = 'agent:worker/worker-2';
-        repair = await ctx.openTurn();
-        expect(repair).toMatchObject({ column: 'dev', role: 'worker' });
-      }
-      if (kind === 'edited') {
-        await ctx.ack(WORKER, repair?.id ?? '');
-        await ctx.submit(WORKER, repair?.id ?? '');
-        await ctx.pr({ feedback: [{ ...feedback, editedAt: ctx.at() }] });
-        repair = await ctx.openTurn();
-      }
-      expect(repair).toMatchObject({ column: 'dev' });
-      expect(JSON.parse(repair?.handed ?? '[]')).toHaveLength(kind === 'thread' ? 0 : 1);
-      await ctx.tick();
-      expect(await ctx.openTurn()).toEqual(repair);
-      await ctx.ack(actor, repair?.id ?? '');
-      if (kind === 'thread') await ctx.pr({ reviewThreads: [{ ...thread, resolved: true }] });
-      ctx.restart({ qa: true, qaOrchestrator: 'none' });
-      await ctx.github();
-      await ctx.spur();
-      await ctx.tick();
-      expect(await ctx.openTurn()).toEqual(repair);
-      expect((await ctx.task()).column).toBe('dev');
-      expect(
-        await ctx.store.db
-          .selectFrom('submission')
-          .select('voided_at')
-          .where('column', '=', 'qa')
-          .executeTakeFirstOrThrow(),
-      ).toEqual({ voided_at: null });
-      if (settlement === 'current') await ctx.submit(actor, repair?.id ?? '');
-      else {
-        if (settlement === 'closed') await ctx.pr({ state: 'closed' });
-        ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
-        await expect(ctx.submit(actor, repair?.id ?? '', B)).resolves.toMatchObject({
-          status: 'pending',
-        });
-        expect(await ctx.openTurn()).toBeNull();
-        ctx.restart({ qa: true, qaOrchestrator: 'none' });
-        await ctx.spur();
-        await ctx.tick();
-        expect((await ctx.task()).column).toBe('dev');
-        if (settlement === 'timeout' || settlement === 'closed') {
-          ctx.wait(180_001);
-          await ctx.tick();
-          expect(await ctx.openTurn()).toBeNull();
-        }
-        const head =
-          settlement === 'confirmed' || settlement === 'sticky-failure'
-            ? B
-            : settlement === 'moved'
-              ? C
-              : A;
-        if (settlement === 'deferred' || settlement === 'sticky-failure')
-          await ctx.blind('spur', true);
-        if (settlement === 'merged') {
-          await ctx.ticket('closed');
-          await ctx.pr({ state: 'merged', mergedAt: ctx.at() });
-          expect((await ctx.task()).column).toBe('done');
-          expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
-          return;
-        }
-        if (settlement === 'closed') {
-          await ctx.github();
-          await ctx.tick();
-        } else await ctx.pr({ headSha: settlement === 'sticky-failure' ? A : head });
-        if (settlement === 'sticky-failure') await ctx.pr({ headSha: B });
-        if (settlement === 'deferred' || settlement === 'sticky-failure') {
-          expect(await ctx.openTurn()).toBeNull();
-          ctx.restart({ qa: true, qaOrchestrator: 'none' });
-          await ctx.github();
-          await ctx.spur();
-          await ctx.tick();
-        }
-        if (settlement !== 'confirmed') {
-          repair = await ctx.openTurn();
-          expect(repair).toMatchObject({ column: 'dev' });
-          if (settlement === 'sticky-failure')
-            expect(repair?.reason).toContain('head moved to aaaaaaa');
-          expect(JSON.parse(repair?.handed ?? '[]')).toHaveLength(kind === 'thread' ? 0 : 1);
-          if (kind === 'thread') expect(repair?.reason).toContain('unresolved_threads');
-          if (head === A)
-            expect(
-              await ctx.store.db
-                .selectFrom('submission')
-                .select('voided_at')
-                .where('column', '=', 'qa')
-                .executeTakeFirstOrThrow(),
-            ).toEqual({ voided_at: null });
-          ctx.restart({ qa: true, qaOrchestrator: 'none' });
-          await ctx.pr({ headSha: head, state: 'open' });
-          await ctx.spur();
-          await ctx.tick();
-          expect(await ctx.openTurn()).toEqual(repair);
-          await ctx.ack(actor, repair?.id ?? '');
-          await ctx.submit(actor, repair?.id ?? '', head);
-        }
-        if (head !== A) {
-          for (const executor of [REV, COORD]) {
-            const upstream = await ctx.openTurn();
-            await ctx.ack(executor, upstream?.id ?? '');
-            await ctx.submit(executor, upstream?.id ?? '', head);
-          }
-        }
-      }
-      await ctx.tick();
-      expect((await ctx.task()).column).toBe('ready-to-merge');
-      expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
-    },
-  );
-
   it('keeps confirmed QA through a same-head Dev repair without another QA turn', async () => {
     const ctx = await inQa();
     await ctx.submit(COORD, 'T4');
@@ -1505,12 +782,19 @@ describe('QA evidence across visits', () => {
     },
   );
 
-  it.each(['return', 'correct'] as const)(
-    'retained worker QA can satisfy Dev after %s',
-    async (movement) => {
+  it.each(
+    (['return', 'correct'] as const).flatMap((movement) =>
+      (['current', 'confirmed', 'mismatch', 'restart'] as const).map((receipt) => ({
+        movement,
+        receipt,
+      })),
+    ),
+  )(
+    'retained worker QA requires the Dev visit submit after $movement ($receipt)',
+    async ({ movement, receipt }) => {
       const ctx = await inQa();
       await ctx.submit(COORD, 'T4');
-      // Represent an earlier worker QA visit, then retain the normal worker-column reuse policy.
+      // Represent an earlier worker QA visit, then return with its evidence still valid.
       await ctx.store.db
         .updateTable('submission')
         .set({ author: WORKER })
@@ -1531,8 +815,50 @@ describe('QA evidence across visits', () => {
         .execute();
       expect(rows.find((row) => row.column === 'dev')?.voided_at).not.toBeNull();
       expect(rows.find((row) => row.column === 'qa')?.voided_at).toBeNull();
+      expect((await ctx.task()).column).toBe('dev');
+      let dev = await ctx.openTurn();
+      expect(dev).toMatchObject({ column: 'dev', reason: 'dev: no_submit_on_head' });
+      await ctx.tick();
+      expect(await ctx.openTurn()).toEqual(dev);
+      await ctx.ack(WORKER, dev?.id ?? '');
+      if (receipt === 'current') await ctx.submit(WORKER, dev?.id ?? '', A);
+      else {
+        ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+        await expect(ctx.submit(WORKER, dev?.id ?? '', B)).resolves.toMatchObject({
+          status: 'pending',
+        });
+        expect((await ctx.task()).column).toBe('dev');
+        expect(await ctx.openTurn()).toBeNull();
+        if (receipt === 'restart') ctx.restart({ qa: true, qaOrchestrator: 'none' });
+        if (receipt === 'mismatch') {
+          await ctx.github();
+          dev = await ctx.openTurn();
+          expect(dev).toMatchObject({ column: 'dev' });
+          expect(dev?.reason).toContain('head moved to aaaaaaa');
+          expect(
+            await ctx.store.db
+              .selectFrom('submission')
+              .select('voided_at')
+              .where('column', '=', 'qa')
+              .executeTakeFirstOrThrow(),
+          ).toEqual({ voided_at: null });
+          ctx.pollAnswers(ok({ status: 'ok', facts: prFacts(), observedAt: ctx.at() }));
+          await ctx.ack(WORKER, dev?.id ?? '');
+          await ctx.submit(WORKER, dev?.id ?? '', A);
+        } else {
+          await ctx.pr({ headSha: B });
+          await ctx.spur();
+          for (const actor of [REV, COORD]) {
+            const upstream = await ctx.openTurn();
+            await ctx.ack(actor, upstream?.id ?? '');
+            await ctx.submit(actor, upstream?.id ?? '', B);
+          }
+        }
+      }
       expect((await ctx.task()).column).toBe('ready-to-merge');
-      expect((await ctx.turns()).filter((turn) => turn.column === 'dev')).toHaveLength(1);
+      expect((await ctx.turns()).filter((turn) => turn.column === 'dev')).toHaveLength(
+        receipt === 'mismatch' ? 3 : 2,
+      );
       expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
     },
   );
@@ -4549,7 +3875,7 @@ describe('mode switch', () => {
     await ctx.pr({ requiredChecks: prFacts().requiredChecks });
     expect(await ctx.task()).toMatchObject({ column: 'dev', column_epoch: 1 });
     const turn = await ctx.openTurn();
-    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'));
+    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
     expect(JSON.parse(turn?.handed ?? '[]')).toMatchObject([{ kind: 'comment', id: 'c-1' }]);
     expect(
       await ctx.store.db.selectFrom('submission').select(['column', 'voided_at']).execute(),
@@ -4665,14 +3991,7 @@ describe('task.move', () => {
         gate: expect.arrayContaining(['external_comments']) as unknown,
       }),
     ]);
-    const changes = await fromCorrection(ctx);
-    const corrected = changes[0];
-    const reset = changes[1];
-    const bounced = changes.find((row) => row.kind === 'task_moved');
-    expect(reset).toMatchObject({
-      kind: 'dev_repair',
-      payload: { action: 'reset', reason: 'corrected' },
-    });
+    const [corrected, bounced] = await fromCorrection(ctx);
     expect(corrected).toEqual({
       kind: 'task_corrected',
       payload: {
@@ -4849,7 +4168,7 @@ describe('task.move', () => {
 
     expect(result).toMatchObject({ to: 'review', column: 'dev', task: { column: 'todo' } });
     expect(await ctx.task()).toMatchObject({ column: 'todo', shadow_column: 'dev' });
-    expect((await fromCorrection(ctx)).slice(0, 3)).toEqual([
+    expect((await fromCorrection(ctx)).slice(0, 2)).toEqual([
       {
         kind: 'task_corrected',
         payload: {
@@ -4857,16 +4176,6 @@ describe('task.move', () => {
           to: 'review',
           reason: 'The board put it in the wrong column.',
           shadow: true,
-        },
-      },
-      {
-        kind: 'dev_repair',
-        payload: {
-          action: 'reset',
-          reason: 'corrected',
-          sourceEvent: expect.any(Number) as number,
-          throughTurn: 0,
-          throughSubmission: 0,
         },
       },
       {
@@ -5246,7 +4555,7 @@ describe('design flows 2.5 and 2.10', () => {
 
     await ctx.submit(WORKER, 'T1', A);
     const turn = await ctx.openTurn();
-    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'));
+    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
     expect(JSON.parse(turn?.handed ?? '[]')).toEqual([
       { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(20) },
     ]);
@@ -5274,7 +4583,7 @@ describe('design flows 2.5 and 2.10', () => {
     await ctx.ack(WORKER, gap?.id ?? '');
     await ctx.submit(WORKER, gap?.id ?? '', A);
     const turn = await ctx.openTurn();
-    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'));
+    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
     expect(JSON.parse(turn?.handed ?? '[]')).toEqual([
       { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(20) },
       { repo: 'o/r', number: 7, kind: 'comment', id: 'c-2', postedAt: at(21) },
@@ -5295,9 +4604,7 @@ describe('design flows 2.5 and 2.10', () => {
       ],
     });
     await ctx.submit(WORKER, 'T1', A);
-    expect(await ctx.openTurn()).toEqual(
-      turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'),
-    );
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
     // The cursor is the handed comment, not a time-only cutoff at the turned submit.
     expect((await ctx.context()).feedbackCursors).toEqual([
       { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: 'c-1', postedAt: posted },
@@ -5317,9 +4624,7 @@ describe('design flows 2.5 and 2.10', () => {
       ],
     });
     await ctx.submit(WORKER, 'T1', A);
-    expect(await ctx.openTurn()).toEqual(
-      turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'),
-    );
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
 
     await ctx.tick();
     await ctx.github();
@@ -6291,6 +5596,209 @@ describe('reviewer-service status comments', () => {
       const turn = await ctx.openTurn();
       expect(turn).toMatchObject(next);
       expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
+    },
+  );
+});
+
+// Captured from pinned main 92a7d7b0; full ordered rows, no field normalization.
+const expectedCompatibility = JSON.parse(String.raw`{
+"effective": {
+"checkpoints": [{"column": "dev", "reason": "dev: external_comments"}, {"column": "ready-to-merge", "reason": "ready-to-merge: not_merged"}, {"column": "dev", "reason": "dev: external_comments, no_submit_on_head"}, {"column": "ready-to-merge", "reason": "ready-to-merge: not_merged"}],
+"journal": [
+{"id": 1, "at": "2026-11-04T08:01:00.000Z", "project": "proj", "task_id": 1, "kind": "task_added", "actor": "system", "actor_ref": null, "payload": {"column": "todo"}, "v": 1, "request_id": null, "via": null},
+{"id": 2, "at": "2026-11-04T08:01:00.000Z", "project": "proj", "task_id": 1, "kind": "ticket_status_changed", "actor": "system", "actor_ref": null, "payload": {"from": null, "to": "open"}, "v": 1, "request_id": null, "via": null},
+{"id": 3, "at": "2026-11-04T08:01:00.000Z", "project": "proj", "task_id": 1, "kind": "ticket_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"trackerId": "github-issues:proj:o/r", "id": "node-9", "key": "o/r#9", "title": "A ticket", "status": "open", "assignee": null, "sprint": null, "labels": ["board"], "inFilter": true, "url": "https://github.com/o/r/issues/9", "updatedAt": "2026-11-04T08:00:00.000Z"}}, "v": 1, "request_id": null, "via": null},
+{"id": 4, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "link_added", "actor": "system", "actor_ref": null, "payload": {"entity": "session", "session": "worker-1", "role": "worker", "source": "spawn_link", "facts": {"id": "worker-1", "spurProject": "worker", "branch": null, "pr": null, "links": {"board-worker": "https://github.com/o/r/issues/9"}, "lifecycle": "running", "health": "working", "healthSince": "2026-11-04T08:00:00.000Z", "lastActivityAt": null, "endedAt": null, "endReason": null}}, "v": 1, "request_id": null, "via": null},
+{"id": 5, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "session_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"id": "worker-1", "spurProject": "worker", "branch": null, "pr": null, "links": {"board-worker": "https://github.com/o/r/issues/9"}, "lifecycle": "running", "health": "working", "healthSince": "2026-11-04T08:00:00.000Z", "lastActivityAt": null, "endedAt": null, "endReason": null}}, "v": 1, "request_id": null, "via": null},
+{"id": 6, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "todo", "to": "dev", "reason": "gate_passed"}, "v": 1, "request_id": null, "via": null},
+{"id": 7, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T1", "column": "dev", "addressee": "worker", "reason": "dev: no_pr"}, "v": 1, "request_id": null, "via": null},
+{"id": 8, "at": "2026-11-04T08:04:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N1"}, "v": 1, "request_id": "key-1", "via": null},
+{"id": 9, "at": "2026-11-04T08:04:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"turn": "T1", "taker": "agent:worker/worker-1"}, "v": 1, "request_id": "key-1", "via": null},
+{"id": 10, "at": "2026-11-04T08:05:00.000Z", "project": "proj", "task_id": 1, "kind": "link_added", "actor": "system", "actor_ref": null, "payload": {"entity": "pr", "repo": "o/r", "pr": 7, "state": "active", "source": "branch", "facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 11, "at": "2026-11-04T08:05:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 12, "at": "2026-11-04T08:06:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [{"kind": "comment", "id": "compat-first", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:05:00.000Z"}], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 13, "at": "2026-11-04T08:07:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T1", "outcome": "submitted"}, "v": 1, "request_id": "key-2", "via": null},
+{"id": 14, "at": "2026-11-04T08:07:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"basis": "tested", "turn": "T1", "column": "dev", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-2", "via": null},
+{"id": 15, "at": "2026-11-04T08:07:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T2", "column": "dev", "addressee": "worker", "reason": "dev: external_comments"}, "v": 1, "request_id": "key-2", "via": null},
+{"id": 16, "at": "2026-11-04T08:08:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N2"}, "v": 1, "request_id": "key-3", "via": null},
+{"id": 17, "at": "2026-11-04T08:08:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"turn": "T2", "taker": "agent:worker/worker-1"}, "v": 1, "request_id": "key-3", "via": null},
+{"id": 18, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T2", "outcome": "submitted"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 19, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"basis": "tested", "turn": "T2", "column": "dev", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 20, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "dev", "to": "review", "reason": "gate_passed"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 21, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T3", "column": "review", "addressee": "orchestrator:review", "reason": "review: no_review_on_head"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 22, "at": "2026-11-04T08:10:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N3"}, "v": 1, "request_id": "key-5", "via": null},
+{"id": 23, "at": "2026-11-04T08:10:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"rev\",\"session\":\"rev-1\"}", "payload": {"turn": "T3", "taker": "agent:rev/rev-1"}, "v": 1, "request_id": "key-5", "via": null},
+{"id": 24, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T3", "outcome": "submitted"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 25, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"rev\",\"session\":\"rev-1\"}", "payload": {"basis": "tested", "turn": "T3", "column": "review", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 26, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "review", "to": "product-review", "reason": "gate_passed"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 27, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T4", "column": "product-review", "addressee": "orchestrator:product-review", "reason": "product-review: no_review_on_head"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 28, "at": "2026-11-04T08:12:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N4"}, "v": 1, "request_id": "key-7", "via": null},
+{"id": 29, "at": "2026-11-04T08:12:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"coord\",\"session\":\"coord-1\"}", "payload": {"turn": "T4", "taker": "agent:coord/coord-1"}, "v": 1, "request_id": "key-7", "via": null},
+{"id": 30, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T4", "outcome": "submitted"}, "v": 1, "request_id": "key-8", "via": null},
+{"id": 31, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"coord\",\"session\":\"coord-1\"}", "payload": {"basis": "tested", "turn": "T4", "column": "product-review", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-8", "via": null},
+{"id": 32, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "product-review", "to": "external-review", "reason": "gate_passed"}, "v": 1, "request_id": "key-8", "via": null},
+{"id": 33, "at": "2026-11-04T08:14:00.000Z", "project": "proj", "task_id": 1, "kind": "review_submitted", "actor": "system", "actor_ref": null, "payload": {"repo": "o/r", "pr": 7, "reviewer": "reviewer", "state": "approved"}, "v": 1, "request_id": null, "via": null},
+{"id": 34, "at": "2026-11-04T08:14:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [{"reviewer": "reviewer", "state": "approved", "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "submittedAt": "2026-11-04T08:13:00.000Z"}], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [{"kind": "comment", "id": "compat-first", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:05:00.000Z"}], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 35, "at": "2026-11-04T08:14:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "external-review", "to": "ready-to-merge", "reason": "gate_passed"}, "v": 1, "request_id": null, "via": null},
+{"id": 36, "at": "2026-11-04T08:14:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T5", "column": "ready-to-merge", "addressee": "orchestrator:ready-to-merge", "reason": "ready-to-merge: not_merged"}, "v": 1, "request_id": null, "via": null},
+{"id": 37, "at": "2026-11-04T08:15:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [{"reviewer": "reviewer", "state": "approved", "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "submittedAt": "2026-11-04T08:13:00.000Z"}], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [{"kind": "comment", "id": "compat-first", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:05:00.000Z"}, {"kind": "comment", "id": "compat-return", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:14:00.000Z"}], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 38, "at": "2026-11-04T08:15:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T5", "outcome": "moved"}, "v": 1, "request_id": null, "via": null},
+{"id": 39, "at": "2026-11-04T08:15:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "ready-to-merge", "to": "dev", "reason": "gate_broken", "gate": ["external_comments"]}, "v": 1, "request_id": null, "via": null},
+{"id": 40, "at": "2026-11-04T08:15:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T6", "column": "dev", "addressee": "worker", "reason": "dev: external_comments, no_submit_on_head"}, "v": 1, "request_id": null, "via": null},
+{"id": 41, "at": "2026-11-04T08:16:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N6"}, "v": 1, "request_id": "key-9", "via": null},
+{"id": 42, "at": "2026-11-04T08:16:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"turn": "T6", "taker": "agent:worker/worker-1"}, "v": 1, "request_id": "key-9", "via": null},
+{"id": 43, "at": "2026-11-04T08:17:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T6", "outcome": "submitted"}, "v": 1, "request_id": "key-10", "via": null},
+{"id": 44, "at": "2026-11-04T08:17:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"basis": "tested", "turn": "T6", "column": "dev", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-10", "via": null},
+{"id": 45, "at": "2026-11-04T08:17:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "dev", "to": "review", "reason": "gate_passed"}, "v": 1, "request_id": "key-10", "via": null},
+{"id": 46, "at": "2026-11-04T08:17:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "review", "to": "product-review", "reason": "gate_passed"}, "v": 1, "request_id": "key-10", "via": null},
+{"id": 47, "at": "2026-11-04T08:17:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "product-review", "to": "external-review", "reason": "gate_passed"}, "v": 1, "request_id": "key-10", "via": null},
+{"id": 48, "at": "2026-11-04T08:17:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "external-review", "to": "ready-to-merge", "reason": "gate_passed"}, "v": 1, "request_id": "key-10", "via": null},
+{"id": 49, "at": "2026-11-04T08:17:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T7", "column": "ready-to-merge", "addressee": "orchestrator:ready-to-merge", "reason": "ready-to-merge: not_merged"}, "v": 1, "request_id": "key-10", "via": null}
+]
+},
+"default": {
+"checkpoints": [{"column": "dev", "reason": "dev: external_comments"}, {"column": "ready-to-merge", "reason": "ready-to-merge: not_merged"}, {"column": "dev", "reason": "dev: external_comments, no_submit_on_head"}, {"column": "ready-to-merge", "reason": "ready-to-merge: not_merged"}],
+"journal": [
+{"id": 1, "at": "2026-11-04T08:01:00.000Z", "project": "proj", "task_id": 1, "kind": "task_added", "actor": "system", "actor_ref": null, "payload": {"column": "todo"}, "v": 1, "request_id": null, "via": null},
+{"id": 2, "at": "2026-11-04T08:01:00.000Z", "project": "proj", "task_id": 1, "kind": "ticket_status_changed", "actor": "system", "actor_ref": null, "payload": {"from": null, "to": "open"}, "v": 1, "request_id": null, "via": null},
+{"id": 3, "at": "2026-11-04T08:01:00.000Z", "project": "proj", "task_id": 1, "kind": "ticket_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"trackerId": "github-issues:proj:o/r", "id": "node-9", "key": "o/r#9", "title": "A ticket", "status": "open", "assignee": null, "sprint": null, "labels": ["board"], "inFilter": true, "url": "https://github.com/o/r/issues/9", "updatedAt": "2026-11-04T08:00:00.000Z"}}, "v": 1, "request_id": null, "via": null},
+{"id": 4, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "link_added", "actor": "system", "actor_ref": null, "payload": {"entity": "session", "session": "worker-1", "role": "worker", "source": "spawn_link", "facts": {"id": "worker-1", "spurProject": "worker", "branch": null, "pr": null, "links": {"board-worker": "https://github.com/o/r/issues/9"}, "lifecycle": "running", "health": "working", "healthSince": "2026-11-04T08:00:00.000Z", "lastActivityAt": null, "endedAt": null, "endReason": null}}, "v": 1, "request_id": null, "via": null},
+{"id": 5, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "session_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"id": "worker-1", "spurProject": "worker", "branch": null, "pr": null, "links": {"board-worker": "https://github.com/o/r/issues/9"}, "lifecycle": "running", "health": "working", "healthSince": "2026-11-04T08:00:00.000Z", "lastActivityAt": null, "endedAt": null, "endReason": null}}, "v": 1, "request_id": null, "via": null},
+{"id": 6, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "todo", "to": "dev", "reason": "gate_passed"}, "v": 1, "request_id": null, "via": null},
+{"id": 7, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T1", "column": "dev", "addressee": "worker", "reason": "dev: no_pr"}, "v": 1, "request_id": null, "via": null},
+{"id": 8, "at": "2026-11-04T08:04:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N1"}, "v": 1, "request_id": "key-1", "via": null},
+{"id": 9, "at": "2026-11-04T08:04:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"turn": "T1", "taker": "agent:worker/worker-1"}, "v": 1, "request_id": "key-1", "via": null},
+{"id": 10, "at": "2026-11-04T08:05:00.000Z", "project": "proj", "task_id": 1, "kind": "link_added", "actor": "system", "actor_ref": null, "payload": {"entity": "pr", "repo": "o/r", "pr": 7, "state": "active", "source": "branch", "facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 11, "at": "2026-11-04T08:05:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 12, "at": "2026-11-04T08:06:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [{"kind": "comment", "id": "compat-first", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:05:00.000Z"}], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 13, "at": "2026-11-04T08:07:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T1", "outcome": "submitted"}, "v": 1, "request_id": "key-2", "via": null},
+{"id": 14, "at": "2026-11-04T08:07:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"basis": "tested", "turn": "T1", "column": "dev", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-2", "via": null},
+{"id": 15, "at": "2026-11-04T08:07:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T2", "column": "dev", "addressee": "worker", "reason": "dev: external_comments"}, "v": 1, "request_id": "key-2", "via": null},
+{"id": 16, "at": "2026-11-04T08:08:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N2"}, "v": 1, "request_id": "key-3", "via": null},
+{"id": 17, "at": "2026-11-04T08:08:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"turn": "T2", "taker": "agent:worker/worker-1"}, "v": 1, "request_id": "key-3", "via": null},
+{"id": 18, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T2", "outcome": "submitted"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 19, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"basis": "tested", "turn": "T2", "column": "dev", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 20, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "dev", "to": "review", "reason": "gate_passed"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 21, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "review", "to": "product-review", "reason": "gate_passed"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 22, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "product-review", "to": "external-review", "reason": "gate_passed"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 23, "at": "2026-11-04T08:10:00.000Z", "project": "proj", "task_id": 1, "kind": "review_submitted", "actor": "system", "actor_ref": null, "payload": {"repo": "o/r", "pr": 7, "reviewer": "reviewer", "state": "approved"}, "v": 1, "request_id": null, "via": null},
+{"id": 24, "at": "2026-11-04T08:10:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [{"reviewer": "reviewer", "state": "approved", "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "submittedAt": "2026-11-04T08:09:00.000Z"}], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [{"kind": "comment", "id": "compat-first", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:05:00.000Z"}], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 25, "at": "2026-11-04T08:10:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "external-review", "to": "qa", "reason": "gate_passed"}, "v": 1, "request_id": null, "via": null},
+{"id": 26, "at": "2026-11-04T08:10:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "qa", "to": "ready-to-merge", "reason": "gate_passed"}, "v": 1, "request_id": null, "via": null},
+{"id": 27, "at": "2026-11-04T08:10:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T3", "column": "ready-to-merge", "addressee": "worker", "reason": "ready-to-merge: not_merged"}, "v": 1, "request_id": null, "via": null},
+{"id": 28, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [{"reviewer": "reviewer", "state": "approved", "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "submittedAt": "2026-11-04T08:09:00.000Z"}], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [{"kind": "comment", "id": "compat-first", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:05:00.000Z"}, {"kind": "comment", "id": "compat-return", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:10:00.000Z"}], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 29, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T3", "outcome": "moved"}, "v": 1, "request_id": null, "via": null},
+{"id": 30, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "ready-to-merge", "to": "dev", "reason": "gate_broken", "gate": ["external_comments"]}, "v": 1, "request_id": null, "via": null},
+{"id": 31, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T4", "column": "dev", "addressee": "worker", "reason": "dev: external_comments, no_submit_on_head"}, "v": 1, "request_id": null, "via": null},
+{"id": 32, "at": "2026-11-04T08:12:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N4"}, "v": 1, "request_id": "key-5", "via": null},
+{"id": 33, "at": "2026-11-04T08:12:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"turn": "T4", "taker": "agent:worker/worker-1"}, "v": 1, "request_id": "key-5", "via": null},
+{"id": 34, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T4", "outcome": "submitted"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 35, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"basis": "tested", "turn": "T4", "column": "dev", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 36, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "dev", "to": "review", "reason": "gate_passed"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 37, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "review", "to": "product-review", "reason": "gate_passed"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 38, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "product-review", "to": "external-review", "reason": "gate_passed"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 39, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "external-review", "to": "qa", "reason": "gate_passed"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 40, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "qa", "to": "ready-to-merge", "reason": "gate_passed"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 41, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T5", "column": "ready-to-merge", "addressee": "worker", "reason": "ready-to-merge: not_merged"}, "v": 1, "request_id": "key-6", "via": null}
+]
+},
+"simple": {
+"checkpoints": [{"column": "dev", "reason": "dev: external_comments"}, {"column": "ready-to-merge", "reason": "ready-to-merge: not_merged"}, {"column": "dev", "reason": "dev: external_comments, no_submit_on_head"}, {"column": "ready-to-merge", "reason": "ready-to-merge: not_merged"}],
+"journal": [
+{"id": 1, "at": "2026-11-04T08:01:00.000Z", "project": "proj", "task_id": 1, "kind": "task_added", "actor": "system", "actor_ref": null, "payload": {"column": "todo"}, "v": 1, "request_id": null, "via": null},
+{"id": 2, "at": "2026-11-04T08:01:00.000Z", "project": "proj", "task_id": 1, "kind": "ticket_status_changed", "actor": "system", "actor_ref": null, "payload": {"from": null, "to": "open"}, "v": 1, "request_id": null, "via": null},
+{"id": 3, "at": "2026-11-04T08:01:00.000Z", "project": "proj", "task_id": 1, "kind": "ticket_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"trackerId": "github-issues:proj:o/r", "id": "node-9", "key": "o/r#9", "title": "A ticket", "status": "open", "assignee": null, "sprint": null, "labels": ["board"], "inFilter": true, "url": "https://github.com/o/r/issues/9", "updatedAt": "2026-11-04T08:00:00.000Z"}}, "v": 1, "request_id": null, "via": null},
+{"id": 4, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "link_added", "actor": "system", "actor_ref": null, "payload": {"entity": "session", "session": "worker-1", "role": "worker", "source": "spawn_link", "facts": {"id": "worker-1", "spurProject": "worker", "branch": null, "pr": null, "links": {"board-worker": "https://github.com/o/r/issues/9"}, "lifecycle": "running", "health": "working", "healthSince": "2026-11-04T08:00:00.000Z", "lastActivityAt": null, "endedAt": null, "endReason": null}}, "v": 1, "request_id": null, "via": null},
+{"id": 5, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "session_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"id": "worker-1", "spurProject": "worker", "branch": null, "pr": null, "links": {"board-worker": "https://github.com/o/r/issues/9"}, "lifecycle": "running", "health": "working", "healthSince": "2026-11-04T08:00:00.000Z", "lastActivityAt": null, "endedAt": null, "endReason": null}}, "v": 1, "request_id": null, "via": null},
+{"id": 6, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "todo", "to": "dev", "reason": "gate_passed"}, "v": 1, "request_id": null, "via": null},
+{"id": 7, "at": "2026-11-04T08:03:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T1", "column": "dev", "addressee": "worker", "reason": "dev: no_pr"}, "v": 1, "request_id": null, "via": null},
+{"id": 8, "at": "2026-11-04T08:04:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N1"}, "v": 1, "request_id": "key-1", "via": null},
+{"id": 9, "at": "2026-11-04T08:04:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"turn": "T1", "taker": "agent:worker/worker-1"}, "v": 1, "request_id": "key-1", "via": null},
+{"id": 10, "at": "2026-11-04T08:05:00.000Z", "project": "proj", "task_id": 1, "kind": "link_added", "actor": "system", "actor_ref": null, "payload": {"entity": "pr", "repo": "o/r", "pr": 7, "state": "active", "source": "branch", "facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 11, "at": "2026-11-04T08:05:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 12, "at": "2026-11-04T08:06:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [{"kind": "comment", "id": "compat-first", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:05:00.000Z"}], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 13, "at": "2026-11-04T08:07:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T1", "outcome": "submitted"}, "v": 1, "request_id": "key-2", "via": null},
+{"id": 14, "at": "2026-11-04T08:07:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"basis": "tested", "turn": "T1", "column": "dev", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-2", "via": null},
+{"id": 15, "at": "2026-11-04T08:07:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T2", "column": "dev", "addressee": "worker", "reason": "dev: external_comments"}, "v": 1, "request_id": "key-2", "via": null},
+{"id": 16, "at": "2026-11-04T08:08:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N2"}, "v": 1, "request_id": "key-3", "via": null},
+{"id": 17, "at": "2026-11-04T08:08:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"turn": "T2", "taker": "agent:worker/worker-1"}, "v": 1, "request_id": "key-3", "via": null},
+{"id": 18, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T2", "outcome": "submitted"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 19, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"basis": "tested", "turn": "T2", "column": "dev", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 20, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "dev", "to": "review", "reason": "gate_passed"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 21, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "review", "to": "product-review", "reason": "gate_passed"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 22, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "product-review", "to": "ready-to-merge", "reason": "gate_passed"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 23, "at": "2026-11-04T08:09:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T3", "column": "ready-to-merge", "addressee": "worker", "reason": "ready-to-merge: not_merged"}, "v": 1, "request_id": "key-4", "via": null},
+{"id": 24, "at": "2026-11-04T08:10:00.000Z", "project": "proj", "task_id": 1, "kind": "review_submitted", "actor": "system", "actor_ref": null, "payload": {"repo": "o/r", "pr": 7, "reviewer": "reviewer", "state": "approved"}, "v": 1, "request_id": null, "via": null},
+{"id": 25, "at": "2026-11-04T08:10:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [{"reviewer": "reviewer", "state": "approved", "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "submittedAt": "2026-11-04T08:09:00.000Z"}], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [{"kind": "comment", "id": "compat-first", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:05:00.000Z"}], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 26, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "pr_facts_changed", "actor": "system", "actor_ref": null, "payload": {"facts": {"repo": "o/r", "number": 7, "url": "https://github.com/o/r/pull/7", "title": "o/r#9 work", "author": "agent-bot", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "headBranch": "o/r#9-work", "state": "open", "draft": false, "mergeable": "mergeable", "mergeState": "clean", "requiredChecks": [{"name": "ci", "state": "success", "completedAt": "2026-11-04T08:00:00.000Z"}], "checks": [], "reviews": [{"reviewer": "reviewer", "state": "approved", "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "submittedAt": "2026-11-04T08:09:00.000Z"}], "reviewThreads": [], "reviewRequests": [], "ticketKeys": ["o/r#9"], "updatedAt": "2026-11-04T08:00:00.000Z", "feedback": [{"kind": "comment", "id": "compat-first", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:05:00.000Z"}, {"kind": "comment", "id": "compat-return", "author": {"login": "reviewer", "type": "user"}, "postedAt": "2026-11-04T08:10:00.000Z"}], "feedbackComplete": true}}, "v": 1, "request_id": null, "via": null},
+{"id": 27, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T3", "outcome": "moved"}, "v": 1, "request_id": null, "via": null},
+{"id": 28, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "ready-to-merge", "to": "dev", "reason": "gate_broken", "gate": ["external_comments"]}, "v": 1, "request_id": null, "via": null},
+{"id": 29, "at": "2026-11-04T08:11:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T4", "column": "dev", "addressee": "worker", "reason": "dev: external_comments, no_submit_on_head"}, "v": 1, "request_id": null, "via": null},
+{"id": 30, "at": "2026-11-04T08:12:00.000Z", "project": "proj", "task_id": 1, "kind": "doorbell_read", "actor": "system", "actor_ref": null, "payload": {"doorbell": "N4"}, "v": 1, "request_id": "key-5", "via": null},
+{"id": 31, "at": "2026-11-04T08:12:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_taken", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"turn": "T4", "taker": "agent:worker/worker-1"}, "v": 1, "request_id": "key-5", "via": null},
+{"id": 32, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_closed", "actor": "system", "actor_ref": null, "payload": {"turn": "T4", "outcome": "submitted"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 33, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_submitted", "actor": "agent", "actor_ref": "{\"project\":\"worker\",\"session\":\"worker-1\"}", "payload": {"basis": "tested", "turn": "T4", "column": "dev", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 34, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "dev", "to": "review", "reason": "gate_passed"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 35, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "review", "to": "product-review", "reason": "gate_passed"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 36, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "task_moved", "actor": "system", "actor_ref": null, "payload": {"from": "product-review", "to": "ready-to-merge", "reason": "gate_passed"}, "v": 1, "request_id": "key-6", "via": null},
+{"id": 37, "at": "2026-11-04T08:13:00.000Z", "project": "proj", "task_id": 1, "kind": "turn_opened", "actor": "system", "actor_ref": null, "payload": {"turn": "T5", "column": "ready-to-merge", "addressee": "worker", "reason": "ready-to-merge: not_merged"}, "v": 1, "request_id": "key-6", "via": null}
+]
+}
+}`) as Record<string, unknown>;
+
+describe('pinned main compatibility', () => {
+  it.each(['effective', 'default', 'simple'] as const)(
+    'preserves full journal for %s pattern',
+    async (pattern) => {
+      const ctx = await inDev({ compatibility: pattern });
+      const checkpoints: { column: string; reason: string | null }[] = [];
+      const capture = async () =>
+        checkpoints.push({
+          column: (await ctx.task()).column,
+          reason: (await ctx.openTurn())?.reason ?? null,
+        });
+      const first = {
+        kind: 'comment' as const,
+        id: 'compat-first',
+        author: { login: EXTERNAL, type: 'user' as const },
+        postedAt: ctx.at(),
+      };
+      await ctx.pr({ feedback: [first] });
+      await ctx.submit(WORKER, 'T1', A);
+      await capture();
+      const handed = await ctx.openTurn();
+      await ctx.ack(WORKER, handed?.id ?? '');
+      await ctx.submit(WORKER, handed?.id ?? '', A);
+      for (const actor of [REV, COORD]) {
+        const turn = await ctx.openTurn();
+        if (turn?.column === 'review' || turn?.column === 'product-review') {
+          await ctx.ack(actor, turn.id);
+          await ctx.submit(actor, turn.id, A);
+        }
+      }
+      await ctx.pr({
+        reviews: [{ reviewer: EXTERNAL, state: 'approved', commitSha: A, submittedAt: ctx.at() }],
+      });
+      await capture();
+      expect((await ctx.task()).column).toBe('ready-to-merge');
+      expect(
+        await ctx.store.db
+          .selectFrom('submission')
+          .selectAll()
+          .where('column', '=', 'qa')
+          .execute(),
+      ).toEqual([]);
+      await ctx.pr({ feedback: [first, { ...first, id: 'compat-return', postedAt: ctx.at() }] });
+      await capture();
+      const repair = await ctx.openTurn();
+      await ctx.ack(WORKER, repair?.id ?? '');
+      await ctx.submit(WORKER, repair?.id ?? '', A);
+      await capture();
+      const journal = (
+        await ctx.store.db.selectFrom('event').selectAll().orderBy('id').execute()
+      ).map((row) => ({ ...row, payload: JSON.parse(row.payload) as unknown }));
+      const transcript = { checkpoints, journal };
+      expect(transcript).toEqual(expectedCompatibility[pattern]);
     },
   );
 });

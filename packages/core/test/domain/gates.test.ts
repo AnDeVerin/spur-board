@@ -103,6 +103,28 @@ const broken = (column: ColumnId, ...reasons: [Reason, ...Reason[]]): Expected =
 });
 
 const gateCases: [string, ColumnId, TaskGateFacts, Board, Expected][] = [
+  [
+    'QA cannot supply Dev worker evidence',
+    'dev',
+    ready({ marks: [submit('qa', A)] }),
+    DEFAULT,
+    broken('dev', 'no_submit_on_head'),
+  ],
+  ['Dev still supplies worker QA', 'qa', ready({ externalReviewApproved: true }), DEFAULT, ok],
+  [
+    'other worker columns still supply Dev',
+    'dev',
+    ready({ marks: [submit('ready-to-merge', A)] }),
+    DEFAULT,
+    ok,
+  ],
+  [
+    'current Dev evidence accepts alongside QA',
+    'dev',
+    ready({ marks: [submit('qa', A), submit('dev', A)] }),
+    DEFAULT,
+    ok,
+  ],
   ['1 to do without a PR', 'todo', ready({ pr: null, marks: [] }), ORCH, ok],
   ['2 ready for dev without a PR', 'ready-for-dev', ready({ pr: null, marks: [] }), ORCH, ok],
   ['2a triage without a PR', 'triage', ready({ pr: null, marks: [] }), ORCH, ok],

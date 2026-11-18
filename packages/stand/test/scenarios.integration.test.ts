@@ -2244,7 +2244,7 @@ describe('dispatcher scenarios', () => {
       const dev = await mustTurn(as('worker'));
       expect(await submit(as('worker'), dev.id, A)).toMatchObject({ task: { column: 'dev' } });
       const handing = await mustTurn(as('worker'));
-      expect(handing.reason).toBe('dev: external_comments, no_submit_on_head');
+      expect(handing.reason).toBe('dev: external_comments');
       expect(handing.handed).toHaveLength(2);
       expect(handing.handed).toEqual(
         expect.arrayContaining([
@@ -2300,7 +2300,7 @@ describe('dispatcher scenarios', () => {
       expect((await submit(as('worker'), dev.id, A)).task.column).toBe('dev');
       // No regular poll since the comment: the submit's on-demand read used the held history.
       const handing = await mustTurn(as('worker'));
-      expect(handing.reason).toBe('dev: external_comments, no_submit_on_head');
+      expect(handing.reason).toBe('dev: external_comments');
       expect(handing.handed.map(({ id }) => id).sort()).toEqual(['IC_1_10', 'IC_1_650']);
       await ack(as('worker'), handing.id);
       expect((await submit(as('worker'), handing.id, A)).task.column).toBe('review');

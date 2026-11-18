@@ -14,16 +14,9 @@ import {
   TURN_OUTCOMES,
   SUBMISSION_BASES,
 } from './enums.ts';
-import { actorIdSchema, actorPartSchema, turnIdSchema } from './ids.ts';
+import { actorIdSchema, actorPartSchema } from './ids.ts';
 import { sessionTransitionSchema } from './adapters.ts';
-import {
-  commitShaSchema,
-  prFactsSchema,
-  prRefSchema,
-  sessionFactsSchema,
-  ticketFactsSchema,
-} from './facts.ts';
-import { turnHandedSchema } from './ops/turn-schemas.ts';
+import { prFactsSchema, sessionFactsSchema, ticketFactsSchema } from './facts.ts';
 
 export const EVENT_KINDS = [
   'head_moved',
@@ -42,7 +35,6 @@ export const EVENT_KINDS = [
   'task_added',
   'task_archived',
   'task_submitted',
-  'dev_repair',
   'task_moved',
   'task_shadow_moved',
   'task_corrected',
@@ -168,44 +160,6 @@ export const eventPayloadSchemas = {
   ]),
   task_added: z.looseObject({ column: z.enum(COLUMN_IDS) }),
   task_archived: z.looseObject({ reason: z.enum(ARCHIVE_REASONS) }),
-  dev_repair: z.discriminatedUnion('action', [
-    z.looseObject({
-      action: z.literal('recognized'),
-      origin: z.looseObject({ column: z.enum(COLUMN_IDS), epoch: z.int().nonnegative() }),
-      pr: prRefSchema.extend({ headSha: commitShaSchema }),
-      reasons: z.array(z.enum(['external_comments', 'unresolved_threads'])).min(1),
-      feedback: z.array(turnHandedSchema),
-      threads: z.array(
-        prFactsSchema.shape.reviewThreads.element.extend({ resolved: z.literal(false) }),
-      ),
-      legacyTurn: turnIdSchema.optional(),
-    }),
-    z.looseObject({
-      action: z.literal('adopted'),
-      turn: turnIdSchema,
-      recognitions: z.array(N).min(1),
-    }),
-    z.looseObject({
-      action: z.literal('covered'),
-      submission: N,
-      turn: turnIdSchema,
-      recognitions: z.array(N).min(1),
-      legacy: z.literal(true).optional(),
-    }),
-    z.looseObject({
-      action: z.literal('completed'),
-      submission: N,
-      recognitions: z.array(N).min(1),
-    }),
-    z.looseObject({ action: z.literal('failed'), submission: N, failure: S }),
-    z.looseObject({
-      action: z.literal('reset'),
-      reason: z.enum(['corrected', 'terminal', 'archived']),
-      sourceEvent: N,
-      throughTurn: z.int().nonnegative(),
-      throughSubmission: z.int().nonnegative(),
-    }),
-  ]),
   task_submitted: z.looseObject({
     basis: z.enum(SUBMISSION_BASES).optional(),
     from: S.optional(),

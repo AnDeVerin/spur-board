@@ -19,6 +19,7 @@ reviews on that head needs no second QA submit. Confirmed QA survives same-head
 returns and corrections to Dev. Correction into QA clears even pending QA evidence:
 with upstream gates passing, a QA orchestrator or operator gets a fresh turn;
 executor `none` may instead reuse a valid worker submit without a new QA turn.
+Retained QA cannot satisfy Dev: a return to Dev needs the current Dev visit's submit.
 
 Submissions declare provenance with `--basis tested|carried|skipped`; omitted means
 `tested`. This records the submitter's declaration, not a claim that checks passed.
@@ -44,20 +45,6 @@ wrap-up turns survive pushes, and a wrap-up turn closes when its holder ends.
 Right of Dev, red CI, a draft, a conflict, an external comment or an unresolved
 thread where required returns the task to Dev at once, unless a turn is taken; then after its submit or return.
 The Dev turn hands the comments, beside a return's `code` block.
-Handed feedback and thread repairs require a fresh Dev submit, even when an earlier
-worker submission on the same head remains valid in QA.
-A pending repair keeps its feedback and thread obligation until confirmation.
-If confirmation fails, the replacement Dev turn carries that work and needs a
-fresh submit; act on the replacement turn.
-Reroutes retain adopted work without recognizing it again. Receipts cover only
-their turn's adopted revisions. Confirmation cannot clear later feedback, and voiding a completed
-receipt does not reopen its work. Captured thread links survive resolution and rule
-changes in the repair reason. Shadow suspends enforcement without discarding work;
-an already-covered receipt may confirm there, but a turnless shadow submit cannot
-complete on-mode work. Explicit correction, actual Done and archive supersede old
-repair; ordinary returns and mode changes do not. After upgrade, only exact known
-legacy turn/receipt work can be imported; lost no-turn recognition cannot be
-reconstructed. Older executables skip the new lifecycle and cannot enforce it.
 Each handed entry has its `url`, `editedAt` once edited, and a review's inline
 `comments` with `url` and `threadId`. Turns of a Dev visit opened by a return
 show `returned`: who, from, the turn, the `code` block and the verbatim reason.
