@@ -127,6 +127,19 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
     payload: { entity: 'session', session: 'sess-1' },
   },
   task_added: { ...base, kind: 'task_added', payload: { column: 'todo' } },
+  dev_repair: {
+    ...base,
+    kind: 'dev_repair',
+    payload: {
+      action: 'recognized',
+      origin: { column: 'review', epoch: 2 },
+      pr: { repo: pr.repo, number: pr.pr, headSha: prFacts.headSha },
+      reasons: ['external_comments', 'unresolved_threads'],
+      feedback: [{ repo: pr.repo, number: pr.pr, kind: 'comment', id: 'c1', postedAt: base.at }],
+      threads: [{ id: 'r1', url: 'https://e.test/r1', outdated: true, resolved: false }],
+      legacyTurn: 'T4',
+    },
+  },
   task_archived: { ...base, kind: 'task_archived', payload: { reason: 'done' } },
   task_submitted: {
     ...base,
@@ -239,8 +252,8 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
 };
 
 describe('event kinds', () => {
-  it('has a payload schema for each of the 45 kinds', () => {
-    expect(EVENT_KINDS).toHaveLength(45);
+  it('has a payload schema for each of the 46 kinds', () => {
+    expect(EVENT_KINDS).toHaveLength(46);
     expect(Object.keys(eventPayloadSchemas).sort()).toEqual([...EVENT_KINDS].sort());
   });
 
@@ -250,6 +263,52 @@ describe('event kinds', () => {
 });
 
 describe('parseEvent', () => {
+  const reset = {
+    action: 'reset',
+    reason: 'corrected',
+    sourceEvent: 20,
+    throughTurn: 4,
+    throughSubmission: 0,
+  };
+  it.each([
+    samples.dev_repair.payload,
+    { action: 'adopted', turn: 'T4', recognitions: [12, 13] },
+    { action: 'covered', submission: 9, turn: 'T4', recognitions: [12, 13] },
+    { action: 'covered', submission: 9, turn: 'T4', recognitions: [12], legacy: true },
+    { action: 'completed', submission: 9, recognitions: [12, 13] },
+    { action: 'failed', submission: 9, failure: 'head moved to bbbbbbb' },
+    ...(['corrected', 'terminal', 'archived'] as const).map((reason) => ({ ...reset, reason })),
+  ])('accepts Dev repair lifecycle payload $action with future fields', (payload) => {
+    const result = parseEvent({
+      ...base,
+      kind: 'dev_repair',
+      payload: { ...payload, addedLater: true },
+    });
+    expect(result).toMatchObject({
+      status: 'ok',
+      event: { payload: { ...payload, addedLater: true } },
+    });
+  });
+
+  it.each([
+    { action: 'unknown' },
+    { ...samples.dev_repair.payload, origin: { column: 'dev', epoch: -1 } },
+    { ...samples.dev_repair.payload, pr: { repo: pr.repo, number: 0, headSha: prFacts.headSha } },
+    { ...samples.dev_repair.payload, pr: { repo: pr.repo, number: 7, headSha: 'abc' } },
+    { ...samples.dev_repair.payload, reasons: ['checks_red'] },
+    { ...samples.dev_repair.payload, legacyTurn: 'B4' },
+    { action: 'adopted', turn: 'T4', recognitions: [] },
+    { action: 'adopted', turn: 'T4', recognitions: [0] },
+    { action: 'covered', turn: 'T4', submission: 1.5, recognitions: [12] },
+    { action: 'completed', submission: -1, recognitions: [12] },
+    { action: 'failed', submission: 9, failure: '' },
+    { ...reset, reason: 'returned' },
+    { ...reset, sourceEvent: 0 },
+    { ...reset, throughTurn: -1 },
+  ])('rejects malformed Dev repair lifecycle payload %#', (payload) => {
+    expect(parseEvent({ ...base, kind: 'dev_repair', payload }).status).toBe('invalid');
+  });
+
   it('accepts a manual ticket link and a reason while retaining older link events', () => {
     expect(parseEvent(samples.link_added).status).toBe('ok');
     expect(

@@ -1211,6 +1211,69 @@ describe('task history summaries', () => {
 
   it.each<{ name: string; rows: readonly Row[]; summary: string }>([
     {
+      name: 'recognized Dev repair',
+      rows: [
+        [
+          'dev_repair',
+          {
+            action: 'recognized',
+            origin: { column: 'review', epoch: 2 },
+            pr: { repo: 'o/r', number: 7, headSha: SHA },
+            reasons: ['unresolved_threads'],
+            feedback: [],
+            threads: [{ resolved: false, id: 'thread-1' }],
+          },
+        ],
+      ],
+      summary:
+        'Dev repair recognized on o/r#7 at abcdef1: unresolved_threads (feedback 0, threads 1)',
+    },
+    {
+      name: 'adopted Dev repair',
+      rows: [['dev_repair', { action: 'adopted', turn: 'T4', recognitions: [12, 13] }]],
+      summary: 'Dev repair adopted by T4: recognitions 12, 13',
+    },
+    {
+      name: 'covered Dev repair',
+      rows: [
+        ['dev_repair', { action: 'covered', submission: 9, turn: 'T4', recognitions: [12, 13] }],
+      ],
+      summary: 'Dev repair covered by submission 9 from T4: recognitions 12, 13',
+    },
+    {
+      name: 'completed Dev repair',
+      rows: [
+        ['dev_repair', { action: 'completed', submission: 9, recognitions: [12, 13, 14, 15] }],
+      ],
+      summary: 'Dev repair completed by submission 9: recognitions 12, 13, 14 +1 more',
+    },
+    {
+      name: 'failed Dev repair receipt',
+      rows: [['dev_repair', { action: 'failed', submission: 9, failure: 'head moved to bbbbbbb' }]],
+      summary: 'Dev repair submission 9 failed: head moved to bbbbbbb',
+    },
+    {
+      name: 'reset Dev repair',
+      rows: [
+        [
+          'dev_repair',
+          {
+            action: 'reset',
+            reason: 'corrected',
+            sourceEvent: 20,
+            throughTurn: 4,
+            throughSubmission: 9,
+          },
+        ],
+      ],
+      summary: 'Dev repair reset: corrected (event 20; through turn 4, submission 9)',
+    },
+    {
+      name: 'malformed Dev repair',
+      rows: [['dev_repair', { action: 'covered', submission: 0 }]],
+      summary: 'Dev repair lifecycle changed',
+    },
+    {
       name: 'a session end',
       rows: [
         [

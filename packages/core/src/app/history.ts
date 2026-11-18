@@ -33,6 +33,7 @@ const EVENT_SUMMARIES = {
   task_added: 'Task added',
   task_archived: 'Task archived',
   task_submitted: 'Turn submitted',
+  dev_repair: 'Dev repair lifecycle changed',
   task_moved: 'Task moved',
   task_shadow_moved: 'Shadow move',
   task_corrected: 'Column corrected by the operator',
@@ -277,7 +278,27 @@ const optional = (prefix: string, value: string | undefined) =>
   value === undefined ? '' : `${prefix}${value}`;
 
 /** Summaries built from a row's payload; null falls back to the fixed text. */
+function devRepairSummary(p: Payload<'dev_repair'>): string {
+  const ids = (recognitions: readonly number[]) =>
+    `${recognitions.slice(0, NAMED_CHANGES).join(', ')}${more(recognitions.length)}`;
+  switch (p.action) {
+    case 'recognized':
+      return `Dev repair recognized on ${ref(p.pr.repo, p.pr.number)} at ${p.pr.headSha.slice(0, 7)}: ${p.reasons.join(', ')} (feedback ${String(p.feedback.length)}, threads ${String(p.threads.length)})`;
+    case 'adopted':
+      return `Dev repair adopted by ${p.turn}: recognitions ${ids(p.recognitions)}`;
+    case 'covered':
+      return `Dev repair covered by submission ${String(p.submission)} from ${p.turn}: recognitions ${ids(p.recognitions)}`;
+    case 'completed':
+      return `Dev repair completed by submission ${String(p.submission)}: recognitions ${ids(p.recognitions)}`;
+    case 'failed':
+      return `Dev repair submission ${String(p.submission)} failed: ${p.failure}`;
+    case 'reset':
+      return `Dev repair reset: ${p.reason} (event ${String(p.sourceEvent)}; through turn ${String(p.throughTurn)}, submission ${String(p.throughSubmission)})`;
+  }
+}
+
 const SUMMARIES: { [K in EventKind]?: (payload: Payload<K>) => string | null } = {
+  dev_repair: devRepairSummary,
   session_state_changed: (p) =>
     `Session ${p.session}: ${from(p.from, p.to)}${optional(', ended (', p.endReason === undefined ? undefined : `${END_WORDS[p.endReason]})`)}`,
   checks_changed: checksSummary,

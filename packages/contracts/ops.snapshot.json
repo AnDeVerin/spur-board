@@ -1,5 +1,5 @@
 {
-  "version": "0cbe154c9c3bf494bd013f030b4c4a9755fc67cca5a21226eafbb1923c87559c",
+  "version": "401ce1266ea938f209a2d82ccc71f86b7a976037ca0907b1ffded4d5e1578642",
   "grants": [
     "operator",
     "project-agent",
@@ -5954,6 +5954,7 @@
                     "task_added",
                     "task_archived",
                     "task_submitted",
+                    "dev_repair",
                     "task_moved",
                     "task_shadow_moved",
                     "task_corrected",
