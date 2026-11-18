@@ -25,7 +25,7 @@ export interface UpdateOptions {
  * The unsent text of the mounted writers. A writer reads `restored` once, then reports its text
  * after every commit and releases it on unmount. `busy` is a send or its reread in flight.
  */
-export interface Drafts {
+interface Drafts {
   restored(id: string): string | undefined;
   report(id: string, entry: { text: string; busy: boolean }): void;
   release(id: string): void;
