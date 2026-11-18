@@ -376,6 +376,74 @@ Example:
 }
 ```
 
+## submit_basis_invalid
+
+The submission basis fields are inconsistent.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried.  
+Recovery: Correct the basis fields and submit again.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "submit_basis_invalid",
+    "requestId": "req-example-123",
+    "message": "The submission basis fields are inconsistent.",
+    "hint": "Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried.",
+    "docs": "docs/errors.md#submit_basis_invalid",
+    "recovery": {
+      "action": "Correct the basis fields and submit again.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
+## submit_source_not_tested
+
+The source has no tested origin on this task.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Choose a tested submission SHA on this task, or a carried SHA with a tested origin; otherwise test or explicitly skip with a reason.  
+Recovery: Choose a source with a tested origin on this task or change the basis.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "submit_source_not_tested",
+    "requestId": "req-example-123",
+    "message": "The source has no tested origin on this task.",
+    "hint": "Choose a tested submission SHA on this task, or a carried SHA with a tested origin; otherwise test or explicitly skip with a reason.",
+    "docs": "docs/errors.md#submit_source_not_tested",
+    "recovery": {
+      "action": "Choose a source with a tested origin on this task or change the basis.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## head_mismatch
 
 The commit is not the head GitHub reports for the task's pull request, or a submit by task key found no pull request.

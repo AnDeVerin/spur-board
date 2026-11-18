@@ -18,7 +18,7 @@ import {
 } from '../browser.ts';
 import { z } from 'zod';
 import { configViewSchema } from './config-view-schema.ts';
-import { BLOCK_TYPES, COLUMN_IDS, TOKEN_STATUSES } from '../enums.ts';
+import { BLOCK_TYPES, COLUMN_IDS, TOKEN_STATUSES, SUBMISSION_BASES } from '../enums.ts';
 import {
   blockIdSchema,
   commentIdSchema,
@@ -1300,7 +1300,7 @@ export const OPERATIONS = [
       "Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.",
     mcp: {
       whenToUse:
-        'Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.',
+        'Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.',
       whenNotToUse: 'Use task_return to send the task back to Dev instead.',
     },
     input: z.strictObject({
@@ -1312,6 +1312,23 @@ export const OPERATIONS = [
       sha: commitShaSchema
         .max(64)
         .describe('Full commit SHA at the head of the pull request, lowercase.'),
+      basis: z
+        .enum(SUBMISSION_BASES)
+        .optional()
+        .describe(
+          'Testing provenance: tested (default), carried from a tested origin on this task, or skipped with a reason.',
+        ),
+      from: commitShaSchema
+        .max(64)
+        .optional()
+        .describe('Full lowercase source SHA on this task; required only for carried.'),
+      reason: z
+        .string()
+        .max(2000)
+        .optional()
+        .describe(
+          'Literal nonblank explanation, up to 2000 UTF-16 units; required for carried and skipped.',
+        ),
     }),
     output: z.strictObject({
       task: taskViewSchema,
@@ -1335,6 +1352,8 @@ export const OPERATIONS = [
       'task_archived',
       'turn_closed',
       'not_turn_taker',
+      'submit_basis_invalid',
+      'submit_source_not_tested',
       'head_mismatch',
       'github_unavailable',
     ],
@@ -1344,6 +1363,22 @@ export const OPERATIONS = [
       {
         summary: 'Submit the pull request head',
         input: { turn: 'T4', sha: submittedSha },
+        output: {
+          task: { ...task, column: 'review' },
+          turn: 'T4',
+          sha: submittedSha,
+          status: 'confirmed',
+        },
+      },
+      {
+        summary: 'Carry tested work from a submission on this task',
+        input: {
+          turn: 'T4',
+          sha: submittedSha,
+          basis: 'carried',
+          from: 'a'.repeat(40),
+          reason: 'The tested work is unchanged.',
+        },
         output: {
           task: { ...task, column: 'review' },
           turn: 'T4',

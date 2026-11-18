@@ -28,7 +28,7 @@ import {
   taskViewSchema,
   taskWhySchema,
 } from './ops/schemas.ts';
-import { taskTurnSchema } from './ops/turn-schemas.ts';
+import { taskTurnSchema, latestSubmissionSchema } from './ops/turn-schemas.ts';
 import { errorDetailSchema } from './errors.ts';
 export { successEnvelopeSchema } from './errors.ts';
 export { JIRA_PROJECT_KEY, REF_NUMBER } from './ids.ts';
@@ -359,6 +359,7 @@ export const taskGetInputSchema = z.strictObject({
     ),
 });
 export const taskGetOutputSchema = z.strictObject({
+  submission: latestSubmissionSchema,
   task: taskViewSchema,
   turn: taskTurnSchema.nullable().describe("The task's unclosed turn; null when none is open."),
   turns: z

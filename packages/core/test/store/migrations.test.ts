@@ -508,6 +508,26 @@ describe('migrate', () => {
     expect(rows(raw, 'source_state')).toEqual([{ ...row, default_branch: null }]);
   });
 
+  it('preserves submissions and stored results from 0025 with nullable provenance and valid foreign keys', () => {
+    const { raw } = rawDb(join(tempDir(), 'board.db'));
+    migrate(raw, real.slice(0, 25));
+    insertRaw(raw, 'task', sampleRows.task);
+    const submission = without(sampleRows.submission, [
+      'basis',
+      'source_sha',
+      'basis_reason',
+      'tested_source_id',
+    ]);
+    insertRaw(raw, 'submission', submission);
+    insertRaw(raw, 'command', sampleRows.command);
+    migrate(raw, real);
+    expect(rows(raw, 'submission')).toEqual([
+      { ...submission, basis: null, source_sha: null, basis_reason: null, tested_source_id: null },
+    ]);
+    expect(rows(raw, 'command')).toEqual([sampleRows.command]);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
   it('keeps rows written at N-1 when migrating to N', async () => {
     const dir = tempDir();
     const { raw, db } = rawDb(join(dir, 'board.db'));
@@ -1168,6 +1188,7 @@ describe('migration pins', () => {
   // sha256 of each migration file's raw bytes. A pinned file never changes: add a new file
   // and its pin instead. Changing the pin of an existing file is a review blocker.
   const PINS: Record<string, string> = {
+    '0026_submission_basis.sql': '328f5b70f2e9a32c52a7a9f04d1f8755d9282e20255db1ffd61c73961afb0745',
     '0019_pr_polling.sql': '17e2b7964c72320f484ae05ae54e68f5964ebc06ea6c5e014013d13f2060d198',
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',

@@ -187,6 +187,39 @@ export function TaskView({
                   <KeyValueBox rows={whyRows(value, columns, now)} />
                 </CollapsibleSection>
               )}
+              {value?.submission !== undefined && (
+                <div className={`${quiet} ${styles.submission ?? ''}`}>
+                  <KeyValueBox
+                    title="Latest submission"
+                    rows={
+                      value.submission === null
+                        ? [{ key: 'No submissions yet' }]
+                        : [
+                            { key: 'Column', value: value.submission.column },
+                            { key: 'Time', value: value.submission.at },
+                            { key: 'SHA', value: value.submission.sha },
+                            { key: 'Basis', value: value.submission.basis },
+                            ...(value.submission.from === null
+                              ? []
+                              : [{ key: 'Source SHA', value: value.submission.from }]),
+                            ...(value.submission.testedOrigin === null
+                              ? []
+                              : [
+                                  {
+                                    key: 'Tested origin SHA',
+                                    value: value.submission.testedOrigin,
+                                  },
+                                ]),
+                            ...(value.submission.reason === null
+                              ? []
+                              : [{ key: 'Reason', value: value.submission.reason }]),
+                            { key: 'Pending', value: value.submission.pending ? 'Yes' : 'No' },
+                            { key: 'Voided', value: value.submission.voided ? 'Yes' : 'No' },
+                          ]
+                    }
+                  />
+                </div>
+              )}
               {value !== undefined && (
                 <TaskDiscussion
                   value={value}

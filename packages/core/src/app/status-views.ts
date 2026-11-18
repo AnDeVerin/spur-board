@@ -21,11 +21,6 @@ export function columnGroupViews() {
   }));
 }
 
-/** A session fact with its links as a list. */
-export function sessionView(fact: SessionFacts) {
-  return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
-}
-
 /** Factual PR rollup; the caller owns snapshot freshness and all reads. */
 export function summarizePr(fact: PrFacts, factAt: string, unconfirmed: boolean) {
   const checks = fact.requiredChecks.length > 0 ? fact.requiredChecks : fact.checks;
@@ -262,4 +257,9 @@ export function sourceInterval(config: Config, source: string): number {
   if (source.startsWith('jira:')) return config.adapters.jira.intervalMs;
   if (source.startsWith('github-issues:')) return config.adapters.githubIssues.intervalMs;
   return config.adapters.github.intervalMs;
+}
+
+/** Session facts rendered in status detail. */
+export function sessionView(fact: SessionFacts) {
+  return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
 }

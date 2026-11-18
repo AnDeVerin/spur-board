@@ -1968,7 +1968,12 @@ describe('dispatcher scenarios', () => {
 
       await submit(as('worker'), dev.id, B);
 
-      expect((await submitted()).at(-1)).toEqual({ turn: dev.id, column: 'dev', sha: B });
+      expect((await submitted()).at(-1)).toEqual({
+        turn: dev.id,
+        column: 'dev',
+        sha: B,
+        basis: 'tested',
+      });
       expect((await turnRow(turnNumber(dev.id))).closed_at).not.toBeNull();
       // The first read failed; the second read of the same PR answered the submit.
       const after = (await githubRequests()).filter(({ seq }) => seq > last).slice(0, 2);
@@ -1994,6 +1999,7 @@ describe('dispatcher scenarios', () => {
       await submit(as('worker'), dev.id, A);
 
       expect((await submitted()).at(-1)).toEqual({
+        basis: 'tested',
         turn: dev.id,
         column: 'dev',
         sha: A,
@@ -2007,7 +2013,7 @@ describe('dispatcher scenarios', () => {
         { task: ISSUE },
       );
       expect(history.events.filter(({ kind }) => kind === 'task_submitted').at(-1)).toMatchObject({
-        summary: 'Turn submitted on the head of the last poll',
+        summary: `Turn submitted on the head of the last poll: ${A}, basis tested`,
       });
       await github('fail', { mode: 'clear' });
     },

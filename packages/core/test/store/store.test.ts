@@ -105,6 +105,10 @@ describe('openStore', () => {
       'pr_repo',
       'pr_number',
       'pending_until',
+      'basis',
+      'source_sha',
+      'basis_reason',
+      'tested_source_id',
     ]);
   });
 

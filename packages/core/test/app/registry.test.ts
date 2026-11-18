@@ -824,6 +824,7 @@ it('keeps the default status for 100 tasks under the budget and lists every item
     'shadowColumn',
     'shadowDiffers',
     'state',
+    'submission',
     'turn',
   ];
   expect(result.tasks).toHaveLength(100);
@@ -845,6 +846,7 @@ it('keeps the default status for 100 tasks under the budget and lists every item
     expect(JSON.stringify(result.tasks)).not.toContain(`"${detailField}":`);
   const linked = result.tasks.find((row) => row.key === 'o/first#1');
   expect(linked).toEqual({
+    submission: null,
     key: 'o/first#1',
     project: 'first',
     column: 'dev',

@@ -26,6 +26,7 @@ import {
   TODO_GROUP_COLUMN_IDS,
   TOKEN_STATUSES,
   TURN_OUTCOMES,
+  SUBMISSION_BASES,
   VIAS,
 } from '../src/index.ts';
 
@@ -68,6 +69,10 @@ it('derives the Todo group', () => {
 
 it('lists memberships', () => {
   expect(MEMBERSHIPS).toEqual(['active', 'out_of_filter', 'archived']);
+});
+
+it('lists submission bases', () => {
+  expect(SUBMISSION_BASES).toEqual(['tested', 'carried', 'skipped']);
 });
 
 it('lists archive reasons', () => {

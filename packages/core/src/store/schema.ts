@@ -16,6 +16,7 @@ import type {
   SpaceId,
   TOKEN_STATUSES,
   TurnOutcome,
+  SubmissionBasis,
   Via,
 } from '@spur-board/contracts';
 import type { Generated, Insertable, Selectable, Updateable } from 'kysely';
@@ -167,6 +168,10 @@ export interface SubmissionTable {
    * the head; a PR seen closed before the submit fails it only past this deadline.
    */
   pending_until: string | null;
+  basis: Generated<SubmissionBasis | null>;
+  source_sha: Generated<string | null>;
+  basis_reason: Generated<string | null>;
+  tested_source_id: Generated<number | null>;
 }
 
 /** A column executor's turn of one column visit; `seq` counts the turns of the visit. */

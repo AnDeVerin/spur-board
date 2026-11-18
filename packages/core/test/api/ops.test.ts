@@ -20,6 +20,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { emit } from '../../src/app/board-utils.ts';
+import { submissionBasis } from '../../src/app/submissions.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { openTempStore } from '../support/store.ts';
 
@@ -125,6 +126,60 @@ const boardTarget = {
 };
 
 describe('catalog HTTP API', () => {
+  it.each([
+    { provenance: { basis: 'carried' }, code: 'submit_basis_invalid' },
+    {
+      provenance: { basis: 'carried', from: 'a'.repeat(40), reason: 'Same work' },
+      code: 'submit_source_not_tested',
+    },
+    { provenance: { basis: 'unknown' }, code: 'usage' },
+    { provenance: { basis: 'skipped', reason: 'x'.repeat(2001) }, code: 'usage' },
+  ] as const)('returns the public submit refusal $code', async ({ provenance, code }) => {
+    const store = newStore();
+    await store.db
+      .insertInto('task')
+      .values({ ...sampleRows.task, project: 'board' })
+      .execute();
+    const handler: Mutation<'task.submit'> = {
+      id: 'task.submit',
+      resolveTargets: () =>
+        Promise.resolve([
+          {
+            kind: 'found',
+            value: {
+              project: 'board',
+              task: { id: 1, column: 'dev' },
+              block: null,
+              workers: [{ session_id: 'session-1', role: 'worker', banned: 0 }],
+            },
+          },
+        ]),
+      async run(trx, input) {
+        await submissionBasis(trx, 1, input);
+        throw new Error('Invalid provenance must refuse');
+      },
+    };
+    const app = await server(store, { registry: { 'task.submit': handler } });
+    try {
+      const response = await app.inject({
+        ...post({}, 'task.submit'),
+        payload: JSON.stringify({
+          input: { turn: 'T1', sha: 'b'.repeat(40), ...provenance },
+          key: 'submit-basis',
+        }),
+      });
+      expect(response.statusCode).toBe(code === 'usage' ? 400 : 409);
+      expect(response.json()).toMatchObject({
+        code,
+        hint: expect.any(String) as string,
+        recovery: { sideEffects: 'none' },
+      });
+      expect(await store.db.selectFrom('submission').selectAll().execute()).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('rejects a wildcard reverse-proxy Host on the agent API', async () => {
     const app = await server(newStore());
     try {

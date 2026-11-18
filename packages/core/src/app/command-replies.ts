@@ -11,6 +11,17 @@ function quote(text: string): RichText[number] {
 
 type TaskGet = z.output<Extract<(typeof OPERATIONS)[number], { id: 'task.get' }>['output']>;
 
+function submissionLines(submission: TaskGet['submission']): RichText {
+  if (submission === undefined) return [];
+  if (submission === null) return [line('No submissions yet.')];
+  return [
+    line(
+      `Latest submission: ${submission.column}, ${submission.at}, ${submission.sha}, basis ${submission.basis}${submission.from === null ? '' : `, from ${submission.from}`}${submission.testedOrigin === null ? '' : `, tested origin ${submission.testedOrigin}`}, pending ${String(submission.pending)}, voided ${String(submission.voided)}.`,
+    ),
+    ...(submission.reason === null ? [] : [quote(submission.reason)]),
+  ];
+}
+
 /** The open turn: who executes it, when it opened and whether it was acked. */
 function turnLine(turn: Omit<NonNullable<TaskGet['turn']>, 'closed'> | null): RichText[number] {
   if (turn === null) return line('No open turn.');
@@ -138,7 +149,10 @@ export function commandReply(
     if (request.why === true && result.why !== undefined) {
       return {
         cliHint: `board ${operation.cli.command} ${request.task} --why`,
-        body: whyLines(result.task.key, result.why, result.blocks),
+        body: [
+          ...whyLines(result.task.key, result.why, result.blocks),
+          ...submissionLines(result.submission),
+        ],
       };
     }
     return {
@@ -146,6 +160,7 @@ export function commandReply(
       body: [
         line(`Task ${result.task.key}: ${result.task.column} (${result.task.membership})`),
         turnLine(result.turn),
+        ...submissionLines(result.submission),
         ...result.links.flatMap((link) =>
           link.kind === 'pr'
             ? [line(`Pull request ${link.ref}: ${link.state ?? 'not observed yet'}`)]

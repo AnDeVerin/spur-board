@@ -1,5 +1,5 @@
 {
-  "version": "960cfe25cb7f11247d1dc52eb967ef636589ce30159eeb5c07b7ea71da452ffc",
+  "version": "0cbe154c9c3bf494bd013f030b4c4a9755fc67cca5a21226eafbb1923c87559c",
   "grants": [
     "operator",
     "project-agent",
@@ -319,6 +319,64 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#not_turn_taker",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "submit_basis_invalid": {
+      "status": 409,
+      "exit": 1,
+      "message": "The submission basis fields are inconsistent.",
+      "hint": "Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried.",
+      "recovery": {
+        "action": "Correct the basis fields and submit again.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#submit_basis_invalid",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "submit_source_not_tested": {
+      "status": 409,
+      "exit": 1,
+      "message": "The source has no tested origin on this task.",
+      "hint": "Choose a tested submission SHA on this task, or a carried SHA with a tested origin; otherwise test or explicitly skip with a reason.",
+      "recovery": {
+        "action": "Choose a source with a tested origin on this task or change the basis.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#submit_source_not_tested",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1625,6 +1683,88 @@
                   "type": "string",
                   "enum": ["active", "out_of_filter", "archived"],
                   "description": "Whether the task is on the board, outside the tracker filter, or archived."
+                },
+                "submission": {
+                  "description": "Latest submission; null when none, absent on older servers.",
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "column": {
+                          "type": "string",
+                          "enum": [
+                            "todo",
+                            "triage",
+                            "ready-for-dev",
+                            "dev",
+                            "review",
+                            "product-review",
+                            "external-review",
+                            "qa",
+                            "ready-to-merge",
+                            "done"
+                          ],
+                          "description": "Column submitted from."
+                        },
+                        "sha": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{40,64}$",
+                          "description": "Full submitted commit SHA."
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "Submission time, ISO 8601 UTC."
+                        },
+                        "basis": {
+                          "type": "string",
+                          "enum": ["tested", "carried", "skipped"],
+                          "description": "Declared testing provenance; tested does not claim tests passed."
+                        },
+                        "from": {
+                          "anyOf": [
+                            { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                            { "type": "null" }
+                          ],
+                          "description": "Supplied source SHA for carried work, otherwise null."
+                        },
+                        "testedOrigin": {
+                          "anyOf": [
+                            { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                            { "type": "null" }
+                          ],
+                          "description": "Original tested submission SHA for carried work, otherwise null."
+                        },
+                        "reason": {
+                          "anyOf": [{ "type": "string", "maxLength": 2000 }, { "type": "null" }],
+                          "description": "Literal explanation supplied by the submitter."
+                        },
+                        "pending": {
+                          "type": "boolean",
+                          "description": "Whether head confirmation is pending."
+                        },
+                        "voided": {
+                          "type": "boolean",
+                          "description": "Whether this submission has been voided for gate purposes."
+                        }
+                      },
+                      "required": [
+                        "column",
+                        "sha",
+                        "at",
+                        "basis",
+                        "from",
+                        "testedOrigin",
+                        "reason",
+                        "pending",
+                        "voided"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Latest accepted submission by row order, including pending and voided submissions."
+                    },
+                    { "type": "null" }
+                  ]
                 },
                 "columnEnteredAt": {
                   "anyOf": [
@@ -3972,6 +4112,88 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
+          "submission": {
+            "description": "Latest submission; null when none, absent on older servers.",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "column": {
+                    "type": "string",
+                    "enum": [
+                      "todo",
+                      "triage",
+                      "ready-for-dev",
+                      "dev",
+                      "review",
+                      "product-review",
+                      "external-review",
+                      "qa",
+                      "ready-to-merge",
+                      "done"
+                    ],
+                    "description": "Column submitted from."
+                  },
+                  "sha": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40,64}$",
+                    "description": "Full submitted commit SHA."
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "description": "Submission time, ISO 8601 UTC."
+                  },
+                  "basis": {
+                    "type": "string",
+                    "enum": ["tested", "carried", "skipped"],
+                    "description": "Declared testing provenance; tested does not claim tests passed."
+                  },
+                  "from": {
+                    "anyOf": [
+                      { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                      { "type": "null" }
+                    ],
+                    "description": "Supplied source SHA for carried work, otherwise null."
+                  },
+                  "testedOrigin": {
+                    "anyOf": [
+                      { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                      { "type": "null" }
+                    ],
+                    "description": "Original tested submission SHA for carried work, otherwise null."
+                  },
+                  "reason": {
+                    "anyOf": [{ "type": "string", "maxLength": 2000 }, { "type": "null" }],
+                    "description": "Literal explanation supplied by the submitter."
+                  },
+                  "pending": {
+                    "type": "boolean",
+                    "description": "Whether head confirmation is pending."
+                  },
+                  "voided": {
+                    "type": "boolean",
+                    "description": "Whether this submission has been voided for gate purposes."
+                  }
+                },
+                "required": [
+                  "column",
+                  "sha",
+                  "at",
+                  "basis",
+                  "from",
+                  "testedOrigin",
+                  "reason",
+                  "pending",
+                  "voided"
+                ],
+                "additionalProperties": false,
+                "description": "Latest accepted submission by row order, including pending and voided submissions."
+              },
+              { "type": "null" }
+            ]
+          },
           "task": {
             "type": "object",
             "properties": {
@@ -10131,6 +10353,8 @@
         "not_implemented",
         "turn_closed",
         "not_turn_taker",
+        "submit_basis_invalid",
+        "submit_source_not_tested",
         "head_mismatch",
         "task_archived",
         "idempotency_key_mismatch",
@@ -10143,7 +10367,7 @@
       "mcp": {
         "name": "task_submit",
         "key": "idempotencyKey",
-        "whenToUse": "Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.",
+        "whenToUse": "Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.",
         "whenNotToUse": "Use task_return to send the task back to Dev instead.",
         "destructive": true
       },
@@ -10153,6 +10377,27 @@
         {
           "summary": "Submit the pull request head",
           "input": { "turn": "T4", "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4" },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "review",
+              "membership": "active"
+            },
+            "turn": "T4",
+            "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4",
+            "status": "confirmed"
+          }
+        },
+        {
+          "summary": "Carry tested work from a submission on this task",
+          "input": {
+            "turn": "T4",
+            "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4",
+            "basis": "carried",
+            "from": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "reason": "The tested work is unchanged."
+          },
           "output": {
             "task": {
               "key": "PROJ-123",
@@ -10222,6 +10467,22 @@
             "maxLength": 64,
             "pattern": "^[0-9a-f]{40,64}$",
             "description": "Full commit SHA at the head of the pull request, lowercase."
+          },
+          "basis": {
+            "description": "Testing provenance: tested (default), carried from a tested origin on this task, or skipped with a reason.",
+            "type": "string",
+            "enum": ["tested", "carried", "skipped"]
+          },
+          "from": {
+            "description": "Full lowercase source SHA on this task; required only for carried.",
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{40,64}$"
+          },
+          "reason": {
+            "description": "Literal nonblank explanation, up to 2000 UTF-16 units; required for carried and skipped.",
+            "type": "string",
+            "maxLength": 2000
           }
         },
         "required": ["turn", "sha"],

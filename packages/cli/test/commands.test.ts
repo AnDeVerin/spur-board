@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ERRORS, OPERATIONS, errorEnvelopeSchema } from '@spur-board/contracts';
+import { ERRORS, OPERATIONS, errorEnvelopeSchema, renderHttpProblem } from '@spur-board/contracts';
 import { createProgram, exampleCommand, runCli, type CliIo } from '../src/cli.ts';
 import { holder } from './http-holder.ts';
 
@@ -595,6 +595,19 @@ describe('catalog commands', () => {
       ['escalate', 'B12', '--note', 'Owner is away', '--key', 'escalate-1'],
       ['answer', 'B12', 'Target v2.', '--note', 'Checked the release plan.', '--key', 'answer-1'],
       ['submit', 'T4', '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4', '--key', 'submit-1'],
+      [
+        'submit',
+        'T4',
+        '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4',
+        '--basis',
+        'carried',
+        '--from',
+        'a'.repeat(40),
+        '--reason',
+        'Same work',
+        '--key',
+        'submit-2',
+      ],
       ['return', 'T4', 'Handle the empty list', '--key', 'return-1'],
       ['return', 'T4', 'Handle the empty list', '--findings', '3', '--key', 'return-2'],
       ['task', 'PROJ-123', '--why'],
@@ -636,6 +649,16 @@ describe('catalog commands', () => {
         input: { block: 'B12', text: 'Target v2.', note: 'Checked the release plan.' },
       },
       { id: 'task.submit', input: { turn: 'T4', sha: '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4' } },
+      {
+        id: 'task.submit',
+        input: {
+          turn: 'T4',
+          sha: '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4',
+          basis: 'carried',
+          from: 'a'.repeat(40),
+          reason: 'Same work',
+        },
+      },
       { id: 'task.return', input: { turn: 'T4', reason: 'Handle the empty list' } },
       {
         id: 'task.return',
@@ -650,6 +673,51 @@ describe('catalog commands', () => {
       { id: 'project.ask', input: { project: 'web', text: 'Restart?', to: 'operator' } },
     ]);
   });
+
+  it.each(['submit_basis_invalid', 'submit_source_not_tested'] as const)(
+    'reports %s with guidance and refuses malformed basis locally',
+    async (code) => {
+      let requests = 0;
+      const server = createServer((_request, response) => {
+        requests++;
+        response.writeHead(409, { 'content-type': 'application/problem+json' });
+        response.end(JSON.stringify(renderHttpProblem({ code, requestId: 'req-basis' }).body));
+      });
+      servers.push(server);
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected TCP port');
+      const url = `http://127.0.0.1:${String(address.port)}`;
+      const output = capture();
+      expect(
+        await runCli(
+          [
+            'submit',
+            'T4',
+            'b'.repeat(40),
+            '--basis',
+            'carried',
+            '--from',
+            'a'.repeat(40),
+            '--reason',
+            'Same work',
+            '--key',
+            'basis-1',
+          ],
+          { env: env(url), io: output.io },
+        ),
+      ).toBe(1);
+      expect(output.stderr).toContain(code);
+      expect(output.stderr).toContain(ERRORS[code].hint);
+      expect(
+        await runCli(['submit', 'T4', 'b'.repeat(40), '--basis', 'unknown', '--key', 'basis-2'], {
+          env: env(url),
+          io: capture().io,
+        }),
+      ).toBe(2);
+      expect(requests).toBe(1);
+    },
+  );
 
   it('prints an ack with already handled entries as a success', async () => {
     const response = { acked: ['B13'], alreadyHandled: ['B13'] };

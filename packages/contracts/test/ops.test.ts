@@ -670,7 +670,15 @@ describe('grants', () => {
       'mutation',
       [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
       null,
-      [...archived, 'turn_closed', 'not_turn_taker', 'head_mismatch', 'github_unavailable'],
+      [
+        ...archived,
+        'turn_closed',
+        'not_turn_taker',
+        'submit_basis_invalid',
+        'submit_source_not_tested',
+        'head_mismatch',
+        'github_unavailable',
+      ],
     ],
     [
       'task.return',

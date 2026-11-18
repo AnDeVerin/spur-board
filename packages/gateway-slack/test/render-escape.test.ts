@@ -22,6 +22,11 @@ const titles = [
   ['<@U123>', '&lt;@U123&gt;', '&lt;@U123&gt;'],
   ['*bold*', '∗bold∗', '*bold*'],
   ['a `b` c', 'a ´b´ c', 'a `b` c'],
+  [
+    '<script>reason</script> <!here> *bold*',
+    '&lt;script&gt;reason&lt;/script&gt; &lt;!here&gt; ∗bold∗',
+    '&lt;script&gt;reason&lt;/script&gt; &lt;!here&gt; *bold*',
+  ],
 ] as const;
 
 const operator = userIdSchema.parse('U1');

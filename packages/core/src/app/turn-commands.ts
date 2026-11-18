@@ -7,7 +7,6 @@ import {
   type ColumnId,
   type Config,
   type PollPrError,
-  type PollPrResult,
   type PrPoller,
 } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
@@ -21,27 +20,19 @@ import { correctColumn, dispatchTasks, moveLeft } from './dispatch.ts';
 import { canonicalKey } from './membership.ts';
 import { taskSubject } from './subject.ts';
 import { closeTurns } from './turns.ts';
+import {
+  submissionBasis,
+  pollTaskPr,
+  SUBMIT_POLL_TIMEOUT_MS,
+  type SubmitPrepared,
+} from './submissions.ts';
 
 type Task = Selectable<TaskTable>;
 type Turn = Selectable<TurnTable>;
-
-/** How long `task.submit` waits for its on-demand PR poll; the CLI gives up at 30 s. */
-const SUBMIT_POLL_TIMEOUT_MS = 10_000;
+type SubmitInput = Parameters<Mutation<'task.submit'>['run']>[1];
 
 /** Columns a task returns to Dev from: right of Dev, before the terminal Done. */
 const RETURNABLE: readonly ColumnId[] = COLUMNS.filter((c) => c.returnable).map((c) => c.id);
-
-/** The PR poll `prepare` ran for a submit, or why it ran none. */
-type SubmitPrepared =
-  | { readonly kind: 'skipped' }
-  | {
-      readonly kind: 'polled';
-      /** Lowercase. */
-      readonly repo: string;
-      readonly number: number;
-      /** Null when the daemon has no poller. */
-      readonly result: PollPrResult | null;
-    };
 
 const turnNumber = (id: string) => Number(id.slice(1));
 const turnLabel = (id: number) => `T${String(id)}`;
@@ -283,26 +274,6 @@ function confirmHead(input: {
   return 'live';
 }
 
-/** Polls the task's PR on demand for a submit; `skipped` when the task has none. */
-async function pollTaskPr(
-  db: Trx,
-  task: Task,
-  poll: PrPoller['pollPr'] | undefined,
-): Promise<SubmitPrepared> {
-  const pr = await taskPr(db, task.id);
-  if (pr === null) return { kind: 'skipped' };
-  const repo = pr.repo.toLowerCase();
-  const result =
-    poll === undefined
-      ? null
-      : await poll(
-          prSourceId(task.project, repo),
-          { kind: 'pr', repo: pr.repo, number: pr.number },
-          { timeoutMs: SUBMIT_POLL_TIMEOUT_MS },
-        );
-  return { kind: 'polled', repo, number: pr.number, result };
-}
-
 /**
  * Records the submit of `sha` for the task's `column` visit `epoch` and says how its head was
  * confirmed (`confirmHead`). Throws `head_mismatch` or `github_unavailable` otherwise. With
@@ -311,12 +282,13 @@ async function pollTaskPr(
  */
 async function insertSubmission(
   trx: Trx,
-  input: { task: Task; column: ColumnId; epoch: number; sha: string },
+  input: SubmitInput & { task: Task; column: ColumnId; epoch: number },
   ctx: CommandContext<SubmitPrepared>,
   completeSince: ReadonlyMap<string, string>,
   pendingMs?: number,
-): Promise<Confirmed> {
+) {
   const { task, column, epoch, sha } = input;
+  const provenance = await submissionBasis(trx, task.id, input);
   const pr = await taskPr(trx, task.id);
   if (pr === null && pendingMs === undefined) {
     throw new CommandError(
@@ -351,6 +323,7 @@ async function insertSubmission(
       author: ctx.actor,
       submitted_at: ctx.at,
       note: null,
+      ...provenance.values,
       pr_repo: pr?.repo ?? null,
       pr_number: pr?.number ?? null,
       pending_until:
@@ -359,7 +332,7 @@ async function insertSubmission(
           : null,
     })
     .execute();
-  return confirmed;
+  return { confirmed, event: provenance.event };
 }
 
 /** The `task_submitted` payload mark of a head confirmed by the board's last poll, or pending. */
@@ -385,11 +358,7 @@ export function createTurnMutations(deps: {
     await dispatchTasks(trx, [id], { config, at: new Date(at), complete: completeSince, actor });
     return taskById(trx, id);
   }
-  async function submitShadow(
-    trx: Trx,
-    input: { turn: string; sha: string },
-    ctx: CommandContext<SubmitPrepared>,
-  ) {
+  async function submitShadow(trx: Trx, input: SubmitInput, ctx: CommandContext<SubmitPrepared>) {
     const task = await shadowTask(trx, input.turn, config);
     if (task === undefined) throw new CommandError('not_found', 'Check the task key.');
     if (task.membership === 'archived') {
@@ -402,9 +371,9 @@ export function createTurnMutations(deps: {
         `Only the executor of ${column} submits this task while the dispatcher is in shadow mode.`,
       );
     }
-    const confirmed = await insertSubmission(
+    const { confirmed, event } = await insertSubmission(
       trx,
-      { task, column, epoch: task.column_epoch, sha: input.sha },
+      { ...input, task, column, epoch: task.column_epoch },
       ctx,
       completeSince,
     );
@@ -414,7 +383,7 @@ export function createTurnMutations(deps: {
       task.project,
       task.id,
       ctx.at,
-      { column, sha: input.sha, ...CONFIRMATION[confirmed] },
+      { column, sha: input.sha, ...event, ...CONFIRMATION[confirmed] },
       ctx.actor,
     );
     return {
@@ -452,9 +421,9 @@ export function createTurnMutations(deps: {
     async run(trx, input, ctx) {
       if (!isTurnId(input.turn)) return submitShadow(trx, input, ctx);
       const { turn, task } = await takenTurn(trx, input.turn, ctx);
-      const confirmed = await insertSubmission(
+      const { confirmed, event } = await insertSubmission(
         trx,
-        { task, column: turn.column, epoch: turn.epoch, sha: input.sha },
+        { ...input, task, column: turn.column, epoch: turn.epoch },
         ctx,
         completeSince,
         config.projects.find((entry) => entry.id === task.project)?.dispatcher.submitConfirmMs,
@@ -466,7 +435,13 @@ export function createTurnMutations(deps: {
         task.project,
         task.id,
         ctx.at,
-        { turn: input.turn, column: turn.column, sha: input.sha, ...CONFIRMATION[confirmed] },
+        {
+          turn: input.turn,
+          column: turn.column,
+          sha: input.sha,
+          ...event,
+          ...CONFIRMATION[confirmed],
+        },
         ctx.actor,
       );
       return {
