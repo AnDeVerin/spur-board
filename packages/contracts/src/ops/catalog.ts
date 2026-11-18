@@ -1611,7 +1611,7 @@ export const OPERATIONS = [
               resolvedThreadsFrom: null,
               completion: {
                 to: 'done',
-                text: 'Completion bypasses normal gates: a merged PR, or a closed ticket with no open linked PR or live worker and fresh complete non-blind observations of every configured repository and Spur. Blind GitHub or a pending submit holds both routes.',
+                text: 'Completion bypasses normal gates: an eligible linked merged PR with a done ticket (GitHub closed or configured Jira doneStatuses), or a done ticket without open linked PRs/live workers and with fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch. An open ticket resumes work after the configured tracker interval with in-filter or manual-inclusion evidence. Blind GitHub or a pending submit holds both routes.',
               },
               columns: [
                 {

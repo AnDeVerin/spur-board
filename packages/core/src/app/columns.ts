@@ -7,12 +7,13 @@ import {
   type Config,
 } from '@spur-board/contracts';
 import { blockAddressee, escalateBlock, parseAddressee } from '../domain/blocks/blocks.ts';
-import { describeCompletion, nextColumn } from '../domain/dispatch.ts';
+import { nextColumn } from '../domain/dispatch.ts';
 import { describeConditions, threadsFrom } from '../domain/gates.ts';
 import { curatorProject } from './authorize.ts';
 import type { Trx } from './board-utils.ts';
 import { courseAddressee } from './course-check.ts';
 import { bestProjectSession, observedFacts } from './doorbells.ts';
+import { describeCompletion } from './dispatch.ts';
 import type { Query } from './queries.ts';
 import { projectTargets, visibleProjects } from './task-queries.ts';
 import { stuckTurnAfterMs } from './turns.ts';
@@ -222,7 +223,7 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
     checksGate: project.checksGate,
     reposWithoutCi: [...project.reposWithoutCi],
     resolvedThreadsFrom: from ?? null,
-    completion: describeCompletion(),
+    completion: describeCompletion(project, config),
     columns,
   };
 }

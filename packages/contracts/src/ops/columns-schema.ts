@@ -58,7 +58,7 @@ export const columnsDescribeOutputSchema = z.strictObject({
             text: z
               .string()
               .describe(
-                'Alternative completion routes and their entry holds: merged PR, or a closed ticket without open linked PRs or live workers after fresh complete non-blind repository and Spur observations. Blind GitHub and pending submits hold both routes.',
+                'Alternative completion routes: eligible linked merged PR with a tracker-done ticket (GitHub closed or effective Jira doneStatuses), or a done ticket without open linked PRs/live workers after fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch; confirmed-open evidence after the effective tracker interval, in filter or manually included, resumes work. Blind GitHub and pending submits hold both routes. Includes eligibility/readability, non-archived scope and dispatcher-mode qualifications.',
               ),
           })
           .describe(

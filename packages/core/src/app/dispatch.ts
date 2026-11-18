@@ -17,7 +17,11 @@ import {
 } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { z } from 'zod';
-import { dispatch, turnReason } from '../domain/dispatch.ts';
+import {
+  describeCompletion as describeDomainCompletion,
+  dispatch,
+  turnReason,
+} from '../domain/dispatch.ts';
 import type { GateMark } from '../domain/gates.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
@@ -76,6 +80,24 @@ interface DispatchContext {
 }
 
 const CURSOR_KEY = 'dispatcher_cursor';
+
+/** Policy counterpart of readInput's mergedTicket qualification and dispatchTasks' scope. */
+export function describeCompletion(project: Project, config: Config) {
+  const route = describeDomainCompletion();
+  const done =
+    project.tracker.type === 'jira'
+      ? `a Jira status in ${JSON.stringify(project.tracker.doneStatuses)}`
+      : 'GitHub status "closed"';
+  const interval =
+    project.tracker.type === 'jira'
+      ? config.adapters.jira.intervalMs
+      : config.adapters.githubIssues.intervalMs;
+  return {
+    ...route,
+    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once observed at least ${String(interval)} ms after the merge, in the tracker filter or for a manually included task; dropped-filter evidence alone stays unconfirmed. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
+  };
+}
+
 const modeKey = (project: string) => `dispatcher_mode:${project}`;
 const cursorSchema = z.int().min(0);
 const modeSchema = z.enum(DISPATCHER_MODES);

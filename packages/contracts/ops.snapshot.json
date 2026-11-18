@@ -1,5 +1,5 @@
 {
-  "version": "2c65edddc0876833af87e76024b2c54293b06c434e02226ba3c6b3605901020e",
+  "version": "e1c94cd118e28859101445a4b4e7f5127ed7ee2b68fca8adf6647f4b89da3f55",
   "grants": [
     "operator",
     "project-agent",
@@ -11429,7 +11429,7 @@
                 "resolvedThreadsFrom": null,
                 "completion": {
                   "to": "done",
-                  "text": "Completion bypasses normal gates: a merged PR, or a closed ticket with no open linked PR or live worker and fresh complete non-blind observations of every configured repository and Spur. Blind GitHub or a pending submit holds both routes."
+                  "text": "Completion bypasses normal gates: an eligible linked merged PR with a done ticket (GitHub closed or configured Jira doneStatuses), or a done ticket without open linked PRs/live workers and with fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch. An open ticket resumes work after the configured tracker interval with in-filter or manual-inclusion evidence. Blind GitHub or a pending submit holds both routes."
                 },
                 "columns": [
                   {
@@ -11544,7 +11544,7 @@
                     },
                     "text": {
                       "type": "string",
-                      "description": "Alternative completion routes and their entry holds: merged PR, or a closed ticket without open linked PRs or live workers after fresh complete non-blind repository and Spur observations. Blind GitHub and pending submits hold both routes."
+                      "description": "Alternative completion routes: eligible linked merged PR with a tracker-done ticket (GitHub closed or effective Jira doneStatuses), or a done ticket without open linked PRs/live workers after fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch; confirmed-open evidence after the effective tracker interval, in filter or manually included, resumes work. Blind GitHub and pending submits hold both routes. Includes eligibility/readability, non-archived scope and dispatcher-mode qualifications."
                     }
                   },
                   "required": ["to", "text"],

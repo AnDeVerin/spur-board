@@ -17,11 +17,19 @@ operator when no live recipient exists.
 `exit.to` describes normal gate progression: it is null at the last enabled stage
 before Done and at Done itself. Passing green checks and submitting an open PR
 does not complete a task. The project's separate `completion` route reaches Done
-from any other column: a merged PR, or a closed ticket with no open linked PR or
-live worker after fresh, complete, non-blind observations of every configured
-repository and Spur since the task changed. These alternatives bypass normal
-gates, including Ready to Merge's merged condition. Blind GitHub or a pending
-submit holds both completion routes.
+from any other column: an eligible linked merged PR with a done ticket, or a done
+ticket with no open linked PR or live worker after fresh, complete, non-blind
+observations of every configured repository and Spur since the task changed.
+Done means GitHub `closed` or the project's Jira `doneStatuses`; the returned text
+names effective statuses and the tracker interval. After a merge, a missing or
+unconfirmed ticket holds dispatch. An open ticket resumes work without the merged
+PR only when observed at least one tracker interval after the merge, in the filter
+or for a manually included task; dropped-filter evidence alone stays unconfirmed.
+These alternatives bypass normal gates, including Ready to Merge's merged
+condition. Blind GitHub or a pending submit holds both routes. Archived tasks are
+excluded; links must be unbanned and past the reopen floor, and missing/unreadable
+chosen or fallback PR facts hold evaluation. Cycle holds allow completion;
+dispatcher `on` applies moves while `shadow` computes only a shadow position.
 
 ## Columns and executors
 

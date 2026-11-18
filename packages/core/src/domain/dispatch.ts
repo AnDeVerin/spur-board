@@ -152,7 +152,7 @@ function absenceReady(input: DispatchInput): boolean {
 /** Completion is separate from gate progression and can bypass every ordinary gate. */
 const COMPLETION_RULE = {
   to: 'done' as const,
-  text: 'From any column other than Done, completion bypasses normal gates: a merged PR, or a closed ticket with no open linked PR and no live worker after every configured repository and Spur have fresh, complete, non-blind observations since the task changed. These are alternative completion routes, not additional gate requirements. Neither route moves while GitHub is blind (including no fresh complete poll since startup) or a submit is pending.',
+  text: 'From any column other than Done, completion bypasses normal gates: an eligible linked merged PR with a done ticket, or a closed ticket with no open linked PR and no live worker after every configured repository and Spur have fresh, complete, non-blind observations since the task changed. These are alternative completion routes, not additional gate requirements. Neither route moves while GitHub is blind (including no fresh complete poll since startup) or a submit is pending.',
   reason(pr: TaskGateFacts['pr'], input: DispatchInput): 'merged' | 'ticket_done_no_pr' | null {
     if (pr?.state === 'merged') return 'merged';
     return absenceReady(input) ? 'ticket_done_no_pr' : null;
