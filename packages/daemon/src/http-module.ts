@@ -130,6 +130,7 @@ export function createWebModule(
     webRoot?: string | URL;
     onListening?: (address: string) => void;
     instance?: string;
+    productVersion?: string;
   },
 ): Module & { listening(): boolean } {
   let app: Awaited<ReturnType<typeof createWebServer>> | undefined;
@@ -163,6 +164,9 @@ export function createWebModule(
             ctx.log.warn({ err, step }, 'event stream read failed');
           },
           ...(options.instance === undefined ? {} : { instance: options.instance }),
+          ...(options.productVersion === undefined
+            ? {}
+            : { productVersion: options.productVersion }),
         });
         if (aborted()) return;
         const address = await server.listen({ host: '127.0.0.1', port: ctx.config.web.port ?? 0 });

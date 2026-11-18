@@ -15,6 +15,9 @@ Logs include the web channel and untrusted forwarded client/user-agent metadata.
 persist `via: web` in the journal; history returns `actor: operator` with `via: web`, allowing
 clients to show `operator (web)`.
 Missing UI assets return a 503 build hint while health and operations remain available.
+Every web answer carries `x-board-version` with the daemon's version, and the served page names
+the same version in a `board-version` meta tag; the web shell compares the two to notice an
+update.
 
 ## Web shell
 

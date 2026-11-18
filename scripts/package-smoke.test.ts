@@ -412,7 +412,7 @@ describe('installed web HTTP smoke', () => {
           ),
         );
       };
-      const result = verifyServedWeb(web, 'http://127.0.0.1:4789', fetcher);
+      const result = verifyServedWeb(web, 'http://127.0.0.1:4789', '0.1.0', fetcher);
       if (mode === 'healthy') {
         await expect(result).resolves.toBeUndefined();
         expect(calls).toEqual([
@@ -420,6 +420,28 @@ describe('installed web HTTP smoke', () => {
           'http://127.0.0.1:4789/assets/main-abcdefgh.js',
         ]);
       } else await expect(result).rejects.toThrow(/HTTP 200/);
+    },
+  );
+
+  it.each(['stamped', 'unstamped', 'other-version'])(
+    'expects the version meta after <head>: %s',
+    async (mode) => {
+      const web = mkdtempSync(join(tmpdir(), 'board-served-web-'));
+      mkdirSync(join(web, 'assets'));
+      const index = '<html><head></head><script src="/assets/main-abcdefgh.js"></script></html>';
+      const asset = 'console.log("ready");';
+      writeFileSync(join(web, 'index.html'), index);
+      writeFileSync(join(web, 'assets/main-abcdefgh.js'), asset);
+      const meta = (version: string) => `<meta name="board-version" content="${version}">`;
+      const page =
+        mode === 'unstamped'
+          ? index
+          : index.replace('<head>', `<head>${meta(mode === 'stamped' ? '0.1.0' : '0.2.0')}`);
+      const fetcher: typeof fetch = (url) =>
+        Promise.resolve(new Response(url === 'http://127.0.0.1:4789/' ? page : asset));
+      const result = verifyServedWeb(web, 'http://127.0.0.1:4789', '0.1.0', fetcher);
+      if (mode === 'stamped') await expect(result).resolves.toBeUndefined();
+      else await expect(result).rejects.toThrow(/HTTP 200/);
     },
   );
 });

@@ -346,9 +346,7 @@ describe('web listener composition', () => {
       ports: {
         ...input.ports,
         productVersion: '9.9.9-test',
-        onWebListening: (address) => {
-          webAddress = address;
-        },
+        onWebListening: (address) => void (webAddress = address),
         hostProbe,
       },
     });
@@ -367,6 +365,7 @@ describe('web listener composition', () => {
         lastDispatchAt: string | null;
       };
       expect(running.version).toBe('9.9.9-test');
+      expect((await fetch(webAddress)).headers.get('x-board-version')).toBe('9.9.9-test');
       expect(running.startedAt).toBe(new Date(startedAt).toISOString());
       // Two ticks have completed: the one start runs in the background, then `daemon.tick()`.
       expect(running.lastDispatchAt).toBe(new Date(startedAt + 120_000).toISOString());
