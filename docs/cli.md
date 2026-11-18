@@ -27,12 +27,12 @@ Inside a Spur session the session wins over a token: `SPUR_SESSION` is sent and 
 
 `board task <task> --why --json` lists in `waiting` each fact the task waits for, with its gate reason, the PR head in `head` and a one-line `text`. The texts depend on the project's `checksGate`:
 
-| Reason                       | `checksGate: dev` (default)                                          | Another `checksGate` column                                      |
-| ---------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `checks_pending`             | `waiting for CI on <sha>`                                            | `checks running, exit from <checksGate> waits for green`         |
-| `checks_red`                 | not listed: the task returns to Dev                                  | `checks red`, while a taken turn holds the task until its submit |
-| `mergeable_unknown`          | `waiting for GitHub to compute mergeability on <sha>`                | the same                                                         |
-| `comment_history_incomplete` | `waiting for the board to read the full PR comment history on <sha>` | the same                                                         |
+| Reason                       | `checksGate: dev` (default)                                          | Another `checksGate` column                                                                                      |
+| ---------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `checks_pending`             | `waiting for CI on <sha>`                                            | `checks running, exit from <checksGate> waits for green`                                                         |
+| `checks_red`                 | not listed: the task returns to Dev                                  | `checks red`, listed whenever red checks keep the task in Dev or a taken turn holds it in place until its submit |
+| `mergeable_unknown`          | `waiting for GitHub to compute mergeability on <sha>`                | the same                                                                                                         |
+| `comment_history_incomplete` | `waiting for the board to read the full PR comment history on <sha>` | the same                                                                                                         |
 
 Under a `checksGate` other than `dev`, Dev's gate lists `checks_not_red` instead of `checks_green`, and the `checksGate` column lists `checks_green` first. A cancelled check there reads `checks_pending` until two complete GitHub polls after the one that saw it, then `checks_red`.
 

@@ -117,7 +117,7 @@ export function renderCliDocs(): string {
     '| Reason | `checksGate: dev` (default) | Another `checksGate` column |',
     '| --- | --- | --- |',
     '| `checks_pending` | `waiting for CI on <sha>` | `checks running, exit from <checksGate> waits for green` |',
-    '| `checks_red` | not listed: the task returns to Dev | `checks red`, while a taken turn holds the task until its submit |',
+    '| `checks_red` | not listed: the task returns to Dev | `checks red`, listed whenever red checks keep the task in Dev or a taken turn holds it in place until its submit |',
     '| `mergeable_unknown` | `waiting for GitHub to compute mergeability on <sha>` | the same |',
     '| `comment_history_incomplete` | `waiting for the board to read the full PR comment history on <sha>` | the same |',
     '',

@@ -59,7 +59,7 @@ describe('generated public references', () => {
       '`checks_red`',
       '`waiting for CI on <sha>`',
       '`checks running, exit from <checksGate> waits for green`',
-      '`checks red`',
+      '`checks red`, listed whenever red checks keep the task in Dev or a taken turn holds it in place',
       '`checks_not_red`',
     ])
       expect(section).toContain(text);
