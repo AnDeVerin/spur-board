@@ -16,10 +16,11 @@ import { clearItem, raiseItem } from '../../src/app/feed.ts';
 import type { OperationHandlers } from '../../src/app/operations.ts';
 import { openTempStore } from '../support/store.ts';
 import { liveSession } from '../support/conversation.ts';
-import { bestProjectSession } from '../../src/app/doorbells.ts';
+import { bestProjectSession, selectNotificationRecipient } from '../../src/app/doorbells.ts';
 import { blockAddressee, escalateBlock } from '../../src/domain/blocks/blocks.ts';
 import { courseAddressee } from '../../src/app/course-check.ts';
-import { stuckTurnAfterMs } from '../../src/app/turns.ts';
+import { stuckTurnAfterMs, turnExecutor } from '../../src/app/turns.ts';
+import { sampleRows } from '../store/sample-rows.ts';
 
 const config = configSchema.parse({
   projects: [
@@ -233,14 +234,14 @@ it('uses effective bindings, project session selection, routing and configured t
     displayName: 'Global QA',
     session: null,
   });
-  expect(byId('qa').executor.text).toContain('ordinary questions wait');
+  expect(byId('qa').executor.text).toContain('turn waits for a session');
   expect(byId('product-review').executor).toMatchObject({
     kind: 'curator',
     project: 'cur',
     displayName: 'Course guide',
     session: null,
   });
-  expect(byId('product-review').executor.text).toContain('falls back to the operator');
+  expect(byId('product-review').executor.text).toContain('turn waits for a session');
   expect(byId('external-review').executor.kind).toBe('operator');
   expect(byId('external-review').returns.join(' ')).toContain('executor can return');
   expect(byId('external-review').escalation).toMatchObject({
@@ -319,6 +320,120 @@ it('uses effective bindings, project session selection, routing and configured t
     malformed.projects[0]?.columns.find((column) => column.id === 'review')?.executor.session,
   ).toEqual({ id: 'selected', links: [] });
 });
+
+it.each([
+  { purpose: 'executor', column: 'product-review', project: 'cur', canOverride: true },
+  { purpose: 'question', column: 'dev', project: 'cur', canOverride: false },
+  { purpose: 'course-check', column: 'review', project: 'cur', canOverride: false },
+  { purpose: 'executor', column: 'review', project: 'reviewer', canOverride: true },
+  { purpose: 'question', column: 'review', project: 'reviewer', canOverride: true },
+  { purpose: 'course-check', column: 'product-review', project: 'reviewer', canOverride: true },
+] as const)(
+  'describes $project $purpose recipient overrides consistently with routing',
+  async ({ purpose, column, project, canOverride }) => {
+    const store = openTempStore('board-column-recipient-scope-').store;
+    stores.push(store);
+    const effective = configSchema.parse({
+      ...config,
+      projects: [
+        {
+          ...config.projects[0],
+          spurProjects: [
+            { name: 'first-worker', role: 'worker' },
+            { name: 'cur', role: 'curator' },
+            { name: 'reviewer', role: 'orchestrator' },
+          ],
+          columns: [
+            { id: 'todo' },
+            { id: 'dev' },
+            { id: 'review', orchestrator: 'reviewer', courseCheckTo: 'cur' },
+            { id: 'product-review', orchestrator: 'cur', courseCheckTo: 'reviewer' },
+            { id: 'done' },
+          ],
+        },
+      ],
+    });
+    await store.db
+      .insertInto('task')
+      .values({ ...sampleRows.task, project: 'first', membership: 'active', archive_reason: null })
+      .execute();
+    for (const name of ['cur', 'reviewer']) {
+      await liveSession(store, `${name}-old`, name);
+      await liveSession(store, `${name}-current`, name);
+      await store.db
+        .updateTable('session_snapshot')
+        .set({ first_seen: '2026-11-04T07:00:00.000Z' })
+        .where('id', '=', `${name}-current`)
+        .execute();
+    }
+    await store.db
+      .insertInto('link')
+      .values({
+        ...sampleRows.link,
+        entity: 'session',
+        repo: null,
+        number: null,
+        pr_state: null,
+        session_id: `${project}-old`,
+        role: 'orchestrator',
+      })
+      .execute();
+    const registry = createOperationRegistry({
+      config: effective,
+      clock,
+      completeSince: new Map(),
+    });
+    const result = await createQuery({ store, config: effective, clock })(
+      registry['columns.describe'],
+      {},
+      'operator',
+    );
+    const policy = result.projects[0]?.columns.find((entry) => entry.id === column);
+    if (policy === undefined) throw new Error('missing policy');
+    const isCurator =
+      effective.projects[0]?.spurProjects.find((entry) => entry.name === project)?.role ===
+      'curator';
+    const description =
+      purpose === 'executor'
+        ? policy.executor
+        : purpose === 'course-check'
+          ? policy.limits?.courseCheckTo
+          : policy.escalation.chain.find((step) => step.project === project);
+    expect(description?.session?.id).toBe(`${project}-current`);
+    expect(description?.text).toContain(
+      canOverride
+        ? 'task-linked or author sessions can override'
+        : 'task-linked and author sessions do not override',
+    );
+    expect(description?.text).toContain(
+      purpose === 'executor'
+        ? 'turn waits for a session'
+        : isCurator || purpose === 'course-check'
+          ? 'falls back to the operator'
+          : 'ordinary questions wait for a session',
+    );
+    if (purpose === 'executor' && isCurator)
+      expect(description?.text).toContain('column orchestrator routing');
+    const role =
+      purpose === 'executor'
+        ? turnExecutor(column, project, false)
+        : purpose === 'course-check'
+          ? courseAddressee(effective, 'first', column)
+          : isCurator
+            ? 'curator'
+            : 'orchestrator:review';
+    // Curator questions ignore both the older author and the task's orchestrator link;
+    // a named executor turn (including curator-bound) and orchestrator questions can use them.
+    for (const author_session of [`${project}-old`, null]) {
+      const recipient = await selectNotificationRecipient(
+        store.db,
+        { task_id: 1, role, author_session },
+        effective,
+      );
+      expect(recipient?.id).toBe(`${project}-${canOverride ? 'old' : 'current'}`);
+    }
+  },
+);
 
 it('registers one handler with a matching id for every catalog operation', () => {
   const registry = createOperationRegistry({ config, clock, completeSince: new Map() });

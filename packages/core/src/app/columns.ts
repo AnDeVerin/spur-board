@@ -46,7 +46,10 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
   const curator = curatorProject(config, project.id);
   const from = threadsFrom(project);
   const selected = new Map<string, Awaited<ReturnType<typeof bestProjectSession>>>();
-  async function destination(role: AddresseeRole, course = false) {
+  async function destination(
+    role: AddresseeRole,
+    purpose: 'executor' | 'question' | 'course-check',
+  ) {
     const parsed = parseAddressee(role);
     const name =
       parsed.kind === 'curator'
@@ -75,9 +78,13 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
           ? 'The operator.'
           : role === 'worker'
             ? 'The task-linked live worker, else the operator; no arbitrary project worker is selected.'
-            : course || parsed.kind === 'curator'
-              ? 'Project-selected live session; task-linked or author sessions can override it. Without a live recipient this question falls back to the operator.'
-              : 'Project-selected live session; task-linked or author sessions can override it. Without a live orchestrator, ordinary questions wait for a session.',
+            : parsed.kind === 'curator' && purpose !== 'executor'
+              ? 'Always the current project-selected curator session; task-linked and author sessions do not override it. Without a live curator recipient this question falls back to the operator.'
+              : purpose === 'executor'
+                ? `${parsed.kind === 'curator' ? 'A curator-bound executor turn uses column orchestrator routing. ' : ''}Project-selected live session; task-linked or author sessions can override it. Without a live executor recipient, the turn waits for a session.`
+                : purpose === 'course-check'
+                  ? 'Project-selected live session; task-linked or author sessions can override it. Without a live recipient this question falls back to the operator.'
+                  : 'Project-selected live session; task-linked or author sessions can override it. Without a live orchestrator, ordinary questions wait for a session.',
     };
   }
   const columns = [];
@@ -106,7 +113,7 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
           : kind === 'worker'
             ? 'worker'
             : 'operator';
-    const executorDestination = await destination(role);
+    const executorDestination = await destination(role, 'executor');
     const author =
       named === undefined
         ? ('operator' as const)
@@ -123,7 +130,8 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
             ))
       );
     };
-    const chain = kind === 'dispatcher' || metadata.group !== null ? [] : [executorDestination];
+    const chain =
+      kind === 'dispatcher' || metadata.group !== null ? [] : [await destination(role, 'question')];
     if (chain.length > 0 && role !== 'operator') {
       let step = blockAddressee({
         type: 'needs_input',
@@ -135,7 +143,7 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
         hasWorker: kind === 'worker',
       });
       for (let i = 0; i < 3; i++) {
-        chain.push(await destination(step));
+        chain.push(await destination(step, 'question'));
         if (step === 'operator') break;
         step = escalateBlock(
           {
@@ -165,7 +173,10 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
         ? {
             cycleLimit: column.cycleLimit,
             courseCheck: column.courseCheck,
-            courseCheckTo: await destination(courseAddressee(config, project.id, column.id), true),
+            courseCheckTo: await destination(
+              courseAddressee(config, project.id, column.id),
+              'course-check',
+            ),
           }
         : null,
       executor: {
