@@ -926,7 +926,8 @@ async function main(argv: string[]): Promise<number> {
     }
     const fake = parseFakeArgs(parsed.rest);
     if (!fake.ok) throw new UsageError(fake.error);
-    return control(target(parsed.home), '/fake', fake.value, 120_000);
+    const { home, ...body } = fake.value;
+    return control(target(home ?? parsed.home), '/fake', body, 120_000);
   }
   if (command === 'clock') {
     // Checked before any call, so a bad shift exits 2 without touching the stand.

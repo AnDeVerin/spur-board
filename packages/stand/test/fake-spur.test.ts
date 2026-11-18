@@ -582,6 +582,13 @@ describe('parseFakeArgs', () => {
     expect(parseFakeArgs(rest)).toEqual({ ok: true, value: { system: 'spur', verb, args } });
   });
 
+  it('returns --home apart from the args', () => {
+    expect(parseFakeArgs(['spur', 'session', 's1', '--home', '/h', '--retain'])).toStrictEqual({
+      ok: true,
+      value: { system: 'spur', verb: 'session', args: { id: 's1', retain: true }, home: '/h' },
+    });
+  });
+
   it.each([
     [[]],
     [['github', 'session', 's1']],
