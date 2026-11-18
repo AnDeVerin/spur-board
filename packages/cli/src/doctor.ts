@@ -654,10 +654,10 @@ export async function runDoctor(
     configured.size === 0 ? null : await spurProjectPaths(config.adapters.spur.baseUrl, ports);
   const states = new Map<string, 'ok' | 'broken' | 'unknown'>();
   const missing: string[] = [];
+  const installed = new Set<string>();
   if (projectPaths !== null) {
     // Mirrors the copies installIntoHome writes in skills.ts.
     const codexHome = env['CODEX_HOME'];
-    const installed = new Set<string>();
     for (const copy of [
       join(home, '.claude', 'skills', 'spur-board'),
       codexHome
@@ -733,22 +733,34 @@ export async function runDoctor(
               )
             : result('skills.codex_visibility', true, codexVisibilityFix),
   );
+  // One session runs many processes (children inherit SPUR_SESSION), each in its own cwd: the
+  // session sees the skill when any of them works where the link resolves to an installed copy.
+  const seesSkill = (session: SessionProcess): boolean => {
+    if (
+      session.codexHome !== undefined &&
+      ports.exists(join(session.codexHome, 'skills', 'spur-board', 'SKILL.md'))
+    )
+      return true;
+    if (session.cwd === undefined || !ports.exists(join(session.cwd, skillLink, 'SKILL.md')))
+      return false;
+    try {
+      return installed.has(ports.realPath(join(session.cwd, skillLink)));
+    } catch {
+      return false;
+    }
+  };
+  const seeing = new Set(codexSessions.filter(seesSkill).map((session) => session.id));
   const oldSessions = codexSessions.filter(
     (session) =>
       session.project !== undefined &&
       states.get(session.project) === 'ok' &&
-      !(
-        (session.cwd !== undefined &&
-          ports.exists(join(session.cwd, '.agents', 'skills', 'spur-board', 'SKILL.md'))) ||
-        (session.codexHome !== undefined &&
-          ports.exists(join(session.codexHome, 'skills', 'spur-board', 'SKILL.md')))
-      ),
+      !seeing.has(session.id),
   );
   checks.push(
     oldSessions.length > 0
       ? warning(
           'sessions.codex_skill',
-          `Start new Spur sessions to replace Codex sessions created before the skill link${listing(safeIds([...new Set(oldSessions.map((session) => session.id))]))}; Spur links .agents/skills/spur-board only into new worktrees.`,
+          `Start new Spur sessions to replace Codex sessions that cannot see the installed spur-board skill${listing(safeIds([...new Set(oldSessions.map((session) => session.id))]))}; Spur links .agents/skills/spur-board only into new worktrees.`,
         )
       : result('sessions.codex_skill', true, 'Start new Spur sessions.'),
   );

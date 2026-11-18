@@ -154,9 +154,14 @@ the doctor. The [setup skill](packages/skills/setup/SKILL.md) gives the project-
 ### sessions.codex_skill
 
 Warns about live Codex sessions (as `sessions.stale` defines them) that cannot see the product
-skill while their project's install passes `skills.codex_visibility`. Spur links `.agents/skills/spur-board` only when it creates a
-worktree, so these sessions started before the link. Start new sessions to replace them. It
-passes while `skills.codex_visibility` warns: fix that check first, then rerun.
+skill while their project's install passes `skills.codex_visibility`. It decides per session: a
+session passes when any of its processes works in a directory whose `.agents/skills/spur-board`
+resolves to an installed copy, or its `CODEX_HOME` has `skills/spur-board/SKILL.md`, so child
+processes in other directories do not flag it. Start and link times are not used. It warns when
+no process of the session has that link, the link is broken, or it resolves to another copy.
+Spur links `.agents/skills/spur-board` only when it creates a worktree, so start new sessions to
+replace the ones it names. It passes while `skills.codex_visibility` warns: fix that check
+first, then rerun.
 
 ### sessions.stale
 

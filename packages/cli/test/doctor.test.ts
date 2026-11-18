@@ -793,6 +793,10 @@ describe('board doctor', () => {
           },
         ],
         exists: (path) => !path.endsWith('/skills/spur-board/SKILL.md') || path === visibleSkill,
+        realPath: (path) =>
+          path === mainLink || path === '/repo/.agents/skills/spur-board'
+            ? '/home/.codex/skills/spur-board'
+            : path,
       }),
     );
     expect(value.checks.find((check) => check.id === 'skills.codex_visibility')).toMatchObject({
@@ -1561,7 +1565,63 @@ describe('board doctor Codex skill install', () => {
     },
   );
 
-  it('passes the install and warns about Codex sessions created before the link', async () => {
+  it('passes a Codex session whose agent sees the installed skill while a child process works elsewhere', async () => {
+    const session = {
+      id: 'sb-c07f',
+      project: 'worker',
+      path: '/usr/bin',
+      codexHome: '/home/.spur/session-tools/sb-c07f/codex-home',
+      startAt: Date.parse('2026-11-04T08:00:00.000Z'),
+    };
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [
+          { ...session, cwd: '/wt' },
+          { ...session, cwd: '/wt/packages/web' },
+        ],
+        exists: (path) =>
+          !path.endsWith('/skills/spur-board/SKILL.md') ||
+          path === '/wt/.agents/skills/spur-board/SKILL.md',
+        realPath: (path) =>
+          path === mainLink || path === '/wt/.agents/skills/spur-board'
+            ? '/home/.codex/skills/spur-board'
+            : path,
+      }),
+    );
+    expect(find(value.checks, 'sessions.codex_skill')).toEqual({
+      id: 'sessions.codex_skill',
+      status: 'pass',
+      blocking: false,
+      fix: null,
+    });
+  });
+
+  it('warns about a Codex session whose link resolves to a stale copy', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [
+          { id: 'worker-1', project: 'worker', path: '/usr/bin', codexHome: '/codex', cwd: '/wt' },
+        ],
+        exists: (path) =>
+          !path.endsWith('/skills/spur-board/SKILL.md') ||
+          path === '/wt/.agents/skills/spur-board/SKILL.md',
+        realPath: (path) =>
+          path === mainLink
+            ? '/home/.codex/skills/spur-board'
+            : path === '/wt/.agents/skills/spur-board'
+              ? '/home/old/spur-board'
+              : path,
+      }),
+    );
+    const check = find(value.checks, 'sessions.codex_skill');
+    expect(check).toMatchObject({ status: 'warning', blocking: false });
+    expect(check?.fix).toContain(': worker-1;');
+    expect(value.exitCode).toBe(0);
+  });
+
+  it('warns about Codex sessions that cannot see the skill', async () => {
     const value = await run(
       ['doctor', '--json'],
       ports({
@@ -1571,6 +1631,10 @@ describe('board doctor Codex skill install', () => {
           { id: 'worker-1', project: 'worker', path: '/usr/bin', codexHome: '/codex', cwd: '/old' },
         ],
         exists: (path) => !path.endsWith('/skills/spur-board/SKILL.md'),
+        realPath: (path) => {
+          if (path === '/old/.agents/skills/spur-board') throw new Error('missing link');
+          return path === mainLink ? '/home/.codex/skills/spur-board' : path;
+        },
         fetcher: (input) =>
           Promise.resolve(
             !isSpur(input)
@@ -1589,7 +1653,7 @@ describe('board doctor Codex skill install', () => {
       id: 'sessions.codex_skill',
       status: 'warning',
       blocking: false,
-      fix: 'Start new Spur sessions to replace Codex sessions created before the skill link: worker-1; Spur links .agents/skills/spur-board only into new worktrees.',
+      fix: 'Start new Spur sessions to replace Codex sessions that cannot see the installed spur-board skill: worker-1; Spur links .agents/skills/spur-board only into new worktrees.',
     });
     expect(value.text).not.toContain('ended-1');
     expect(value.exitCode).toBe(0);
