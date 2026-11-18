@@ -3,7 +3,8 @@ import styles from './LineClamp.module.css';
 
 /**
  * Folded text: a paragraph clamped to `--lines-fold` lines with an ellipsis. Line breaks in the
- * text show (`pre-wrap`), and the full text stays in the DOM and selectable.
+ * text show (`pre-wrap`), and the full text stays in the DOM and selectable. `className` adds
+ * classes to the root paragraph alongside its clamp class.
  *
  * `onOverflowChange` hears whether the text runs past the fold, `scrollHeight > clientHeight + 1`
  * (one pixel of rounding tolerance). The first measurement is always reported, later ones only
@@ -14,9 +15,11 @@ import styles from './LineClamp.module.css';
  */
 export function LineClamp({
   children,
+  className,
   onOverflowChange,
 }: {
   children: ReactNode;
+  className?: string | undefined;
   onOverflowChange?: ((overflows: boolean) => void) | undefined;
 }) {
   const node = useRef<HTMLParagraphElement>(null);
@@ -46,7 +49,7 @@ export function LineClamp({
     };
   }, []);
   return (
-    <p ref={node} className={styles.clamp}>
+    <p ref={node} className={[styles.clamp, className].filter(Boolean).join(' ')}>
       {children}
     </p>
   );

@@ -10,9 +10,11 @@ import styles from './TextToggle.module.css';
  * when `expanded` is given; `controls` is the id of the region it folds (`aria-controls`). As with
  * `Button`, `busy` keeps it focusable, sets `aria-busy` and `aria-disabled` and ignores clicks;
  * pass children naming the action in flight, since busy looks like rest apart from the cursor.
+ * `className` adds classes to the root button alongside its toggle and focus-ring classes.
  */
 export function TextToggle({
   children,
+  className,
   onClick,
   expanded,
   controls,
@@ -20,6 +22,7 @@ export function TextToggle({
   busy = false,
 }: {
   children: ReactNode;
+  className?: string | undefined;
   onClick: () => void;
   expanded?: boolean | undefined;
   controls?: string | undefined;
@@ -29,7 +32,7 @@ export function TextToggle({
   return (
     <button
       type="button"
-      className={`${styles.toggle ?? ''} ${focusRing}`}
+      className={[styles.toggle, focusRing, className].filter(Boolean).join(' ')}
       aria-expanded={expanded}
       aria-controls={controls}
       aria-busy={busy || undefined}

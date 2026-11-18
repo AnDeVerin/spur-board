@@ -14,6 +14,17 @@ describe('LineClamp', () => {
     expect(html).toMatch(/^<p class="[^"]+">Line one\nLine two<\/p>$/);
   });
 
+  it('adds caller classes to the root while preserving default markup', () => {
+    const render = (props: { className?: string | undefined }) =>
+      renderToStaticMarkup(createElement(LineClamp, { children: 'Line one\nLine two', ...props }));
+    const rest = render({});
+    const custom = render({ className: 'layout spacing' });
+    expect(custom).toMatch(/^<p class="[^"]+ layout spacing">/);
+    expect(custom.replace(' layout spacing', '')).toBe(rest);
+    expect(render({ className: undefined })).toBe(rest);
+    expect(render({ className: '' })).toBe(rest);
+  });
+
   describe('reports overflow at the prototype tolerance', () => {
     let container: HTMLDivElement;
     let root: Root;
@@ -111,12 +122,31 @@ describe('LineClamp', () => {
 });
 
 describe('TextToggle', () => {
-  const render = (props: { expanded?: boolean; controls?: string; caret?: boolean }) =>
+  const render = (props: {
+    className?: string | undefined;
+    expanded?: boolean;
+    controls?: string;
+    caret?: boolean;
+  }) =>
     renderToStaticMarkup(
       createElement(TextToggle, { onClick: () => undefined, children: 'Show all', ...props }),
     );
   const attribute = (html: string, name: string) =>
     new RegExp(`<button[^>]*\\s${name}="([^"]*)"`).exec(html)?.[1];
+
+  it('adds caller classes to the root while preserving default markup', () => {
+    const rest = render({ expanded: true, controls: 'details', caret: true });
+    const custom = render({
+      expanded: true,
+      controls: 'details',
+      caret: true,
+      className: 'layout spacing',
+    });
+    expect(attribute(custom, 'class')).toBe(`${attribute(rest, 'class') ?? ''} layout spacing`);
+    expect(custom.replace(' layout spacing', '')).toBe(rest);
+    expect(render({ className: undefined })).toBe(render({}));
+    expect(render({ className: '' })).toBe(render({}));
+  });
 
   it('is a quiet disclosure button with the ds ring', () => {
     const rest = render({});
