@@ -10,7 +10,7 @@ Fix or answer every open PR point once, with a reason for each rejection.
 ## 1. Collect
 
 - Head commit and reviews: `gh pr view <N> --json headRefOid,reviews,comments,isDraft`.
-- Review threads, every page (`--paginate` follows `endCursor` while `hasNextPage` is true):
+- Review threads, every page (`--paginate` follows `endCursor`):
 
   ```
   gh api graphql --paginate -f owner=<owner> -f repo=<repo> -F pr=<N> -f query='
@@ -45,8 +45,7 @@ Fix or answer every open PR point once, with a reason for each rejection.
 
 ## 3. Fix and push once
 
-- Make all fixes as new commits, following `gitflow` (conventional messages, agent files in
-  their own `chore(agents)` commit, no amend, no force-push).
+- Make all fixes as new commits, following `gitflow`.
 - Run `pnpm check`. Fix every failure first.
 - The branch conflicts with `main`: merge `main` into it as `gitflow` says.
 - Push once, after all fixes are committed, so reviewers get one notification and one new head.
@@ -85,7 +84,7 @@ Fix or answer every open PR point once, with a reason for each rejection.
   the set of open threads have changed.
 - No open point, an APPROVED review on `headRefOid` and a `tester` or `designer` (code) verdict
   recorded `on <sha>` in the PR's Testing -> apply `Final head` in
-  `.agents/skills/manager/references/gates.md`, with the handoffs of
+  `.agents/skills/manager/references/verdicts.md`, with the handoffs of
   `.agents/skills/manager/references/runtime.md`; write each verdict and line it gives into
   Testing with `gh pr edit <N> --body-file`.
 - Report in the session, not on the PR: `Fixed: <thread or comment> - <sha>` and

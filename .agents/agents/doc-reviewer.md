@@ -13,8 +13,9 @@ Find what a user would read wrong after this change. Code quality is the reviewe
   tier 3: the developer's written plan; dry run: the handoff), and every `developer` output.
 - `git diff <sha>...<head>` with the handoff's `origin/main` SHA and `Head:`. Read files at the
   head: `git show <head>:<path>`, `git grep <text> <head> -- <paths>`.
-- Read the surface list under `## Docs` in `.agents/agents/developer.md` from the working tree,
-  never at the head; in a dry run on an old head that file has no such section.
+- Read the surface list under `## Doc surfaces` in
+  `.agents/skills/manager/references/developer-handoff.md` from the working tree, never at the
+  head; in a dry run on an old head that page does not exist.
 - Read each skill whose description covers the changed paths; `designing-agent-surfaces` for
   help and MCP text, `handling-errors` for error hints.
 

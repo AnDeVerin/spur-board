@@ -65,6 +65,8 @@ Measured in bytes with `wc -c`:
 
 Over budget -> move detail to `references/`, or cut it. Do not raise the budget.
 
+`pnpm lint:agents` warns, without failing, for a file above 80% of its budget.
+
 ## Stale rules
 
 A rule you find wrong or out of date while working on a task is fixed in the same PR, as its

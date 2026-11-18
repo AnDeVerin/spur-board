@@ -74,4 +74,4 @@ higher tier's team from the current gate. Never lower a tier.
 
 ## Gate procedure
 
-Run the gates in references/gates.md; keep its order, verdict caps and spec-file rules.
+Run the gates in `references/gates.md` in order; verdicts and caps: `references/verdicts.md`.
