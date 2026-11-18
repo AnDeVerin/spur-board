@@ -10,16 +10,18 @@ const items: readonly HoverMenuItem<Choice>[] = [
 ];
 const icons: Record<Choice, IconName> = { light: 'sun', dark: 'moon', auto: 'auto' };
 
-// The menu opens upward and end-aligned, so each example reserves room above the trigger.
+// The menu opens end-aligned, so each example reserves room on the side it opens to.
 function Demo({
   caption,
   initial,
   open = false,
+  opens = 'up',
   children,
 }: {
   caption: string;
   initial?: Choice;
   open?: boolean;
+  opens?: 'up' | 'down';
   children?: ReactNode;
 }) {
   const [value, setValue] = useState<Choice | undefined>(initial);
@@ -32,7 +34,8 @@ function Demo({
           justifyContent: 'flex-end',
           gap: 'calc(var(--space-8) + var(--space-8) + var(--space-8) + var(--space-8))',
           maxWidth: 'var(--size-column)',
-          paddingBlockStart: 'calc(var(--size-control) * 4)',
+          [opens === 'up' ? 'paddingBlockStart' : 'paddingBlockEnd']:
+            'calc(var(--size-control) * 4)',
         }}
       >
         <HoverMenu
@@ -42,6 +45,7 @@ function Demo({
           value={value}
           onSelect={setValue}
           defaultOpen={open}
+          opens={opens}
         />
         {children}
       </div>
@@ -95,5 +99,15 @@ export function TwoMenus() {
     >
       <AccentMenu />
     </Demo>
+  );
+}
+export function OpensDown() {
+  return (
+    <Demo
+      caption="Opens downward, end-aligned, touching the trigger"
+      initial="dark"
+      open
+      opens="down"
+    />
   );
 }

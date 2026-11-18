@@ -43,6 +43,14 @@
   border: var(--size-hairline) solid var(--color-border-default);
   z-index: var(--z-menu);
 }
+/* Opening downward, the root is only as tall as the trigger and the menu touches its bottom. */
+.root[data-opens='down'] {
+  height: auto;
+}
+.root[data-opens='down'] .menu {
+  top: 100%;
+  bottom: auto;
+}
 .item {
   display: flex;
   align-items: center;

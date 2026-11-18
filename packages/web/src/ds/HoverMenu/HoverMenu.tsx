@@ -36,6 +36,7 @@ function removeOpenMenu(entry: OpenMenu): void {
 
 /**
  * A small icon trigger whose menu opens upward and end-aligned, with one radio choice checked.
+ * `opens="down"` opens it downward instead, still end-aligned and touching the trigger.
  *
  * - Mouse or pen hover opens it; the pointer may cross from the trigger into the menu. Leaving
  *   closes it unless a click or a key pinned it, and entering never unpins it. Touch hover is
@@ -60,6 +61,7 @@ export function HoverMenu<V extends string>({
   value,
   onSelect,
   defaultOpen = false,
+  opens = 'up',
 }: {
   label: string;
   icon: IconName;
@@ -67,6 +69,7 @@ export function HoverMenu<V extends string>({
   value?: V | undefined;
   onSelect: (value: V) => void;
   defaultOpen?: boolean;
+  opens?: 'up' | 'down';
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const pinned = useRef(defaultOpen);
@@ -145,6 +148,7 @@ export function HoverMenu<V extends string>({
     <div
       className={styles.root}
       ref={root}
+      data-opens={opens === 'down' ? 'down' : undefined}
       onPointerEnter={(event: PointerEvent<HTMLDivElement>) => {
         if (event.pointerType !== 'touch' && !open) setOpen(true);
       }}

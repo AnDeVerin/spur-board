@@ -92,6 +92,7 @@ describe('Banner, Skeleton, HoverMenu and Breakpoints examples', () => {
       'Closed',
       'Focused',
       'Open',
+      'OpensDown',
       'Selected',
       'Touch',
       'TwoMenus',
