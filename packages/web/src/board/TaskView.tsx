@@ -56,6 +56,7 @@ export function TaskView({
   answerIntent,
   followUpIntent,
   commentIntent,
+  drafts,
   refreshTask,
 }: {
   task: TaskState;
@@ -65,6 +66,7 @@ export function TaskView({
   answerIntent: BoardData['answerIntent'];
   followUpIntent: BoardData['followUpIntent'];
   commentIntent: BoardData['commentIntent'];
+  drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
   title: TaskTitle;
   row: BoardRow | undefined;
@@ -234,6 +236,7 @@ export function TaskView({
                   answerIntent={answerIntent}
                   followUpIntent={followUpIntent}
                   commentIntent={commentIntent}
+                  drafts={drafts}
                   refreshTask={refreshTask}
                 />
               )}
@@ -263,6 +266,7 @@ function TaskDiscussion({
   answerIntent,
   followUpIntent,
   commentIntent,
+  drafts,
   refreshTask,
 }: {
   value: BoardTask;
@@ -273,6 +277,7 @@ function TaskDiscussion({
   answerIntent: BoardData['answerIntent'];
   followUpIntent: BoardData['followUpIntent'];
   commentIntent: BoardData['commentIntent'];
+  drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
 }) {
   const name = (actor: string) => {
@@ -319,6 +324,7 @@ function TaskDiscussion({
                 }}
                 answerIntent={answerIntent}
                 followUpIntent={followUpIntent}
+                drafts={drafts}
                 refreshTask={refreshTask}
               />
             ))}
@@ -343,6 +349,8 @@ function TaskDiscussion({
               unavailable={unavailable}
               createIntent={(text) => commentIntent(taskKey, text)}
               refreshTask={refreshTask}
+              drafts={drafts}
+              draftId={JSON.stringify(['comment', taskKey, null])}
             />
           </div>
         </div>

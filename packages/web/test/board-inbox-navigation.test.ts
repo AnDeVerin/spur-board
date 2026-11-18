@@ -40,6 +40,7 @@ describe('inbox task navigation without configuration', () => {
         },
         readFailed: false,
         unreadable: false,
+        update: undefined,
         stream: 'offline',
         everLive: false,
         lastGoodAt: undefined,

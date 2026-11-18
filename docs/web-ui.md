@@ -43,6 +43,11 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
 - **Unreadable answer**: the daemon answered config or status, but the answer did not match what
   this page expects. The error banner says the answer could not be read; the rest is as daemon
   down. A failed request on either read still shows daemon down.
+- **Updated**: a daemon on another version answered. The page reloads itself with the same
+  address and brings back unsent answer, follow-up and comment text. When it cannot (a second
+  update to the same version in this tab, or no session storage), an error banner with **Reload**
+  names the version and the columns dim; without session storage it warns that unsent text is
+  lost.
 - **Source blind**: a warning names unresponsive project sources and their last complete poll;
   warming-up sources are omitted.
 - **Shadow**: an info banner says the dispatcher computes columns and turns but does not act.
@@ -50,4 +55,5 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
 Banners order errors, warnings, info. Data time means this browser's last good status read.
 
 **Retry now** reconnects a waiting stream and rereads config, status and inbox, showing `Retrying`
-until done. Inbox failures keep the last count without a banner.
+until done; after an update it reloads the page instead. Inbox failures keep the last count
+without a banner.

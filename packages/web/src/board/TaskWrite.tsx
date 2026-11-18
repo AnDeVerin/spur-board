@@ -29,6 +29,8 @@ export function TaskWrite({
   onOpen,
   superseded = false,
   onHeldChange,
+  drafts,
+  draftId,
 }: {
   label: string;
   kind: 'answer' | 'followup' | 'comment';
@@ -39,11 +41,16 @@ export function TaskWrite({
   onOpen?: () => void;
   superseded?: boolean;
   onHeldChange?: ((held: boolean) => void) | undefined;
+  /** Where the unsent text is kept across a reload after a board update. */
+  drafts: BoardData['drafts'];
+  draftId: string;
 }) {
   const followUp = kind === 'followup';
-  const [draft, setDraft] = useState('');
+  // Text kept across a reload comes back as unsent text, without its send's key.
+  const [restored] = useState(() => drafts.restored(draftId));
+  const [draft, setDraft] = useState(restored ?? '');
   const [sent, setSent] = useState(false);
-  const [open, setOpen] = useState(!followUp);
+  const [open, setOpen] = useState(!followUp || restored !== undefined);
   const revision = useRef(0);
   const [error, setError] = useState<string>();
   const [phase, setPhase] = useState<'idle' | 'sending' | 'refreshing' | 'refresh-failed'>('idle');
@@ -138,6 +145,19 @@ export function TaskWrite({
     reportedHeld.current = held;
     onHeldChange?.(held);
   });
+  // Only stores into the board's draft map; it publishes only when a deferred reload fires.
+  useLayoutEffect(() => {
+    drafts.report(draftId, {
+      text: unsent || unconfirmed ? draft : '',
+      busy: phase === 'sending' || phase === 'refreshing',
+    });
+  });
+  useLayoutEffect(
+    () => () => {
+      drafts.release(draftId);
+    },
+    [drafts, draftId],
+  );
   if (!eligible) {
     return (
       <>

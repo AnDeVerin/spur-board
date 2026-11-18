@@ -40,9 +40,11 @@ function taskTitle(snapshot: BoardSnapshot, task: TaskState): TaskTitle {
 /** Why the task view cannot send; undefined while it can. */
 function unavailable(snapshot: BoardSnapshot): string | undefined {
   const reason = snapshot.readFailed
-    ? snapshot.unreadable
-      ? "The board daemon's answer could not be read."
-      : 'The board daemon does not answer.'
+    ? snapshot.update !== undefined
+      ? `The board was updated to ${snapshot.update.version}.`
+      : snapshot.unreadable
+        ? "The board daemon's answer could not be read."
+        : 'The board daemon does not answer.'
     : snapshot.stream === 'offline'
       ? 'Live updates are lost.'
       : undefined;
@@ -90,6 +92,8 @@ export function Board({ data }: { data: BoardData }) {
   const [openKey, setOpenKey] = useState(() => taskParam(location.search));
   const [inboxOpen, setInboxOpen] = useState(inboxBackground);
   const [pendingProject, setPendingProject] = useState(inboxProject);
+  // The update banner's Reload was pressed; the page is about to go.
+  const [reloadPressed, setReloadPressed] = useState(false);
   const inboxTrigger = useRef<HTMLSpanElement>(null);
   const wasInboxOpen = useRef(inboxOpen);
   // The task key whose card takes focus after close when the task view returned it nowhere.
@@ -173,7 +177,17 @@ export function Board({ data }: { data: BoardData }) {
               icon={banner.icon}
               detail={banner.detail}
               action={
-                banner.variant === 'error' ? (
+                banner.action === 'reload' ? (
+                  <Button
+                    busy={reloadPressed}
+                    onClick={() => {
+                      setReloadPressed(true);
+                      data.reload();
+                    }}
+                  >
+                    {reloadPressed ? 'Reloading' : 'Reload'}
+                  </Button>
+                ) : banner.variant === 'error' ? (
                   <Button
                     busy={snapshot.retrying}
                     onClick={() => {
@@ -251,6 +265,7 @@ export function Board({ data }: { data: BoardData }) {
           answerIntent={data.answerIntent}
           followUpIntent={data.followUpIntent}
           commentIntent={data.commentIntent}
+          drafts={data.drafts}
           refreshTask={data.refreshTask}
           onClose={() => {
             closed.current = task.value?.task.key ?? task.key;

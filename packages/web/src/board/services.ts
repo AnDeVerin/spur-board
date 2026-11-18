@@ -80,7 +80,10 @@ function clockTime(iso: string): string {
   return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
 }
 
-type HealthSnapshot = Pick<BoardSnapshot, 'status' | 'readFailed' | 'unreadable' | 'lastGoodAt'>;
+type HealthSnapshot = Pick<
+  BoardSnapshot,
+  'status' | 'readFailed' | 'unreadable' | 'update' | 'lastGoodAt'
+>;
 
 /**
  * The status bar buttons in the order daemon, slack, github, spur, then jira when status.get has
@@ -92,7 +95,7 @@ export function indicators(
   snapshot: HealthSnapshot,
   formatTime: (ms: number) => string,
 ): Indicator[] {
-  const { status, readFailed, unreadable, lastGoodAt } = snapshot;
+  const { status, readFailed, unreadable, update, lastGoodAt } = snapshot;
   const names: ServiceName[] = ['daemon', 'slack', 'github', 'spur'];
   const hasJira =
     status?.services.some((row) => row.service === 'jira') === true ||
@@ -106,7 +109,12 @@ export function indicators(
         const word = unreadable ? 'unreadable' : 'no answer';
         health = {
           tone: 'error',
-          word: lastGoodAt === undefined ? word : `${word} since ${formatTime(lastGoodAt)}`,
+          word:
+            update !== undefined
+              ? `updated to ${update.version}`
+              : lastGoodAt === undefined
+                ? word
+                : `${word} since ${formatTime(lastGoodAt)}`,
         };
       }
     } else if (status) {

@@ -1,5 +1,6 @@
 import { browserOperations } from '@spur-board/contracts/browser';
 import { describe, expect, it } from 'vitest';
+import type { BoardUpdate } from '../src/board/data.ts';
 import { formatDataTime } from '../src/board/model.ts';
 import {
   daemonRows,
@@ -34,12 +35,14 @@ const first = <V>(list: readonly V[]): V => {
 interface Extra {
   readFailed?: boolean;
   unreadable?: boolean;
+  update?: BoardUpdate;
   lastGoodAt?: number;
 }
 const snap = (value: unknown, extra: Extra = {}) => ({
   status: value === undefined ? undefined : parse(value),
   readFailed: extra.readFailed ?? false,
   unreadable: extra.unreadable ?? false,
+  update: extra.update,
   lastGoodAt: extra.lastGoodAt,
 });
 const labels = (value: unknown, extra: Extra = {}) =>
@@ -147,6 +150,14 @@ describe('status bar indicators', () => {
       'github: unknown',
       'spur: unknown',
     ]);
+  });
+
+  it('names the version a board update brought while reads fail', () => {
+    const update = { version: '2.0.0', mode: 'blocked', keepsDrafts: true } as const;
+    for (const unreadable of [false, true])
+      expect(
+        labels(healthy(), { readFailed: true, unreadable, update, lastGoodAt: Date.parse(T) })[0],
+      ).toBe('daemon: updated to 2.0.0');
   });
 });
 

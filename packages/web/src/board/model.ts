@@ -95,6 +95,8 @@ interface BoardBanner {
   icon: IconName;
   text: string;
   detail?: string;
+  /** `reload`: the banner's button reloads the page instead of Retry now. */
+  action?: 'reload';
 }
 
 const sourceName = (source: BoardSource) => (source.source === 'spur' ? 'Spur' : source.source);
@@ -144,7 +146,22 @@ export function banners(snapshot: BoardSnapshot): BoardBanner[] {
     snapshot.lastGoodAt === undefined
       ? 'No data yet.'
       : `The board shows data from ${formatDataTime(snapshot.lastGoodAt)}.`;
-  if (snapshot.readFailed)
+  const { update } = snapshot;
+  if (update?.mode === 'blocked')
+    list.push({
+      variant: 'error',
+      icon: 'x',
+      text: `The board was updated to ${update.version}. Reload to continue.`,
+      detail: [
+        update.keepsDrafts ? '' : 'Unsent text cannot be kept: copy it before reloading.',
+        data,
+        snapshot.readFailed ? 'Answers and comments cannot be sent.' : '',
+      ]
+        .filter((part) => part !== '')
+        .join(' '),
+      action: 'reload',
+    });
+  else if (snapshot.readFailed)
     list.push({
       variant: 'error',
       icon: 'x',

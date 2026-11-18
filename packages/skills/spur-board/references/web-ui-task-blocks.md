@@ -39,7 +39,9 @@ After success the view rereads authoritative task data. While that read runs it 
 `Comment added. Refreshing task…`. If the read fails, the
 success remains confirmed and **Refresh task** retries only the read. It cannot resend that
 successful intent. Text edited during a send survives completion of the earlier revision.
-Closing the dialog does not persist drafts.
+Closing the dialog does not persist drafts. Unsent text survives the reload after a board
+update: a send in progress finishes first, and text whose send failed comes back as unsent
+text, so sending it again makes a new request.
 
 If a question closes, is withdrawn or is reassigned while you type, a newer unsent revision
 stays visible as selectable **Unsent answer draft** text. It is read-only: it offers no send. An unchanged confirmed submission clears after canonical

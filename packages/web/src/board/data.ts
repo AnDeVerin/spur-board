@@ -9,6 +9,9 @@ import {
 } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
+import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
+
+export type { BoardUpdate } from './update.ts';
 
 /** `closeItemIntent` refused to send because the board is unavailable. */
 export class BoardUnavailableError extends Error {
@@ -79,6 +82,8 @@ export interface BoardSnapshot {
    * match its schema: the daemon answers, this page cannot read it.
    */
   unreadable: boolean;
+  /** A daemon on another version than this page answered; undefined until one does. */
+  update: BoardUpdate | undefined;
   stream: StreamState;
   /** The stream has said hello at least once. */
   everLive: boolean;
@@ -96,6 +101,8 @@ interface BoardDataOptions {
   fetch: typeof fetch;
   storage: () => Pick<Storage, 'getItem' | 'setItem'>;
   now: () => number;
+  /** The page's version check; absent, the page never reloads and never uses session storage. */
+  update?: UpdateOptions;
 }
 
 const PROJECT_KEY = 'board-project';
@@ -107,7 +114,11 @@ const sortKey = (project: string, column: string) => `board-sort:${project}:${co
  * `useSyncExternalStore`.
  */
 export function createBoardData(options: BoardDataOptions) {
-  const api = createApi(options.fetch);
+  const check = createUpdateCheck(options.update, (value) => {
+    update({ update: value });
+  });
+  const fetcher = check.fetch(options.fetch);
+  const api = createApi(fetcher);
   const listeners = new Set<() => void>();
   let state: BoardSnapshot = {
     config: undefined,
@@ -116,6 +127,7 @@ export function createBoardData(options: BoardDataOptions) {
     inbox: undefined,
     readFailed: false,
     unreadable: false,
+    update: undefined,
     stream: 'reconnecting',
     everLive: false,
     lastGoodAt: undefined,
@@ -374,11 +386,12 @@ export function createBoardData(options: BoardDataOptions) {
       // A task opened before start already issued its read in `open`.
       config.refresh();
       inbox.refresh();
-      stream = connectStream({ fetch: options.fetch, state: onStream, refresh });
+      stream = connectStream({ fetch: fetcher, state: onStream, refresh });
     },
     /** End the controller for good: the stream closes and no read publishes again. */
     stop() {
       stopped = true;
+      check.stop();
       for (const wait of refreshWaits) wait.resolve(false);
       refreshWaits.clear();
       stream?.stop();
@@ -511,8 +524,19 @@ export function createBoardData(options: BoardDataOptions) {
         /* The order lasts until reload without storage. */
       }
     },
-    /** Retry now: reconnect the stream if it waits in backoff and re-read everything. */
+    /** Unsent text of the task view writers, kept across a reload after a board update. */
+    drafts: check.drafts,
+    /** Reload the page after a board update, keeping what unsent text it can. */
+    reload: check.reload,
+    /**
+     * Retry now: after a board update, reload the page. Else reconnect the stream if it waits in
+     * backoff and re-read everything.
+     */
     retry() {
+      if (state.update !== undefined) {
+        check.reload();
+        return;
+      }
       if (retryFrom !== undefined) return;
       retryFrom = issued + 1;
       retryWaits = new Set(['chain', 'inbox']);

@@ -6,13 +6,26 @@ import { StatusBar } from './board/StatusBar.tsx';
 import styles from './App.module.css';
 
 export function App() {
-  const [data] = useState(() =>
-    createBoardData({
+  const [data] = useState(() => {
+    // The daemon that served this page names its version; a daemon on another one reloads it.
+    const version = document.querySelector<HTMLMetaElement>('meta[name="board-version"]')?.content;
+    return createBoardData({
       fetch: (input, init) => fetch(input, init),
       storage: () => localStorage,
       now: () => Date.now(),
-    }),
-  );
+      ...(version === undefined || version === ''
+        ? {}
+        : {
+            update: {
+              version,
+              session: () => sessionStorage,
+              reload: () => {
+                location.reload();
+              },
+            },
+          }),
+    });
+  });
   const [preference, setPreference] = useState<ThemePreference>('dark');
   const theme = useRef<ReturnType<typeof createTheme>>(null);
   useEffect(() => {
