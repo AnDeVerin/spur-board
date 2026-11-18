@@ -22,6 +22,6 @@
 - `columns-basic` writes `task.column` directly, so `shadowDiffers` stays false and no shadow
   marker shows. For one, in the default `dispatcher.mode: shadow`, move a task with `--correct`,
   backwards for a stable result:
-  `pnpm stand board move 'stand-org/board#4' dev --correct --reason qa` changes only its shadow
+  `pnpm stand board move 'stand-org/board#5' dev --correct --reason qa` changes only its shadow
   column, and `status` shows `shadowDiffers: true`. The gates settle a forward move from the new
   column at once, so its shadow column can move on (`docs/cli.md`).
