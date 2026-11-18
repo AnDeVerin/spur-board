@@ -161,20 +161,26 @@ passes while `skills.codex_visibility` warns: fix that check first, then rerun.
 ### sessions.stale
 
 Lists live Spur sessions whose `SPUR_PROJECT` is a configured `spurProjects` name and that
-started before the latest `board skills install`; sessions of other projects, or with no
-project, are left out. A session does not reload new skill files on its own. When an install
-changes the version, `board skills install` asks the daemon to send each live session of a
-configured project one message to read the skill again, `SKILL.md` and every file in its
-`references/` folder; a session that got it after the latest install drops out of this check. A
-session whose message is still queued is named in a separate sentence: rerun doctor in a minute.
+started before the `spur-board` skill files last changed; sessions of other projects, or with no
+project, are left out. Each install stamp records, per file, when its content last changed and
+in which version, so an install that only changes the version flags no session. A session does
+not reload new skill files on its own. When an install changes the version, `board skills install`
+asks the daemon to message each live session of a configured project that has a file changed
+after the session was first seen or after its last delivered reload message. The message names
+only those files, `SKILL.md` first; with more than six it asks for `SKILL.md` and every file in
+the `references/` folder. A session already told about every change gets no message, and the next
+install that changes the version catches up a session whose message was never delivered. A
+session that got the message after the last content change drops out of this check. A session
+whose message is still queued is named in a separate sentence: rerun doctor in a minute.
 Stop and wake each remaining listed session in Spur: that restarts the agent and keeps the
-conversation. A session can instead read `SKILL.md` and every file in `references/` again, under
-`~/.claude/skills/spur-board/` (Claude Code) or `~/.codex/skills/spur-board/` (Codex,
-`$CODEX_HOME/skills/spur-board/` when set), but doctor compares start times with the install
-stamp and keeps listing it. When a connected session's start time cannot
-be read, the fix names it too. After a rollback to a version that was installed before, the
-sessions that already got that version's message get no new one and stay listed: stop and wake
-them.
+conversation. A session can instead read the files the fix names again (`SKILL.md` and every
+file in `references/` when it cannot tell which changed), under `~/.claude/skills/spur-board/`
+(Claude Code) or `~/.codex/skills/spur-board/` (Codex, `$CODEX_HOME/skills/spur-board/` when
+set), but doctor compares start times with the install stamp and keeps listing it. When a
+connected session's start time cannot be read, the fix names it too and asks for every file. A
+rerun at the same version sends nothing. After a rollback to a version that was installed
+before, the sessions that already got that version's message get no new one and stay listed:
+stop and wake them.
 
 A live session is a local process with `SPUR_SESSION` set whose session Spur does not report as
 ended. The doctor asks Spur's `GET /sessions` at `adapters.spur.baseUrl`, and

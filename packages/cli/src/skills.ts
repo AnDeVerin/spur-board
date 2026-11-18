@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, openSync } from 'node:fs';
 import {
   cp,
@@ -16,6 +16,8 @@ import {
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SKILL_RELOAD_FILES_MAX, skillReloadFileSchema } from '@spur-board/contracts';
+import { z } from 'zod';
 
 const stampName = '.spur-board-install.json';
 const installId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -39,9 +41,33 @@ export interface SkillInstallResult {
   changed: boolean;
 }
 
+/** Each installed file of a skill copy: its hash, when it last changed and in which version. */
+export const stampFilesSchema = z.record(
+  z.string(),
+  z.object({
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    changedAt: z.iso.datetime(),
+    changedIn: z.string(),
+  }),
+);
+
+type StampFiles = z.output<typeof stampFilesSchema>;
+
 interface InstallStamp {
   version: string;
   installedAt: string;
+  files?: StampFiles;
+}
+
+/** What `board skills install` asks running sessions to re-read; `files` absent means every file. */
+export interface SkillReloadRequest {
+  files?: Record<string, string>;
+}
+
+export interface SkillInstall {
+  results: SkillInstallResult[];
+  /** Set when a spur-board copy changed in this run, even when no file content changed. */
+  reload: SkillReloadRequest | null;
 }
 
 function bundledRoot(packageRoot: string | undefined): string {
@@ -97,6 +123,108 @@ async function currentVersion(path: string, version: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** The stamp of an installed copy, or null when it is missing or invalid. */
+async function previousStamp(path: string): Promise<InstallStamp | null> {
+  try {
+    const stamp = JSON.parse(await readFile(join(path, stampName), 'utf8')) as Partial<
+      Record<keyof InstallStamp, unknown>
+    >;
+    if (
+      typeof stamp.version !== 'string' ||
+      typeof stamp.installedAt !== 'string' ||
+      new Date(stamp.installedAt).toISOString() !== stamp.installedAt
+    ) {
+      return null;
+    }
+    const files = stampFilesSchema.safeParse(stamp.files);
+    return {
+      version: stamp.version,
+      installedAt: stamp.installedAt,
+      ...(files.success ? { files: files.data } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function sha256(path: string): Promise<string> {
+  return createHash('sha256')
+    .update(await readFile(path))
+    .digest('hex');
+}
+
+/** Hashes of the regular files under `root`, keyed by POSIX path relative to it, stamp left out. */
+async function hashFiles(root: string, prefix = ''): Promise<Map<string, string>> {
+  const hashes = new Map<string, string>();
+  for (const entry of await readdir(join(root, prefix), { withFileTypes: true })) {
+    const path = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      for (const [name, hash] of await hashFiles(root, path)) hashes.set(name, hash);
+    } else if (entry.isFile() && path !== stampName) {
+      hashes.set(path, await sha256(join(root, path)));
+    }
+  }
+  return hashes;
+}
+
+/** An old hash of `path` from the previous stamp, or from the old copy when it has no `files`. */
+async function previousHash(
+  destination: string,
+  previous: InstallStamp,
+  path: string,
+): Promise<string | null> {
+  if (previous.files !== undefined) return previous.files[path]?.sha256 ?? null;
+  try {
+    const entry = await lstat(join(destination, path));
+    return entry.isFile() ? await sha256(join(destination, path)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps the change time of a file whose content the previous install already had. */
+async function stampFiles(
+  staged: string,
+  destination: string,
+  version: string,
+  installedAt: string,
+): Promise<StampFiles> {
+  const previous = (await targetDirectory(destination)) ? await previousStamp(destination) : null;
+  const files: StampFiles = {};
+  for (const [path, hash] of [...(await hashFiles(staged))].sort(([left], [right]) =>
+    left < right ? -1 : left > right ? 1 : 0,
+  )) {
+    const unchanged =
+      previous !== null && (await previousHash(destination, previous, path)) === hash;
+    files[path] =
+      unchanged && previous.files?.[path] !== undefined
+        ? previous.files[path]
+        : unchanged
+          ? { sha256: hash, changedAt: previous.installedAt, changedIn: previous.version }
+          : { sha256: hash, changedAt: installedAt, changedIn: version };
+  }
+  return files;
+}
+
+/** The newest change time of each file over the changed spur-board copies, or null for none. */
+function reloadRequest(copies: readonly StampFiles[]): SkillReloadRequest | null {
+  if (copies.length === 0) return null;
+  const files: Record<string, string> = {};
+  for (const copy of copies) {
+    for (const [path, entry] of Object.entries(copy)) {
+      const known = files[path];
+      if (known === undefined || Date.parse(entry.changedAt) > Date.parse(known)) {
+        files[path] = entry.changedAt;
+      }
+    }
+  }
+  const names = Object.keys(files);
+  const listable =
+    names.length <= SKILL_RELOAD_FILES_MAX &&
+    names.every((name) => skillReloadFileSchema.safeParse(name).success);
+  return listable ? { files } : {};
 }
 
 async function targetDirectory(path: string): Promise<boolean> {
@@ -259,7 +387,7 @@ async function installIntoHome(
   version: string,
   options: InstallSkillsOptions,
   env: NodeJS.ProcessEnv,
-): Promise<SkillInstallResult[]> {
+): Promise<SkillInstall> {
   // Parents are checked here, not pinned: see "Accepted risks" in AGENTS.md.
   const targets = await Promise.all(
     agents.map(async (agent) => {
@@ -283,6 +411,7 @@ async function installIntoHome(
     }
   }
   const results: SkillInstallResult[] = [];
+  const reloadCopies: StampFiles[] = [];
   for (const { agent, parent } of targets) {
     for (const skill of skills) {
       const destination = join(parent, skill.name);
@@ -301,7 +430,9 @@ async function installIntoHome(
           const source = join(packageRoot, 'skills', skill.source);
           if (options.copySkill) await options.copySkill(source, staged);
           else await cp(source, staged, { recursive: true });
-          const stamp: InstallStamp = { version, installedAt };
+          const files = await stampFiles(staged, destination, version, installedAt);
+          if (skill.name === 'spur-board') reloadCopies.push(files);
+          const stamp: InstallStamp = { version, installedAt, files };
           await writeFile(join(staged, stampName), `${JSON.stringify(stamp, null, 2)}\n`);
 
           const existing = await targetDirectory(destination);
@@ -345,12 +476,10 @@ async function installIntoHome(
       results.push({ agent: agent === '.claude' ? 'claude' : 'codex', skill: skill.name, changed });
     }
   }
-  return results;
+  return { results, reload: reloadRequest(reloadCopies) };
 }
 
-export async function installSkills(
-  options: InstallSkillsOptions = {},
-): Promise<SkillInstallResult[]> {
+export async function installSkills(options: InstallSkillsOptions = {}): Promise<SkillInstall> {
   const packageRoot = bundledRoot(options.packageRoot);
   const home = await realpath(resolve(options.home ?? homedir()));
   const env = options.env ?? process.env;

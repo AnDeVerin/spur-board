@@ -8,6 +8,8 @@ interface SkillReloadOptions {
   env: NodeJS.ProcessEnv;
   home: string;
   version: string;
+  /** Each spur-board file with the time it last changed; absent, sessions re-read every file. */
+  files?: Record<string, string>;
   stderr: (text: string) => void;
 }
 
@@ -26,7 +28,7 @@ function reasonOf(error: unknown): string {
  * install has already succeeded, and `board doctor` still lists the sessions that were not told.
  */
 export async function askSessionsToReload(options: SkillReloadOptions): Promise<void> {
-  const { env, home, version, stderr } = options;
+  const { env, home, version, files, stderr } = options;
   if (env['BOARD_DAEMON_URL'] === undefined) {
     const port = readConfiguredPort(env, home);
     // Without a discoverable daemon the board is not set up yet; nobody runs a session to tell.
@@ -40,7 +42,7 @@ export async function askSessionsToReload(options: SkillReloadOptions): Promise<
       connectTimeoutMs: 2_000,
       responseTimeoutMs: 10_000,
     };
-    const { queued } = await requestSkillReload(version, config);
+    const { queued } = await requestSkillReload(version, files, config);
     if (queued > 0) {
       stderr(`Asked ${String(queued)} running session(s) to re-read the spur-board skill.\n`);
     }

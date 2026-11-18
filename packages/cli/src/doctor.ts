@@ -18,6 +18,7 @@ import {
   resolveWebOrigin,
   remoteDoctorReportSchema,
   requiredSecretKeys,
+  SKILL_RELOAD_NAMED_MAX,
   successEnvelopeSchema,
   type Config,
   type DoctorCheck as DaemonCheck,
@@ -26,6 +27,7 @@ import YAML from 'yaml';
 import { z } from 'zod';
 import { configFile, dataDirectory, resolveDaemonAddress } from './config.ts';
 import { bindLoopback, checkHttpPort } from './port.ts';
+import { stampFilesSchema } from './skills.ts';
 import { escapeTerminalControls } from './terminal.ts';
 
 export interface DoctorCheck extends DaemonCheck {
@@ -230,7 +232,14 @@ function localSecrets(config: Config, path: string, ports: DoctorPorts): DoctorC
   };
 }
 
-function stamp(ports: DoctorPorts, path: string): { version: string; installedAt: number } | null {
+interface InstallStamp {
+  version: string;
+  installedAt: number;
+  /** Each installed file's last change; null for a stamp written before files were recorded. */
+  files: Record<string, { changedAt: number; changedIn: string }> | null;
+}
+
+function stamp(ports: DoctorPorts, path: string): InstallStamp | null {
   try {
     const value: unknown = JSON.parse(ports.readText(path));
     if (
@@ -242,12 +251,32 @@ function stamp(ports: DoctorPorts, path: string): { version: string; installedAt
       typeof value.installedAt === 'string'
     ) {
       const installedAt = Date.parse(value.installedAt);
-      if (Number.isFinite(installedAt)) return { version: value.version, installedAt };
+      const parsed = stampFilesSchema.safeParse('files' in value ? value.files : undefined);
+      const files = parsed.success
+        ? Object.fromEntries(
+            Object.entries(parsed.data).map(([path, entry]) => [
+              path,
+              { changedAt: Date.parse(entry.changedAt), changedIn: entry.changedIn },
+            ]),
+          )
+        : null;
+      if (Number.isFinite(installedAt)) return { version: value.version, installedAt, files };
     }
   } catch {
     // A missing or invalid stamp is a failed version check.
   }
   return null;
+}
+
+/** When a stamp's newest file content arrived and in which version; the install without files. */
+function contentChange(entry: InstallStamp): { at: number; version: string } {
+  let newest = { at: entry.installedAt, version: entry.version };
+  if (entry.files === null) return newest;
+  newest = { at: -Infinity, version: entry.version };
+  for (const file of Object.values(entry.files)) {
+    if (file.changedAt > newest.at) newest = { at: file.changedAt, version: file.changedIn };
+  }
+  return Number.isFinite(newest.at) ? newest : { at: entry.installedAt, version: entry.version };
 }
 
 function nodeFromUnit(unit: string): string | null {
@@ -423,7 +452,7 @@ async function endedSessions(
   return ended;
 }
 
-/** Reload states that count for the newest install: delivered or pending, queued after it. */
+/** Reload states that count for the last content change: delivered or pending, queued after it. */
 type ReloadState = 'delivered' | 'pending';
 
 const reloadRecords = z.object({
@@ -437,45 +466,81 @@ const reloadRecords = z.object({
 });
 
 /**
- * The daemon's reload record of each named session for the newest install's version. Ids travel
- * in the body, never the URL. A record queued before that install, as after a rollback to a
- * version installed earlier, does not count; an unreachable daemon yields no records.
+ * The daemon's reload record of each named session under any of `versions`. Ids travel in the
+ * body, never the URL. A record queued before `since`, the last content change, does not count,
+ * as after a rollback to a version installed earlier; a delivered record beats a pending one. An
+ * unreachable daemon yields no records.
  */
 async function reloadStates(
   ids: readonly string[],
-  newest: { version: string; installedAt: number },
+  versions: readonly string[],
+  since: number,
   address: () => URL,
   ports: DoctorPorts,
 ): Promise<Map<string, ReloadState>> {
   const states = new Map<string, ReloadState>();
   const sessions = lookupIds(ids);
   if (sessions.length === 0) return states;
-  try {
-    const response = await ports.fetcher(new URL('/v1/skills/reloads', address()), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ version: newest.version, sessions }),
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (response.status !== 200) return states;
-    const envelope = successEnvelopeSchema.safeParse(await response.json());
-    const parsed = reloadRecords.safeParse(envelope.data?.value);
-    if (!parsed.success) return states;
-    for (const record of parsed.data.sessions) {
-      const queuedAt = record.queuedAt === null ? Number.NaN : Date.parse(record.queuedAt);
-      if (
-        record.state !== 'failed' &&
-        sessions.includes(record.id) &&
-        Number.isFinite(queuedAt) &&
-        queuedAt >= newest.installedAt
-      ) {
-        states.set(record.id, record.state);
+  for (const version of new Set(versions)) {
+    try {
+      const response = await ports.fetcher(new URL('/v1/skills/reloads', address()), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ version, sessions }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (response.status !== 200) continue;
+      const envelope = successEnvelopeSchema.safeParse(await response.json());
+      const parsed = reloadRecords.safeParse(envelope.data?.value);
+      if (!parsed.success) continue;
+      for (const record of parsed.data.sessions) {
+        const queuedAt = record.queuedAt === null ? Number.NaN : Date.parse(record.queuedAt);
+        if (
+          record.state !== 'failed' &&
+          sessions.includes(record.id) &&
+          Number.isFinite(queuedAt) &&
+          queuedAt >= since &&
+          states.get(record.id) !== 'delivered'
+        ) {
+          states.set(record.id, record.state);
+        }
       }
+    } catch {
+      // Without records every stale session is listed under stop and wake.
     }
-  } catch {
-    // Without records every stale session is listed under stop and wake.
   }
   return states;
+}
+
+/**
+ * What an unreached session should read again: the files changed after the earliest unreached
+ * start, or every file when a start or a file change time is unknown or the list is long.
+ */
+function staleReadAgain(
+  stamps: readonly InstallStamp[],
+  unreached: readonly string[],
+  sessions: readonly { id: string; startAt?: number }[],
+  unknownStarts: boolean,
+): string {
+  const every =
+    'read the spur-board skill again, SKILL.md and every file in its references/ folder:';
+  const starts = sessions.flatMap((session) =>
+    session.startAt !== undefined && unreached.includes(session.id) ? [session.startAt] : [],
+  );
+  if (unknownStarts || starts.length === 0) return every;
+  const since = Math.min(...starts);
+  const names = new Set<string>();
+  for (const entry of stamps) {
+    if (entry.files === null) return every;
+    for (const [path, file] of Object.entries(entry.files)) {
+      if (file.changedAt > since) names.add(path);
+    }
+  }
+  if (names.size === 0 || names.size > SKILL_RELOAD_NAMED_MAX) return every;
+  const sorted = [...names].sort((left, right) =>
+    left === 'SKILL.md' ? -1 : right === 'SKILL.md' ? 1 : left < right ? -1 : left > right ? 1 : 0,
+  );
+  return `read these files of the spur-board skill again: ${sorted.join(', ')}, under`;
 }
 
 const skillLink = '.agents/skills/spur-board';
@@ -759,14 +824,23 @@ export async function runDoctor(
       stamp(ports, join(home, agent, 'skills', skill, '.spur-board-install.json')),
     ),
   );
-  const newest = stamps.reduce<(typeof stamps)[number]>(
-    (latest, entry) =>
-      entry !== null && (latest === null || entry.installedAt > latest.installedAt)
-        ? entry
-        : latest,
+  // Only the spur-board skill is named in reload messages; the setup skill never is.
+  const boardStamps = ['.claude', '.codex'].flatMap((agent) => {
+    const entry = stamp(
+      ports,
+      join(home, agent, 'skills', 'spur-board', '.spur-board-install.json'),
+    );
+    return entry === null ? [] : [entry];
+  });
+  const newest = boardStamps.reduce<InstallStamp | null>(
+    (latest, entry) => (latest === null || entry.installedAt > latest.installedAt ? entry : latest),
     null,
   );
-  const latestInstall = newest?.installedAt ?? -Infinity;
+  const content = boardStamps.reduce<{ at: number; version: string } | null>((latest, entry) => {
+    const change = contentChange(entry);
+    return latest === null || change.at > latest.at ? change : latest;
+  }, null);
+  const latestChange = content?.at ?? -Infinity;
   // Only sessions of a configured Spur project read the board skill.
   const connected = sessions.filter(
     (session) => session.project !== undefined && configured.has(session.project),
@@ -775,7 +849,7 @@ export async function runDoctor(
   const staleSessions = [
     ...new Set(
       connected
-        .filter((session) => session.startAt !== undefined && session.startAt < latestInstall)
+        .filter((session) => session.startAt !== undefined && session.startAt < latestChange)
         .map((session) => session.id),
     ),
   ];
@@ -786,18 +860,20 @@ export async function runDoctor(
   ];
   const listed = [...new Set([...staleSessions, ...undatedSessions])];
   const reloads =
-    newest === null
+    newest === null || content === null
       ? new Map<string, ReloadState>()
       : await reloadStates(
           listed,
-          newest,
+          [content.version, newest.version],
+          content.at,
           () => resolveDaemonAddress(env, home, config.http.port),
           ports,
         );
   const unreached = staleSessions.filter((id) => reloads.get(id) === undefined);
   const unknownStarts = undatedSessions.some((id) => reloads.get(id) === undefined);
   const pending = listed.filter((id) => reloads.get(id) === 'pending');
-  const forVersion = newest === null ? '' : ` for ${newest.version}`;
+  const forVersion = content === null ? '' : ` for ${content.version}`;
+  const readAgain = staleReadAgain(boardStamps, unreached, connected, unknownStarts);
   checks.push(
     unreached.length > 0 || unknownStarts || pending.length > 0
       ? warning(
@@ -805,7 +881,7 @@ export async function runDoctor(
           [
             ...(unreached.length > 0 || unknownStarts
               ? [
-                  `Stop and wake ${sessionCount(unreached)} started before the last skill install that have no delivered reload message${forVersion}${listing(safeIds(unreached))}; stopping and waking restarts the agent and keeps the conversation. A session can instead read the spur-board skill again, SKILL.md and every file in its references/ folder: ~/.claude/skills/spur-board/ for Claude Code, ~/.codex/skills/spur-board/ for Codex ($CODEX_HOME/skills/spur-board/ when set); doctor keeps listing it after that.${unknownStarts ? ' Do the same for connected sessions whose start time is unavailable.' : ''}`,
+                  `Stop and wake ${sessionCount(unreached)} started before the spur-board skill files last changed that have no delivered reload message${forVersion}${listing(safeIds(unreached))}; stopping and waking restarts the agent and keeps the conversation. A session can instead ${readAgain} ~/.claude/skills/spur-board/ for Claude Code, ~/.codex/skills/spur-board/ for Codex ($CODEX_HOME/skills/spur-board/ when set); doctor keeps listing it after that.${unknownStarts ? ' Do the same for connected sessions whose start time is unavailable.' : ''}`,
                 ]
               : []),
             ...(pending.length > 0

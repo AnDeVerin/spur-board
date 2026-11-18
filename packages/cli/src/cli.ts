@@ -362,16 +362,17 @@ function registerSetupCommands(
 
   commandFor(program, 'skills install')
     .description(
-      'Install bundled skills for Claude Code and Codex, and ask running sessions to re-read them after a version change.',
+      'Install bundled skills for Claude Code and Codex, and ask running sessions to re-read the spur-board skill files that changed.',
     )
     .action(async () => {
-      const results = await runSetup(() => installSkills({ ...options.setup, env }));
+      const { results, reload } = await runSetup(() => installSkills({ ...options.setup, env }));
       print(results);
-      if (!results.some((entry) => entry.changed)) return;
+      if (reload === null) return;
       await askSessionsToReload({
         env,
         home: options.setup?.home ?? options.home ?? homedir(),
         version: await bundledSkillVersion(options.setup?.packageRoot),
+        ...(reload.files === undefined ? {} : { files: reload.files }),
         stderr: io.stderr,
       });
     });

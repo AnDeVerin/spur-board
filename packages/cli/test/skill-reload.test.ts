@@ -1,7 +1,7 @@
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
 
@@ -33,6 +33,7 @@ afterEach(async () => {
 async function daemon(
   status = 200,
   body: unknown = { ok: true, requestId: 'req-1', value: { version: '1.2.3', queued: 2 } },
+  replies: readonly { status: number; body: unknown }[] = [],
 ): Promise<{ port: number; requests: Recorded[] }> {
   const requests: Recorded[] = [];
   const server = createServer((request, response) => {
@@ -42,16 +43,17 @@ async function daemon(
       text += chunk;
     });
     request.on('end', () => {
+      const reply = replies[requests.length] ?? { status, body };
       requests.push({
         method: request.method,
         url: request.url,
         headers: request.headers,
         body: text,
       });
-      response.writeHead(status, {
-        'content-type': status === 200 ? 'application/json' : 'application/problem+json',
+      response.writeHead(reply.status, {
+        'content-type': reply.status === 200 ? 'application/json' : 'application/problem+json',
       });
-      response.end(JSON.stringify(body));
+      response.end(JSON.stringify(reply.body));
     });
   });
   servers.push(server);
@@ -79,7 +81,12 @@ async function fixture(): Promise<{ root: string; home: string; packageRoot: str
 const configYaml = (port: number) =>
   `projects:\n  - id: board\n    tracker: { type: github-issues, repo: example/board, label: board }\n    repos: [example/board]\n    operatorGithubLogin: operator\noperator: { slack: U0000000000 }\ndigest: { tz: UTC }\nhttp: { port: ${String(port)} }\n`;
 
-async function install(env: NodeJS.ProcessEnv, home: string, packageRoot: string) {
+async function install(
+  env: NodeJS.ProcessEnv,
+  home: string,
+  packageRoot: string,
+  now = new Date(T1),
+) {
   const output = { stdout: '', stderr: '' };
   const io: CliIo = {
     isTTY: false,
@@ -90,7 +97,11 @@ async function install(env: NodeJS.ProcessEnv, home: string, packageRoot: string
       output.stderr += text;
     },
   };
-  const exitCode = await runCli(['skills', 'install'], { env, io, setup: { home, packageRoot } });
+  const exitCode = await runCli(['skills', 'install'], {
+    env,
+    io,
+    setup: { home, packageRoot, now: () => now },
+  });
   return {
     exitCode,
     results: JSON.parse(output.stdout) as { changed: boolean }[],
@@ -99,6 +110,34 @@ async function install(env: NodeJS.ProcessEnv, home: string, packageRoot: string
 }
 
 const notAsked = 'Running sessions were not asked to re-read the spur-board skill';
+const T1 = '2026-11-04T12:00:00.000Z';
+const T2 = '2026-11-05T12:00:00.000Z';
+const T3 = '2026-11-06T12:00:00.000Z';
+const mismatch = {
+  status: 409,
+  body: {
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    code: 'version_mismatch',
+    hint: 'The daemon runs 1.2.2. Run `board service restart` to start the installed version.',
+    requestId: 'req-2',
+  },
+};
+
+async function setVersion(packageRoot: string, version: string): Promise<void> {
+  await writeFile(join(packageRoot, 'package.json'), JSON.stringify({ version }));
+}
+
+async function writeSkillFile(packageRoot: string, path: string, text: string): Promise<void> {
+  const file = join(packageRoot, 'skills', 'spur-board', path);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, text);
+}
+
+function filesOf(request: Recorded | undefined): unknown {
+  return (JSON.parse(request?.body ?? '{}') as { files?: unknown }).files;
+}
 
 describe('skills install asks running sessions to re-read the skill', () => {
   it('posts the version once, anonymously, and not again for the same version', async () => {
@@ -118,7 +157,7 @@ describe('skills install asks running sessions to re-read the skill', () => {
     expect(requests[0]).toMatchObject({
       method: 'POST',
       url: '/v1/skills/reload',
-      body: '{"version":"1.2.3"}',
+      body: `{"version":"1.2.3","files":{"SKILL.md":"${T1}"}}`,
     });
     expect(requests[0]?.headers).not.toHaveProperty('x-board-session');
     expect(requests[0]?.headers).not.toHaveProperty('authorization');
@@ -128,6 +167,83 @@ describe('skills install asks running sessions to re-read the skill', () => {
     expect(second.results.every((entry) => !entry.changed)).toBe(true);
     expect(second.stderr).toBe('');
     expect(requests).toHaveLength(1);
+  });
+
+  it('posts unchanged change times after a version-only install', async () => {
+    const { home, packageRoot } = await fixture();
+    const { port, requests } = await daemon(200, {
+      ok: true,
+      requestId: 'req-1',
+      value: { version: '1.2.4', queued: 0 },
+    });
+    const env = { BOARD_DAEMON_URL: `http://127.0.0.1:${String(port)}` };
+    await install(env, home, packageRoot, new Date(T1));
+    await setVersion(packageRoot, '1.2.4');
+    const bumped = await install(env, home, packageRoot, new Date(T2));
+    expect(bumped.exitCode).toBe(0);
+    expect(bumped.stderr).toBe('');
+    expect(requests).toHaveLength(2);
+    expect(filesOf(requests[1])).toEqual({ 'SKILL.md': T1 });
+
+    await writeFile(join(packageRoot, 'skills', 'setup', 'SKILL.md'), 'Setup skill, new\n');
+    await setVersion(packageRoot, '1.2.5');
+    await install(env, home, packageRoot, new Date(T3));
+    expect(requests).toHaveLength(3);
+    expect(filesOf(requests[2])).toEqual({ 'SKILL.md': T1 });
+  });
+
+  it('dates only the reference that changed with this install', async () => {
+    const { home, packageRoot } = await fixture();
+    const { port, requests } = await daemon();
+    const env = { BOARD_DAEMON_URL: `http://127.0.0.1:${String(port)}` };
+    await writeSkillFile(packageRoot, 'references/a.md', 'A\n');
+    await setVersion(packageRoot, '1.2.2');
+    await install(env, home, packageRoot, new Date(T1));
+    await writeSkillFile(packageRoot, 'references/a.md', 'A, new\n');
+    await setVersion(packageRoot, '1.2.3');
+    await install(env, home, packageRoot, new Date(T2));
+    expect(filesOf(requests[1])).toEqual({ 'SKILL.md': T1, 'references/a.md': T2 });
+
+    await writeSkillFile(packageRoot, 'SKILL.md', 'Board skill, new\n');
+    await writeSkillFile(packageRoot, 'references/a.md', 'A, newer\n');
+    await setVersion(packageRoot, '1.2.4');
+    await install(env, home, packageRoot, new Date(T3));
+    expect(filesOf(requests[2])).toEqual({ 'SKILL.md': T3, 'references/a.md': T3 });
+  });
+
+  it('keeps the change time of a missed notice for the next version-only install', async () => {
+    const { home, packageRoot } = await fixture();
+    const ok = {
+      status: 200,
+      body: { ok: true, requestId: 'r', value: { version: 'x', queued: 1 } },
+    };
+    const { port, requests } = await daemon(200, undefined, [ok, mismatch, ok]);
+    const env = { BOARD_DAEMON_URL: `http://127.0.0.1:${String(port)}` };
+    await writeSkillFile(packageRoot, 'references/a.md', 'A\n');
+    await setVersion(packageRoot, '1.2.2');
+    await install(env, home, packageRoot, new Date(T1));
+    await writeSkillFile(packageRoot, 'references/a.md', 'A, new\n');
+    await setVersion(packageRoot, '1.2.3');
+    const missed = await install(env, home, packageRoot, new Date(T2));
+    expect(missed.exitCode).toBe(0);
+    expect(missed.stderr).toContain(notAsked);
+    await setVersion(packageRoot, '1.2.4');
+    await install(env, home, packageRoot, new Date(T3));
+    expect(requests).toHaveLength(3);
+    expect(filesOf(requests[2])).toEqual({ 'SKILL.md': T1, 'references/a.md': T2 });
+  });
+
+  it('asks for every file when an installed name is outside the allowlist', async () => {
+    const { home, packageRoot } = await fixture();
+    const { port, requests } = await daemon();
+    await writeSkillFile(packageRoot, 'references/Notes.MD', 'Notes\n');
+    const result = await install(
+      { BOARD_DAEMON_URL: `http://127.0.0.1:${String(port)}` },
+      home,
+      packageRoot,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(requests.map((request) => request.body)).toEqual(['{"version":"1.2.3"}']);
   });
 
   it('prints nothing when the daemon queued no message', async () => {

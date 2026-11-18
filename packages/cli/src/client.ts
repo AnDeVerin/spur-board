@@ -265,15 +265,19 @@ export function fetchTokenStatus(
 
 const skillReloadOutput = z.strictObject({ version: z.string(), queued: z.int().min(0) });
 
-/** Asks the daemon to message live sessions about `version`; sends no identity header. */
+/**
+ * Asks the daemon to message live sessions about `version`, naming the `files` that changed after
+ * each session's baseline; sends no identity header.
+ */
 export function requestSkillReload(
   version: string,
+  files: Record<string, string> | undefined,
   config: ClientConfig,
 ): Promise<z.output<typeof skillReloadOutput>> {
   return send({
     method: 'POST',
     path: '/v1/skills/reload',
-    body: { version },
+    body: files === undefined ? { version } : { version, files },
     config,
     anonymous: true,
     decode: (response, raw) => decodeResponse(skillReloadOutput, response, raw),

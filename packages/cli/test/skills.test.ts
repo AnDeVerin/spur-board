@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { symlinkSync } from 'node:fs';
 import {
   cp,
@@ -14,6 +15,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { skillReloadFileSchema } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
 import { installSkills } from '../src/skills.ts';
@@ -21,6 +23,10 @@ import { installSkills } from '../src/skills.ts';
 const temporaryDirectories: string[] = [];
 const agents = ['.claude', '.codex'] as const;
 const names = ['spur-board', 'spur-board-setup'] as const;
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
 
 beforeEach(() => {
   vi.stubEnv('CODEX_HOME', '');
@@ -80,13 +86,14 @@ describe('skills install', () => {
   it('installs both package skills with version and time in both user skill folders', async () => {
     const { home, packageRoot } = await fixture();
     const installedAt = '2026-11-04T12:00:00.000Z';
-    const results = await installSkills({
+    const { results, reload } = await installSkills({
       home,
       packageRoot,
       now: () => new Date(installedAt),
     });
     expect(results).toHaveLength(4);
     expect(results.every((result) => result.changed)).toBe(true);
+    expect(reload).toEqual({ files: { 'SKILL.md': installedAt } });
     for (const agent of agents) {
       for (const name of names) {
         const path = destination(home, agent, name);
@@ -94,6 +101,13 @@ describe('skills install', () => {
         expect(JSON.parse(await readFile(join(path, '.spur-board-install.json'), 'utf8'))).toEqual({
           version: '1.2.3',
           installedAt,
+          files: {
+            'SKILL.md': {
+              sha256: sha256(name === 'spur-board' ? 'Board skill\n' : 'Setup skill\n'),
+              changedAt: installedAt,
+              changedIn: '1.2.3',
+            },
+          },
         });
         expect(await readFile(join(path, 'SKILL.md'), 'utf8')).toBe(
           name === 'spur-board' ? 'Board skill\n' : 'Setup skill\n',
@@ -104,6 +118,15 @@ describe('skills install', () => {
       (await stat(join(home, '.local', 'state', 'spur-board', 'skills-install.lock'))).isFile(),
     ).toBe(true);
     expect(await readdir(home)).not.toContain('.spur-board-skills-install.lock');
+  });
+
+  it('lists every bundled spur-board file under a name a reload message may carry', async () => {
+    const root = join(import.meta.dirname, '..', '..', 'skills', 'spur-board');
+    const files = (await readdir(root, { recursive: true, withFileTypes: true }))
+      .filter((entry) => entry.isFile())
+      .map((entry) => join(entry.parentPath, entry.name).slice(root.length + 1));
+    expect(files).toContain('SKILL.md');
+    expect(files.filter((file) => !skillReloadFileSchema.safeParse(file).success)).toEqual([]);
   });
 
   it('places the lock under a custom XDG state directory', async () => {
@@ -123,7 +146,7 @@ describe('skills install', () => {
     await writeFile(join(path, 'operator-note.txt'), 'keep this file\n');
     const stamp = await readFile(join(path, '.spur-board-install.json'), 'utf8');
 
-    const results = await installSkills({
+    const { results } = await installSkills({
       home,
       packageRoot,
       now: () => new Date('2026-11-05T12:00:00.000Z'),
@@ -156,10 +179,26 @@ describe('skills install', () => {
     const current = destination(home, '.codex', 'spur-board');
     const currentStamp = await readFile(join(current, '.spur-board-install.json'), 'utf8');
 
-    const results = await installSkills({
+    const { results, reload } = await installSkills({
       home,
       packageRoot,
       now: () => new Date('2026-11-05T12:00:00.000Z'),
+    });
+    const upgraded = {
+      sha256: sha256('Board skill\n'),
+      changedAt: '2026-11-01T12:00:00.000Z',
+      changedIn: '0.9.0',
+    };
+    expect(JSON.parse(await readFile(join(old, '.spur-board-install.json'), 'utf8'))).toEqual({
+      version: '1.2.3',
+      installedAt: '2026-11-05T12:00:00.000Z',
+      files: { 'SKILL.md': upgraded },
+    });
+    expect(reload).toEqual({ files: { 'SKILL.md': '2026-11-01T12:00:00.000Z' } });
+    expect(
+      JSON.parse(await readFile(join(unstamped, '.spur-board-install.json'), 'utf8')),
+    ).toMatchObject({
+      files: { 'SKILL.md': { changedAt: '2026-11-05T12:00:00.000Z', changedIn: '1.2.3' } },
     });
     expect(results.filter((result) => result.changed)).toEqual([
       { agent: 'claude', skill: 'spur-board', changed: true },
@@ -231,7 +270,7 @@ describe('skills install', () => {
         await symlink(outside, join(home, '.claude', 'skills'), 'dir');
       }
 
-      expect(await installSkills({ home, packageRoot })).toHaveLength(4);
+      expect((await installSkills({ home, packageRoot })).results).toHaveLength(4);
       expect(await readFile(join(outside, 'keep.txt'), 'utf8')).toBe('keep');
       const linkedParent = component === 'skills' ? outside : join(outside, 'skills');
       for (const name of names) {
@@ -332,7 +371,7 @@ describe('skills install', () => {
     const linkedHome = join(root, 'linked-home');
     await symlink(home, linkedHome, 'dir');
 
-    expect(await installSkills({ home: linkedHome, packageRoot })).toHaveLength(4);
+    expect((await installSkills({ home: linkedHome, packageRoot })).results).toHaveLength(4);
     expect(
       await readFile(join(destination(home, '.claude', 'spur-board'), 'SKILL.md'), 'utf8'),
     ).toBe('Board skill\n');
@@ -358,9 +397,9 @@ describe('skills install', () => {
     await writeFile(join(unrelatedUuidBackup, 'keep.txt'), 'UUID backup notes');
     await writeFile(`${unrelatedUuidBackup}.owner`, 'user content');
 
-    expect((await installSkills({ home, packageRoot })).every((result) => !result.changed)).toBe(
-      true,
-    );
+    expect(
+      (await installSkills({ home, packageRoot })).results.every((result) => !result.changed),
+    ).toBe(true);
     const original = await lstat(installed, { bigint: true });
     const identity = `${String(original.dev)}:${String(original.ino)}`;
     await writeFile(
@@ -369,7 +408,7 @@ describe('skills install', () => {
     );
     await rename(installed, backup);
 
-    const results = await installSkills({ home, packageRoot });
+    const { results } = await installSkills({ home, packageRoot });
     expect(results.every((result) => !result.changed)).toBe(true);
     expect(await readFile(join(installed, 'SKILL.md'), 'utf8')).toBe('Board skill\n');
     expect(await readFile(join(staged, 'keep.txt'), 'utf8')).toBe('stage notes');
@@ -403,9 +442,9 @@ describe('skills install', () => {
     await writeFile(join(userBackup, 'keep.txt'), 'user content');
     await writeFile(`${userBackup}.owner`, `spur-board backup ${userId} ${identity}\n`);
 
-    expect((await installSkills({ home, packageRoot })).every((result) => !result.changed)).toBe(
-      true,
-    );
+    expect(
+      (await installSkills({ home, packageRoot })).results.every((result) => !result.changed),
+    ).toBe(true);
     await expect(readFile(`${orphan}.owner`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(join(userBackup, 'keep.txt'), 'utf8')).toBe('user content');
     expect(await readFile(join(installed, 'SKILL.md'), 'utf8')).toBe('Board skill\n');
@@ -426,7 +465,7 @@ describe('skills install', () => {
     await writeFile(join(unowned, 'keep.txt'), 'user content');
     await writeFile(`${unowned}.owner`, 'user content');
 
-    const results = await installSkills({ home, packageRoot });
+    const { results } = await installSkills({ home, packageRoot });
     expect(results.every((result) => !result.changed)).toBe(true);
     await expect(readdir(owned)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(`${owned}.owner`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
@@ -451,7 +490,7 @@ describe('skills install', () => {
 
     const installs = await Promise.all([installSkills(options), installSkills(options)]);
     expect(
-      installs.map((results) => results.filter((result) => result.changed).length).sort(),
+      installs.map(({ results }) => results.filter((result) => result.changed).length).sort(),
     ).toEqual([0, 4]);
     expect(copies).toBe(4);
     for (const agent of agents) {
