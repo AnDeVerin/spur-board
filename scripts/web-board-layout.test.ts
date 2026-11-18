@@ -28,9 +28,9 @@ it('gives task blocks a toned rail and band, hides the folded part and right-ali
     'utf8',
   );
   const rule = (selector: string) =>
-    new RegExp(`(?:^|[}/])\\s*${selector.replace(/[.[\]()>]/g, '\\$&')}\\s*\\{([^}]+)\\}`).exec(
-      css,
-    )?.[1];
+    new RegExp(
+      `(?:^|[}/])\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]+)\\}`,
+    ).exec(css)?.[1];
   // Author `display: contents` beats the UA `[hidden]` rule unless this one restores it.
   expect(rule('.rest')).toMatch(/display:\s*contents;/);
   expect(rule('.rest[hidden]')).toMatch(/display:\s*none;/);
