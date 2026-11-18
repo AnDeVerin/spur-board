@@ -31,12 +31,18 @@ const first = <V>(list: readonly V[]): V => {
   if (found === undefined) throw new Error('empty list');
   return found;
 };
-const snap = (value: unknown, extra: { readFailed?: boolean; lastGoodAt?: number } = {}) => ({
+interface Extra {
+  readFailed?: boolean;
+  unreadable?: boolean;
+  lastGoodAt?: number;
+}
+const snap = (value: unknown, extra: Extra = {}) => ({
   status: value === undefined ? undefined : parse(value),
   readFailed: extra.readFailed ?? false,
+  unreadable: extra.unreadable ?? false,
   lastGoodAt: extra.lastGoodAt,
 });
-const labels = (value: unknown, extra: { readFailed?: boolean; lastGoodAt?: number } = {}) =>
+const labels = (value: unknown, extra: Extra = {}) =>
   indicators(snap(value, extra), time).map((item) => item.label);
 
 const texts = (rows: PanelRow[]) =>
@@ -126,6 +132,17 @@ describe('status bar indicators', () => {
     const at = Date.parse(T);
     expect(labels(healthy(), { readFailed: true, lastGoodAt: at })).toEqual([
       `daemon: no answer since ${T_TEXT}`,
+      'slack: unknown',
+      'github: unknown',
+      'spur: unknown',
+    ]);
+  });
+
+  it('names an unreadable daemon answer apart from no answer', () => {
+    const at = Date.parse(T);
+    expect(labels(healthy(), { readFailed: true, unreadable: true })[0]).toBe('daemon: unreadable');
+    expect(labels(healthy(), { readFailed: true, unreadable: true, lastGoodAt: at })).toEqual([
+      `daemon: unreadable since ${T_TEXT}`,
       'slack: unknown',
       'github: unknown',
       'spur: unknown',

@@ -39,6 +39,7 @@ describe('inbox task navigation without configuration', () => {
           handled: [{ ...base, id: 'I2', handledAt: base.at }],
         },
         readFailed: false,
+        unreadable: false,
         stream: 'offline',
         everLive: false,
         lastGoodAt: undefined,

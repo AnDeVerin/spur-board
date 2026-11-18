@@ -12,7 +12,8 @@ Service dots follow `status.get` health: green healthy, amber degraded, red fail
 `<service>: <word>`:
 
 - daemon: `running`, `stalled` after 120 s without a completed tick, `no answer since <time>` when
-  the UI cannot read it, or `no answer` if the first read fails.
+  the UI cannot read it, or `no answer` if the first read fails. `unreadable since <time>` or
+  `unreadable` when the daemon answers but the page cannot read the answer.
 - slack: `up` or `down`.
 - github, spur and jira: `polling` when healthy. GitHub takes the worst across repository pull
   request and issue sources. Otherwise the first source matching the service's colour supplies

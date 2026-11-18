@@ -40,6 +40,9 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
 - **Daemon down**: config/status read failed. The error banner gives data time and warns that
   answers/comments cannot be sent; the daemon button turns red. Initial failure shows no data
   and no columns.
+- **Unreadable answer**: the daemon answered config or status, but the answer did not match what
+  this page expects. The error banner says the answer could not be read; the rest is as daemon
+  down. A failed request on either read still shows daemon down.
 - **Source blind**: a warning names unresponsive project sources and their last complete poll;
   warming-up sources are omitted.
 - **Shadow**: an info banner says the dispatcher computes columns and turns but does not act.

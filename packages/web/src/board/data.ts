@@ -4,6 +4,7 @@ import {
   createApi,
   createMutationIntent,
   ProblemError,
+  UnreadableAnswerError,
   type Output,
 } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
@@ -73,6 +74,11 @@ export interface BoardSnapshot {
   inbox: BoardInbox | undefined;
   /** The latest `config.get` or `status.get` attempt failed. */
   readFailed: boolean;
+  /**
+   * `readFailed`, and every failing read among config and status got a 2xx answer that did not
+   * match its schema: the daemon answers, this page cannot read it.
+   */
+  unreadable: boolean;
   stream: StreamState;
   /** The stream has said hello at least once. */
   everLive: boolean;
@@ -109,6 +115,7 @@ export function createBoardData(options: BoardDataOptions) {
     status: undefined,
     inbox: undefined,
     readFailed: false,
+    unreadable: false,
     stream: 'reconnecting',
     everLive: false,
     lastGoodAt: undefined,
@@ -124,6 +131,8 @@ export function createBoardData(options: BoardDataOptions) {
   }
   let configFailed = false;
   let statusFailed = false;
+  let configUnreadable = false;
+  let statusUnreadable = false;
   // Each read is tagged when issued; a coordinator has one read in flight, so its answer
   // belongs to the latest tag.
   let issued = 0;
@@ -135,10 +144,13 @@ export function createBoardData(options: BoardDataOptions) {
   let retryWaits = new Set<'chain' | 'inbox'>();
 
   const update = (patch: Partial<BoardSnapshot>) => {
+    const readFailed = configFailed || statusFailed;
     state = {
       ...state,
       ...patch,
-      readFailed: configFailed || statusFailed,
+      readFailed,
+      unreadable:
+        readFailed && (!configFailed || configUnreadable) && (!statusFailed || statusUnreadable),
       retrying: retryFrom !== undefined,
     };
     for (const listener of listeners) listener();
@@ -159,11 +171,12 @@ export function createBoardData(options: BoardDataOptions) {
       statusIssued = { seq: ++issued, project };
       return api('status.get', { project, detail: true }, { signal });
     },
-    (value, error) => {
+    (value, error, cause) => {
       const { seq, project } = statusIssued;
       // An answer for a project that is no longer chosen is dropped; its trailing read follows.
       if (project !== state.project) return;
       statusFailed = error;
+      statusUnreadable = cause instanceof UnreadableAnswerError;
       settleRetry('chain', seq);
       update(value ? { status: value, lastGoodAt: options.now() } : {});
     },
@@ -173,12 +186,14 @@ export function createBoardData(options: BoardDataOptions) {
       configIssued = ++issued;
       return api('config.get', {}, { signal });
     },
-    (value, error) => {
+    (value, error, cause) => {
       configFailed = error;
+      configUnreadable = cause instanceof UnreadableAnswerError;
       const project = value ? resolveProject(value) : state.project;
       const patch: Partial<BoardSnapshot> = value ? { config: value } : {};
       if (project !== state.project) {
         statusFailed = false;
+        statusUnreadable = false;
         Object.assign(patch, { project, status: undefined, lastGoodAt: undefined });
       }
       // `status.get` throws for an unknown project, so it takes the project from config.
@@ -474,6 +489,8 @@ export function createBoardData(options: BoardDataOptions) {
       if (project === state.project) return;
       configFailed = false;
       statusFailed = false;
+      configUnreadable = false;
+      statusUnreadable = false;
       update({ project, status: undefined, lastGoodAt: undefined });
       status.refresh();
     },

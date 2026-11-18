@@ -77,6 +77,12 @@ export function mount(d: Daemon, storage: Record<string, string> = {}, now = () 
   });
   return values;
 }
+/** The board data the last `mount()` started. */
+export function mounted(): BoardData {
+  const data = started.at(-1);
+  if (!data) throw new Error('nothing mounted: call mount() first');
+  return data;
+}
 /** Body reads and parsing cross a few macrotasks; fake timers leave setImmediate real. */
 export async function settle() {
   await act(async () => {

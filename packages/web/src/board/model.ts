@@ -148,7 +148,9 @@ export function banners(snapshot: BoardSnapshot): BoardBanner[] {
     list.push({
       variant: 'error',
       icon: 'x',
-      text: 'The board daemon does not answer.',
+      text: snapshot.unreadable
+        ? "The board daemon's answer could not be read."
+        : 'The board daemon does not answer.',
       detail: `${data} Answers and comments cannot be sent.`,
     });
   else if (snapshot.stream === 'offline')

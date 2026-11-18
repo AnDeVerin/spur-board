@@ -37,6 +37,18 @@ function taskTitle(snapshot: BoardSnapshot, task: TaskState): TaskTitle {
   return text === undefined ? { state: 'none' } : { state: 'ready', text };
 }
 
+/** Why the task view cannot send; undefined while it can. */
+function unavailable(snapshot: BoardSnapshot): string | undefined {
+  const reason = snapshot.readFailed
+    ? snapshot.unreadable
+      ? "The board daemon's answer could not be read."
+      : 'The board daemon does not answer.'
+    : snapshot.stream === 'offline'
+      ? 'Live updates are lost.'
+      : undefined;
+  return reason === undefined ? undefined : `${reason} Answers and comments cannot be sent.`;
+}
+
 /** The current URL without `open`, keeping the other params and the hash. */
 function withoutOpen(): string {
   const params = new URLSearchParams(location.search);
@@ -235,13 +247,7 @@ export function Board({ data }: { data: BoardData }) {
           statusReadAt={snapshot.lastGoodAt}
           offline={snapshot.stream === 'offline'}
           config={snapshot.config}
-          unavailable={
-            snapshot.readFailed
-              ? 'The board daemon does not answer. Answers and comments cannot be sent.'
-              : snapshot.stream === 'offline'
-                ? 'Live updates are lost. Answers and comments cannot be sent.'
-                : undefined
-          }
+          unavailable={unavailable(snapshot)}
           answerIntent={data.answerIntent}
           followUpIntent={data.followUpIntent}
           commentIntent={data.commentIntent}
