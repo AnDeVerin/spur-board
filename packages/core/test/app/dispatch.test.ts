@@ -667,9 +667,25 @@ async function inQa(): Promise<Board> {
 }
 
 describe('QA evidence across visits', () => {
-  it.each(['comment', 'review', 'changes_requested', 'edited', 'thread', 'rerouted'] as const)(
-    'requires a fresh Dev submit for handed %s feedback while retaining worker QA',
-    async (kind) => {
+  it.each(
+    (['comment', 'review', 'changes_requested', 'edited', 'thread', 'rerouted'] as const).flatMap(
+      (kind) =>
+        (
+          [
+            'current',
+            'confirmed',
+            'mismatch',
+            'moved',
+            'timeout',
+            'closed',
+            'deferred',
+            'merged',
+          ] as const
+        ).map((settlement) => ({ kind, settlement })),
+    ),
+  )(
+    'requires confirmed Dev repair for $kind feedback ($settlement)',
+    async ({ kind, settlement }) => {
       const ctx = await inQa();
       await ctx.submit(COORD, 'T4');
       ctx.restart({ qa: true, qaOrchestrator: 'none' });
@@ -728,7 +744,72 @@ describe('QA evidence across visits', () => {
           .where('column', '=', 'qa')
           .executeTakeFirstOrThrow(),
       ).toEqual({ voided_at: null });
-      await ctx.submit(actor, repair?.id ?? '');
+      if (settlement === 'current') await ctx.submit(actor, repair?.id ?? '');
+      else {
+        if (settlement === 'closed') await ctx.pr({ state: 'closed' });
+        ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+        await expect(ctx.submit(actor, repair?.id ?? '', B)).resolves.toMatchObject({
+          status: 'pending',
+        });
+        expect(await ctx.openTurn()).toBeNull();
+        ctx.restart({ qa: true, qaOrchestrator: 'none' });
+        await ctx.spur();
+        await ctx.tick();
+        expect((await ctx.task()).column).toBe('dev');
+        if (settlement === 'timeout' || settlement === 'closed') {
+          ctx.wait(180_001);
+          await ctx.tick();
+          expect(await ctx.openTurn()).toBeNull();
+        }
+        const head = settlement === 'confirmed' ? B : settlement === 'moved' ? C : A;
+        if (settlement === 'deferred') await ctx.blind('spur', true);
+        if (settlement === 'merged') {
+          await ctx.ticket('closed');
+          await ctx.pr({ state: 'merged', mergedAt: ctx.at() });
+          expect((await ctx.task()).column).toBe('done');
+          expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
+          return;
+        }
+        if (settlement === 'closed') {
+          await ctx.github();
+          await ctx.tick();
+        } else await ctx.pr({ headSha: head });
+        if (settlement === 'deferred') {
+          expect(await ctx.openTurn()).toBeNull();
+          ctx.restart({ qa: true, qaOrchestrator: 'none' });
+          await ctx.github();
+          await ctx.spur();
+          await ctx.tick();
+        }
+        if (settlement !== 'confirmed') {
+          repair = await ctx.openTurn();
+          expect(repair).toMatchObject({ column: 'dev' });
+          expect(JSON.parse(repair?.handed ?? '[]')).toHaveLength(kind === 'thread' ? 0 : 1);
+          if (kind === 'thread') expect(repair?.reason).toContain('unresolved_threads');
+          if (head === A)
+            expect(
+              await ctx.store.db
+                .selectFrom('submission')
+                .select('voided_at')
+                .where('column', '=', 'qa')
+                .executeTakeFirstOrThrow(),
+            ).toEqual({ voided_at: null });
+          ctx.restart({ qa: true, qaOrchestrator: 'none' });
+          await ctx.pr({ headSha: head, state: 'open' });
+          await ctx.spur();
+          await ctx.tick();
+          expect(await ctx.openTurn()).toEqual(repair);
+          await ctx.ack(actor, repair?.id ?? '');
+          await ctx.submit(actor, repair?.id ?? '', head);
+        }
+        if (head !== A) {
+          for (const executor of [REV, COORD]) {
+            const upstream = await ctx.openTurn();
+            await ctx.ack(executor, upstream?.id ?? '');
+            await ctx.submit(executor, upstream?.id ?? '', head);
+          }
+        }
+      }
       await ctx.tick();
       expect((await ctx.task()).column).toBe('ready-to-merge');
       expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);

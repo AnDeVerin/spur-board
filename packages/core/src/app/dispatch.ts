@@ -596,6 +596,8 @@ function handedOf(pr: PrFacts, entry: NonNullable<PrFacts['feedback']>[number]):
 type PendingSubmit = {
   id: number;
   sha: string;
+  /** The turn that submitted this receipt; retained until confirmation or failure hand-back. */
+  turn: Row<'turn'> | undefined;
   /** `submitted_at + submitConfirmMs`: when an absent PR counts as none. */
   until: string;
 } & (
@@ -692,7 +694,27 @@ async function settlePending(
   input: SettleInput,
 ): Promise<PendingSubmit> {
   const sha = row.commit_sha.toLowerCase();
-  const pending: PendingSubmit = { id: row.id, sha, until: row.pending_until, state: 'pending' };
+  const turn = await trx
+    .selectFrom('turn')
+    .innerJoin('submission', (join) =>
+      join
+        .onRef('turn.task_id', '=', 'submission.task_id')
+        .onRef('turn.column', '=', 'submission.column')
+        .onRef('turn.epoch', '=', 'submission.epoch')
+        .onRef('turn.closed_at', '=', 'submission.submitted_at'),
+    )
+    .selectAll('turn')
+    .where('submission.id', '=', row.id)
+    .where('turn.closed_reason', '=', 'submitted')
+    .orderBy('turn.seq', 'desc')
+    .executeTakeFirst();
+  const pending: PendingSubmit = {
+    id: row.id,
+    sha,
+    turn,
+    until: row.pending_until,
+    state: 'pending',
+  };
   if (input.githubBlind) return pending;
   const { link } = input;
   if (link !== null) {
@@ -894,6 +916,9 @@ export async function readInput(
   const handed = pr?.feedbackComplete === true ? unhandled : [];
   const column = mode === 'shadow' ? (task.shadow_column ?? task.column) : task.column;
   const unclosed = last?.closed_at === null ? last : undefined;
+  const repair =
+    unclosed ??
+    (pending?.state === 'pending' || pending?.state === 'failed' ? pending.turn : undefined);
   const held =
     mode === 'on' &&
     (await trx
@@ -920,11 +945,12 @@ export async function readInput(
           pr === null ? 0 : pr.reviewThreads.filter((thread) => !thread.resolved).length,
         // Handing feedback over advances its cursor; it does not finish the repair. Threads
         // are exposed from live PR facts rather than stored in handed, so retain their reason
-        // even after GitHub reports them resolved. A submit closes this turn and releases it.
+        // even after GitHub reports them resolved. Pending receipts retain their submitting
+        // turn until confirmation or failure hand-back; closing a turn alone is not completion.
         devSubmitRequired:
-          unclosed?.column === 'dev' &&
-          ((await carriedFeedback(trx, unclosed)).length > 0 ||
-            unclosed.reason.includes('unresolved_threads')),
+          repair?.column === 'dev' &&
+          ((await carriedFeedback(trx, repair)).length > 0 ||
+            repair.reason.includes('unresolved_threads')),
         marks,
       },
       reopened:
@@ -1053,9 +1079,10 @@ async function applyOn(
   if (handedBack !== undefined) await voidFailed();
   const replaced = turn.kind === 'reroute' ? read.unclosed : undefined;
   if (replaced !== undefined) await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
-  // A reroute carries the feedback the replaced turn handed over; the cursor already counts it.
+  // Reroutes and failed pending receipts carry their original feedback; the cursor counts it.
   // An entry edited since comes as the newer copy.
-  const carried = replaced === undefined ? [] : await carriedFeedback(trx, replaced);
+  const predecessor = replaced ?? handedBack?.turn;
+  const carried = predecessor === undefined ? [] : await carriedFeedback(trx, predecessor);
   const handed = [
     ...carried.map((old) => {
       const fresh = read.handed.find((entry) => sameHanded(old, entry));
@@ -1063,10 +1090,17 @@ async function applyOn(
     }),
     ...read.handed.filter((entry) => !carried.some((old) => sameHanded(old, entry))),
   ];
-  const reason =
+  let reason =
     read.mergedOpen === undefined || turn.kind === 'reroute'
       ? turnReason(turn, replaced?.reason)
       : `${turnReason(turn)} (PR ${read.mergedOpen.repo}#${String(read.mergedOpen.number)} merged, ticket still open)`;
+  if (
+    current.column === 'dev' &&
+    predecessor?.column === 'dev' &&
+    predecessor.reason.includes('unresolved_threads') &&
+    !reason.includes('unresolved_threads')
+  )
+    reason += ', unresolved_threads';
   await openTurn(trx, {
     task: current,
     reason:

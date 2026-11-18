@@ -79,6 +79,8 @@ this opens a fresh QA turn. Executor `none` keeps worker-column reuse: a valid D
 submit can satisfy QA after correction, and retained worker QA can satisfy Dev.
 A Dev turn carrying new feedback or unresolved threads requires a fresh Dev submit;
 retained QA stays valid but cannot discharge that repair.
+Only a confirmed Dev submission completes the repair. A pending receipt keeps its
+feedback obligation; failed confirmation hands that work back to Dev.
 
 PR closed without merge with no open PR, or closed
 ticket with live work and no merged PR. `board status` lists them as operator block threads.

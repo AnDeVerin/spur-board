@@ -46,6 +46,9 @@ thread where required returns the task to Dev at once, unless a turn is taken; t
 The Dev turn hands the comments, beside a return's `code` block.
 Handed feedback and thread repairs require a fresh Dev submit, even when an earlier
 worker submission on the same head remains valid in QA.
+A pending repair keeps its feedback and thread obligation until confirmation.
+If confirmation fails, the replacement Dev turn carries that work and needs a
+fresh submit; act on the replacement turn.
 Each handed entry has its `url`, `editedAt` once edited, and a review's inline
 `comments` with `url` and `threadId`. Turns of a Dev visit opened by a return
 show `returned`: who, from, the turn, the `code` block and the verbatim reason.
