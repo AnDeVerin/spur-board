@@ -6,11 +6,13 @@ describe('commandReply', () => {
   it.each([false, true])('quotes submission reasons literally, including why=%s', (why) => {
     const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
     if (!operation) throw new Error('Missing task.get');
+    const example = why ? operation.examples[1] : operation.examples[0];
+    if (!example) throw new Error('Missing task.get why example');
     const reason = '<script>test</script> ' + ['<!chan', 'nel> *bold*'].join('');
     const reply = commandReply(
       'task.get',
       {
-        ...(why ? operation.examples[1].output : operation.examples[0].output),
+        ...example.output,
         submission: {
           column: 'dev',
           sha: 'b'.repeat(40),
