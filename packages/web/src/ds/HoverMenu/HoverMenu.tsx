@@ -1,8 +1,29 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 import { Icon, type IconName } from '../Icon/Icon.tsx';
 import styles from './HoverMenu.module.css';
 
-export type HoverMenuItem<V extends string> = { value: V; label: string; icon?: IconName };
+export type HoverMenuItem<V extends string> = {
+  value: V;
+  label: string;
+  icon?: IconName;
+  /** Listed but not chosen: it keeps roving focus and is announced as disabled. */
+  disabled?: boolean;
+  /** A short line under the item, meant for a disabled one: why it cannot be chosen now. */
+  cause?: string;
+  /** Items of one group sit together; a rule separates a group from the one before it. */
+  group?: string;
+};
+
+/** Both menu item roles, in DOM order: the roving focus and the open target walk these. */
+const itemSelector = '[role="menuitemradio"], [role="menuitem"]';
 
 type OpenMenu = { root: HTMLElement; escape: () => void };
 
@@ -37,6 +58,17 @@ function removeOpenMenu(entry: OpenMenu): void {
 /**
  * A small icon trigger whose menu opens upward and end-aligned, with one radio choice checked.
  * `opens="down"` opens it downward instead, still end-aligned and touching the trigger.
+ * `variant="action"` lists commands instead (`menuitem`, no checked state or tick, no `value`):
+ * an enabled item calls `onSelect`, closes the menu and focuses the trigger.
+ *
+ * - An item may be `disabled`, with a `cause` line under it that its `aria-describedby` names.
+ *   A disabled item stays in the roving focus, as the ARIA menu pattern keeps disabled items:
+ *   arrows, Home and End land on it, and opening by keyboard focuses it when it comes first, so
+ *   a keyboard or screen reader user hears it and its cause. Click, Enter and Space do nothing
+ *   there and the menu stays open. Its content is dimmed, not the ring.
+ * - Items with a `group` other than the item before them start after a rule.
+ * - `note` is a last line of text under the items that the menu's `aria-describedby` names.
+ * - With no items the empty box still opens: render no HoverMenu with nothing to list.
  *
  * - Mouse or pen hover opens it; the pointer may cross from the trigger into the menu. Leaving
  *   closes it unless a click or a key pinned it, and entering never unpins it. Touch hover is
@@ -62,15 +94,17 @@ export function HoverMenu<V extends string>({
   onSelect,
   defaultOpen = false,
   opens = 'up',
+  variant = 'choice',
+  note,
 }: {
   label: string;
   icon: IconName;
   items: readonly HoverMenuItem<V>[];
-  value?: V | undefined;
   onSelect: (value: V) => void;
   defaultOpen?: boolean;
   opens?: 'up' | 'down';
-}) {
+  note?: string | undefined;
+} & ({ variant?: 'choice'; value?: V | undefined } | { variant: 'action'; value?: undefined })) {
   const [open, setOpen] = useState(defaultOpen);
   const pinned = useRef(defaultOpen);
   const focusOnOpen = useRef(false);
@@ -78,11 +112,12 @@ export function HoverMenu<V extends string>({
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const action = variant === 'action';
   const focusChecked = () => {
     const current = menu.current;
     (
       current?.querySelector<HTMLElement>('[aria-checked="true"]') ??
-      current?.querySelector<HTMLElement>('[role="menuitemradio"]')
+      current?.querySelector<HTMLElement>(itemSelector)
     )?.focus();
   };
   const close = () => {
@@ -129,9 +164,7 @@ export function HoverMenu<V extends string>({
     };
   }, [open]);
   const menuKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    const options = [
-      ...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
-    ];
+    const options = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(itemSelector)];
     const current = options.findIndex((option) => option === document.activeElement);
     let index: number | undefined;
     if (event.key === 'ArrowDown') index = (current + 1) % options.length;
@@ -181,31 +214,54 @@ export function HoverMenu<V extends string>({
         <div
           ref={menu}
           id={menuId}
-          className={styles.menu}
+          className={[styles.menu, action ? styles.action : undefined].filter(Boolean).join(' ')}
           role="menu"
           aria-label={label}
+          aria-describedby={note === undefined ? undefined : `${menuId}-note`}
           onKeyDown={menuKey}
         >
-          {items.map((item) => (
-            <button
-              className={styles.item}
-              type="button"
-              role="menuitemradio"
-              aria-checked={item.value === value}
-              tabIndex={-1}
-              key={item.value}
-              onClick={() => {
-                onSelect(item.value);
-                closeToTrigger();
-              }}
-            >
-              {item.icon !== undefined && <Icon name={item.icon} />}
-              {item.label}
-              <span className={styles.tick}>
-                <Icon name="check" />
-              </span>
-            </button>
-          ))}
+          {items.map((item, index) => {
+            const causeId = `${menuId}-cause-${String(index)}`;
+            return (
+              <Fragment key={item.value}>
+                {index > 0 && item.group !== items[index - 1]?.group && (
+                  <div className={styles.separator} role="separator" />
+                )}
+                <button
+                  className={styles.item}
+                  type="button"
+                  role={action ? 'menuitem' : 'menuitemradio'}
+                  aria-checked={action ? undefined : item.value === value}
+                  aria-disabled={item.disabled === true ? true : undefined}
+                  aria-describedby={item.cause === undefined ? undefined : causeId}
+                  tabIndex={-1}
+                  onClick={() => {
+                    if (item.disabled === true) return;
+                    onSelect(item.value);
+                    closeToTrigger();
+                  }}
+                >
+                  {item.icon !== undefined && <Icon name={item.icon} />}
+                  <span>{item.label}</span>
+                  {!action && (
+                    <span className={styles.tick}>
+                      <Icon name="check" />
+                    </span>
+                  )}
+                </button>
+                {item.cause !== undefined && (
+                  <div id={causeId} className={styles.cause} role="none">
+                    {item.cause}
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
+          {note !== undefined && (
+            <div id={`${menuId}-note`} className={styles.note} role="none">
+              {note}
+            </div>
+          )}
         </div>
       )}
     </div>

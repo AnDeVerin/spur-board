@@ -71,6 +71,41 @@
 .item[aria-checked='true'] {
   color: var(--color-text-primary);
 }
+/* Action labels stay on one line; a choice label may wrap. */
+.action .item {
+  white-space: nowrap;
+}
+/* The content dims, not the button, so a focused disabled item keeps a full-strength ring. */
+.item[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+.item[aria-disabled='true'] > * {
+  opacity: var(--opacity-disabled);
+}
+/* The cause and the note wrap at the width the items give the menu; they never widen it. */
+.cause {
+  box-sizing: border-box;
+  width: 0;
+  min-width: 100%;
+  padding: 0 var(--space-2-5) var(--space-1);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
+.separator {
+  height: var(--size-hairline);
+  margin: var(--space-1) 0;
+  background: var(--color-border-default);
+}
+.note {
+  box-sizing: border-box;
+  width: 0;
+  min-width: 100%;
+  margin-top: var(--space-1);
+  padding: var(--space-1-5) var(--space-2-5) var(--space-1);
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
 .tick {
   display: inline-flex;
   margin-left: auto;
@@ -84,7 +119,7 @@
   .root:hover .trigger {
     color: var(--color-text-primary);
   }
-  .item:hover {
+  .item:hover:not([aria-disabled='true']) {
     background: var(--color-row-hover);
     color: var(--color-text-primary);
   }
