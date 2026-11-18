@@ -1,7 +1,6 @@
-import { browserOperations } from '@spur-board/contracts/browser';
 import { describe, expect, it } from 'vitest';
 import { nextColumn, whyRows } from '../src/board/task-model.ts';
-import { taskGet } from './board-fixtures.ts';
+import { allMet, condition, gate, parsedTask as task } from './board-fixtures.ts';
 
 const NOW = Date.parse('2026-11-15T14:00:00.000Z');
 const COLUMNS: Parameters<typeof nextColumn>[1] = [
@@ -10,29 +9,6 @@ const COLUMNS: Parameters<typeof nextColumn>[1] = [
   { id: 'review' },
   { id: 'done' },
 ];
-const condition = (name: string, state: string, reason: string | null = null) => ({
-  condition: name,
-  state,
-  reason,
-});
-const gate = (column: string, conditions: unknown[], enabled = true) => ({
-  column,
-  enabled,
-  ok: false,
-  blockedIn: null,
-  conditions,
-});
-const base = taskGet();
-/** A parsed `task.get` answer; `why` fields and top-level fields override the fixture. */
-function task(why: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
-  return browserOperations['task.get'].output.parse({
-    ...base,
-    turn: null,
-    why: { ...base.why, ...why },
-    ...extra,
-  });
-}
-const allMet = gate('dev', [condition('pr_open', 'met'), condition('checks_green', 'met')]);
 
 describe('next column', () => {
   const why = (column: string, gates: unknown[]) => task({ column, gates }).why;

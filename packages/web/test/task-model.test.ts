@@ -13,13 +13,16 @@ import {
   whySummary,
 } from '../src/board/task-model.ts';
 import {
+  allMet,
+  condition,
+  gate,
   historyEvent,
   parsed,
+  parsedTask as task,
   row as statusRow,
   status,
   T,
   T_TEXT,
-  taskGet,
   taskHistory,
 } from './board-fixtures.ts';
 
@@ -31,30 +34,7 @@ const COLUMNS: Parameters<typeof whyRows>[1] = [
   { id: 'done' },
 ];
 const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
-const condition = (name: string, state: string, reason: string | null = null) => ({
-  condition: name,
-  state,
-  reason,
-});
-const gate = (column: string, conditions: unknown[], enabled = true) => ({
-  column,
-  enabled,
-  ok: false,
-  blockedIn: null,
-  conditions,
-});
-const base = taskGet();
-/** A parsed `task.get` answer; `why` fields and top-level fields override the fixture. */
-function task(why: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
-  return browserOperations['task.get'].output.parse({
-    ...base,
-    turn: null,
-    why: { ...base.why, ...why },
-    ...extra,
-  });
-}
 const rows = (value: ReturnType<typeof task>) => whyRows(value, COLUMNS, NOW);
-const allMet = gate('dev', [condition('pr_open', 'met'), condition('checks_green', 'met')]);
 
 describe('why rows', () => {
   it.each([
