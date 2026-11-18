@@ -998,7 +998,7 @@ function Column({ column, rows, now, view, first }) {
         className={`spine ${DS.quiet}`}
         title={
           drop?.refused
-            ? mirrorNote(column)
+            ? mirrorNote(drop.mirror)
             : `${label}: empty · ${column.group === 'todo' ? column.source.kind : executorText(column)}`
         }
         data-part={column.group === 'todo' ? '' : undefined}
@@ -1861,6 +1861,7 @@ function BoardArea({ fixture, now }) {
       onDragOver: (event) => {
         if (!drag || drag.still) return;
         let next = null;
+        let mirror;
         if (drag.column === column.id) {
           if (!manual) {
             if (notice?.column !== column.id) setNotice({ column: column.id, kind: 'hint' });
@@ -1874,14 +1875,15 @@ function BoardArea({ fixture, now }) {
             next = { column: column.id, index: index < 0 ? cards.length : index };
           }
         } else if (column.group === 'todo' && columnOf(drag.column).group === 'todo') {
-          if (column.source.kind === 'mirror') next = { column: column.id, refused: true };
+          // No move into a mirrored part and none out of one: check both ends of the drag.
+          mirror = [column, columnOf(drag.column)].find((part) => part.source.kind === 'mirror');
+          if (mirror) next = { column: column.id, refused: true };
           else {
             event.preventDefault();
             next = { column: column.id, part: true };
           }
         }
-        if (!sameDrop(next))
-          setDrop(next ? { ...next, mirror: next.refused ? column : undefined } : null);
+        if (!sameDrop(next)) setDrop(next ? { ...next, mirror } : null);
       },
       onDrop: (event) => {
         event.preventDefault();

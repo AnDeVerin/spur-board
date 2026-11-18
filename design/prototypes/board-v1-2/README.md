@@ -135,8 +135,9 @@ Narrow screen: the same URLs at 375px.
   view. A card of a part moved by hand can be dragged to another part in any sort.
 - The card does not move until the form is sent. The reason is required and goes to the history.
   The task enters the end of the part.
-- Into or out of a mirrored part: the menu item is listed but disabled with the cause under it; a
-  drag over the part marks it in the attention colour with the same text and the drop is refused.
+- Into or out of a mirrored part: the menu item is listed but disabled with the cause under it. A
+  drag is refused whichever end is mirrored: the part under the card is marked in the attention
+  colour with the same text. A card of a mirrored part can still be reordered inside it in Manual.
 
 ### Approval freshness
 
