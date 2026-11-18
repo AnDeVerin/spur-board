@@ -754,7 +754,11 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 10));
-    insertRaw(raw, 'session_snapshot', without(sampleRows.session_snapshot, ['absent_since']));
+    insertRaw(
+      raw,
+      'session_snapshot',
+      without(sampleRows.session_snapshot, ['absent_since', 'finished_at']),
+    );
 
     migrate(raw, real);
 
@@ -764,6 +768,28 @@ describe('migrate', () => {
         last_seen: sampleRows.session_snapshot.last_seen,
         absent_since: null,
       },
+    ]);
+  });
+
+  it('backfills finish times from the last observation for finished sessions only', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    const finished = real.findIndex((m) => m.name === '0027_session_finished_at');
+    migrate(raw, real.slice(0, finished));
+    const row = without(sampleRows.session_snapshot, ['finished_at']);
+    for (const [id, state] of [
+      ['running-1', 'running'],
+      ['stopped-1', 'stopped'],
+      ['completed-1', 'completed'],
+    ])
+      insertRaw(raw, 'session_snapshot', { ...row, id, state, observed_at: `${id}-at` });
+
+    migrate(raw, real);
+
+    expect(raw.prepare('SELECT id, finished_at FROM session_snapshot ORDER BY id').all()).toEqual([
+      { id: 'completed-1', finished_at: 'completed-1-at' },
+      { id: 'running-1', finished_at: null },
+      { id: 'stopped-1', finished_at: 'stopped-1-at' },
     ]);
   });
 
@@ -1189,6 +1215,8 @@ describe('migration pins', () => {
   // and its pin instead. Changing the pin of an existing file is a review blocker.
   const PINS: Record<string, string> = {
     '0026_submission_basis.sql': '328f5b70f2e9a32c52a7a9f04d1f8755d9282e20255db1ffd61c73961afb0745',
+    '0027_session_finished_at.sql':
+      'd1b873b8fb0a02f3c1d0b2bdf9891b04906e9949071d950812d6e9ddd1819b79',
     '0019_pr_polling.sql': '17e2b7964c72320f484ae05ae54e68f5964ebc06ea6c5e014013d13f2060d198',
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',

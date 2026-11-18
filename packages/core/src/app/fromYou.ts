@@ -119,11 +119,16 @@ async function conversationWaiting(
   };
 }
 
-/** The newest stored end or absence among session rows, in milliseconds; -Infinity for none. */
-function newestGone(rows: readonly Pick<Row<'session_snapshot'>, 'ended_at' | 'absent_since'>[]) {
+/**
+ * The newest stored end, absence or finish among session rows, in milliseconds; -Infinity for
+ * none. Each is a moment a session stopped being one a ring could reach.
+ */
+function newestGone(
+  rows: readonly Pick<Row<'session_snapshot'>, 'ended_at' | 'absent_since' | 'finished_at'>[],
+) {
   let newest = -Infinity;
   for (const row of rows)
-    for (const value of [row.ended_at, row.absent_since]) {
+    for (const value of [row.ended_at, row.absent_since, row.finished_at]) {
       const ms = value === null ? NaN : Date.parse(value);
       if (ms > newest) newest = ms;
     }
@@ -133,10 +138,10 @@ function newestGone(rows: readonly Pick<Row<'session_snapshot'>, 'ended_at' | 'a
 /**
  * One `no-session:<project>:<column>` item per named-orchestrator column whose untaken turns
  * have rung with no live session to take them for `noRecipientAfterMs`. A ring's wait runs from
- * the later of its creation and the newest stored end or absence of a session that could take it:
- * one of the column's Spur project, or one linked to the task as orchestrator. The column's
- * earliest wait start is the item's `factAt`; the summary carries no count or age, so a new
- * waiting turn or a later reconcile raises nothing again.
+ * the later of its creation and the newest stored end, absence or finish of a session that could
+ * take it: one of the column's Spur project, or one linked to the task as orchestrator. The
+ * column's earliest wait start is the item's `factAt`; the summary carries no count or age, so a
+ * new waiting turn or a later reconcile raises nothing again.
  */
 async function turnsWithoutSession(
   trx: Trx,
@@ -195,10 +200,14 @@ async function turnsWithoutSession(
       gone = newestGone(
         await trx
           .selectFrom('session_snapshot')
-          .select(['ended_at', 'absent_since'])
+          .select(['ended_at', 'absent_since', 'finished_at'])
           .where('spur_project', '=', spur)
           .where((eb) =>
-            eb.or([eb('ended_at', 'is not', null), eb('absent_since', 'is not', null)]),
+            eb.or([
+              eb('ended_at', 'is not', null),
+              eb('absent_since', 'is not', null),
+              eb('finished_at', 'is not', null),
+            ]),
           )
           .execute(),
       );
@@ -210,7 +219,11 @@ async function turnsWithoutSession(
         await trx
           .selectFrom('link')
           .innerJoin('session_snapshot', 'session_snapshot.id', 'link.session_id')
-          .select(['session_snapshot.ended_at', 'session_snapshot.absent_since'])
+          .select([
+            'session_snapshot.ended_at',
+            'session_snapshot.absent_since',
+            'session_snapshot.finished_at',
+          ])
           .where('link.task_id', '=', task.id)
           .where('link.entity', '=', 'session')
           .where('link.role', '=', 'orchestrator')

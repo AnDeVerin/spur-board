@@ -312,7 +312,7 @@ const columnConfig = z.strictObject({
     .min(1)
     .optional()
     .describe(
-      "How long an untaken turn of this column may wait with no live session to ring before the board raises one operator item for the project and column, in milliseconds. The time runs from the later of the turn ring's creation and the last end or absence of a session that could take it: one of the column's Spur project, or the task's linked orchestrator. Defaults to 600000 (10 minutes). Named orchestrator only: allowed on an enabled column whose orchestrator is a Spur project, set here or filled board-wide.",
+      "How long an untaken turn of this column may wait with no live session to ring before the board raises one operator item for the project and column, in milliseconds. The time runs from the later of the turn ring's creation and the last time a session that could take it ended, left Spur's list or reached a finished state (stopped, killed, errored or completed): one of the column's Spur project, or the task's linked orchestrator. Defaults to 600000 (10 minutes). Named orchestrator only: allowed on an enabled column whose orchestrator is a Spur project, set here or filled board-wide.",
     ),
 });
 

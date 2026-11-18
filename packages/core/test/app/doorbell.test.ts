@@ -1308,6 +1308,7 @@ async function addSession(
         end_reason: null,
         first_seen: seen,
         absent_since: extra.absent === true ? seen : null,
+        finished_at: null,
         detail:
           extra.activity === undefined ? '{}' : JSON.stringify({ lastActivityAt: extra.activity }),
       })
@@ -1372,14 +1373,20 @@ async function queueRings(
  * are stored first so the observer reads a valid previous detail; the poll then writes the
  * lifecycle columns itself.
  */
-async function observeHealth(ctx: Board, id: string, health: string, project = 'web') {
+async function observeHealth(
+  ctx: Board,
+  id: string,
+  health: string,
+  project = 'web',
+  lifecycle = 'running',
+) {
   const facts = sessionFactsSchema.parse({
     id,
     spurProject: project,
     branch: null,
     pr: null,
     links: {},
-    lifecycle: 'running',
+    lifecycle,
     health,
     healthSince: ctx.now().toISOString(),
     lastActivityAt: null,
@@ -3964,12 +3971,25 @@ describe('turns', () => {
       expect(await noSession(ctx)).toEqual([]);
     });
 
-    it.each(['ended_at', 'absent_since', 'linked'] as const)(
-      'raises noRecipientAfterMs after the last session of the column goes away (%s)',
-      async (gone) => {
+    // Every way a session that could take the ring stops being a recipient. `listed` rows come
+    // from a Spur poll that still lists the session with no end time, as Spur does for a
+    // finished session; their wait runs from the first poll that saw the finished state.
+    it.each([
+      { gone: 'ended_at', linked: false },
+      { gone: 'absent_since', linked: false },
+      { gone: 'ended_at', linked: true },
+      { gone: 'listed stopped', linked: false },
+      { gone: 'listed completed', linked: false },
+      { gone: 'listed errored', linked: false },
+      { gone: 'listed killed', linked: false },
+      { gone: 'listed stopped', linked: true },
+      { gone: 'listed killed', linked: true },
+    ] as const)(
+      'raises noRecipientAfterMs after the last session of the column goes away ($gone, linked $linked)',
+      async ({ gone, linked }) => {
         const ctx = await waitingBoard();
-        const session = gone === 'linked' ? 'cur-9' : 'qa-1';
-        if (gone === 'linked') {
+        const [session, project] = linked ? ['cur-9', 'cur'] : ['qa-1', 'qa'];
+        if (linked) {
           await addSession(ctx, 'cur-9', 'cur');
           await addLink(ctx, 50, 'cur-9', 'orchestrator');
           await health(ctx, 'cur-9', 'cur', 'waiting', ctx.now());
@@ -3979,15 +3999,23 @@ describe('turns', () => {
         await reconcile(ctx);
         expect(await noSession(ctx)).toEqual([]);
         const end = ctx.now().toISOString();
-        await setSession(
-          ctx,
-          session,
-          gone === 'absent_since' ? { absent_since: end } : { ended_at: end, state: 'stopped' },
-        );
+        const lifecycle = gone.startsWith('listed ') ? gone.slice('listed '.length) : undefined;
+        const finish = () =>
+          lifecycle === undefined
+            ? Promise.resolve()
+            : observeHealth(ctx, session, 'waiting', project, lifecycle);
+        if (lifecycle !== undefined) await finish();
+        else
+          await setSession(
+            ctx,
+            session,
+            gone === 'absent_since' ? { absent_since: end } : { ended_at: end, state: 'stopped' },
+          );
 
         await reconcile(ctx);
         expect(await noSession(ctx)).toEqual([]);
         ctx.advance(NO_RECIPIENT - 1);
+        await finish();
         await reconcile(ctx);
         expect(await noSession(ctx)).toEqual([]);
         ctx.advance(1);
