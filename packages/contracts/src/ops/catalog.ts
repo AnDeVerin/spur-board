@@ -1609,6 +1609,10 @@ export const OPERATIONS = [
               checksGate: 'dev',
               reposWithoutCi: [],
               resolvedThreadsFrom: null,
+              completion: {
+                to: 'done',
+                text: 'Completion bypasses normal gates: a merged PR, or a closed ticket with no open linked PR or live worker and fresh complete non-blind observations of every configured repository and Spur. Blind GitHub or a pending submit holds both routes.',
+              },
               columns: [
                 {
                   id: 'todo',

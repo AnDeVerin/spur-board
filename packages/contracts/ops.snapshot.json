@@ -1,5 +1,5 @@
 {
-  "version": "43403952dc7f3988fce175127fdae353c6a1a7733cda350f62e0c5c133cd30c9",
+  "version": "2c65edddc0876833af87e76024b2c54293b06c434e02226ba3c6b3605901020e",
   "grants": [
     "operator",
     "project-agent",
@@ -11427,6 +11427,10 @@
                 "checksGate": "dev",
                 "reposWithoutCi": [],
                 "resolvedThreadsFrom": null,
+                "completion": {
+                  "to": "done",
+                  "text": "Completion bypasses normal gates: a merged PR, or a closed ticket with no open linked PR or live worker and fresh complete non-blind observations of every configured repository and Spur. Blind GitHub or a pending submit holds both routes."
+                },
                 "columns": [
                   {
                     "id": "todo",
@@ -11530,6 +11534,23 @@
                   ],
                   "description": "Leftmost enabled thread gate, or null when none."
                 },
+                "completion": {
+                  "type": "object",
+                  "properties": {
+                    "to": {
+                      "type": "string",
+                      "const": "done",
+                      "description": "Completion destination, separate from ordinary gate progression."
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "Alternative completion routes and their entry holds: merged PR, or a closed ticket without open linked PRs or live workers after fresh complete non-blind repository and Spur observations. Blind GitHub and pending submits hold both routes."
+                    }
+                  },
+                  "required": ["to", "text"],
+                  "additionalProperties": false,
+                  "description": "Project-wide completion route from any column other than Done. Completion bypasses normal gates; it is not conjoined with exit.conditions."
+                },
                 "columns": {
                   "type": "array",
                   "items": {
@@ -11579,7 +11600,7 @@
                               },
                               { "type": "null" }
                             ],
-                            "description": "Next enabled destination, skipping the remaining Todo group; null at Done."
+                            "description": "Next normal gate destination, skipping the remaining Todo group; null at the last enabled stage before Done and at Done itself. The project completion route separately describes entry into Done."
                           },
                           "conditions": {
                             "type": "array",
@@ -11613,12 +11634,12 @@
                               "required": ["id", "text"],
                               "additionalProperties": false
                             },
-                            "description": "Own exit conditions; gates accumulate from earlier enabled columns. Merged PRs pass all gates."
+                            "description": "Own gate conditions; gates accumulate from earlier enabled columns. Passing them alone never moves into Done. The separate project completion route bypasses these gates rather than adding a conjunctive requirement."
                           }
                         },
                         "required": ["to", "conditions"],
                         "additionalProperties": false,
-                        "description": "Exit destination and effective own rules."
+                        "description": "Normal gate progression and effective own rules; completion into Done is described separately at project level."
                       },
                       "returns": {
                         "type": "array",
@@ -11971,6 +11992,7 @@
                 "checksGate",
                 "reposWithoutCi",
                 "resolvedThreadsFrom",
+                "completion",
                 "columns"
               ],
               "additionalProperties": false

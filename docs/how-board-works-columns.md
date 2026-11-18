@@ -14,6 +14,15 @@ or curator and ordinary orchestrator questions wait for a live recipient. Questi
 addressed to the curator and course checks addressed to an agent fall back to the
 operator when no live recipient exists.
 
+`exit.to` describes normal gate progression: it is null at the last enabled stage
+before Done and at Done itself. Passing green checks and submitting an open PR
+does not complete a task. The project's separate `completion` route reaches Done
+from any other column: a merged PR, or a closed ticket with no open linked PR or
+live worker after fresh, complete, non-blind observations of every configured
+repository and Spur since the task changed. These alternatives bypass normal
+gates, including Ready to Merge's merged condition. Blind GitHub or a pending
+submit holds both completion routes.
+
 ## Columns and executors
 
 `todo`, `triage`, `ready-for-dev`, `dev`, `review`, `product-review`,

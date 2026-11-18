@@ -7,7 +7,7 @@ import {
   type Config,
 } from '@spur-board/contracts';
 import { blockAddressee, escalateBlock, parseAddressee } from '../domain/blocks/blocks.ts';
-import { nextColumn } from '../domain/dispatch.ts';
+import { describeCompletion, nextColumn } from '../domain/dispatch.ts';
 import { describeConditions, threadsFrom } from '../domain/gates.ts';
 import { curatorProject } from './authorize.ts';
 import type { Trx } from './board-utils.ts';
@@ -160,12 +160,13 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
       }
     }
     const returns = returnRules(column.id, metadata.returnable, kind === 'dispatcher', from);
+    const next = nextColumn(project, column.id);
     columns.push({
       id: column.id,
       name: metadata.name,
       ...(metadata.group === null ? {} : { group: metadata.group }),
       exit: {
-        to: nextColumn(project, column.id) ?? null,
+        to: next === 'done' ? null : (next ?? null),
         conditions: describeConditions(column.id, project),
       },
       returns,
@@ -221,6 +222,7 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
     checksGate: project.checksGate,
     reposWithoutCi: [...project.reposWithoutCi],
     resolvedThreadsFrom: from ?? null,
+    completion: describeCompletion(),
     columns,
   };
 }
@@ -231,10 +233,7 @@ function returnRules(
   dispatcher: boolean,
   from: ColumnId | undefined,
 ): string[] {
-  if (column === 'done')
-    return [
-      'A reopened ticket without a merged PR returns to Todo, not Dev. Merged PRs pass every gate; closed-ticket completion also requires no open linked PR, no live worker and ready, non-blind sources.',
-    ];
+  if (column === 'done') return ['A reopened ticket without a merged PR returns to Todo, not Dev.'];
   if (!returnable) return [];
   return [
     ...(!dispatcher ? ['The executor can return its taken turn to Dev with findings.'] : []),

@@ -50,6 +50,20 @@ export const columnsDescribeOutputSchema = z.strictObject({
           .enum(COLUMN_IDS)
           .nullable()
           .describe('Leftmost enabled thread gate, or null when none.'),
+        completion: z
+          .strictObject({
+            to: z
+              .literal('done')
+              .describe('Completion destination, separate from ordinary gate progression.'),
+            text: z
+              .string()
+              .describe(
+                'Alternative completion routes and their entry holds: merged PR, or a closed ticket without open linked PRs or live workers after fresh complete non-blind repository and Spur observations. Blind GitHub and pending submits hold both routes.',
+              ),
+          })
+          .describe(
+            'Project-wide completion route from any column other than Done. Completion bypasses normal gates; it is not conjoined with exit.conditions.',
+          ),
         columns: z
           .array(
             z.strictObject({
@@ -65,7 +79,7 @@ export const columnsDescribeOutputSchema = z.strictObject({
                     .enum(COLUMN_IDS)
                     .nullable()
                     .describe(
-                      'Next enabled destination, skipping the remaining Todo group; null at Done.',
+                      'Next normal gate destination, skipping the remaining Todo group; null at the last enabled stage before Done and at Done itself. The project completion route separately describes entry into Done.',
                     ),
                   conditions: z
                     .array(
@@ -81,10 +95,12 @@ export const columnsDescribeOutputSchema = z.strictObject({
                       }),
                     )
                     .describe(
-                      'Own exit conditions; gates accumulate from earlier enabled columns. Merged PRs pass all gates.',
+                      'Own gate conditions; gates accumulate from earlier enabled columns. Passing them alone never moves into Done. The separate project completion route bypasses these gates rather than adding a conjunctive requirement.',
                     ),
                 })
-                .describe('Exit destination and effective own rules.'),
+                .describe(
+                  'Normal gate progression and effective own rules; completion into Done is described separately at project level.',
+                ),
               returns: z
                 .array(z.string())
                 .describe('Applicable return triggers and completion/reopening qualifications.'),
