@@ -9,9 +9,8 @@ Ask one question at a time when inspection cannot answer it. Check before writin
 
 ## 1. Inspect
 
-- Check Linux, systemd user services, npm, `flock`, and Node 24.12+ (24.x) or 26.x. Read the PATH and Node executable from a live Spur session and check its version; the interactive shell may use another Node. Stop with a specific fix for any missing prerequisite.
-- Check Spur through its HTTP API, or run its CLI from the home folder. Running it inside a folder with `spur.yaml` can attach that folder to the daemon.
-- Locate `config.yaml` and `secrets.env` under `$XDG_CONFIG_HOME/spur-board/` (default `$HOME/.config/spur-board/`), or under `$BOARD_HOME` when set. Inspect configured fields, required secret _names_ and file modes, package and skill versions, service status, operator access, and product-skill visibility. Never print private file contents.
+- Check prerequisites, Spur and the config files as in [inspection](references/inspect.md).
+- Never print private file contents. Stop with a specific fix for any missing prerequisite.
 - If config exists, run `board doctor --offline`; it checks config only. If the service is reachable, record failed and warning check names from `board doctor --json`.
 
 ## 2. Install the package
@@ -31,9 +30,7 @@ Ask one question at a time when inspection cannot answer it. Check before writin
 ## 4. Start service and grant access
 
 - Check `board service status`; if absent, run `board service install`. Ask before enabling user lingering, which keeps the service running after logout.
-- If operator access is unset, ask whether to use a Spur project marked `operator`, without a token, or an outside-Spur session rooted in a chosen folder inside its git worktree if any, never above it. If no valid token exists, run `board token create --name <name> --into <folder>`, then have the operator approve the Slack prompt with its `requestHash`. Check existing agent registration before registering `board mcp`.
-- Check installed skill stamps and content. If absent or older, ask before writing skill folders, run `board skills install`, then verify both Claude Code and Codex copies.
-- For a Spur project used by Codex, check `.agents/skills/spur-board/SKILL.md` in a fresh session. If missing, ask before touching the project's main checkout. In that checkout, link the path to the installed product skill, for example `ln -s "$HOME/.codex/skills/spur-board" .agents/skills/spur-board`. Add `/.agents/skills/spur-board` to the Git exclude file resolved by `git rev-parse --git-path info/exclude`. Add `.agents/skills/spur-board` to that project's `symlinks` in `spur.yaml` and reload Spur config. Start a new session and verify the injected SKILL.md resolves.
+- For operator access, skill installs and Codex project links, follow [access and skills](references/access.md).
 
 ## 5. Finish
 

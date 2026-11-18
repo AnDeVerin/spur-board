@@ -74,16 +74,20 @@ describe('task card', () => {
       blockMarkers(blocks(block('B2', 'worker'), block('B5', 'operator'), block('B6', 'curator'))),
     ).toEqual([
       { tone: 'you', icon: 'block', text: 'B5 → you' },
-      { tone: 'default', text: '+2', title: 'Other open blocks: B2, B6' },
+      { tone: 'error', icon: 'block', text: '+2', title: 'Other open blocks: B2, B6' },
+    ]);
+    expect(blockMarkers(blocks(block('B5', 'operator'), block('B2', 'worker')))).toEqual([
+      { tone: 'you', icon: 'block', text: 'B5 → you' },
+      { tone: 'error', icon: 'block', text: '+1', title: 'Other open blocks: B2' },
     ]);
     expect(blockMarkers(blocks(block('B5', 'operator')))).toEqual([
       { tone: 'you', icon: 'block', text: 'B5 → you' },
     ]);
     expect(blockMarkers(blocks(block('B2', 'worker')))).toEqual([
-      { tone: 'default', icon: 'block', text: '1 block', title: 'Open blocks: B2' },
+      { tone: 'error', icon: 'block', text: '1 block', title: 'Open blocks: B2' },
     ]);
     expect(blockMarkers(blocks(block('B2', 'worker'), block('B3', 'orchestrator:review')))).toEqual(
-      [{ tone: 'default', icon: 'block', text: '2 blocks', title: 'Open blocks: B2, B3' }],
+      [{ tone: 'error', icon: 'block', text: '2 blocks', title: 'Open blocks: B2, B3' }],
     );
     expect(blockMarkers(blocks())).toEqual([]);
   });

@@ -35,6 +35,27 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.link[data-kind] {
+  color: var(--color-text-secondary);
+}
+.link[data-kind='ticket'] {
+  background: var(--color-fill-violet);
+}
+.link[data-kind='ticket'] svg {
+  color: var(--color-accent-violet);
+}
+.link[data-kind='pr'] {
+  background: var(--color-fill-ready);
+}
+.link[data-kind='pr'] svg {
+  color: var(--color-status-ready);
+}
+.link[data-kind='session'] {
+  background: var(--color-fill-working);
+}
+.link[data-kind='session'] svg {
+  color: var(--color-status-working);
+}
 /* One line in place of the panel: the task is not found. */
 .note {
   margin: 0;
@@ -59,9 +80,6 @@
 .item + .item {
   border-top: var(--size-hairline) solid var(--color-border-default);
 }
-.forYou {
-  border-left: var(--size-hairline) solid var(--color-you-bg);
-}
 .metadata {
   display: flex;
   flex-wrap: wrap;
@@ -83,4 +101,93 @@
 .feedback {
   color: var(--color-text-secondary);
   margin: var(--space-2) 0;
+}
+/* Blocks: each a box with a header band; a closed one folds below the band. */
+.blocks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.block {
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.mine {
+  border-left: var(--size-rail) solid var(--color-you-bg);
+}
+.mine .band {
+  background: var(--color-fill-attention);
+}
+.agent {
+  border-left: var(--size-rail) solid var(--color-status-working);
+}
+.agent .band {
+  background: var(--color-fill-working);
+}
+.band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+  width: 100%;
+  box-sizing: border-box;
+  min-height: var(--size-control);
+  padding: var(--space-1) var(--space-2-5);
+  border: 0;
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+  background: var(--color-bg-elevated);
+  font: inherit;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+/* No hover rule: quiet on the block lifts the band text while it is hovered or focused. */
+button.band {
+  cursor: pointer;
+}
+.id {
+  font-size: var(--text-small);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+}
+.status {
+  margin-left: auto;
+}
+.caret {
+  display: inline-flex;
+}
+.band[aria-expanded='false'] .caret svg {
+  transform: rotate(var(--rotate-collapsed));
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2-5);
+}
+.peek {
+  cursor: pointer;
+}
+.peek:hover {
+  background: var(--color-row-hover);
+}
+/* The folded part keeps its writers mounted; author display must not beat [hidden]. */
+.rest {
+  display: contents;
+}
+.rest[hidden] {
+  display: none;
+}
+.foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.foot > div {
+  flex: 1;
+  min-width: 0;
+}
+/* Collapse is the only button child: TextToggle takes no class. */
+.foot > button {
+  margin-left: auto;
 }

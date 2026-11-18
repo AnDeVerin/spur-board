@@ -13,7 +13,16 @@ import {
   whyRows,
   whySummary,
 } from '../src/board/task-model.ts';
-import { historyEvent, parsed, T, T_TEXT, taskGet, taskHistory } from './board-fixtures.ts';
+import {
+  historyEvent,
+  parsed,
+  row as statusRow,
+  status,
+  T,
+  T_TEXT,
+  taskGet,
+  taskHistory,
+} from './board-fixtures.ts';
 
 const NOW = Date.parse('2026-11-15T14:00:00.000Z');
 const COLUMNS = ['todo', 'dev', 'review', 'done'];
@@ -211,23 +220,32 @@ describe('header facts', () => {
     expect(age(at(minutes), NOW)).toBe(text);
   });
 
-  it('time in column skips shadow moves and is absent without a move into the column', () => {
-    const move = (kind: string, to: string, minutesAgo: number) => ({
-      at: at(minutesAgo),
-      kind,
-      actor: 'system',
-      from: 'todo',
-      to,
-      reason: 'gate_passed',
-      gate: [],
-      text: null,
+  it('time in column reads the held row entry and is absent without one in the same column', () => {
+    const held = (column: string, columnEnteredAt: string | null) =>
+      browserOperations['status.get'].output.parse(
+        status([statusRow('ex/repo#7', column, { columnEnteredAt })]),
+      ).tasks[0];
+    // A later correction into the column in why.moves does not move the row's entry time.
+    const corrected = task({
+      moves: [
+        {
+          at: at(5),
+          kind: 'task_corrected',
+          actor: 'operator',
+          from: 'todo',
+          to: 'dev',
+          reason: 'corrected',
+          gate: [],
+          text: 'Operator correction',
+        },
+      ],
     });
-    const value = task({
-      moves: [move('task_moved', 'dev', 300), move('task_shadow_moved', 'dev', 5)],
-    });
-    expect(timeInColumn(value, NOW)).toBe('5h');
-    expect(timeInColumn(task({ moves: [move('task_moved', 'review', 5)] }), NOW)).toBeUndefined();
-    expect(timeInColumn(task({}, { why: undefined }), NOW)).toBeUndefined();
+    expect(timeInColumn(corrected.task.column, held('dev', at(300)), NOW)).toBe('5h');
+    expect(timeInColumn('dev', held('dev', null), NOW)).toBeUndefined();
+    expect(timeInColumn('dev', undefined, NOW)).toBeUndefined();
+    expect(timeInColumn('dev', held('review', at(300)), NOW)).toBeUndefined();
+    // With no good status read yet there is no clock to count to, so no time.
+    expect(timeInColumn('dev', held('dev', at(300)), undefined)).toBeUndefined();
   });
 
   it('actor names and the ?open= task param', () => {
@@ -293,21 +311,23 @@ describe('link chips', () => {
       },
     );
     expect(linkChips(value.links, 'ABC-1', null, null)).toEqual([
-      { icon: 'ticket', text: 'ticket ABC-3', href: null, label: undefined },
+      { kind: 'ticket', icon: 'ticket', text: 'ticket ABC-3', href: null, label: undefined },
       {
         text: 'ticket #5',
+        kind: 'ticket',
         icon: 'ticket',
         href: 'https://github.com/ex/repo/issues/5',
         label: 'ticket #5, ex/repo',
       },
       {
         text: 'PR #7',
+        kind: 'pr',
         icon: 'pr',
         href: 'https://github.com/ex/repo/pull/7',
         label: 'PR #7, ex/repo',
       },
-      { icon: 'pr', text: 'PR repo#8', href: null, label: undefined },
-      { icon: 'term', text: 'session s1', href: null, label: undefined },
+      { kind: 'pr', icon: 'pr', text: 'PR repo#8', href: null, label: undefined },
+      { kind: 'session', icon: 'term', text: 'session s1', href: null, label: undefined },
     ]);
   });
   it('links a session to the Spur UI when the origin is set', () => {
@@ -315,6 +335,7 @@ describe('link chips', () => {
     expect(linkChips(value.links, 'ABC-1', 'https://spur.example', null)).toEqual([
       {
         text: 'session sb-1234',
+        kind: 'session',
         icon: 'term',
         href: 'https://spur.example/sessions/sb-1234',
         label: 'session sb-1234, Spur session',
@@ -330,18 +351,20 @@ describe('link chips', () => {
     expect(linkChips(value.links, 'ABC-1', null, 'https://j.test/browse/')).toEqual([
       {
         text: 'ticket ABC-3',
+        kind: 'ticket',
         icon: 'ticket',
         href: 'https://j.test/browse/ABC-3',
         label: 'ticket ABC-3, Jira',
       },
       {
         text: 'ticket #5',
+        kind: 'ticket',
         icon: 'ticket',
         href: 'https://github.com/ex/repo/issues/5',
         label: 'ticket #5, ex/repo',
       },
-      { icon: 'ticket', text: 'ticket #6', href: null, label: undefined },
-      { icon: 'ticket', text: 'ticket foo bar', href: null, label: undefined },
+      { kind: 'ticket', icon: 'ticket', text: 'ticket #6', href: null, label: undefined },
+      { kind: 'ticket', icon: 'ticket', text: 'ticket foo bar', href: null, label: undefined },
     ]);
   });
   it.each([

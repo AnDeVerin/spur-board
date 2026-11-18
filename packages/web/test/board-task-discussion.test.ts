@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Board } from '../src/board/Board.tsx';
 import { createBoardData, type BoardData } from '../src/board/data.ts';
+import taskStyles from '../src/board/TaskView.module.css';
 import {
   block,
   comment,
@@ -329,7 +330,7 @@ describe('task discussion', () => {
     expect(items[2]?.querySelector('form')).toBeNull();
     expect(items[2]?.textContent).toContain('answered via Slack');
     expect(
-      [...(items[2]?.querySelectorAll(':scope > div > p:not([role])') ?? [])].map(
+      [...(items[2]?.querySelectorAll(`.${taskStyles.reply ?? ''} > p`) ?? [])].map(
         (reply) => reply.textContent,
       ),
     ).toEqual(['old reply', 'latest reply']);

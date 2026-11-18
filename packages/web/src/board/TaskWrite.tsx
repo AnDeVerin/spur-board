@@ -15,7 +15,9 @@ const cancelIn = (root: HTMLElement | null) =>
 /**
  * Each caller keeps its draft and retry intent through canonical data refreshes. A `followup`
  * starts closed as a `Follow up` button; its form closes on Cancel or once a send is reread.
- * `superseded` hides an answer's `sent` line while idle.
+ * `superseded` hides an answer's `sent` line while idle. `onHeldChange` hears whether the writer
+ * holds text or a send its block must keep in view: a draft, a retained draft, an open follow-up
+ * form or a send in flight. It is called only when that answer changes.
  */
 export function TaskWrite({
   label,
@@ -26,6 +28,7 @@ export function TaskWrite({
   refreshTask,
   onOpen,
   superseded = false,
+  onHeldChange,
 }: {
   label: string;
   kind: 'answer' | 'followup' | 'comment';
@@ -35,6 +38,7 @@ export function TaskWrite({
   refreshTask: BoardData['refreshTask'];
   onOpen?: () => void;
   superseded?: boolean;
+  onHeldChange?: ((held: boolean) => void) | undefined;
 }) {
   const followUp = kind === 'followup';
   const [draft, setDraft] = useState('');
@@ -122,11 +126,19 @@ export function TaskWrite({
       )}
     </>
   );
+  const unsent =
+    draft !== '' &&
+    (intent.current === undefined || revision.current !== submittedRevision.current);
+  const unconfirmed = draft !== '' && !sent && !unsent;
+  const held =
+    phase !== 'idle' || (followUp && open) || (eligible ? draft !== '' : unsent || unconfirmed);
+  const reportedHeld = useRef(false);
+  useLayoutEffect(() => {
+    if (reportedHeld.current === held) return;
+    reportedHeld.current = held;
+    onHeldChange?.(held);
+  });
   if (!eligible) {
-    const unsent =
-      draft !== '' &&
-      (intent.current === undefined || revision.current !== submittedRevision.current);
-    const unconfirmed = draft !== '' && !sent && !unsent;
     return (
       <>
         {(unsent || unconfirmed) && (

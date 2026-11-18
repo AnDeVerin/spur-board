@@ -144,6 +144,10 @@ export const ROWS = [
   }),
   row('ABC-3', 'dev', { ticket: null }),
 ];
+/** `ROWS` with ex/repo#7 two hours in DEV; the shared rows carry no column time. */
+export const ROWS_TIMED = ROWS.map((task) =>
+  task.key === 'ex/repo#7' ? { ...task, columnEnteredAt: '2026-11-15T12:00:00.000Z' } : task,
+);
 export const source = (name: string, extra: Record<string, unknown> = {}) => ({
   source: name,
   observedAt: null,
@@ -310,10 +314,10 @@ export const taskHistory = (
 ) => ({ task: taskGet().task, events });
 
 /** Fake daemon: the five reads by route and an event stream the test writes to. */
-export function daemon() {
+export function daemon(tasks: unknown[] = ROWS) {
   const routes: Record<OpId, Route> = {
     'config.get': () => Promise.resolve(envelope(config)),
-    'status.get': () => Promise.resolve(envelope(status())),
+    'status.get': () => Promise.resolve(envelope(status(tasks))),
     'inbox.operator': () => Promise.resolve(envelope(inbox(2))),
     'task.get': () => Promise.resolve(envelope(taskGet())),
     'block.answer': () => {

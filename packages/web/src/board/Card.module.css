@@ -150,6 +150,7 @@
   text-decoration: none;
 }
 .cell[data-tone='ok'] {
+  background: var(--color-fill-ready);
   color: var(--color-text-secondary);
 }
 .cell[data-tone='ok'] svg {

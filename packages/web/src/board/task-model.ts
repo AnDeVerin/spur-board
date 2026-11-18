@@ -8,7 +8,7 @@ import {
 } from '../lib/links.ts';
 import type { BoardHistory, BoardTask } from './data.ts';
 import { formatDataTime, shortKey, type BoardRow } from './model.ts';
-import { quickLinks } from './card.ts';
+import { age as cardAge, quickLinks } from './card.ts';
 
 type TaskWhy = NonNullable<BoardTask['why']>;
 type TaskGate = TaskWhy['gates'][number];
@@ -23,6 +23,7 @@ export interface WhyRow {
 
 /** A link chip: a link when `href` is set, else plain text. */
 export interface LinkChip {
+  kind: TaskLink['kind'];
   icon: IconName;
   text: string;
   href: string | null;
@@ -115,13 +116,21 @@ export function historyRuns(events: BoardHistory['events']) {
     });
 }
 
-/** Time in the task's column: since the last real move into it; none without such a move. */
-export function timeInColumn(value: BoardTask, now: number): string | undefined {
-  const move = value.why?.moves
-    .filter((candidate) => candidate.to === value.task.column)
-    .filter((candidate) => candidate.kind !== 'task_shadow_moved')
-    .at(-1);
-  return move === undefined ? undefined : age(move.at, now);
+/**
+ * Time in the task's `column`, from its held `status.get` row: `columnEnteredAt` skips shadow
+ * moves and shadow corrections and falls back to when the task was added. It counts to
+ * `statusReadAt`, the last good status read, with the card's `age`, so the header and the card
+ * read the same. None without a row, an entry time or a read, or when the row is in another
+ * column.
+ */
+export function timeInColumn(
+  column: string,
+  row: BoardRow | undefined,
+  statusReadAt: number | undefined,
+): string | undefined {
+  if (row?.column !== column || row.columnEnteredAt === null || statusReadAt === undefined)
+    return undefined;
+  return cardAge(row.columnEnteredAt, statusReadAt);
 }
 
 /** The gate of the column the dispatcher works from; undefined means the gate is unknown. */
@@ -244,13 +253,25 @@ function linkChip(
   if (link.kind === 'session') {
     const text = `session ${link.ref}`;
     const href = sessionLinkHref(spurUiOrigin, link.ref);
-    return { icon: 'term', text, href, label: href === null ? undefined : `${text}, Spur session` };
+    return {
+      kind: link.kind,
+      icon: 'term',
+      text,
+      href,
+      label: href === null ? undefined : `${text}, Spur session`,
+    };
   }
   if (link.kind === 'ticket' && taskLinkHref(link) === null) {
     const text = `ticket ${shortKey(link.ref)}`;
     const base = sameJiraProject(link.ref, taskKey) ? ticketBrowseBase : null;
     const href = ticketBrowseHref(base, link.ref);
-    return { icon: 'ticket', text, href, label: href === null ? undefined : `${text}, Jira` };
+    return {
+      kind: link.kind,
+      icon: 'ticket',
+      text,
+      href,
+      label: href === null ? undefined : `${text}, Jira`,
+    };
   }
   const href = taskLinkHref(link);
   const ref = githubRef(link.ref);
@@ -261,6 +282,7 @@ function linkChip(
         ? `PR #${ref.number}`
         : `PR ${link.ref}`;
   return {
+    kind: link.kind,
     icon: link.kind === 'ticket' ? 'ticket' : 'pr',
     text,
     href,

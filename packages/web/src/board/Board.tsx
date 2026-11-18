@@ -231,6 +231,7 @@ export function Board({ data }: { data: BoardData }) {
           spurUiOrigin={snapshot.config?.web.spurUiOrigin ?? null}
           ticketBrowseBase={project?.ticketBrowseBase ?? null}
           now={data.now()}
+          statusReadAt={snapshot.lastGoodAt}
           offline={snapshot.stream === 'offline'}
           config={snapshot.config}
           unavailable={

@@ -16,13 +16,20 @@ is selected once configuration arrives. Back and Forward restore both layers.
 ## What it shows
 
 - The header reads `#7 · DEV · 2h 9m`: short key (hover for full key), uppercase column with
-  the active Now tab's weight and colour, then lowercase time since the move. No move omits time;
-  no task data shows only the key. Now/History tabs and Close sit at its right.
+  the active Now tab's weight and colour, then lowercase time since the task entered its
+  column, from its card's status row: shadow moves and shadow corrections do not count, and a
+  task that never moved counts from when it was added. Like the card, it counts to the last good
+  status read, so both show the same time. A task with no card in the chosen project, or a card
+  in another column, omits the time; no task data shows only the key.
+  Now/History tabs and Close sit at its right.
 - `Now` starts with the ticket title. It comes from the task's card on the Board, so it reads as
   a placeholder until the status read answers, and a task with no card in the chosen project has
   no title line.
 - Below the title come chips for the task's links: tickets, then pull requests, then sessions.
-  They reuse the card's bordered PR status cells with ticket, PR and terminal icons. The current
+  They reuse the card's bordered PR status cells with ticket, PR and terminal icons. Soft fills
+  and icon colours follow link kind: violet for tickets, green for PRs and blue for sessions,
+  with neutral text and borders, including links without a destination. A green PR link identifies
+  its kind regardless of the PR's checks or status. The current
   ticket uses its held card's Jira browse URL or safe observed URL, even without a browse base
   or task link; unsafe/missing destinations stay plain, outside Tab order.
   Long labels truncate with full accessible text and hover titles. Links use

@@ -117,7 +117,8 @@ export function blockMarkers(blocks: BoardRow['blocks']): Marker[] {
         ? []
         : [
             {
-              tone: 'default' as const,
+              tone: 'error' as const,
+              icon: 'block' as const,
               text: `+${String(rest.length)}`,
               title: `Other open blocks: ${rest.join(', ')}`,
             },
@@ -126,7 +127,7 @@ export function blockMarkers(blocks: BoardRow['blocks']): Marker[] {
   if (rest.length === 0) return [];
   return [
     {
-      tone: 'default',
+      tone: 'error',
       icon: 'block',
       text: `${String(rest.length)} ${rest.length === 1 ? 'block' : 'blocks'}`,
       title: `Open blocks: ${rest.join(', ')}`,

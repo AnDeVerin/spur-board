@@ -62,100 +62,85 @@ const move = (to: string, time: number, kind = 'task_moved', shadow = false) => 
   }),
 });
 it.each([
-  { name: 'original add', events: [], expected: 0, parity: false },
+  { name: 'original add', events: [], expected: 0 },
   {
     name: 'two real moves',
     events: [move('dev', 1), move('review', 2)],
     expected: 2,
-    parity: true,
   },
   {
     name: 'later shadow move',
     events: [move('review', 1), move('review', 2, 'task_shadow_moved')],
     expected: 1,
-    parity: true,
   },
   {
     name: 'exit and return',
     events: [move('review', 1), move('dev', 2), move('review', 3)],
     expected: 3,
-    parity: true,
   },
   {
     name: 'real correction',
     events: [move('review', 1), move('review', 2, 'task_corrected')],
     expected: 2,
-    parity: true,
   },
   {
-    name: 'shadow correction divergence',
+    name: 'shadow correction',
     events: [move('review', 1), move('review', 2, 'task_corrected', true)],
     expected: 1,
-    parity: false,
   },
   {
     name: 'journal order over timestamp',
     events: [move('review', 3), move('review', 1)],
     expected: 1,
-    parity: true,
   },
   {
     name: 'reactivation preserves original add',
     events: [],
     expected: 0,
-    parity: false,
   },
-])(
-  'derives real column entry in both status modes: $name',
-  async ({ name, events, expected, parity }) => {
-    const store = openTempStore('board-status-entry-').store;
-    stores.push(store);
-    const task = await store.db
-      .insertInto('task')
+])('derives real column entry in both status modes: $name', async ({ name, events, expected }) => {
+  const store = openTempStore('board-status-entry-').store;
+  stores.push(store);
+  const task = await store.db
+    .insertInto('task')
+    .values({
+      project: 'first',
+      tracker_kind: 'github-issues',
+      tracker_id: '1',
+      key: 'o/first#1',
+      membership: 'active',
+      column: 'review',
+      created_at: entryTime(0),
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  for (const event of events)
+    await store.db
+      .insertInto('event')
       .values({
+        ...event,
+        task_id: task.id,
         project: 'first',
-        tracker_kind: 'github-issues',
-        tracker_id: '1',
-        key: 'o/first#1',
-        membership: 'active',
-        column: 'review',
-        created_at: entryTime(0),
+        actor: 'operator',
+        actor_ref: null,
+        v: 1,
+        request_id: null,
       })
-      .returning('id')
-      .executeTakeFirstOrThrow();
-    for (const event of events)
-      await store.db
-        .insertInto('event')
-        .values({
-          ...event,
-          task_id: task.id,
-          project: 'first',
-          actor: 'operator',
-          actor_ref: null,
-          v: 1,
-          request_id: null,
-        })
-        .execute();
-    const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
-    if (name === 'reactivation preserves original add') {
-      const apply = createApply({ store, config, clock });
-      await apply(registry['task.archive'], { task: 'o/first#1' }, 'operator');
-      await apply(registry['task.add'], { task: 'o/first#1' }, 'operator');
-    }
-    const query = createQuery({ store, config, clock });
-    for (const detail of [false, true]) {
-      const status = await query(registry['status.get'], { detail }, 'operator');
-      expect(status.tasks[0]?.columnEnteredAt).toBe(entryTime(expected));
-    }
-    const view = await query(registry['task.get'], { task: 'o/first#1', why: true }, 'operator');
-    expect(view).not.toHaveProperty('columnEnteredAt');
-    const selected = view.why?.moves
-      .filter((entry) => entry.to === 'review' && entry.kind !== 'task_shadow_moved')
-      .at(-1)?.at;
-    if (parity) expect(selected).toBe(entryTime(expected));
-    if (name === 'shadow correction divergence') expect(selected).toBe(entryTime(2));
-  },
-);
+      .execute();
+  const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+  if (name === 'reactivation preserves original add') {
+    const apply = createApply({ store, config, clock });
+    await apply(registry['task.archive'], { task: 'o/first#1' }, 'operator');
+    await apply(registry['task.add'], { task: 'o/first#1' }, 'operator');
+  }
+  const query = createQuery({ store, config, clock });
+  for (const detail of [false, true]) {
+    const status = await query(registry['status.get'], { detail }, 'operator');
+    expect(status.tasks[0]?.columnEnteredAt).toBe(entryTime(expected));
+  }
+  const view = await query(registry['task.get'], { task: 'o/first#1', why: true }, 'operator');
+  expect(view).not.toHaveProperty('columnEnteredAt');
+});
 
 it('registers status and limits an agent to its configured project', async () => {
   const store = openTempStore('board-registry-').store;
