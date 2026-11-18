@@ -544,7 +544,8 @@ listener. When the live indicator in the header stays on reconnecting or offline
 - The proxy's read timeout must exceed 15 seconds: the daemon sends a heartbeat comment every
   15 seconds and nothing else on a quiet board.
 - A 502 or a dropped stream while the daemon restarts is expected; the shell reconnects with
-  backoff and rereads everything once the new daemon answers.
+  backoff and rereads everything once the new daemon answers. When the new daemon runs another
+  version, after an update, the page reloads itself and keeps unsent text.
 - A 503 with `Retry-After: 5` and a plain-text body means 32 streams are already open, one per
   browser tab. Close unused tabs of the shell. A client that stops reading keeps its slot until it
   disconnects.
@@ -554,7 +555,8 @@ listener. When the live indicator in the header stays on reconnecting or offline
 Reconnecting changes only the header indicator. Once the stream is offline, or a configuration
 or status read fails, the columns dim under an error banner that gives the time of the data on
 screen and offers Retry now: it reconnects at once when the stream waits between attempts, and
-rereads. A failed read keeps the last data; a first load that fails shows the banner with no
+rereads; while an update reload is pending it reloads the page instead. When the page cannot
+reload itself after an update, the banner names the version and offers Reload. A failed read keeps the last data; a first load that fails shows the banner with no
 data and no columns. See the [web UI](docs/web-ui.md) guide for every state. The status bar keeps
 the theme menu, which works independently of reads and tolerates blocked browser storage. Auto
 follows the system; explicit Light/Dark choices stay fixed.

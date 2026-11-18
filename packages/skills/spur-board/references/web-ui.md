@@ -44,10 +44,10 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
   this page expects. The error banner says the answer could not be read; the rest is as daemon
   down. A failed request on either read still shows daemon down.
 - **Updated**: a daemon on another version answered. The page reloads itself with the same
-  address and brings back unsent answer, follow-up and comment text. When it cannot (a second
-  update to the same version in this tab, or no session storage), an error banner with **Reload**
-  names the version and the columns dim; without session storage it warns that unsent text is
-  lost.
+  address and brings back unsent answer, follow-up and comment text. When it cannot (it already
+  reloaded once for that version and still runs the older page, or session storage fails), an
+  error banner with **Reload** names the version and the columns dim; without session storage it
+  warns that unsent text is lost.
 - **Source blind**: a warning names unresponsive project sources and their last complete poll;
   warming-up sources are omitted.
 - **Shadow**: an info banner says the dispatcher computes columns and turns but does not act.
