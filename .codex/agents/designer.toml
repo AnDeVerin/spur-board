@@ -37,10 +37,11 @@ Six passes on the spec, no mockups:
    MUST FIX. The containers the handoff names from the issue, and any the slice README names,
    carry the `quiet` class. Check the row of each Proposed parts part the screen uses, and of
    each control inside it, against `## Proposed parts` in the decisions doc; a breach is
-   MUST FIX. A file in the handoff's ds-on-main list that belongs to a covering export is MUST FIX
+   MUST FIX. For an export only on `main`, judge coverage from its doc comment and examples in
+   the handoff's ds-on-main patch; a covering one is MUST FIX
    "merge `main` at `<sha>` and use `<Name>`".
-5. DS changes - only when the handoff carries a `packages/web/src/ds/` patch. Each API change in
-   it has its own decisions row with the code from `## Design system changes` in
+5. DS changes - only when the handoff carries the branch's `packages/web/src/ds/` patch. Each
+   API change in it has its own decisions row with the code from `## Design system changes` in
    `docs/design-system-decisions.md`; a missing row, a wrong code, `None` or no section is
    MUST FIX.
 

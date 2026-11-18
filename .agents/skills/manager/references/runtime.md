@@ -42,7 +42,7 @@ Every spawn gets, and only gets:
   screenshots the run already has and the step 11 report path and screenshot names; for an issue
   naming `design/prototypes/<slice>/`, also the prototype folder, the listed states, the quiet
   containers the issue names, the decisions section the `developer` returned and the ds-on-main
-  list from `git diff --name-only HEAD...<sha> -- packages/web/src/ds/` with that fetched SHA;
+  patch from `git diff HEAD...<sha> -- packages/web/src/ds/` with that fetched SHA;
   when the changed files touch `packages/web/src/ds/`, also the patch from
   `git diff <sha>...HEAD -- packages/web/src/ds/` and the decisions section the `developer`
   returned;
