@@ -19,6 +19,7 @@ import {
   remoteDoctorReportSchema,
   requiredSecretKeys,
   SKILL_RELOAD_NAMED_MAX,
+  sortSkillFiles,
   successEnvelopeSchema,
   type Config,
   type DoctorCheck as DaemonCheck,
@@ -270,10 +271,8 @@ function stamp(ports: DoctorPorts, path: string): InstallStamp | null {
 
 /** When a stamp's newest file content arrived and in which version; the install without files. */
 function contentChange(entry: InstallStamp): { at: number; version: string } {
-  let newest = { at: entry.installedAt, version: entry.version };
-  if (entry.files === null) return newest;
-  newest = { at: -Infinity, version: entry.version };
-  for (const file of Object.values(entry.files)) {
+  let newest = { at: -Infinity, version: entry.version };
+  for (const file of Object.values(entry.files ?? {})) {
     if (file.changedAt > newest.at) newest = { at: file.changedAt, version: file.changedIn };
   }
   return Number.isFinite(newest.at) ? newest : { at: entry.installedAt, version: entry.version };
@@ -537,10 +536,7 @@ function staleReadAgain(
     }
   }
   if (names.size === 0 || names.size > SKILL_RELOAD_NAMED_MAX) return every;
-  const sorted = [...names].sort((left, right) =>
-    left === 'SKILL.md' ? -1 : right === 'SKILL.md' ? 1 : left < right ? -1 : left > right ? 1 : 0,
-  );
-  return `read these files of the spur-board skill again: ${sorted.join(', ')}, under`;
+  return `read these files of the spur-board skill again: ${sortSkillFiles(names).join(', ')}, under`;
 }
 
 const skillLink = '.agents/skills/spur-board';

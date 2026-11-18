@@ -198,12 +198,13 @@ async function stampFiles(
   )) {
     const unchanged =
       previous !== null && (await previousHash(destination, previous, path)) === hash;
-    files[path] =
-      unchanged && previous.files?.[path] !== undefined
-        ? previous.files[path]
-        : unchanged
-          ? { sha256: hash, changedAt: previous.installedAt, changedIn: previous.version }
-          : { sha256: hash, changedAt: installedAt, changedIn: version };
+    files[path] = unchanged
+      ? (previous.files?.[path] ?? {
+          sha256: hash,
+          changedAt: previous.installedAt,
+          changedIn: previous.version,
+        })
+      : { sha256: hash, changedAt: installedAt, changedIn: version };
   }
   return files;
 }

@@ -1,4 +1,9 @@
-import { actorIdSchema, SKILL_RELOAD_NAMED_MAX, type Config } from '@spur-board/contracts';
+import {
+  actorIdSchema,
+  SKILL_RELOAD_NAMED_MAX,
+  sortSkillFiles,
+  type Config,
+} from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import type { OutboxState } from '../store/schema.ts';
@@ -39,10 +44,7 @@ function skillReloadText(version: string, names?: readonly string[]): string {
   if (names === undefined || names.length === 0 || names.length > SKILL_RELOAD_NAMED_MAX) {
     return every;
   }
-  const sorted = names.toSorted((left, right) =>
-    left === 'SKILL.md' ? -1 : right === 'SKILL.md' ? 1 : left < right ? -1 : left > right ? 1 : 0,
-  );
-  const named = `spur-board skill updated to ${version}. Before your next board command, read these files of the spur-board skill again: ${sorted.join(', ')}. They are under ${SKILL_PATHS}.`;
+  const named = `spur-board skill updated to ${version}. Before your next board command, read these files of the spur-board skill again: ${sortSkillFiles(names).join(', ')}. They are under ${SKILL_PATHS}.`;
   return named.length <= SKILL_RELOAD_TEXT_MAX ? named : every;
 }
 

@@ -17,3 +17,10 @@ export const skillReloadFilesSchema = z
   .refine((files) => Object.keys(files).length <= SKILL_RELOAD_FILES_MAX, {
     message: `At most ${String(SKILL_RELOAD_FILES_MAX)} files.`,
   });
+
+/** Skill file names in the order a reload names them: `SKILL.md` first, then by code unit. */
+export function sortSkillFiles(names: Iterable<string>): string[] {
+  return [...names].sort((left, right) =>
+    left === 'SKILL.md' ? -1 : right === 'SKILL.md' ? 1 : left < right ? -1 : left > right ? 1 : 0,
+  );
+}
