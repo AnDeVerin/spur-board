@@ -14,6 +14,7 @@ const MAX_STRINGS = 4096;
 const MAX_PASSES = 32;
 type ScanContext = {
   config: Config;
+  clock: { now(): number } | undefined;
   known: ReadonlyMap<string, string | null>;
   unseen: Set<string>;
 };
@@ -136,6 +137,14 @@ export function scanConfig(): Config {
   return context.config;
 }
 
+/** Task-change barriers must sample an injected clock while the write transaction is held. */
+export function taskChangeContext(): { config: Config; clock: { now(): number } } {
+  const context = receipts.getStore();
+  if (context?.clock === undefined)
+    throw new Error('Task changes require a scan transaction with an acceptance clock');
+  return { config: context.config, clock: context.clock };
+}
+
 /** Used by the common outbox insertion point before it issues SQL. */
 export function checkGatewayStrings(
   strings: readonly string[],
@@ -166,10 +175,16 @@ export async function scanTransaction<T>(
   store: Store,
   config: Config,
   fn: (trx: Kysely<Tables>) => Promise<T>,
+  clock?: { now(): number },
 ): Promise<T> {
   const known = new Map<string, string | null>();
   for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-    const context: ScanContext = { config, known, unseen: new Set() };
+    const context: ScanContext = {
+      config,
+      clock,
+      known,
+      unseen: new Set(),
+    };
     try {
       return await receipts.run(context, () =>
         store.transaction(async (trx) => {

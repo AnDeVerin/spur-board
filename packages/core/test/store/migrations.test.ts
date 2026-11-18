@@ -21,6 +21,7 @@ import { Kysely, SqliteDialect, type CompiledQuery } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import { advanceConversationCursor } from '../../src/app/conversations.ts';
 import { reconcileTaskPrs } from '../../src/app/pr-associations.ts';
+import { scanTransaction } from '../../src/app/secrets.ts';
 import type { Tables } from '../../src/index.ts';
 import {
   KEEP_BACKUPS,
@@ -282,7 +283,7 @@ describe('migrate', () => {
 
   it('looks up retained PRs by task key through pr_ticket_key', async () => {
     const { raw, db } = rawDb(join(tempDir(), 'board.db'));
-    migrate(raw, real);
+    const migration = migrate(raw, real);
     const config = configSchema.parse({
       projects: [
         {
@@ -349,7 +350,17 @@ describe('migrate', () => {
     });
     cleanup.push(() => logged.destroy());
 
-    await reconcileTaskPrs(logged, config, taskId, sampleRows.task.created_at);
+    await scanTransaction(
+      {
+        db: logged,
+        migration,
+        transaction: (fn) => logged.transaction().execute(fn),
+        close: () => logged.destroy(),
+      },
+      config,
+      (trx) => reconcileTaskPrs(trx, config, taskId, sampleRows.task.created_at),
+      { now: () => Date.parse(sampleRows.task.created_at) },
+    );
 
     expect(queries.map((q) => q.sql)).not.toContain('select * from "pr_snapshot"');
     const lookup = queries.find((q) => q.sql.includes('"pr_ticket_key"'));

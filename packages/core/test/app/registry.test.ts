@@ -552,8 +552,8 @@ it('rolls sources and the daemon into one health row per service', async () => {
   now -= 1;
   expect(await row('daemon')).toEqual(healthy('daemon', startedAt, lastDispatchAt));
 
-  // After a restart the runner has not loaded lastCompleteAt, so its first report clears the
-  // stored one; the source still reads as warming up, not as never completed.
+  // An empty runner report preserves the accepted complete stamp. Process freshness still
+  // makes the restarted source read as warming up until its first complete poll.
   const restarted = createObservationCore({ store, config: healthConfig, clock: movingClock });
   const restartedRegistry = createOperationRegistry({
     config: healthConfig,
@@ -567,12 +567,16 @@ it('rolls sources and the daemon into one health row per service', async () => {
       (entry) => entry.service === 'github',
     );
   expect((await restartedGithub())?.reason).toBe(`${githubAlpha} warming up`);
+  const previousComplete = (
+    await query(restartedRegistry['status.get'], {}, 'operator')
+  ).sources.find((entry) => entry.source === githubAlpha)?.lastCompleteAt;
+  expect(previousComplete).toEqual(expect.any(String));
   await restarted.reportSourceState(githubAlpha, { gone: [] });
   expect(
     (await query(restartedRegistry['status.get'], {}, 'operator')).sources.find(
       (entry) => entry.source === githubAlpha,
     )?.lastCompleteAt,
-  ).toBeNull();
+  ).toBe(previousComplete);
   expect(await restartedGithub()).toMatchObject({
     state: 'degraded',
     reason: `${githubAlpha} warming up`,

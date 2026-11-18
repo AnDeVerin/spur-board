@@ -24,51 +24,58 @@ export async function tickBoard(deps: {
   const slot = new Date(
     lastLocalSlot(now, config.digest.tz, config.archive.doneWeekday),
   ).toISOString();
-  await scanTransaction(store, config, async (trx) => {
-    const sourceStates = await trx
-      .selectFrom('source_state')
-      .select(['source', 'blind_reason'])
-      .execute();
-    const blind = new Set(
-      sourceStates.filter((source) => source.blind_reason !== null).map((source) => source.source),
-    );
-    const tasks = await trx
-      .selectFrom('task')
-      .selectAll()
-      .where('membership', '!=', 'archived')
-      .execute();
-    for (const task of tasks) {
-      if (task.terminal_at === null || task.terminal_at > slot || task.archive_slot_at === slot)
-        continue;
-      const project = config.projects.find((entry) => entry.id === task.project);
-      // Only the repos gate the slot, re-checked here at slot time: a terminal task has no open
-      // PR, which holds only once every repo polled completely, unblind, since its last change.
-      // Spur and the tracker are not checked: they cannot show an open PR.
-      if (
-        project === undefined ||
-        project.repos.some((repo) => {
-          const source = prSourceId(project.id, repo);
-          const complete = completeSince.get(source);
-          return (
-            blind.has(source) ||
-            complete === undefined ||
-            complete <= (task.last_change_at ?? task.created_at)
-          );
-        })
-      )
-        continue;
-      await trx
-        .updateTable('task')
-        .set({ archive_slot_at: slot })
-        .where('id', '=', task.id)
+  await scanTransaction(
+    store,
+    config,
+    async (trx) => {
+      const sourceStates = await trx
+        .selectFrom('source_state')
+        .select(['source', 'blind_reason'])
         .execute();
-      await archiveTask(trx, { task, reason: 'done', actor: 'system', at });
-    }
-    await reconcileQuestionAddressees(trx, config, at);
-    await dispatchJournaled(trx, { config, at: new Date(now), complete: completeSince });
-    // A pending submit's bound passes, or a poll confirms it, with no journal entry.
-    await dispatchPendingSubmits(trx, { config, at: new Date(now), complete: completeSince });
-    await remindStuckTurns(trx, config, new Date(now));
-    await reconcileItems(trx, config, now, completeSince.has('spur'), deps.warnSkipped);
-  });
+      const blind = new Set(
+        sourceStates
+          .filter((source) => source.blind_reason !== null)
+          .map((source) => source.source),
+      );
+      const tasks = await trx
+        .selectFrom('task')
+        .selectAll()
+        .where('membership', '!=', 'archived')
+        .execute();
+      for (const task of tasks) {
+        if (task.terminal_at === null || task.terminal_at > slot || task.archive_slot_at === slot)
+          continue;
+        const project = config.projects.find((entry) => entry.id === task.project);
+        // Only the repos gate the slot, re-checked here at slot time: a terminal task has no open
+        // PR, which holds only once every repo polled completely, unblind, since its last change.
+        // Spur and the tracker are not checked: they cannot show an open PR.
+        if (
+          project === undefined ||
+          project.repos.some((repo) => {
+            const source = prSourceId(project.id, repo);
+            const complete = completeSince.get(source);
+            return (
+              blind.has(source) ||
+              complete === undefined ||
+              complete <= (task.last_change_at ?? task.created_at)
+            );
+          })
+        )
+          continue;
+        await trx
+          .updateTable('task')
+          .set({ archive_slot_at: slot })
+          .where('id', '=', task.id)
+          .execute();
+        await archiveTask(trx, { task, reason: 'done', actor: 'system', at });
+      }
+      await reconcileQuestionAddressees(trx, config, at);
+      await dispatchJournaled(trx, { config, at: new Date(now), complete: completeSince });
+      // A pending submit's bound passes, or a poll confirms it, with no journal entry.
+      await dispatchPendingSubmits(trx, { config, at: new Date(now), complete: completeSince });
+      await remindStuckTurns(trx, config, new Date(now));
+      await reconcileItems(trx, config, now, completeSince.has('spur'), deps.warnSkipped);
+    },
+    clock,
+  );
 }

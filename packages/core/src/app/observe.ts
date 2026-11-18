@@ -214,7 +214,8 @@ async function sourceState(
     .onConflict((oc) =>
       oc.column('source').doUpdateSet((eb) => ({
         initialized: observedAt === undefined ? eb.ref('source_state.initialized') : 1,
-        last_complete_at: state.lastCompleteAt ?? null,
+        // No new complete stamp does not revoke a proof already accepted by this board.
+        last_complete_at: state.lastCompleteAt ?? eb.ref('source_state.last_complete_at'),
         blind_reason: state.blind?.reason ?? null,
         blind_message: state.blind?.message ?? null,
         cursor: cursor ?? eb.ref('source_state.cursor'),
@@ -1201,6 +1202,7 @@ export function createObservationCore(deps: {
   warnSkipped: WarnSkipped;
 } {
   const { store, config, clock } = deps;
+  const transact = <T>(fn: (trx: Trx) => Promise<T>) => scanTransaction(store, config, fn, clock);
   const completeSince = new Map<string, string>();
   const healthySince = new Map<string, string>();
   const warnSkipped = warnSkippedOnce(deps.warn);
@@ -1369,7 +1371,7 @@ export function createObservationCore(deps: {
       const { batch } = observation;
       // Read once: every scan pass must build the same gateway strings (`scanTransaction`).
       const now = clock.now();
-      await scanTransaction(store, config, async (trx) => {
+      await transact(async (trx) => {
         const wasBlind = await blindReason(trx, source);
         // Capture the prior deadline before this batch replaces source_state. A fresh poll
         // may be the first event after a gap, before any tick or stale-state report.
@@ -1677,7 +1679,7 @@ export function createObservationCore(deps: {
     },
     async reportSourceState(source, state, usage) {
       const now = clock.now();
-      await scanTransaction(store, config, async (trx) => {
+      await transact(async (trx) => {
         const wasBlind = await blindReason(trx, source);
         await sourceState(trx, source, state);
         await recordUsage(trx, source, usage, now);
@@ -1689,7 +1691,7 @@ export function createObservationCore(deps: {
     },
     notice(kind, value) {
       const at = new Date(clock.now()).toISOString();
-      return scanTransaction(store, config, async (trx) => {
+      return transact(async (trx) => {
         const key = `spur-notice:${kind}:${value}`;
         const old = await trx
           .selectFrom('meta')

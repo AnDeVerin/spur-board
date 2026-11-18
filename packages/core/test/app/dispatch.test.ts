@@ -27,6 +27,7 @@ import { archiveTask } from '../../src/app/archive.ts';
 import { returnCounts } from '../../src/app/course-check.ts';
 import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
+import { markTaskChanged } from '../../src/app/board-utils.ts';
 import { openTempStore } from '../support/store.ts';
 
 // The dispatcher end to end through the observation core, the registry and the tick, on an
@@ -72,6 +73,8 @@ type Options = {
   projectRemoved?: boolean;
   /** The project also tracks the repo `o/b`. */
   secondRepo?: boolean;
+  unrelatedProject?: boolean;
+  movingClock?: boolean;
   /** Enables QA, run by `coord`, and hands Ready to Merge to `coord` instead of the operator. */
   qa?: boolean;
   /** Ready to Merge's `requireResolvedThreads`; unset by default. */
@@ -136,6 +139,18 @@ function boardConfig(options: Options = {}) {
         ],
         dispatcher: { mode: options.mode ?? 'on' },
       },
+      ...(options.unrelatedProject === true
+        ? [
+            {
+              id: 'unrelated',
+              tracker: { type: 'github-issues', repo: 'o/unrelated', label: 'board' },
+              repos: ['o/unrelated'],
+              operatorGithubLogin: 'agent-bot',
+              spurProjects: [{ name: 'unrelated', role: 'worker' }],
+              dispatcher: { mode: options.mode ?? 'on' },
+            },
+          ]
+        : []),
     ],
     operator: { slack: 'operator' },
     digest: { tz: 'UTC' },
@@ -217,7 +232,7 @@ afterEach(async () => {
 function board(options: Options = {}) {
   let config = boardConfig(options);
   let now = BASE;
-  const clock = { now: () => now };
+  const clock = { now: () => (options.movingClock === true ? ++now : now) };
   const store = openTempStore('board-dispatch-').store;
   stores.push(store);
   let core = createObservationCore({ store, config, clock });
@@ -292,6 +307,8 @@ function board(options: Options = {}) {
         { ref: { kind: 'session', id: 'worker-1' }, status: 'not_found' },
       ]),
     filterMissing: (startedAt?: string) => observe(TRACKER, [], true, startedAt),
+    unrelatedRepo: (startedAt: string) =>
+      observe('github:unrelated:o/unrelated', [], true, startedAt),
     ticket: (status = 'open', inFilter = true, updatedAt?: string) =>
       observe(TRACKER, [
         {
@@ -466,9 +483,9 @@ function board(options: Options = {}) {
       if (result.why === undefined) throw new Error('task.get returned no why');
       return result.why;
     },
-    add: () => {
+    add: (key?: string) => {
       step();
-      return apply(registry['task.add'], { task: KEY }, 'operator', `key-${String(++keys)}`);
+      return apply(registry['task.add'], { task: KEY }, 'operator', key ?? `key-${String(++keys)}`);
     },
     answer: (actor: ActorId, block: string, text: string, note?: string) => {
       step();
@@ -1284,6 +1301,229 @@ describe('unresolved review threads', () => {
   });
 });
 
+describe.each(['on', 'shadow'] as const)('%s delayed change acceptance', (mode) => {
+  const effective = (task: Awaited<ReturnType<Board['task']>>) =>
+    mode === 'on' ? task.column : (task.shadow_column ?? task.column);
+
+  it.each([
+    'vanished',
+    'ended',
+    'session-change',
+    'ticket-change',
+    'changed-pr',
+    'initial-pr',
+    'initial-ticket',
+    'initial-link',
+  ] as const)(
+    '%s invalidates proof accepted between poll start and change acceptance',
+    async (kind) => {
+      const initialTicket = kind === 'initial-ticket';
+      const prSource = kind === 'changed-pr' || kind === 'initial-pr';
+      const ctx = initialTicket
+        ? board({ mode })
+        : await started({ mode }, kind === 'vanished' || kind === 'ended' ? 'live' : 'none');
+      if (initialTicket) await ctx.add();
+      if (kind === 'changed-pr') await ctx.pr({ state: 'closed' });
+      if (kind === 'session-change' || kind === 'initial-link')
+        await ctx.session(sessionFacts('worker-1', 'worker', true, kind !== 'initial-link'));
+      const pollStartedAt = ctx.at();
+      if (!initialTicket) await ctx.ticket('closed');
+      if (prSource || initialTicket) await ctx.spur('none');
+      if (!prSource) await ctx.github();
+
+      if (kind === 'vanished') await ctx.vanished(pollStartedAt);
+      else if (kind === 'ended')
+        await ctx.session(sessionFacts('worker-1', 'worker', true), pollStartedAt);
+      else if (kind === 'session-change')
+        await ctx.session(
+          { ...sessionFacts('worker-1', 'worker', true), health: 'waiting' },
+          pollStartedAt,
+        );
+      else if (kind === 'initial-link')
+        await ctx.session(sessionFacts('worker-1', 'worker', true), pollStartedAt);
+      else if (prSource)
+        await ctx.pr({ state: 'closed', title: 'Accepted late' }, true, pollStartedAt);
+      else await ctx.ticketChange({ title: 'Accepted late' }, pollStartedAt);
+      expect(effective(await ctx.task())).not.toBe('done');
+
+      if (prSource || initialTicket) await ctx.github();
+      else if (kind === 'ticket-change') await ctx.spur('none');
+      else await ctx.vanished();
+      expect(effective(await ctx.task())).not.toBe('done');
+      if (prSource || initialTicket) await ctx.spur('none');
+      else await ctx.github();
+      expect(effective(await ctx.task())).toBe('done');
+      expect(
+        (await ctx.events(mode === 'on' ? 'task_moved' : 'task_shadow_moved')).filter(
+          ({ payload }) => payload['to'] === 'done',
+        ),
+      ).toHaveLength(1);
+    },
+  );
+
+  it.each(['pr', 'worker'] as const)(
+    'late disappearance cannot finish before new %s discovery',
+    async (discovery) => {
+      const ctx = await started({ mode });
+      const pollStartedAt = ctx.at();
+      await ctx.ticket('closed');
+      await ctx.github();
+      await ctx.vanished(pollStartedAt);
+      await ctx.vanished();
+      expect(effective(await ctx.task())).not.toBe('done');
+      if (discovery === 'pr') await ctx.pr();
+      else await ctx.spur('live');
+      expect(
+        (await ctx.events(mode === 'on' ? 'task_moved' : 'task_shadow_moved')).filter(
+          ({ payload }) => payload['to'] === 'done',
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it('already-accepted future-dated source proof cannot confirm a later accepted change', async () => {
+    const ctx = await started({ mode });
+    const pollStartedAt = ctx.at();
+    await ctx.ticket('closed');
+    const proof = new Date(Date.parse(ctx.at()) + 3_600_000).toISOString();
+    await ctx.repo('o/r', true, proof);
+    await ctx.vanished(pollStartedAt);
+    await ctx.vanished();
+    expect(effective(await ctx.task())).not.toBe('done');
+    ctx.wait(Date.parse(proof) - Date.parse(ctx.at()) + 60_000);
+    await ctx.github();
+    expect(effective(await ctx.task())).not.toBe('done');
+    await ctx.vanished();
+    expect(effective(await ctx.task())).toBe('done');
+  });
+
+  it('the proof floor includes every configured repository', async () => {
+    const ctx = await started({ mode, secondRepo: true });
+    const pollStartedAt = ctx.at();
+    await ctx.ticket('closed');
+    const future = new Date(Date.parse(ctx.at()) + 3_600_000).toISOString();
+    await ctx.repo('o/b', true, future);
+    await ctx.vanished(pollStartedAt);
+    await ctx.vanished();
+    expect(effective(await ctx.task())).not.toBe('done');
+    ctx.wait(Date.parse(future) - Date.parse(ctx.at()) + 60_000);
+    await ctx.repo('o/r');
+    await ctx.repo('o/b');
+    expect(effective(await ctx.task())).not.toBe('done');
+    await ctx.vanished();
+    expect(effective(await ctx.task())).toBe('done');
+  });
+
+  it.each([
+    ['spur', false],
+    ['spur', true],
+    ['repository', false],
+    ['repository', true],
+  ] as const)(
+    'incomplete %s changed facts after quiet=%s invalidate the previously accepted own-source proof',
+    async (source, quiet) => {
+      const ctx = await started({ mode }, source === 'spur' ? 'live' : 'none');
+      const pollStartedAt = ctx.at();
+      await ctx.ticket('closed');
+      const future = new Date(Date.parse(ctx.at()) + 3_600_000).toISOString();
+      if (source === 'spur') {
+        await ctx.spur('live', true, [], future);
+        if (quiet) {
+          const boundary = (await ctx.task()).last_change_at;
+          await ctx.spur('live', false);
+          expect((await ctx.task()).last_change_at).toBe(boundary);
+        }
+        await ctx.session(sessionFacts('worker-1', 'worker', true), pollStartedAt);
+        await ctx.github();
+      } else {
+        await ctx.repo('o/r', true, future);
+        if (quiet) {
+          const boundary = (await ctx.task()).last_change_at;
+          await ctx.repo('o/r', false);
+          expect((await ctx.task()).last_change_at).toBe(boundary);
+        }
+        await ctx.pr({ state: 'closed' }, false, pollStartedAt);
+        await ctx.spur('none');
+      }
+      expect(effective(await ctx.task())).not.toBe('done');
+      ctx.wait(Date.parse(future) - Date.parse(ctx.at()) + 60_000);
+      if (source === 'spur') await ctx.github();
+      else await ctx.spur('none');
+      expect(effective(await ctx.task())).not.toBe('done');
+      if (source === 'spur') await ctx.spur('ended');
+      else await ctx.github();
+      expect(effective(await ctx.task())).toBe('done');
+    },
+  );
+
+  it('an unrelated project future proof does not delay completion', async () => {
+    const ctx = await started({ mode, unrelatedProject: true }, 'none');
+    await ctx.unrelatedRepo(new Date(Date.parse(ctx.at()) + 3_600_000).toISOString());
+    await ctx.ticket('closed');
+    expect((await ctx.task()).last_change_at).toBe(ctx.at());
+    await ctx.github();
+    await ctx.spur('none');
+    expect(effective(await ctx.task())).toBe('done');
+  });
+
+  it('idempotent command replay does not advance the acceptance barrier', async () => {
+    const ctx = await started({ mode }, 'none');
+    await ctx.add('fixed-add-key');
+    const boundary = (await ctx.task()).last_change_at;
+    const events = await ctx.events();
+    await ctx.add('fixed-add-key');
+    expect((await ctx.task()).last_change_at).toBe(boundary);
+    expect(await ctx.events()).toEqual(events);
+  });
+
+  it('a moving acceptance clock leaves gateway scan replay strings stable', async () => {
+    const ctx = await started({ mode, movingClock: true });
+    if (mode === 'on') await ctx.ack(WORKER, (await ctx.openTurn())?.id ?? '');
+    await ctx.spur('ended');
+    await ctx.ticket('closed');
+    await ctx.github();
+    await ctx.spur('ended');
+    expect(effective(await ctx.task())).toBe('done');
+    const statusEvent = await ctx.store.db
+      .selectFrom('event')
+      .select('at')
+      .where('kind', '=', 'ticket_status_changed')
+      .orderBy('id', 'desc')
+      .executeTakeFirstOrThrow();
+    expect(statusEvent.at).not.toBe((await ctx.task()).last_change_at);
+    expect(await ctx.store.db.selectFrom('outbox').select('id').execute()).not.toEqual([]);
+  });
+
+  it('task changes reject a transaction missing its injected acceptance clock', async () => {
+    const ctx = await started({ mode });
+    const task = await ctx.task();
+    await expect(
+      scanTransaction(ctx.store, boardConfig({ mode }), (trx) =>
+        markTaskChanged(trx, task.id, ctx.at()),
+      ),
+    ).rejects.toThrow('Task changes require a scan transaction with an acceptance clock');
+    expect((await ctx.task()).last_change_at).toBe(task.last_change_at);
+  });
+
+  it('queued task changes use acceptance after acquiring the write transaction', async () => {
+    const ctx = await started({ mode });
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const holding = ctx.store.transaction(async () => {
+      entered.resolve(undefined);
+      await release.promise;
+    });
+    await entered.promise;
+    const queued = ctx.add();
+    ctx.wait(60_000);
+    const acquiredAt = ctx.at();
+    release.resolve(undefined);
+    await holding;
+    await queued;
+    expect(((await ctx.task()).last_change_at ?? '') >= acquiredAt).toBe(true);
+  });
+});
+
 describe.each(['on', 'shadow'] as const)('%s temporal task boundary', (mode) => {
   const effective = (task: Awaited<ReturnType<Board['task']>>) =>
     mode === 'on' ? task.column : (task.shadow_column ?? task.column);
@@ -1327,7 +1567,7 @@ describe.each(['on', 'shadow'] as const)('%s temporal task boundary', (mode) => 
           else if (writer === 'archive') await ctx.archive();
           else await ctx.add();
         }
-        expect((await ctx.task()).last_change_at).toBe(offset > 0 ? at : before);
+        expect((await ctx.task()).last_change_at).toBe([before, at, ctx.at()].sort().at(-1));
       }
     },
   );
@@ -1340,9 +1580,8 @@ describe.each(['on', 'shadow'] as const)('%s temporal task boundary', (mode) => 
       const old = ctx.at();
       await ctx.spur('none');
       await ctx.ticket('closed');
-      const boundary = (await ctx.task()).last_change_at;
       await ctx.pr({ title: 'Late old poll' }, true, old);
-      expect((await ctx.task()).last_change_at).toBe(boundary);
+      expect((await ctx.task()).last_change_at).toBe(ctx.at());
       await ctx.github();
       expect(effective(await ctx.task())).not.toBe('done');
       if (discovery === 'pr') await ctx.pr({ number: 8, state: 'open' });
@@ -2437,10 +2676,15 @@ describe('turns', () => {
   it('opens an entry turn for a reactivated task whose turn was archived', async () => {
     const ctx = await inReview();
     const epoch = (await ctx.task()).column_epoch;
-    await scanTransaction(ctx.store, boardConfig(), async (trx) => {
-      const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
-      await archiveTask(trx, { task, reason: 'out_of_filter', actor: 'system', at: ctx.at() });
-    });
+    await scanTransaction(
+      ctx.store,
+      boardConfig(),
+      async (trx) => {
+        const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+        await archiveTask(trx, { task, reason: 'out_of_filter', actor: 'system', at: ctx.at() });
+      },
+      { now: () => Date.parse(ctx.at()) },
+    );
     expect((await ctx.turns())[1]).toMatchObject({ id: 2, closed_reason: 'archived' });
 
     await ctx.ticket();

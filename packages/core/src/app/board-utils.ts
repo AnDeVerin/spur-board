@@ -25,6 +25,7 @@ import { sql, type Kysely, type Selectable } from 'kysely';
 import { z } from 'zod';
 import { parseJson, toJson } from '../store/json.ts';
 import type { EventTable, LinkTable, Tables, TaskTable, TurnTable } from '../store/schema.ts';
+import { taskChangeContext } from './secrets.ts';
 
 export type Trx = Kysely<Tables>;
 type Task = Selectable<TaskTable>;
@@ -32,7 +33,18 @@ type Link = Selectable<LinkTable>;
 
 /** A changed task never trusts absence evidence older than any change already accepted. */
 export function taskChangeAt(at: string) {
-  return sql<string>`max(coalesce(last_change_at, created_at), ${at})`;
+  const { config, clock } = taskChangeContext();
+  const acceptedAt = new Date(clock.now()).toISOString();
+  const scopes = config.projects.flatMap((project) =>
+    project.repos.length === 0
+      ? []
+      : [
+          sql`(task.project = ${project.id} AND source IN (${sql.join(project.repos.map((repo) => prSourceId(project.id, repo)))}))`,
+        ],
+  );
+  const sources = sql.join([sql`source = 'spur'`, ...scopes], sql` OR `);
+  return sql<string>`max(coalesce(last_change_at, created_at), ${at}, ${acceptedAt},
+    coalesce((SELECT max(last_complete_at) FROM source_state WHERE ${sources}), ${at}))`;
 }
 
 export async function markTaskChanged(trx: Trx, taskId: number, at: string): Promise<void> {
@@ -252,7 +264,10 @@ export async function emit<K extends EventKind>(
   const parsed = parseActorId(actor);
   if (parsed === null) throw new Error('Invalid journal actor');
   // Linking or unlinking work changes which absence the next complete source polls must prove.
-  if (taskId !== null && (kind === 'link_added' || kind === 'link_removed'))
+  if (
+    taskId !== null &&
+    (kind === 'task_added' || kind === 'link_added' || kind === 'link_removed')
+  )
     await markTaskChanged(trx, taskId, at);
   await trx
     .insertInto('event')

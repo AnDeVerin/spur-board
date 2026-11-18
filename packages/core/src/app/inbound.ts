@@ -355,6 +355,7 @@ export function createInbound(input: {
   const { store, gateway, config } = input;
   const warnSkipped = warnSkippedOnce(input.warn);
   const clock = input.clock ?? { now: () => Date.now() };
+  const transact = <T>(fn: (trx: Trx) => Promise<T>) => scanTransaction(store, config, fn, clock);
   const registry = input.registry ?? {};
   let running: Promise<void> = Promise.resolve();
   const stopping = new AbortController();
@@ -760,7 +761,7 @@ export function createInbound(input: {
 
   async function recordFailure(event: UserEvent, error: unknown, at: string): Promise<void> {
     await withCommandKey(event.dedupeKey, () =>
-      scanTransaction(store, config, async (trx) => {
+      transact(async (trx) => {
         const context = await taskContext(trx, event, gateway.kind);
         await journal(trx, {
           kind: 'inbound_failed',
@@ -794,9 +795,7 @@ export function createInbound(input: {
       if (event.sourceSpace === 'feed') {
         try {
           const at = new Date(clock.now()).toISOString();
-          const result = await scanTransaction(store, config, (trx) =>
-            decideToken(trx, event.dedupeKey, token, at),
-          );
+          const result = await transact((trx) => decideToken(trx, event.dedupeKey, token, at));
           response = result?.response ?? 'not available yet';
         } catch (error) {
           if (!(error instanceof CommandError)) {
@@ -823,7 +822,7 @@ export function createInbound(input: {
         if (id === 'token.list') {
           // Posted to the feed: a private reply carries no buttons on every platform.
           const listedAt = new Date(clock.now());
-          const listed = await scanTransaction(store, config, (trx) =>
+          const listed = await transact((trx) =>
             postTokenList(trx, { key: event.dedupeKey, at: listedAt }),
           );
           response = plain(
@@ -900,7 +899,7 @@ export function createInbound(input: {
           ? 'operator'
           : 'system';
       try {
-        const result = await scanTransaction(store, config, (trx) =>
+        const result = await transact((trx) =>
           replayOperation(trx, {
             actor,
             key: event.dedupeKey,
@@ -927,7 +926,7 @@ export function createInbound(input: {
   async function applyGap(event: Extract<InboundEvent, { kind: 'gap' }>): Promise<void> {
     await withVia('slack', async () => {
       const at = new Date(clock.now()).toISOString();
-      await scanTransaction(store, config, async (trx) => {
+      await transact(async (trx) => {
         const context = await taskContext(trx, event, gateway.kind);
         const conversation =
           event.conversation === undefined
@@ -1178,7 +1177,7 @@ export function createInbound(input: {
       return serial(async () => {
         await readPending(await storedConversation(itemId));
         const at = new Date(clock.now()).toISOString();
-        await scanTransaction(store, config, async (trx) => {
+        await transact(async (trx) => {
           await reapply(trx, itemId, at);
           await clearOperatorItem(trx, itemId, new Date(at));
         });

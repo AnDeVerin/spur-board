@@ -54,8 +54,8 @@ import {
 } from './turns.ts';
 
 // The dispatcher applies the pure cascade of `domain/dispatch.ts` inside its caller's
-// transaction. It reads no clock and does no IO: `at` and the complete-poll map come from the
-// caller, so a scan replay makes the same writes.
+// transaction. Event times and the complete-poll map come from the caller; task-change
+// watermarks also sample the scan transaction's clock when accepting a relevant change.
 
 type Task = Row<'task'>;
 type Project = Config['projects'][number];

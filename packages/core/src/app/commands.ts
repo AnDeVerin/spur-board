@@ -220,60 +220,64 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
     }
     let deniedHint: string | undefined;
     const at = new Date(clock.now()).toISOString();
-    const result = await scanTransaction(store, config, (trx) =>
-      replayOperation(trx, {
-        actor,
-        key: commandKey,
-        operation: entry.id,
-        fingerprintInput: input,
-        output: entry.output,
-        at,
-        run: async () => {
-          const resolved = await op.resolveTargets(trx, parsedInput, actor);
-          const taskless = resolved.length === 0 && emptyAllowed(entry);
-          const ackIds =
-            entry.id === 'inbox.ack' && 'entries' in parsed.data
-              ? parsed.data.entries.map((item) => item.id)
-              : undefined;
-          const ackMismatch =
-            ackIds !== undefined &&
-            (resolved.length !== ackIds.length ||
-              resolved.some((target, index) => target.id !== ackIds[index]));
-          const targets: readonly ResolvedTarget[] =
-            resolved.length === 0
-              ? [{ kind: 'missing' }]
-              : ackMismatch
-                ? [...resolved, { kind: 'missing' }]
-                : resolved;
-          for (const target of targets) {
-            const decision = authorize(entry.grants, actor, {
-              config,
-              target,
-              ...(mode === undefined ? {} : { mode }),
-            });
-            if (decision.status === 'denied') {
-              await writeDeniedEvent(trx, {
+    const result = await scanTransaction(
+      store,
+      config,
+      (trx) =>
+        replayOperation(trx, {
+          actor,
+          key: commandKey,
+          operation: entry.id,
+          fingerprintInput: input,
+          output: entry.output,
+          at,
+          run: async () => {
+            const resolved = await op.resolveTargets(trx, parsedInput, actor);
+            const taskless = resolved.length === 0 && emptyAllowed(entry);
+            const ackIds =
+              entry.id === 'inbox.ack' && 'entries' in parsed.data
+                ? parsed.data.entries.map((item) => item.id)
+                : undefined;
+            const ackMismatch =
+              ackIds !== undefined &&
+              (resolved.length !== ackIds.length ||
+                resolved.some((target, index) => target.id !== ackIds[index]));
+            const targets: readonly ResolvedTarget[] =
+              resolved.length === 0
+                ? [{ kind: 'missing' }]
+                : ackMismatch
+                  ? [...resolved, { kind: 'missing' }]
+                  : resolved;
+            for (const target of targets) {
+              const decision = authorize(entry.grants, actor, {
                 config,
-                actor,
-                operation: entry.id,
-                input: parsedInput,
                 target,
-                at,
+                ...(mode === undefined ? {} : { mode }),
               });
-              deniedHint = decision.hint;
-              return undefined;
+              if (decision.status === 'denied') {
+                await writeDeniedEvent(trx, {
+                  config,
+                  actor,
+                  operation: entry.id,
+                  input: parsedInput,
+                  target,
+                  at,
+                });
+                deniedHint = decision.hint;
+                return undefined;
+              }
             }
-          }
-          if (!taskless && targets.some((target) => target.kind === 'missing')) {
-            throw new CommandError('not_found', 'Check the target ID.');
-          }
-          return op.run(
-            trx,
-            parsedInput,
-            op.prepare === undefined ? { actor, at } : { actor, at, prepared },
-          );
-        },
-      }),
+            if (!taskless && targets.some((target) => target.kind === 'missing')) {
+              throw new CommandError('not_found', 'Check the target ID.');
+            }
+            return op.run(
+              trx,
+              parsedInput,
+              op.prepare === undefined ? { actor, at } : { actor, at, prepared },
+            );
+          },
+        }),
+      clock,
     );
     if (result === undefined) {
       throw new CommandError('forbidden', deniedHint ?? 'Caller is not allowed.');

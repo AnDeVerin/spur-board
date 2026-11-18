@@ -3500,19 +3500,24 @@ describe('turns', () => {
     await open(ctx);
     await step(ctx);
 
-    await scanTransaction(ctx.store, ctx.config, async (trx) => {
-      const task = await trx
-        .selectFrom('task')
-        .selectAll()
-        .where('id', '=', 1)
-        .executeTakeFirstOrThrow();
-      await archiveTask(trx, {
-        task,
-        reason: 'manual',
-        actor: 'operator',
-        at: ctx.now().toISOString(),
-      });
-    });
+    await scanTransaction(
+      ctx.store,
+      ctx.config,
+      async (trx) => {
+        const task = await trx
+          .selectFrom('task')
+          .selectAll()
+          .where('id', '=', 1)
+          .executeTakeFirstOrThrow();
+        await archiveTask(trx, {
+          task,
+          reason: 'manual',
+          actor: 'operator',
+          at: ctx.now().toISOString(),
+        });
+      },
+      { now: () => ctx.now().getTime() },
+    );
 
     expect((await turns(ctx))[0]?.closed_reason).toBe('archived');
     expect((await notices(ctx))[0]?.acked_at).not.toBeNull();
