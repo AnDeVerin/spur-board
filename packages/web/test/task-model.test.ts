@@ -48,6 +48,32 @@ describe('why rows', () => {
     expect(rows(value)[0]).toEqual(row);
   });
 
+  it('labels a Dev failed on checks not red under a checks gate right of Dev', () => {
+    const value = task({
+      column: 'dev',
+      gates: [gate('dev', [condition('checks_not_red', 'failed', 'checks_red')])],
+    });
+    expect(rows(value)[0]).toEqual({ key: 'Checks not red', value: 'checks red', status: 'fail' });
+  });
+
+  it('shows checks green waiting on the external-review checks gate column', () => {
+    const value = task({
+      column: 'external-review',
+      gates: [
+        gate('dev', [condition('checks_not_red', 'met')]),
+        gate('external-review', [
+          condition('checks_green', 'waiting', 'checks_pending'),
+          condition('approved', 'met'),
+        ]),
+      ],
+    });
+    expect(rows(value)[0]).toEqual({
+      key: 'Checks green',
+      value: 'checks pending',
+      status: 'wait',
+    });
+  });
+
   it('names a condition the prototype map lacks in words', () => {
     const value = task({
       gates: [gate('dev', [condition('comment_history_read', 'met')])],
