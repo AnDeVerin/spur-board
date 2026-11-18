@@ -33,7 +33,6 @@ export async function readDevRepair(trx: Trx, taskId: number) {
     .where('id', '>=', reset?.id ?? 0)
     .orderBy('id')
     .execute();
-  const recognized = new Map<number, Recognition>();
   const outstanding = new Map<number, Recognition>();
   const adoptions = new Map<string, number[]>();
   const coverage = new Map<number, Coverage>();
@@ -53,7 +52,6 @@ export async function readDevRepair(trx: Trx, taskId: number) {
     const p = parsed.data;
     switch (p.action) {
       case 'reset':
-        recognized.clear();
         outstanding.clear();
         adoptions.clear();
         coverage.clear();
@@ -63,7 +61,6 @@ export async function readDevRepair(trx: Trx, taskId: number) {
         throughSubmission = p.throughSubmission;
         break;
       case 'recognized':
-        recognized.set(row.id, p);
         outstanding.set(row.id, p);
         if (p.legacyTurn !== undefined) representedTurns.add(p.legacyTurn);
         break;
@@ -86,7 +83,6 @@ export async function readDevRepair(trx: Trx, taskId: number) {
     }
   }
   return {
-    recognized,
     outstanding,
     adoptions,
     coverage,
