@@ -1,5 +1,5 @@
 {
-  "version": "9eadccb6313548bcf0f9eab7cdf3e38e6d729264e8640e28d1425a7c8980ba67",
+  "version": "960cfe25cb7f11247d1dc52eb967ef636589ce30159eeb5c07b7ea71da452ffc",
   "grants": [
     "operator",
     "project-agent",
@@ -1029,6 +1029,7 @@
                 "links": { "ticket": null, "prs": [], "sessions": [] }
               }
             ],
+            "columnGroups": [{ "id": "todo", "columns": ["todo", "triage", "ready-for-dev"] }],
             "projectBlocks": [{ "project": "web", "openBlocks": 0 }],
             "unlinkedPrs": [],
             "unlinkedSessions": [],
@@ -1093,6 +1094,7 @@
                 "sessions": []
               }
             ],
+            "columnGroups": [{ "id": "todo", "columns": ["todo", "triage", "ready-for-dev"] }],
             "projectBlocks": [{ "project": "web", "openBlocks": 0 }],
             "unlinkedPrs": [],
             "unlinkedSessions": [],
@@ -1607,6 +1609,7 @@
                   "type": "string",
                   "enum": [
                     "todo",
+                    "triage",
                     "ready-for-dev",
                     "dev",
                     "review",
@@ -1639,6 +1642,7 @@
                   "type": "string",
                   "enum": [
                     "todo",
+                    "triage",
                     "ready-for-dev",
                     "dev",
                     "review",
@@ -1693,6 +1697,7 @@
                           "operator",
                           "curator",
                           "orchestrator:todo",
+                          "orchestrator:triage",
                           "orchestrator:ready-for-dev",
                           "orchestrator:dev",
                           "orchestrator:review",
@@ -1724,6 +1729,7 @@
                       "type": "string",
                       "enum": [
                         "todo",
+                        "triage",
                         "ready-for-dev",
                         "dev",
                         "review",
@@ -2451,6 +2457,7 @@
                           "type": "string",
                           "enum": [
                             "todo",
+                            "triage",
                             "ready-for-dev",
                             "dev",
                             "review",
@@ -2468,6 +2475,7 @@
                             "operator",
                             "curator",
                             "orchestrator:todo",
+                            "orchestrator:triage",
                             "orchestrator:ready-for-dev",
                             "orchestrator:dev",
                             "orchestrator:review",
@@ -2503,6 +2511,7 @@
                               "type": "string",
                               "enum": [
                                 "todo",
+                                "triage",
                                 "ready-for-dev",
                                 "dev",
                                 "review",
@@ -2841,6 +2850,38 @@
               "description": "A board task with a one-line state and counts, turn, PR summaries and navigation; detail adds full facts."
             },
             "description": "Tasks with state, turn, PR summary arrays and navigation; full facts with detail."
+          },
+          "columnGroups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "enum": ["todo"], "description": "Column group." },
+                "columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "todo",
+                      "triage",
+                      "ready-for-dev",
+                      "dev",
+                      "review",
+                      "product-review",
+                      "external-review",
+                      "qa",
+                      "ready-to-merge",
+                      "done"
+                    ]
+                  },
+                  "description": "Built-in columns of the group in canonical order, enabled or not."
+                }
+              },
+              "required": ["id", "columns"],
+              "additionalProperties": false,
+              "description": "One column group."
+            },
+            "description": "Column groups, the same for every project. The dispatcher never moves a task between columns of one group; once work starts it moves the task to the first enabled column right of the group."
           },
           "projectBlocks": {
             "type": "array",
@@ -3454,6 +3495,7 @@
                       "type": "string",
                       "enum": [
                         "todo",
+                        "triage",
                         "ready-for-dev",
                         "dev",
                         "review",
@@ -3578,6 +3620,7 @@
           "transport",
           "sources",
           "tasks",
+          "columnGroups",
           "projectBlocks",
           "unlinkedPrs",
           "unlinkedSessions",
@@ -3737,6 +3780,13 @@
                 {
                   "column": "todo",
                   "enabled": true,
+                  "ok": true,
+                  "blockedIn": null,
+                  "conditions": []
+                },
+                {
+                  "column": "triage",
+                  "enabled": false,
                   "ok": true,
                   "blockedIn": null,
                   "conditions": []
@@ -3939,6 +3989,7 @@
                 "type": "string",
                 "enum": [
                   "todo",
+                  "triage",
                   "ready-for-dev",
                   "dev",
                   "review",
@@ -3975,6 +4026,7 @@
                     "type": "string",
                     "enum": [
                       "todo",
+                      "triage",
                       "ready-for-dev",
                       "dev",
                       "review",
@@ -3992,6 +4044,7 @@
                       "operator",
                       "curator",
                       "orchestrator:todo",
+                      "orchestrator:triage",
                       "orchestrator:ready-for-dev",
                       "orchestrator:dev",
                       "orchestrator:review",
@@ -4141,6 +4194,7 @@
                         "type": "string",
                         "enum": [
                           "todo",
+                          "triage",
                           "ready-for-dev",
                           "dev",
                           "review",
@@ -4229,6 +4283,7 @@
                   "type": "string",
                   "enum": [
                     "todo",
+                    "triage",
                     "ready-for-dev",
                     "dev",
                     "review",
@@ -4246,6 +4301,7 @@
                     "operator",
                     "curator",
                     "orchestrator:todo",
+                    "orchestrator:triage",
                     "orchestrator:ready-for-dev",
                     "orchestrator:dev",
                     "orchestrator:review",
@@ -4392,6 +4448,7 @@
                       "type": "string",
                       "enum": [
                         "todo",
+                        "triage",
                         "ready-for-dev",
                         "dev",
                         "review",
@@ -4732,6 +4789,7 @@
                     "operator",
                     "curator",
                     "orchestrator:todo",
+                    "orchestrator:triage",
                     "orchestrator:ready-for-dev",
                     "orchestrator:dev",
                     "orchestrator:review",
@@ -4913,6 +4971,7 @@
                 "type": "string",
                 "enum": [
                   "todo",
+                  "triage",
                   "ready-for-dev",
                   "dev",
                   "review",
@@ -4987,6 +5046,7 @@
                       "type": "string",
                       "enum": [
                         "todo",
+                        "triage",
                         "ready-for-dev",
                         "dev",
                         "review",
@@ -5012,6 +5072,7 @@
                           "type": "string",
                           "enum": [
                             "todo",
+                            "triage",
                             "ready-for-dev",
                             "dev",
                             "review",
@@ -5116,6 +5177,7 @@
                         "type": "string",
                         "enum": [
                           "todo",
+                          "triage",
                           "ready-for-dev",
                           "dev",
                           "review",
@@ -5133,6 +5195,7 @@
                           "operator",
                           "curator",
                           "orchestrator:todo",
+                          "orchestrator:triage",
                           "orchestrator:ready-for-dev",
                           "orchestrator:dev",
                           "orchestrator:review",
@@ -5250,6 +5313,7 @@
                             "type": "string",
                             "enum": [
                               "todo",
+                              "triage",
                               "ready-for-dev",
                               "dev",
                               "review",
@@ -5398,6 +5462,7 @@
                       "type": "string",
                       "enum": [
                         "todo",
+                        "triage",
                         "ready-for-dev",
                         "dev",
                         "review",
@@ -5413,6 +5478,7 @@
                       "type": "string",
                       "enum": [
                         "todo",
+                        "triage",
                         "ready-for-dev",
                         "dev",
                         "review",
@@ -5614,6 +5680,7 @@
                 "type": "string",
                 "enum": [
                   "todo",
+                  "triage",
                   "ready-for-dev",
                   "dev",
                   "review",
@@ -6228,6 +6295,7 @@
                     "operator",
                     "curator",
                     "orchestrator:todo",
+                    "orchestrator:triage",
                     "orchestrator:ready-for-dev",
                     "orchestrator:dev",
                     "orchestrator:review",
@@ -6329,6 +6397,7 @@
                   "type": "string",
                   "enum": [
                     "todo",
+                    "triage",
                     "ready-for-dev",
                     "dev",
                     "review",
@@ -6346,6 +6415,7 @@
                     "operator",
                     "curator",
                     "orchestrator:todo",
+                    "orchestrator:triage",
                     "orchestrator:ready-for-dev",
                     "orchestrator:dev",
                     "orchestrator:review",
@@ -6460,6 +6530,7 @@
                       "type": "string",
                       "enum": [
                         "todo",
+                        "triage",
                         "ready-for-dev",
                         "dev",
                         "review",
@@ -6770,6 +6841,7 @@
                   "type": "string",
                   "enum": [
                     "todo",
+                    "triage",
                     "ready-for-dev",
                     "dev",
                     "review",
@@ -6893,6 +6965,7 @@
                   "type": "string",
                   "enum": [
                     "todo",
+                    "triage",
                     "ready-for-dev",
                     "dev",
                     "review",
@@ -7380,6 +7453,7 @@
                 "type": "string",
                 "enum": [
                   "todo",
+                  "triage",
                   "ready-for-dev",
                   "dev",
                   "review",
@@ -7483,6 +7557,7 @@
                 "type": "string",
                 "enum": [
                   "todo",
+                  "triage",
                   "ready-for-dev",
                   "dev",
                   "review",
@@ -8152,6 +8227,7 @@
                   "operator",
                   "curator",
                   "orchestrator:todo",
+                  "orchestrator:triage",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
@@ -8368,6 +8444,7 @@
                   "operator",
                   "curator",
                   "orchestrator:todo",
+                  "orchestrator:triage",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
@@ -8907,6 +8984,7 @@
                   "operator",
                   "curator",
                   "orchestrator:todo",
+                  "orchestrator:triage",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
@@ -9135,6 +9213,7 @@
                   "operator",
                   "curator",
                   "orchestrator:todo",
+                  "orchestrator:triage",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
@@ -9392,6 +9471,7 @@
                   "operator",
                   "curator",
                   "orchestrator:todo",
+                  "orchestrator:triage",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
@@ -9952,6 +10032,7 @@
                   "operator",
                   "curator",
                   "orchestrator:todo",
+                  "orchestrator:triage",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
@@ -10167,6 +10248,7 @@
                 "type": "string",
                 "enum": [
                   "todo",
+                  "triage",
                   "ready-for-dev",
                   "dev",
                   "review",
@@ -10348,6 +10430,7 @@
                 "type": "string",
                 "enum": [
                   "todo",
+                  "triage",
                   "ready-for-dev",
                   "dev",
                   "review",
@@ -10418,6 +10501,7 @@
                   "operator",
                   "curator",
                   "orchestrator:todo",
+                  "orchestrator:triage",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
@@ -10612,6 +10696,7 @@
                 "type": "string",
                 "enum": [
                   "todo",
+                  "triage",
                   "ready-for-dev",
                   "dev",
                   "review",
@@ -10655,6 +10740,7 @@
                 "type": "string",
                 "enum": [
                   "todo",
+                  "triage",
                   "ready-for-dev",
                   "dev",
                   "review",
@@ -10680,6 +10766,7 @@
             "type": "string",
             "enum": [
               "todo",
+              "triage",
               "ready-for-dev",
               "dev",
               "review",
@@ -10695,6 +10782,7 @@
             "type": "string",
             "enum": [
               "todo",
+              "triage",
               "ready-for-dev",
               "dev",
               "review",
@@ -10710,6 +10798,7 @@
             "type": "string",
             "enum": [
               "todo",
+              "triage",
               "ready-for-dev",
               "dev",
               "review",
@@ -10749,6 +10838,7 @@
                   "type": "string",
                   "enum": [
                     "todo",
+                    "triage",
                     "ready-for-dev",
                     "dev",
                     "review",
@@ -10764,6 +10854,7 @@
                   "type": "string",
                   "enum": [
                     "todo",
+                    "triage",
                     "ready-for-dev",
                     "dev",
                     "review",
@@ -10905,6 +10996,7 @@
                         "type": "string",
                         "enum": [
                           "todo",
+                          "triage",
                           "ready-for-dev",
                           "dev",
                           "review",
@@ -10932,6 +11024,11 @@
                         "required": ["kind", "name"],
                         "additionalProperties": false,
                         "description": "Effective column executor."
+                      },
+                      "group": {
+                        "description": "Column group; present only on Todo-group columns.",
+                        "type": "string",
+                        "enum": ["todo"]
                       }
                     },
                     "required": ["id", "executor"],

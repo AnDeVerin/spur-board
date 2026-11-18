@@ -1,5 +1,6 @@
 import {
   buildCatalogSnapshot,
+  COLUMNS,
   OPERATIONS,
   resolveWebOrigin,
   roleCanUseOperation,
@@ -139,6 +140,7 @@ export function createOperationRegistry(deps: {
                   column.orchestrator === 'none' || column.orchestrator === 'operator'
                     ? undefined
                     : project.spurProjects.find((spur) => spur.name === column.orchestrator);
+                const group = COLUMNS.find((c) => c.id === column.id)?.group ?? null;
                 return {
                   id: column.id,
                   executor: {
@@ -154,6 +156,7 @@ export function createOperationRegistry(deps: {
                               : ('worker' as const),
                     name: named?.name ?? null,
                   },
+                  ...(group === null ? {} : { group }),
                 };
               }),
             dispatcher: { mode: project.dispatcher.mode },

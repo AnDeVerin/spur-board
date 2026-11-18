@@ -79,6 +79,11 @@ type Options = {
   qa?: boolean;
   /** Ready to Merge's `requireResolvedThreads`; unset by default. */
   rtmThreads?: boolean;
+  /**
+   * `omitted`: the project has no `columns` key, so it gets the default board. `todo-group`:
+   * Triage and Ready for Dev follow To Do.
+   */
+  columns?: 'omitted' | 'todo-group';
 };
 
 function boardConfig(options: Options = {}) {
@@ -103,40 +108,7 @@ function boardConfig(options: Options = {}) {
           { name: 'coord', role: 'orchestrator' },
           ...(options.curator === true ? [{ name: 'cur', role: 'curator' }] : []),
         ],
-        columns: [
-          { id: 'todo' },
-          {
-            id: 'dev',
-            ...(options.devOrchestrator === undefined
-              ? {}
-              : { orchestrator: options.devOrchestrator }),
-          },
-          {
-            id: 'review',
-            orchestrator: 'rev',
-            cycleLimit: options.cycleLimit ?? 10,
-            ...(options.courseCheck === undefined ? {} : { courseCheck: options.courseCheck }),
-            ...(options.courseCheckTo === undefined
-              ? {}
-              : { courseCheckTo: options.courseCheckTo }),
-          },
-          { id: 'product-review', orchestrator: 'coord' },
-          ...(options.externalReview === true ? [{ id: 'external-review' }] : []),
-          ...(options.qa === true ? [{ id: 'qa', orchestrator: 'coord' }] : []),
-          {
-            id: 'ready-to-merge',
-            orchestrator: options.qa === true ? 'coord' : 'operator',
-            ...(options.rtmThreads === undefined
-              ? {}
-              : { requireResolvedThreads: options.rtmThreads }),
-          },
-          {
-            id: 'done',
-            ...(options.doneOrchestrator === undefined
-              ? {}
-              : { orchestrator: options.doneOrchestrator }),
-          },
-        ],
+        ...(options.columns === 'omitted' ? {} : { columns: columnsOf(options) }),
         dispatcher: { mode: options.mode ?? 'on' },
       },
       ...(options.unrelatedProject === true
@@ -155,6 +127,37 @@ function boardConfig(options: Options = {}) {
     operator: { slack: 'operator' },
     digest: { tz: 'UTC' },
   });
+}
+
+/** The `columns` of the task's project. */
+function columnsOf(options: Options) {
+  return [
+    { id: 'todo' },
+    ...(options.columns === 'todo-group' ? [{ id: 'triage' }, { id: 'ready-for-dev' }] : []),
+    {
+      id: 'dev',
+      ...(options.devOrchestrator === undefined ? {} : { orchestrator: options.devOrchestrator }),
+    },
+    {
+      id: 'review',
+      orchestrator: 'rev',
+      cycleLimit: options.cycleLimit ?? 10,
+      ...(options.courseCheck === undefined ? {} : { courseCheck: options.courseCheck }),
+      ...(options.courseCheckTo === undefined ? {} : { courseCheckTo: options.courseCheckTo }),
+    },
+    { id: 'product-review', orchestrator: 'coord' },
+    ...(options.externalReview === true ? [{ id: 'external-review' }] : []),
+    ...(options.qa === true ? [{ id: 'qa', orchestrator: 'coord' }] : []),
+    {
+      id: 'ready-to-merge',
+      orchestrator: options.qa === true ? 'coord' : 'operator',
+      ...(options.rtmThreads === undefined ? {} : { requireResolvedThreads: options.rtmThreads }),
+    },
+    {
+      id: 'done',
+      ...(options.doneOrchestrator === undefined ? {} : { orchestrator: options.doneOrchestrator }),
+    },
+  ];
 }
 
 function prFacts(patch: Partial<PrFacts> = {}): PrFacts {
@@ -1146,6 +1149,89 @@ async function pastProductReview(options: Options = {}): Promise<Board> {
 }
 
 const at = (minute: number) => new Date(BASE + minute * 60_000).toISOString();
+
+describe('the Todo group', () => {
+  const corrected = (ctx: Board) =>
+    ctx.store.db.selectFrom('event').select('id').where('kind', '=', 'task_corrected').execute();
+
+  it('keeps a correction into Triage until work starts, then leaves for Dev in one move', async () => {
+    const ctx = await started({ columns: 'todo-group' }, 'none');
+    await ctx.move('triage');
+    await ctx.tick();
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('triage');
+    expect(await ctx.moves()).toEqual([]);
+    expect(await ctx.turns()).toEqual([]);
+    expect(await corrected(ctx)).toHaveLength(1);
+
+    await ctx.spur('live');
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.moves()).toEqual([{ from: 'triage', to: 'dev', reason: 'gate_passed' }]);
+  });
+
+  it('moves Ready for Dev to Dev in one move on an open PR with no live worker', async () => {
+    const ctx = await started({ columns: 'todo-group' }, 'none');
+    await ctx.move('ready-for-dev');
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('ready-for-dev');
+    expect(await ctx.moves()).toEqual([]);
+
+    await ctx.pr();
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.moves()).toEqual([
+      { from: 'ready-for-dev', to: 'dev', reason: 'gate_passed' },
+    ]);
+  });
+
+  it('a reopen after Done returns to To Do, and a correction into Triage with the PR hidden settles there too', async () => {
+    const ctx = await inDev({ columns: 'todo-group' });
+    await ctx.pr({ state: 'merged' });
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    await ctx.ticket('open');
+    expect((await ctx.task()).column).toBe('todo');
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from: 'done',
+      to: 'todo',
+      reason: 'ticket_reopened',
+    });
+
+    const result = await ctx.move('triage');
+    expect(result.column).toBe('todo');
+    expect((await ctx.task()).column).toBe('todo');
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from: 'triage',
+      to: 'todo',
+      reason: 'ticket_reopened',
+    });
+  });
+
+  it('settles a correction into Triage in Dev while a PR is open', async () => {
+    const ctx = await inDev({ columns: 'todo-group' });
+    const before = (await ctx.moves()).length;
+    const result = await ctx.move('triage');
+    expect(result.column).toBe('dev');
+    expect((await ctx.moves()).slice(before)).toEqual([
+      { from: 'triage', to: 'dev', reason: 'gate_passed' },
+    ]);
+  });
+
+  it('journals one move from To Do to Dev on the live-style board, as before triage', async () => {
+    const ctx = await started({ externalReview: true });
+    expect(await ctx.moves()).toEqual([{ from: 'todo', to: 'dev', reason: 'gate_passed' }]);
+    expect((await ctx.status()).column).toBe('dev');
+  });
+
+  it('journals one move from To Do to Dev on a project without columns, past Ready for Dev', async () => {
+    const columns = boardConfig({ columns: 'omitted' }).projects[0]?.columns ?? [];
+    expect(columns.find((column) => column.id === 'triage')?.enabled).toBe(false);
+    expect(columns.find((column) => column.id === 'ready-for-dev')?.enabled).toBe(true);
+    const ctx = await started({ columns: 'omitted' });
+    expect(await ctx.moves()).toEqual([{ from: 'todo', to: 'dev', reason: 'gate_passed' }]);
+    expect((await ctx.status()).column).toBe('dev');
+  });
+});
 
 describe('unresolved review threads', () => {
   const URL = 'https://github.com/o/r/pull/7#discussion_r1';

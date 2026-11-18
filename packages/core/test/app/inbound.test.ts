@@ -18,6 +18,7 @@ import {
   messageRefSchema,
   userIdSchema,
   type ActorId,
+  type ColumnId,
   type Config,
   type Gateway,
   type InboundEvent,
@@ -74,6 +75,9 @@ const stores: Store[] = [];
 function emptyStatus() {
   return {
     tasks: [],
+    columnGroups: [
+      { id: 'todo' as const, columns: ['todo', 'triage', 'ready-for-dev'] satisfies ColumnId[] },
+    ],
     projectBlocks: [],
     items: [],
     unlinkedPrs: [],

@@ -964,6 +964,12 @@ describe('catalog commands', () => {
 
             sessions:
 
+      columnGroups:
+        - id: todo
+          columns:
+            - todo
+            - triage
+            - ready-for-dev
       projectBlocks:
         - project: web
           openBlocks: 0

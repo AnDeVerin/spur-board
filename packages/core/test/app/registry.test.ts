@@ -1438,25 +1438,44 @@ it.each([
     const query = createQuery({ store, config: effective, clock });
     const result = await query(registry['config.get'], {}, 'operator');
     expect(result.projects[0]?.spurProjects).toEqual([{ name, role, displayName: name }]);
-    expect(result.projects[0]?.columns).toEqual(
-      effective.projects[0]?.columns.map((column) => ({
-        id: column.id,
-        executor: {
-          kind:
-            kind === 'automatic'
-              ? column.id === 'external-review'
-                ? 'dispatcher'
-                : 'worker'
-              : kind,
-          name: binding === 'none' || binding === 'operator' ? null : name,
-        },
-      })),
+    // Triage is listed disabled on the default board, so config.get leaves it out.
+    expect(result.projects[0]?.columns).toStrictEqual(
+      effective.projects[0]?.columns
+        .filter((column) => column.enabled)
+        .map((column) => ({
+          id: column.id,
+          executor: {
+            kind:
+              kind === 'automatic'
+                ? column.id === 'external-review'
+                  ? 'dispatcher'
+                  : 'worker'
+                : kind,
+            name: binding === 'none' || binding === 'operator' ? null : name,
+          },
+          ...(column.id === 'todo' || column.id === 'ready-for-dev' ? { group: 'todo' } : {}),
+        })),
     );
     expect(effective.projects[0]?.columns.every((column) => column.orchestrator === binding)).toBe(
       true,
     );
   },
 );
+
+it('status.get lists the Todo group with every built-in column of it, enabled or not', async () => {
+  const store = openTempStore('board-column-groups-').store;
+  stores.push(store);
+  const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+  const query = createQuery({ store, config, clock });
+  for (const input of [{}, { project: config.projects[0]?.id ?? '' }]) {
+    const result = await query(registry['status.get'], input, 'operator');
+    expect(result.columnGroups).toStrictEqual([
+      { id: 'todo', columns: ['todo', 'triage', 'ready-for-dev'] },
+    ]);
+  }
+  // The config leaves triage disabled: the group still lists it.
+  expect(config.projects[0]?.columns.find((column) => column.id === 'triage')?.enabled).toBe(false);
+});
 
 it('allowlists effective configuration and applies status project visibility', async () => {
   const store = openTempStore('board-config-view-').store;
@@ -1507,12 +1526,12 @@ it('allowlists effective configuration and applies status project visibility', a
   const registry = createOperationRegistry({ config: effective, clock, completeSince: new Map() });
   const query = createQuery({ store, config: effective, clock });
   const result = await query(registry['config.get'], {}, 'agent:first-worker/session');
-  expect(result).toEqual({
+  expect(result).toStrictEqual({
     projects: [
       {
         id: 'first',
         columns: [
-          { id: 'todo', executor: { kind: 'orchestrator', name: 'reviewer' } },
+          { id: 'todo', executor: { kind: 'orchestrator', name: 'reviewer' }, group: 'todo' },
           { id: 'dev', executor: { kind: 'curator', name: 'curator' } },
           { id: 'external-review', executor: { kind: 'dispatcher', name: null } },
           { id: 'done', executor: { kind: 'operator', name: null } },

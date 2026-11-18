@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import {
+  COLUMNS,
   COLUMN_IDS,
   DISPATCHER_MODES,
   REQUIRED_COLUMN_IDS,
+  TODO_GROUP_COLUMN_IDS,
   type AddresseeSource,
   type ColumnBindingSource,
   type ColumnId,
@@ -302,7 +304,7 @@ const columnConfig = z.strictObject({
 type ColumnConfig = z.output<typeof columnConfig>;
 
 /** Columns a task never leaves through the Dev gate, so they cannot require resolved threads. */
-const NO_THREAD_GATE: ReadonlySet<ColumnConfig['id']> = new Set(['todo', 'ready-for-dev', 'done']);
+const NO_THREAD_GATE: ReadonlySet<ColumnConfig['id']> = new Set([...TODO_GROUP_COLUMN_IDS, 'done']);
 
 /**
  * The board rules: required columns present and enabled, resolved threads required only from Dev
@@ -441,16 +443,16 @@ const projectSchema = z
       .array(columnConfig)
       .superRefine(checkBoard)
       .default(() =>
-        COLUMN_IDS.map((id) => ({
+        COLUMNS.map(({ id, defaultEnabled }) => ({
           id,
-          enabled: true,
+          enabled: defaultEnabled,
           orchestrator: 'none',
           cycleLimit: DEFAULT_CYCLE_LIMIT,
           courseCheck: DEFAULT_COURSE_CHECK,
         })),
       )
       .describe(
-        "The project's board columns in canonical order. todo, dev and done must be present and enabled. A column left out or disabled is skipped. Without this key, all nine columns are enabled with orchestrator none.",
+        "The project's board columns in canonical order. todo, dev and done must be present and enabled. A column left out or disabled is skipped. Without this key, every built-in column is enabled with orchestrator none except triage, listed disabled. todo, triage and ready-for-dev form the Todo group: the dispatcher never moves a task between them.",
       ),
     dispatcher: z
       .strictObject({

@@ -1,4 +1,6 @@
 import {
+  COLUMN_GROUPS,
+  COLUMNS,
   configBindings,
   prFactsSchema,
   prSourceId,
@@ -522,6 +524,10 @@ export async function getStatus(
     transport,
     sources,
     tasks,
+    columnGroups: COLUMN_GROUPS.map((id) => ({
+      id,
+      columns: COLUMNS.filter((c) => c.group === id).map((c) => c.id),
+    })),
     projectBlocks,
     unlinkedPrs,
     unlinkedSessions,

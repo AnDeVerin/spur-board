@@ -1,4 +1,5 @@
 import {
+  COLUMNS,
   parseActorId,
   parseRef,
   prSourceId,
@@ -28,13 +29,7 @@ type Turn = Selectable<TurnTable>;
 const SUBMIT_POLL_TIMEOUT_MS = 10_000;
 
 /** Columns a task returns to Dev from: right of Dev, before the terminal Done. */
-const RETURNABLE: readonly ColumnId[] = [
-  'review',
-  'product-review',
-  'external-review',
-  'qa',
-  'ready-to-merge',
-];
+const RETURNABLE: readonly ColumnId[] = COLUMNS.filter((c) => c.returnable).map((c) => c.id);
 
 /** The PR poll `prepare` ran for a submit, or why it ran none. */
 type SubmitPrepared =

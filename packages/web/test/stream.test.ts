@@ -228,6 +228,7 @@ describe('stream client', () => {
           transport: [],
           sources: [],
           tasks: [],
+          columnGroups: [{ id: 'todo', columns: ['todo', 'triage', 'ready-for-dev'] }],
           projectBlocks: [],
           unlinkedPrs: [],
           unlinkedSessions: [],

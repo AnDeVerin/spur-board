@@ -2,10 +2,19 @@
 
 ## Columns and executors
 
-`todo`, `ready-for-dev`, `dev`, `review`, `product-review`,
+`todo`, `triage`, `ready-for-dev`, `dev`, `review`, `product-review`,
 `external-review`, `qa`, `ready-to-merge`, `done`.
 `projects[].columns[].enabled`: disabled/omitted columns skip gates;
-To Do, Dev, Done stay enabled.
+To Do, Dev, Done stay enabled. `triage` is off unless `columns` lists it.
+
+The Todo group is `todo`, `triage` and `ready-for-dev`: no exit condition, and
+the dispatcher never moves a task between them. Once work starts (an open PR or a
+live worker), a task moves from any of the three to the first enabled column right
+of the group in one move. New and reopened tasks enter `todo`; a reopened task whose
+PR is hidden returns to `todo` even from `triage` or `ready-for-dev`. A task rests in
+`triage` or `ready-for-dev` only through `board move <task> <column> --correct`.
+`board config get` marks group columns `group: todo`; `board status` lists the
+group in `columnGroups`.
 
 Each column has one executor: `projects[].columns[].orchestrator`:
 `none` (live worker, else operator), `operator`, or project with role

@@ -200,6 +200,13 @@
                 "courseCheck": 3
               },
               {
+                "id": "triage",
+                "enabled": false,
+                "orchestrator": "none",
+                "cycleLimit": 10,
+                "courseCheck": 3
+              },
+              {
                 "id": "ready-for-dev",
                 "enabled": true,
                 "orchestrator": "none",
@@ -256,7 +263,7 @@
                 "courseCheck": 3
               }
             ],
-            "description": "The project's board columns in canonical order. todo, dev and done must be present and enabled. A column left out or disabled is skipped. Without this key, all nine columns are enabled with orchestrator none.",
+            "description": "The project's board columns in canonical order. todo, dev and done must be present and enabled. A column left out or disabled is skipped. Without this key, every built-in column is enabled with orchestrator none except triage, listed disabled. todo, triage and ready-for-dev form the Todo group: the dispatcher never moves a task between them.",
             "type": "array",
             "items": {
               "type": "object",
@@ -265,6 +272,7 @@
                   "type": "string",
                   "enum": [
                     "todo",
+                    "triage",
                     "ready-for-dev",
                     "dev",
                     "review",
@@ -366,6 +374,7 @@
               "type": "string",
               "enum": [
                 "todo",
+                "triage",
                 "ready-for-dev",
                 "dev",
                 "review",

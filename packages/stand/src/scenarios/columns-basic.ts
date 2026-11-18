@@ -2,7 +2,7 @@ import { COLUMN_IDS } from '@spur-board/contracts';
 import { issueKey, jiraKey, openIssues, openJiraIssues, settledUnless } from './helpers.ts';
 import type { Scenario, ScenarioFakes } from './index.ts';
 
-/** One task in each of the nine columns of `project`, ticket i in column i. */
+/** One task in each built-in column of `project`, ticket i in column i. */
 function columnsScenario(options: {
   name: string;
   summary: string;
@@ -48,7 +48,7 @@ function columnsScenario(options: {
 
 export const columnsBasic = columnsScenario({
   name: 'columns-basic',
-  summary: 'Nine tasks from open issues 1-9, one in each column.',
+  summary: `${String(COLUMN_IDS.length)} tasks from open issues 1-${String(COLUMN_IDS.length)}, one in each column.`,
   project: 'stand',
   key: issueKey,
   open: openIssues,
@@ -57,7 +57,7 @@ export const columnsBasic = columnsScenario({
 export const columnsUnknown: Scenario = {
   ...columnsScenario({
     name: 'columns-unknown',
-    summary: 'Nine tasks with six in columns omitted from the project configuration.',
+    summary: `${String(COLUMN_IDS.length)} tasks with ${String(COLUMN_IDS.length - 3)} in columns omitted from the project configuration.`,
     project: 'stand',
     key: issueKey,
     open: openIssues,
@@ -67,7 +67,7 @@ export const columnsUnknown: Scenario = {
 
 export const columnsBasicJira = columnsScenario({
   name: 'columns-basic-jira',
-  summary: 'Nine stand-jira tasks from Jira tickets STAND-1..9, one in each column.',
+  summary: `${String(COLUMN_IDS.length)} stand-jira tasks from Jira tickets STAND-1..${String(COLUMN_IDS.length)}, one in each column.`,
   project: 'stand-jira',
   key: jiraKey,
   open: openJiraIssues,

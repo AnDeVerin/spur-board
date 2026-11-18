@@ -1,13 +1,16 @@
 import {
   assertNever,
   COLUMN_IDS,
+  isTodoGroupColumn,
   type CheckState,
   type ColumnId,
   type Config,
   type GateCondition,
   type GateConditionState,
   type GateReason,
+  type MarkColumnId,
   type PrFacts,
+  type TodoGroupColumnId,
 } from '@spur-board/contracts';
 
 /**
@@ -17,7 +20,7 @@ import {
  */
 export type GateMark =
   | { kind: 'submit'; column: ColumnId; headSha: string }
-  | { kind: 'mark'; column: 'review' | 'product-review'; headSha: string };
+  | { kind: 'mark'; column: MarkColumnId; headSha: string };
 
 /** What the gates read about one task. */
 export interface TaskGateFacts {
@@ -219,9 +222,8 @@ function columnCondition(
   waived: boolean,
   threads: boolean,
 ): GateReason[] {
+  if (isTodoGroupColumn(column)) return [];
   switch (column) {
-    case 'todo':
-    case 'ready-for-dev':
     case 'done':
       return [];
     case 'dev':
@@ -267,10 +269,8 @@ export function evaluateGate(
   return { ok: true, ...marker };
 }
 
-/** The exit conditions of each column, in the order the gates report their reasons. */
+/** The exit conditions of each column outside the Todo group, which has none, in the order the gates report their reasons. */
 const COLUMN_CONDITIONS = {
-  todo: [],
-  'ready-for-dev': [],
   dev: [
     'pr_open',
     'not_draft',
@@ -287,7 +287,7 @@ const COLUMN_CONDITIONS = {
   qa: ['submit_on_head'],
   'ready-to-merge': ['merged'],
   done: [],
-} as const satisfies Record<ColumnId, readonly GateCondition[]>;
+} as const satisfies Record<Exclude<ColumnId, TodoGroupColumnId>, readonly GateCondition[]>;
 
 /** The condition each gate reason fails. */
 const CONDITION_OF = {
@@ -347,7 +347,8 @@ export function explainGates(
     const gate = evaluateGate(column, facts, project);
     const blockedIn = gate.ok ? null : gate.column;
     const stopped = reasons.some((reason) => STOPS_DEV.has(reason));
-    const conditions = COLUMN_CONDITIONS[column].map((condition): ConditionExplanation => {
+    const own = isTodoGroupColumn(column) ? [] : COLUMN_CONDITIONS[column];
+    const conditions = own.map((condition): ConditionExplanation => {
       const reason = reasons.find((r) => CONDITION_OF[r] === condition) ?? null;
       if (reason === null) return { condition, state: stopped ? 'unchecked' : 'met', reason: null };
       return { condition, state: HOLD_ONLY.has(reason) ? 'waiting' : 'failed', reason };

@@ -139,7 +139,11 @@ describe('web listener', () => {
               ['qa', 'worker'],
               ['ready-to-merge', 'worker'],
               ['done', 'worker'],
-            ].map(([id, kind]) => ({ id, executor: { kind, name: null } })),
+            ].map(([id, kind]) => ({
+              id,
+              executor: { kind, name: null },
+              ...(id === 'todo' || id === 'ready-for-dev' ? { group: 'todo' } : {}),
+            })),
             dispatcher: { mode: 'shadow' },
             spurProjects: [],
             ticketBrowseBase: null,
