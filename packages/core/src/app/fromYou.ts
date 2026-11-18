@@ -1,4 +1,5 @@
 import {
+  columnTurnTimings,
   entityRefSchema,
   parseActorId,
   prFactsSchema,
@@ -24,6 +25,7 @@ import {
   DEFAULT_BRANCH_KEY,
   fingerprint,
   ITEM_POLICY,
+  NO_SESSION_KEY,
   OPERATOR_BLOCK_KEY,
   orderItems,
   RECONCILED_KINDS,
@@ -115,6 +117,136 @@ async function conversationWaiting(
     source: null,
     priority: ITEM_POLICY.conversation_waiting.priority,
   };
+}
+
+/** The newest stored end or absence among session rows, in milliseconds; -Infinity for none. */
+function newestGone(rows: readonly Pick<Row<'session_snapshot'>, 'ended_at' | 'absent_since'>[]) {
+  let newest = -Infinity;
+  for (const row of rows)
+    for (const value of [row.ended_at, row.absent_since]) {
+      const ms = value === null ? NaN : Date.parse(value);
+      if (ms > newest) newest = ms;
+    }
+  return newest;
+}
+
+/**
+ * One `no-session:<project>:<column>` item per named-orchestrator column whose untaken turns
+ * have rung with no live session to take them for `noRecipientAfterMs`. A ring's wait runs from
+ * the later of its creation and the newest stored end or absence of a session that could take it:
+ * one of the column's Spur project, or one linked to the task as orchestrator. The column's
+ * earliest wait start is the item's `factAt`; the summary carries no count or age, so a new
+ * waiting turn or a later reconcile raises nothing again.
+ */
+async function turnsWithoutSession(
+  trx: Trx,
+  config: Config,
+  now: number,
+  taskById: ReadonlyMap<number, Row<'task'>>,
+): Promise<ItemCandidate[]> {
+  const rings = await trx
+    .selectFrom('notification')
+    .innerJoin('turn', 'turn.id', 'notification.turn_id')
+    .select([
+      'notification.id',
+      'notification.kind',
+      'notification.task_id',
+      'notification.block_id',
+      'notification.role',
+      'notification.author_session',
+      'notification.created_at',
+      'turn.id as turn_id',
+      'turn.task_id as turn_task_id',
+      'turn.column',
+    ])
+    .where('notification.kind', '=', 'turn')
+    .where('notification.acked_at', 'is', null)
+    .where('notification.exhausted_at', 'is', null)
+    .where('turn.closed_at', 'is', null)
+    .where('turn.acked_at', 'is', null)
+    .where(sql<boolean>`turn.role = 'orchestrator:' || turn."column"`)
+    .execute();
+  // Oldest ring first by instant, then by turn id; an unreadable ring time counts for nothing.
+  const dated = rings
+    .map((ring) => ({ ring, at: Date.parse(ring.created_at) }))
+    .filter(({ at }) => !Number.isNaN(at))
+    .sort((left, right) => left.at - right.at || left.ring.turn_id - right.ring.turn_id);
+  const spurGone = new Map<string, number>();
+  const linkedGone = new Map<number, number>();
+  const columns = new Map<
+    string,
+    {
+      task: Row<'task'>;
+      spur: string;
+      afterMs: number;
+      earliest: number;
+      oldest: (typeof rings)[number];
+    }
+  >();
+  for (const { ring, at } of dated) {
+    const task = taskById.get(ring.turn_task_id);
+    if (task === undefined) continue;
+    const timings = columnTurnTimings(config, task.project, ring.column);
+    if (timings === null) continue;
+    if ((await selectNotificationRecipient(trx, ring, config)) !== undefined) continue;
+    const spur = timings.orchestrator;
+    let gone = spurGone.get(spur);
+    if (gone === undefined) {
+      gone = newestGone(
+        await trx
+          .selectFrom('session_snapshot')
+          .select(['ended_at', 'absent_since'])
+          .where('spur_project', '=', spur)
+          .where((eb) =>
+            eb.or([eb('ended_at', 'is not', null), eb('absent_since', 'is not', null)]),
+          )
+          .execute(),
+      );
+      spurGone.set(spur, gone);
+    }
+    let linked = linkedGone.get(task.id);
+    if (linked === undefined) {
+      linked = newestGone(
+        await trx
+          .selectFrom('link')
+          .innerJoin('session_snapshot', 'session_snapshot.id', 'link.session_id')
+          .select(['session_snapshot.ended_at', 'session_snapshot.absent_since'])
+          .where('link.task_id', '=', task.id)
+          .where('link.entity', '=', 'session')
+          .where('link.role', '=', 'orchestrator')
+          .where('link.banned', '=', 0)
+          .execute(),
+      );
+      linkedGone.set(task.id, linked);
+    }
+    const since = Math.max(at, gone, linked);
+    const key = `${NO_SESSION_KEY}${task.project}:${ring.column}`;
+    const group = columns.get(key);
+    if (group === undefined)
+      columns.set(key, {
+        task,
+        spur,
+        afterMs: timings.noRecipientAfterMs,
+        earliest: since,
+        oldest: ring,
+      });
+    else group.earliest = Math.min(group.earliest, since);
+  }
+  return [...columns].flatMap(([key, { task, spur, afterMs, earliest, oldest }]) =>
+    now - earliest < afterMs
+      ? []
+      : [
+          {
+            key,
+            kind: 'board_observation' as const,
+            taskId: task.id,
+            summary: `${task.project} ${oldest.column}: turns wait for a live session of Spur project ${spur}; oldest T${String(oldest.turn_id)} since ${oldest.created_at}`,
+            factAt: new Date(earliest).toISOString(),
+            source: null,
+            priority: 4,
+          },
+        ],
+  );
 }
 
 /**
@@ -725,12 +857,12 @@ export async function reconcileItems(
         .filter((flag) => ANOMALY_FLAGS.has(flag.kind))
         .map((flag) => flag.sessionId),
     );
-    const threshold = stuckTurnAfterMs(config);
     for (const { turn, sessionId, ended, quietSince, reminder, delivered } of await quietTurns(
       trx,
     )) {
       const task = taskById.get(turn.task_id);
       if (ended || task === undefined || quietSince === null || flagged.has(sessionId)) continue;
+      const threshold = stuckTurnAfterMs(config, task.project, turn);
       const quiet = Date.parse(quietSince);
       const reminded =
         reminder !== undefined &&
@@ -753,6 +885,16 @@ export async function reconcileItems(
       });
     }
   }
+  // Stale or unobserved Spur holds the no-session items it shows and raises none.
+  if (spurBlind || !spurComplete || spurExpired) {
+    const held = await trx
+      .selectFrom('operator_item')
+      .select('item_key')
+      .where('item_key', 'like', `${NO_SESSION_KEY}%`)
+      .where('cleared_at', 'is', null)
+      .execute();
+    heldKeys.push(...held.map((item) => item.item_key));
+  } else candidates.push(...(await turnsWithoutSession(trx, config, now, taskById)));
   const ordered = orderItems(candidates);
   const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {

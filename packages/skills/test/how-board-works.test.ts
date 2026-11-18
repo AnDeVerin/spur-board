@@ -331,6 +331,7 @@ describe('how the Board works guide', () => {
       'block:',
       'filter:',
       'health:',
+      'no-session:',
     ];
     expect([...new Set(rows.map((row) => row.kind))].sort()).toEqual([...ITEM_KINDS].sort());
     for (const kind of ITEM_KINDS) {

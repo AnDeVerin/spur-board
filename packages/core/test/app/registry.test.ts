@@ -1456,6 +1456,10 @@ it.each([
             name: binding === 'none' || binding === 'operator' ? null : name,
           },
           ...(column.id === 'todo' || column.id === 'ready-for-dev' ? { group: 'todo' } : {}),
+          // A named orchestrator column shows its effective turn timings, here the defaults.
+          ...(kind === 'orchestrator' || kind === 'curator'
+            ? { quietTurnAfterMs: 1_800_000, noRecipientAfterMs: 600_000 }
+            : {}),
         })),
     );
     expect(effective.projects[0]?.columns.every((column) => column.orchestrator === binding)).toBe(
@@ -1534,8 +1538,19 @@ it('allowlists effective configuration and applies status project visibility', a
       {
         id: 'first',
         columns: [
-          { id: 'todo', executor: { kind: 'orchestrator', name: 'reviewer' }, group: 'todo' },
-          { id: 'dev', executor: { kind: 'curator', name: 'curator' } },
+          {
+            id: 'todo',
+            executor: { kind: 'orchestrator', name: 'reviewer' },
+            group: 'todo',
+            quietTurnAfterMs: 1_800_000,
+            noRecipientAfterMs: 600_000,
+          },
+          {
+            id: 'dev',
+            executor: { kind: 'curator', name: 'curator' },
+            quietTurnAfterMs: 1_800_000,
+            noRecipientAfterMs: 600_000,
+          },
           { id: 'external-review', executor: { kind: 'dispatcher', name: null } },
           { id: 'done', executor: { kind: 'operator', name: null } },
         ],

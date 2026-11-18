@@ -323,6 +323,18 @@
                 "requireResolvedThreads": {
                   "description": "true: a task leaves this column, and every column right of it, only when its PR has no unresolved review thread; an unresolved one sends it back to Dev, and the worker's Dev turn lists each thread. Outdated threads count; a thread counts until someone resolves it, whoever wrote it. Defaults to true on ready-to-merge and false elsewhere; allowed on dev through ready-to-merge.",
                   "type": "boolean"
+                },
+                "quietTurnAfterMs": {
+                  "description": "How long the orchestrator session holding a turn of this column may sit quiet at its prompt before the board reminds it, then raises a stuck-turn anomaly, in milliseconds. Defaults to health.idleInDevAfterMs. Named orchestrator only: allowed on an enabled column whose orchestrator is a Spur project, set here or filled board-wide; a worker or operator turn left in the column keeps health.idleInDevAfterMs.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "noRecipientAfterMs": {
+                  "description": "How long an untaken turn of this column may wait with no live session to ring before the board raises one operator item for the project and column, in milliseconds. The time runs from the later of the turn ring's creation and the last end or absence of a session that could take it: one of the column's Spur project, or the task's linked orchestrator. Defaults to 600000 (10 minutes). Named orchestrator only: allowed on an enabled column whose orchestrator is a Spur project, set here or filled board-wide.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
                 }
               },
               "required": ["id"],
@@ -765,7 +777,7 @@
         },
         "idleInDevAfterMs": {
           "default": 1800000,
-          "description": "How long a worker session without an open PR, or the executor of a taken turn, waits at its prompt before it is flagged in milliseconds.",
+          "description": "How long a worker session without an open PR, or the executor of a taken turn, waits at its prompt before it is flagged; an orchestrator turn uses its column quietTurnAfterMs when set in milliseconds.",
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991

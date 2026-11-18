@@ -1,5 +1,5 @@
 {
-  "version": "416b30cdcaec12b283991565c2d4ee82c0a21fe20660ff8b1ca300455a7ab1db",
+  "version": "407cd042fac141647a7b3bdac05235bf76d95bdf665debc0f06a572e50c67eae",
   "grants": [
     "operator",
     "project-agent",
@@ -11300,6 +11300,18 @@
                         "description": "Column group; present only on Todo-group columns.",
                         "type": "string",
                         "enum": ["todo"]
+                      },
+                      "quietTurnAfterMs": {
+                        "description": "Effective quiet time of an orchestrator turn before its reminder, in milliseconds; present only on columns with a named orchestrator.",
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "noRecipientAfterMs": {
+                        "description": "Effective wait of an untaken turn with no live session before the operator item, in milliseconds; present only on columns with a named orchestrator.",
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
                       }
                     },
                     "required": ["id", "executor"],

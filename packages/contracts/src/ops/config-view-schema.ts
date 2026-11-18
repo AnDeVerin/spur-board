@@ -29,6 +29,20 @@ export const configViewSchema = z
                   .enum(COLUMN_GROUPS)
                   .optional()
                   .describe('Column group; present only on Todo-group columns.'),
+                quietTurnAfterMs: z
+                  .int()
+                  .min(1)
+                  .optional()
+                  .describe(
+                    'Effective quiet time of an orchestrator turn before its reminder, in milliseconds; present only on columns with a named orchestrator.',
+                  ),
+                noRecipientAfterMs: z
+                  .int()
+                  .min(1)
+                  .optional()
+                  .describe(
+                    'Effective wait of an untaken turn with no live session before the operator item, in milliseconds; present only on columns with a named orchestrator.',
+                  ),
               }),
             )
             .describe('Enabled board columns.'),

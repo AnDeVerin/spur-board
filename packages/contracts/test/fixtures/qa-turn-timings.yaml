@@ -1,0 +1,23 @@
+projects:
+  - id: web
+    tracker:
+      type: github-issues
+      repo: example-org/web
+    repos: [example-org/web]
+    operatorGithubLogin: octocat
+    spurProjects:
+      - name: qa-bot
+        role: orchestrator
+    columns:
+      - id: todo
+      - id: dev
+      - id: review
+      - id: qa
+        orchestrator: qa-bot
+        quietTurnAfterMs: 5400000
+        noRecipientAfterMs: 900000
+      - id: done
+operator:
+  slack: U0000000000
+digest:
+  tz: UTC

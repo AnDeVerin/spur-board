@@ -12,7 +12,8 @@ Choose the topic for the decision or action in front of you:
 - [Browser access and web shell](how-board-works-web.md): the web listener and its checks, what the [web UI](web-ui.md) reads and how it stays live.
 
 Read effective project configuration with `board config get`, then the current overview with
-`board status`. Configuration lists enabled columns in order, their executors, dispatcher mode,
+`board status`. Configuration lists enabled columns in order, their executors (with `quietTurnAfterMs` and
+`noRecipientAfterMs` on columns with a named orchestrator), dispatcher mode,
 effective Spur projects with display names, each project's `ticketBrowseBase`
 (`<tracker baseUrl>/browse/` for Jira, else null) and each project's `checksGate`, plus `web.publicOrigin` (the listener's origin,
 null when off or not bound yet) and `web.spurUiOrigin` (null when not configured). It excludes

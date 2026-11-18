@@ -160,6 +160,8 @@ describe('catalog', () => {
         ".projects[].columns[].executor.kind",
         ".projects[].columns[].executor.name",
         ".projects[].columns[].group",
+        ".projects[].columns[].quietTurnAfterMs",
+        ".projects[].columns[].noRecipientAfterMs",
         ".projects[].dispatcher",
         ".projects[].dispatcher.mode",
         ".projects[].spurProjects",

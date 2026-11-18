@@ -1,5 +1,6 @@
 import {
   buildCatalogSnapshot,
+  columnTurnTimings,
   COLUMNS,
   OPERATIONS,
   resolveWebOrigin,
@@ -141,6 +142,7 @@ export function createOperationRegistry(deps: {
                     ? undefined
                     : project.spurProjects.find((spur) => spur.name === column.orchestrator);
                 const group = COLUMNS.find((c) => c.id === column.id)?.group ?? null;
+                const timings = columnTurnTimings(config, project.id, column.id);
                 return {
                   id: column.id,
                   executor: {
@@ -157,6 +159,12 @@ export function createOperationRegistry(deps: {
                     name: named?.name ?? null,
                   },
                   ...(group === null ? {} : { group }),
+                  ...(timings === null
+                    ? {}
+                    : {
+                        quietTurnAfterMs: timings.quietTurnAfterMs,
+                        noRecipientAfterMs: timings.noRecipientAfterMs,
+                      }),
                 };
               }),
             dispatcher: { mode: project.dispatcher.mode },
