@@ -31,7 +31,8 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
 ## Roles
 
 - `pnpm stand board` and `pnpm stand mcp` take `--as operator|worker|orchestrator|curator`; the
-  default is `operator`.
+  default is `operator`. `--as` and `--home` go right after `board` or `mcp`:
+  `pnpm stand board --as worker status`; later they pass to the board CLI.
 - `operator` carries the stand's operator token and no session.
 - `worker` carries a session of the worker project `stand-worker`; `orchestrator` a session of
   `stand-qa`, the orchestrator of the stand's `qa` column, and of Review in the `dispatch-*`
@@ -43,7 +44,8 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
 - After `curator-absent`, the curator session is killed.
 - Drive `pnpm stand mcp` from a shell with the example in `docs/qa-stand.md`.
 - The wrapper refuses `service`, `update`, `rollback`, `skills` and `token create` with exit 2:
-  they act on the real machine or write outside the stand.
+  they act on the real machine or write outside the stand. Test token-file flows in
+  `packages/core/test/api/cli-integration.test.ts`.
 - Find board commands with `pnpm stand board --help`, `pnpm stand board <command> --help` and
   `pnpm stand board schema`, or in `docs/cli.md`; never guess a command.
 
