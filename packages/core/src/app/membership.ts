@@ -3,7 +3,7 @@ import type { Mutation } from './commands.ts';
 import { CommandError } from './commands.ts';
 import { reconcileTaskPrs } from './pr-associations.ts';
 import { archiveTask } from './archive.ts';
-import { emit, projectForKey, taskView, type Trx } from './board-utils.ts';
+import { emit, projectForKey, taskView, taskChangeAt, type Trx } from './board-utils.ts';
 import { authorizationTarget } from './blocks.ts';
 
 export function canonicalKey(
@@ -112,7 +112,7 @@ export function createMembershipMutations(config: Config): {
               manual_exclude: 0,
               membership: 'active',
               archive_reason: null,
-              last_change_at: ctx.at,
+              last_change_at: taskChangeAt(ctx.at),
             })
             .where('id', '=', task.id)
             .execute();

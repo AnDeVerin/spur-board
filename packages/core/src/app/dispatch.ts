@@ -27,6 +27,7 @@ import {
   projectForSource,
   taskMergedPr,
   taskPr,
+  taskChangeAt,
   ticketDone,
   type Trx,
 } from './board-utils.ts';
@@ -186,7 +187,7 @@ export async function moveLeft(
       column: to,
       column_epoch: task.column_epoch + 1,
       left_moves: task.left_moves + 1,
-      last_change_at: at.toISOString(),
+      last_change_at: taskChangeAt(at.toISOString()),
     })
     .where('id', '=', task.id)
     .returningAll()
@@ -273,7 +274,7 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
           .set({
             column: task.shadow_column,
             column_epoch: task.column_epoch + 1,
-            last_change_at: at.toISOString(),
+            last_change_at: taskChangeAt(at.toISOString()),
           })
           .where('id', '=', task.id)
           .execute();
@@ -340,8 +341,12 @@ export async function correctColumn(
     .updateTable('task')
     .set(
       shadow
-        ? { shadow_column: to, last_change_at: at.toISOString() }
-        : { column: to, column_epoch: task.column_epoch + 1, last_change_at: at.toISOString() },
+        ? { shadow_column: to, last_change_at: taskChangeAt(at.toISOString()) }
+        : {
+            column: to,
+            column_epoch: task.column_epoch + 1,
+            last_change_at: taskChangeAt(at.toISOString()),
+          },
     )
     .where('id', '=', task.id)
     .execute();
@@ -1004,7 +1009,7 @@ async function applyOn(
     }
     current = await trx
       .updateTable('task')
-      .set({ column: move.to, last_change_at: at.toISOString() })
+      .set({ column: move.to, last_change_at: taskChangeAt(at.toISOString()) })
       .where('id', '=', current.id)
       .returningAll()
       .executeTakeFirstOrThrow();

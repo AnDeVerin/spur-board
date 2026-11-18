@@ -30,6 +30,19 @@ export type Trx = Kysely<Tables>;
 type Task = Selectable<TaskTable>;
 type Link = Selectable<LinkTable>;
 
+/** A changed task never trusts absence evidence older than any change already accepted. */
+export function taskChangeAt(at: string) {
+  return sql<string>`max(coalesce(last_change_at, created_at), ${at})`;
+}
+
+export async function markTaskChanged(trx: Trx, taskId: number, at: string): Promise<void> {
+  await trx
+    .updateTable('task')
+    .set({ last_change_at: taskChangeAt(at) })
+    .where('id', '=', taskId)
+    .execute();
+}
+
 /** Whether a ticket status is done: a Jira done status, or a closed GitHub Issue. */
 export function ticketDone(project: Config['projects'][number], status: string): boolean {
   return project.tracker.type === 'jira'
@@ -238,6 +251,9 @@ export async function emit<K extends EventKind>(
 ): Promise<void> {
   const parsed = parseActorId(actor);
   if (parsed === null) throw new Error('Invalid journal actor');
+  // Linking or unlinking work changes which absence the next complete source polls must prove.
+  if (taskId !== null && (kind === 'link_added' || kind === 'link_removed'))
+    await markTaskChanged(trx, taskId, at);
   await trx
     .insertInto('event')
     .values({

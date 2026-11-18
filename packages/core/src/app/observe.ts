@@ -45,11 +45,13 @@ import {
 import type { Store } from '../store/store.ts';
 import {
   emit,
+  markTaskChanged,
   parseDefaultBranch,
   pastReopenFloor,
   projectForKey,
   projectForSource,
   ticketDone,
+  taskChangeAt,
   type Trx,
 } from './board-utils.ts';
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
@@ -466,7 +468,7 @@ async function ticket(
   } else if (task.tracker_id !== fact.id || task.key !== fact.key) {
     await trx
       .updateTable('task')
-      .set({ tracker_id: fact.id, key: fact.key, last_change_at: at })
+      .set({ tracker_id: fact.id, key: fact.key, last_change_at: taskChangeAt(at) })
       .where('id', '=', task.id)
       .execute();
   }
@@ -514,7 +516,7 @@ async function ticket(
         await setReopenFloor(trx, task.id, at);
     }
     await emit(trx, 'ticket_facts_changed', project.id, task.id, at, { facts: fact });
-    await trx.updateTable('task').set({ last_change_at: at }).where('id', '=', task.id).execute();
+    await markTaskChanged(trx, task.id, at);
   }
   if (
     fact.inFilter &&
@@ -747,7 +749,7 @@ async function pr(
         });
     }
     await emit(trx, 'pr_facts_changed', task.project, task.id, at, { facts: fact });
-    await trx.updateTable('task').set({ last_change_at: at }).where('id', '=', task.id).execute();
+    await markTaskChanged(trx, task.id, at);
   }
 }
 
@@ -1067,7 +1069,7 @@ async function session(
         to: fact.lifecycle,
       });
     await emit(trx, 'session_facts_changed', task.project, task.id, at, { facts: fact });
-    await trx.updateTable('task').set({ last_change_at: at }).where('id', '=', task.id).execute();
+    await markTaskChanged(trx, task.id, at);
   }
 }
 
@@ -1544,6 +1546,7 @@ export function createObservationCore(deps: {
               .where('id', '=', link.task_id)
               .executeTakeFirstOrThrow();
             // The lifecycle did not change, so only the facts row journals the end.
+            await markTaskChanged(trx, task.id, batch.observedAt);
             await emit(trx, 'session_facts_changed', task.project, task.id, batch.observedAt, {
               facts: ended,
             });
@@ -1613,7 +1616,7 @@ export function createObservationCore(deps: {
               });
               await trx
                 .updateTable('task')
-                .set({ last_change_at: batch.observedAt })
+                .set({ last_change_at: taskChangeAt(batch.observedAt) })
                 .where('id', '=', row.task_id)
                 .execute();
             }

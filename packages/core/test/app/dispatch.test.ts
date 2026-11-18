@@ -254,11 +254,12 @@ function board(options: Options = {}) {
     complete = true,
     startedAt?: string,
     blind = false,
+    entities: Parameters<typeof core.observe>[1]['batch']['entities'] = [],
   ) => {
     const stepped = step();
     const observedAt = startedAt ?? stepped;
     await core.observe(source, {
-      batch: { source, observedAt, complete, items, entities: [] },
+      batch: { source, observedAt, complete, items, entities },
       effectiveComplete: complete,
       state: {
         ...(complete ? { lastCompleteAt: observedAt } : {}),
@@ -277,7 +278,20 @@ function board(options: Options = {}) {
       core = createObservationCore({ store, config, clock });
       ({ registry, apply, query } = build());
     },
-    session: (facts: SessionFacts) => observe('spur', [{ kind: 'session', facts }], false),
+    session: (facts: SessionFacts, startedAt?: string) =>
+      observe('spur', [{ kind: 'session', facts }], false, startedAt),
+    ticketChange: (patch: Partial<TicketFacts>, startedAt?: string) =>
+      observe(
+        TRACKER,
+        [{ kind: 'ticket', facts: { ...ticketFacts('closed'), ...patch } }],
+        true,
+        startedAt,
+      ),
+    vanished: (startedAt?: string) =>
+      observe('spur', [], true, startedAt, false, [
+        { ref: { kind: 'session', id: 'worker-1' }, status: 'not_found' },
+      ]),
+    filterMissing: (startedAt?: string) => observe(TRACKER, [], true, startedAt),
     ticket: (status = 'open', inFilter = true, updatedAt?: string) =>
       observe(TRACKER, [
         {
@@ -1267,6 +1281,131 @@ describe('unresolved review threads', () => {
     expect((await ctx.task()).column).toBe('dev');
     expect((await ctx.openTurn())?.reason).toBe('dev: no_pr (PR o/r#7 merged, ticket still open)');
     expect((await ctx.why()).turn).not.toHaveProperty('threads');
+  });
+});
+
+describe.each(['on', 'shadow'] as const)('%s temporal task boundary', (mode) => {
+  const effective = (task: Awaited<ReturnType<Board['task']>>) =>
+    mode === 'on' ? task.column : (task.shadow_column ?? task.column);
+
+  it.each([
+    'pr',
+    'ticket',
+    'filter',
+    'session',
+    'ended',
+    'vanished',
+    'unlink',
+    'relink',
+    'correct',
+    'archive',
+    'reactivate',
+  ] as const)(
+    '%s changes preserve a monotonic boundary for stale/equal/fresh callback times',
+    async (writer) => {
+      for (const offset of [-1, 0, 1]) {
+        const ctx = await started({ mode });
+        await ctx.pr({ state: 'closed' });
+        if (writer === 'filter') await ctx.move('dev');
+        else await ctx.ticket('closed');
+        if (writer === 'relink') await ctx.unlinkPr();
+        const before = (await ctx.task()).last_change_at ?? '';
+        const at = new Date(Date.parse(before) + offset).toISOString();
+        if (writer === 'pr') await ctx.pr({ title: 'Changed title' }, true, at);
+        else if (writer === 'ticket') await ctx.ticketChange({ title: 'Changed title' }, at);
+        else if (writer === 'filter') await ctx.filterMissing(at);
+        else if (writer === 'session')
+          await ctx.session({ ...sessionFacts('worker-1', 'worker'), health: 'waiting' }, at);
+        else if (writer === 'ended')
+          await ctx.session(sessionFacts('worker-1', 'worker', true), at);
+        else if (writer === 'vanished') await ctx.vanished(at);
+        else {
+          ctx.wait(Date.parse(at) - Date.parse(ctx.at()) - 60_000);
+          if (writer === 'unlink') await ctx.unlinkPr();
+          else if (writer === 'relink') await ctx.linkPr(7);
+          else if (writer === 'correct') await ctx.move('dev');
+          else if (writer === 'archive') await ctx.archive();
+          else await ctx.add();
+        }
+        expect((await ctx.task()).last_change_at).toBe(offset > 0 ? at : before);
+      }
+    },
+  );
+
+  it.each(['pr', 'worker'] as const)(
+    'a delayed callback cannot validate stale absence before new %s discovery',
+    async (discovery) => {
+      const ctx = await started({ mode }, 'none');
+      await ctx.pr({ state: 'closed' });
+      const old = ctx.at();
+      await ctx.spur('none');
+      await ctx.ticket('closed');
+      const boundary = (await ctx.task()).last_change_at;
+      await ctx.pr({ title: 'Late old poll' }, true, old);
+      expect((await ctx.task()).last_change_at).toBe(boundary);
+      await ctx.github();
+      expect(effective(await ctx.task())).not.toBe('done');
+      if (discovery === 'pr') await ctx.pr({ number: 8, state: 'open' });
+      else await ctx.spur('live');
+      expect(effective(await ctx.task())).not.toBe('done');
+      expect(
+        (await ctx.events(mode === 'on' ? 'task_moved' : 'task_shadow_moved')).filter(
+          ({ payload }) => payload['to'] === 'done',
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it('actual not_found worker termination invalidates both absence proofs before PR discovery', async () => {
+    const ctx = await started({ mode });
+    await ctx.ticket('closed');
+    await ctx.github();
+    const before = (await ctx.task()).last_change_at ?? '';
+    await ctx.vanished();
+    expect(((await ctx.task()).last_change_at ?? '') > before).toBe(true);
+    expect(effective(await ctx.task())).not.toBe('done');
+    expect((await ctx.why()).holds).toEqual(expect.arrayContaining(['github_blind', 'spur_blind']));
+    await ctx.pr();
+    expect(
+      (await ctx.events(mode === 'on' ? 'task_moved' : 'task_shadow_moved')).filter(
+        ({ payload }) => payload['to'] === 'done',
+      ),
+    ).toEqual([]);
+    expect(
+      await ctx.store.db
+        .selectFrom('session_snapshot')
+        .select('end_reason')
+        .where('id', '=', 'worker-1')
+        .executeTakeFirst(),
+    ).toEqual({ end_reason: 'vanished' });
+  });
+
+  it('unchanged not_found callbacks preserve the boundary and permit renewed confirmation', async () => {
+    const ctx = await started({ mode });
+    await ctx.ticket('closed');
+    await ctx.github();
+    await ctx.vanished();
+    const boundary = (await ctx.task()).last_change_at;
+    const facts = (await ctx.events('session_facts_changed')).length;
+    await ctx.vanished();
+    expect((await ctx.task()).last_change_at).toBe(boundary);
+    expect(await ctx.events('session_facts_changed')).toHaveLength(facts);
+    await ctx.github();
+    expect(effective(await ctx.task())).toBe('done');
+    expect(await ctx.openTurn()).toBeNull();
+  });
+
+  it('unchanged ticket, PR and session refreshes preserve the boundary', async () => {
+    const ctx = await started({ mode });
+    await ctx.pr({ state: 'closed' });
+    await ctx.ticket('closed');
+    const boundary = (await ctx.task()).last_change_at;
+    await ctx.pr({ updatedAt: ctx.at() });
+    expect((await ctx.task()).last_change_at).toBe(boundary);
+    await ctx.ticket('closed', true, ctx.at());
+    expect((await ctx.task()).last_change_at).toBe(boundary);
+    await ctx.spur();
+    expect((await ctx.task()).last_change_at).toBe(boundary);
   });
 });
 

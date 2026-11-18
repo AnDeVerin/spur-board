@@ -1,7 +1,7 @@
 import type { ActorId, ArchiveReason } from '@spur-board/contracts';
 import type { Row } from '../store/schema.ts';
 import { RECONCILED_KINDS } from '../domain/fromYou.ts';
-import { emit, type Trx } from './board-utils.ts';
+import { emit, taskChangeAt, type Trx } from './board-utils.ts';
 import { closeOpenBlock } from './blocks.ts';
 import { clearItem } from './feed.ts';
 import { taskSubject } from './subject.ts';
@@ -70,7 +70,7 @@ export async function archiveTask(
     .execute();
   await trx
     .updateTable('task')
-    .set({ membership: 'archived', archive_reason: reason, last_change_at: at })
+    .set({ membership: 'archived', archive_reason: reason, last_change_at: taskChangeAt(at) })
     .where('id', '=', task.id)
     .execute();
   await emit(trx, 'task_archived', task.project, task.id, at, { reason }, actor);
