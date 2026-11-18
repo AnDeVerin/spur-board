@@ -149,12 +149,12 @@ describe('live feed announcement', () => {
 
   it('counts only items with a feed line and keeps a quiet item in status', async () => {
     const both = setup();
-    expect(await liveText(both.store, ['worker_ended', 'inbound_gap'])).toBe(
+    expect(await liveText(both.store, ['transport_health', 'inbound_gap'])).toBe(
       'spur-board is live: 0 tasks, 1 for you',
     );
 
     const quiet = setup();
-    expect(await liveText(quiet.store, ['worker_ended'])).toBe(
+    expect(await liveText(quiet.store, ['transport_health'])).toBe(
       'spur-board is live: 0 tasks, 0 for you',
     );
     const status = await getStatus({

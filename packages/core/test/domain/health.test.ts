@@ -8,7 +8,7 @@ import {
 
 const start = Date.parse('2026-01-01T00:00:00.000Z');
 const config = configSchema.shape.health.parse({});
-const noPr = { hasOpenPr: false, hasMergedPr: false, prCompleteAt: start };
+const noPr = { hasOpenPr: false, hasMergedPr: false, prCompleteAt: start, ticketDone: false };
 
 function session(
   id: string,
@@ -302,6 +302,26 @@ describe('evaluateSessionHealth', () => {
     expect(continued.flags).toEqual([]);
     expect(continued.episode).toEqual(began.episode);
   });
+
+  it.each(['complete', 'kill', 'vanished'] as const)(
+    'neither flags nor holds a %s worker whose ticket is done',
+    (reason) => {
+      const worker = session('a', 'stale', 0, {
+        endedAt: new Date(start - 1_000).toISOString(),
+        endReason: reason,
+      });
+      const done = { ...noPr, ticketDone: true };
+      for (const changes of [
+        {},
+        { spur: { blind: false, observationComplete: false } },
+        { tasks: { 'TASK-1': { ...done, prCompleteAt: null } } },
+      ]) {
+        const result = evaluate({ sessions: [worker], tasks: { 'TASK-1': done }, ...changes });
+        expect(result.flags).toEqual([]);
+        expect(result.held).toEqual([]);
+      }
+    },
+  );
 
   it('flags an ended worker by reason only after a complete observation without a PR or replacement', () => {
     const ended = session('a', 'stale', 0, {

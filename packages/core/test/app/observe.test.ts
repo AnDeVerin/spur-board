@@ -1262,6 +1262,35 @@ describe('accepted observation', () => {
       .where('kind', '=', 'feed.line')
       .where('dedupe_key', 'like', 'feed.line:health:%')
       .execute();
+  /** A complete Spur poll that reports worker-1 ended for `reason`. */
+  const observeEnded = (
+    core: ReturnType<typeof setup>['core'],
+    reason: 'complete' | 'kill' | 'vanished',
+  ) =>
+    reason === 'vanished'
+      ? observeSpur(core, [], [{ ref: { kind: 'session', id: 'worker-1' }, status: 'not_found' }])
+      : observeSpur(core, [
+          {
+            ...sessionFact('worker-1', workerLink, true),
+            endReason: reason,
+            lifecycle: reason === 'kill' ? 'killed' : 'completed',
+          },
+        ]);
+  const observeTicket = (core: ReturnType<typeof setup>['core'], status: string) => {
+    const observedAt = new Date(now).toISOString();
+    return core.observe(source, {
+      batch: {
+        source,
+        observedAt,
+        complete: true,
+        items: [{ kind: 'ticket', facts: { ...fact(), status } }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: observedAt, gone: [] },
+      outcomes: [],
+    });
+  };
 
   it.each([
     {
@@ -1278,7 +1307,7 @@ describe('accepted observation', () => {
       kind: 'worker_killed',
       text: 'o/r#9: worker ended (killed), no PR (worker-1)',
       itemKind: 'worker_ended',
-      lines: 0,
+      lines: 1,
       blocks: 0,
       row: 'ended (killed)',
     },
@@ -1298,20 +1327,7 @@ describe('accepted observation', () => {
       await apply(mutations.add, { task: 'o/r#9' }, 'operator');
       await observeSpur(core, [sessionFact('worker-1', workerLink)]);
       now += 1_000;
-      if (reason === 'vanished')
-        await observeSpur(
-          core,
-          [],
-          [{ ref: { kind: 'session', id: 'worker-1' }, status: 'not_found' }],
-        );
-      else
-        await observeSpur(core, [
-          {
-            ...sessionFact('worker-1', workerLink, true),
-            endReason: reason,
-            lifecycle: reason === 'kill' ? 'killed' : 'completed',
-          },
-        ]);
+      await observeEnded(core, reason);
       await pollGithub(core);
       const items = await store.db
         .selectFrom('operator_item')
@@ -1368,6 +1384,96 @@ describe('accepted observation', () => {
         expect(events.map(({ summary }) => summary)).toContain(
           'Session worker-1: ended (vanished)',
         );
+
+      // Each complete Spur poll confirms the ended worker again; only the fact time moves.
+      const item = items[0];
+      if (item === undefined) throw new Error('Missing ended-worker item');
+      const statusItem = async () =>
+        (await getStatus({ store, config, clock, completeSince: core.completeSince })).items.find(
+          (entry) => entry.key === item.item_key,
+        );
+      now += 60_000;
+      await observeEnded(core, reason);
+      await pollGithub(core);
+      const confirmed = await statusItem();
+      expect(confirmed).toMatchObject({
+        id: `I${String(item.id)}`,
+        unconfirmed: false,
+        factAt: new Date(now).toISOString(),
+      });
+      expect(confirmed?.summary).not.toContain('(not confirmed');
+      expect(await healthLines(store)).toHaveLength(lines);
+      now += 60_000;
+      await tickBoard({ store, config, clock, completeSince: core.completeSince });
+      expect(await statusItem()).toMatchObject({ unconfirmed: true });
+
+      // A done ticket ends the item; a reopened one raises it again.
+      await observeTicket(core, 'closed');
+      const cleared = await store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('id', '=', item.id)
+        .executeTakeFirstOrThrow();
+      expect(cleared.cleared_at).not.toBeNull();
+      if (item.block_id !== null)
+        expect(
+          await store.db
+            .selectFrom('block')
+            .select(['state', 'outcome'])
+            .where('id', '=', item.block_id)
+            .executeTakeFirstOrThrow(),
+        ).toEqual({ state: 'unblocked', outcome: 'withdrawn' });
+      const edits = await store.db
+        .selectFrom('outbox')
+        .select('parent_outbox_id')
+        .where('kind', '=', 'feed.line.edit')
+        .execute();
+      expect(edits).toEqual(
+        item.line_outbox_id === null ? [] : [{ parent_outbox_id: item.line_outbox_id }],
+      );
+      now += 1_000;
+      await observeTicket(core, 'open');
+      expect(
+        await store.db
+          .selectFrom('operator_item')
+          .select(['item_key', 'raise_no'])
+          .where('item_key', '=', item.item_key)
+          .where('cleared_at', 'is', null)
+          .execute(),
+      ).toEqual([{ item_key: item.item_key, raise_no: 2 }]);
+    },
+  );
+
+  it.each(['complete', 'kill', 'vanished'] as const)(
+    'keeps a held %s worker item open with its fact time until the window marks it not confirmed',
+    async (reason) => {
+      const { store, core, apply, mutations } = setup();
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      await observeSpur(core, [sessionFact('worker-1', workerLink)]);
+      now += 1_000;
+      await observeEnded(core, reason);
+      await pollGithub(core);
+      const open = () =>
+        store.db
+          .selectFrom('operator_item')
+          .selectAll()
+          .where('item_key', 'like', 'health:%')
+          .where('cleared_at', 'is', null)
+          .execute();
+      const [item] = await open();
+      if (item === undefined) throw new Error('Missing ended-worker item');
+      await core.reportSourceState('github:board:o/r', {
+        blind: { reason: 'auth', message: 'Access rejected' },
+        gone: [],
+      });
+      now += 60_000;
+      await observeEnded(core, reason);
+      expect(await open()).toEqual([item]);
+      const status = await getStatus({ store, config, clock, completeSince: core.completeSince });
+      expect(status.items.find((entry) => entry.key === item.item_key)).toMatchObject({
+        factAt: item.fact_at,
+        unconfirmed: true,
+      });
     },
   );
 
@@ -1490,7 +1596,7 @@ describe('accepted observation', () => {
     ).toEqual([]);
   });
 
-  it('clears an open pre-upgrade vanished item for a killed worker and raises it without a line', async () => {
+  it('clears an open pre-upgrade vanished item for a killed worker and raises it with one line', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
     await observeSpur(core, [sessionFact('worker-1', workerLink)]);
@@ -1539,8 +1645,11 @@ describe('accepted observation', () => {
       [old.id, oldKey, true],
       [items[1]?.id, `health:${String(task.id)}:worker-1:worker_killed`, false],
     ]);
-    expect(items[1]?.line_outbox_id).toBeNull();
-    expect((await healthLines(store)).map((row) => row.id)).toEqual([line.id]);
+    expect(items[1]?.line_outbox_id).not.toBeNull();
+    expect((await healthLines(store)).map((row) => row.id)).toEqual([
+      line.id,
+      items[1]?.line_outbox_id,
+    ]);
     expect(
       await store.db
         .selectFrom('outbox')
@@ -1647,7 +1756,8 @@ describe('accepted observation', () => {
         .where('id', '=', 'worker-1')
         .executeTakeFirstOrThrow(),
     ).toEqual({ absent_since: observedAt, ended_at: ended.ended_at });
-    expect(await items()).toEqual([item]);
+    // The complete Spur poll confirms the ended worker again and moves only the fact time.
+    expect(await items()).toEqual([{ ...item, fact_at: observedAt }]);
     expect(await counts()).toEqual(before);
   });
 
@@ -4071,7 +4181,8 @@ describe('anomaly blocks', () => {
       await spur(b, [session('worker-1', 'working')]);
       const turn = await heldTurn(b);
       now += 1_000;
-      await spur(b, [{ ...completed('worker-1'), endReason }]);
+      const ended = { ...completed('worker-1'), endReason };
+      await spur(b, [ended]);
       for (const elapsed of [0, 1_799_999, 1, 1]) {
         now += elapsed;
         await tick(b);
@@ -4106,7 +4217,13 @@ describe('anomaly blocks', () => {
           action: 'start a new worker for the task, or archive the task',
         }),
       );
-      expect((await surface(b)).lines).toBe(0);
+      expect((await surface(b)).lines).toBe(1);
+      // A complete Spur poll confirms the ended holder again and moves only the fact time.
+      const [before] = await endedItems(b);
+      now += 1_000;
+      await spur(b, [ended]);
+      expect(await endedItems(b)).toMatchObject([{ id: before?.id, fact_at: iso() }]);
+      expect((await surface(b)).lines).toBe(1);
     },
   );
 

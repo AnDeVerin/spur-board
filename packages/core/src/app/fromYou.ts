@@ -176,7 +176,13 @@ export async function reconcileItems(
     .where('membership', '!=', 'archived')
     .execute();
   const taskById = new Map(tasks.map((task) => [task.id, task]));
-  const endedHolders = await endedTurnItems(trx, taskById, candidates, new Date(now));
+  const endedHolders = await endedTurnItems(
+    trx,
+    taskById,
+    candidates,
+    new Date(now),
+    sourceById.get('spur')?.last_complete_at ?? null,
+  );
   const misses = await trx.selectFrom('source_miss').selectAll().execute();
   for (const miss of misses) {
     // A linked PR or ticket raises an item only once the runner counts it gone.
@@ -331,20 +337,22 @@ export async function reconcileItems(
     .where('link.banned', '=', 0)
     .where(pastReopenFloor)
     .execute();
-  const taskPrs: Record<string, TaskPrState> = {};
-  for (const task of tasks)
-    taskPrs[String(task.id)] = {
-      hasOpenPr: false,
-      hasMergedPr: false,
-      prCompleteAt: prCompleteAt(
-        config.projects.find((entry) => entry.id === task.project),
-        sourceById,
-      ),
-    };
   const tickets = await trx
     .selectFrom('ticket_snapshot')
     .select(['task_id', 'status', 'detail', 'source', 'observed_at'])
     .execute();
+  const taskPrs: Record<string, TaskPrState> = {};
+  for (const task of tasks) {
+    const project = config.projects.find((entry) => entry.id === task.project);
+    const ticket = tickets.find((entry) => entry.task_id === task.id);
+    taskPrs[String(task.id)] = {
+      hasOpenPr: false,
+      hasMergedPr: false,
+      prCompleteAt: prCompleteAt(project, sourceById),
+      ticketDone:
+        project !== undefined && ticket !== undefined && ticketDone(project, ticket.status),
+    };
+  }
   // Each task's newest merge time; null when no merged PR's detail is readable.
   const mergedAt = new Map<number, string | null>();
   for (const pr of prs) {
@@ -701,7 +709,11 @@ export async function reconcileItems(
             : 'board_observation',
       taskId: task.id,
       summary: `${task.key}: ${endedLabel ?? flag.kind.replaceAll('_', ' ')} (${flag.sessionId})`,
-      factAt: fact?.healthSince ?? null,
+      // An ended worker's "no PR" holds while Spur keeps completing polls.
+      factAt:
+        endedLabel === undefined
+          ? (fact?.healthSince ?? null)
+          : (spur?.last_complete_at ?? fact?.endedAt ?? null),
       source: 'spur',
       priority: 4,
       revision: endedLabel === undefined ? (fact?.healthSince ?? null) : (fact?.endedAt ?? null),
@@ -959,6 +971,8 @@ async function endedTurnItems(
   tasks: ReadonlyMap<number, Row<'task'>>,
   candidates: ItemCandidate[],
   at: Date,
+  /** Start of Spur's last complete poll; each one confirms the holder is still ended. */
+  spurConfirmedAt: string | null,
 ): Promise<Set<string>> {
   const holders = new Set<string>();
   const turns = await trx
@@ -1011,7 +1025,7 @@ async function endedTurnItems(
       kind: 'worker_ended',
       taskId: task.id,
       summary: `${task.key}: turn T${String(turn.id)} holder ${sessionId} ended`,
-      factAt: session.ended_at,
+      factAt: spurConfirmedAt ?? session.ended_at,
       revision: session.ended_at,
       source: 'spur',
       priority: 4,

@@ -17,6 +17,8 @@ export interface TaskPrState {
    * from a poll that began at or after the moment it is judged against.
    */
   prCompleteAt: number | null;
+  /** The task's ticket is in a done status. */
+  ticketDone: boolean;
 }
 
 export interface HostLoadEpisode {
@@ -141,6 +143,7 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
           session.endReason === 'kill' ||
           session.endReason === 'vanished') &&
         task !== undefined &&
+        !task.ticketDone &&
         !task.hasOpenPr &&
         !task.hasMergedPr &&
         !liveWorkerTasks.has(session.taskId)
