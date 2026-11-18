@@ -1,6 +1,4 @@
 import {
-  COLUMN_GROUPS,
-  COLUMNS,
   configBindings,
   prFactsSchema,
   prSourceId,
@@ -22,17 +20,15 @@ import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
 import { readOutageEnds, services } from './status-services.ts';
 import {
+  columnGroupViews,
   readStatusBlocks,
   readStatusColumnEntries,
   readStatusReturns,
   readStatusTurns,
+  sessionView,
   summarizePr,
   sourceInterval,
 } from './status-views.ts';
-
-function sessionView(fact: SessionFacts) {
-  return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
-}
 
 /** Counts of each value, rendered as `<n> <value>` in the given order. */
 function counts(values: readonly string[], order: readonly string[]): string {
@@ -524,10 +520,7 @@ export async function getStatus(
     transport,
     sources,
     tasks,
-    columnGroups: COLUMN_GROUPS.map((id) => ({
-      id,
-      columns: COLUMNS.filter((c) => c.group === id).map((c) => c.id),
-    })),
+    columnGroups: columnGroupViews(),
     projectBlocks,
     unlinkedPrs,
     unlinkedSessions,

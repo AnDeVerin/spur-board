@@ -1,14 +1,30 @@
 import { sql } from 'kysely';
 import {
+  COLUMN_GROUPS,
+  COLUMNS,
   eventPayloadSchemas,
   type ActorId,
   type AddresseeRole,
   type ColumnId,
   type Config,
   type PrFacts,
+  type SessionFacts,
 } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
 import { eventActor } from './board-utils.ts';
+
+/** The column groups with their built-in columns in canonical order, the same for every project. */
+export function columnGroupViews() {
+  return COLUMN_GROUPS.map((id) => ({
+    id,
+    columns: COLUMNS.filter((c) => c.group === id).map((c) => c.id),
+  }));
+}
+
+/** A session fact with its links as a list. */
+export function sessionView(fact: SessionFacts) {
+  return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
+}
 
 /** Factual PR rollup; the caller owns snapshot freshness and all reads. */
 export function summarizePr(fact: PrFacts, factAt: string, unconfirmed: boolean) {
