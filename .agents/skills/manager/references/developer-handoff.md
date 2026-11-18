@@ -27,6 +27,6 @@ Detail for the `developer` role; `doc-reviewer` reads `## Doc surfaces`.
 
 - Every changed test, snapshot, lint rule, TypeScript option or CI setting goes on its own line
   under `Changed checks`, with why. Deleted, skipped or weakened checks are never silent.
-  `gitflow`'s Changed-checks list names the cases.
+  The list in `.agents/skills/gitflow/references/pr-body.md` names the cases.
 - Before the PR, run `pnpm guardrails <sha>` with the handoff's `origin/main` SHA and read its
   exit code; each file it reports gets its own `Changed checks` line.

@@ -8,7 +8,8 @@ description: Tests, fakes, clocks, flaky quarantine, checks and CI. Use when you
 ## Writing tests
 
 - Read `references/test-layers.md` for the layer to use, stand scenarios, the existing fakes,
-  clock seams, the waits rule, harness guarantees and flaky-test quarantine.
+  the waits rule and flaky-test quarantine, and `references/clock-and-harness.md` for clock and
+  id seams and harness guarantees.
 - Give the test a fake or a local server instead of `vi.mock` (`viMockBan`, `eslint.config.js`).
 - Code under test takes a `clock` or `now` seam; never assert on the real time.
 - Put tests that read design system CSS or token values in a Node-side `scripts/web*.test.ts`,
@@ -38,16 +39,8 @@ description: Tests, fakes, clocks, flaky quarantine, checks and CI. Use when you
 
 ## Doc checks
 
-- Guides fail `packages/skills/test/skill-sync.test.ts` on a command with subcommands, even with
-  a key (`board task <key>`, `board comment`), and on a lowercase `board <word>` in prose: README,
-  SETUP, TROUBLESHOOTING, the runbook, the setup skill. Describe the action, cite a leaf command,
-  or write "Board".
-- `skill-sync.test.ts` keeps each guide (`docs/how-board*.md`, `docs/web-ui*.md`) and its copy
-  in `packages/skills/spur-board/references/` below 8192 bytes; `doc-caps.test.ts` warns above
-  80%. CI tests the merge with `main`, so two PRs that each grow one guide can pass alone and
-  fail together: measure after merging current `main`.
-- No skill or guide check reads `docs/configuration.md`; check commands in its prose in
-  `scripts/gen-docs.test.ts`, where `registeredCommands()` gives each command path and options.
+- Guide command checks, guide size caps and the `docs/configuration.md` gap:
+  `references/doc-checks.md`.
 
 ## CI and dependencies
 
