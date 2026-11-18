@@ -149,6 +149,16 @@ describe('how the Board works guide', () => {
       ],
     },
     {
+      section: 'Task history',
+      topic: 'history',
+      clauses: [
+        /oldest first by\s*time/,
+        /events at one time keep journal order/,
+        /Checks count the required ones, else all but skipped/,
+      ],
+      keys: ['board task history <task>'],
+    },
+    {
       section: 'Blocks and escalation',
       topic: 'blocks',
       clauses: [
@@ -281,10 +291,10 @@ describe('how the Board works guide', () => {
 
   it('lists every item kind in the operator inbox table', () => {
     const guide = readFileSync(
-      new URL('../../../docs/how-board-works-blocks.md', import.meta.url),
+      new URL('../../../docs/how-board-works-inbox.md', import.meta.url),
       'utf8',
     );
-    const start = guide.indexOf('## Operator inbox\n');
+    const start = guide.indexOf('## Item kinds\n');
     expect(start).toBeGreaterThanOrEqual(0);
     const end = guide.indexOf('\n## ', start + 1);
     const section = guide.slice(start, end < 0 ? undefined : end);

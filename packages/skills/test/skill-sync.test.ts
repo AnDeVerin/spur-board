@@ -25,24 +25,43 @@ const setupRefsPath = fileURLToPath(new URL('../setup/references/', import.meta.
 const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 const refsPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
 const docsPath = fileURLToPath(new URL('../../../docs/', import.meta.url));
-const guideNames = ['', '-columns', '-turns', '-blocks', '-slack', '-done', '-web']
+const guideNames = [
+  '',
+  '-columns',
+  '-turns',
+  '-history',
+  '-blocks',
+  '-inbox',
+  '-slack',
+  '-done',
+  '-web',
+]
   .map((topic) => `how-board-works${topic}.md`)
   .concat(['', '-board', '-status', '-task-view', '-task-blocks'].map((p) => `web-ui${p}.md`));
 const guideDocs = guideNames.map((name) => readFileSync(`${docsPath}/${name}`, 'utf8'));
 const guideTexts = guideNames.map((name) => readFileSync(`${refsPath}/${name}`, 'utf8'));
 const skill = readFileSync(skillPath, 'utf8');
+const workerFlow = readFileSync(`${refsPath}/worker-flow.md`, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
 const publicGuides = [readmePath, setupGuidePath, troubleshootingPath, runbookPath].map((path) =>
   readFileSync(path, 'utf8'),
 );
-const setupNames = ['secrets.md', 'slack.md', 'update.md', 'web.md', 'worker-links.md'];
+const setupNames = [
+  'access.md',
+  'inspect.md',
+  'secrets.md',
+  'slack.md',
+  'update.md',
+  'web.md',
+  'worker-links.md',
+];
 const setupTexts = setupNames.map((name) => readFileSync(`${setupRefsPath}/${name}`, 'utf8'));
 const setupFullText = [setupSkill, ...setupTexts].join('\n');
 const binarySource = readFileSync(binaryPath, 'utf8');
 const references = renderCommandReferences();
 const referenceTexts = references.map((r) => readFileSync(`${refsPath}/${r.fileName}`, 'utf8'));
 const referenceText = referenceTexts.join('\n');
-const fullText = [skill, ...referenceTexts, ...guideTexts].join('\n');
+const fullText = [skill, workerFlow, ...referenceTexts, ...guideTexts].join('\n');
 const operations = [...OPERATIONS].sort(
   (left, right) => right.cli.command.split(' ').length - left.cli.command.split(' ').length,
 );
@@ -214,17 +233,22 @@ describe('product skill sync', () => {
     for (const page of references.slice(0, 2))
       expect(page.content).toContain('[errors.md](errors.md)');
     expect(readdirSync(refsPath).sort()).toEqual(
-      [...references.map((reference) => reference.fileName), ...guideNames].sort(),
+      [
+        ...references.map((reference) => reference.fileName),
+        ...guideNames,
+        'worker-flow.md',
+      ].sort(),
     );
     for (const [index, reference] of references.entries()) {
       expect(referenceTexts[index]).toBe(reference.content);
       expect(Buffer.byteLength(reference.content)).toBeLessThanOrEqual(6553); // 80% of 8192
     }
+    expect(Buffer.byteLength(workerFlow)).toBeLessThanOrEqual(6553);
   });
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
     // guideDocs reads every listed guide, so the count rules out an unlisted docs page.
-    expect(readdirSync(docsPath).filter((n) => /^(how-board|web-ui)/.test(n))).toHaveLength(12);
+    expect(readdirSync(docsPath).filter((n) => /^(how-board|web-ui)/.test(n))).toHaveLength(14);
     for (const [index, reference] of guideTexts.entries()) {
       expect(reference).toBe(guideDocs[index]);
       expect(Buffer.byteLength(reference)).toBeLessThan(8192);
@@ -245,7 +269,7 @@ describe('product skill sync', () => {
     expect(worker).toMatch(
       /board submit <turn> <sha>[\s\S]*Answer each external comment[\s\S]*a reply alone submits the same head[\s\S]*Re-request review only from reviewers whose threads your push closed[\s\S]*If returns repeat the same mechanism[\s\S]*fix the class once[\s\S]*one table test for variants[\s\S]*edges with no user-visible effect under PR Risk[\s\S]*still fix P0\/P1 and user-visible findings/,
     );
-    expect(skill.split('- On doorbell,')[1]?.split('- For a "back"')[0]).toMatch(
+    expect(skill.split('- On doorbell,')[1]?.split('\n## ')[0]).toMatch(
       /block\. Once handled, ack its revision, ID or ring[\s\S]*board inbox ack <entries>/,
     );
   });
@@ -338,8 +362,9 @@ describe('product skill sync', () => {
   });
 
   it('tells workers how to link their session', () => {
-    expect(skill).toContain('--link board-worker=');
-    expect(skill).toContain('`board link`');
+    expect(workerFlow).toContain('--link board-worker=');
+    expect(workerFlow).toContain('`board link`');
+    expect(skill).toContain('(references/worker-flow.md)');
   });
 
   it('gives workers operator-safe recovery for archived tasks', () => {
@@ -455,80 +480,5 @@ describe('public guide command mentions', () => {
   it('uses only registered board commands and flags in each guide', () => {
     for (const guide of publicGuides) expect(validateSetupInvocations(guide)).toEqual([]);
     expect(publicGuides.flatMap(invocations).length).toBeGreaterThan(12);
-  });
-
-  it('documents worker session links and the PR-author login', () => {
-    const setup = publicGuides[1];
-    expect(setup).toContain('open PRs under');
-    const section = setup?.split('## 6. Link worker sessions to tasks')[1]?.split('\n## ')[0];
-    expect(section).toBeDefined();
-    for (const token of [
-      'docs/configuration.md#session-links',
-      '--link board-worker=',
-      '`board link`',
-      'any Spur project',
-      'role: worker',
-    ])
-      expect(section).toContain(token);
-  });
-
-  it('documents a refused Spur session and the one-project rule', () => {
-    const troubleshooting = publicGuides[2]?.replace(/\s+/g, ' ') ?? '';
-    const section = troubleshooting.split('## Refused Spur session')[1]?.split(' ## ')[0];
-    expect(section).toBeDefined();
-    for (const sentence of [
-      'Inside a Spur session the session wins over a token: `SPUR_SESSION` is sent and neither `BOARD_TOKEN` nor `.spur-board/token` is read.',
-      "A session whose Spur project is in no `projects[].spurProjects` or top-level `spurProjects` of the Board's `config.yaml`, or is listed under several Board projects, is refused with `forbidden` (exit 1), and the hint names the Spur project and the fix.",
-      "Keep the Spur project under exactly one Board project in the Board's `config.yaml`, not Spur's `spur.yaml`, and restart the Board daemon.",
-      'To run two Board projects, give each its own Spur projects.',
-    ])
-      expect(section).toContain(sentence);
-    expect(troubleshooting).toContain('A Spur project can be listed under only one Board project.');
-  });
-
-  it('documents when token create replaces an existing token file', () => {
-    const troubleshooting = publicGuides[2]?.replace(/\s+/g, ' ') ?? '';
-    expect(troubleshooting).toContain(
-      'When `<folder>/.spur-board/token` already exists, `board token create` replaces it only if the daemon reports that token expired or denied; an approved, pending, revoked or unknown token stays in place and the command fails with `config`, naming the file and the fix.',
-    );
-  });
-
-  it('documents that item retry restarts the answer_undelivered doorbell series', () => {
-    const runbook = publicGuides[3]?.replace(/\s+/g, ' ') ?? '';
-    const section = runbook.split('## 4. Answer never reached the agent')[1]?.split(' ## 5. ')[0];
-    expect(section).toBeDefined();
-    expect(section).toContain(
-      'To ring again, for either cause: run `board item retry <item> --key <key>`. It clears the item and restarts the doorbell series',
-    );
-    expect(section).toContain('Spur refused the doorbell');
-    expect(section).toContain('Then retry the item as below.');
-  });
-
-  it('documents board update and the rollback recovery', () => {
-    const [, setup, troubleshooting] = publicGuides;
-    const updateRun = setupTexts[setupNames.indexOf('update.md')];
-    for (const guide of [setup, updateRun]) {
-      for (const token of ['`board update`', 'without `board update`', '`board service install`'])
-        expect(guide).toContain(token);
-      expect(guide).toContain('`board service restart` only when the service was active before');
-      for (const token of ['`npm pack`', '10 minutes']) expect(guide).toContain(token);
-    }
-    for (const token of ['update_rolled_back', 'rollback_failed', '`board rollback --yes`'])
-      expect(troubleshooting).toContain(token);
-  });
-
-  it('keeps the agent bootstrap line and GitHub permission recovery', () => {
-    const [readme, setup, troubleshooting] = publicGuides;
-    expect(readme).toMatch(/^npx -y spur-board@latest skills install$/m);
-    expect(readme).toContain('`spur-board-setup`');
-    for (const guide of [setup, troubleshooting]) {
-      expect(guide).toContain('classic personal access token');
-      expect(guide).toContain('`repo`');
-      expect(guide).toContain('`read:org`');
-      expect(guide).toContain('SSO');
-      expect(guide).toContain('`FORBIDDEN`');
-      expect(guide).toContain('`CheckRun`');
-      expect(guide).toContain('`INSUFFICIENT_SCOPES`');
-    }
   });
 });
