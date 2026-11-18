@@ -213,18 +213,19 @@ Not API changes, no row of their own:
 
 Codes, all from the table above:
 
-| Change                                                                       | Code                        |
-| ---------------------------------------------------------------------------- | --------------------------- |
-| New export                                                                   | `new base`                  |
-| New prop or state prop                                                       | `functional gap → prop`     |
-| New variant or tone member                                                   | `DS override → new variant` |
-| New token                                                                    | `new token`                 |
-| Changed prop default, a token given another value, another token for a state | `operator decision`         |
-| Removed or renamed export, prop, variant member or token                     | `operator decision`         |
+| Change                                                                               | Code                        |
+| ------------------------------------------------------------------------------------ | --------------------------- |
+| New export                                                                           | `new base`                  |
+| New prop or state prop                                                               | `functional gap → prop`     |
+| New variant or tone member                                                           | `DS override → new variant` |
+| New token                                                                            | `new token`                 |
+| Changed prop type or default, a token given another value, another token for a state | `operator decision`         |
+| Removed or renamed export, prop, variant member or token                             | `operator decision`         |
 
 The last two rows follow `default change avoided`: changing a default needs `operator decision`.
-Without one recorded, a changed default, removal or rename is a finding: keep the default or the
-name and add a prop or a variant; for a token, keep the value, or add a `new token` and use it.
+Without one recorded, a changed type or default, removal or rename is a finding: keep the type,
+the default or the name and add a prop or a variant; for a token, keep the value, or add a
+`new token` and use it.
 
 ## Proposed parts
 
