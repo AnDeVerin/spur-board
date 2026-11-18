@@ -465,10 +465,12 @@ const reloadRecords = z.object({
 });
 
 /**
- * The daemon's reload record of each named session under any of `versions`. Ids travel in the
- * body, never the URL. A record queued before `since`, the last content change, does not count,
- * as after a rollback to a version installed earlier; a delivered record beats a pending one. An
- * unreachable daemon yields no records.
+ * The daemon's reload records of the named sessions over every version, so a catch-up delivered
+ * under a version between two installs still counts. A daemon that needs a version answers
+ * usage; it is then asked once for each of `versions`. Ids travel in the body, never the URL. A
+ * record queued before `since`, the last content change, does not count, as after a rollback to
+ * a version installed earlier; a delivered record beats a pending one. An unreachable daemon
+ * yields no records.
  */
 async function reloadStates(
   ids: readonly string[],
@@ -480,32 +482,40 @@ async function reloadStates(
   const states = new Map<string, ReloadState>();
   const sessions = lookupIds(ids);
   if (sessions.length === 0) return states;
-  for (const version of new Set(versions)) {
+  const lookup = async (version?: string) => {
     try {
       const response = await ports.fetcher(new URL('/v1/skills/reloads', address()), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ version, sessions }),
+        body: JSON.stringify(version === undefined ? { sessions } : { version, sessions }),
         signal: AbortSignal.timeout(5_000),
       });
-      if (response.status !== 200) continue;
+      if (response.status !== 200) return response.status;
       const envelope = successEnvelopeSchema.safeParse(await response.json());
-      const parsed = reloadRecords.safeParse(envelope.data?.value);
-      if (!parsed.success) continue;
-      for (const record of parsed.data.sessions) {
-        const queuedAt = record.queuedAt === null ? Number.NaN : Date.parse(record.queuedAt);
-        if (
-          record.state !== 'failed' &&
-          sessions.includes(record.id) &&
-          Number.isFinite(queuedAt) &&
-          queuedAt >= since &&
-          states.get(record.id) !== 'delivered'
-        ) {
-          states.set(record.id, record.state);
-        }
-      }
+      return reloadRecords.safeParse(envelope.data?.value).data?.sessions ?? [];
     } catch {
       // Without records every stale session is listed under stop and wake.
+      return [];
+    }
+  };
+  const records = [];
+  const every = await lookup();
+  if (every === 400) {
+    for (const version of new Set(versions)) {
+      const found = await lookup(version);
+      if (typeof found !== 'number') records.push(...found);
+    }
+  } else if (typeof every !== 'number') records.push(...every);
+  for (const record of records) {
+    const queuedAt = record.queuedAt === null ? Number.NaN : Date.parse(record.queuedAt);
+    if (
+      record.state !== 'failed' &&
+      sessions.includes(record.id) &&
+      Number.isFinite(queuedAt) &&
+      queuedAt >= since &&
+      states.get(record.id) !== 'delivered'
+    ) {
+      states.set(record.id, record.state);
     }
   }
   return states;

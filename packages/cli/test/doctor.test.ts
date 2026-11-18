@@ -1246,7 +1246,6 @@ describe('board doctor', () => {
     expect(requests[0]?.init?.method).toBe('POST');
     expect(requests[0]?.init?.body).toBe(
       JSON.stringify({
-        version: '1.2.3',
         sessions: ['delivered', 'failed', 'missing', 'pending', 'rolled', 'undated-ok'],
       }),
     );
@@ -1362,7 +1361,7 @@ describe('board doctor', () => {
       ),
     );
     expect(requests.map((request) => request.init?.body)).toEqual([
-      JSON.stringify({ version: '1.2.3', sessions: ['old'] }),
+      JSON.stringify({ sessions: ['old'] }),
     ]);
     expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.fix).toBe(
       stopAndWake(
@@ -1405,36 +1404,122 @@ describe('board doctor', () => {
     );
   });
 
-  it('counts a delivered reload under a newer version queued after the content change', async () => {
+  interface StoredReload {
+    version: string;
+    id: string;
+    state: 'delivered' | 'pending' | 'failed';
+    queuedAt: string;
+  }
+  /**
+   * A daemon over stored reload rows: without a version it answers each session's newest record
+   * per state over every version; `older` answers usage to that, as a daemon before it did.
+   */
+  function daemonReloads(rows: readonly StoredReload[], older: boolean) {
+    return (init: RequestInit | undefined): Response => {
+      const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+        version?: string;
+        sessions: string[];
+      };
+      if (body.version === undefined && older) {
+        return Response.json({ code: 'usage' }, { status: 400 });
+      }
+      const newest = new Map<string, StoredReload>();
+      for (const row of rows) {
+        if (!body.sessions.includes(row.id)) continue;
+        if (body.version !== undefined && row.version !== body.version) continue;
+        const kept = newest.get(`${row.id}:${row.state}`);
+        if (kept === undefined || row.queuedAt > kept.queuedAt) {
+          newest.set(`${row.id}:${row.state}`, row);
+        }
+      }
+      return Response.json({
+        ok: true,
+        requestId: 'r',
+        value: {
+          ...(body.version === undefined ? {} : { version: body.version }),
+          sessions: [...newest.values()].map(({ id, state, queuedAt }) => ({
+            id,
+            state,
+            queuedAt,
+          })),
+        },
+      });
+    };
+  }
+  const missed = { version: '1.2.3', id: 's', queuedAt: '2026-11-04T09:00:01.000Z' } as const;
+  const anyVersion = JSON.stringify({ sessions: ['s'] });
+
+  it.each<{
+    name: string;
+    rows: StoredReload[];
+    older?: boolean;
+    status: 'pass' | 'warning';
+    fix: string | null;
+    bodies: string[];
+  }>([
+    {
+      name: 'a catch-up delivered under an intermediate version clears it',
+      rows: [
+        { ...missed, state: 'failed' },
+        { version: '1.2.4', id: 's', state: 'delivered', queuedAt: '2026-11-05T09:00:01.000Z' },
+      ],
+      status: 'pass',
+      fix: null,
+      bodies: [anyVersion],
+    },
+    {
+      name: 'a delivered reload older than the content change keeps it',
+      rows: [
+        { version: '1.2.2', id: 's', state: 'delivered', queuedAt: '2026-11-03T12:00:00.000Z' },
+      ],
+      status: 'warning',
+      fix: stopAndWake(
+        '1 session',
+        ': s',
+        ' for 1.2.3',
+        'read these files of the spur-board skill again: references/a.md, under',
+      ),
+      bodies: [anyVersion],
+    },
+    {
+      name: 'a pending reload after the content change lists it as queued',
+      rows: [
+        { ...missed, state: 'failed' },
+        { version: '1.2.4', id: 's', state: 'pending', queuedAt: '2026-11-05T09:00:01.000Z' },
+      ],
+      status: 'warning',
+      fix: "The board's reload message for 1.2.3 is still queued for 1 session: s; rerun board doctor in a minute.",
+      bodies: [anyVersion],
+    },
+    {
+      name: 'an older daemon is asked per version and its newest-version delivery clears it',
+      rows: [
+        { version: '1.2.5', id: 's', state: 'delivered', queuedAt: '2026-11-06T09:00:01.000Z' },
+      ],
+      older: true,
+      status: 'pass',
+      fix: null,
+      bodies: [
+        anyVersion,
+        JSON.stringify({ version: '1.2.3', sessions: ['s'] }),
+        JSON.stringify({ version: '1.2.5', sessions: ['s'] }),
+      ],
+    },
+  ])('after a content change in 1.2.3 and installs up to 1.2.5: $name', async (row) => {
     const requests: { url: string; init: RequestInit | undefined }[] = [];
     const value = await run(
       ['doctor', '--json'],
       changedPorts(
-        changedStamp('1.2.4', '2026-11-05T09:00:00.000Z', referenceOnly),
-        [session('caught-up', 'worker', Date.parse('2026-11-03T00:00:00.000Z'))],
-        reloadFetcher(requests, (init) => {
-          const { version } = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
-            version: string;
-          };
-          return Response.json({
-            ok: true,
-            requestId: 'r',
-            value: {
-              version,
-              sessions:
-                version === '1.2.4'
-                  ? [{ id: 'caught-up', state: 'delivered', queuedAt: '2026-11-05T09:00:01.000Z' }]
-                  : [],
-            },
-          });
-        }),
+        changedStamp('1.2.5', '2026-11-06T09:00:00.000Z', referenceOnly),
+        [session('s', 'worker', Date.parse('2026-11-03T00:00:00.000Z'))],
+        reloadFetcher(requests, daemonReloads(row.rows, row.older ?? false)),
       ),
     );
-    expect(requests.map((request) => request.init?.body)).toEqual([
-      JSON.stringify({ version: '1.2.3', sessions: ['caught-up'] }),
-      JSON.stringify({ version: '1.2.4', sessions: ['caught-up'] }),
-    ]);
-    expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.status).toBe('pass');
+    expect(requests.map((request) => request.init?.body)).toEqual(row.bodies);
+    expect(value.checks.find((entry) => entry.id === 'sessions.stale')).toMatchObject({
+      status: row.status,
+      fix: row.fix,
+    });
   });
 
   it('sends no reload lookup when no session is stale or undated', async () => {
@@ -1498,9 +1583,7 @@ describe('board doctor', () => {
     );
     expect(staleFix(value)).toBe(stopAndWake('1 session', ': live-1'));
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.init?.body).toBe(
-      JSON.stringify({ version: '1.2.3', sessions: ['live-1'] }),
-    );
+    expect(requests[0]?.init?.body).toBe(JSON.stringify({ sessions: ['live-1'] }));
     expect(value.text).not.toContain('ended-1');
   });
 

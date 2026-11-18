@@ -170,7 +170,8 @@ after the session was first seen or after its last delivered reload message. The
 only those files, `SKILL.md` first; with more than six it asks for `SKILL.md` and every file in
 the `references/` folder. A session already told about every change gets no message, and the next
 install that changes the version catches up a session whose message was never delivered. A
-session that got the message after the last content change drops out of this check. A session
+session that got the message after the last content change, under any version, drops out of
+this check. A session
 whose message is still queued is named in a separate sentence: rerun doctor in a minute.
 Stop and wake each remaining listed session in Spur: that restarts the agent and keeps the
 conversation. A session can instead read the files the fix names again (`SKILL.md` and every
