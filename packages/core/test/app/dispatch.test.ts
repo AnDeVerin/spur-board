@@ -27,7 +27,7 @@ import { archiveTask } from '../../src/app/archive.ts';
 import { returnCounts } from '../../src/app/course-check.ts';
 import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { markTaskChanged } from '../../src/app/board-utils.ts';
+import { emit, markTaskChanged } from '../../src/app/board-utils.ts';
 import { openTempStore } from '../support/store.ts';
 
 // The dispatcher end to end through the observation core, the registry and the tick, on an
@@ -236,6 +236,7 @@ afterEach(async () => {
 function board(options: Options = {}) {
   let config = boardConfig(options);
   let now = BASE;
+  let frozen = false;
   const clock = { now: () => (options.movingClock === true ? ++now : now) };
   const store = openTempStore('board-dispatch-').store;
   stores.push(store);
@@ -264,7 +265,7 @@ function board(options: Options = {}) {
   let { registry, apply, query } = build();
   let keys = 0;
   const step = () => {
-    now += 60_000;
+    if (!frozen) now += 60_000;
     return new Date(now).toISOString();
   };
   const observe = async (
@@ -291,6 +292,9 @@ function board(options: Options = {}) {
   const ctx = {
     store,
     at: () => new Date(now).toISOString(),
+    freeze: () => {
+      frozen = true;
+    },
     /** A daemon restart on the same store: a fresh core and registry, perhaps a new config. */
     restart(next: Options = options) {
       config = boardConfig(next);
@@ -666,7 +670,494 @@ async function inQa(): Promise<Board> {
   return ctx;
 }
 
+const repairs = async (ctx: Board) =>
+  (
+    await ctx.store.db
+      .selectFrom('event')
+      .select(['id', 'payload'])
+      .where('task_id', '=', (await ctx.task()).id)
+      .where('kind', '=', 'dev_repair')
+      .orderBy('id')
+      .execute()
+  ).map((row) => ({
+    id: row.id,
+    payload: eventPayloadSchemas.dev_repair.parse(JSON.parse(row.payload)),
+  }));
+
+async function workerQa() {
+  const ctx = await inQa();
+  await ctx.submit(COORD, 'T4');
+  ctx.restart({ qa: true, qaOrchestrator: 'none' });
+  await ctx.github();
+  await ctx.spur();
+  return ctx;
+}
+
 describe('QA evidence across visits', () => {
+  it('rolls receipt and coverage back together when a lifecycle write fails', async () => {
+    const ctx = await workerQa();
+    await ctx.pr({
+      feedback: [
+        {
+          kind: 'comment',
+          id: 'atomic-work',
+          author: { login: EXTERNAL, type: 'user' },
+          postedAt: ctx.at(),
+        },
+      ],
+    });
+    const turn = await ctx.openTurn();
+    await ctx.ack(WORKER, turn?.id ?? '');
+    const before = await ctx.snapshot();
+    await sql`create trigger reject_repair_coverage before insert on event when new.kind = 'dev_repair' and json_extract(new.payload, '$.action') = 'covered' begin select raise(abort, 'forced coverage failure'); end`.execute(
+      ctx.store.db,
+    );
+    await expect(ctx.submit(WORKER, turn?.id ?? '')).rejects.toThrow('forced coverage failure');
+    expect(await ctx.snapshot()).toEqual(before);
+  });
+
+  it('replays by task and reset identity despite misleading history times', async () => {
+    const ctx = await workerQa();
+    await ctx.blind('spur', true);
+    const thread = { id: 'scoped-thread', resolved: false };
+    await ctx.pr({ reviewThreads: [thread] });
+    await ctx.pr({ reviewThreads: [{ ...thread, resolved: true }] });
+    const task = await ctx.task();
+    await ctx.store.db
+      .insertInto('task')
+      .values({ ...task, id: task.id + 1, key: 'o/r#10', tracker_id: 'o/r#10' })
+      .execute();
+    await ctx.store.transaction((trx) =>
+      emit(trx, 'dev_repair', task.project, task.id + 1, '2099-01-01T00:00:00.000Z', {
+        action: 'reset',
+        reason: 'corrected',
+        sourceEvent: 1,
+        throughTurn: 9999,
+        throughSubmission: 9999,
+      }),
+    );
+    await ctx.spur();
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toMatchObject({ column: 'dev' });
+    await ctx.store.db
+      .updateTable('event')
+      .set({ at: '2099-01-01T00:00:00.000Z' })
+      .where('task_id', '=', task.id)
+      .where('kind', '=', 'dev_repair')
+      .execute();
+    await ctx.move('dev');
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    const before = await ctx.snapshot();
+    await ctx.why();
+    await ctx.get(true);
+    await ctx.history();
+    expect(await ctx.snapshot()).toEqual(before);
+  });
+  it.each(['existing-cycle', 'new-cycle', 'new-course'] as const)(
+    'records repair before %s hold and deduplicates recovery',
+    async (hold) => {
+      const options = {
+        qa: true,
+        cycleLimit: hold === 'new-course' ? 10 : 1,
+        courseCheck: hold === 'new-course' ? 1 : 0,
+      };
+      const ctx = await inReview(options);
+      if (hold === 'existing-cycle') {
+        await ctx.ack(REV, 'T2');
+        await ctx.ret(REV, 'T2');
+      }
+      const feedback = {
+        kind: 'comment' as const,
+        id: 'held-work',
+        author: { login: EXTERNAL, type: 'user' as const },
+        postedAt: ctx.at(),
+      };
+      await ctx.pr({ feedback: [feedback] });
+      expect(await ctx.openTurn()).toBeNull();
+      expect(
+        (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
+      ).toHaveLength(1);
+      await ctx.pr({ feedback: [] });
+      ctx.restart(options);
+      await ctx.github();
+      await ctx.spur();
+      await ctx.tick();
+      await ctx.tick();
+      const before = await ctx.snapshot();
+      await ctx.get(true);
+      await ctx.why();
+      await ctx.history();
+      expect(await ctx.snapshot()).toEqual(before);
+      expect(
+        (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
+      ).toHaveLength(1);
+      const item = await ctx.store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('task_id', '=', (await ctx.task()).id)
+        .where('kind', '=', hold === 'new-course' ? 'course_check' : 'cycle_limit')
+        .where('cleared_at', 'is', null)
+        .executeTakeFirstOrThrow();
+      if (hold === 'new-course')
+        await ctx.answer(
+          'operator',
+          `B${String(item.block_id)}`,
+          'Complete the repair and submit.',
+        );
+      else await ctx.closeItem(`I${String(item.id)}`);
+      await ctx.tick();
+      const turn = await ctx.openTurn();
+      expect(turn).toMatchObject({ column: 'dev' });
+      expect(JSON.parse(turn?.handed ?? '[]')).toMatchObject([{ id: 'held-work' }]);
+      await ctx.ack(WORKER, turn?.id ?? '');
+      await ctx.submit(WORKER, turn?.id ?? '');
+      expect((await repairs(ctx)).filter((row) => row.payload.action === 'completed')).toHaveLength(
+        1,
+      );
+    },
+  );
+
+  it.each(['later-id', 'newer-edit', 'same-clock'] as const)(
+    'confirmation covers only accepted revisions: %s',
+    async (change) => {
+      const ctx = await workerQa();
+      const first = {
+        kind: 'comment' as const,
+        id: 'c-first',
+        author: { login: EXTERNAL, type: 'user' as const },
+        postedAt: ctx.at(),
+      };
+      await ctx.pr({ feedback: [first] });
+      const turn = await ctx.openTurn();
+      await ctx.ack(WORKER, turn?.id ?? '');
+      if (change === 'same-clock') ctx.freeze();
+      ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+      await expect(ctx.submit(WORKER, turn?.id ?? '', B)).resolves.toMatchObject({
+        status: 'pending',
+      });
+      const acceptedAt = ctx.at();
+      const submission = await ctx.store.db
+        .selectFrom('submission')
+        .select('id')
+        .orderBy('id', 'desc')
+        .executeTakeFirstOrThrow();
+      const accepted = (await repairs(ctx)).find((row) => row.payload.action === 'covered');
+      expect(accepted?.payload).toMatchObject({
+        action: 'covered',
+        submission: submission.id,
+        turn: turn?.id,
+      });
+      const next =
+        change === 'newer-edit'
+          ? { ...first, editedAt: ctx.at() }
+          : { ...first, id: 'c-later', postedAt: ctx.at() };
+      const feedback = change === 'newer-edit' ? [next] : [first, next];
+      await ctx.pr({ feedback }, false, new Date(Date.parse(acceptedAt) - 1).toISOString());
+      expect(await ctx.openTurn()).toBeNull();
+      const recognized = (await repairs(ctx)).filter((row) => row.payload.action === 'recognized');
+      expect(recognized).toHaveLength(2);
+      await ctx.pr({ headSha: B, feedback });
+      const repair = await ctx.openTurn();
+      expect(repair).toMatchObject({ column: 'dev' });
+      const completed = (await repairs(ctx)).find((row) => row.payload.action === 'completed');
+      expect(completed?.payload).toMatchObject({
+        submission: submission.id,
+        recognitions: [recognized[0]?.id],
+      });
+      expect(JSON.parse(repair?.handed ?? '[]')).toMatchObject([{ id: next.id }]);
+      await ctx.ack(WORKER, repair?.id ?? '');
+      await ctx.submit(WORKER, repair?.id ?? '', B);
+      const receipts = (await repairs(ctx)).filter((row) => row.payload.action === 'covered');
+      expect(receipts.at(-1)?.payload).toMatchObject({ recognitions: [recognized[1]?.id] });
+      expect((await ctx.task()).column).toBe('review');
+    },
+  );
+
+  it.each([false, true])(
+    'shadow retains repair and settles only exact covered receipt (confirmed: %s)',
+    async (confirmed) => {
+      const ctx = await workerQa();
+      await ctx.pr({
+        feedback: [
+          {
+            kind: 'comment',
+            id: 'shadow-repair',
+            author: { login: EXTERNAL, type: 'user' },
+            postedAt: ctx.at(),
+          },
+        ],
+      });
+      const repair = await ctx.openTurn();
+      await ctx.ack(WORKER, repair?.id ?? '');
+      ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+      await ctx.submit(WORKER, repair?.id ?? '', B);
+      const receipt = await ctx.store.db
+        .selectFrom('submission')
+        .select('id')
+        .orderBy('id', 'desc')
+        .executeTakeFirstOrThrow();
+      ctx.restart({ qa: true, qaOrchestrator: 'none', mode: 'shadow' });
+      await ctx.pr({ headSha: confirmed ? B : A, feedback: [] });
+      if (!confirmed) await ctx.submit(COORD, KEY, A);
+      const rows = await repairs(ctx);
+      expect(rows.filter((row) => row.payload.action === 'recognized')).toHaveLength(1);
+      expect(rows.filter((row) => row.payload.action === 'completed')).toHaveLength(
+        confirmed ? 1 : 0,
+      );
+      if (confirmed)
+        expect(rows.find((row) => row.payload.action === 'completed')?.payload).toMatchObject({
+          submission: receipt.id,
+        });
+      ctx.restart({ qa: true, qaOrchestrator: 'none' });
+      await ctx.github();
+      await ctx.spur();
+      await ctx.tick();
+      expect((await ctx.task()).column).toBe(confirmed ? 'review' : 'dev');
+      if (!confirmed) {
+        const handed = await ctx.openTurn();
+        expect(JSON.parse(handed?.handed ?? '[]')).toMatchObject([{ id: 'shadow-repair' }]);
+        await ctx.ack(WORKER, handed?.id ?? '');
+        await ctx.submit(WORKER, handed?.id ?? '');
+        expect((await ctx.task()).column).toBe('ready-to-merge');
+      }
+    },
+  );
+
+  it.each(['corrected', 'terminal', 'archived', 'completed-void'] as const)(
+    'supersedes repair only at explicit boundary: %s',
+    async (boundary) => {
+      const ctx = await workerQa();
+      await ctx.blind('spur', true);
+      const thread = {
+        id: 'reset-thread',
+        url: 'https://github.com/o/r/pull/7#discussion_reset',
+        resolved: false,
+      };
+      await ctx.pr({ reviewThreads: [thread] });
+      await ctx.pr({ reviewThreads: [{ ...thread, resolved: true }] });
+      if (boundary === 'corrected') await ctx.move('dev');
+      else if (boundary === 'archived') {
+        await ctx.archive();
+        await ctx.add();
+      } else if (boundary === 'terminal') {
+        await ctx.ticket('closed');
+        await ctx.pr({ state: 'merged', mergedAt: ctx.at() });
+      } else {
+        await ctx.spur();
+        await ctx.tick();
+        const turn = await ctx.openTurn();
+        await ctx.ack(WORKER, turn?.id ?? '');
+        await ctx.submit(WORKER, turn?.id ?? '');
+        const receipt = await ctx.store.db
+          .selectFrom('submission')
+          .select('id')
+          .where('column', '=', 'dev')
+          .where('voided_at', 'is', null)
+          .executeTakeFirstOrThrow();
+        const merge = await ctx.openTurn();
+        await ctx.ack(COORD, merge?.id ?? '');
+        await ctx.ret(COORD, merge?.id ?? '');
+        expect(
+          (
+            await ctx.store.db
+              .selectFrom('submission')
+              .select('voided_at')
+              .where('id', '=', receipt.id)
+              .executeTakeFirstOrThrow()
+          ).voided_at,
+        ).not.toBeNull();
+      }
+      ctx.restart({ qa: true, qaOrchestrator: 'none' });
+      await ctx.github();
+      await ctx.spur();
+      await ctx.tick();
+      expect(
+        (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
+      ).toHaveLength(1);
+      if (boundary === 'completed-void') {
+        expect((await repairs(ctx)).filter((row) => row.payload.action === 'reset')).toHaveLength(
+          0,
+        );
+        expect((await ctx.task()).column).toBe('ready-to-merge');
+      } else {
+        const reset = (await repairs(ctx)).find((row) => row.payload.action === 'reset');
+        expect(reset?.payload).toMatchObject({ action: 'reset', reason: boundary });
+        if (reset?.payload.action !== 'reset') throw new Error('missing repair reset');
+        const source = await ctx.store.db
+          .selectFrom('event')
+          .select('kind')
+          .where('id', '=', reset.payload.sourceEvent)
+          .executeTakeFirstOrThrow();
+        expect(source.kind).toBe(
+          boundary === 'corrected'
+            ? 'task_corrected'
+            : boundary === 'terminal'
+              ? 'task_moved'
+              : 'task_archived',
+        );
+        expect((await ctx.task()).column).toBe(boundary === 'terminal' ? 'done' : 'ready-to-merge');
+        if (boundary === 'terminal') {
+          await ctx.ticket('open');
+          await ctx.pr({
+            number: 8,
+            state: 'open',
+            headSha: B,
+            url: 'https://github.com/o/r/pull/8',
+          });
+          await ctx.tick();
+          const reopened = await ctx.openTurn();
+          expect(reopened).toMatchObject({ column: 'dev' });
+          expect(reopened?.reason).not.toContain('reset-thread');
+          expect(
+            (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
+          ).toHaveLength(1);
+        }
+      }
+    },
+  );
+
+  it.each(['open', 'pending', 'reset-pending', 'shadow-open'] as const)(
+    'imports exact legacy %s evidence once; queries stay read-only',
+    async (legacy) => {
+      const ctx = await workerQa();
+      await ctx.pr({
+        feedback: [
+          {
+            kind: 'comment',
+            id: 'legacy-comment',
+            author: { login: EXTERNAL, type: 'user' },
+            postedAt: ctx.at(),
+          },
+        ],
+      });
+      const turn = await ctx.openTurn();
+      if (legacy === 'pending' || legacy === 'reset-pending') {
+        await ctx.ack(WORKER, turn?.id ?? '');
+        ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+        await ctx.submit(WORKER, turn?.id ?? '', B);
+      }
+      await ctx.store.db.deleteFrom('event').where('kind', '=', 'dev_repair').execute();
+      if (legacy === 'reset-pending') {
+        await ctx.move('dev');
+        await ctx.pr();
+        await ctx.tick();
+        expect(
+          (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
+        ).toHaveLength(0);
+        expect((await ctx.task()).column).toBe('ready-to-merge');
+        return;
+      }
+      const before = await ctx.snapshot();
+      await ctx.get(true);
+      await ctx.why();
+      await ctx.history();
+      expect(await ctx.snapshot()).toEqual(before);
+      ctx.restart({
+        qa: true,
+        qaOrchestrator: 'none',
+        ...(legacy === 'shadow-open' ? { mode: 'shadow' as const } : {}),
+      });
+      if (legacy !== 'pending') await ctx.github();
+      await ctx.spur();
+      await ctx.tick();
+      await ctx.tick();
+      expect(
+        (await repairs(ctx)).filter((row) => row.payload.action === 'recognized'),
+      ).toHaveLength(1);
+      expect(
+        (await repairs(ctx)).find((row) => row.payload.action === 'recognized')?.payload,
+      ).toMatchObject({ legacyTurn: turn?.id });
+      if (legacy === 'shadow-open') {
+        ctx.restart({ qa: true, qaOrchestrator: 'none' });
+        await ctx.github();
+        await ctx.spur();
+        const resumed = await ctx.openTurn();
+        expect(resumed).toMatchObject({ column: 'dev' });
+        await ctx.ack(WORKER, resumed?.id ?? '');
+        await ctx.submit(WORKER, resumed?.id ?? '');
+        expect((await ctx.task()).column).toBe('ready-to-merge');
+        return;
+      }
+      if (legacy === 'pending') {
+        expect(
+          (await repairs(ctx)).find((row) => row.payload.action === 'covered')?.payload,
+        ).toMatchObject({ legacy: true, turn: turn?.id });
+        await ctx.pr({ headSha: B });
+        expect((await ctx.task()).column).toBe('review');
+      } else {
+        await ctx.ack(WORKER, turn?.id ?? '');
+        await ctx.submit(WORKER, turn?.id ?? '');
+        expect((await ctx.task()).column).toBe('ready-to-merge');
+      }
+    },
+  );
+  it.each([
+    { placement: 'return', gated: true, after: 'same' },
+    { placement: 'already-dev', gated: true, after: 'same' },
+    { placement: 'already-dev', gated: false, after: 'same' },
+    { placement: 'submitted-dev', gated: true, after: 'same' },
+    { placement: 'return', gated: true, after: 'disabled' },
+    { placement: 'return', gated: true, after: 'executor' },
+  ] as const)(
+    'retains first repair recognition at $placement (threads gated: $gated)',
+    async ({ placement, gated, after }) => {
+      const ctx = await inQa();
+      await ctx.submit(COORD, 'T4');
+      ctx.restart({ qa: true, qaOrchestrator: 'none', rtmThreads: gated });
+      await ctx.github();
+      await ctx.spur();
+      if (placement === 'submitted-dev') {
+        await ctx.pr({ requiredChecks: [{ name: 'ci', state: 'failure', completedAt: null }] });
+        const turn = await ctx.openTurn();
+        await ctx.ack(WORKER, turn?.id ?? '');
+        await ctx.blind('spur', true);
+        await ctx.submit(WORKER, turn?.id ?? '');
+      } else await ctx.blind('spur', true);
+      if (placement === 'already-dev') {
+        await ctx.pr({ requiredChecks: [{ name: 'ci', state: 'failure', completedAt: null }] });
+      }
+      const thread = {
+        id: 'deferred-thread',
+        url: 'https://github.com/o/r/pull/7#discussion_r2',
+        resolved: false,
+      };
+      await ctx.pr({ reviewThreads: [thread] });
+      expect((await ctx.task()).column).toBe('dev');
+      expect(await ctx.openTurn()).toBeNull();
+      await ctx.pr({
+        reviewThreads: [{ ...thread, resolved: true }],
+        requiredChecks: [{ name: 'ci', state: 'success', completedAt: ctx.at() }],
+      });
+      ctx.restart({
+        qa: true,
+        qaOrchestrator: 'none',
+        rtmThreads: after !== 'disabled',
+        ...(after === 'executor' ? { devOrchestrator: 'coord' } : {}),
+      });
+      await ctx.github();
+      await ctx.spur();
+      await ctx.tick();
+      if (gated) {
+        const repair = await ctx.openTurn();
+        expect(repair).toMatchObject({ column: 'dev' });
+        expect(repair?.reason).toContain(thread.url);
+        const actor = after === 'executor' ? COORD : WORKER;
+        await ctx.ack(actor, repair?.id ?? '');
+        await ctx.submit(actor, repair?.id ?? '');
+      }
+      expect((await ctx.task()).column).toBe('ready-to-merge');
+      expect(
+        await ctx.store.db
+          .selectFrom('submission')
+          .select('voided_at')
+          .where('column', '=', 'qa')
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ voided_at: null });
+      expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
+    },
+  );
+
   it.each(
     (['comment', 'review', 'changes_requested', 'edited', 'thread', 'rerouted'] as const).flatMap(
       (kind) =>
@@ -679,6 +1170,7 @@ describe('QA evidence across visits', () => {
             'timeout',
             'closed',
             'deferred',
+            'sticky-failure',
             'merged',
           ] as const
         ).map((settlement) => ({ kind, settlement })),
@@ -761,8 +1253,14 @@ describe('QA evidence across visits', () => {
           await ctx.tick();
           expect(await ctx.openTurn()).toBeNull();
         }
-        const head = settlement === 'confirmed' ? B : settlement === 'moved' ? C : A;
-        if (settlement === 'deferred') await ctx.blind('spur', true);
+        const head =
+          settlement === 'confirmed' || settlement === 'sticky-failure'
+            ? B
+            : settlement === 'moved'
+              ? C
+              : A;
+        if (settlement === 'deferred' || settlement === 'sticky-failure')
+          await ctx.blind('spur', true);
         if (settlement === 'merged') {
           await ctx.ticket('closed');
           await ctx.pr({ state: 'merged', mergedAt: ctx.at() });
@@ -773,8 +1271,9 @@ describe('QA evidence across visits', () => {
         if (settlement === 'closed') {
           await ctx.github();
           await ctx.tick();
-        } else await ctx.pr({ headSha: head });
-        if (settlement === 'deferred') {
+        } else await ctx.pr({ headSha: settlement === 'sticky-failure' ? A : head });
+        if (settlement === 'sticky-failure') await ctx.pr({ headSha: B });
+        if (settlement === 'deferred' || settlement === 'sticky-failure') {
           expect(await ctx.openTurn()).toBeNull();
           ctx.restart({ qa: true, qaOrchestrator: 'none' });
           await ctx.github();
@@ -784,6 +1283,8 @@ describe('QA evidence across visits', () => {
         if (settlement !== 'confirmed') {
           repair = await ctx.openTurn();
           expect(repair).toMatchObject({ column: 'dev' });
+          if (settlement === 'sticky-failure')
+            expect(repair?.reason).toContain('head moved to aaaaaaa');
           expect(JSON.parse(repair?.handed ?? '[]')).toHaveLength(kind === 'thread' ? 0 : 1);
           if (kind === 'thread') expect(repair?.reason).toContain('unresolved_threads');
           if (head === A)
@@ -3945,7 +4446,7 @@ describe('mode switch', () => {
     await ctx.pr({ requiredChecks: prFacts().requiredChecks });
     expect(await ctx.task()).toMatchObject({ column: 'dev', column_epoch: 1 });
     const turn = await ctx.openTurn();
-    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
+    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'));
     expect(JSON.parse(turn?.handed ?? '[]')).toMatchObject([{ kind: 'comment', id: 'c-1' }]);
     expect(
       await ctx.store.db.selectFrom('submission').select(['column', 'voided_at']).execute(),
@@ -4061,7 +4562,14 @@ describe('task.move', () => {
         gate: expect.arrayContaining(['external_comments']) as unknown,
       }),
     ]);
-    const [corrected, bounced] = await fromCorrection(ctx);
+    const changes = await fromCorrection(ctx);
+    const corrected = changes[0];
+    const reset = changes[1];
+    const bounced = changes.find((row) => row.kind === 'task_moved');
+    expect(reset).toMatchObject({
+      kind: 'dev_repair',
+      payload: { action: 'reset', reason: 'corrected' },
+    });
     expect(corrected).toEqual({
       kind: 'task_corrected',
       payload: {
@@ -4238,7 +4746,7 @@ describe('task.move', () => {
 
     expect(result).toMatchObject({ to: 'review', column: 'dev', task: { column: 'todo' } });
     expect(await ctx.task()).toMatchObject({ column: 'todo', shadow_column: 'dev' });
-    expect((await fromCorrection(ctx)).slice(0, 2)).toEqual([
+    expect((await fromCorrection(ctx)).slice(0, 3)).toEqual([
       {
         kind: 'task_corrected',
         payload: {
@@ -4246,6 +4754,16 @@ describe('task.move', () => {
           to: 'review',
           reason: 'The board put it in the wrong column.',
           shadow: true,
+        },
+      },
+      {
+        kind: 'dev_repair',
+        payload: {
+          action: 'reset',
+          reason: 'corrected',
+          sourceEvent: expect.any(Number) as number,
+          throughTurn: 0,
+          throughSubmission: 0,
         },
       },
       {
@@ -4625,7 +5143,7 @@ describe('design flows 2.5 and 2.10', () => {
 
     await ctx.submit(WORKER, 'T1', A);
     const turn = await ctx.openTurn();
-    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
+    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'));
     expect(JSON.parse(turn?.handed ?? '[]')).toEqual([
       { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(20) },
     ]);
@@ -4653,7 +5171,7 @@ describe('design flows 2.5 and 2.10', () => {
     await ctx.ack(WORKER, gap?.id ?? '');
     await ctx.submit(WORKER, gap?.id ?? '', A);
     const turn = await ctx.openTurn();
-    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
+    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'));
     expect(JSON.parse(turn?.handed ?? '[]')).toEqual([
       { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(20) },
       { repo: 'o/r', number: 7, kind: 'comment', id: 'c-2', postedAt: at(21) },
@@ -4674,7 +5192,9 @@ describe('design flows 2.5 and 2.10', () => {
       ],
     });
     await ctx.submit(WORKER, 'T1', A);
-    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'),
+    );
     // The cursor is the handed comment, not a time-only cutoff at the turned submit.
     expect((await ctx.context()).feedbackCursors).toEqual([
       { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: 'c-1', postedAt: posted },
@@ -4694,7 +5214,9 @@ describe('design flows 2.5 and 2.10', () => {
       ],
     });
     await ctx.submit(WORKER, 'T1', A);
-    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'),
+    );
 
     await ctx.tick();
     await ctx.github();

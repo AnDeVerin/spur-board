@@ -6,6 +6,7 @@ import { closeOpenBlock } from './blocks.ts';
 import { clearItem } from './feed.ts';
 import { taskSubject } from './subject.ts';
 import { closeTurns } from './turns.ts';
+import { resetDevRepair } from './dev-repair.ts';
 
 /**
  * Takes a task off the board in the caller's transaction: closes its open blocks with outcome
@@ -73,5 +74,14 @@ export async function archiveTask(
     .set({ membership: 'archived', archive_reason: reason, last_change_at: taskChangeAt(at) })
     .where('id', '=', task.id)
     .execute();
-  await emit(trx, 'task_archived', task.project, task.id, at, { reason }, actor);
+  const sourceEvent = await emit(
+    trx,
+    'task_archived',
+    task.project,
+    task.id,
+    at,
+    { reason },
+    actor,
+  );
+  await resetDevRepair(trx, { task, at, actor }, 'archived', sourceEvent);
 }

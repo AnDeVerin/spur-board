@@ -49,6 +49,15 @@ worker submission on the same head remains valid in QA.
 A pending repair keeps its feedback and thread obligation until confirmation.
 If confirmation fails, the replacement Dev turn carries that work and needs a
 fresh submit; act on the replacement turn.
+Each turn adopts exact recognized revisions; its accepted receipt covers only
+those revisions. Confirmation cannot clear later feedback, and voiding a completed
+receipt does not reopen its work. Captured thread links survive resolution and rule
+changes in the repair reason. Shadow suspends enforcement without discarding work;
+an already-covered receipt may confirm there, but a turnless shadow submit cannot
+complete on-mode work. Explicit correction, actual Done and archive supersede old
+repair; ordinary returns and mode changes do not. After upgrade, only exact known
+legacy turn/receipt work can be imported; lost no-turn recognition cannot be
+reconstructed. Older executables skip the new lifecycle and cannot enforce it.
 Each handed entry has its `url`, `editedAt` once edited, and a review's inline
 `comments` with `url` and `threadId`. Turns of a Dev visit opened by a return
 show `returned`: who, from, the turn, the `code` block and the verbatim reason.

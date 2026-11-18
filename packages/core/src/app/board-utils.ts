@@ -260,7 +260,7 @@ export async function emit<K extends EventKind>(
   at: string,
   payload: EventPayload<K>,
   actor: ActorId = 'system',
-): Promise<void> {
+): Promise<number> {
   const parsed = parseActorId(actor);
   if (parsed === null) throw new Error('Invalid journal actor');
   // Linking or unlinking work changes which absence the next complete source polls must prove.
@@ -269,7 +269,7 @@ export async function emit<K extends EventKind>(
     (kind === 'task_added' || kind === 'link_added' || kind === 'link_removed')
   )
     await markTaskChanged(trx, taskId, at);
-  await trx
+  const event = await trx
     .insertInto('event')
     .values({
       at,
@@ -283,7 +283,9 @@ export async function emit<K extends EventKind>(
       request_id: commandKeys.getStore() ?? null,
       via: vias.getStore() ?? null,
     })
-    .execute();
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  return event.id;
 }
 
 const actorRefSchema = z.strictObject({ project: z.string().min(1), session: z.string().min(1) });

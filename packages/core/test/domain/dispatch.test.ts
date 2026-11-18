@@ -116,6 +116,18 @@ const wrapUp = turn('wrap_up', 'done');
 const nothing: Result = { moves: [], turn: null };
 
 const cases: [string, Changes, Result][] = [
+  ...(['spur', 'cycle', 'pending'] as const).map((hold): [string, Changes, Result] => [
+    `recognizes Dev feedback before ${hold} deferral`,
+    {
+      facts: { unhandledExternalComments: 1 },
+      ...(hold === 'spur'
+        ? { spurBlind: true }
+        : hold === 'cycle'
+          ? { cycleHeld: true }
+          : { submitPending: true }),
+    },
+    { moves: [], turn: null, recognize: ['external_comments'] },
+  ]),
   [
     'retains worker QA through a left cascade so it can satisfy Dev and QA',
     {
@@ -282,12 +294,22 @@ const cases: [string, Changes, Result][] = [
   [
     'an after-submit turn handing over an external comment voids the Dev submit',
     { facts: { unhandledExternalComments: 1 }, turn: { visit: 'submitted' } },
-    { moves: [], turn: turn('after_submit', 'dev', 'external_comments'), voids: 'dev' },
+    {
+      moves: [],
+      turn: turn('after_submit', 'dev', 'external_comments'),
+      voids: 'dev',
+      recognize: ['external_comments'],
+    },
   ],
   [
     'an entry turn handing over an external comment voids the Dev submit',
     { facts: { unhandledExternalComments: 1 } },
-    { moves: [], turn: turn('entry', 'dev', 'external_comments'), voids: 'dev' },
+    {
+      moves: [],
+      turn: turn('entry', 'dev', 'external_comments', 'no_submit_on_head'),
+      voids: 'dev',
+      recognize: ['external_comments'],
+    },
   ],
   [
     'an entry turn handing over nothing from an incomplete history keeps the Dev submit',
@@ -303,7 +325,12 @@ const cases: [string, Changes, Result][] = [
       facts: { unhandledExternalComments: 1 },
       turn: { visit: 'unclosed', operatorUntaken: true },
     },
-    { moves: [], turn: turn('reroute', 'dev', 'external_comments'), voids: 'dev' },
+    {
+      moves: [],
+      turn: turn('reroute', 'dev', 'external_comments', 'no_submit_on_head'),
+      voids: 'dev',
+      recognize: ['external_comments'],
+    },
   ],
   [
     'with the Dev submit voided, the after-submit turn holds Dev until its own submit',
@@ -589,12 +616,18 @@ const cases: [string, Changes, Result][] = [
   ],
   [
     'review ignores unresolved threads left of Ready to Merge',
-    { facts: { unresolvedThreads: 1 } },
-    { moves: [right('dev', 'review')], turn: turn('entry', 'review', 'no_review_on_head') },
+    { column: 'review', facts: { unresolvedThreads: 1 } },
+    { moves: [], turn: turn('entry', 'review', 'no_review_on_head') },
+  ],
+  [
+    'pending CI before the thread-gated column does not yet recognize a Dev return',
+    { column: 'review', pr: pending, facts: { unresolvedThreads: 1 } },
+    nothing,
   ],
   [
     'returns from Ready to Merge on an unresolved thread, counted as a submit bounce',
     {
+      turn: { visit: 'submitted' },
       facts: {
         marks: [submit('dev'), mark('review'), mark('product-review')],
         unresolvedThreads: 1,
@@ -608,6 +641,7 @@ const cases: [string, Changes, Result][] = [
         left('ready-to-merge', 'dev', 'unresolved_threads'),
       ],
       turn: turn('entry', 'dev', 'unresolved_threads', 'no_submit_on_head'),
+      recognize: ['unresolved_threads'],
     },
   ],
   [
@@ -627,6 +661,7 @@ const cases: [string, Changes, Result][] = [
         left('ready-to-merge', 'dev', 'unresolved_threads'),
       ],
       turn: turn('entry', 'dev', 'unresolved_threads', 'no_submit_on_head'),
+      recognize: ['unresolved_threads'],
     },
   ],
   [
@@ -644,7 +679,11 @@ const cases: [string, Changes, Result][] = [
   [
     'a first Dev turn names unresolved threads on a project requiring them',
     { facts: { marks: [], unresolvedThreads: 1 } },
-    { moves: [], turn: turn('entry', 'dev', 'unresolved_threads', 'no_submit_on_head') },
+    {
+      moves: [],
+      turn: turn('entry', 'dev', 'unresolved_threads', 'no_submit_on_head'),
+      recognize: ['unresolved_threads'],
+    },
   ],
   [
     'a Dev turn ignores unresolved threads when no column requires them',

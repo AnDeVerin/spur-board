@@ -18,7 +18,7 @@ import {
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { dispatch, turnReason } from '../domain/dispatch.ts';
-import type { GateMark } from '../domain/gates.ts';
+import { threadsGated, type GateMark } from '../domain/gates.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import {
@@ -42,13 +42,23 @@ import {
   uncounted,
 } from './course-check.ts';
 import { linkedSession } from './doorbells.ts';
+import {
+  adoptDevRepair,
+  completeDevRepair,
+  devRepairContext,
+  failDevRepair,
+  importLegacyDevRepair,
+  mergeRepairFeedback,
+  readDevRepair,
+  recognizeDevRepair,
+  resetDevRepair,
+} from './dev-repair.ts';
 import { raiseCycleLimit } from './fromYou.ts';
 import {
   carriedFeedback,
   closeTurns,
   editBaselines,
   isNewer,
-  isNewerEdit,
   openTurn,
   recalledFeedback,
   sameHanded,
@@ -303,8 +313,21 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
         .where('turn.closed_at', 'is', null)
         .orderBy('turn.task_id')
         .execute();
-      for (const { task_id } of open)
+      for (const { task_id } of open) {
+        const task = await trx
+          .selectFrom('task')
+          .selectAll()
+          .where('id', '=', task_id)
+          .executeTakeFirstOrThrow();
+        const turn = await trx
+          .selectFrom('turn')
+          .selectAll()
+          .where('task_id', '=', task_id)
+          .where('closed_at', 'is', null)
+          .executeTakeFirst();
+        await importLegacyDevRepair(trx, { task, at: at.toISOString() }, turn);
         await closeTurns(trx, { taskId: task_id, reason: 'mode_changed', at });
+      }
     }
     await trx
       .updateTable('task')
@@ -370,7 +393,7 @@ export async function correctColumn(
       .execute();
   }
   if (!shadow) await closeTurns(trx, { taskId: task.id, reason: 'corrected', at });
-  await emit(
+  const eventId = await emit(
     trx,
     'task_corrected',
     task.project,
@@ -379,13 +402,8 @@ export async function correctColumn(
     { from, to, reason, shadow },
     actor,
   );
-  const event = await trx
-    .selectFrom('event')
-    .select('id')
-    .where('task_id', '=', task.id)
-    .orderBy('id', 'desc')
-    .executeTakeFirstOrThrow();
-  return { from, eventId: event.id };
+  await resetDevRepair(trx, { task, at: at.toISOString(), actor }, 'corrected', eventId);
+  return { from, eventId };
 }
 
 /** A source has no fresh view while it reports blind or has had no complete poll since start. */
@@ -638,6 +656,7 @@ async function readPendingSubmit(
   project: Project,
   input: SettleInput & { carry: boolean },
 ): Promise<PendingSubmit | undefined> {
+  const lifecycle = await readDevRepair(trx, task.id);
   const current = await trx
     .selectFrom('submission')
     .select(['id', 'commit_sha', 'author', 'submitted_at', 'pending_until'])
@@ -648,8 +667,36 @@ async function readPendingSubmit(
     .where('pending_until', 'is not', null)
     .orderBy('id', 'desc')
     .executeTakeFirst();
-  if (current?.pending_until != null) {
+  if (
+    current?.pending_until != null &&
+    current.id > lifecycle.throughSubmission &&
+    (!lifecycle.coverage.has(current.id) ||
+      lifecycle.coverage
+        .get(current.id)
+        ?.recognitions.some((id) => lifecycle.outstanding.has(id)) === true)
+  ) {
     return settlePending(trx, { ...current, pending_until: current.pending_until }, project, input);
+  }
+  const covered = [...lifecycle.coverage]
+    .filter(([, p]) => p.recognitions.some((id) => lifecycle.outstanding.has(id)))
+    .map(([id]) => id);
+  if (covered.length > 0) {
+    const receipt = await trx
+      .selectFrom('submission')
+      .select(['id', 'commit_sha', 'author', 'submitted_at', 'pending_until'])
+      .where('task_id', '=', task.id)
+      .where('id', 'in', covered)
+      .where('voided_at', 'is', null)
+      .where('pending_until', 'is not', null)
+      .orderBy('id', 'desc')
+      .executeTakeFirst();
+    if (receipt?.pending_until != null)
+      return settlePending(
+        trx,
+        { ...receipt, pending_until: receipt.pending_until },
+        project,
+        input,
+      );
   }
   if (!input.carry) return undefined;
   const newest = await trx
@@ -658,7 +705,12 @@ async function readPendingSubmit(
     .where('task_id', '=', task.id)
     .orderBy('id', 'desc')
     .executeTakeFirst();
-  if (newest?.pending_until == null || newest.voided_at !== null) return undefined;
+  if (
+    newest?.pending_until == null ||
+    newest.voided_at !== null ||
+    newest.id <= lifecycle.throughSubmission
+  )
+    return undefined;
   const settled = await settlePending(
     trx,
     { ...newest, pending_until: newest.pending_until },
@@ -669,6 +721,7 @@ async function readPendingSubmit(
 }
 
 interface SettleInput {
+  taskId: number;
   link: { repo: string; number: number } | null;
   githubBlind: boolean;
   at: Date;
@@ -694,20 +747,29 @@ async function settlePending(
   input: SettleInput,
 ): Promise<PendingSubmit> {
   const sha = row.commit_sha.toLowerCase();
-  const turn = await trx
-    .selectFrom('turn')
-    .innerJoin('submission', (join) =>
-      join
-        .onRef('turn.task_id', '=', 'submission.task_id')
-        .onRef('turn.column', '=', 'submission.column')
-        .onRef('turn.epoch', '=', 'submission.epoch')
-        .onRef('turn.closed_at', '=', 'submission.submitted_at'),
-    )
-    .selectAll('turn')
-    .where('submission.id', '=', row.id)
-    .where('turn.closed_reason', '=', 'submitted')
-    .orderBy('turn.seq', 'desc')
-    .executeTakeFirst();
+  const lifecycle = await readDevRepair(trx, input.taskId);
+  const coverage = lifecycle.coverage.get(row.id);
+  const turn =
+    coverage === undefined
+      ? await trx
+          .selectFrom('turn')
+          .innerJoin('submission', (join) =>
+            join
+              .onRef('turn.task_id', '=', 'submission.task_id')
+              .onRef('turn.column', '=', 'submission.column')
+              .onRef('turn.epoch', '=', 'submission.epoch')
+              .onRef('turn.closed_at', '=', 'submission.submitted_at'),
+          )
+          .selectAll('turn')
+          .where('submission.id', '=', row.id)
+          .where('turn.closed_reason', '=', 'submitted')
+          .orderBy('turn.seq', 'desc')
+          .executeTakeFirst()
+      : await trx
+          .selectFrom('turn')
+          .selectAll()
+          .where('id', '=', Number(coverage.turn.slice(1)))
+          .executeTakeFirst();
   const pending: PendingSubmit = {
     id: row.id,
     sha,
@@ -715,6 +777,8 @@ async function settlePending(
     until: row.pending_until,
     state: 'pending',
   };
+  const failed = lifecycle.failed.get(row.id);
+  if (failed !== undefined) return { ...pending, state: 'failed', failure: failed };
   if (input.githubBlind) return pending;
   const { link } = input;
   if (link !== null) {
@@ -790,6 +854,7 @@ export async function readInput(
   ticketUnconfirmed: boolean;
   /** The pending turn submit of the current visit (`on` mode); absent when none waits. */
   pending: PendingSubmit | undefined;
+  sourcePr: PrFacts | null;
 } | null> {
   const readPr = async (ref: { repo: string; number: number }) =>
     parsePr(
@@ -886,6 +951,7 @@ export async function readInput(
   const pending =
     mode === 'on'
       ? await readPendingSubmit(trx, task, project, {
+          taskId: task.id,
           link,
           githubBlind,
           ...clock,
@@ -919,6 +985,11 @@ export async function readInput(
   const repair =
     unclosed ??
     (pending?.state === 'pending' || pending?.state === 'failed' ? pending.turn : undefined);
+  const lifecycle = await readDevRepair(trx, task.id);
+  const legacy =
+    repair !== undefined &&
+    repair.id > lifecycle.throughTurn &&
+    !lifecycle.representedTurns.has(`T${String(repair.id)}`);
   const held =
     mode === 'on' &&
     (await trx
@@ -948,9 +1019,12 @@ export async function readInput(
         // even after GitHub reports them resolved. Pending receipts retain their submitting
         // turn until confirmation or failure hand-back; closing a turn alone is not completion.
         devSubmitRequired:
-          repair?.column === 'dev' &&
-          ((await carriedFeedback(trx, repair)).length > 0 ||
-            repair.reason.includes('unresolved_threads')),
+          mode === 'on' &&
+          (lifecycle.outstanding.size > 0 ||
+            (legacy &&
+              repair.column === 'dev' &&
+              ((await carriedFeedback(trx, repair)).length > 0 ||
+                repair.reason.includes('unresolved_threads')))),
         marks,
       },
       reopened:
@@ -997,6 +1071,7 @@ export async function readInput(
     mergedOpen,
     ticketUnconfirmed,
     pending,
+    sourcePr: pr,
   };
 }
 
@@ -1065,11 +1140,20 @@ async function applyOn(
       .returningAll()
       .executeTakeFirstOrThrow();
     await closeTurns(trx, { taskId: current.id, reason: 'moved', at });
-    await emit(trx, 'task_moved', current.project, current.id, at.toISOString(), {
-      from: move.from,
-      to: move.to,
-      reason: move.reason,
-    });
+    const sourceEvent = await emit(
+      trx,
+      'task_moved',
+      current.project,
+      current.id,
+      at.toISOString(),
+      {
+        from: move.from,
+        to: move.to,
+        reason: move.reason,
+      },
+    );
+    if (move.to === 'done')
+      await resetDevRepair(trx, { task: current, at: at.toISOString() }, 'terminal', sourceEvent);
   }
   const turn = result.turn;
   if (turn === null) return;
@@ -1083,25 +1167,26 @@ async function applyOn(
   // An entry edited since comes as the newer copy.
   const predecessor = replaced ?? handedBack?.turn;
   const carried = predecessor === undefined ? [] : await carriedFeedback(trx, predecessor);
-  const handed = [
-    ...carried.map((old) => {
-      const fresh = read.handed.find((entry) => sameHanded(old, entry));
-      return fresh !== undefined && isNewerEdit(fresh, old) ? fresh : old;
-    }),
-    ...read.handed.filter((entry) => !carried.some((old) => sameHanded(old, entry))),
-  ];
+  const captured = await devRepairContext(trx, current.id);
+  const handed = mergeRepairFeedback(carried, captured.feedback, read.handed);
   let reason =
     read.mergedOpen === undefined || turn.kind === 'reroute'
       ? turnReason(turn, replaced?.reason)
       : `${turnReason(turn)} (PR ${read.mergedOpen.repo}#${String(read.mergedOpen.number)} merged, ticket still open)`;
   if (
     current.column === 'dev' &&
-    predecessor?.column === 'dev' &&
-    predecessor.reason.includes('unresolved_threads') &&
+    (captured.thread ||
+      (predecessor?.column === 'dev' && predecessor.reason.includes('unresolved_threads'))) &&
     !reason.includes('unresolved_threads')
   )
     reason += ', unresolved_threads';
-  await openTurn(trx, {
+  if (
+    current.column === 'dev' &&
+    captured.threads.length > 0 &&
+    (read.input.facts.unresolvedThreads === 0 || !threadsGated(read.input.project))
+  )
+    reason += ` (repair threads: ${captured.threads.join(', ')})`;
+  const opened = await openTurn(trx, {
     task: current,
     reason:
       handedBack === undefined
@@ -1112,6 +1197,16 @@ async function applyOn(
     config,
     opener: ctx.actor,
   });
+  if (current.column === 'dev')
+    await adoptDevRepair(
+      trx,
+      {
+        task: current,
+        at: at.toISOString(),
+        ...(ctx.actor === undefined ? {} : { actor: ctx.actor }),
+      },
+      opened.id,
+    );
 }
 
 /**
@@ -1158,6 +1253,57 @@ async function confirmSubmit(
  * and opens turns, in `shadow` it moves only the shadow column. Archived tasks and tasks of
  * unconfigured projects are skipped; a task with a missing or unreadable snapshot is held.
  */
+async function settleCoveredRepairs(
+  trx: Trx,
+  task: Task,
+  project: Project,
+  blind: (source: string) => boolean,
+  ctx: DispatchContext,
+) {
+  const state = await readDevRepair(trx, task.id);
+  const ids = [...state.coverage]
+    .filter(
+      ([id, p]) =>
+        !state.failed.has(id) &&
+        p.recognitions.some((recognition) => state.outstanding.has(recognition)),
+    )
+    .map(([id]) => id);
+  if (ids.length === 0) return;
+  const rows = await trx
+    .selectFrom('submission')
+    .selectAll()
+    .where('task_id', '=', task.id)
+    .where('id', 'in', ids)
+    .where('voided_at', 'is', null)
+    .where('pending_until', 'is not', null)
+    .orderBy('id')
+    .execute();
+  const link = await taskPr(trx, task.id);
+  for (const row of rows) {
+    if (row.pending_until === null) continue;
+    const pending = await settlePending(
+      trx,
+      { ...row, pending_until: row.pending_until },
+      project,
+      {
+        taskId: task.id,
+        link,
+        githubBlind: (link === null ? project.repos : [link.repo]).some((repo) =>
+          blind(prSourceId(project.id, repo)),
+        ),
+        at: ctx.at,
+        complete: ctx.complete,
+      },
+    );
+    const context = { task, at: ctx.at.toISOString() };
+    if (pending.state === 'confirmed') {
+      await confirmSubmit(trx, pending);
+      await completeDevRepair(trx, context, row.id);
+    } else if (pending.state === 'failed')
+      await failDevRepair(trx, context, row.id, pending.failure);
+  }
+}
+
 export async function dispatchTasks(
   trx: Trx,
   taskIds: readonly number[],
@@ -1171,14 +1317,48 @@ export async function dispatchTasks(
     const project = ctx.config.projects.find((entry) => entry.id === task.project);
     if (project === undefined) continue;
     const mode = project.dispatcher.mode;
-    const read = await readInput(trx, task, project, mode, blind, ctx.config, ctx);
+    let read = await readInput(trx, task, project, mode, blind, ctx.config, ctx);
+    if (read === null) continue;
+    if (mode === 'on')
+      await importLegacyDevRepair(
+        trx,
+        { task, at: ctx.at.toISOString() },
+        read.unclosed ?? read.pending?.turn,
+        read.pending?.id,
+      );
+    await settleCoveredRepairs(trx, task, project, blind, ctx);
+    read = await readInput(trx, task, project, mode, blind, ctx.config, ctx);
     if (read === null) continue;
     // Before the merged-ticket hold: a merge settles the submit whatever the ticket says.
     if (read.pending?.state === 'superseded')
       await supersedeSubmit(trx, task, read.pending, ctx.at);
     if (read.ticketUnconfirmed) continue;
-    if (read.pending?.state === 'confirmed') await confirmSubmit(trx, read.pending);
+    if (read.pending?.state === 'confirmed') {
+      await confirmSubmit(trx, read.pending);
+      await completeDevRepair(trx, { task, at: ctx.at.toISOString() }, read.pending.id);
+    }
     const result = dispatch(read.input);
+    if (mode === 'on' && result.recognize !== undefined && read.sourcePr !== null)
+      await recognizeDevRepair(
+        trx,
+        { task, at: ctx.at.toISOString() },
+        {
+          action: 'recognized',
+          origin: { column: task.column, epoch: task.column_epoch },
+          pr: {
+            repo: read.sourcePr.repo,
+            number: read.sourcePr.number,
+            headSha: read.sourcePr.headSha.toLowerCase(),
+          },
+          reasons: result.recognize,
+          feedback: result.recognize.includes('external_comments') ? read.handed : [],
+          threads: result.recognize.includes('unresolved_threads')
+            ? read.sourcePr.reviewThreads
+                .filter((thread) => !thread.resolved)
+                .map((thread) => ({ ...thread, resolved: false as const }))
+            : [],
+        },
+      );
     if (mode === 'shadow') await applyShadow(trx, task, project, result, ctx.at);
     else await applyOn(trx, task, read, result, ctx);
   }
@@ -1231,31 +1411,37 @@ export async function dispatchJournaled(trx: Trx, ctx: DispatchContext): Promise
  * write.
  */
 export async function dispatchPendingSubmits(trx: Trx, ctx: DispatchContext): Promise<void> {
-  const projects = ctx.config.projects
-    .filter((project) => project.dispatcher.mode === 'on')
-    .map((project) => project.id);
+  const projects = ctx.config.projects.map((project) => project.id);
   if (projects.length === 0) return;
   const tasks = await trx
     .selectFrom('task')
-    .innerJoin('submission', (join) =>
-      join
-        .onRef('submission.task_id', '=', 'task.id')
-        .onRef('submission.column', '=', 'task.column')
-        .onRef('submission.epoch', '=', 'task.column_epoch'),
-    )
-    .select('task.id')
-    .distinct()
+    .innerJoin('submission', 'submission.task_id', 'task.id')
+    .select([
+      'task.id',
+      'task.project',
+      'task.column',
+      'task.column_epoch',
+      'submission.id as submission',
+      'submission.column as submittedColumn',
+      'submission.epoch',
+    ])
     .where('task.project', 'in', projects)
     .where('task.membership', '!=', 'archived')
     .where('submission.voided_at', 'is', null)
     .where('submission.pending_until', 'is not', null)
     .execute();
   if (tasks.length === 0) return;
-  await dispatchTasks(
-    trx,
-    tasks.map((task) => task.id),
-    ctx,
-  );
+  const eligible = new Set<number>();
+  for (const task of tasks) {
+    const mode = ctx.config.projects.find((project) => project.id === task.project)?.dispatcher
+      .mode;
+    if (
+      (mode === 'on' && task.column === task.submittedColumn && task.column_epoch === task.epoch) ||
+      (await readDevRepair(trx, task.id)).coverage.has(task.submission)
+    )
+      eligible.add(task.id);
+  }
+  await dispatchTasks(trx, [...eligible], ctx);
 }
 
 /**

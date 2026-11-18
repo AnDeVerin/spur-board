@@ -515,7 +515,7 @@ export async function carriedFeedback(db: Trx, turn: Pick<Turn, 'handed'>): Prom
  * hands earlier handed feedback over again reads it through here (`recalledFeedback`,
  * `carriedFeedback`). An entry whose snapshot is missing or unreadable stays.
  */
-async function withoutStatusComments(db: Trx, entries: readonly Handed[]): Promise<Handed[]> {
+export async function withoutStatusComments(db: Trx, entries: readonly Handed[]) {
   const flagged: Handed[] = [];
   const read = new Set<string>();
   for (const entry of entries) {

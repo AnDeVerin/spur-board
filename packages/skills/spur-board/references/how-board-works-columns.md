@@ -81,6 +81,11 @@ A Dev turn carrying new feedback or unresolved threads requires a fresh Dev subm
 retained QA stays valid but cannot discharge that repair.
 Only a confirmed Dev submission completes the repair. A pending receipt keeps its
 feedback obligation; failed confirmation hands that work back to Dev.
+Recognition is recorded before a turn or move can be deferred by blind Spur or a
+cycle/course hold, including work recognized while already in Dev. Resolving a
+thread, changing head/executor/epoch, or disabling its rule does not cancel recorded
+work. Enabling a rule after a thread resolved does not invent earlier recognition.
+Ordinary worker reuse remains available when no recognized repair is outstanding.
 
 PR closed without merge with no open PR, or closed
 ticket with live work and no merged PR. `board status` lists them as operator block threads.

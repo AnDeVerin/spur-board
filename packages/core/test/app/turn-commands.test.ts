@@ -2042,9 +2042,13 @@ describe('task.move', () => {
       shadow_column: 'dev',
       column_epoch: before.column_epoch,
     });
-    expect((await ctx.events()).at(-1)).toEqual({
+    expect((await ctx.events()).at(-2)).toEqual({
       kind: 'task_corrected',
       payload: { from: 'review', to: 'dev', reason: 'The board moved it wrongly.', shadow: true },
+    });
+    expect((await ctx.events()).at(-1)).toMatchObject({
+      kind: 'dev_repair',
+      payload: { action: 'reset', reason: 'corrected', throughTurn: 0, throughSubmission: 0 },
     });
   });
 
