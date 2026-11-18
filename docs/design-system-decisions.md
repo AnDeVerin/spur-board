@@ -189,6 +189,24 @@ None:
 None
 ```
 
+## Proposed parts
+
+A slice README lists the parts the prototype adds in a Proposed parts table. Compare each part,
+and each control inside it, with `packages/web/src/ds/index.ts` on the branch merged with the
+latest `main`.
+
+- An export covers a proposed part, or a control inside one, when its doc comment or gallery
+  example describes that part or control. In board-v1-1, `TextToggle` covers the History run
+  toggle (a control inside History run) and the Fold toggle.
+- A covered part or control uses that export. Another component in its place is a finding, even
+  with a row in the decisions section.
+- An uncovered part is either built in the PR, with a `new base` or `screen-local` row, or stood
+  in for by another component, with a row that says "not in `ds/` yet" and names the issue that
+  adds it. A covered control inside a built part still uses its export. A stand-in row that names
+  no issue is a finding.
+- A covering export that landed on `main` after the branch was cut counts: merge that `main`
+  into the branch first, then use the export (`prototype` skill, `## PR`).
+
 ## board-v1
 
 `design/prototypes/board-v1/` predates the kit: it mounts no design system components and every

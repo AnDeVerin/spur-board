@@ -38,7 +38,10 @@ Six passes on the spec, no mockups:
    `proto.css` class names, `proposed-` or `data-proposed`, imports from `design/`. A visible
    difference with no row in the decisions section, or a row with an invalid reason code, is
    MUST FIX. The containers the handoff names from the issue, and any the slice README names,
-   carry the `quiet` class.
+   carry the `quiet` class. Check the row of each Proposed parts part the screen uses, and of
+   each control inside it, against `## Proposed parts` in the decisions doc; a breach is
+   MUST FIX. A file in the handoff's ds-on-main list that belongs to a covering export is MUST FIX
+   "merge `main` at `<sha>` and use `<Name>`".
 
 ## Output
 ```

@@ -28,6 +28,8 @@ prototype and the design system differ, the reason codes and the PR section form
   into `packages/web/src/ds/` with examples. A part of one screen stays outside `ds/`, built from
   ds components and tokens.
 - Any change under `packages/web/src/ds/` also loads the `design-system` skill.
+- A part from the README's Proposed parts table, and each control inside it, follows
+  `## Proposed parts` in `docs/design-system-decisions.md`.
 
 ## Values
 
@@ -54,6 +56,11 @@ prototype and the design system differ, the reason codes and the PR section form
   prints, never through a direct loopback server. A change whose visible UI is only in
   `packages/web/src/ds/` and that no screen uses yet takes the `pnpm ds:build` gallery instead
   (`.agents/skills/qa-report/references/prototype-vs-build.md`, "The build").
+- Before you return the decisions section, run
+  `git diff --name-only HEAD...<sha> -- packages/web/src/ds/` with the handoff's `origin/main`
+  SHA; once a designer has run in a manager run, that is the SHA fetched before it. When it lists
+  an export that covers a proposed part or a control inside one, merge that SHA into the branch
+  (method in `gitflow`, History) and use the export.
 - Fill `## Design System decisions` in the PR body: one row per difference with its reason code
   and evidence, or the single line `None`. The format and a filled example are in
   `docs/design-system-decisions.md`.

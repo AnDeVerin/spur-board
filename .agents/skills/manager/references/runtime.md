@@ -31,14 +31,18 @@ Every spawn gets, and only gets:
 - the previous gate's output block; `architect` also gets the researcher's `### Findings` next to
   the critic's selection;
 - the Clarify outcome and the Assumptions so far;
-- the `origin/main` SHA recorded at intake; roles use it wherever they would name `origin/main`;
+- the `origin/main` SHA recorded at intake; roles use it wherever they would name `origin/main`.
+  On an issue naming `design/prototypes/<slice>/`, run `git fetch origin main` right before each
+  `designer` (code) spawn and record the new SHA; it replaces the intake SHA in that handoff and
+  every later one;
 - the cycle as `N/cap`;
 - `reviewer` only: `PR: <url> | none`;
 - `reviewer` and `doc-reviewer`: every `developer` output of the run, not only the last;
 - `designer` code only: the changed files from `git diff --name-only <sha>...HEAD`, the
   screenshots the run already has and the step 11 report path and screenshot names; for an issue
   naming `design/prototypes/<slice>/`, also the prototype folder, the listed states, the quiet
-  containers the issue names and the decisions section the `developer` returned;
+  containers the issue names, the decisions section the `developer` returned and the ds-on-main
+  list from `git diff --name-only HEAD...<sha> -- packages/web/src/ds/` with that fetched SHA;
 - `tester` on a UI change whose issue names `design/prototypes/<slice>/`: the prototype folder,
   the listed states and the decisions section;
 - `tester`, `designer` (code) and `doc-reviewer`: `Head: <sha>`, from `git rev-parse HEAD` run
