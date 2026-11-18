@@ -692,6 +692,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   let webUrl: string | undefined;
   // A function, so the check after the daemon's start reads the listener's write.
   const boundWebUrl = (): string | undefined => webUrl;
+  /** Set by `reset --product-version`; this and every later daemon of the stand reports it. */
+  let productVersionOverride: string | undefined;
   /** Starts a daemon with a new fake Spur, holding `spurState` when a snapshot is restored. */
   async function startDaemon(spurState?: FakeSpurState): Promise<NonNullable<typeof current>> {
     const spur = createFakeSpur({
@@ -724,7 +726,9 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       stdout: { write: log },
       writeErr: log,
       ports: {
-        productVersion: standVersion(fileURLToPath(new URL('../../../', import.meta.url))),
+        productVersion:
+          productVersionOverride ??
+          standVersion(fileURLToPath(new URL('../../../', import.meta.url))),
         startAdapters: runner.start,
         sessionFetcher: standFetch,
         spur: createSpurPort({ baseUrl: spurBaseUrl, fetch: standFetch }),
@@ -962,7 +966,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
      * Resets onto the scenario seeded last, restoring its snapshot, or seeding it again when its
      * scenario code or a migration changed; a plain reset without one.
      */
-    reset(): Promise<RouteResult> {
+    reset(body: { version?: string }): Promise<RouteResult> {
+      if (body.version !== undefined) productVersionOverride = body.version;
       return restart(scenario?.name, { restore: true });
     },
     seed(body: { scenario: string }): Promise<RouteResult> {
