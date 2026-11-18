@@ -8,38 +8,20 @@ description: Tests, fakes, clocks, flaky quarantine, checks and CI. Use when you
 ## Writing tests
 
 - Read `references/test-layers.md` for the layer to use, stand scenarios, the existing fakes,
-  clock seams, the waits rule, harness guarantees, what runs where, and flaky-test quarantine.
+  clock seams, the waits rule, harness guarantees and flaky-test quarantine.
 - Give the test a fake or a local server instead of `vi.mock` (`viMockBan`, `eslint.config.js`).
 - Code under test takes a `clock` or `now` seam; never assert on the real time.
+- Put tests that read design system CSS or token values in a Node-side `scripts/web*.test.ts`,
+  as `scripts/web-tokens.test.ts` does: `packages/web/test/` may not import `node:` modules
+  (`local/web-import-boundary`, `eslint.config.js`), and Vitest reads CSS there as an empty string,
+  `?raw` imports included.
 
 ## Local checks
 
 - Use the root Vitest projects in `vitest.config.ts`; package tests reach CI through the root
   include pattern, not per-package `test` scripts.
-- After changing exports, run `pnpm check:full --only knip`: changed-mode `pnpm check` skips knip
-  (`scripts/check.ts`, `buildSteps`). Test imports count as knip usage; inspect unused exports in
-  script entry points by hand (`knip.json`, `package.json`).
-- Keep a source helper private when no other module imports it; full knip reports same-file-only
-  exports under this repo's default configuration (`knip.json`).
-- Confirm a filtered test command ran test files. A missing package script or unmatched pnpm
-  filter can exit successfully without exercising a test (`package.json`,
-  `packages/cli/package.json`).
-- Run the TypeScript step for `expectTypeOf` assertions; Vitest does not typecheck them. Package
-  tsconfigs include `test`, and `buildSteps` runs `tsc --noEmit` (`scripts/check.ts`).
-- Express rejected type shapes with `expectTypeOf(...).not.toExtend<...>()`, without a
-  `@ts-expect-error` escape (`packages/contracts/test/gateway/gateway-types.test.ts`).
-- With `erasableSyntaxOnly` and `exactOptionalPropertyTypes`, avoid constructor parameter
-  properties and give optional fields an explicit `undefined` union when callers pass it
-  (`tsconfig.base.json`).
-- Give a new package a TypeScript source file before running typecheck, and add runtime
-  dependencies when its source uses them; an empty scaffold can fail TypeScript or knip
-  (`packages/daemon/tsconfig.json`, `scripts/check.ts`, `knip.json`).
-- Read a changing abort flag through a function when a later check follows `await`; direct
-  narrowing can survive the await and trip strict lint (`packages/adapters/src/runner/runner.ts`,
-  `eslint.config.js`).
-- Keep timing-sensitive startup checks in their own Vitest project. Select `startup` explicitly;
-  compare base and branch under similar load before changing the threshold (`vitest.config.ts`,
-  `scripts/check.ts`, `packages/cli/test/startup.test.ts`, `describe('board startup',`).
+- Read `references/local-checks.md` for what each check mode runs, knip, TypeScript and lint
+  traps, single-file snapshot updates and running `check --pre-push` by hand.
 
 ## Test isolation
 
@@ -60,6 +42,10 @@ description: Tests, fakes, clocks, flaky quarantine, checks and CI. Use when you
   a key (`board task <key>`, `board comment`), and on a lowercase `board <word>` in prose: README,
   SETUP, TROUBLESHOOTING, the runbook, the setup skill. Describe the action, cite a leaf command,
   or write "Board".
+- `skill-sync.test.ts` keeps each guide (`docs/how-board*.md`, `docs/web-ui*.md`) and its copy
+  in `packages/skills/spur-board/references/` below 8192 bytes; `doc-caps.test.ts` warns above
+  80%. CI tests the merge with `main`, so two PRs that each grow one guide can pass alone and
+  fail together: measure after merging current `main`.
 - No skill or guide check reads `docs/configuration.md`; check commands in its prose in
   `scripts/gen-docs.test.ts`, where `registeredCommands()` gives each command path and options.
 

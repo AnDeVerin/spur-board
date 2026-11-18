@@ -22,6 +22,9 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 - HTTP level - adapters take an injected `fetch` (`packages/adapters/test/spur/spur.test.ts`);
   Slack code runs against the local HTTP and WebSocket fake in
   `packages/gateway-slack/src/testing.ts`.
+- CLI to daemon - `packages/core/test/api/cli-integration.test.ts` runs `runCli` against a real
+  `createApiServer`, for flows CLI tests cannot reach: they may not import core. `token create`
+  reads the daemon address from `env` (`BOARD_DAEMON_URL`), not `clientConfig`: pass `env`.
 - Contract - a gateway passes `runGatewayConformance` from `@spur-board/gateway-testkit`
   (`packages/gateway-slack/test/conformance.test.ts`).
 - End to end - `scripts/package-smoke.ts` installs and exercises the packed tarball;
@@ -41,6 +44,10 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   their one log together with the fake Slack API's unknown methods. A GitHub GraphQL query
   change must update `KNOWN_DOCUMENTS` in `packages/stand/src/fakes/github-pr-shapes.ts`, and a GitHub
   Issues REST call change the routes and query rules in `packages/stand/src/fakes/github-issues.ts`.
+- Recordings: replay matches method, URL and the exact request body (`replayBody` in
+  `packages/stand/test/recordings.test.ts`). After a request change, rerun `pnpm record:fakes`
+  (maintainer only) or strip the new selection in `replayBody`, with `replaceAll` when it repeats
+  once per PR alias.
 - Builders: there is no shared test-data builder yet. Inline the data while one test needs it;
   when a second test needs the same shape, move a builder into `packages/<x>/test/`.
 
@@ -90,19 +97,6 @@ Every test runs through the root config, so all of these hold:
   non-local host throws.
 - Pinned by `packages/testkit/test/env.test.ts` and
   `packages/testkit/test/network.integration.test.ts`.
-
-## What runs where
-
-- `pnpm check` (changed mode): format and lint on changed files; types and the `unit`,
-  `integration` and `process` projects for changed packages plus their dependents
-  (`withDependents`, `buildSteps` in `scripts/check.ts`). `startup` and package smoke run only when
-  `packages/cli` is affected, `stand` only when `packages/stand` is. `scripts/gen-docs.test.ts`
-  and `packages/skills/test/skill-sync.test.ts` also run when contracts or cli is affected.
-- A change to a file in `GLOBAL_FILES` or `GLOBAL_DIRS` (`scripts/check-plan.ts`), or to a
-  root `tsconfig*.json`, switches to full mode; a package's own `tsconfig.json` does not.
-- `pnpm run check --pre-push` (the pre-push hook): changed-file format and lint, types and `unit`
-  only.
-- `pnpm check:full --only test`: `unit`, `integration`, `process` and `startup`.
 
 ## Stand scenarios
 

@@ -21,6 +21,9 @@
   a file it reports, each added, changed or deleted test file included, and warns on a named path
   the PR does not change (`scripts/guardrails.ts`, `scripts/guardrails.test.ts`,
   `describe('guardrails.ts CLI',`).
+- Locally, `pnpm guardrails <base>` compares committed HEAD with its merge base and ignores
+  uncommitted changes: after merging `main`, run it once the merge commit exists
+  (`scripts/guardrails.ts`).
 - CI `test` and `stand` jobs: `check:full --only test` and `--only stand` (`.github/workflows/ci.yml`).
 - CI `package-smoke` job: `pnpm package:smoke` and `pnpm upgrade:smoke` on PRs, then
   `pnpm update:smoke`; on a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a
