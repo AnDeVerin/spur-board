@@ -1,15 +1,11 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import {
-  ERRORS,
-  OPERATIONS,
-  roleCanUseOperation,
-  type SchemaRole,
-} from '../../contracts/src/index.ts';
+import { ERRORS, OPERATIONS, roleCanUseOperation } from '../../contracts/src/index.ts';
 import { createProgram } from '../../cli/src/cli.ts';
 import {
   endMarker,
+  renderBoardCommands,
   renderCommandReferences,
   replaceGeneratedSection,
   startMarker,
@@ -217,16 +213,17 @@ function validateSetupInvocations(text: string, dispatcher = binarySource): stri
   return errors;
 }
 
-function roleSection(role: SchemaRole): string {
-  const generated = skill.slice(skill.indexOf(startMarker), skill.indexOf(endMarker));
-  const worker = generated.indexOf('### Worker');
-  const orchestrator = generated.indexOf('### Orchestrator');
-  return role === 'worker' ? generated.slice(worker, orchestrator) : generated.slice(orchestrator);
+function generatedSection(): string {
+  return skill.slice(skill.indexOf(startMarker) + startMarker.length, skill.indexOf(endMarker));
 }
 
 describe('product skill sync', () => {
   it('keeps the skill and bounded references equal to fresh generation', () => {
     expect(replaceGeneratedSection(skill)).toBe(skill);
+    expect(replaceGeneratedSection(replaceGeneratedSection(skill))).toBe(
+      replaceGeneratedSection(skill),
+    );
+    expect(renderBoardCommands()).toBe(renderBoardCommands());
     expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(5120);
     const pages = ['tasks.md', 'blocks.md', 'config.md', 'errors.md'];
     expect(references.map((r) => r.fileName)).toEqual(pages);
@@ -275,11 +272,27 @@ describe('product skill sync', () => {
   });
 
   it.each(['worker', 'orchestrator'] as const)('indexes exactly the %s grants', (role) => {
-    const section = roleSection(role);
+    const section = generatedSection();
     const expected = OPERATIONS.filter((operation) => roleCanUseOperation(operation, role));
-    const links = [...section.matchAll(/^- \[`board ([^`]+)`\]\(references\/([^)#]+)#(.+)\)$/gm)];
-    expect(links.map((link) => link[1])).toEqual(expected.map((item) => item.cli.command));
-    for (const [, command = '', file = '', anchor] of links) {
+    const links = [
+      ...section.matchAll(
+        /^- \[`board ([^`]+)`\]\(references\/([^)#]+)#([^)]+)\)(?: - (worker|orchestrator) only)?$/gm,
+      ),
+    ];
+    expect(links).toHaveLength(section.match(/^- /gm)?.length ?? 0);
+    expect(section).not.toMatch(/^### /m);
+    // The package smoke resolves packed links with this pattern; every index line must match it.
+    expect(section.match(/\]\((references\/[a-z0-9-]+\.md)#board-[a-z0-9-]+\)/g)).toHaveLength(
+      links.length,
+    );
+    const allowed = links.filter(([, , , , tag]) => tag === undefined || tag === role);
+    expect(allowed.map((link) => link[1])).toEqual(expected.map((item) => item.cli.command));
+    for (const [, command = '', file = '', anchor, tag] of links) {
+      const operation = OPERATIONS.find((item) => item.cli.command === command);
+      const grants = (['worker', 'orchestrator'] as const).filter(
+        (item) => operation !== undefined && roleCanUseOperation(operation, item),
+      );
+      expect(tag).toBe(grants.length === 1 ? grants[0] : undefined);
       expect(anchor).toBe(`board-${command.replaceAll(' ', '-')}`);
       expect(readFileSync(`${refsPath}/${file}`, 'utf8')).toContain(`\n### \`board ${command}\`\n`);
     }
