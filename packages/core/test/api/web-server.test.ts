@@ -243,16 +243,14 @@ describe('web listener', () => {
         { ...item, id: 2, kind, item_key: 'default-branch:github:o/r', task_id: null },
       ])
       .execute();
-    const close = (id: string, key: string) => ({
-      ...post('item.close'),
-      payload: JSON.stringify({ input: { item: id }, key }),
-    });
-    for (const [id, key] of [
-      ['I1', 'web-close-1'],
-      ['I1', 'web-close-1'],
-      ['I2', 'web-close-2'],
+    // I1 twice on one key replays its answer; I2 is a board-wide item.
+    for (const [item, n] of [
+      ['I1', 1],
+      ['I1', 1],
+      ['I2', 2],
     ] as const) {
-      expect((await app.inject(close(id, key))).statusCode).toBe(200);
+      const payload = JSON.stringify({ input: { item }, key: `web-close-${String(n)}` });
+      expect((await app.inject({ ...post('item.close'), payload })).statusCode).toBe(200);
     }
     const cleared = await store.db
       .selectFrom('event')
