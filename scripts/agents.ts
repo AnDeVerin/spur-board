@@ -1,7 +1,8 @@
 // `pnpm agents:sync [--check]` and `pnpm lint:agents`. Sync generates `.claude/agents/*.md`,
 // `.codex/agents/*.toml`, the `.claude/skills` link and the AGENTS.md skills and roles table from
 // the tracked `.agents/` sources; `--check` reports drift without writing. Lint checks agent files
-// against the skill-writer rules, then runs the drift check.
+// against the skill-writer rules, then runs the drift check; it warns, without failing, for a
+// budgeted file above 80% of its budget.
 // Reads only files tracked in the git index. Imports only `node:` builtins.
 import { spawnSync } from 'node:child_process';
 import {
@@ -220,6 +221,8 @@ interface State {
   skills: string[];
   roles: string[];
   findings: Finding[];
+  /** Budgeted files above 80% of their budget; never findings. */
+  warnings: string[];
   /** Path -> expected text; null when a blocking finding stops the render. */
   expected: Map<string, string> | null;
   /** Tracked outputs on disk that have no source role. */
@@ -257,6 +260,7 @@ function analyze(root: string): State {
   const skillSet = new Set(skills);
   const roleSet = new Set(roles);
   const findings: Finding[] = [];
+  const warnings: string[] = [];
   const add = (file: string, line: number | undefined, message: string, blocks = false) => {
     const skill = /^\.agents\/skills\/([^/]+)\//.exec(file)?.[1];
     const role = /^\.agents\/agents\/([^/]+)\.md$/.exec(file)?.[1];
@@ -277,6 +281,10 @@ function analyze(root: string): State {
     const size = Buffer.byteLength(text);
     if (size > limit)
       add(path, undefined, `${String(size)} bytes, over the ${String(limit)}-byte budget`);
+    else if (size * 5 > limit * 4)
+      warnings.push(
+        `${path} is ${String(size)}/${String(limit)} bytes (${String(Math.floor((size * 100) / limit))}%), above 80% of its budget`,
+      );
   };
   const exists = (path: string): boolean => {
     const clean = path.replace(/\/+$/, '');
@@ -643,7 +651,19 @@ function analyze(root: string): State {
     if (match?.[2] === LINK && match[1] !== '120000') indexMode = match[1] ?? null;
     if (match?.[2]?.startsWith(`${LINK}/`)) indexMode = 'directory';
   }
-  return { root, skills, roles, findings, expected, stale, untracked, unsafeDirs, link, indexMode };
+  return {
+    root,
+    skills,
+    roles,
+    findings,
+    warnings,
+    expected,
+    stale,
+    untracked,
+    unsafeDirs,
+    link,
+    indexMode,
+  };
 }
 
 const roleOf = (path: string): string | undefined =>
@@ -758,6 +778,7 @@ function sync(root: string, check: boolean, log: (line: string) => void): number
 function lint(root: string, log: (line: string) => void): number {
   const prefix = 'lint:agents';
   const state = analyze(root);
+  for (const warning of state.warnings) log(`${prefix}: warning: ${warning}`);
   const lines = state.findings.map((finding) => findingLine(prefix, finding));
   if (state.expected !== null) lines.push(...drift(state).map((entry) => driftLine(prefix, entry)));
   for (const line of lines) log(line);

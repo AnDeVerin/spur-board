@@ -600,6 +600,39 @@ describe('agents.ts CLI', () => {
     }
   });
 
+  it('warns, without failing, above 80% of a budget', () => {
+    const fx = fixture();
+    const ok = { status: 0, stdout: 'lint:agents: OK - 2 skills, 2 roles\n' };
+    const ref = '.agents/skills/a/references/r.md';
+    fx.write(ref, pad('# R\n\n', 6553));
+    fx.git('add', ref);
+    expect(fx.run('lint')).toEqual(ok);
+    fx.write(ref, pad('# R\n\n', 6554));
+    expect(fx.run('lint')).toEqual({
+      status: 0,
+      stdout: `lint:agents: warning: ${ref} is 6554/8192 bytes (80%), above 80% of its budget\n${ok.stdout}`,
+    });
+    fx.write(ref, pad('# R\n\n', 6553));
+    const reviewer = BASE['.agents/agents/reviewer.md'] ?? '';
+    const wrote = { status: 0, stdout: 'agents:sync: wrote 2 file(s)\n' };
+    fx.write('.agents/agents/reviewer.md', pad(reviewer, 3276));
+    expect(fx.run('sync')).toEqual(wrote);
+    expect(fx.run('lint')).toEqual(ok);
+    fx.write('.agents/agents/reviewer.md', pad(reviewer, 3277));
+    expect(fx.run('sync')).toEqual(wrote);
+    expect(fx.run('lint')).toEqual({
+      status: 0,
+      stdout: `lint:agents: warning: .agents/agents/reviewer.md is 3277/4096 bytes (80%), above 80% of its budget\n${ok.stdout}`,
+    });
+    fx.write('.agents/agents/reviewer.md', pad(reviewer, 4097));
+    const over = fx.run('lint');
+    expect(over.status).toBe(1);
+    expect(over.stdout).toContain(
+      'lint:agents: .agents/agents/reviewer.md: role reviewer: 4097 bytes, over the 4096-byte budget',
+    );
+    expect(over.stdout).not.toContain('warning:');
+  });
+
   it.each<[string, (fx: Fixture) => void, string]>([
     [
       'a /name span',
