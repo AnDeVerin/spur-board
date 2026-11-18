@@ -59,8 +59,15 @@ worker fixes or answers, then resolves each; reviewers never do. A
 Dev submit on the same head moves right, keeping marks and approval. An
 approval's inline notes are threads; it still passes External Review.
 
-Review/Product Review mark lasts across visits on the current head. A visit
-submission belongs to one column visit; moving left clears it and those to the right. New heads invalidate internal Review and Product Review marks.
+Review/Product Review mark lasts across visits on the current head. QA submissions
+also survive returns and corrections to Dev on the same head. Other visit
+submissions belong to one column visit; moving left clears them and those to the
+right. A different observed PR head permanently invalidates its internal Review,
+Product Review and QA evidence, even if the head later returns to that commit.
+Explicit operator correction into QA clears confirmed and pending QA evidence,
+keeping review marks. With passing upstream gates and a QA orchestrator or operator,
+this opens a fresh QA turn. Executor `none` keeps worker-column reuse: a valid Dev
+submit can satisfy QA after correction, and retained worker QA can satisfy Dev.
 
 PR closed without merge with no open PR, or closed
 ticket with live work and no merged PR. `board status` lists them as operator block threads.

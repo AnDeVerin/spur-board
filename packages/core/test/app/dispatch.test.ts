@@ -77,6 +77,7 @@ type Options = {
   movingClock?: boolean;
   /** Enables QA, run by `coord`, and hands Ready to Merge to `coord` instead of the operator. */
   qa?: boolean;
+  qaOrchestrator?: string;
   /** Ready to Merge's `requireResolvedThreads`; unset by default. */
   rtmThreads?: boolean;
 };
@@ -122,7 +123,9 @@ function boardConfig(options: Options = {}) {
           },
           { id: 'product-review', orchestrator: 'coord' },
           ...(options.externalReview === true ? [{ id: 'external-review' }] : []),
-          ...(options.qa === true ? [{ id: 'qa', orchestrator: 'coord' }] : []),
+          ...(options.qa === true
+            ? [{ id: 'qa', orchestrator: options.qaOrchestrator ?? 'coord' }]
+            : []),
           {
             id: 'ready-to-merge',
             orchestrator: options.qa === true ? 'coord' : 'operator',
@@ -650,6 +653,136 @@ async function inReview(options: Options = {}): Promise<Board> {
   await ctx.submit(WORKER, 'T1', A);
   return ctx;
 }
+
+/** Dev and both internal reviews passed; QA has its own executor turn. */
+async function inQa(): Promise<Board> {
+  const ctx = await inReview({ qa: true });
+  await ctx.ack(REV, 'T2');
+  await ctx.submit(REV, 'T2');
+  await ctx.ack(COORD, 'T3');
+  await ctx.submit(COORD, 'T3');
+  await ctx.ack(COORD, 'T4');
+  return ctx;
+}
+
+describe('QA evidence across visits', () => {
+  it('keeps confirmed QA through a same-head Dev repair without another QA turn', async () => {
+    const ctx = await inQa();
+    await ctx.submit(COORD, 'T4');
+    await ctx.pr({ requiredChecks: [{ name: 'ci', state: 'failure', completedAt: null }] });
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('dev');
+    expect(
+      await ctx.store.db
+        .selectFrom('submission')
+        .select('voided_at')
+        .where('column', '=', 'qa')
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ voided_at: null });
+    await ctx.pr({ requiredChecks: [{ name: 'ci', state: 'success', completedAt: ctx.at() }] });
+    const dev = await ctx.openTurn();
+    await ctx.ack(WORKER, dev?.id ?? '');
+    await ctx.submit(WORKER, dev?.id ?? '');
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
+  });
+
+  it.each([A, B])(
+    'permanently invalidates QA for its PR before completing upstream on %s',
+    async (head) => {
+      const ctx = await inQa();
+      await ctx.submit(COORD, 'T4');
+      await ctx.store.db
+        .insertInto('submission')
+        .values({
+          task_id: (await ctx.task()).id,
+          column: 'qa',
+          epoch: 0,
+          commit_sha: C,
+          author: COORD,
+          submitted_at: ctx.at(),
+          note: null,
+          pr_repo: 'o/r',
+          pr_number: 8,
+        })
+        .execute();
+      await ctx.pr({ headSha: B });
+      const qa = () =>
+        ctx.store.db
+          .selectFrom('submission')
+          .select(['pr_number', 'voided_at'])
+          .where('column', '=', 'qa')
+          .orderBy('id')
+          .execute();
+      expect(await qa()).toEqual([
+        { pr_number: 7, voided_at: ctx.at() },
+        { pr_number: 8, voided_at: null },
+      ]);
+      const invalidated = await qa();
+      await ctx.pr({ headSha: head });
+      expect(await qa()).toEqual(invalidated);
+      for (const actor of [WORKER, REV, COORD]) {
+        const turn = await ctx.openTurn();
+        await ctx.ack(actor, turn?.id ?? '');
+        await ctx.submit(actor, turn?.id ?? '');
+      }
+      expect(await ctx.openTurn()).toMatchObject({ column: 'qa', head_sha: head });
+    },
+  );
+
+  it.each(['submit', 'return', 'head', 'correct'] as const)(
+    'holds taken QA on same-head upstream failure, then closes on %s',
+    async (departure) => {
+      const ctx = await inQa();
+      await ctx.pr({
+        requiredChecks: [{ name: 'ci', state: 'failure', completedAt: null }],
+        draft: true,
+        mergeable: 'conflicting',
+      });
+      await ctx.tick();
+      expect(await ctx.openTurn()).toMatchObject({ id: 'T4', column: 'qa' });
+      if (departure === 'submit') await ctx.submit(COORD, 'T4');
+      else if (departure === 'return') await ctx.ret(COORD, 'T4');
+      else if (departure === 'head') await ctx.pr({ headSha: B });
+      else await ctx.move('dev');
+      expect((await ctx.turns()).find((turn) => turn.id === 4)?.closed_at).not.toBeNull();
+      await expect(ctx.submit(COORD, 'T4')).rejects.toMatchObject({ code: 'turn_closed' });
+    },
+  );
+
+  it.each(['return', 'correct'] as const)(
+    'retained worker QA can satisfy Dev after %s',
+    async (movement) => {
+      const ctx = await inQa();
+      await ctx.submit(COORD, 'T4');
+      // Represent an earlier worker QA visit, then retain the normal worker-column reuse policy.
+      await ctx.store.db
+        .updateTable('submission')
+        .set({ author: WORKER })
+        .where('column', '=', 'qa')
+        .execute();
+      ctx.restart({ qa: true, qaOrchestrator: 'none' });
+      await ctx.github();
+      await ctx.spur();
+      if (movement === 'return') {
+        await ctx.ack(COORD, 'T5');
+        await ctx.ret(COORD, 'T5');
+      } else await ctx.move('dev');
+      await ctx.tick();
+      const rows = await ctx.store.db
+        .selectFrom('submission')
+        .select(['column', 'voided_at'])
+        .orderBy('id')
+        .execute();
+      expect(rows.find((row) => row.column === 'dev')?.voided_at).not.toBeNull();
+      expect(rows.find((row) => row.column === 'qa')?.voided_at).toBeNull();
+      expect((await ctx.task()).column).toBe('ready-to-merge');
+      expect((await ctx.turns()).filter((turn) => turn.column === 'dev')).toHaveLength(1);
+      expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
+    },
+  );
+});
 
 describe('orchestrator role transitions', () => {
   it.each(
@@ -4497,6 +4630,32 @@ describe('triggers', () => {
 describe('pending submit', () => {
   const TIMEOUT = err({ kind: 'timeout' as const, message: 'GitHub timed out' });
   const BOUND = 180_000;
+
+  it('confirms unseen-head QA and retains it through upstream revalidation', async () => {
+    const ctx = await inQa();
+    ctx.pollAnswers(TIMEOUT);
+    await expect(ctx.submit(COORD, 'T4', B)).resolves.toMatchObject({ status: 'pending' });
+    expect(await ctx.openTurn()).toBeNull();
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('qa');
+    expect((await ctx.why()).holds).toContain('submit_pending');
+    await ctx.pr({ headSha: B });
+    expect((await ctx.task()).column).toBe('dev');
+    for (const actor of [WORKER, REV, COORD]) {
+      const turn = await ctx.openTurn();
+      await ctx.ack(actor, turn?.id ?? '');
+      await ctx.submit(actor, turn?.id ?? '', B);
+    }
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
+    expect(
+      await ctx.store.db
+        .selectFrom('submission')
+        .select(['pending_until', 'voided_at'])
+        .where('column', '=', 'qa')
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ pending_until: null, voided_at: null });
+  });
 
   /** The submission rows, oldest first. */
   const submissions = (ctx: Board) =>

@@ -11,6 +11,15 @@ shadow mode, use keyed `board submit <task> <sha>`.
 Unseen heads answer `pending`: that submit is final; do not resubmit or raise a
 block. Confirm timeout: `projects[].dispatcher.submitConfirmMs`.
 
+QA on the same head holds a taken turn through upstream failures until submit or
+return. Leaving QA closes its turn; a late submit with a new key gets `turn_closed`.
+An unseen-head QA submit closes the turn while pending and gives no gate credit
+until confirmed. Confirmation survives upstream revalidation: completing Dev and
+reviews on that head needs no second QA submit. Confirmed QA survives same-head
+returns and corrections to Dev. Correction into QA clears even pending QA evidence:
+with upstream gates passing, a QA orchestrator or operator gets a fresh turn;
+executor `none` may instead reuse a valid worker submit without a new QA turn.
+
 Submissions declare provenance with `--basis tested|carried|skipped`; omitted means
 `tested`. This records the submitter's declaration, not a claim that checks passed.
 `carried` requires `--from <full lowercase SHA>` and `--reason <text>`: the source

@@ -12,8 +12,8 @@ import {
 
 /**
  * A submit or a mark, each bound to the head commit it was given on. A mark lasts whatever the
- * visit while its head stays the PR's head (a new head voids it); a submit lasts for one visit of
- * its column.
+ * visit while its head stays the PR's head (a new head voids it). QA submits also survive visits
+ * until a new head or explicit correction into QA; other submits last for one column visit.
  */
 export type GateMark =
   | { kind: 'submit'; column: ColumnId; headSha: string }
@@ -36,7 +36,7 @@ export interface TaskGateFacts {
   unresolvedThreads: number;
   /**
    * Submits and marks of the task, on any head. On a move left to a column, the caller drops the
-   * submits of that column and of every column right of it, and passes the remaining submits and
+   * visit submits of that column and of every column right of it, preserving QA submits and
    * every mark. Only those on the current head count.
    */
   marks: readonly GateMark[];

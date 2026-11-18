@@ -111,6 +111,19 @@ const nothing: Result = { moves: [], turn: null };
 
 const cases: [string, Changes, Result][] = [
   [
+    'retains worker QA through a left cascade so it can satisfy Dev and QA',
+    {
+      column: 'ready-to-merge',
+      board: ALL,
+      facts: { marks: [submit('qa'), mark('review'), mark('product-review')] },
+      pr: red,
+    },
+    {
+      moves: [left('ready-to-merge', 'dev', 'checks_red')],
+      turn: turn('entry', 'dev', 'checks_red'),
+    },
+  ],
+  [
     'moves right when the gate holds',
     {},
     { moves: [right('dev', 'review')], turn: turn('entry', 'review', 'no_review_on_head') },
