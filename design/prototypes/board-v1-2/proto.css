@@ -1,0 +1,1150 @@
+/* Values with no token yet, declared before use. */
+:root {
+  --proposed-outline-dash: 1px dashed var(--color-border-strong);
+  /* The help panel: wider than a column so a condition fits one line. */
+  --proposed-size-popover: 380px;
+  /* The fill of a group band: one step off the page, lighter than a card. */
+  --proposed-color-group-band: var(--color-row-hover);
+  /* The lift of a floating panel. */
+  --proposed-shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+body {
+  margin: 0;
+}
+
+/* ---- Shell: simplified stand-ins for the app's shell, column and card ---------------------- */
+.shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.board-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--size-header);
+  padding: 0 var(--space-6);
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+}
+.board-project {
+  font-weight: var(--weight-bold);
+}
+.board-sort {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.board-sort-label {
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--color-text-tertiary);
+}
+.board-main {
+  flex: 1;
+  display: flex;
+  justify-content: safe center;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: var(--space-4) var(--space-6);
+  padding-bottom: calc(var(--size-statusbar) + var(--space-4));
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.column {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: var(--size-column);
+  min-height: 0;
+}
+.column-head {
+  flex: none;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+}
+.column-name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.column-label {
+  margin: 0;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+.column-count {
+  margin-left: auto;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.column-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-0-25);
+  min-height: var(--size-chevron);
+}
+.column-exec {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.column-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: calc(2 * var(--space-0-25));
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.spine {
+  box-sizing: border-box;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: var(--size-spine);
+  padding: var(--space-2) 0;
+  border: var(--size-hairline) dashed var(--color-border-default);
+}
+.spine .column-count {
+  margin: 0 0 var(--space-2);
+}
+.spine-name {
+  writing-mode: vertical-rl;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+.card-wrap {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  --c: transparent;
+}
+.card-wrap[data-turn='agent'] {
+  --c: var(--color-status-working);
+}
+.card-wrap[data-turn='you'],
+.card-wrap[data-turn='wait'] {
+  --c: var(--color-status-attention);
+}
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+  padding: var(--space-2) var(--space-2-5) var(--space-2) var(--space-3);
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-default);
+  color: inherit;
+  text-decoration: none;
+}
+.card-wrap:hover .card {
+  border-color: var(--color-border-strong);
+}
+.card::before {
+  content: '';
+  position: absolute;
+  top: calc(-1 * var(--size-hairline));
+  bottom: calc(-1 * var(--size-hairline));
+  left: calc(-1 * var(--size-hairline));
+  width: var(--size-rail);
+  background: var(--c);
+  opacity: var(--opacity-rail);
+}
+.card-key-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: var(--size-logo);
+}
+.card-key {
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+}
+.card-entered {
+  flex: none;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.done-row .card-entered {
+  margin-left: auto;
+}
+.card-title {
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+.card-links {
+  position: absolute;
+  top: calc(var(--size-hairline) + var(--space-2));
+  right: calc(var(--size-hairline) + var(--space-2-5));
+  display: inline-flex;
+  gap: var(--space-0-25);
+}
+.card-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-logo);
+  height: var(--size-logo);
+  color: var(--color-text-tertiary);
+}
+.card-cells {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.card-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: var(--size-menu-trigger);
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.card-cell + .card-cell {
+  border-left: var(--size-hairline) solid var(--color-border-default);
+}
+.card-cell[data-tone='ok'] {
+  background: var(--color-fill-ready);
+  color: var(--color-text-secondary);
+}
+.card-cell[data-tone='ok'] svg {
+  color: var(--color-status-ready);
+}
+.card-cell[data-tone='bad'] {
+  background: var(--color-fill-error);
+  color: var(--color-status-error);
+  font-weight: var(--weight-bold);
+}
+.card-cell[data-tone='pend'] {
+  background: var(--color-fill-attention);
+  color: var(--color-status-attention);
+}
+.card-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--size-icon-button);
+  border: var(--size-hairline) dashed var(--color-border-default);
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.card-markers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+.card-marker {
+  display: inline-flex;
+}
+.card-turn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin-top: var(--space-0-25);
+  padding-top: var(--space-1-5);
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
+.card-turn b {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+.card-who {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.card-age {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.card-age[data-kind='you'],
+.card-age[data-kind='wait'] {
+  color: var(--color-status-attention);
+}
+.done {
+  gap: 0;
+}
+.done-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+  padding: var(--space-1-5) var(--space-0-25);
+  border-bottom: var(--size-hairline) solid var(--color-border-subtle);
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+.done-check {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-status-ready);
+}
+.done-key {
+  flex: none;
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+.done-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.card-marker[data-marker='block'] > * {
+  background: var(--color-fill-error);
+}
+.card-marker[data-marker='block'] svg {
+  color: var(--color-status-error);
+}
+
+/* ---- Proposed marks ------------------------------------------------------------------------ */
+.proposed-label {
+  flex: none;
+  padding: 0 var(--space-1);
+  border: var(--proposed-outline-dash);
+  color: var(--color-text-secondary);
+  font-size: var(--text-micro);
+  font-weight: 400;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+:root[data-marks='off'] .proposed-label {
+  display: none;
+}
+.proposed-caret {
+  display: inline-flex;
+  color: var(--color-text-tertiary);
+}
+.proposed-caret:not([data-expanded]) {
+  transform: rotate(-90deg);
+}
+
+/* ---- 2. Proposed: sort with the manual order ------------------------------------------------ */
+.proposed-sort {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-25);
+  margin-left: auto;
+}
+.proposed-label + .proposed-sort {
+  margin-left: 0;
+}
+.proposed-sort-button {
+  min-width: var(--size-chevron);
+  height: var(--size-chevron);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.proposed-sort-button:hover,
+.proposed-sort-button[aria-expanded='true'] {
+  background: var(--color-row-hover);
+  color: var(--color-text-primary);
+}
+/* The menu of `DS.HoverMenu`, opening downward from a text trigger. */
+.proposed-sort-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: var(--z-menu);
+  display: flex;
+  flex-direction: column;
+  min-width: var(--size-menu-min);
+  padding: var(--space-1) 0;
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.proposed-sort-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--size-icon-button);
+  padding: 0 var(--space-2-5);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-bar);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.proposed-sort-item:hover {
+  background: var(--color-row-hover);
+  color: var(--color-text-primary);
+}
+.proposed-sort-item[aria-checked='true'] {
+  color: var(--color-text-primary);
+}
+.proposed-sort-tick {
+  display: inline-flex;
+  margin-left: auto;
+  visibility: hidden;
+}
+.proposed-sort-item[aria-checked='true'] .proposed-sort-tick {
+  visibility: visible;
+}
+
+/* ---- 5. Proposed: column help --------------------------------------------------------------- */
+.column-sub .proposed-label {
+  margin-left: auto;
+  margin-right: var(--space-1);
+}
+.proposed-icon {
+  flex: none;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* The executor line is one button: an icon for who moves a task here, then the name. */
+.proposed-actor {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  text-align: left;
+  cursor: pointer;
+}
+.proposed-actor-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.proposed-actor:hover,
+.proposed-actor[aria-expanded='true'] {
+  color: var(--color-text-primary);
+}
+.proposed-actor[data-warn] {
+  color: var(--color-status-attention);
+}
+.proposed-popover {
+  position: fixed;
+  z-index: var(--z-menu);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: var(--proposed-size-popover);
+  max-width: calc(100vw - 2 * var(--space-2));
+  max-height: 70dvh;
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  box-shadow: var(--proposed-shadow-popover);
+}
+.proposed-popover-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--size-section-header);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+}
+.proposed-popover-title {
+  margin-right: auto;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+.proposed-popover-body {
+  padding: var(--space-1) var(--space-3) var(--space-3);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.help-part {
+  padding-top: var(--space-2);
+}
+.help-part + .help-part {
+  margin-top: var(--space-2);
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+}
+.help-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-micro);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--color-text-tertiary);
+}
+.help-text {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+.help-text + .help-text,
+.help-part > * + * {
+  margin-top: var(--space-1);
+}
+.help-text b {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+.help-list {
+  margin: 0;
+  padding-left: var(--space-6);
+  color: var(--color-text-primary);
+}
+.help-list li {
+  padding: var(--space-0-25) 0;
+}
+.help-list li::marker {
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.help-live {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+.help-session {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+  background: var(--color-fill-working);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+.help-session svg {
+  color: var(--color-status-working);
+}
+.help-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+.help-arrow {
+  color: var(--color-text-tertiary);
+}
+
+/* ---- 1. Proposed: Backlog group --------------------------------------------------------------- */
+.proposed-group {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.proposed-group[data-folded] {
+  width: var(--size-column);
+}
+/* The band over the parts: the group name, a fold control and the total. */
+.proposed-group-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-logo);
+  margin-bottom: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-1);
+  background: var(--proposed-color-group-band);
+  border-top: var(--size-hairline) solid var(--color-border-strong);
+}
+.proposed-group-head .column-count {
+  margin-left: auto;
+}
+.proposed-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.proposed-group-toggle:hover .proposed-caret {
+  color: var(--color-text-primary);
+}
+.proposed-group-warn {
+  display: inline-flex;
+}
+.proposed-group-parts {
+  flex: 1;
+  display: flex;
+  gap: var(--space-3);
+  min-height: 0;
+}
+/* A part head is one step quieter than a column head: the group band carries the weight. */
+.column-head[data-part] .column-label {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+}
+/* Folded: one column, a section per part. */
+.proposed-group-stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: calc(2 * var(--space-0-25));
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.proposed-group-section {
+  flex: none;
+}
+.proposed-group-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.proposed-group-empty {
+  margin: 0;
+  padding: var(--space-1) 0;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.proposed-frozen {
+  flex: none;
+  margin-bottom: var(--space-2);
+}
+
+/* ---- Prototype bar -------------------------------------------------------------------------- */
+.proto-bar {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--size-statusbar);
+  padding: 0 var(--space-4);
+  border-block-start: var(--size-hairline) solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+}
+.proto-bar-note {
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+
+/* breakpoints.narrow */
+@media (max-width: 760px) {
+  .board-main {
+    padding: var(--space-3);
+    padding-bottom: calc(var(--size-statusbar) + var(--space-3));
+  }
+}
+
+/* ---- 2. Proposed: manual order, drag and the card menu -------------------------------------- */
+:root {
+  /* The drop line: as thick as the turn rail of a card. */
+  --proposed-size-drop-line: var(--size-rail);
+  /* A card in the hand: tilt and lift. */
+  --proposed-ghost-shift: translate(96px, -26px) rotate(1.5deg);
+  /* How long a card that moved by itself stays tinted. */
+  --proposed-duration-moved: 2.4s;
+}
+.proposed-grip {
+  margin-left: calc(-1 * var(--space-1));
+  color: var(--color-text-tertiary);
+  stroke-width: 1.8;
+  align-self: center;
+}
+.card-wrap[data-manual] .card {
+  cursor: grab;
+}
+.card-wrap[data-manual]:hover .proposed-grip {
+  color: var(--color-text-primary);
+}
+.card-wrap[data-dragging] > .card,
+.card-wrap[data-dragging] > .card-links {
+  opacity: var(--opacity-dimmed);
+}
+.proposed-zone {
+  position: relative;
+}
+.proposed-drop-line {
+  flex: none;
+  height: var(--proposed-size-drop-line);
+  margin: calc(-1 * var(--space-1)) 0;
+  background: var(--color-status-working);
+}
+/* The card in the hand, for `?state=drag`; a real drag shows the browser's own image. */
+.proposed-ghost {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: var(--z-menu);
+  transform: var(--proposed-ghost-shift);
+  box-shadow: var(--proposed-shadow-popover);
+  pointer-events: none;
+}
+.proposed-ghost .card {
+  border-color: var(--color-status-working);
+}
+/* A list that takes a card from another part, and one that refuses it. */
+.proposed-zone[data-drop='part'],
+.spine[data-drop='part'] {
+  outline: var(--size-hairline) dashed var(--color-status-working);
+  outline-offset: var(--space-0-25);
+  background: var(--color-fill-working);
+}
+.proposed-zone[data-drop='refused'],
+.spine[data-drop='refused'] {
+  outline: var(--size-hairline) dashed var(--color-status-attention);
+  outline-offset: var(--space-0-25);
+  background: var(--color-fill-attention);
+  cursor: not-allowed;
+}
+.proposed-zone-note {
+  flex: none;
+  margin: 0;
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
+/* A card another viewer moved, or one that just changed part: a tint that fades. */
+.card-wrap[data-moved] .card {
+  animation: proposed-moved var(--proposed-duration-moved) ease-out;
+}
+@keyframes proposed-moved {
+  from {
+    background: var(--color-fill-working);
+    border-color: var(--color-status-working);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-wrap[data-moved] .card {
+    animation: none;
+  }
+}
+.proposed-moved-note {
+  margin-left: auto;
+  margin-right: calc(4 * var(--size-logo));
+  font-size: var(--text-micro);
+  color: var(--color-status-working);
+}
+/* The menu button among the quick links of a card. */
+.proposed-card-more {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.proposed-card-more:hover,
+.proposed-card-more[aria-expanded='true'] {
+  background: var(--color-row-hover);
+  color: var(--color-text-primary);
+}
+/* A menu in the look of `DS.HoverMenu`, opening downward. */
+.proposed-menu {
+  position: absolute;
+  z-index: var(--z-menu);
+  display: flex;
+  flex-direction: column;
+  min-width: var(--size-menu-min);
+  padding: var(--space-1) 0;
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  box-shadow: var(--proposed-shadow-popover);
+}
+.proposed-card-menu {
+  top: calc(var(--space-2) + var(--size-logo));
+  right: var(--space-2-5);
+  max-width: calc(100% - 2 * var(--space-2-5));
+}
+.proposed-menu-item {
+  display: flex;
+  align-items: center;
+  height: var(--size-icon-button);
+  padding: 0 var(--space-2-5);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-bar);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* The first item of another kind of move: a rule and a gap above it. */
+.proposed-menu-item[data-rule] {
+  box-sizing: content-box;
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: var(--size-hairline) solid var(--color-border-default);
+}
+.proposed-menu-item:hover:not(:disabled) {
+  background: var(--color-row-hover);
+  color: var(--color-text-primary);
+}
+.proposed-menu-item:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+.proposed-menu-note {
+  margin-top: var(--space-1);
+  padding: var(--space-1-5) var(--space-2-5) var(--space-1);
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
+/* The reason form of a move, under its card. */
+.proposed-move {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2-5) var(--space-2-5) var(--space-3);
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-status-working);
+  border-top: 0;
+}
+.proposed-move > .proposed-label {
+  align-self: flex-start;
+}
+.proposed-move textarea {
+  box-sizing: border-box;
+  width: 100%;
+}
+.proposed-move-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+/* Why a drag did nothing. */
+.proposed-hint {
+  flex: none;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
+  background: var(--color-fill-attention);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
+.proposed-hint-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-text-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---- Task view: stand-ins ------------------------------------------------------------------ */
+.task-column {
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+}
+.task-top {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) 0 var(--space-3);
+}
+.task-title {
+  margin: 0;
+  font-size: var(--text-lead);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-title);
+}
+.task-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+.items {
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  padding: var(--space-2) var(--space-2-5);
+}
+.item + .item {
+  border-top: var(--size-hairline) solid var(--color-border-default);
+}
+.block-meta {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
+}
+.block-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.block-reply {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: var(--size-hairline) solid var(--color-border-strong);
+}
+.block-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.block-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* A stand-in for the app's link chips: the status cell geometry, standalone. */
+.task-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-menu-trigger);
+  padding: 0 var(--space-2);
+  border: var(--size-hairline) solid var(--color-border-default);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
+
+/* ---- 3. History ---------------------------------------------------------------------------- */
+.history {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-3);
+}
+.history td {
+  padding: var(--space-1-5) var(--space-2) var(--space-1-5) 0;
+  vertical-align: top;
+  border-bottom: var(--size-hairline) solid var(--color-border-subtle);
+}
+.history-when {
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.history-what {
+  width: 100%;
+  color: var(--color-text-secondary);
+}
+.history-actor {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-medium);
+}
+.history .history-kind {
+  padding-top: var(--space-2);
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
+}
+.task-link[data-kind='ticket'] {
+  background: var(--color-fill-violet);
+}
+.task-link[data-kind='ticket'] svg {
+  color: var(--color-accent-violet);
+}
+.task-link[data-kind='pr'] {
+  background: var(--color-fill-ready);
+}
+.task-link[data-kind='pr'] svg {
+  color: var(--color-status-ready);
+}
+.task-none {
+  margin: 0;
+  color: var(--color-text-tertiary);
+}
+.task-sha {
+  font: inherit;
+  color: var(--color-text-secondary);
+}
+.board-tools {
+  display: inline-flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+.panel-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.panel-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--size-hairline) solid var(--color-border-subtle);
+}
+.panel-item > .proposed-label {
+  align-self: flex-start;
+}
+.panel-item-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.panel-item-age {
+  margin-left: auto;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.panel-item-age[data-failing] {
+  color: var(--color-status-error);
+}
+.panel-item-text {
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+}
+.panel-item-text b {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+
+/* ---- Proposed: tabs at the right of a panel header ------------------------------------------ */
+/* Rule of the session: when a panel header has a title at the left, its tabs sit at the right,
+   before Close. Overrides DS.Modal from outside: its `actions` follow the detail today. */
+.ds-Modal-actions {
+  margin-left: auto;
+}
+/* Close keeps its own auto margin when a header has no tabs. */
+.ds-Modal-actions + .ds-Scrim-close {
+  margin-left: 0;
+}
+
+/* ---- 3. Proposed: approval freshness -------------------------------------------------------- */
+.proposed-cell-suffix {
+  color: var(--color-text-tertiary);
+}
+.card-cell[data-tone='pend'] .proposed-cell-suffix {
+  color: inherit;
+}
+.proposed-approvals {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.proposed-approval {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+.proposed-approval + .proposed-approval {
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+}
+.proposed-approval[data-loud] {
+  background: var(--color-fill-attention);
+}
+.proposed-approval-who,
+.proposed-approval-what,
+.proposed-basis {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+.proposed-approval-who b {
+  font-weight: var(--weight-medium);
+}
+.proposed-approval-what {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+}
+
+/* ---- 6. Proposed: an orchestrator turn in the operator's hands ------------------------------ */
+.proposed-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.proposed-turn-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+}
+.proposed-turn-line b {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+.proposed-turn-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.proposed-turn-note {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--color-text-tertiary);
+}
+.proposed-turn-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: var(--size-measure);
+  padding-top: var(--space-2);
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+}
+.proposed-turn-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+}
+.proposed-turn-basis {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.proposed-turn-label {
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--color-text-tertiary);
+}
+/* What the button does and that it cannot be undone: said once, above the button. */
+.proposed-turn-confirm {
+  margin: 0;
+  padding: var(--space-1-5) var(--space-2);
+  background: var(--color-fill-attention);
+  font-size: var(--text-small);
+  color: var(--color-text-primary);
+}
+.proposed-task-move {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.task-top .proposed-move {
+  max-width: var(--size-measure);
+  border-top: var(--size-hairline) solid var(--color-status-working);
+}
