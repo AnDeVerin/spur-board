@@ -35,7 +35,7 @@ export interface InstallSkillsOptions {
   copySkill?: (source: string, destination: string) => Promise<void>;
 }
 
-export interface SkillInstallResult {
+interface SkillInstallResult {
   agent: 'claude' | 'codex';
   skill: 'spur-board' | 'spur-board-setup';
   changed: boolean;
@@ -60,7 +60,7 @@ interface InstallStamp {
 }
 
 /** What `board skills install` asks running sessions to re-read; `files` absent means every file. */
-export interface SkillReloadRequest {
+interface SkillReloadRequest {
   files?: Record<string, string>;
 }
 
