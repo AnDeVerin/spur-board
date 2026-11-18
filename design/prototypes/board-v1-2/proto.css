@@ -1064,7 +1064,7 @@ body {
 }
 .proposed-approval-who,
 .proposed-approval-what,
-.proposed-basis {
+.task-basis {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;

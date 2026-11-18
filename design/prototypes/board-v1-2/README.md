@@ -157,8 +157,8 @@ look (`approvalWatch`).
 
 - `tested` shows nothing extra. `carried` shows a plain chip and `skipped` a `warn` chip on the
   card in `ready-to-merge`, with the source commit and the reason in the tooltip.
-- The task view's Latest submission box has the basis, the source commit and the reason; the
-  History row says the same in words.
+- The task view's Latest submission box and the History row already show the basis in the app
+  (since 0.118.0). Here they are stand-ins, not proposals: the app keeps its own.
 - A project without a QA column has no chip and no Latest submission section.
 
 ### Column help

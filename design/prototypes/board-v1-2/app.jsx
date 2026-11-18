@@ -1229,6 +1229,7 @@ function qaChip(submission) {
       }
     : { tone: 'warn', text: 'QA skipped', title: `QA skipped: ${submission.reason}` };
 }
+/** A stand-in: the app's Latest submission box shows the basis since 0.118.0. */
 function Submission({ submission }) {
   if (!submission) return <p className="task-none">No submissions yet</p>;
   const rows = [
@@ -1240,7 +1241,7 @@ function Submission({ submission }) {
         submission.basis === 'tested' ? (
           'tested'
         ) : (
-          <span className="proposed-basis" data-proposed="basis">
+          <span className="task-basis">
             <DS.Chip tone={submission.basis === 'skipped' ? 'warn' : 'default'}>
               {submission.basis}
             </DS.Chip>
