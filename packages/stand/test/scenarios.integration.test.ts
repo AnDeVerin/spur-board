@@ -3241,11 +3241,12 @@ describe('card scenario', () => {
 
 describe('readme scenario', () => {
   it('readme-board: real closed issues fill every column with the Dev, Review and Ready to Merge turns', async () => {
-    await up();
+    await up({ clock: { now: () => Date.parse('2026-11-14T12:00:00.000Z') } });
     const { scenario } = await seed('readme-board');
     interface Row {
       key: string;
       column: string;
+      columnEnteredAt: string;
       ticket?: { title: string } | null;
       turn: { addressee: string; column: string; taken: { by: string } | null } | null;
       blocks: { id: string; addressee: string }[];
@@ -3279,6 +3280,26 @@ describe('readme scenario', () => {
     expect(at('review')[0]?.turn?.addressee).toBe('orchestrator:review');
     expect(at('ready-to-merge')[0]?.turn).toMatchObject({ column: 'ready-to-merge' });
     for (const row of at('todo')) expect(row.turn, row.key).toBeNull();
+    // The seed's 10 ms shift puts its clock at 12:00:00.010; each task entered enteredAgo before.
+    expect(
+      Object.fromEntries(tasks.map((row) => [row.key.split('#')[1], row.columnEnteredAt])),
+    ).toEqual({
+      '627': '2026-11-06T12:00:00.010Z',
+      '631': '2026-11-13T16:00:00.010Z',
+      '621': '2026-11-14T11:18:00.010Z',
+      '620': '2026-11-14T09:30:00.010Z',
+      '611': '2026-11-14T07:00:00.010Z',
+      '558': '2026-11-08T12:00:00.010Z',
+      '559': '2026-11-09T12:00:00.010Z',
+      '560': '2026-11-10T12:00:00.010Z',
+      '561': '2026-11-11T12:00:00.010Z',
+      '562': '2026-11-12T12:00:00.010Z',
+      '563': '2026-11-13T09:00:00.010Z',
+      '564': '2026-11-14T03:00:00.010Z',
+    });
+    expect(scenario.direct).toEqual([
+      'column entry times backdated: no operation sets when a task entered its column (#712)',
+    ]);
     expect(await ok(current(), '/violations')).toMatchObject({ total: 0 });
   }, 90_000);
 });

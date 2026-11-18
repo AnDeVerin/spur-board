@@ -3,7 +3,9 @@
 // Done with the dispatcher on. Recipe: seed `readme-board`, open the stand webUrl in gstack browse
 // at a 1680x440 viewport, set localStorage `board-theme` to dark then light, `screenshot
 // --viewport` each, and shrink each to a 256-colour palette with ffmpeg (`palettegen`,
-// `paletteuse=dither=none`, `-pred mixed`).
+// `paletteuse=dither=none`, `-pred mixed`). Seed with `pnpm stand seed readme-board`, not `reset`
+// (its restored rows keep the old entry times), and shoot within a few minutes: the column ages
+// count from the seed.
 import { randomUUID } from 'node:crypto';
 import { flow, REPO, STEP_MS, submit, take } from './dispatcher.ts';
 import { issueKey, settledUnless } from './helpers.ts';
@@ -11,55 +13,79 @@ import type { Board, Scenario, ScenarioFakes } from './index.ts';
 
 type Column = 'todo' | 'dev' | 'review' | 'ready-to-merge' | 'done';
 
-const TASKS: readonly { number: number; title: string; column: Column }[] = [
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** `enteredAgo`: how long before the seed the task entered its column, in ms. */
+const TASKS: readonly { number: number; title: string; column: Column; enteredAgo: number }[] = [
   {
     number: 627,
     title: 'docs(web): split web-ui.md by screen before it hits its size cap',
     column: 'todo',
+    enteredAgo: 8 * DAY,
   },
   {
     number: 631,
     title: 'docs(agents): role guides name every doc the skill sync keeps (web-ui* too)',
     column: 'todo',
+    enteredAgo: 20 * HOUR,
   },
   {
     number: 621,
     title: 'feat(core,web): inbox items carry a url; task-less web rows open it',
     column: 'dev',
+    enteredAgo: 42 * MINUTE,
   },
   {
     number: 620,
     title: 'feat(core): a red default branch is an operator inbox item',
     column: 'review',
+    enteredAgo: 2 * HOUR + 30 * MINUTE,
   },
   {
     number: 611,
     title: 'feat(web): count tasks in unconfigured columns instead of hiding them',
     column: 'ready-to-merge',
+    enteredAgo: 5 * HOUR,
   },
   {
     number: 558,
     title: 'feat(web): board screen with header, columns and stale states',
     column: 'done',
+    enteredAgo: 6 * DAY,
   },
   {
     number: 559,
     title: 'feat(web): task card with PR status, turn line and markers',
     column: 'done',
+    enteredAgo: 5 * DAY,
   },
   {
     number: 560,
     title: 'feat(web): task view with the "Why it is here" section',
     column: 'done',
+    enteredAgo: 4 * DAY,
   },
   {
     number: 561,
     title: 'feat(web): task view blocks and comments with the two write actions',
     column: 'done',
+    enteredAgo: 3 * DAY,
   },
-  { number: 562, title: 'feat(web): task view history tab', column: 'done' },
-  { number: 563, title: 'feat(web): operator inbox panel across projects', column: 'done' },
-  { number: 564, title: 'feat(web): status bar and services panel', column: 'done' },
+  { number: 562, title: 'feat(web): task view history tab', column: 'done', enteredAgo: 2 * DAY },
+  {
+    number: 563,
+    title: 'feat(web): operator inbox panel across projects',
+    column: 'done',
+    enteredAgo: DAY + 3 * HOUR,
+  },
+  {
+    number: 564,
+    title: 'feat(web): status bar and services panel',
+    column: 'done',
+    enteredAgo: 9 * HOUR,
+  },
 ];
 
 const numbersIn = (column: Column): number[] =>
@@ -116,6 +142,50 @@ async function toReview(board: Board, fakes: ScenarioFakes, number: number): Pro
   return turnOn(board, 'orchestrator', number, 'review: no_review_on_head');
 }
 
+/**
+ * Sets when each task entered its column to `enteredAgo` before `now`: the `at` of the latest
+ * entry event the status read picks, or `created_at` for a task with none (To Do).
+ */
+async function backdateEntries(board: Board, now: number): Promise<void> {
+  await board.direct(
+    'column entry times backdated: no operation sets when a task entered its column (#712)',
+    async (db) => {
+      for (const { number, enteredAgo } of TASKS) {
+        const at = new Date(now - enteredAgo).toISOString();
+        const task = await db
+          .selectFrom('task')
+          .select(['id', 'column'])
+          .where('project', '=', 'stand')
+          .where('key', '=', issueKey(number))
+          .executeTakeFirstOrThrow();
+        const events = await db
+          .selectFrom('event')
+          .select(['id', 'kind', 'payload'])
+          .where('task_id', '=', task.id)
+          .where('kind', 'in', ['task_moved', 'task_corrected'])
+          .orderBy('id', 'desc')
+          .execute();
+        const entry = events.find(({ kind, payload }) => {
+          const { to, shadow } = JSON.parse(payload) as { to?: unknown; shadow?: unknown };
+          return to === task.column && (kind === 'task_moved' || shadow === false);
+        });
+        if (entry === undefined)
+          await db
+            .updateTable('task')
+            .set({ created_at: at })
+            .where('id', '=', task.id)
+            .executeTakeFirstOrThrow();
+        else
+          await db
+            .updateTable('event')
+            .set({ at })
+            .where('id', '=', entry.id)
+            .executeTakeFirstOrThrow();
+      }
+    },
+  );
+}
+
 const taskNames = (): Record<string, string> =>
   Object.fromEntries(
     TASKS.map(({ number, column }) => [`${column}-${String(number)}`, issueKey(number)]),
@@ -123,9 +193,9 @@ const taskNames = (): Record<string, string> =>
 
 export const readmeBoard: Scenario = {
   name: 'readme-board',
-  summary: `The README Board: ${String(TASKS.length)} closed spur-board issues in To Do, Dev (a taken turn, CI pending, a question to the operator), Review (the conductor's turn), Ready to Merge (the operator's turn) and Done.`,
+  summary: `The README Board: ${String(TASKS.length)} closed spur-board issues in To Do, Dev (a taken turn, CI pending, a question to the operator), Review (the conductor's turn), Ready to Merge (the operator's turn) and Done, each entered its column from 42 minutes to 8 days before the seed.`,
   config: flow(),
-  async seed(board, fakes) {
+  async seed(board, fakes, clock) {
     for (const { number, title } of TASKS)
       await fakes.github('issue-open', { repo: REPO, number, title });
     await board.poll();
@@ -152,6 +222,7 @@ export const readmeBoard: Scenario = {
       { task: issueKey(DEV), text: 'Should a task-less row open its url in a new tab?' },
       randomUUID(),
     );
+    await backdateEntries(board, clock.now());
     return {
       tasks: taskNames(),
       prs: Object.fromEntries(
