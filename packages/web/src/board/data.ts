@@ -11,8 +11,6 @@ import { connectStream, type RefreshScope, type StreamState } from '../lib/strea
 import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
 import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
 
-export type { BoardUpdate } from './update.ts';
-
 /** `closeItemIntent` refused to send because the board is unavailable. */
 export class BoardUnavailableError extends Error {
   constructor() {

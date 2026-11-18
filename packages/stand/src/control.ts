@@ -261,9 +261,7 @@ export async function startControl(options: {
         (typeof version !== 'string' || !/^[0-9A-Za-z.+-]{1,64}$/.test(version))
       )
         throw new HttpError(400, 'Send { version? } with 1 to 64 of 0-9, A-Z, a-z, ., + and -.');
-      result = await queued(() =>
-        options.routes.reset(typeof version === 'string' ? { version } : {}),
-      );
+      result = await queued(() => options.routes.reset(version === undefined ? {} : { version }));
     }
     send(response, result.status, result.body);
   }

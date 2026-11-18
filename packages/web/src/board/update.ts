@@ -56,12 +56,6 @@ function parseDrafts(raw: string): [string, string][] {
   });
 }
 
-const noDrafts: Drafts = {
-  restored: () => undefined,
-  report: () => undefined,
-  release: () => undefined,
-};
-
 /**
  * Without `options` nothing here touches session storage. `publish` hears each change of the
  * update: at most twice per page, on detection and when a deferred reload fires or is blocked.
@@ -73,7 +67,11 @@ export function createUpdateCheck(
   if (options === undefined)
     return {
       fetch: (fetcher) => fetcher,
-      drafts: noDrafts,
+      drafts: {
+        restored: () => undefined,
+        report: () => undefined,
+        release: () => undefined,
+      },
       reload: () => undefined,
       stop: () => undefined,
     };

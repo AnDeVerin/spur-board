@@ -1,6 +1,6 @@
 import { browserOperations } from '@spur-board/contracts/browser';
 import { describe, expect, it } from 'vitest';
-import type { BoardUpdate } from '../src/board/data.ts';
+import type { BoardUpdate } from '../src/board/update.ts';
 import { formatDataTime } from '../src/board/model.ts';
 import {
   daemonRows,
