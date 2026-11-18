@@ -44,7 +44,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 ## Logging
 
 - Log through `ctx.log`, the child logger carrying `module`. No console output, no second logger.
-- Logger setup, stderr, redaction, logged fields and call logging: `references/logging.md`.
+- Logger setup, stderr, redaction, logged fields, response parsing (`wireWalkerBans`) and call
+  logging: `references/logging.md`.
 
 ## HTTP
 

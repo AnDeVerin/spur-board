@@ -45,8 +45,8 @@ A gateway adapts one chat platform to the `Gateway` port.
 
 ## Inbound
 
-- One normalizer, ack after `sink`, dedupe keys, required fields and spaces (G8, G9, G11, G14):
-  `references/inbound.md`.
+- One normalizer, payload parsing through `wire.ts` or zod (`wireWalkerBans`), ack after `sink`,
+  dedupe keys, required fields and spaces (G8, G9, G11, G14): `references/inbound.md`.
 
 ## Reconnect, recover and gap
 
