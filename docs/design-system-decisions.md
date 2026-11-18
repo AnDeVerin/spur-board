@@ -200,10 +200,12 @@ latest `main`.
   toggle (a control inside History run) and the Fold toggle.
 - A covered part or control uses that export. Another component in its place is a finding, even
   with a row in the decisions section.
-- An uncovered part is either built in the PR, with a `new base` or `screen-local` row, or stood
-  in for by another component, with a row that says "not in `ds/` yet" and names the issue that
-  adds it. A covered control inside a built part still uses its export. A stand-in row that names
-  no issue is a finding.
+- An uncovered part is built in the PR, with a `new base` or `screen-local` row. A covered
+  control inside a built part still uses its export.
+- Another component may stand in for an uncovered part only under `ticket over prototype` (the
+  ticket says to wait for the issue that adds the part; quote it) or `operator decision`. The
+  row's evidence also says "not in `ds/` yet" and names that issue. A stand-in row under any other
+  code, or one that names no issue, is a finding.
 - A covering export that landed on `main` after the branch was cut counts: merge that `main`
   into the branch first, then use the export (`prototype` skill, `## PR`).
 

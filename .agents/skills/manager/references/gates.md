@@ -6,8 +6,9 @@ The numbers are the canonical gate order.
 
 1. Intake - `gh issue view <N> --json title,body,comments` (without a TTY, `--comments` prints
    only the comments), plus the design notes its "Design notes" section cites when the session
-   gives access; public text never quotes private notes. `git fetch origin main` once; pass the
-   `origin/main` SHA to every role, roles never fetch. Write checkable acceptance criteria.
+   gives access; public text never quotes private notes. `git fetch origin main`; pass the
+   `origin/main` SHA to every role (later fetch: `references/runtime.md`, Handoff); roles never
+   fetch. Write checkable acceptance criteria.
 2. Tier - score with the table in `.agents/skills/manager/SKILL.md`. Tier 0 or 3: run Clarify
    (step 6) here only if intake left an unknown.
 3. Research (tier 2) - `researcher`, then `critic` on its output. Keep the selected option and
@@ -37,8 +38,7 @@ The numbers are the canonical gate order.
     `.agents/skills/qa-report/references/prototype-vs-build.md`. A FAIL for no stand webUrl, or
     because the browser tool cannot run or cannot reach 127.0.0.1, is an external blocker:
     `Missing: tester - external blocker: <reason>`, no `developer` fix, no rerun; the run goes on.
-12. Design review (UI) - `designer` (code) with its `Head:` line, the changed files, the step 11
-    screenshots and report path, and the decisions section the `developer` returned.
+12. Design review (UI) - `designer` (code) with its inputs in `references/runtime.md`, Handoff.
 13. Review - a PR exists: push, and bring its `## Changed checks` section up to date with the
     developer's output per `gitflow`. Then `reviewer` with the spec, every `developer` output of
     the run and `PR: <url> | none`.
