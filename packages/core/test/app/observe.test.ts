@@ -1477,6 +1477,52 @@ describe('accepted observation', () => {
     },
   );
 
+  it('holds a completed-worker block while Spur is blind until its ticket is done', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await observeSpur(core, [sessionFact('worker-1', workerLink)]);
+    now += 1_000;
+    await observeEnded(core, 'complete');
+    await pollGithub(core);
+    const item = await store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', 'like', 'health:%:worker-1:worker_completed')
+      .executeTakeFirstOrThrow();
+    expect(item.block_id).not.toBeNull();
+    const state = async () => ({
+      cleared:
+        (
+          await store.db
+            .selectFrom('operator_item')
+            .select('cleared_at')
+            .where('id', '=', item.id)
+            .executeTakeFirstOrThrow()
+        ).cleared_at !== null,
+      block: await store.db
+        .selectFrom('block')
+        .select(['state', 'outcome'])
+        .where('id', '=', item.block_id ?? -1)
+        .executeTakeFirstOrThrow(),
+    });
+    now += 1_000;
+    await core.reportSourceState('spur', {
+      lastCompleteAt: new Date(now).toISOString(),
+      blind: { reason: 'stale', message: 'Spur stopped answering' },
+      gone: [],
+    });
+    now += 1_000;
+    await observeTicket(core, 'open');
+    await tickBoard({ store, config, clock, completeSince: core.completeSince });
+    expect(await state()).toEqual({ cleared: false, block: { state: 'open', outcome: null } });
+    now += 1_000;
+    await observeTicket(core, 'closed');
+    expect(await state()).toEqual({
+      cleared: true,
+      block: { state: 'unblocked', outcome: 'withdrawn' },
+    });
+  });
+
   it.each([
     {
       signal: 'a listed killed lifecycle',

@@ -787,10 +787,15 @@ export async function reconcileItems(
             }),
           ),
   );
+  // A done ticket ends an ended worker's item even while Spur is blind.
   const spurHeld = spurBlind
     ? await blindHeldKeys(
         trx,
-        subjects.filter((subject) => !endedHolders.has(`${subject.taskId}:${subject.id}`)),
+        subjects.filter(
+          (subject) =>
+            !endedHolders.has(`${subject.taskId}:${subject.id}`) &&
+            !(subject.endedAt !== null && taskPrs[subject.taskId]?.ticketDone === true),
+        ),
       )
     : new Set<string>();
   if (stallBlind) for (const key of stallHeld) spurHeld.add(key);
