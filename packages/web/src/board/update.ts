@@ -7,7 +7,8 @@
  * A daemon on another version answered. `reloading`: the page reloads now. `deferred`: a send is
  * in flight and the reload waits for it, up to `DEFER_LIMIT_MS`. `blocked`: the page will not
  * reload itself, because it already reloaded once for this version, a send outlasted the wait, or
- * session storage failed; `keepsDrafts` is false only for the last.
+ * session storage failed; `keepsDrafts` is false only for the last, which a user's Reload that
+ * cannot save unsent text also publishes before it goes.
  */
 export interface BoardUpdate {
   version: string;
@@ -36,8 +37,11 @@ interface UpdateCheck {
   /** Wraps the board's fetch: every answer, the event stream's included, is checked. */
   fetch: (fetcher: typeof fetch) => typeof fetch;
   drafts: Drafts;
-  /** The user's Reload: keeps what text it can, sends in flight included, and never publishes. */
-  reload: () => void;
+  /**
+   * The user's Reload, sends in flight included. When saving fails while unsent text is not yet
+   * warned about as lost, it publishes that warning and stays; true when the page leaves.
+   */
+  reload: () => boolean;
   stop: () => void;
 }
 
@@ -65,8 +69,8 @@ function parseDrafts(raw: string): [string, string][] {
 
 /**
  * Without `options` nothing here touches session storage. `publish` hears each change of the
- * update: at most twice per page, on detection and when a deferred reload fires, is blocked or
- * outlasts `DEFER_LIMIT_MS`.
+ * update: at most three times per page, on detection, when a deferred reload fires, is blocked or
+ * outlasts `DEFER_LIMIT_MS`, and when a user's leave warns that unsent text is lost.
  */
 export function createUpdateCheck(
   options: UpdateOptions | undefined,
@@ -80,7 +84,7 @@ export function createUpdateCheck(
         report: () => undefined,
         release: () => undefined,
       },
-      reload: () => undefined,
+      reload: () => false,
       stop: () => undefined,
     };
   const { version } = options;
@@ -110,23 +114,36 @@ export function createUpdateCheck(
     publish(next);
   };
   const busy = () => [...reported.values()].some((entry) => entry.busy);
+  /** The unsent text: unclaimed restored entries and every reported non-empty text. */
+  const unsent = () => {
+    const drafts: Record<string, string> = Object.fromEntries(restored);
+    for (const [id, entry] of reported) if (entry.text !== '') drafts[id] = entry.text;
+    return drafts;
+  };
   /** Writes the unsent text and the reload target; false when session storage failed. */
   const save = (target: string) =>
     session((storage) => {
-      const drafts: Record<string, string> = Object.fromEntries(restored);
-      for (const [id, entry] of reported) if (entry.text !== '') drafts[id] = entry.text;
+      const drafts = unsent();
       if (Object.keys(drafts).length > 0) storage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
       storage.setItem(TARGET_KEY, target);
       return true;
     }) === true;
-  const fire = (target: string) => {
-    if (!save(target)) {
+  /**
+   * Every way the page leaves for `target`: it saves first. A failed save stays and publishes
+   * `blocked` without `keepsDrafts` when `auto`, or when there is unsent text the banner has not
+   * yet warned is lost; a user's leave after that warning goes. True when the page leaves.
+   */
+  const leave = (target: string, auto: boolean) => {
+    if (stopped || fired) return fired;
+    const warned = current?.mode === 'blocked' && !current.keepsDrafts;
+    if (!save(target) && (auto || (!warned && Object.keys(unsent()).length > 0))) {
       set({ version: target, mode: 'blocked', keepsDrafts: false });
-      return;
+      return false;
     }
     fired = true;
-    set({ version: target, mode: 'reloading', keepsDrafts: true });
+    if (auto) set({ version: target, mode: 'reloading', keepsDrafts: true });
     options.reload();
+    return true;
   };
   const detect = (target: string) => {
     const marker = session((storage) => storage.getItem(TARGET_KEY));
@@ -138,7 +155,7 @@ export function createUpdateCheck(
         // The user's Reload already went: the page is leaving.
         if (!fired) set({ version: target, mode: 'blocked', keepsDrafts: true });
       }, DEFER_LIMIT_MS);
-    } else fire(target);
+    } else leave(target, true);
   };
   const observe = (response: Response) => {
     if (stopped) return;
@@ -153,7 +170,7 @@ export function createUpdateCheck(
     } else if (current === undefined) detect(header);
   };
   const settle = () => {
-    if (current?.mode === 'deferred' && !busy()) fire(current.version);
+    if (current?.mode === 'deferred' && !busy()) leave(current.version, true);
   };
 
   // Read once at construction: writers read their text during their first render, before start.
@@ -184,12 +201,7 @@ export function createUpdateCheck(
         settle();
       },
     },
-    reload() {
-      if (stopped || fired) return;
-      fired = true;
-      if (current !== undefined) save(current.version);
-      options.reload();
-    },
+    reload: () => current !== undefined && leave(current.version, false),
     stop() {
       stopped = true;
       clearTimeout(deferTimer);

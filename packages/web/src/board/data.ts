@@ -524,7 +524,10 @@ export function createBoardData(options: BoardDataOptions) {
     },
     /** Unsent text of the task view writers, kept across a reload after a board update. */
     drafts: check.drafts,
-    /** Reload the page after a board update, keeping what unsent text it can. */
+    /**
+     * Reload the page after a board update, keeping what unsent text it can; false when it stays
+     * to warn first that unsent text cannot be kept.
+     */
     reload: check.reload,
     /**
      * Retry now: after a board update, reload the page. Else reconnect the stream if it waits in

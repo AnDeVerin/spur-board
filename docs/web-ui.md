@@ -48,8 +48,9 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
   for a send in progress first. When it cannot (it already reloaded once for that version and
   still runs the older page, a send is still in progress after 15 seconds, or session storage
   fails), an error banner with **Reload** names the version and the columns dim; without session
-  storage it warns that unsent text is lost. An open task view or inbox repeats that banner, so
-  **Reload** keeps the text typed there without closing it.
+  storage it warns that unsent text is lost. A **Reload** or **Retry now** that cannot save unsent
+  text shows that warning first and stays; the next **Reload** goes on. An open task view or inbox
+  repeats that banner, so **Reload** keeps the text typed there without closing it.
 - **Source blind**: a warning names unresponsive project sources and their last complete poll;
   warming-up sources are omitted.
 - **Shadow**: an info banner says the dispatcher computes columns and turns but does not act.

@@ -99,7 +99,7 @@ export function Board({ data }: { data: BoardData }) {
   const [openKey, setOpenKey] = useState(() => taskParam(location.search));
   const [inboxOpen, setInboxOpen] = useState(inboxBackground);
   const [pendingProject, setPendingProject] = useState(inboxProject);
-  // The update banner's Reload was pressed; the page is about to go.
+  // The update banner's Reload was pressed and the page is about to go.
   const [reloadPressed, setReloadPressed] = useState(false);
   const inboxTrigger = useRef<HTMLSpanElement>(null);
   const wasInboxOpen = useRef(inboxOpen);
@@ -166,8 +166,8 @@ export function Board({ data }: { data: BoardData }) {
           <Button
             busy={reloadPressed}
             onClick={() => {
-              setReloadPressed(true);
-              data.reload();
+              // False when the page stays to warn that unsent text cannot be kept.
+              setReloadPressed(data.reload());
             }}
           >
             {reloadPressed ? 'Reloading' : 'Reload'}
