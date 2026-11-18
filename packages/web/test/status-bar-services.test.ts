@@ -215,19 +215,46 @@ describe('services panel rows', () => {
       ['RAM', null, 100, undefined],
       ['Disk', null, 100, undefined],
     ]);
-    const usage = (usedPercent: number) => ({ totalBytes: 100, availableBytes: 1, usedPercent });
-    expect(
-      texts(
-        hostRows(
-          { sampledAt: T, cpuPercent: null, memory: null, disk: usage(92) },
-          'Host load: polls wait',
-        ),
-      ),
-    ).toEqual([
+    const volume = (mount: string, usedPercent: number, availableBytes: number) => ({
+      mount,
+      totalBytes: 2 ** 50,
+      availableBytes,
+      usedPercent,
+    });
+    const host = (volumes: ReturnType<typeof volume>[]) => ({
+      sampledAt: T,
+      cpuPercent: null,
+      memory: null,
+      disk: volumes[0] ?? null,
+      volumes,
+    });
+    const diskRows = (volumes: ReturnType<typeof volume>[]) =>
+      texts(hostRows(host(volumes), null)).slice(2);
+    expect(texts(hostRows(host([]), null))).toEqual([
       ['CPU', null, 100, undefined],
       ['RAM', null, 100, undefined],
-      ['Disk', 92, 100, undefined],
+      ['Disk', null, 100, undefined],
+    ]);
+    expect(texts(hostRows(host([volume('/', 92, 44093947904)]), 'Host load: polls wait'))).toEqual([
+      ['CPU', null, 100, undefined],
+      ['RAM', null, 100, undefined],
+      ['Disk', 92, 100, '41.1 GiB free'],
       ['Host load: polls wait', 'wait'],
     ]);
+    // Several volumes are keyed by mount and keep the daemon's order.
+    expect(diskRows([volume('/', 58, 44093947904), volume('/home', 33, 338548621312)])).toEqual([
+      ['Disk /', 58, 100, '41.1 GiB free'],
+      ['Disk /home', 33, 100, '315.3 GiB free'],
+    ]);
+    // Binary units, an integer below 1 KiB, the unit picked after rounding, TiB the cap.
+    for (const [bytes, text] of [
+      [0, '0 B free'],
+      [1023, '1023 B free'],
+      [1024, '1.0 KiB free'],
+      [1048545, '1.0 MiB free'],
+      [1099478073344, '1.0 TiB free'],
+      [2048 * 2 ** 40, '2048.0 TiB free'],
+    ] as const)
+      expect(diskRows([volume('/', 10, bytes)])).toEqual([['Disk', 10, 100, text]]);
   });
 });

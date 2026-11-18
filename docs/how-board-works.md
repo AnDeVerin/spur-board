@@ -32,9 +32,11 @@ the assigned session, null for the operator. A task returned to Dev has `returne
 `{from, at, by, block, findings}` until it leaves Dev or its next submit. A turn's feedback,
 return context and thread details stay in task/inbox views. Top-level `daemon` gives `version`,
 `startedAt` and `lastDispatchAt`, the last completed tick (null until the first).
-`host` holds CPU, memory and data-volume disk usage from the daemon's last sample, taken every
-30 s (null before the first; a read never samples, so an old `sampledAt` means sampling is
-stuck). `services[]` gives one row per service (daemon, each chat gateway, then github, spur
+`host` holds CPU, memory and disk usage from the daemon's last sample, taken every 30 s (null
+before the first; a read never samples, so an old `sampledAt` means sampling is stuck).
+`host.volumes` lists each distinct volume among `/`, the data directory and the temp directory,
+with its `mount`, least free space first; a volume that cannot be read is left out. `host.disk`
+is the first of them, the volume closest to running out. `services[]` gives one row per service (daemon, each chat gateway, then github, spur
 and jira) with `state` (healthy, degraded or failing), `since`, `lastGoodAt` and `reason`. The
 daemon row turns degraded after 120 s without a completed tick; a gateway fails while it is
 down; github, spur and jira take their worst source among the `sources` you see, failing when

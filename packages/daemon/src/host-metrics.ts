@@ -1,5 +1,6 @@
-import { statfs } from 'node:fs/promises';
-import { cpus, freemem, totalmem } from 'node:os';
+import { realpath, stat, statfs } from 'node:fs/promises';
+import { cpus, freemem, tmpdir, totalmem } from 'node:os';
+import { dirname } from 'node:path';
 import type { statusOutputSchema } from '@spur-board/contracts/browser';
 import type { Logger } from 'pino';
 import type { z } from 'zod';
@@ -15,13 +16,39 @@ export interface HostProbe {
   /** CPU times summed over all cores, in milliseconds. */
   cpuTimes(): { idle: number; total: number };
   memory(): { totalBytes: number; availableBytes: number };
-  /** `statfs` fields of the volume holding the board data. */
-  disk(): Promise<{ blocks: number; bfree: number; bavail: number; bsize: number }>;
+  /** Paths whose volumes the sampler measures; volumes with the same `dev` count once. */
+  diskPaths: readonly string[];
+  /** Device id, mount point and `statfs` fields of the volume holding `path`. */
+  volume(path: string): Promise<{
+    dev: number;
+    mount: string;
+    blocks: number;
+    bfree: number;
+    bavail: number;
+    bsize: number;
+  }>;
 }
 
-/** Reads the host through `node:os` and `statfs(dataDir)`; `disk` rejects without `dataDir`. */
+/**
+ * The topmost ancestor of `real` (a resolved path on device `dev`) that is still on `dev`. A bind
+ * mount of the same device resolves to its parent mount.
+ */
+async function mountOf(real: string, dev: number): Promise<string> {
+  let mount = real;
+  for (;;) {
+    const parent = dirname(mount);
+    if (parent === mount || (await stat(parent)).dev !== dev) return mount;
+    mount = parent;
+  }
+}
+
+/**
+ * Reads the host through `node:os`, `stat` and `statfs`. It measures `/`, `dataDir` when given
+ * and `os.tmpdir()`.
+ */
 export function createHostProbe(dataDir: string | undefined): HostProbe {
   return {
+    diskPaths: ['/', ...(dataDir === undefined ? [] : [dataDir]), tmpdir()],
     cpuTimes() {
       let idle = 0;
       let total = 0;
@@ -32,17 +59,20 @@ export function createHostProbe(dataDir: string | undefined): HostProbe {
       return { idle, total };
     },
     memory: () => ({ totalBytes: totalmem(), availableBytes: freemem() }),
-    async disk() {
-      if (dataDir === undefined) throw new Error('No data directory to measure');
-      const { blocks, bfree, bavail, bsize } = await statfs(dataDir);
-      return { blocks, bfree, bavail, bsize };
+    async volume(path) {
+      const real = await realpath(path);
+      const { dev } = await stat(real);
+      const { blocks, bfree, bavail, bsize } = await statfs(real);
+      return { dev, mount: await mountOf(real, dev), blocks, bfree, bavail, bsize };
     },
   };
 }
 
 const HOST_SAMPLE_MS = 30_000;
 const ABORTED = Symbol('aborted');
-type Metric = 'cpu' | 'memory' | 'disk';
+/** A disk metric is keyed by its path, so each failing path warns once. */
+type Metric = 'cpu' | 'memory' | `disk ${string}`;
+type Volume = HostSample['volumes'][number];
 
 /** One decimal, kept within 0..100. */
 function percent(value: number): number {
@@ -80,8 +110,10 @@ function untilAborted<T>(
 
 /**
  * Samples the host every `intervalMs` (first run in the background) and keeps the last sample;
- * `read` never samples. A metric whose read fails is null, with one warning per metric. Stop
- * aborts a pending disk read instead of waiting for it, and that run writes nothing.
+ * `read` never samples. A metric whose read fails is null, with one warning per metric; a disk
+ * path whose read fails is left out of `volumes`, with one warning per path. Volumes are deduped
+ * by device and listed least free bytes first; `disk` is the first. Stop aborts pending disk
+ * reads instead of waiting for them, and that run writes nothing.
  */
 export function createHostSampler(options: {
   probe: HostProbe;
@@ -93,10 +125,11 @@ export function createHostSampler(options: {
   let last: HostSample | null = null;
   let previousCpu: { idle: number; total: number } | undefined;
   const warned = new Set<Metric>();
-  const failed = (metric: Metric, err: unknown) => {
+  const failed = (metric: Metric, err: unknown, path?: string) => {
     if (warned.has(metric)) return;
     warned.add(metric);
-    log.warn({ err }, `host ${metric} unreadable`);
+    if (path === undefined) log.warn({ err }, `host ${metric} unreadable`);
+    else log.warn({ err, path }, 'host disk unreadable');
   };
   const attempt = <T>(metric: Metric, read: () => T): T | null => {
     try {
@@ -117,13 +150,36 @@ export function createHostSampler(options: {
         ? null
         : percent(100 * (1 - (cpu.idle - before.idle) / (cpu.total - before.total)));
     const mem = attempt('memory', () => probe.memory());
-    // The async wrapper turns a probe that throws synchronously into a rejected read.
-    const read = await untilAborted((async () => probe.disk())(), signal);
+    // The async wrapper turns a probe that throws synchronously into that path's rejected read.
+    const paths = probe.diskPaths;
+    const read = await untilAborted(
+      Promise.allSettled(paths.map(async (path) => probe.volume(path))),
+      signal,
+    );
     if (read === ABORTED) return;
-    if ('error' in read) failed('disk', read.error);
-    const fs = 'value' in read ? read.value : null;
-    const used = fs === null ? 0 : (fs.blocks - fs.bfree) * fs.bsize;
-    const available = fs === null ? 0 : fs.bavail * fs.bsize;
+    const volumes: Volume[] = [];
+    const seen = new Set<number>();
+    // allSettled never rejects, so a read that is not aborted always carries a value.
+    const results = 'value' in read ? read.value : [];
+    results.forEach((result, index) => {
+      const path = paths[index] ?? '';
+      if (result.status === 'rejected') {
+        failed(`disk ${path}`, result.reason, path);
+        return;
+      }
+      const fs = result.value;
+      if (seen.has(fs.dev)) return;
+      seen.add(fs.dev);
+      const used = (fs.blocks - fs.bfree) * fs.bsize;
+      const available = fs.bavail * fs.bsize;
+      volumes.push({
+        mount: fs.mount,
+        totalBytes: fs.blocks * fs.bsize,
+        availableBytes: available,
+        usedPercent: used + available > 0 ? percent((100 * used) / (used + available)) : 0,
+      });
+    });
+    volumes.sort((a, b) => a.availableBytes - b.availableBytes);
     last = {
       sampledAt,
       cpuPercent,
@@ -138,14 +194,8 @@ export function createHostSampler(options: {
                   ? percent((100 * (mem.totalBytes - mem.availableBytes)) / mem.totalBytes)
                   : 0,
             },
-      disk:
-        fs === null
-          ? null
-          : {
-              totalBytes: fs.blocks * fs.bsize,
-              availableBytes: available,
-              usedPercent: used + available > 0 ? percent((100 * used) / (used + available)) : 0,
-            },
+      disk: volumes[0] ?? null,
+      volumes,
     };
   };
   const own = new AbortController();

@@ -213,16 +213,44 @@ export function daemonRows(
   ];
 }
 
-/** Rows of the host box: CPU, RAM and disk in percent, unknown when not sampled, and the load wait. */
+const BYTE_UNITS = ['KiB', 'MiB', 'GiB', 'TiB'] as const;
+
+/** Bytes in binary units: an integer below 1 KiB, else one decimal, the unit picked after rounding. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${String(Math.floor(bytes))} B`;
+  let value = bytes / 1024;
+  let unit = 0;
+  while (unit < BYTE_UNITS.length - 1 && Number(value.toFixed(1)) >= 1024) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${BYTE_UNITS[unit] ?? 'TiB'}`;
+}
+
+/**
+ * Rows of the host box: CPU, RAM and one Disk row per volume in percent, unknown when not
+ * sampled, and the load wait. Disk rows keep the daemon's order (least free space first) and are
+ * keyed by mount when there are several.
+ */
 export function hostRows(host: BoardStatus['host'], hostLoad: BoardStatus['hostLoad']): PanelRow[] {
-  const usage = (key: string, value: number | null | undefined): PanelRow => ({
+  const usage = (key: string, value: number | null | undefined, text?: string): PanelRow => ({
     key,
     meter: { value: value ?? null, limit: 100, thresholds: USAGE },
+    ...(text === undefined ? {} : { text }),
   });
+  const volumes = host?.volumes ?? [];
   const rows = [
     usage('CPU', host?.cpuPercent),
     usage('RAM', host?.memory?.usedPercent),
-    usage('Disk', host?.disk?.usedPercent),
+    ...(volumes.length === 0
+      ? [usage('Disk', null)]
+      : volumes.map((volume) =>
+          usage(
+            volumes.length === 1 ? 'Disk' : `Disk ${volume.mount}`,
+            volume.usedPercent,
+            `${formatBytes(volume.availableBytes)} free`,
+          ),
+        )),
   ];
   if (hostLoad !== null) rows.push({ key: hostLoad, status: 'wait' });
   return rows;
