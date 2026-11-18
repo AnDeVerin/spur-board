@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Banner, Button } from '../ds/index.ts';
 import type { BoardData, BoardSnapshot, TaskState } from './data.ts';
-import { banners, boardColumns, chosenProject, indicator, openHref } from './model.ts';
+import {
+  banners,
+  boardColumns,
+  chosenProject,
+  indicator,
+  openHref,
+  type BoardBanner,
+} from './model.ts';
 import { Columns, type ColumnsView } from './Columns.tsx';
 import { Header } from './Header.tsx';
 import { InboxPanel } from './InboxPanel.tsx';
@@ -148,6 +155,41 @@ export function Board({ data }: { data: BoardData }) {
   const list = banners(snapshot);
   const view = columnsView(snapshot);
   const project = snapshot.config?.projects.find(({ id }) => id === task?.value?.task.project);
+  const boardBanner = (banner: BoardBanner) => (
+    <Banner
+      key={banner.variant}
+      variant={banner.variant}
+      icon={banner.icon}
+      detail={banner.detail}
+      action={
+        banner.action === 'reload' ? (
+          <Button
+            busy={reloadPressed}
+            onClick={() => {
+              setReloadPressed(true);
+              data.reload();
+            }}
+          >
+            {reloadPressed ? 'Reloading' : 'Reload'}
+          </Button>
+        ) : banner.variant === 'error' ? (
+          <Button
+            busy={snapshot.retrying}
+            onClick={() => {
+              data.retry();
+            }}
+          >
+            {snapshot.retrying ? 'Retrying' : 'Retry now'}
+          </Button>
+        ) : undefined
+      }
+    >
+      {banner.text}
+    </Banner>
+  );
+  // An open task view or inbox makes the board banners inert, so each repeats the update banner.
+  const update = list.find((banner) => banner.action === 'reload');
+  const notice = update === undefined ? undefined : boardBanner(update);
   return (
     <>
       <Header
@@ -169,40 +211,7 @@ export function Board({ data }: { data: BoardData }) {
         }}
       />
       {list.length > 0 && (
-        <div className={styles.banners}>
-          {list.map((banner) => (
-            <Banner
-              key={banner.variant}
-              variant={banner.variant}
-              icon={banner.icon}
-              detail={banner.detail}
-              action={
-                banner.action === 'reload' ? (
-                  <Button
-                    busy={reloadPressed}
-                    onClick={() => {
-                      setReloadPressed(true);
-                      data.reload();
-                    }}
-                  >
-                    {reloadPressed ? 'Reloading' : 'Reload'}
-                  </Button>
-                ) : banner.variant === 'error' ? (
-                  <Button
-                    busy={snapshot.retrying}
-                    onClick={() => {
-                      data.retry();
-                    }}
-                  >
-                    {snapshot.retrying ? 'Retrying' : 'Retry now'}
-                  </Button>
-                ) : undefined
-              }
-            >
-              {banner.text}
-            </Banner>
-          ))}
-        </div>
+        <div className={styles.banners}>{list.map((banner) => boardBanner(banner))}</div>
       )}
       <main
         className={styles.main}
@@ -232,6 +241,7 @@ export function Board({ data }: { data: BoardData }) {
       {inboxOpen && (
         <InboxPanel
           snapshot={snapshot}
+          notice={notice}
           now={data.now()}
           closeItem={data.closeItemIntent}
           onClose={() => {
@@ -262,6 +272,7 @@ export function Board({ data }: { data: BoardData }) {
           offline={snapshot.stream === 'offline'}
           config={snapshot.config}
           unavailable={unavailable(snapshot)}
+          notice={notice}
           answerIntent={data.answerIntent}
           followUpIntent={data.followUpIntent}
           commentIntent={data.commentIntent}

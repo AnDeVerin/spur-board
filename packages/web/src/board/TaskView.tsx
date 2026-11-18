@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Banner,
   Button,
@@ -53,6 +53,7 @@ export function TaskView({
   onRetryHistory,
   config,
   unavailable,
+  notice,
   answerIntent,
   followUpIntent,
   commentIntent,
@@ -63,6 +64,8 @@ export function TaskView({
   history: HistoryState | undefined;
   config: BoardConfig | undefined;
   unavailable: string | undefined;
+  /** A board banner the view repeats on both tabs, since the board behind it is inert. */
+  notice: ReactNode;
   answerIntent: BoardData['answerIntent'];
   followUpIntent: BoardData['followUpIntent'];
   commentIntent: BoardData['commentIntent'];
@@ -123,6 +126,7 @@ export function TaskView({
       detail={detail}
       actions={<Tabs id={TABS_ID} label="Task view" tabs={TABS} value={tab} onChange={setTab} />}
     >
+      {notice}
       <TabPanel tabsId={TABS_ID} value={tab}>
         {/* Keep drafts and intent guards for this modal's lifetime, including on History. */}
         <div hidden={tab !== 'now'}>

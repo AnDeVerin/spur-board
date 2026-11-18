@@ -47,7 +47,8 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
   address and brings back unsent answer, follow-up and comment text. When it cannot (it already
   reloaded once for that version and still runs the older page, or session storage fails), an
   error banner with **Reload** names the version and the columns dim; without session storage it
-  warns that unsent text is lost.
+  warns that unsent text is lost. An open task view or inbox repeats that banner, so **Reload**
+  keeps the text typed there without closing it.
 - **Source blind**: a warning names unresponsive project sources and their last complete poll;
   warming-up sources are omitted.
 - **Shadow**: an info banner says the dispatcher computes columns and turns but does not act.

@@ -90,7 +90,7 @@ export function formatDataTime(ms: number): string {
 }
 
 /** An error banner offers Retry now. */
-interface BoardBanner {
+export interface BoardBanner {
   variant: BannerVariant;
   icon: IconName;
   text: string;

@@ -360,6 +360,50 @@ describe('drafts across a board update', () => {
     errors.mockRestore();
   });
 
+  it('Reload inside the open task view keeps its text', async () => {
+    start();
+    const session = memorySession({ values: { 'board-reload-target': NEXT } });
+    version = NEXT;
+    const { reload } = await open(session);
+    expect(mounted().snapshot().update?.mode).toBe('blocked');
+    expect(mounted().snapshot().readFailed).toBe(false);
+    const view = dialog();
+    expect(view?.textContent).toContain(`The board was updated to ${NEXT}. Reload to continue.`);
+    typeText(field(0), 'an answer');
+    const inside = [...(view?.querySelectorAll('button') ?? [])].find(
+      (candidate) => candidate.textContent === 'Reload',
+    );
+    act(() => {
+      inside?.click();
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(session.values.get('board-drafts') ?? '{}')).toEqual({
+      [JSON.stringify(['answer', 'ex/repo#7', 'B12'])]: 'an answer',
+    });
+    expect(view?.querySelector('[aria-busy="true"]')?.textContent).toBe('Reloading');
+  });
+
+  it('the open inbox repeats the update banner', async () => {
+    const session = memorySession({ values: { 'board-reload-target': NEXT } });
+    version = NEXT;
+    const d = daemon();
+    history.replaceState(null, '', '/?open=inbox');
+    mount({ ...d, fetcher: versioned(d.fetcher, () => version).fetch }, {}, () => 0, {
+      version: PAGE,
+      session: session.session,
+      reload: vi.fn(),
+    });
+    await settle();
+    const panel = dialog();
+    expect(panel?.textContent).toContain('wait for you');
+    expect(panel?.textContent).toContain(`The board was updated to ${NEXT}. Reload to continue.`);
+    expect(
+      [...(panel?.querySelectorAll('button') ?? [])].some(
+        (candidate) => candidate.textContent === 'Reload',
+      ),
+    ).toBe(true);
+  });
+
   it('a closed task view releases its writers', async () => {
     start();
     const { d, reload } = await open(memorySession());
