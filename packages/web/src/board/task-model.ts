@@ -78,6 +78,43 @@ export function historyRows(events: BoardHistory['events']): HistoryRow[] {
     .reverse();
 }
 
+/** Maximal adjacent raw matches fold at three rows; the oldest position survives newer appends. */
+export function historyRuns(events: BoardHistory['events']) {
+  const runs: HistoryRow[][] = [];
+  for (const row of historyRows(events)) {
+    const last = runs.at(-1);
+    const previous = last?.[0];
+    const a = previous === undefined ? undefined : events[previous.key];
+    const b = events[row.key];
+    if (
+      last &&
+      a &&
+      b &&
+      a.kind === b.kind &&
+      a.actor === b.actor &&
+      a.via === b.via &&
+      a.summary === b.summary
+    )
+      last.push(row);
+    else runs.push([row]);
+  }
+  return runs
+    .flatMap((rows) => (rows.length >= 3 ? [rows] : rows.map((row) => [row])))
+    .flatMap((rows) => {
+      const newest = rows[0];
+      const oldest = rows.at(-1);
+      if (!newest || !oldest) return [];
+      return [
+        {
+          key: oldest.key,
+          rows,
+          since:
+            oldest.time.slice(6) === newest.time.slice(6) ? oldest.time.slice(0, 5) : oldest.time,
+        },
+      ];
+    });
+}
+
 /** Time in the task's column: since the last real move into it; none without such a move. */
 export function timeInColumn(value: BoardTask, now: number): string | undefined {
   const move = value.why?.moves

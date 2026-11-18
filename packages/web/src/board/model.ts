@@ -11,7 +11,7 @@ export interface BoardColumn {
   id: string;
   /** Executor line: kind, then the named Spur project when there is one. */
   executor: string;
-  /** Rows of this column in `status.get` order; none makes the column a spine. */
+  /** Rows of this column in `status.get` order, before `sortRows`; none makes it a spine. */
   rows: BoardRow[];
 }
 
@@ -31,6 +31,32 @@ export function boardColumns(
   );
   for (const row of rows) byId.get(row.column)?.rows.push(row);
   return [...byId.values()];
+}
+
+/** How a column orders its rows: by the time in the column or by key, ascending or descending. */
+export type ColumnSort = 'entered-asc' | 'entered-desc' | 'key-asc' | 'key-desc';
+/** Longest in the column first: the order each column starts in. */
+export const FIRST_SORT: ColumnSort = 'entered-asc';
+const SORTS: readonly string[] = ['entered-asc', 'entered-desc', 'key-asc', 'key-desc'];
+export const isColumnSort = (value: unknown): value is ColumnSort =>
+  typeof value === 'string' && SORTS.includes(value);
+
+const collator = new Intl.Collator('en', { numeric: true });
+
+/**
+ * A sorted copy of `rows`. Keys compare in full with numbers as numbers, so `#9` comes before
+ * `#10`; rows with no time in the column come last in both time orders; ties keep input order.
+ */
+export function sortRows(rows: readonly BoardRow[], sort: ColumnSort): BoardRow[] {
+  const sign = sort.endsWith('-desc') ? -1 : 1;
+  if (sort.startsWith('key'))
+    return [...rows].sort((a, b) => sign * collator.compare(a.key, b.key));
+  const timed = rows.filter((row) => row.columnEnteredAt !== null);
+  const at = (row: BoardRow) => Date.parse(row.columnEnteredAt ?? '');
+  return [
+    ...timed.sort((a, b) => sign * (at(a) - at(b))),
+    ...rows.filter((row) => row.columnEnteredAt === null),
+  ];
 }
 
 /** The `?open=` URL the task and inbox panels will read; the board only writes it. */

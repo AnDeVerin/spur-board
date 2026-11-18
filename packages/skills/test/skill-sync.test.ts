@@ -25,7 +25,7 @@ const setupRefsPath = fileURLToPath(new URL('../setup/references/', import.meta.
 const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 const refsPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
 const docsPath = fileURLToPath(new URL('../../../docs/', import.meta.url));
-const guideNames = ['', '-columns', '-turns', '-blocks', '-slack', '-done']
+const guideNames = ['', '-columns', '-turns', '-blocks', '-slack', '-done', '-web']
   .map((topic) => `how-board-works${topic}.md`)
   .concat(['', '-board', '-status', '-task-view', '-task-blocks'].map((p) => `web-ui${p}.md`));
 const guideDocs = guideNames.map((name) => readFileSync(`${docsPath}/${name}`, 'utf8'));
@@ -224,17 +224,18 @@ describe('product skill sync', () => {
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
     // guideDocs reads every listed guide, so the count rules out an unlisted docs page.
-    expect(readdirSync(docsPath).filter((n) => /^(how-board|web-ui)/.test(n))).toHaveLength(11);
+    expect(readdirSync(docsPath).filter((n) => /^(how-board|web-ui)/.test(n))).toHaveLength(12);
     for (const [index, reference] of guideTexts.entries()) {
       expect(reference).toBe(guideDocs[index]);
       expect(Buffer.byteLength(reference)).toBeLessThan(8192);
       expect(validateInvocations(reference)).toEqual([]);
     }
-    // Relative links: web-ui.md (6) links every web-ui-* page (7+); how-board-works.md (0) links
-    // its topics and web-ui.md, and may link web-ui-* pages, but no page outside guideNames.
-    const links = (i: number) => new Set(guideTexts[i]?.match(/(?<=\]\()(?!https?:)[^)]+/g));
-    expect(links(6)).toEqual(new Set(guideNames.slice(7)));
-    expect(links(0).union(links(6))).toEqual(new Set(guideNames.slice(1)));
+    // Relative links: web-ui.md (5th from the end, so a new topic page keeps the index) links every
+    // web-ui-* page after it; how-board-works.md (0) links its topics and web-ui.md, and may link
+    // web-ui-* pages, but no page outside guideNames.
+    const links = (i: number) => new Set(guideTexts.at(i)?.match(/(?<=\]\()(?!https?:)[^)]+/g));
+    expect(links(-5)).toEqual(new Set(guideNames.slice(-4)));
+    expect(links(0).union(links(-5))).toEqual(new Set(guideNames.slice(1)));
     expect(skill).toContain('[how the Board works](references/how-board-works.md)');
     expect(skill).toContain('untrusted: true');
   });
