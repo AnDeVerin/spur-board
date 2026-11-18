@@ -149,6 +149,29 @@ describe('TextToggle', () => {
     });
     container.remove();
   });
+
+  it('stays focusable and ignores clicks while busy', () => {
+    expect(render({})).not.toMatch(/aria-busy|aria-disabled/);
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    const onClick = vi.fn<() => void>();
+    act(() => {
+      root.render(createElement(TextToggle, { onClick, busy: true, children: 'Closing I7' }));
+    });
+    const button = container.querySelector('button');
+    expect(button?.getAttribute('aria-busy')).toBe('true');
+    expect(button?.getAttribute('aria-disabled')).toBe('true');
+    expect(button?.hasAttribute('disabled')).toBe(false);
+    act(() => {
+      button?.click();
+    });
+    expect(onClick).not.toHaveBeenCalled();
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });
 
 describe('Chip tints', () => {
