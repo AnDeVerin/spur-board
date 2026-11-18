@@ -2218,17 +2218,9 @@ describe('board-wide column orchestrator', () => {
 describe('operator takeover', () => {
   const OPERATORS: readonly ActorId[] = ['operator', OPS_1];
 
-  /** The journal rows after the first `seen`, as kind and actor. */
+  /** The kinds of the journal rows after the first `seen`. */
   const eventsSince = async (ctx: Awaited<ReturnType<typeof setup>>, seen: number) =>
-    (
-      await ctx.store.db
-        .selectFrom('event')
-        .select(['kind', 'actor', 'actor_ref'])
-        .orderBy('id')
-        .execute()
-    )
-      .slice(seen)
-      .map((row) => row.kind);
+    (await ctx.events()).slice(seen).map((event) => event.kind);
   const actorOf = (actor: ActorId) =>
     actor === 'operator'
       ? { actor: 'operator', actor_ref: null }
