@@ -43,8 +43,6 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
 
 <!-- BEGIN GENERATED BOARD COMMANDS -->
 
-### Worker
-
 - [`board status`](references/tasks.md#board-status)
 - [`board task`](references/tasks.md#board-task)
 - [`board task history`](references/tasks.md#board-task-history)
@@ -55,26 +53,7 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
 - [`board project ask`](references/tasks.md#board-project-ask)
 - [`board comment`](references/tasks.md#board-comment)
 - [`board comment edit`](references/tasks.md#board-comment-edit)
-- [`board escalate`](references/blocks.md#board-escalate)
-- [`board answer`](references/blocks.md#board-answer)
-- [`board unblock`](references/blocks.md#board-unblock)
-- [`board submit`](references/blocks.md#board-submit)
-- [`board return`](references/blocks.md#board-return)
-- [`board config get`](references/config.md#board-config-get)
-
-### Orchestrator
-
-- [`board status`](references/tasks.md#board-status)
-- [`board task`](references/tasks.md#board-task)
-- [`board task history`](references/tasks.md#board-task-history)
-- [`board schema`](references/tasks.md#board-schema)
-- [`board inbox`](references/tasks.md#board-inbox)
-- [`board inbox ack`](references/tasks.md#board-inbox-ack)
-- [`board ask`](references/tasks.md#board-ask)
-- [`board project ask`](references/tasks.md#board-project-ask)
-- [`board comment`](references/tasks.md#board-comment)
-- [`board comment edit`](references/tasks.md#board-comment-edit)
-- [`board block`](references/blocks.md#board-block)
+- [`board block`](references/blocks.md#board-block) - orchestrator only
 - [`board escalate`](references/blocks.md#board-escalate)
 - [`board answer`](references/blocks.md#board-answer)
 - [`board unblock`](references/blocks.md#board-unblock)

@@ -20,6 +20,9 @@ let home: string | undefined;
 const clock = vi.fn<ControlRoutes['clock']>(() =>
   Promise.resolve({ status: 200, body: { offsetMs: 0 } }),
 );
+const fake = vi.fn<ControlRoutes['fake']>(() =>
+  Promise.resolve({ status: 200, body: { sessions: [] } }),
+);
 const slackPost = vi.fn<ControlRoutes['slackPost']>(() =>
   Promise.resolve({ status: 200, body: { ok: true, message: 4, responses: [] } }),
 );
@@ -28,6 +31,7 @@ afterEach(async () => {
   await control?.close();
   control = undefined;
   clock.mockClear();
+  fake.mockClear();
   slackPost.mockClear();
   if (home !== undefined) rmSync(home, { recursive: true, force: true });
   home = undefined;
@@ -43,7 +47,7 @@ async function stubStand(answer: RouteResult): Promise<string> {
       reset: vi.fn(),
       seed: vi.fn(),
       clock,
-      fake: vi.fn(),
+      fake,
       slackOutbox: vi.fn(),
       slackClick: vi.fn(),
       slackPost,
@@ -123,6 +127,19 @@ describe('stand fake slack post', () => {
     expect(result.code).toBe(2);
     expect(result.stderr.split('\n')[0]).toMatch(/fake slack post/);
     expect(slackPost).not.toHaveBeenCalled();
+  });
+});
+
+describe('stand fake spur', () => {
+  it.each([
+    ['a trailing --home', (dir: string) => ['fake', 'spur', 'inspect', '--home', dir]],
+    ['a leading --home', (dir: string) => ['fake', '--home', dir, 'spur', 'inspect']],
+  ])('reads the stand named by %s', async (_name, args) => {
+    const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
+    const result = await runCli(args(dir));
+    expect(result.code, result.stderr).toBe(0);
+    expect(fake).toHaveBeenCalledExactlyOnceWith({ system: 'spur', verb: 'inspect', args: {} });
+    expect(JSON.parse(result.stdout)).toEqual({ sessions: [] });
   });
 });
 

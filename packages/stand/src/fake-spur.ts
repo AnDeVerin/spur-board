@@ -459,6 +459,7 @@ export function createFakeSpur(options: {
 }
 
 const FAKE_OPTIONS = {
+  home: { type: 'string' },
   state: { type: 'string' },
   rateLimitResetAt: { type: 'string' },
   status: { type: 'string' },
@@ -475,10 +476,13 @@ function integer(value: string): number | string {
   return /^\d+$/.test(value) ? Number(value) : value;
 }
 
-/** Parses the arguments of `stand fake`, with the checks `control` applies to the same command. */
+/**
+ * Parses the arguments of `stand fake`, with the checks `control` applies to the same command.
+ * `home` is the stand's own `--home`, kept out of `args`.
+ */
 export function parseFakeArgs(
   rest: readonly string[],
-): Result<{ system: 'spur'; verb: string; args: Record<string, unknown> }, string> {
+): Result<{ system: 'spur'; verb: string; args: Record<string, unknown>; home?: string }, string> {
   let parsed;
   try {
     parsed = parseArgs({ args: [...rest], allowPositionals: true, options: FAKE_OPTIONS });
@@ -494,7 +498,8 @@ export function parseFakeArgs(
     return err(
       `fake spur ${verb} takes ${operand === undefined ? 'no operand' : `one ${operand}`}.`,
     );
-  const args: Record<string, unknown> = { ...parsed.values };
+  const { home, ...values } = parsed.values;
+  const args: Record<string, unknown> = { ...values };
   if (operand !== undefined) args[operand] = operands[0];
   if (verb === 'fail') {
     const { ms, status } = parsed.values;
@@ -503,5 +508,10 @@ export function parseFakeArgs(
   }
   const command = fakeCommand.safeParse({ verb, args });
   if (!command.success) return err(z.prettifyError(command.error));
-  return ok({ system, verb: command.data.verb, args: command.data.args });
+  return ok({
+    system,
+    verb: command.data.verb,
+    args: command.data.args,
+    ...(home === undefined ? {} : { home }),
+  });
 }

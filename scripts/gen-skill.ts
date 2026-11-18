@@ -238,21 +238,17 @@ export function renderCommandReferences(): CommandReference[] {
 }
 
 export function renderBoardCommands(references = renderCommandReferences()): string {
-  return roles
-    .map((role) => {
-      const heading = role === 'worker' ? 'Worker' : 'Orchestrator';
-      const entries = visibleOperations
-        .filter((operation) => roleCanUseOperation(operation, role))
-        .map((operation) => {
-          const command = operation.cli.command;
-          const reference = references.find((item) => item.commands.includes(command));
-          if (reference === undefined)
-            throw new Error(`No reference for ${operation.id}; add it to a page in commandPages.`);
-          return `- [\`board ${command}\`](references/${reference.fileName}#board-${command.replaceAll(' ', '-')})`;
-        });
-      return `### ${heading}\n\n${entries.join('\n')}`;
+  return visibleOperations
+    .map((operation) => {
+      const command = operation.cli.command;
+      const reference = references.find((item) => item.commands.includes(command));
+      if (reference === undefined)
+        throw new Error(`No reference for ${operation.id}; add it to a page in commandPages.`);
+      const allowed = roles.filter((role) => roleCanUseOperation(operation, role));
+      const tag = allowed.length === 1 ? ` - ${String(allowed[0])} only` : '';
+      return `- [\`board ${command}\`](references/${reference.fileName}#board-${command.replaceAll(' ', '-')})${tag}`;
     })
-    .join('\n\n');
+    .join('\n');
 }
 
 export function replaceGeneratedSection(
