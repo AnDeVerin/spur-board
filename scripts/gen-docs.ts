@@ -13,6 +13,11 @@ import { createProgram, exampleCommand } from '../packages/cli/src/cli.ts';
 const cliTarget = fileURLToPath(new URL('../docs/cli.md', import.meta.url));
 const configTarget = fileURLToPath(new URL('../docs/configuration.md', import.meta.url));
 const binarySource = readFileSync(new URL('../packages/cli/src/bin.mjs', import.meta.url), 'utf8');
+/** The example config of `## Example: green checks at External Review`, validated by its tests. */
+export const checksGateExample = readFileSync(
+  new URL('../packages/contracts/test/fixtures/checks-gate-project.yaml', import.meta.url),
+  'utf8',
+);
 const program = createProgram({ io: { isTTY: false, stdout: () => {}, stderr: () => {} } });
 type CliCommand = ReturnType<typeof createProgram>;
 const operationByCommand = new Map(
@@ -104,6 +109,19 @@ export function renderCliDocs(): string {
     'The caller is `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the working directory. The walk stops at the root of the git worktree (the first folder with a `.git` file or directory, which is still searched); outside git it stops before home. Home itself is never searched, even when it is the worktree root. A token above the worktree root, or in home, is not used: move it into a folder inside the worktree or set `BOARD_TOKEN`.',
     '',
     "Inside a Spur session the session wins over a token: `SPUR_SESSION` is sent and neither `BOARD_TOKEN` nor `.spur-board/token` is read. A session whose Spur project is in no `projects[].spurProjects` or top-level `spurProjects` of the Board's `config.yaml`, or is listed under several Board projects, is refused with `forbidden` (exit 1), and the hint names the Spur project and the fix.",
+    '',
+    '## Why a task waits',
+    '',
+    "`board task <task> --why --json` lists in `waiting` each fact the task waits for, with its gate reason, the PR head in `head` and a one-line `text`. The texts depend on the project's `checksGate`:",
+    '',
+    '| Reason | `checksGate: dev` (default) | Another `checksGate` column |',
+    '| --- | --- | --- |',
+    '| `checks_pending` | `waiting for CI on <sha>` | `checks running, exit from <checksGate> waits for green` |',
+    '| `checks_red` | not listed: the task returns to Dev | `checks red`, while a taken turn holds the task until its submit |',
+    '| `mergeable_unknown` | `waiting for GitHub to compute mergeability on <sha>` | the same |',
+    '| `comment_history_incomplete` | `waiting for the board to read the full PR comment history on <sha>` | the same |',
+    '',
+    "Under a `checksGate` other than `dev`, Dev's gate lists `checks_not_red` instead of `checks_green`, and the `checksGate` column lists `checks_green` first. A cancelled check there reads `checks_pending` until two complete GitHub polls after the one that saw it, then `checks_red`.",
     '',
     '## Commands',
     '',
@@ -257,6 +275,14 @@ export function renderConfigurationDocs(): string {
     '| Path | Type | Required | Default | Constraints | Description |',
     '| --- | --- | --- | --- | --- | --- |',
     ...schemaRows(schema),
+    '',
+    '## Example: green checks at External Review',
+    '',
+    "`projects[].checksGate` moves the wait for running checks from Dev to an enabled column right of it. With `external-review`, a task with running checks passes Dev, Review and Product Review and waits at External Review's exit; red checks still return it to Dev from any column, and Ready to Merge needs green checks. Only under a column other than `dev` a cancelled check counts as running for two complete GitHub polls after the one that saw it, about two GitHub poll intervals; with `dev` it is red at once. The daemon reads the key at start, so a change takes effect after a restart.",
+    '',
+    '```yaml',
+    checksGateExample.trimEnd(),
+    '```',
     '',
     ...SESSION_LINKS,
     '',

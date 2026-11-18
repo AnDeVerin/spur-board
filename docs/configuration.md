@@ -132,6 +132,32 @@ The JSON Schema cannot express every cross-field rule. Run `board doctor --offli
 | `health.hostLoad.windowMs`                     | integer | no       | `60000`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | min 1; max 9007199254740991                                                                                | Window in which that many sessions entering error start a host-load episode in milliseconds.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `health.hostLoad.maxEpisodeMs`                 | integer | no       | `300000`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | min 1; max 9007199254740991                                                                                | Longest a host-load episode lasts before error flags resume in milliseconds.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
+## Example: green checks at External Review
+
+`projects[].checksGate` moves the wait for running checks from Dev to an enabled column right of it. With `external-review`, a task with running checks passes Dev, Review and Product Review and waits at External Review's exit; red checks still return it to Dev from any column, and Ready to Merge needs green checks. Only under a column other than `dev` a cancelled check counts as running for two complete GitHub polls after the one that saw it, about two GitHub poll intervals; with `dev` it is red at once. The daemon reads the key at start, so a change takes effect after a restart.
+
+```yaml
+projects:
+  - id: web
+    tracker:
+      type: github-issues
+      repo: example-org/web
+    repos: [example-org/web]
+    operatorGithubLogin: octocat
+    columns:
+      - id: todo
+      - id: dev
+      - id: review
+      - id: external-review
+      - id: ready-to-merge
+      - id: done
+    checksGate: external-review
+operator:
+  slack: U0000000000
+digest:
+  tz: UTC
+```
+
 ## Orchestrator projects
 
 Use `role: orchestrator` for dedicated Spur projects that execute columns. Multiple orchestrators may belong to one board project. A named column executor must have role orchestrator or curator; the literals `operator` and `none` retain their meaning. Orchestrators have authority only for their assigned columns, without operator authority.

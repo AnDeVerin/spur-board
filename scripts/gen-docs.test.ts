@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { OPERATIONS, SECRET_ENV_KEYS, configJsonSchema } from '../packages/contracts/src/index.ts';
-import { binaryRoutes, formattedDocs, registeredCommands } from './gen-docs.ts';
+import YAML from 'yaml';
+import {
+  OPERATIONS,
+  SECRET_ENV_KEYS,
+  configJsonSchema,
+  configSchema,
+} from '../packages/contracts/src/index.ts';
+import { binaryRoutes, checksGateExample, formattedDocs, registeredCommands } from './gen-docs.ts';
 
 const cli = readFileSync(new URL('../docs/cli.md', import.meta.url), 'utf8');
 const configuration = readFileSync(new URL('../docs/configuration.md', import.meta.url), 'utf8');
@@ -26,6 +32,39 @@ describe('generated public references', () => {
     const doctor = registeredCommands().find(({ path }) => path === 'doctor');
     expect(doctor?.command.options.some(({ flags }) => flags.includes('--json'))).toBe(true);
   });
+  it('the checksGate example parses', () => {
+    const section = configuration.split('## Example: green checks at External Review')[1];
+    const block = section?.split('```yaml\n')[1]?.split('```')[0];
+    expect(block).toBe(checksGateExample);
+    expect(configSchema.parse(YAML.parse(block ?? '')).projects[0]?.checksGate).toBe(
+      'external-review',
+    );
+  });
+
+  it('configuration.md states the grace scope', () => {
+    for (const text of [
+      'checksGate',
+      'about two GitHub poll intervals',
+      'takes effect after a restart',
+      'with `dev` it is red at once',
+    ])
+      expect(configuration).toContain(text);
+  });
+
+  it('cli.md names checks_pending, checks_red and both texts', () => {
+    const section = cli.split('## Why a task waits')[1]?.split('\n## ')[0];
+    expect(section).toBeDefined();
+    for (const text of [
+      '`checks_pending`',
+      '`checks_red`',
+      '`waiting for CI on <sha>`',
+      '`checks running, exit from <checksGate> waits for green`',
+      '`checks red`',
+      '`checks_not_red`',
+    ])
+      expect(section).toContain(text);
+  });
+
   it('keeps the committed references equal to source generation', async () => {
     const rendered = await formattedDocs();
     expect(cli).toBe(rendered.cli);
