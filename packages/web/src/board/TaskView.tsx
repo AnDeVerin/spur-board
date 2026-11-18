@@ -45,6 +45,7 @@ export function TaskView({
   spurUiOrigin,
   ticketBrowseBase,
   now,
+  statusReadAt,
   offline,
   onClose,
   onRetry,
@@ -74,6 +75,8 @@ export function TaskView({
   /** Jira browse base of the task's own configured project; null keeps its chip plain. */
   ticketBrowseBase: string | null;
   now: number;
+  /** Last good status read (`lastGoodAt`): the header's time in column counts to it, as cards do. */
+  statusReadAt: number | undefined;
   /** Live updates are lost: the board banner says so, so kept data shows no modal banner. */
   offline: boolean;
   onClose: () => void;
@@ -92,7 +95,8 @@ export function TaskView({
   }, [historyShown, onHistory]);
   const { value } = task;
   const key = value?.task.key ?? task.key;
-  const inColumn = value === undefined ? undefined : timeInColumn(value.task.column, row, now);
+  const inColumn =
+    value === undefined ? undefined : timeInColumn(value.task.column, row, statusReadAt);
   const detail =
     value === undefined ? undefined : (
       <>

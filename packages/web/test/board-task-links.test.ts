@@ -108,6 +108,22 @@ it.each([
     expect(facts.detail).toBe(` · DEV · ${duration}`);
   },
 );
+it('header and card count time in column to the status read, not to the clock at open', async () => {
+  const d = daemon();
+  d.routes['status.get'] = () =>
+    Promise.resolve(envelope(status([row('ex/repo#7', 'dev', { columnEnteredAt: ago(106) })])));
+  let clock = NOW;
+  mount(d, {}, () => clock);
+  await settle();
+  // The status read answered at NOW; the task opens 10 minutes later with no new status read.
+  clock = NOW + 10 * 60_000;
+  press(one('main a[title="ex/repo#7"]'), 'click');
+  await settle();
+  const card = one(`main a[title="ex/repo#7"] .${cardStyles.entered ?? ''}`).textContent;
+  const duration = document.querySelector(`.${taskStyles.duration ?? ''}`)?.textContent;
+  expect(card).toBe('1h 46m');
+  expect(duration).toBe(card);
+});
 it('header retains the key tooltip without orphan separators when details are unavailable', async () => {
   const d = daemon();
   d.routes['task.get'] = () => problem('not_found');

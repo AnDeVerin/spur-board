@@ -243,6 +243,8 @@ describe('header facts', () => {
     expect(timeInColumn('dev', held('dev', null), NOW)).toBeUndefined();
     expect(timeInColumn('dev', undefined, NOW)).toBeUndefined();
     expect(timeInColumn('dev', held('review', at(300)), NOW)).toBeUndefined();
+    // With no good status read yet there is no clock to count to, so no time.
+    expect(timeInColumn('dev', held('dev', at(300)), undefined)).toBeUndefined();
   });
 
   it('actor names and the ?open= task param', () => {

@@ -18,8 +18,9 @@ is selected once configuration arrives. Back and Forward restore both layers.
 - The header reads `#7 · DEV · 2h 9m`: short key (hover for full key), uppercase column with
   the active Now tab's weight and colour, then lowercase time since the task entered its
   column, from its card's status row: shadow moves and shadow corrections do not count, and a
-  task that never moved counts from when it was added. A task with no card in the chosen
-  project, or a card in another column, omits the time; no task data shows only the key.
+  task that never moved counts from when it was added. Like the card, it counts to the last good
+  status read, so both show the same time. A task with no card in the chosen project, or a card
+  in another column, omits the time; no task data shows only the key.
   Now/History tabs and Close sit at its right.
 - `Now` starts with the ticket title. It comes from the task's card on the Board, so it reads as
   a placeholder until the status read answers, and a task with no card in the chosen project has
