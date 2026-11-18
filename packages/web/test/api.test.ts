@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { createApi, createMutationIntent, coordinateRead, ProblemError } from '../src/lib/api.ts';
+import {
+  createApi,
+  createMutationIntent,
+  coordinateRead,
+  ProblemError,
+  UnreadableAnswerError,
+} from '../src/lib/api.ts';
 import { browserOperations, statusOutputSchema } from '@spur-board/contracts/browser';
 import { historyEvent, taskHistory } from './board-fixtures.ts';
 
@@ -67,15 +73,28 @@ describe('browser API', () => {
       await expect(
         createApi(() => Promise.resolve(Response.json(body)))('status.get', {}),
       ).rejects.toThrow();
+      await expect(
+        createApi(() => Promise.resolve(Response.json(body)))('status.get', {}),
+      ).rejects.toBeInstanceOf(UnreadableAnswerError);
     },
   );
+  it('a non-JSON success body is not an unreadable answer', async () => {
+    const sent = createApi(() => Promise.resolve(new Response('<html>', { status: 200 })))(
+      'status.get',
+      {},
+    );
+    await expect(sent).rejects.toThrow();
+    await expect(sent).rejects.not.toBeInstanceOf(UnreadableAnswerError);
+  });
   it('validates problems and never retries writes automatically', async () => {
     let calls = 0;
     const api = createApi(() => {
       calls++;
       return Promise.resolve(Response.json({ broken: true }, { status: 502 }));
     });
-    await expect(api('comment.add', { task: 'PROJ-123', text: 'Hello' })).rejects.toThrow();
+    const sent = api('comment.add', { task: 'PROJ-123', text: 'Hello' });
+    await expect(sent).rejects.toThrow();
+    await expect(sent).rejects.not.toBeInstanceOf(UnreadableAnswerError);
     expect(calls).toBe(1);
   });
   it('surfaces a validated HTTP problem and rejects malformed problem fields', async () => {
@@ -177,6 +196,18 @@ describe('status read coordination', () => {
     await flush();
     expect(calls).toBe(2);
     expect(publications).toEqual([failure, false]);
+    coordinator.dispose();
+  });
+  it('publishes the rejection reason as the cause', async () => {
+    const reason = new Error('no');
+    const causes: unknown[] = [];
+    const coordinator = coordinateRead(
+      () => Promise.reject(reason),
+      (_value, _error, cause) => causes.push(cause),
+    );
+    coordinator.refresh();
+    await flush();
+    expect(causes).toEqual([reason]);
     coordinator.dispose();
   });
   it('aborts and prevents publication or trailing work after disposal', async () => {

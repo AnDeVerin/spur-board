@@ -23,6 +23,8 @@ export interface WebOptions extends Pick<
   | 'firstPollDone'
   | 'logError'
   | 'instance'
+  // Absent: no `x-board-version` header and no `board-version` meta in the page.
+  | 'productVersion'
 > {
   readonly webRoot: string | URL;
   /** Called when an event stream poll or status read fails; the next round retries. */
@@ -77,9 +79,32 @@ async function loadFiles(root: string | URL): Promise<Map<string, Buffer>> {
   return files;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+/** Names the daemon version in the page right after its first `<head>` tag; no `<head>`, no change. */
+function stampVersion(index: Buffer, version: string): Buffer {
+  const html = index.toString('utf8');
+  const head = /<head(?:\s[^>]*)?>/i.exec(html);
+  if (head === null) return index;
+  const end = head.index + head[0].length;
+  return Buffer.from(
+    `${html.slice(0, end)}<meta name="board-version" content="${escapeHtml(version)}">${html.slice(end)}`,
+  );
+}
+
 /** Independent browser transport; the caller owns listening and shutdown. */
 export async function createWebServer(options: WebOptions): Promise<FastifyInstance> {
   const files = await loadFiles(options.webRoot);
+  const { productVersion } = options;
+  const index = files.get('/index.html');
+  if (productVersion !== undefined && index !== undefined)
+    files.set('/index.html', stampVersion(index, productVersion));
   const app = Fastify({
     logger: false,
     genReqId: () => randomUUID(),
@@ -142,6 +167,8 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
     reply.header('x-frame-options', 'DENY');
     reply.header('x-content-type-options', 'nosniff');
     reply.header('referrer-policy', 'no-referrer');
+    // The page compares it with its own `board-version` meta to see an update.
+    if (productVersion !== undefined) reply.header('x-board-version', productVersion);
   }
   // An aborted event stream never reaches `onResponse`; its close listener audits it instead.
   const audited = new WeakSet<FastifyRequest>();

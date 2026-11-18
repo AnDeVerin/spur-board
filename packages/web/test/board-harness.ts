@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { Board } from '../src/board/Board.tsx';
 import { createBoardData, type BoardData } from '../src/board/data.ts';
+import type { UpdateOptions } from '../src/board/update.ts';
 import {
   config,
   DONE,
@@ -57,8 +58,16 @@ export function remount(): void {
   root = createRoot(container());
 }
 
-/** Mounts a Board on the fake daemon; the stored values the board writes are returned. */
-export function mount(d: Daemon, storage: Record<string, string> = {}, now = () => 0) {
+/**
+ * Mounts a Board on the fake daemon, with the page's version check when `update` is given; the
+ * stored values the board writes are returned.
+ */
+export function mount(
+  d: Daemon,
+  storage: Record<string, string> = {},
+  now = () => 0,
+  update?: UpdateOptions,
+) {
   const values = new Map(Object.entries(storage));
   const data = createBoardData({
     fetch: d.fetcher,
@@ -69,6 +78,7 @@ export function mount(d: Daemon, storage: Record<string, string> = {}, now = () 
       },
     }),
     now,
+    ...(update === undefined ? {} : { update }),
   });
   started.push(data);
   act(() => {
@@ -76,6 +86,12 @@ export function mount(d: Daemon, storage: Record<string, string> = {}, now = () 
     data.start();
   });
   return values;
+}
+/** The board data the last `mount()` started. */
+export function mounted(): BoardData {
+  const data = started.at(-1);
+  if (!data) throw new Error('nothing mounted: call mount() first');
+  return data;
 }
 /** Body reads and parsing cross a few macrotasks; fake timers leave setImmediate real. */
 export async function settle() {

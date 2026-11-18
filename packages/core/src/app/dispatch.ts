@@ -85,11 +85,14 @@ const MARK_COLUMNS: readonly ColumnId[] = COLUMNS.filter((c) => c.marks).map((c)
 
 const isMarkColumn = (column: ColumnId): column is MarkColumnId => MARK_COLUMNS.includes(column);
 
+/** Evidence that lasts for its head across visits. QA remains a submit. */
+const HEAD_COLUMNS: readonly ColumnId[] = [...MARK_COLUMNS, 'qa'];
+
 const indexOf = (column: ColumnId) => COLUMN_IDS.indexOf(column);
 
 /**
- * Sets `voided_at` on the unvoided submits of `columns`. Review and product-review marks are
- * not voided by a move; a new PR head voids them (`voidMarksOffHead`). A pending submit is never
+ * Sets `voided_at` on the unvoided submits of `columns`. Review marks and QA submits are
+ * not voided by an ordinary move; a new PR head voids them (`voidMarksOffHead`). A pending submit is never
  * voided here: it settles only when its hand-back turn opens, as confirmed, or as superseded by
  * a merge (`readPendingSubmit`), and counts as no mark until then.
  */
@@ -99,7 +102,7 @@ async function voidColumns(
   columns: readonly ColumnId[],
   at: Date,
 ): Promise<void> {
-  const voided = columns.filter((column) => !MARK_COLUMNS.includes(column));
+  const voided = columns.filter((column) => !HEAD_COLUMNS.includes(column));
   if (voided.length === 0) return;
   await trx
     .updateTable('submission')
@@ -112,7 +115,7 @@ async function voidColumns(
 }
 
 /**
- * Sets `voided_at` on the unvoided Review and Product Review marks of PR `repo#number` that are
+ * Sets `voided_at` on the unvoided Review/Product Review marks and QA submits of PR `repo#number` that are
  * not on `head`, for the PR's new head: a mark lasts only while its head stays the PR's head, so
  * a head that comes back to an earlier commit needs fresh marks. Marks made before submissions
  * recorded their PR count for the tasks linked to the PR. A pending mark is left to the
@@ -127,7 +130,7 @@ export async function voidMarksOffHead(
     .updateTable('submission')
     .set({ voided_at: input.at })
     .where('voided_at', 'is', null)
-    .where('column', 'in', MARK_COLUMNS)
+    .where('column', 'in', HEAD_COLUMNS)
     .where('pending_until', 'is', null)
     .where(sql<boolean>`lower(commit_sha) != ${input.head.toLowerCase()}`)
     .where((eb) =>
@@ -327,7 +330,8 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
  * The operator's correction of a task's column to `to`, as a new visit of `to`. It first applies
  * a pending dispatcher mode switch, so the switch cannot overwrite the correction. In `on` mode it
  * sets the column and bumps `column_epoch`, voids the submits of `to` and right of it, closes the
- * task's turns as `corrected` and journals `task_corrected`; in shadow mode it sets only the shadow
+ * task's turns as `corrected` and journals `task_corrected`; correction into QA also voids
+ * confirmed and pending QA evidence. In shadow mode it sets only the shadow
  * column. The feedback a closed untaken turn handed over counts as unhandled again
  * (`turnFeedbackCursors`), so the next Dev turn hands it over, whenever it opens. It is
  * not a dispatcher move: no `task_moved`, no `left_moves` and no cycle count. The caller settles
@@ -362,6 +366,16 @@ export async function correctColumn(
     .where('id', '=', task.id)
     .execute();
   await voidSubmits(trx, task.id, to, at);
+  if (to === 'qa') {
+    // An explicit retest also cancels pending QA so it cannot confirm after the correction.
+    await trx
+      .updateTable('submission')
+      .set({ voided_at: at.toISOString() })
+      .where('task_id', '=', task.id)
+      .where('column', '=', 'qa')
+      .where('voided_at', 'is', null)
+      .execute();
+  }
   if (!shadow) await closeTurns(trx, { taskId: task.id, reason: 'corrected', at });
   await emit(
     trx,
@@ -999,7 +1013,7 @@ async function applyOn(
 ): Promise<void> {
   const { at, config } = ctx;
   const failed = read.pending?.state === 'failed' ? read.pending : undefined;
-  // By id: `voidSubmits` and a turn's `voids` skip the Review and Product Review marks.
+  // By id: ordinary invalidation skips Review/Product Review marks and QA submissions.
   const voidFailed = async () => {
     if (failed === undefined) return;
     await trx

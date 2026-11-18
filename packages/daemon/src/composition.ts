@@ -215,6 +215,7 @@ export function createDaemonModules(
           firstPollDone: () => firstPollDone(board.store.db, board.config, core.completeSince),
           ...(ports.afterOperation === undefined ? {} : { afterOperation: ports.afterOperation }),
           ...(ports.webRoot === undefined ? {} : { webRoot: ports.webRoot }),
+          ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),
           onListening: (address: string) => {
             webPort = listenerPort(address);
             ports.onWebListening?.(address);

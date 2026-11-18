@@ -22,6 +22,16 @@ export class ProblemError extends Error {
     this.code = code;
   }
 }
+/**
+ * A 2xx daemon answer that does not match the schema this page expects; the daemon answered, so
+ * it is not down. Browser-side only, never on the wire.
+ */
+export class UnreadableAnswerError extends Error {
+  constructor(cause: unknown) {
+    super("The board daemon's answer could not be read.", { cause });
+    this.name = 'UnreadableAnswerError';
+  }
+}
 /** Schema validation belongs on both sides of the transport boundary. */
 export function createApi(fetcher: typeof fetch = fetch) {
   return async <K extends OperationId>(
@@ -48,9 +58,13 @@ export function createApi(fetcher: typeof fetch = fetch) {
       throw new ProblemError(problem.message, problem.code);
     }
     const entry: { output: z.ZodType; read?: z.ZodType } = operation;
-    return (entry.read ?? entry.output).parse(
-      successEnvelopeSchema.parse(value).value,
-    ) as Output<K>;
+    try {
+      return (entry.read ?? entry.output).parse(
+        successEnvelopeSchema.parse(value).value,
+      ) as Output<K>;
+    } catch (error) {
+      throw new UnreadableAnswerError(error);
+    }
   };
 }
 /** Own one instance per user intent. Retry uncertain outcomes on this same instance. */
@@ -75,10 +89,13 @@ export function createMutationIntent<
     },
   };
 }
-/** Serialize one read, retaining exactly one trailing refresh while a read is pending. */
+/**
+ * Serialize one read, retaining exactly one trailing refresh while a read is pending. A failed
+ * read publishes its rejection reason as `cause`.
+ */
 export function coordinateRead<T>(
   read: (signal: AbortSignal) => Promise<T>,
-  publish: (value: T | undefined, error: boolean) => void,
+  publish: (value: T | undefined, error: boolean, cause?: unknown) => void,
 ) {
   let stopped = false;
   let active: AbortController | undefined;
@@ -96,8 +113,8 @@ export function coordinateRead<T>(
         (value) => {
           if (!stopped) publish(value, false);
         },
-        () => {
-          if (!stopped) publish(undefined, true);
+        (reason: unknown) => {
+          if (!stopped) publish(undefined, true, reason);
         },
       )
       .finally(() => {

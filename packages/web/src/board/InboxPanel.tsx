@@ -1,5 +1,5 @@
 import { browserOperations } from '@spur-board/contracts/browser';
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { focusRing, quiet, SidePanel, TabPanel, Tabs, TextToggle } from '../ds/index.ts';
 import { safeExternalUrl } from '../lib/links.ts';
 import { ProblemError } from '../lib/api.ts';
@@ -28,12 +28,15 @@ const rowOf = (box: HTMLElement | null, id: string) =>
 /** The operator query is already scoped across projects; filtering is local to this panel. */
 export function InboxPanel({
   snapshot,
+  notice,
   now,
   onClose,
   onOpen,
   closeItem,
 }: {
   snapshot: BoardSnapshot;
+  /** A board banner the panel repeats, since the board behind it is inert while it is open. */
+  notice?: ReactNode;
   now: number;
   onClose: () => void;
   onOpen: (entry: Entry) => void;
@@ -253,6 +256,7 @@ export function InboxPanel({
       detail={items === undefined ? '– wait for you' : `${String(items.length)} wait for you`}
       onClose={onClose}
     >
+      {notice}
       <div
         ref={filters}
         className={styles.filters}

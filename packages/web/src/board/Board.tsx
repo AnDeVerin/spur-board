@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Banner, Button } from '../ds/index.ts';
 import type { BoardData, BoardSnapshot, TaskState } from './data.ts';
-import { banners, boardColumns, chosenProject, indicator, openHref } from './model.ts';
+import {
+  banners,
+  boardColumns,
+  chosenProject,
+  indicator,
+  openHref,
+  type BoardBanner,
+} from './model.ts';
 import { Columns, type ColumnsView } from './Columns.tsx';
 import { Header } from './Header.tsx';
 import { InboxPanel } from './InboxPanel.tsx';
@@ -35,6 +42,20 @@ function taskTitle(snapshot: BoardSnapshot, task: TaskState): TaskTitle {
   const key = task.value?.task.key ?? task.key;
   const text = snapshot.status.tasks.find((row) => row.key === key)?.ticket?.title;
   return text === undefined ? { state: 'none' } : { state: 'ready', text };
+}
+
+/** Why the task view cannot send; undefined while it can. */
+function unavailable(snapshot: BoardSnapshot): string | undefined {
+  const reason = snapshot.readFailed
+    ? snapshot.update !== undefined
+      ? `The board was updated to ${snapshot.update.version}.`
+      : snapshot.unreadable
+        ? "The board daemon's answer could not be read."
+        : 'The board daemon does not answer.'
+    : snapshot.stream === 'offline'
+      ? 'Live updates are lost.'
+      : undefined;
+  return reason === undefined ? undefined : `${reason} Answers and comments cannot be sent.`;
 }
 
 /** The current URL without `open`, keeping the other params and the hash. */
@@ -78,6 +99,8 @@ export function Board({ data }: { data: BoardData }) {
   const [openKey, setOpenKey] = useState(() => taskParam(location.search));
   const [inboxOpen, setInboxOpen] = useState(inboxBackground);
   const [pendingProject, setPendingProject] = useState(inboxProject);
+  // The update banner's Reload was pressed and the page is about to go.
+  const [reloadPressed, setReloadPressed] = useState(false);
   const inboxTrigger = useRef<HTMLSpanElement>(null);
   const wasInboxOpen = useRef(inboxOpen);
   // The task key whose card takes focus after close when the task view returned it nowhere.
@@ -132,6 +155,41 @@ export function Board({ data }: { data: BoardData }) {
   const list = banners(snapshot);
   const view = columnsView(snapshot);
   const project = snapshot.config?.projects.find(({ id }) => id === task?.value?.task.project);
+  const boardBanner = (banner: BoardBanner) => (
+    <Banner
+      key={banner.variant}
+      variant={banner.variant}
+      icon={banner.icon}
+      detail={banner.detail}
+      action={
+        banner.action === 'reload' ? (
+          <Button
+            busy={reloadPressed}
+            onClick={() => {
+              // False when the page stays to warn that unsent text cannot be kept.
+              setReloadPressed(data.reload());
+            }}
+          >
+            {reloadPressed ? 'Reloading' : 'Reload'}
+          </Button>
+        ) : banner.variant === 'error' ? (
+          <Button
+            busy={snapshot.retrying}
+            onClick={() => {
+              data.retry();
+            }}
+          >
+            {snapshot.retrying ? 'Retrying' : 'Retry now'}
+          </Button>
+        ) : undefined
+      }
+    >
+      {banner.text}
+    </Banner>
+  );
+  // An open task view or inbox makes the board banners inert, so each repeats the update banner.
+  const update = list.find((banner) => banner.action === 'reload');
+  const notice = update === undefined ? undefined : boardBanner(update);
   return (
     <>
       <Header
@@ -153,30 +211,7 @@ export function Board({ data }: { data: BoardData }) {
         }}
       />
       {list.length > 0 && (
-        <div className={styles.banners}>
-          {list.map((banner) => (
-            <Banner
-              key={banner.variant}
-              variant={banner.variant}
-              icon={banner.icon}
-              detail={banner.detail}
-              action={
-                banner.variant === 'error' ? (
-                  <Button
-                    busy={snapshot.retrying}
-                    onClick={() => {
-                      data.retry();
-                    }}
-                  >
-                    {snapshot.retrying ? 'Retrying' : 'Retry now'}
-                  </Button>
-                ) : undefined
-              }
-            >
-              {banner.text}
-            </Banner>
-          ))}
-        </div>
+        <div className={styles.banners}>{list.map((banner) => boardBanner(banner))}</div>
       )}
       <main
         className={styles.main}
@@ -206,6 +241,7 @@ export function Board({ data }: { data: BoardData }) {
       {inboxOpen && (
         <InboxPanel
           snapshot={snapshot}
+          notice={notice}
           now={data.now()}
           closeItem={data.closeItemIntent}
           onClose={() => {
@@ -235,16 +271,12 @@ export function Board({ data }: { data: BoardData }) {
           statusReadAt={snapshot.lastGoodAt}
           offline={snapshot.stream === 'offline'}
           config={snapshot.config}
-          unavailable={
-            snapshot.readFailed
-              ? 'The board daemon does not answer. Answers and comments cannot be sent.'
-              : snapshot.stream === 'offline'
-                ? 'Live updates are lost. Answers and comments cannot be sent.'
-                : undefined
-          }
+          unavailable={unavailable(snapshot)}
+          notice={notice}
           answerIntent={data.answerIntent}
           followUpIntent={data.followUpIntent}
           commentIntent={data.commentIntent}
+          drafts={data.drafts}
           refreshTask={data.refreshTask}
           onClose={() => {
             closed.current = task.value?.task.key ?? task.key;

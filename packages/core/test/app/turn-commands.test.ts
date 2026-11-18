@@ -53,7 +53,11 @@ type PollPr = PrPoller['pollPr'];
 const withoutEvents = (snapshot: readonly unknown[]) =>
   snapshot.filter((_rows, index) => TABLES[index] !== 'event');
 
-function board(reviewOrchestrator = 'rev', mode: 'shadow' | 'on' = 'shadow') {
+function board(
+  reviewOrchestrator = 'rev',
+  mode: 'shadow' | 'on' = 'shadow',
+  qaOrchestrator = 'qa',
+) {
   return configSchema.parse({
     projects: [
       {
@@ -72,7 +76,7 @@ function board(reviewOrchestrator = 'rev', mode: 'shadow' | 'on' = 'shadow') {
           { id: 'ready-for-dev', orchestrator: 'none' },
           { id: 'dev', orchestrator: 'none' },
           { id: 'review', orchestrator: reviewOrchestrator },
-          { id: 'qa', orchestrator: 'qa' },
+          { id: 'qa', orchestrator: qaOrchestrator },
           { id: 'ready-to-merge', orchestrator: 'none' },
           { id: 'done', orchestrator: 'none' },
         ],
@@ -117,6 +121,7 @@ async function setup(
   options: {
     column?: ColumnId;
     reviewOrchestrator?: string;
+    qaOrchestrator?: string;
     noPoller?: boolean;
     mode?: 'shadow' | 'on';
     /** GitHub and Spur count as polled to the end since start, so the dispatcher decides. */
@@ -126,7 +131,7 @@ async function setup(
     pr?: Partial<PrFacts>;
   } = {},
 ) {
-  const config = board(options.reviewOrchestrator, options.mode);
+  const config = board(options.reviewOrchestrator, options.mode, options.qaOrchestrator);
   const clock = { now: () => Date.parse(AT) };
   const store = openTempStore('board-turn-').store;
   stores.push(store);
@@ -272,6 +277,7 @@ async function setup(
   return {
     store,
     config,
+    observe,
     calls,
     tables,
     afterPoll: () => afterPoll,
@@ -1404,7 +1410,7 @@ describe('task.return', () => {
     expect(ctx.calls).toHaveLength(0);
   });
 
-  it('voids the submits of Dev and right of it and keeps review marks', async () => {
+  it('voids visit submits and keeps review marks and QA on return to Dev', async () => {
     const green = { name: 'ci', state: 'success' as const, completedAt: AT };
     const ctx = await taken({
       mode: 'on',
@@ -1428,7 +1434,7 @@ describe('task.return', () => {
     ).toEqual([
       { column: 'dev', voided_at: AT },
       { column: 'review', voided_at: null },
-      { column: 'qa', voided_at: AT },
+      { column: 'qa', voided_at: null },
     ]);
     expect(await ctx.task()).toMatchObject({ column: 'dev', column_epoch: 1 });
     expect(
@@ -1893,6 +1899,76 @@ describe('task.get why', () => {
 });
 
 describe('task.move', () => {
+  it.each(['qa', 'operator', 'none'] as const)(
+    'correction into QA clears confirmed and pending QA with executor %s',
+    async (qaOrchestrator) => {
+      const ctx = await setup({
+        column: 'qa',
+        qaOrchestrator,
+        mode: 'on',
+        complete: true,
+        pr: {
+          requiredChecks: [{ name: 'ci', state: 'success', completedAt: AT }],
+          feedback: [],
+          feedbackComplete: true,
+        },
+      });
+      await ctx.openTurn();
+      await ctx.submitted('dev', A, WORKER_1);
+      await ctx.submitted('review', A, REV_1);
+      await ctx.submitted('qa', A, QA_1);
+      await ctx.submitted('qa', B, QA_1);
+      await ctx.store.db
+        .updateTable('submission')
+        .set({ pending_until: '2026-11-04T08:03:00.000Z' })
+        .where('commit_sha', '=', B)
+        .execute();
+      const before = await ctx.task();
+      await ctx.move('qa');
+      expect(
+        await ctx.store.db
+          .selectFrom('submission')
+          .select(['column', 'voided_at'])
+          .orderBy('id')
+          .execute(),
+      ).toEqual([
+        { column: 'dev', voided_at: null },
+        { column: 'review', voided_at: null },
+        { column: 'qa', voided_at: AT },
+        { column: 'qa', voided_at: AT },
+      ]);
+      expect(await ctx.turn()).toMatchObject({ closed_reason: 'corrected' });
+      expect((await ctx.task()).left_moves).toBe(before.left_moves);
+      expect(await returnCounts(ctx.store.db, 1, 'qa')).toEqual({ cycle: 0, course: 0 });
+      const turns = await ctx.store.db
+        .selectFrom('turn')
+        .select(['column', 'closed_reason'])
+        .orderBy('id')
+        .execute();
+      expect(turns.filter((turn) => turn.column === 'qa')).toHaveLength(
+        qaOrchestrator === 'none' ? 1 : 2,
+      );
+      expect((await ctx.task()).column).toBe(qaOrchestrator === 'none' ? 'ready-to-merge' : 'qa');
+      const actor =
+        qaOrchestrator === 'qa' ? QA_1 : qaOrchestrator === 'operator' ? 'operator' : WORKER_1;
+      await expect(ctx.submit(actor, A, 'late-after-correction')).rejects.toMatchObject({
+        code: 'turn_closed',
+      });
+      await ctx.observe(B);
+      expect(
+        await ctx.store.db
+          .selectFrom('submission')
+          .select(['pending_until', 'voided_at'])
+          .where('column', '=', 'qa')
+          .where('commit_sha', '=', B)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({
+        pending_until: '2026-11-04T08:03:00.000Z',
+        voided_at: AT,
+      });
+    },
+  );
+
   it('corrects a wrong Done after the merged PR is unlinked', async () => {
     const ctx = await setup({
       column: 'done',
@@ -1942,7 +2018,7 @@ describe('task.move', () => {
     ).toEqual([
       { column: 'dev', voided_at: AT },
       { column: 'review', voided_at: null },
-      { column: 'qa', voided_at: AT },
+      { column: 'qa', voided_at: null },
     ]);
     const events = (await ctx.events()).slice(seen);
     expect(events[0]).toEqual({

@@ -92,6 +92,8 @@ const USAGE = `Usage: pnpm stand <command>
                                   again when its code or a migration changed or the clock passed
                                   a pending token request's expiry; restored rows keep their
                                   seeded times. This drops the violation log: read it first
+  reset --product-version <v>     reset, and report version v from this and later daemons of
+                                  the stand, as after a board update
   clock +<n><s|m|h|d>             move the stand clock forward (never back), then tick and pulse
                                   the outbox; timers stay real. stand poll after a shift
                                   restarts the stale window
@@ -949,10 +951,14 @@ async function main(argv: string[]): Promise<number> {
       timeout: { type: 'string' },
       'watch-pid': { type: 'string' },
       scenario: { type: 'string' },
+      'product-version': { type: 'string' },
     },
   });
   if (command !== 'up' && values.scenario !== undefined)
     throw new UsageError('--scenario goes only with up; seed takes the name itself');
+  const productVersion = values['product-version'];
+  if (command !== 'reset' && productVersion !== undefined)
+    throw new UsageError('--product-version goes only with reset');
   switch (command) {
     case 'up': {
       const port = parsePort(values.port, '--port');
@@ -1018,7 +1024,12 @@ async function main(argv: string[]): Promise<number> {
       return control(target(values.home), '/poll', source === undefined ? {} : { source }, 120_000);
     }
     case 'reset':
-      return control(target(values.home), '/reset', {}, 120_000);
+      return control(
+        target(values.home),
+        '/reset',
+        productVersion === undefined ? {} : { version: productVersion },
+        120_000,
+      );
     case 'seed': {
       const [name, ...extra] = positionals;
       if (extra.length > 0) throw new UsageError('seed takes one scenario');

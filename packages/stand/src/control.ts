@@ -33,7 +33,8 @@ export interface ControlRoutes {
   /** Re-reads state until the condition holds or the timeout passes; never queued. */
   wait(body: { condition: string; timeoutMs: number }, signal: AbortSignal): Promise<RouteResult>;
   poll(body: { source?: string; timeoutMs?: number }): Promise<RouteResult>;
-  reset(): Promise<RouteResult>;
+  /** Restarts the daemon; `version` sets the product version of this and later starts. */
+  reset(body: { version?: string }): Promise<RouteResult>;
   /** Moves the stand clock forward by `shiftMs`; queued with `reset`. */
   clock(body: { shiftMs: number }): Promise<RouteResult>;
   /** Resets the stand onto the scenario's config and seeds it; queued with `reset`. */
@@ -254,7 +255,13 @@ export async function startControl(options: {
       if (typeof text !== 'string') throw new HttpError(400, 'Send { text }.');
       result = await queued(() => options.routes.slackPost({ text }));
     } else {
-      result = await queued(() => options.routes.reset());
+      const { version } = body;
+      if (
+        version !== undefined &&
+        (typeof version !== 'string' || !/^[0-9A-Za-z.+-]{1,64}$/.test(version))
+      )
+        throw new HttpError(400, 'Send { version? } with 1 to 64 of 0-9, A-Z, a-z, ., + and -.');
+      result = await queued(() => options.routes.reset(version === undefined ? {} : { version }));
     }
     send(response, result.status, result.body);
   }

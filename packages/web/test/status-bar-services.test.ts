@@ -1,5 +1,6 @@
 import { browserOperations } from '@spur-board/contracts/browser';
 import { describe, expect, it } from 'vitest';
+import type { BoardUpdate } from '../src/board/update.ts';
 import { formatDataTime } from '../src/board/model.ts';
 import {
   daemonRows,
@@ -31,12 +32,20 @@ const first = <V>(list: readonly V[]): V => {
   if (found === undefined) throw new Error('empty list');
   return found;
 };
-const snap = (value: unknown, extra: { readFailed?: boolean; lastGoodAt?: number } = {}) => ({
+interface Extra {
+  readFailed?: boolean;
+  unreadable?: boolean;
+  update?: BoardUpdate;
+  lastGoodAt?: number;
+}
+const snap = (value: unknown, extra: Extra = {}) => ({
   status: value === undefined ? undefined : parse(value),
   readFailed: extra.readFailed ?? false,
+  unreadable: extra.unreadable ?? false,
+  update: extra.update,
   lastGoodAt: extra.lastGoodAt,
 });
-const labels = (value: unknown, extra: { readFailed?: boolean; lastGoodAt?: number } = {}) =>
+const labels = (value: unknown, extra: Extra = {}) =>
   indicators(snap(value, extra), time).map((item) => item.label);
 
 const texts = (rows: PanelRow[]) =>
@@ -130,6 +139,25 @@ describe('status bar indicators', () => {
       'github: unknown',
       'spur: unknown',
     ]);
+  });
+
+  it('names an unreadable daemon answer apart from no answer', () => {
+    const at = Date.parse(T);
+    expect(labels(healthy(), { readFailed: true, unreadable: true })[0]).toBe('daemon: unreadable');
+    expect(labels(healthy(), { readFailed: true, unreadable: true, lastGoodAt: at })).toEqual([
+      `daemon: unreadable since ${T_TEXT}`,
+      'slack: unknown',
+      'github: unknown',
+      'spur: unknown',
+    ]);
+  });
+
+  it('names the version a board update brought while reads fail', () => {
+    const update = { version: '2.0.0', mode: 'blocked', keepsDrafts: true } as const;
+    for (const unreadable of [false, true])
+      expect(
+        labels(healthy(), { readFailed: true, unreadable, update, lastGoodAt: Date.parse(T) })[0],
+      ).toBe('daemon: updated to 2.0.0');
   });
 });
 

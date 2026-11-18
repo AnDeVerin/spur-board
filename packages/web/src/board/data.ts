@@ -4,10 +4,12 @@ import {
   createApi,
   createMutationIntent,
   ProblemError,
+  UnreadableAnswerError,
   type Output,
 } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
+import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
 
 /** `closeItemIntent` refused to send because the board is unavailable. */
 export class BoardUnavailableError extends Error {
@@ -73,6 +75,13 @@ export interface BoardSnapshot {
   inbox: BoardInbox | undefined;
   /** The latest `config.get` or `status.get` attempt failed. */
   readFailed: boolean;
+  /**
+   * `readFailed`, and every failing read among config and status got a 2xx answer that did not
+   * match its schema: the daemon answers, this page cannot read it.
+   */
+  unreadable: boolean;
+  /** A daemon on another version than this page answered; undefined until one does. */
+  update: BoardUpdate | undefined;
   stream: StreamState;
   /** The stream has said hello at least once. */
   everLive: boolean;
@@ -90,6 +99,8 @@ interface BoardDataOptions {
   fetch: typeof fetch;
   storage: () => Pick<Storage, 'getItem' | 'setItem'>;
   now: () => number;
+  /** The page's version check; absent, the page never reloads and never uses session storage. */
+  update?: UpdateOptions;
 }
 
 const PROJECT_KEY = 'board-project';
@@ -101,7 +112,11 @@ const sortKey = (project: string, column: string) => `board-sort:${project}:${co
  * `useSyncExternalStore`.
  */
 export function createBoardData(options: BoardDataOptions) {
-  const api = createApi(options.fetch);
+  const check = createUpdateCheck(options.update, (value) => {
+    update({ update: value });
+  });
+  const fetcher = check.fetch(options.fetch);
+  const api = createApi(fetcher);
   const listeners = new Set<() => void>();
   let state: BoardSnapshot = {
     config: undefined,
@@ -109,6 +124,8 @@ export function createBoardData(options: BoardDataOptions) {
     status: undefined,
     inbox: undefined,
     readFailed: false,
+    unreadable: false,
+    update: undefined,
     stream: 'reconnecting',
     everLive: false,
     lastGoodAt: undefined,
@@ -124,6 +141,8 @@ export function createBoardData(options: BoardDataOptions) {
   }
   let configFailed = false;
   let statusFailed = false;
+  let configUnreadable = false;
+  let statusUnreadable = false;
   // Each read is tagged when issued; a coordinator has one read in flight, so its answer
   // belongs to the latest tag.
   let issued = 0;
@@ -135,10 +154,13 @@ export function createBoardData(options: BoardDataOptions) {
   let retryWaits = new Set<'chain' | 'inbox'>();
 
   const update = (patch: Partial<BoardSnapshot>) => {
+    const readFailed = configFailed || statusFailed;
     state = {
       ...state,
       ...patch,
-      readFailed: configFailed || statusFailed,
+      readFailed,
+      unreadable:
+        readFailed && (!configFailed || configUnreadable) && (!statusFailed || statusUnreadable),
       retrying: retryFrom !== undefined,
     };
     for (const listener of listeners) listener();
@@ -159,11 +181,12 @@ export function createBoardData(options: BoardDataOptions) {
       statusIssued = { seq: ++issued, project };
       return api('status.get', { project, detail: true }, { signal });
     },
-    (value, error) => {
+    (value, error, cause) => {
       const { seq, project } = statusIssued;
       // An answer for a project that is no longer chosen is dropped; its trailing read follows.
       if (project !== state.project) return;
       statusFailed = error;
+      statusUnreadable = cause instanceof UnreadableAnswerError;
       settleRetry('chain', seq);
       update(value ? { status: value, lastGoodAt: options.now() } : {});
     },
@@ -173,12 +196,14 @@ export function createBoardData(options: BoardDataOptions) {
       configIssued = ++issued;
       return api('config.get', {}, { signal });
     },
-    (value, error) => {
+    (value, error, cause) => {
       configFailed = error;
+      configUnreadable = cause instanceof UnreadableAnswerError;
       const project = value ? resolveProject(value) : state.project;
       const patch: Partial<BoardSnapshot> = value ? { config: value } : {};
       if (project !== state.project) {
         statusFailed = false;
+        statusUnreadable = false;
         Object.assign(patch, { project, status: undefined, lastGoodAt: undefined });
       }
       // `status.get` throws for an unknown project, so it takes the project from config.
@@ -359,11 +384,12 @@ export function createBoardData(options: BoardDataOptions) {
       // A task opened before start already issued its read in `open`.
       config.refresh();
       inbox.refresh();
-      stream = connectStream({ fetch: options.fetch, state: onStream, refresh });
+      stream = connectStream({ fetch: fetcher, state: onStream, refresh });
     },
     /** End the controller for good: the stream closes and no read publishes again. */
     stop() {
       stopped = true;
+      check.stop();
       for (const wait of refreshWaits) wait.resolve(false);
       refreshWaits.clear();
       stream?.stop();
@@ -474,6 +500,8 @@ export function createBoardData(options: BoardDataOptions) {
       if (project === state.project) return;
       configFailed = false;
       statusFailed = false;
+      configUnreadable = false;
+      statusUnreadable = false;
       update({ project, status: undefined, lastGoodAt: undefined });
       status.refresh();
     },
@@ -494,8 +522,22 @@ export function createBoardData(options: BoardDataOptions) {
         /* The order lasts until reload without storage. */
       }
     },
-    /** Retry now: reconnect the stream if it waits in backoff and re-read everything. */
+    /** Unsent text of the task view writers, kept across a reload after a board update. */
+    drafts: check.drafts,
+    /**
+     * Reload the page after a board update, keeping what unsent text it can; false when it stays
+     * to warn first that unsent text cannot be kept.
+     */
+    reload: check.reload,
+    /**
+     * Retry now: after a board update, reload the page. Else reconnect the stream if it waits in
+     * backoff and re-read everything.
+     */
     retry() {
+      if (state.update !== undefined) {
+        check.reload();
+        return;
+      }
       if (retryFrom !== undefined) return;
       retryFrom = issued + 1;
       retryWaits = new Set(['chain', 'inbox']);

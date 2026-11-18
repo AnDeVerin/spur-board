@@ -1160,6 +1160,25 @@ describe('stand', () => {
     );
   }, 60_000);
 
+  it('reset --product-version restarts the daemon on that version', async () => {
+    const manifest = await up();
+    const version = async () => {
+      const current = stand?.manifest();
+      if (current === undefined) throw new Error('stand stopped');
+      const status = await operatorStatus(current);
+      expect(status.code, status.stderr).toBe(0);
+      return statusOutputSchema.parse(JSON.parse(status.stdout)).daemon.version;
+    };
+    expect((await control(manifest, '/reset', { version: '9.9.9' })).status).toBe(200);
+    expect(await version()).toBe('9.9.9');
+    expect((await control(manifest, '/reset')).status).toBe(200);
+    expect(await version()).toBe('9.9.9');
+    expect((await control(manifest, '/reset', { version: '' })).status).toBe(400);
+    const misplaced = await standCli(['up', '--product-version', 'x']);
+    expect(misplaced.code).toBe(2);
+    expect(misplaced.stderr).toContain('--product-version goes only with reset');
+  }, 60_000);
+
   it('gives each stand its own random role sessions and keeps them across reset', async () => {
     const first = await up();
     const other = await startStand({ root, port: 0, env: {}, osHome });

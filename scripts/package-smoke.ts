@@ -356,13 +356,22 @@ export function prepareSkillsForSmoke(packageRoot: string): void {
   }
 }
 
-/** Check the actual installed listener, including bytes so an index fallback cannot fake an asset. */
+/**
+ * Check the actual installed listener, including bytes so an index fallback cannot fake an asset.
+ * The daemon serves the index with its version meta right after the first `<head>` tag.
+ */
 export async function verifyServedWeb(
   webRoot: string,
   origin: string,
+  version: string,
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
   const index = readFileSync(join(webRoot, 'index.html'), 'utf8');
+  const head = /<head\b[^>]*>/i.exec(index);
+  const served =
+    head === null
+      ? index
+      : `${index.slice(0, head.index + head[0].length)}<meta name="board-version" content="${version}">${index.slice(head.index + head[0].length)}`;
   const asset =
     /(?:src|href)=["'](\/assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}\.(?:js|css))["']/.exec(
       index,
@@ -370,7 +379,7 @@ export async function verifyServedWeb(
   if (asset === undefined)
     throw new Error('Installed web index references no script or stylesheet.');
   const page = await fetcher(`${origin}/`, { signal: AbortSignal.timeout(5000) });
-  if (page.status !== 200 || (await page.text()) !== index)
+  if (page.status !== 200 || (await page.text()) !== served)
     throw new Error('Installed web GET / did not serve index with HTTP 200.');
   const response = await fetcher(`${origin}${asset}`, { signal: AbortSignal.timeout(5000) });
   if (
@@ -431,6 +440,7 @@ export const smokeSteps: readonly SmokeStep[] = [
       await verifyServedWeb(
         join(ctx.packageRoot, 'dist/web'),
         `http://127.0.0.1:${String(ctx.webPort)}`,
+        ctx.expectedVersion,
       );
     },
   },

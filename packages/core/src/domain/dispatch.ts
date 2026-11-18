@@ -128,9 +128,11 @@ function nextColumn(project: GateProject, column: ColumnId): ColumnId | undefine
   )?.id;
 }
 
-/** A left move to `to` voids the submits of `to` and right of it; marks stay. */
+/** A left move voids visit submits of `to` and right of it; review marks and QA stay. */
 function dropSubmits(marks: readonly GateMark[], to: ColumnId): GateMark[] {
-  return marks.filter((mark) => mark.kind === 'mark' || indexOf(mark.column) < indexOf(to));
+  return marks.filter(
+    (mark) => mark.kind === 'mark' || mark.column === 'qa' || indexOf(mark.column) < indexOf(to),
+  );
 }
 
 /** Whether work on the task started: it has an open PR, or a live worker and no reopen. */
