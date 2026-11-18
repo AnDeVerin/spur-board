@@ -14,8 +14,8 @@ afterEach(async () => {
 });
 
 const AT = '2026-11-04T08:00:00.000Z';
-const named = (names: string) =>
-  `spur-board skill updated to 1.2.3. Before your next board command, read these files of the spur-board skill again: ${names}. They are under ~/.claude/skills/spur-board/ (Claude Code) or $CODEX_HOME/skills/spur-board/, by default ~/.codex/skills/spur-board/ (Codex).`;
+const named = (names: string, version = '1.2.3') =>
+  `spur-board skill updated to ${version}. Before your next board command, read these files of the spur-board skill again: ${names}. They are under ~/.claude/skills/spur-board/ (Claude Code) or $CODEX_HOME/skills/spur-board/, by default ~/.codex/skills/spur-board/ (Codex).`;
 const INSTALLED = '2026-11-04T08:00:30.000Z';
 const notAsked = 'Running sessions were not asked to re-read the spur-board skill';
 const REFERENCE_RULE = 'Rule only in references/errors.md\n';
@@ -135,7 +135,7 @@ async function pulses(h: Harness): Promise<void> {
   }
 }
 
-it('names only the reference an update changed and nothing after a version-only update', async () => {
+it('names only the reference an update changed', async () => {
   const h = await createE2eHarness({ productVersion: '1.2.3' });
   active.push(h);
   await h.start();
@@ -169,23 +169,6 @@ it('names only the reference an update changed and nothing after a version-only 
     ].toSorted((a, b) => a.session.localeCompare(b.session)),
   );
 
-  h.advance(60_000);
-  await setVersion('1.2.4');
-  const bump = await skillsInstall(h, home, packageRoot, '2026-11-04T08:03:00.000Z');
-  expect(bump.code).toBe(0);
-  expect(bump.stderr).toContain(notAsked);
-  await pulses(h);
-  expect(reloads()).toHaveLength(2);
-  const stamp = JSON.parse(
-    await readFile(
-      join(home, '.claude', 'skills', 'spur-board', '.spur-board-install.json'),
-      'utf8',
-    ),
-  ) as { files: Record<string, { changedAt: string; changedIn: string }> };
-  expect(stamp.files['references/errors.md']).toMatchObject({
-    changedAt: INSTALLED,
-    changedIn: '1.2.3',
-  });
   const delivered = await h.store.db
     .selectFrom('outbox')
     .select(['payload', 'state'])
@@ -197,4 +180,59 @@ it('names only the reference an update changed and nothing after a version-only 
     const { queuedAt } = JSON.parse(row.payload) as { queuedAt: string };
     expect(Date.parse(queuedAt)).toBeGreaterThan(Date.parse(INSTALLED));
   }
+});
+
+it.each([
+  {
+    row: 'sends nothing when every file changed before the sessions were first seen',
+    firstInstall: '2026-11-03T00:00:00.000Z',
+    stderr: '',
+    texts: [] as string[],
+  },
+  {
+    row: 'names the files that changed after the sessions were first seen',
+    firstInstall: INSTALLED,
+    stderr: 'Asked 2 running session(s) to re-read the spur-board skill.\n',
+    texts: [
+      named('SKILL.md, references/errors.md', '1.2.4'),
+      named('SKILL.md, references/errors.md', '1.2.4'),
+    ],
+  },
+])('a version-only update on a matching daemon $row', async ({ firstInstall, stderr, texts }) => {
+  const h = await createE2eHarness({ productVersion: '1.2.4' });
+  active.push(h);
+  await h.start();
+  await insertSession(h, 'worker-unlinked', 'worker', false);
+  const { home, packageRoot } = await packageFixture();
+  const reloads = () => h.sends.filter((send) => send.text.includes('skill updated'));
+
+  const old = await skillsInstall(h, home, packageRoot, firstInstall);
+  expect(old.code).toBe(0);
+  expect(old.stderr).toContain(notAsked);
+  await pulses(h);
+  expect(reloads()).toEqual([]);
+
+  h.advance(60_000);
+  await writeFile(join(packageRoot, 'package.json'), JSON.stringify({ version: '1.2.4' }));
+  const bump = await skillsInstall(h, home, packageRoot, '2026-11-04T08:03:00.000Z');
+  expect(bump.code).toBe(0);
+  expect(bump.results.every((entry) => entry.changed)).toBe(true);
+  expect(bump.stderr).toBe(stderr);
+  await pulses(h);
+  expect(reloads().map((send) => send.text)).toEqual(texts);
+  const stamp = JSON.parse(
+    await readFile(
+      join(home, '.claude', 'skills', 'spur-board', '.spur-board-install.json'),
+      'utf8',
+    ),
+  ) as { files: Record<string, { changedAt: string; changedIn: string }> };
+  expect(stamp.files['references/errors.md']).toEqual(
+    expect.objectContaining({ changedAt: firstInstall, changedIn: '1.2.3' }),
+  );
+  const queued = await h.store.db
+    .selectFrom('outbox')
+    .select('state')
+    .where('dedupe_key', 'like', 'doorbell:skill-reload:1.2.4:%')
+    .execute();
+  expect(queued.map((row) => row.state)).toEqual(texts.map(() => 'done'));
 });
