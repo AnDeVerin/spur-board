@@ -3,7 +3,9 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import YAML from 'yaml';
 import {
+  configSchema,
   ERRORS,
   OPERATIONS,
   errorEnvelopeSchema,
@@ -46,6 +48,11 @@ function boardHome(config?: string): string {
   homes.push(home);
   if (config !== undefined) writeFileSync(join(home, 'config.yaml'), config);
   return home;
+}
+
+/** The one-project config of the configured-daemon test with a board and `checksGate: <gate>`. */
+function gatedConfig(gate: string, port: number): string {
+  return `projects:\n  - id: board\n    tracker: { type: github-issues, repo: example/board, label: board }\n    repos: [example/board]\n    operatorGithubLogin: operator\n    columns: [{ id: todo }, { id: dev }, { id: review }, { id: external-review }, { id: ready-to-merge }, { id: done }]\n    checksGate: ${gate}\noperator: { slack: U0000000000 }\ndigest: { tz: UTC }\nhttp: { port: ${String(port)} }\n`;
 }
 
 function statusResponse(
@@ -163,7 +170,22 @@ describe('CLI exit classes and mutation keys', () => {
     expect(JSON.parse(output.stdout)).toEqual(OPERATIONS[0].examples[0].output);
   });
 
-  it.each([undefined, 'http: [', 'http: { port: -1 }'])(
+  it('a config with checksGate external-review reaches the configured daemon', async () => {
+    const { url } = await fakeServer(statusResponse);
+    const config = gatedConfig('external-review', Number(new URL(url).port));
+    expect(configSchema.safeParse(YAML.parse(config)).success).toBe(true);
+    const home = boardHome(config);
+    const output = capture();
+    expect(
+      await runCli(['status', '--json'], {
+        env: { BOARD_HOME: home, BOARD_TOKEN: 'token' },
+        io: output.io,
+      }),
+    ).toBe(0);
+    expect(JSON.parse(output.stdout)).toEqual(OPERATIONS[0].examples[0].output);
+  });
+
+  it.each([undefined, 'http: [', 'http: { port: -1 }', gatedConfig('qa', 9)])(
     'refuses to send without BOARD_DAEMON_URL or a valid config (%s)',
     async (text) => {
       const home = boardHome(text);

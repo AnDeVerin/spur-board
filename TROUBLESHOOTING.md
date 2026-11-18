@@ -20,7 +20,7 @@ Warnings never block readiness or an update. Blocking failures retain these gate
 | `operator.path`                                                                                                                                                | Blocking: no operator session or approved token for required operator work.                                   |
 | `web.listening`, `web.spurUiOrigin`, `path.current`, `path.spur`, `skills.codex_visibility`                                                                    | Warning: optional browser or agent tooling; the daemon continues.                                             |
 | `versions`                                                                                                                                                     | Blocking daemon/running CLI mismatch; warning auxiliary PATH binary or skill versions.                        |
-| `web`                                                                                                                                                          | Passing configured-state report; no independent failure gate.                                                 |
+| `web`, `projects.checksGate`                                                                                                                                   | Passing configured-state report; no independent failure gate.                                                 |
 | `stand.port_range`, `link.rules`, `sessions.codex_skill`, `sessions.stale`, `operator.tokens`, `curator.sessions`, `orchestrator.sessions`, `slack.configured` | Advisory; preserve their warnings.                                                                            |
 
 ### config
@@ -96,6 +96,14 @@ each port. Set a nonoverlapping `stand.portRange` to clear it. Explicit ranges, 
 with default endpoints, reject overlaps during config validation. The stand takes its web port,
 and an explicit API port, from this range and refuses `http.port` and `web.port`; an API port of
 0, the default, is assigned by the kernel.
+
+### projects.checksGate
+
+Reports the `checksGate` of each project in `config.yaml` as `<project>=<column>`, including
+offline; `dev` when the key is absent. It always passes: a value other than `dev`, `review`,
+`product-review` or `external-review`, or a column that is absent or disabled, fails `config`.
+The daemon reads the key at start, so a change takes effect after a restart; `board config get`
+shows the value the running daemon uses.
 
 ### service.installed
 
