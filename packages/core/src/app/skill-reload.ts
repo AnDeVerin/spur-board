@@ -26,7 +26,7 @@ type SkillReloadState = 'delivered' | 'pending' | 'failed';
 
 /** The fixed message a live session gets after an install of `version`. */
 function skillReloadText(version: string): string {
-  return `spur-board skill updated to ${version}. Before your next board command, read the spur-board skill file again: ~/.claude/skills/spur-board/SKILL.md (Claude Code) or $CODEX_HOME/skills/spur-board/SKILL.md, by default ~/.codex/skills/spur-board/SKILL.md (Codex).`;
+  return `spur-board skill updated to ${version}. Before your next board command, read the spur-board skill again, SKILL.md and every file in its references/ folder: ~/.claude/skills/spur-board/ (Claude Code) or $CODEX_HOME/skills/spur-board/, by default ~/.codex/skills/spur-board/ (Codex).`;
 }
 
 /**
