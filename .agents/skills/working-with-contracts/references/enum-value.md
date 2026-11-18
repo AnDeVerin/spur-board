@@ -17,7 +17,7 @@
 - A list an operation schema uses also changes the catalog and the MCP tool schemas. Run
   `pnpm gen` and commit the rewritten `packages/contracts/ops.snapshot.json`. `pnpm gen` does not
   regenerate `packages/cli/test/__snapshots__/mcp.test.ts.snap`: update it from the repo root with
-  `pnpm exec vitest run --project unit -u packages/cli/test/mcp.test.ts`, read the diff, and list
-  it under Changed checks.
+  `pnpm exec vitest run --project unit packages/cli/test/mcp.test.ts -u` (the file before `-u`:
+  `testing-and-ci`), read the diff, and list it under Changed checks.
 - A test that checks a fixed fixture writes its expected value out. Built from a list that grows,
   such as `COLUMN_IDS`, it breaks on every new value while the fixture stays the same.
