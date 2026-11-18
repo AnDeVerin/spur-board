@@ -179,19 +179,23 @@ const causeMoves: readonly HoverMenuItem<string>[] = [
     cause: 'Ready mirrors a GitHub Project; change the status there',
   },
 ];
+// Each cause wraps to up to four micro lines at the menu's item width: about 240px of menu.
+const causeRows = 10;
 function CardDemo({
   caption,
   moves,
   note,
   open = false,
+  rows = 7,
 }: {
   caption: string;
   moves: readonly HoverMenuItem<string>[];
   note?: string;
   open?: boolean;
+  rows?: number;
 }) {
   return (
-    <Frame caption={caption} opens="down" rows={7}>
+    <Frame caption={caption} opens="down" rows={rows}>
       <HoverMenu
         label="Move this task"
         text="⋯"
@@ -237,6 +241,7 @@ export function CauseLine() {
       caption="A cause line under each disabled item, named by its aria-describedby"
       moves={causeMoves}
       open
+      rows={causeRows}
     />
   );
 }
@@ -245,6 +250,7 @@ export function ActionsFocused() {
     <CardDemo
       caption="Tab to ⋯, press ArrowDown: focus lands on the disabled Move to top; Enter does nothing; ArrowDown moves on; Escape returns to the trigger"
       moves={causeMoves}
+      rows={causeRows}
     />
   );
 }
