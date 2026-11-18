@@ -46,12 +46,15 @@ Columns follow configuration order:
     card. Sessions need `web.spurUiOrigin`; otherwise a `session <id>` chip truncates at 20 characters.
     Jira links use `ticketBrowseBase` plus the key; other tickets and PRs use observed URLs.
   - Four cells for the first pull request: checks, merge, resolved threads, reviews on the head.
-    Red: failed, conflicting or changes requested. Yellow: pending or unresolved. Green glyph:
-    passed, no conflicts or approved. `–`: nothing reported. `?`: mergeability unknown. All four
+    Red: failed, conflicting or changes requested. Yellow: pending or unresolved. Soft green fill
+    and green glyph with neutral text and border: passed, no conflicts or approved.
+    `–`: nothing reported. `?`: mergeability unknown. All four
     grey: not confirmed, the GitHub source is stale or blind. Four `—`: linked, not observed yet.
     `+N`: other pull requests. An open turn without one shows `no PR yet`.
   - Markers: `B<n> → you` for your block (`+N` for the others), the agents' block count, `returned`
-    with its findings, `draft`, and in shadow mode the dispatcher's column.
+    with its findings, `draft`, and in shadow mode the dispatcher's column. The agents' block count
+    and overflow `+N` have a soft red fill and red block icon with neutral text and border;
+    `B<n> → you` keeps its attention styling.
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
     on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
     without a turn. Ages stop while the data is stale.
