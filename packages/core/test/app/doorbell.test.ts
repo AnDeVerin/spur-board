@@ -3971,22 +3971,39 @@ describe('turns', () => {
       expect(await noSession(ctx)).toEqual([]);
     });
 
-    // Every way a session that could take the ring stops being a recipient. `listed` rows come
-    // from a Spur poll that still lists the session with no end time, as Spur does for a
-    // finished session; their wait runs from the first poll that saw the finished state.
-    it.each([
-      { gone: 'ended_at', linked: false },
-      { gone: 'absent_since', linked: false },
-      { gone: 'ended_at', linked: true },
-      { gone: 'listed stopped', linked: false },
-      { gone: 'listed completed', linked: false },
-      { gone: 'listed errored', linked: false },
-      { gone: 'listed killed', linked: false },
-      { gone: 'listed stopped', linked: true },
-      { gone: 'listed killed', linked: true },
-    ] as const)(
-      'raises noRecipientAfterMs after the last session of the column goes away ($gone, linked $linked)',
-      async ({ gone, linked }) => {
+    // Every way a session that could take the ring stops being a recipient, alone and followed
+    // by later timestamps on the same gap. `listed` steps come from a Spur poll that still lists
+    // the session with no end time, as Spur does for a finished session; `new listed killed`
+    // lists a second session of the column's Spur project that was never a recipient.
+    type GoneStep =
+      | 'ended'
+      | 'absent'
+      | 'listed stopped'
+      | 'listed completed'
+      | 'listed errored'
+      | 'listed killed'
+      | 'new listed killed';
+    it.each<{ steps: readonly GoneStep[]; linked: boolean }>([
+      { steps: ['ended'], linked: false },
+      { steps: ['absent'], linked: false },
+      { steps: ['listed stopped'], linked: false },
+      { steps: ['listed completed'], linked: false },
+      { steps: ['listed errored'], linked: false },
+      { steps: ['listed killed'], linked: false },
+      { steps: ['ended'], linked: true },
+      { steps: ['listed stopped'], linked: true },
+      { steps: ['listed killed'], linked: true },
+      { steps: ['listed killed', 'absent'], linked: false },
+      { steps: ['listed killed', 'ended'], linked: false },
+      { steps: ['absent', 'ended'], linked: false },
+      { steps: ['listed killed', 'ended'], linked: true },
+      { steps: ['ended', 'listed killed'], linked: false },
+      { steps: ['absent', 'listed killed'], linked: false },
+      { steps: ['listed completed', 'listed killed'], linked: false },
+      { steps: ['ended', 'new listed killed'], linked: false },
+    ])(
+      'raises noRecipientAfterMs after the first loss of a gap and keeps it open ($steps, linked $linked)',
+      async ({ steps, linked }) => {
         const ctx = await waitingBoard();
         const [session, project] = linked ? ['cur-9', 'cur'] : ['qa-1', 'qa'];
         if (linked) {
@@ -3995,34 +4012,55 @@ describe('turns', () => {
           await health(ctx, 'cur-9', 'cur', 'waiting', ctx.now());
         } else await liveQa(ctx, 'qa-1');
         await open(ctx);
+        // Each check follows a fresh Spur poll, so stale Spur data never holds the item.
+        const poll = async () => {
+          await observeHealth(ctx, 'worker-1', 'working');
+          await reconcile(ctx);
+        };
         ctx.advance(NO_RECIPIENT * 2);
-        await reconcile(ctx);
+        await poll();
         expect(await noSession(ctx)).toEqual([]);
+        const apply = async (step: GoneStep) => {
+          const at = ctx.now().toISOString();
+          if (step === 'ended') await setSession(ctx, session, { ended_at: at });
+          else if (step === 'absent') await setSession(ctx, session, { absent_since: at });
+          else if (step === 'new listed killed')
+            await observeHealth(ctx, 'qa-2', 'waiting', 'qa', 'killed');
+          else await observeHealth(ctx, session, 'waiting', project, step.slice('listed '.length));
+        };
+        const [first, ...later] = steps;
         const end = ctx.now().toISOString();
-        const lifecycle = gone.startsWith('listed ') ? gone.slice('listed '.length) : undefined;
-        const finish = () =>
-          lifecycle === undefined
-            ? Promise.resolve()
-            : observeHealth(ctx, session, 'waiting', project, lifecycle);
-        if (lifecycle !== undefined) await finish();
-        else
-          await setSession(
-            ctx,
-            session,
-            gone === 'absent_since' ? { absent_since: end } : { ended_at: end, state: 'stopped' },
-          );
-
-        await reconcile(ctx);
+        if (first !== undefined) await apply(first);
+        await poll();
         expect(await noSession(ctx)).toEqual([]);
         ctx.advance(NO_RECIPIENT - 1);
-        await finish();
-        await reconcile(ctx);
+        // A later poll that still lists the finished session keeps the first finish time.
+        if (first?.startsWith('listed ') === true) await apply(first);
+        await poll();
         expect(await noSession(ctx)).toEqual([]);
         ctx.advance(1);
-        await reconcile(ctx);
-        expect(await active(ctx)).toEqual([
+        await poll();
+        const [item] = await active(ctx);
+        expect(await noSession(ctx)).toEqual([
           expect.objectContaining({ item_key: 'no-session:proj:dev', fact_at: end }),
         ]);
+        const raised = await raisedCount(ctx);
+        const outboxRows = (await ctx.store.db.selectFrom('outbox').select('id').execute()).length;
+
+        for (const step of later) {
+          ctx.advance(60_000);
+          await apply(step);
+          await poll();
+        }
+        ctx.advance(NO_RECIPIENT);
+        await poll();
+        expect(await noSession(ctx)).toEqual([
+          expect.objectContaining({ id: item?.id, cleared_at: null, fact_at: end }),
+        ]);
+        expect(await raisedCount(ctx)).toBe(raised);
+        expect((await ctx.store.db.selectFrom('outbox').select('id').execute()).length).toBe(
+          outboxRows,
+        );
       },
     );
 

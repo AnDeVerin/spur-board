@@ -49,6 +49,8 @@ import { clearItem, raiseItem } from './feed.ts';
 import {
   bestProjectSession,
   curatorSession,
+  earliestTime,
+  LINKED_FINISHED_STATES,
   moveBlockToAddressee,
   selectNotificationRecipient,
 } from './doorbells.ts';
@@ -120,26 +122,38 @@ async function conversationWaiting(
 }
 
 /**
- * The newest stored end, absence or finish among session rows, in milliseconds; -Infinity for
- * none. Each is a moment a session stopped being one a ring could reach.
+ * When the last of `rows` stopped being a session a ring could reach, in milliseconds; -Infinity
+ * for none. A row stopped at the earliest of its stored end, absence and finish, so later
+ * timestamps of the same gap do not move it. A linked orchestrator stays a recipient while absent
+ * or errored or completed, so only its end or a linked finished state counts. A row that stopped
+ * when first seen never was a recipient and counts for nothing.
  */
-function newestGone(
-  rows: readonly Pick<Row<'session_snapshot'>, 'ended_at' | 'absent_since' | 'finished_at'>[],
+function lastLoss(
+  rows: readonly Pick<
+    Row<'session_snapshot'>,
+    'ended_at' | 'absent_since' | 'finished_at' | 'first_seen' | 'state'
+  >[],
+  linked: boolean,
 ) {
-  let newest = -Infinity;
-  for (const row of rows)
-    for (const value of [row.ended_at, row.absent_since, row.finished_at]) {
-      const ms = value === null ? NaN : Date.parse(value);
-      if (ms > newest) newest = ms;
-    }
-  return newest;
+  let last = -Infinity;
+  for (const row of rows) {
+    const loss = earliestTime(
+      linked
+        ? [row.ended_at, LINKED_FINISHED_STATES.includes(row.state) ? row.finished_at : null]
+        : [row.ended_at, row.absent_since, row.finished_at],
+    );
+    const ms = loss === undefined ? NaN : Date.parse(loss);
+    if (ms > Date.parse(row.first_seen) && ms > last) last = ms;
+  }
+  return last;
 }
 
 /**
  * One `no-session:<project>:<column>` item per named-orchestrator column whose untaken turns
  * have rung with no live session to take them for `noRecipientAfterMs`. A ring's wait runs from
- * the later of its creation and the newest stored end, absence or finish of a session that could
- * take it: one of the column's Spur project, or one linked to the task as orchestrator. The
+ * the later of its creation and the moment the last session that could take it stopped being a
+ * recipient (`lastLoss`): one of the column's Spur project, or one linked to the task as
+ * orchestrator. The
  * column's earliest wait start is the item's `factAt`; the summary carries no count or age, so a
  * new waiting turn or a later reconcile raises nothing again.
  */
@@ -197,10 +211,10 @@ async function turnsWithoutSession(
     const spur = timings.orchestrator;
     let gone = spurGone.get(spur);
     if (gone === undefined) {
-      gone = newestGone(
+      gone = lastLoss(
         await trx
           .selectFrom('session_snapshot')
-          .select(['ended_at', 'absent_since', 'finished_at'])
+          .select(['ended_at', 'absent_since', 'finished_at', 'first_seen', 'state'])
           .where('spur_project', '=', spur)
           .where((eb) =>
             eb.or([
@@ -210,12 +224,13 @@ async function turnsWithoutSession(
             ]),
           )
           .execute(),
+        false,
       );
       spurGone.set(spur, gone);
     }
     let linked = linkedGone.get(task.id);
     if (linked === undefined) {
-      linked = newestGone(
+      linked = lastLoss(
         await trx
           .selectFrom('link')
           .innerJoin('session_snapshot', 'session_snapshot.id', 'link.session_id')
@@ -223,12 +238,15 @@ async function turnsWithoutSession(
             'session_snapshot.ended_at',
             'session_snapshot.absent_since',
             'session_snapshot.finished_at',
+            'session_snapshot.first_seen',
+            'session_snapshot.state',
           ])
           .where('link.task_id', '=', task.id)
           .where('link.entity', '=', 'session')
           .where('link.role', '=', 'orchestrator')
           .where('link.banned', '=', 0)
           .execute(),
+        true,
       );
       linkedGone.set(task.id, linked);
     }

@@ -99,9 +99,9 @@ curator questions move to operator.
 A taken turn is reminded, then flagged stuck, after `health.idleInDevAfterMs` of quiet;
 an orchestrator turn of a column with a named orchestrator uses the column's
 `quietTurnAfterMs` instead. When the column's untaken turns have no live session to ring for
-its `noRecipientAfterMs` (default 10 minutes, counted from the later of the ring and the last
-session end, absence or finished state), the operator gets one `no-session:` inbox item per
-column.
+its `noRecipientAfterMs` (default 10 minutes, counted from the later of the ring and the
+moment the last session that could take them stopped being a recipient: its first end, absence
+or finished state), the operator gets one `no-session:` inbox item per column.
 
 ## Course checks and cycle limits
 
