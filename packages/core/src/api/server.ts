@@ -64,7 +64,10 @@ const skillReloadSchema = z.strictObject({
   version: SKILL_VERSION,
   files: skillReloadFilesSchema.optional(),
 });
-const skillReloadsSchema = z.strictObject({ version: SKILL_VERSION, sessions: RELOAD_SESSIONS });
+const skillReloadsSchema = z.strictObject({
+  version: SKILL_VERSION.optional(),
+  sessions: RELOAD_SESSIONS,
+});
 
 function header(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? undefined : value;
@@ -232,7 +235,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     if (!parsed.success) {
       throw new CommandError(
         'usage',
-        'Send {"version": "<x.y.z>", "sessions": ["<session id>", ...]} with 1 to 200 session ids.',
+        'Send {"sessions": ["<session id>", ...]} with 1 to 200 session ids, and optionally "version": "<x.y.z>" for that version only.',
       );
     }
     const { version, sessions } = parsed.data;
@@ -241,7 +244,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
       successEnvelopeSchema.parse({
         ok: true,
         requestId: request.id,
-        value: { version, sessions: records },
+        value: version === undefined ? { sessions: records } : { version, sessions: records },
       }),
     );
   });

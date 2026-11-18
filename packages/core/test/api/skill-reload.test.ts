@@ -94,7 +94,7 @@ const RELOAD_USAGE =
   'Send {"version": "<x.y.z>"} with the installed spur-board version, and optionally "files": {"<SKILL.md or references/<name>.md>": "<ISO time it changed>"}.';
 const CHANGED = '2026-11-04T09:00:00.000Z';
 const RELOADS_USAGE =
-  'Send {"version": "<x.y.z>", "sessions": ["<session id>", ...]} with 1 to 200 session ids.';
+  'Send {"sessions": ["<session id>", ...]} with 1 to 200 session ids, and optionally "version": "<x.y.z>" for that version only.';
 
 describe('POST /v1/skills/reload', () => {
   it('answers not_found when the daemon has no product version', async () => {
@@ -211,7 +211,7 @@ describe('POST /v1/skills/reloads', () => {
     ],
     ['a session id with a slash', { version: '1.2.3', sessions: ['alpha/beta'] }],
     ['a session id over 128 characters', { version: '1.2.3', sessions: ['a'.repeat(129)] }],
-    ['a missing version', { sessions: ['alpha'] }],
+    ['a missing session list', { version: '1.2.3' }],
     ['a bad version', { version: 'latest', sessions: ['alpha'] }],
     ['an extra field', { version: '1.2.3', sessions: ['alpha'], all: true }],
   ])('answers usage for %s', async (_name, body) => {
@@ -258,6 +258,24 @@ describe('POST /v1/skills/reloads', () => {
       const response = await app.inject(reloads({ version: '1.2.3', sessions: ['alpha'] }));
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({ value: { version: '1.2.3', sessions: [] } });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('answers the records of every version without a version', async () => {
+    const { app } = await server({ productVersion: '1.2.3' });
+    try {
+      await app.inject(reload({ version: '1.2.3' }));
+      const response = await app.inject(reloads({ sessions: ['alpha', 'never'] }));
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        ok: true,
+        requestId: response.headers['x-request-id'],
+        value: {
+          sessions: [{ id: 'alpha', state: 'pending', queuedAt: new Date(NOW).toISOString() }],
+        },
+      });
     } finally {
       await app.close();
     }

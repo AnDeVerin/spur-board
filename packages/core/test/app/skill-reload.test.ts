@@ -281,6 +281,48 @@ describe('skillReloads', () => {
     expect(await skillReloads(ctx.store.db, '9.9.9', named)).toEqual([]);
   });
 
+  it('returns the newest record per state over every version without a version', async () => {
+    const ctx = await setup();
+    const at = (seconds: number) => new Date(AT.getTime() + seconds * 1_000);
+    await requestSkillReload(ctx.store, config, '1.2.3', at(0));
+    await ctx.setState('1.2.3', 'linked', 'done');
+    await ctx.setState('1.2.3', 'unlinked', 'done');
+    await requestSkillReload(ctx.store, config, '1.2.4', at(60));
+    await ctx.setState('1.2.4', 'linked', 'dead');
+    await requestSkillReload(ctx.store, config, '1.2.5', at(120));
+    await requestSkillReload(ctx.store, config, '1.2.6', at(180));
+    await ctx.setState('1.2.6', 'linked', 'done');
+    // A doorbell outside the reload keys and a reload key of another session both name linked.
+    for (const key of ['doorbell:ring:1', 'doorbell:skill-reload:9.9.9:other']) {
+      await ctx.store.db
+        .insertInto('outbox')
+        .values({
+          kind: 'doorbell',
+          dedupe_key: key,
+          payload: JSON.stringify({
+            session: 'linked',
+            text: 'x',
+            queuedAt: at(300).toISOString(),
+          }),
+          state: 'done',
+          next_at: at(300).toISOString(),
+        })
+        .execute();
+    }
+
+    expect(await skillReloads(ctx.store.db, undefined, ['unlinked', 'linked', 'never'])).toEqual([
+      { id: 'linked', state: 'delivered', queuedAt: at(180).toISOString() },
+      { id: 'linked', state: 'failed', queuedAt: at(60).toISOString() },
+      { id: 'linked', state: 'pending', queuedAt: at(120).toISOString() },
+      { id: 'unlinked', state: 'delivered', queuedAt: at(0).toISOString() },
+      { id: 'unlinked', state: 'pending', queuedAt: at(180).toISOString() },
+    ]);
+    expect(await skillReloads(ctx.store.db, undefined, ['unlinked'])).toEqual([
+      { id: 'unlinked', state: 'delivered', queuedAt: at(0).toISOString() },
+      { id: 'unlinked', state: 'pending', queuedAt: at(180).toISOString() },
+    ]);
+  });
+
   it('reports failed when Spur rejects the message', async () => {
     const ctx = await setup();
     await requestSkillReload(ctx.store, config, '1.2.3', AT);
