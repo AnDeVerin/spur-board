@@ -17,11 +17,30 @@
   color: var(--color-text-primary);
   overflow-wrap: anywhere;
 }
-.row:hover {
+.entry:hover {
   background: var(--color-row-hover);
 }
-.row + .row {
+.entry + .entry {
   border-top: var(--size-hairline) solid var(--color-border-subtle);
+}
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-1) var(--space-2-5) var(--space-2);
+}
+.status {
+  margin: 0;
+  padding: var(--space-1) var(--space-2-5) var(--space-2);
+  text-align: right;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.error {
+  margin: 0;
+  padding: 0 var(--space-2-5) var(--space-2);
+  font-size: var(--text-micro);
+  color: var(--color-status-error);
+  overflow-wrap: anywhere;
 }
 .action {
   display: block;

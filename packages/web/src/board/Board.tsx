@@ -207,6 +207,7 @@ export function Board({ data }: { data: BoardData }) {
         <InboxPanel
           snapshot={snapshot}
           now={data.now()}
+          closeItem={data.closeItemIntent}
           onClose={() => {
             history.pushState(null, '', withoutOpen());
             setInboxOpen(false);

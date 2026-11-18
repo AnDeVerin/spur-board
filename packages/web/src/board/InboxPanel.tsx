@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import { focusRing, quiet, SidePanel, TabPanel, Tabs } from '../ds/index.ts';
+import { browserOperations } from '@spur-board/contracts/browser';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { focusRing, quiet, SidePanel, TabPanel, Tabs, TextToggle } from '../ds/index.ts';
 import { safeExternalUrl } from '../lib/links.ts';
-import type { BoardSnapshot } from './data.ts';
+import type { BoardData, BoardSnapshot } from './data.ts';
 import { open } from './Card.tsx';
 import { openHref, shortKey } from './model.ts';
 import { age } from './task-model.ts';
@@ -9,6 +10,19 @@ import styles from './InboxPanel.module.css';
 
 type Inbox = NonNullable<BoardSnapshot['inbox']>;
 type Entry = Inbox['items'][number];
+type CloseIntent = ReturnType<BoardData['closeItemIntent']>;
+/** A Close in flight or confirmed, or the error of the last one; `unavailable` was refused. */
+interface CloseState {
+  phase: 'idle' | 'sending' | 'confirmed';
+  error?: { text: string; unavailable: boolean } | undefined;
+}
+
+const closable = (entry: Entry) =>
+  browserOperations['item.close'].input.safeParse({ item: entry.id }).success;
+const rowOf = (box: HTMLElement | null, id: string) =>
+  [...(box?.querySelectorAll<HTMLElement>('[data-inbox-id]') ?? [])].find(
+    (element) => element.dataset['inboxId'] === id,
+  );
 
 /** The operator query is already scoped across projects; filtering is local to this panel. */
 export function InboxPanel({
@@ -16,15 +30,24 @@ export function InboxPanel({
   now,
   onClose,
   onOpen,
+  closeItem,
 }: {
   snapshot: BoardSnapshot;
   now: number;
   onClose: () => void;
   onOpen: (entry: Entry) => void;
+  closeItem: BoardData['closeItemIntent'];
 }) {
   const [selected, select] = useState('all');
   const id = useId();
   const filters = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  // One intent per entry for the life of the panel, so a retry reuses its key.
+  const intents = useRef(new Map<string, CloseIntent>());
+  const [closes, setCloses] = useState<Record<string, CloseState>>({});
+  // The active entry that holds focus, its element and its index in the visible list.
+  const focused = useRef<{ id: string; element: Element; index: number } | undefined>(undefined);
+  const available = !snapshot.readFailed && snapshot.stream !== 'offline';
   const items = snapshot.inbox?.items;
   const tabs = [
     { value: 'all', label: 'All', count: items?.length },
@@ -53,6 +76,71 @@ export function InboxPanel({
     (a, b) =>
       Number(b.severity === 'failure') - Number(a.severity === 'failure') ||
       b.at.localeCompare(a.at),
+  );
+  const close = (entry: Entry) => {
+    if (closes[entry.id]?.phase === 'sending') return;
+    let intent = intents.current.get(entry.id);
+    if (intent === undefined) {
+      intent = closeItem(entry.id);
+      intents.current.set(entry.id, intent);
+    }
+    const unavailable = !available;
+    const set = (state: CloseState) => {
+      setCloses((current) => ({ ...current, [entry.id]: state }));
+    };
+    set({ phase: 'sending' });
+    intent.run().then(
+      () => {
+        // The control gives way to a status line: keep focus in the entry, on its row.
+        const element = rowOf(box.current, entry.id);
+        const active = document.activeElement;
+        if (element && active !== element && element.parentElement?.contains(active))
+          element.focus();
+        set({ phase: 'confirmed' });
+      },
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : 'the request failed.';
+        set({
+          phase: 'idle',
+          error: { text: `Could not close ${entry.id}: ${message}`, unavailable },
+        });
+      },
+    );
+  };
+  const footer = (entry: Entry) => {
+    const state = closes[entry.id];
+    const error = state?.error?.unavailable && available ? undefined : state?.error;
+    return (
+      <>
+        {state?.phase === 'confirmed' ? (
+          <p className={styles.status} role="status">
+            Closed {entry.id}, waiting for the board.
+          </p>
+        ) : (
+          <div className={styles.footer}>
+            <TextToggle
+              busy={state?.phase === 'sending'}
+              onClick={() => {
+                close(entry);
+              }}
+            >
+              {state?.phase === 'sending' ? `Closing ${entry.id}` : `Close ${entry.id}`}
+            </TextToggle>
+          </div>
+        )}
+        {error && (
+          <p className={styles.error} role="alert">
+            {error.text}
+          </p>
+        )}
+      </>
+    );
+  };
+  const entryOf = (entry: Entry, handled = false) => (
+    <div key={entry.id} className={`${styles.entry ?? ''} ${quiet}`} data-inbox-entry={entry.id}>
+      {row(entry, handled)}
+      {!handled && closable(entry) && footer(entry)}
+    </div>
   );
   const row = (entry: Entry, handled = false) => {
     const suffix = entry.action === undefined ? undefined : `: ${entry.action}`;
@@ -90,7 +178,6 @@ export function InboxPanel({
     if (entry.task === null && url !== null)
       return (
         <a
-          key={entry.id}
           className={className}
           href={url}
           target="_blank"
@@ -103,7 +190,6 @@ export function InboxPanel({
       );
     return entry.task === null ? (
       <div
-        key={entry.id}
         className={className}
         tabIndex={0}
         data-inbox-id={entry.id}
@@ -130,6 +216,29 @@ export function InboxPanel({
   };
   const visible = active.filter(matches);
   const handled = snapshot.inbox?.handled.filter(matches) ?? [];
+  const ids = visible.map((entry) => entry.id).join(' ');
+  useLayoutEffect(() => {
+    const tracked = focused.current;
+    if (tracked === undefined) return;
+    const list = ids === '' ? [] : ids.split(' ');
+    const index = list.indexOf(tracked.id);
+    if (index !== -1) {
+      tracked.index = index;
+      return;
+    }
+    // The entry that held focus is gone: move on to its neighbour unless focus went elsewhere.
+    const active = document.activeElement;
+    if (tracked.element.isConnected && active !== null && active !== document.body) return;
+    focused.current = undefined;
+    const next = list[Math.min(tracked.index, list.length - 1)];
+    const target =
+      next === undefined
+        ? box.current
+            ?.closest('[role="dialog"]')
+            ?.querySelector<HTMLElement>('[aria-label="Close"]')
+        : rowOf(box.current, next);
+    target?.focus();
+  }, [ids]);
   return (
     <SidePanel
       open
@@ -159,9 +268,26 @@ export function InboxPanel({
           <p className={styles.empty}>Inbox data is not available yet.</p>
         ) : (
           <>
-            <div className={styles.box}>
+            <div
+              ref={box}
+              className={styles.box}
+              onFocus={(event) => {
+                const element = event.target.closest('[data-inbox-entry]');
+                const entry = element?.getAttribute('data-inbox-entry');
+                focused.current =
+                  element && entry
+                    ? { id: entry, element: event.target, index: ids.split(' ').indexOf(entry) }
+                    : undefined;
+              }}
+              onBlur={(event) => {
+                // Focus that moves out of the list ends tracking; a removed element blurs to null.
+                const next = event.relatedTarget;
+                if (next !== null && !event.currentTarget.contains(next))
+                  focused.current = undefined;
+              }}
+            >
               {visible.length ? (
-                visible.map((entry) => row(entry))
+                visible.map((entry) => entryOf(entry))
               ) : (
                 <p className={styles.empty}>Nothing waits for you here.</p>
               )}
@@ -170,7 +296,7 @@ export function InboxPanel({
               <h2 className={styles.heading}>Recently handled</h2>
               <div className={styles.box}>
                 {handled.length ? (
-                  handled.map((entry) => row(entry, true))
+                  handled.map((entry) => entryOf(entry, true))
                 ) : (
                   <p className={styles.empty}>Nothing yet.</p>
                 )}

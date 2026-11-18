@@ -374,6 +374,33 @@ export function createBoardData(options: BoardDataOptions) {
       writeIntent(key, 'block.followup', { block, text }),
     commentIntent: (key: string, text: string) =>
       writeIntent(key, 'comment.add', { task: state.task?.value?.task.key ?? key, text }),
+    /**
+     * Close one operator inbox item; the object owns one idempotent intent. Refused while the
+     * board is unavailable; a confirmed close re-reads the inbox and later runs return at once.
+     */
+    closeItemIntent: (item: string) => {
+      const intent = createMutationIntent(api, 'item.close', { item });
+      let pending: Promise<void> | undefined;
+      let confirmed = false;
+      return {
+        run(): Promise<void> {
+          if (confirmed) return Promise.resolve();
+          if (pending) return pending;
+          if (stopped || state.readFailed || state.stream === 'offline')
+            return Promise.reject(new Error('the board is unavailable.'));
+          pending = intent
+            .run()
+            .then(() => {
+              confirmed = true;
+              inbox.refresh();
+            })
+            .finally(() => {
+              pending = undefined;
+            });
+          return pending;
+        },
+      };
+    },
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
     /**
      * Open a task by key, or close it with null: read `task.get` with why, then again whenever the
