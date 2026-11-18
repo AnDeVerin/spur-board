@@ -918,6 +918,13 @@ export async function readInput(
         unhandledExternalComments: unhandled.length,
         unresolvedThreads:
           pr === null ? 0 : pr.reviewThreads.filter((thread) => !thread.resolved).length,
+        // Handing feedback over advances its cursor; it does not finish the repair. Threads
+        // are exposed from live PR facts rather than stored in handed, so retain their reason
+        // even after GitHub reports them resolved. A submit closes this turn and releases it.
+        devSubmitRequired:
+          unclosed?.column === 'dev' &&
+          ((await carriedFeedback(trx, unclosed)).length > 0 ||
+            unclosed.reason.includes('unresolved_threads')),
         marks,
       },
       reopened:

@@ -198,7 +198,18 @@ export function dispatch(input: DispatchInput): DispatchResult {
   let { column, facts, turn } = input;
   const move = (to: ColumnId, reason: MoveReason, gate?: GateReason[]) => {
     moves.push({ from: column, to, reason, ...(gate === undefined ? {} : { gate }) });
-    if (indexOf(to) < indexOf(column)) facts = { ...facts, marks: dropSubmits(facts.marks, to) };
+    if (indexOf(to) < indexOf(column)) {
+      facts = {
+        ...facts,
+        marks: dropSubmits(facts.marks, to),
+        devSubmitRequired:
+          facts.devSubmitRequired === true ||
+          (to === 'dev' &&
+            gate?.some(
+              (reason) => reason === 'external_comments' || reason === 'unresolved_threads',
+            ) === true),
+      };
+    }
     column = to;
     turn = NO_TURN;
   };

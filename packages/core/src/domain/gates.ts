@@ -37,6 +37,8 @@ export interface TaskGateFacts {
   unhandledExternalComments: number;
   /** Unresolved review threads on the pull request, outdated ones included; 0 without one. */
   unresolvedThreads: number;
+  /** A Dev feedback repair is outstanding; earlier worker submits cannot discharge it. */
+  devSubmitRequired?: boolean;
   /**
    * Submits and marks of the task, on any head. On a move left to a column, the caller drops the
    * visit submits of that column and of every column right of it, preserving QA submits and
@@ -158,6 +160,7 @@ function executorDone(
 ): boolean {
   const head = facts.pr?.headSha;
   if (head === undefined) return false;
+  if (column === 'dev' && facts.devSubmitRequired === true) return false;
   const onHead = facts.marks.filter((mark) => mark.headSha === head);
   if (onHead.some((mark) => mark.column === column)) return true;
   if (orchestratorOf(column, columns) !== 'none') return false;

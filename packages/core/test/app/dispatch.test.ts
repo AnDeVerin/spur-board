@@ -667,6 +667,74 @@ async function inQa(): Promise<Board> {
 }
 
 describe('QA evidence across visits', () => {
+  it.each(['comment', 'review', 'changes_requested', 'edited', 'thread', 'rerouted'] as const)(
+    'requires a fresh Dev submit for handed %s feedback while retaining worker QA',
+    async (kind) => {
+      const ctx = await inQa();
+      await ctx.submit(COORD, 'T4');
+      ctx.restart({ qa: true, qaOrchestrator: 'none' });
+      await ctx.github();
+      await ctx.spur();
+      const feedback = {
+        kind:
+          kind === 'review' || kind === 'changes_requested'
+            ? ('review' as const)
+            : ('comment' as const),
+        id: 'feedback-1',
+        author: { login: EXTERNAL, type: 'user' as const },
+        postedAt: ctx.at(),
+        ...(kind === 'review' ? { state: 'commented' as const } : {}),
+        ...(kind === 'changes_requested' ? { state: 'changes_requested' as const } : {}),
+      };
+      if (kind === 'rerouted') await ctx.spur('ended');
+      const thread = {
+        id: 'thread-1',
+        url: 'https://github.com/o/r/pull/7#discussion_r1',
+        resolved: false,
+      };
+      if (kind === 'thread') await ctx.pr({ reviewThreads: [thread] });
+      else await ctx.pr({ feedback: [feedback] });
+      let repair = await ctx.openTurn();
+      let actor = WORKER;
+      if (kind === 'rerouted') {
+        expect(repair).toMatchObject({ column: 'dev', role: 'operator' });
+        await ctx.session(sessionFacts('worker-2', 'worker'));
+        actor = 'agent:worker/worker-2';
+        repair = await ctx.openTurn();
+        expect(repair).toMatchObject({ column: 'dev', role: 'worker' });
+      }
+      if (kind === 'edited') {
+        await ctx.ack(WORKER, repair?.id ?? '');
+        await ctx.submit(WORKER, repair?.id ?? '');
+        await ctx.pr({ feedback: [{ ...feedback, editedAt: ctx.at() }] });
+        repair = await ctx.openTurn();
+      }
+      expect(repair).toMatchObject({ column: 'dev' });
+      expect(JSON.parse(repair?.handed ?? '[]')).toHaveLength(kind === 'thread' ? 0 : 1);
+      await ctx.tick();
+      expect(await ctx.openTurn()).toEqual(repair);
+      await ctx.ack(actor, repair?.id ?? '');
+      if (kind === 'thread') await ctx.pr({ reviewThreads: [{ ...thread, resolved: true }] });
+      ctx.restart({ qa: true, qaOrchestrator: 'none' });
+      await ctx.github();
+      await ctx.spur();
+      await ctx.tick();
+      expect(await ctx.openTurn()).toEqual(repair);
+      expect((await ctx.task()).column).toBe('dev');
+      expect(
+        await ctx.store.db
+          .selectFrom('submission')
+          .select('voided_at')
+          .where('column', '=', 'qa')
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ voided_at: null });
+      await ctx.submit(actor, repair?.id ?? '');
+      await ctx.tick();
+      expect((await ctx.task()).column).toBe('ready-to-merge');
+      expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
+    },
+  );
+
   it('keeps confirmed QA through a same-head Dev repair without another QA turn', async () => {
     const ctx = await inQa();
     await ctx.submit(COORD, 'T4');
