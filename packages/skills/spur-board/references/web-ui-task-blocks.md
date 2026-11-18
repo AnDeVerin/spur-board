@@ -40,10 +40,12 @@ After success the view rereads authoritative task data. While that read runs it 
 success remains confirmed and **Refresh task** retries only the read. It cannot resend that
 successful intent. Text edited during a send survives completion of the earlier revision.
 Closing the dialog does not persist drafts. Unsent text survives the reload after a board
-update: before the automatic reload a send in progress finishes first, and text whose send
-failed comes back as unsent text, so sending it again makes a new request. **Retry now** and
-**Reload** reload at once: a send in progress is cut off and its text comes back as unsent, so
-sending it again can repeat a write that already went through.
+update: before the automatic reload the page waits up to 15 seconds for a send in progress, and
+text whose send failed comes back as unsent text, so sending it again makes a new request. A
+send still in progress after 15 seconds stops the wait: the update banner offers **Reload**
+instead, and the page does not reload itself. **Retry now** and **Reload** reload at once: a
+send in progress is cut off and its text comes back as unsent, so sending it again can repeat a
+write that already went through.
 
 If a question closes, is withdrawn or is reassigned while you type, a newer unsent revision
 stays visible as selectable **Unsent answer draft** text. It is read-only: it offers no send. An unchanged confirmed submission clears after canonical

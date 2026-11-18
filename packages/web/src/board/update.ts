@@ -5,8 +5,9 @@
 
 /**
  * A daemon on another version answered. `reloading`: the page reloads now. `deferred`: a send is
- * in flight and the reload waits for it. `blocked`: the page will not reload itself, because it
- * already reloaded once for this version or session storage failed; `keepsDrafts` is false then.
+ * in flight and the reload waits for it, up to `DEFER_LIMIT_MS`. `blocked`: the page will not
+ * reload itself, because it already reloaded once for this version, a send outlasted the wait, or
+ * session storage failed; `keepsDrafts` is false only for the last.
  */
 export interface BoardUpdate {
   version: string;
@@ -41,6 +42,12 @@ interface UpdateCheck {
 }
 
 const DRAFTS_KEY = 'board-drafts';
+/**
+ * How long a deferred reload waits for sends in flight. A send or its reread has no timeout of its
+ * own; past this the update turns `blocked`, so the banner offers Reload, and nothing is cut off
+ * until the user presses it.
+ */
+const DEFER_LIMIT_MS = 15_000;
 const TARGET_KEY = 'board-reload-target';
 
 function parseDrafts(raw: string): [string, string][] {
@@ -58,7 +65,8 @@ function parseDrafts(raw: string): [string, string][] {
 
 /**
  * Without `options` nothing here touches session storage. `publish` hears each change of the
- * update: at most twice per page, on detection and when a deferred reload fires or is blocked.
+ * update: at most twice per page, on detection and when a deferred reload fires, is blocked or
+ * outlasts `DEFER_LIMIT_MS`.
  */
 export function createUpdateCheck(
   options: UpdateOptions | undefined,
@@ -82,6 +90,7 @@ export function createUpdateCheck(
   let storageFailed = false;
   let matched = false;
   let current: BoardUpdate | undefined;
+  let deferTimer: ReturnType<typeof setTimeout> | undefined;
   const restored = new Map<string, string>();
   const reported = new Map<string, { text: string; busy: boolean }>();
 
@@ -95,6 +104,8 @@ export function createUpdateCheck(
     }
   };
   const set = (next: BoardUpdate) => {
+    clearTimeout(deferTimer);
+    deferTimer = undefined;
     current = next;
     publish(next);
   };
@@ -121,8 +132,13 @@ export function createUpdateCheck(
     const marker = session((storage) => storage.getItem(TARGET_KEY));
     if (storageFailed) set({ version: target, mode: 'blocked', keepsDrafts: false });
     else if (marker === target) set({ version: target, mode: 'blocked', keepsDrafts: true });
-    else if (busy()) set({ version: target, mode: 'deferred', keepsDrafts: true });
-    else fire(target);
+    else if (busy()) {
+      set({ version: target, mode: 'deferred', keepsDrafts: true });
+      deferTimer = setTimeout(() => {
+        // The user's Reload already went: the page is leaving.
+        if (!fired) set({ version: target, mode: 'blocked', keepsDrafts: true });
+      }, DEFER_LIMIT_MS);
+    } else fire(target);
   };
   const observe = (response: Response) => {
     if (stopped) return;
@@ -176,6 +192,8 @@ export function createUpdateCheck(
     },
     stop() {
       stopped = true;
+      clearTimeout(deferTimer);
+      deferTimer = undefined;
     },
   };
 }

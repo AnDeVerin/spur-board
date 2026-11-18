@@ -19,6 +19,8 @@ mountEachTest();
 const PAGE = '1.0.0';
 const NEXT = '2.0.0';
 const OPEN = '/?open=ex%2Frepo%237';
+/** How long a deferred reload waits for a send, `DEFER_LIMIT_MS` in `src/board/update.ts`. */
+const WAIT_LIMIT = 15_000;
 
 /**
  * Re-wraps every answer of `fetcher`, the event stream's included, with the `x-board-version`
@@ -274,6 +276,65 @@ describe('drafts across a board update', () => {
     sent.resolve(await accepted({}));
     await settle();
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('a send that settles within the wait limit still reloads by itself', async () => {
+    start();
+    const { d, reload } = await open(memorySession());
+    const accepted = d.routes['block.answer'];
+    const sent = deferred();
+    d.routes['block.answer'] = () => sent.promise;
+    typeText(field(0), 'an answer');
+    submit(field(0));
+    await settle();
+    await update(d);
+    await act(() => vi.advanceTimersByTimeAsync(WAIT_LIMIT - 1));
+    expect(mounted().snapshot().update?.mode).toBe('deferred');
+    sent.resolve(await accepted({}));
+    await settle();
+    expect(reload).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(WAIT_LIMIT));
+    expect(mounted().snapshot().update?.mode).toBe('reloading');
+    expect(updateAlert()).toBeUndefined();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('a send that never settles shows Reload after the wait limit', async () => {
+    start();
+    const session = memorySession();
+    const { d, reload } = await open(session);
+    d.routes['block.answer'] = () => new Promise<Response>(() => undefined);
+    typeText(field(0), 'an answer');
+    submit(field(0));
+    await settle();
+    await update(d);
+    let notified = 0;
+    const unsubscribe = mounted().subscribe(() => {
+      notified++;
+    });
+    await act(() => vi.advanceTimersByTimeAsync(WAIT_LIMIT - 1));
+    expect(mounted().snapshot().update?.mode).toBe('deferred');
+    expect(updateAlert()).toBeUndefined();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    unsubscribe();
+    expect(notified).toBe(1);
+    expect(mounted().snapshot().update).toEqual({
+      version: NEXT,
+      mode: 'blocked',
+      keepsDrafts: true,
+    });
+    expect(updateAlert()?.textContent).toContain(
+      `The board was updated to ${NEXT}. Reload to continue.`,
+    );
+    expect(reload).not.toHaveBeenCalled();
+    act(() => {
+      button('Reload').click();
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(session.values.get('board-drafts') ?? '{}')).toEqual({
+      [JSON.stringify(['answer', 'ex/repo#7', 'B12'])]: 'an answer',
+    });
+    expect(session.values.get('board-reload-target')).toBe(NEXT);
   });
 
   it('a failed send does not hold the reload', async () => {
