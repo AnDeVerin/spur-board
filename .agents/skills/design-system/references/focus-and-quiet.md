@@ -11,7 +11,8 @@
   other outline, and any outline in CSS under `src/` outside `src/ds/`. A focusable screen element
   with no ds component, such as a card link, takes the `focusRing` class from `ds/index.ts`.
   Native elements in example scaffolding keep the browser ring.
-- Disabled controls are not focusable, so they show no ring.
+- Disabled controls are not focusable, except a disabled HoverMenu item: it keeps roving focus
+  and the ring, and is announced as disabled with its cause.
 - Each focusable component has a `Focused` example whose caption names the keys to press.
 
 ## Quiet pattern
