@@ -2,7 +2,8 @@ import { browserOperations } from '@spur-board/contracts/browser';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { focusRing, quiet, SidePanel, TabPanel, Tabs, TextToggle } from '../ds/index.ts';
 import { safeExternalUrl } from '../lib/links.ts';
-import type { BoardData, BoardSnapshot } from './data.ts';
+import { ProblemError } from '../lib/api.ts';
+import { BoardUnavailableError, type BoardData, type BoardSnapshot } from './data.ts';
 import { open } from './Card.tsx';
 import { openHref, shortKey } from './model.ts';
 import { age } from './task-model.ts';
@@ -99,7 +100,12 @@ export function InboxPanel({
         set({ phase: 'confirmed' });
       },
       (error: unknown) => {
-        const message = error instanceof Error ? error.message : 'the request failed.';
+        // Only daemon problems and the refusal have operator-facing text; a raw parse or network
+        // error does not.
+        const message =
+          error instanceof ProblemError || error instanceof BoardUnavailableError
+            ? error.message
+            : 'the request failed.';
         set({
           phase: 'idle',
           error: { text: `Could not close ${entry.id}: ${message}`, unavailable },

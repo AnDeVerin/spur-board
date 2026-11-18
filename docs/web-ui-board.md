@@ -31,8 +31,9 @@ Header, left to right:
   with it and a failed post stays unsent. Blocks, turns and handled entries have none. It reads
   `Closing I<n>` while sent, then `Closed I<n>, waiting for the board.` until the re-read moves
   the entry to handled; focus then goes to the next row, else the previous one, else panel Close.
-  A failure keeps the entry with `Could not close I<n>: <message>`, also while the daemon or live
-  updates are unavailable.
+  A failure keeps the entry with `Could not close I<n>: <message>`: the daemon's problem message,
+  `the request failed.` for any other failure, or `the board is unavailable.` while the daemon or
+  live updates are unavailable.
 
 Columns follow configuration order:
 

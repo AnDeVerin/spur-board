@@ -9,6 +9,14 @@ import {
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
 
+/** `closeItemIntent` refused to send because the board is unavailable. */
+export class BoardUnavailableError extends Error {
+  constructor() {
+    super('the board is unavailable.');
+    this.name = 'BoardUnavailableError';
+  }
+}
+
 export type BoardConfig = Output<'config.get'>;
 type BoardStatus = Output<'status.get'>;
 type BoardInbox = Output<'inbox.operator'>;
@@ -387,7 +395,7 @@ export function createBoardData(options: BoardDataOptions) {
           if (confirmed) return Promise.resolve();
           if (pending) return pending;
           if (stopped || state.readFailed || state.stream === 'offline')
-            return Promise.reject(new Error('the board is unavailable.'));
+            return Promise.reject(new BoardUnavailableError());
           pending = intent
             .run()
             .then(() => {

@@ -196,6 +196,20 @@ describe('inbox Close', () => {
     expect(bodies[1]?.key).toBe(bodies[0]?.key);
   });
 
+  it('hides a raw parse error behind the plain fallback', async () => {
+    const d = daemon();
+    serveInbox(d, [item('I1')]);
+    d.routes['item.close'] = () =>
+      Promise.resolve(new Response('<html>Bad gateway</html>', { status: 502 }));
+    await openInbox(d);
+    activate('Close I1');
+    await settle();
+    expect(activeIds()).toEqual(['I1']);
+    expect(layerOne('[role="dialog"] [role="alert"]').textContent).toBe(
+      'Could not close I1: the request failed.',
+    );
+  });
+
   it('refuses a close while the board is unavailable', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const d = daemon();
