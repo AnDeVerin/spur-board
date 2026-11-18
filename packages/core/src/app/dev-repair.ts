@@ -146,13 +146,19 @@ export async function recognizeDevRepair(trx: Trx, ctx: Context, candidate: Reco
 }
 
 /** One explicit handover binds the recognition revision set; later work gets another turn. */
-export async function adoptDevRepair(trx: Trx, ctx: Context, turn: number) {
+export async function adoptDevRepair(trx: Trx, ctx: Context, turn: number, source?: number) {
   const state = await readDevRepair(trx, ctx.task.id);
-  if (state.adoptions.has(label(turn)) || state.outstanding.size === 0) return;
+  if (state.adoptions.has(label(turn))) return;
+  const recognitions = (
+    source === undefined
+      ? [...state.outstanding.keys()]
+      : (state.adoptions.get(label(source)) ?? [])
+  ).filter((id) => state.outstanding.has(id));
+  if (recognitions.length === 0) return;
   await write(trx, ctx, {
     action: 'adopted',
     turn: label(turn),
-    recognitions: [...state.outstanding.keys()],
+    recognitions,
   });
 }
 

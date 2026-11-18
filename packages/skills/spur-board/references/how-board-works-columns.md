@@ -81,6 +81,7 @@ A Dev turn carrying new feedback or unresolved threads requires a fresh Dev subm
 retained QA stays valid but cannot discharge that repair.
 Only a confirmed Dev submission completes the repair. A pending receipt keeps its
 feedback obligation; failed confirmation hands that work back to Dev.
+Rerouting transfers adopted work without creating a duplicate repair.
 Recognition is recorded before a turn or move can be deferred by blind Spur or a
 cycle/course hold, including work recognized while already in Dev. Resolving a
 thread, changing head/executor/epoch, or disabling its rule does not cancel recorded

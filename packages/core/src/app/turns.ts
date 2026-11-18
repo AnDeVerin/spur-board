@@ -27,6 +27,7 @@ import {
   turnReminderKey,
 } from './doorbells.ts';
 import { clearItem, raiseItem } from './feed.ts';
+import { adoptDevRepair, importLegacyDevRepair } from './dev-repair.ts';
 
 // A turn hands a task's column visit `(column, column_epoch)` to the column's executor. Every
 // function takes `at` from the caller, so it is safe inside a scan transaction.
@@ -288,7 +289,10 @@ export async function rerouteDemotedWorkerTurn(
     .executeTakeFirstOrThrow();
   await closeTurns(trx, { taskId, reason: 'rerouted', at });
   const handed = await carriedFeedback(trx, turn);
-  await openTurn(trx, { task, reason: turn.reason, handed, at, config });
+  const repair = { task, at: at.toISOString() };
+  await importLegacyDevRepair(trx, repair, turn);
+  const opened = await openTurn(trx, { task, reason: turn.reason, handed, at, config });
+  if (task.column === 'dev') await adoptDevRepair(trx, repair, opened.id, turn.id);
   return true;
 }
 

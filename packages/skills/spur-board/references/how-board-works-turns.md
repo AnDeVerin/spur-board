@@ -49,8 +49,8 @@ worker submission on the same head remains valid in QA.
 A pending repair keeps its feedback and thread obligation until confirmation.
 If confirmation fails, the replacement Dev turn carries that work and needs a
 fresh submit; act on the replacement turn.
-Each turn adopts exact recognized revisions; its accepted receipt covers only
-those revisions. Confirmation cannot clear later feedback, and voiding a completed
+Reroutes retain adopted work without recognizing it again. Receipts cover only
+their turn's adopted revisions. Confirmation cannot clear later feedback, and voiding a completed
 receipt does not reopen its work. Captured thread links survive resolution and rule
 changes in the repair reason. Shadow suspends enforcement without discarding work;
 an already-covered receipt may confirm there, but a turnless shadow submit cannot

@@ -694,6 +694,109 @@ async function workerQa() {
 }
 
 describe('QA evidence across visits', () => {
+  it.each([
+    ...(['manual-demotion', 'observed-demotion', 'normal-reroute'] as const).flatMap((path) =>
+      (['confirmed', 'pending', 'pending-before', 'pending-later'] as const).map((receipt) => ({
+        path,
+        receipt,
+      })),
+    ),
+    { path: 'legacy-demotion', receipt: 'confirmed' } as const,
+  ])('preserves repair identity through $path ($receipt)', async ({ path, receipt }) => {
+    const ctx = await workerQa();
+    const feedback = {
+      kind: 'comment' as const,
+      id: 'replacement-work',
+      author: { login: EXTERNAL, type: 'user' as const },
+      postedAt: ctx.at(),
+    };
+    const options = { qa: true, qaOrchestrator: 'none', workerRole: 'worker' as const };
+    ctx.restart(options);
+    await ctx.github();
+    await ctx.spur(path === 'normal-reroute' ? 'ended' : 'live');
+    await ctx.pr({ feedback: [feedback] });
+    const original = await ctx.openTurn();
+    let recognized = (await repairs(ctx)).filter((row) => row.payload.action === 'recognized');
+    expect(recognized).toHaveLength(1);
+    let ids = recognized.map((row) => row.id);
+    expect(
+      (await repairs(ctx)).find((row) => row.payload.action === 'adopted')?.payload,
+    ).toMatchObject({ turn: original?.id, recognitions: ids });
+    if (path !== 'normal-reroute') await ctx.ack(WORKER, original?.id ?? '');
+    if (receipt === 'pending-before')
+      await ctx.pr({ feedback: [{ ...feedback, editedAt: ctx.at() }] });
+    await ctx.session({
+      ...sessionFacts('replacement-1', 'replacement'),
+      links: { 'board-worker': 'https://github.com/o/r/issues/9' },
+    });
+    const actor: ActorId = 'agent:replacement/replacement-1';
+    if (path !== 'normal-reroute') {
+      if (path === 'legacy-demotion')
+        await ctx.store.db.deleteFrom('event').where('kind', '=', 'dev_repair').execute();
+      ctx.restart({ ...options, workerRole: 'orchestrator' });
+      if (path === 'manual-demotion') await ctx.linkSession('worker-1');
+      else await ctx.session(sessionFacts('worker-1', 'worker'));
+    }
+    const replacement = await ctx.openTurn();
+    if (path === 'legacy-demotion') {
+      recognized = (await repairs(ctx)).filter((row) => row.payload.action === 'recognized');
+      expect(recognized).toHaveLength(1);
+      expect(recognized[0]?.payload).toMatchObject({ legacyTurn: original?.id });
+      ids = recognized.map((row) => row.id);
+    }
+    expect(replacement).toMatchObject({ column: 'dev', role: 'worker' });
+    expect(replacement?.id).not.toBe(original?.id);
+    expect(JSON.parse(replacement?.handed ?? '[]')).toMatchObject([{ id: feedback.id }]);
+    await ctx.github();
+    await ctx.spur();
+    await ctx.ack(actor, replacement?.id ?? '');
+    const handedRecognitions = (await repairs(ctx)).filter(
+      (row) => row.payload.action === 'recognized',
+    );
+    const acceptedIds =
+      receipt === 'pending-before' && path === 'normal-reroute'
+        ? handedRecognitions.map((row) => row.id)
+        : ids;
+    if (receipt !== 'confirmed')
+      ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+    await expect(
+      ctx.submit(actor, replacement?.id ?? '', receipt === 'confirmed' ? A : B),
+    ).resolves.toMatchObject({ status: receipt === 'confirmed' ? 'confirmed' : 'pending' });
+    const covered = (await repairs(ctx)).find((row) => row.payload.action === 'covered');
+    expect(covered?.payload).toMatchObject({ turn: replacement?.id, recognitions: acceptedIds });
+    expect((await repairs(ctx)).filter((row) => row.payload.action === 'recognized')).toEqual(
+      handedRecognitions,
+    );
+    if (receipt !== 'confirmed') {
+      if (receipt === 'pending-later')
+        await ctx.pr({ headSha: B, feedback: [{ ...feedback, editedAt: ctx.at() }] });
+      ctx.restart({
+        ...options,
+        ...(path === 'normal-reroute' ? {} : { workerRole: 'orchestrator' }),
+      });
+      await ctx.pr({ headSha: B });
+      await ctx.spur();
+    }
+    const completed = (await repairs(ctx)).filter((row) => row.payload.action === 'completed');
+    expect(completed).toHaveLength(1);
+    expect(completed[0]?.payload).toMatchObject({ recognitions: acceptedIds });
+    const laterTurn =
+      receipt === 'pending-later' || (receipt === 'pending-before' && path !== 'normal-reroute');
+    if (laterTurn) {
+      const next = await ctx.openTurn();
+      expect(next).toMatchObject({ column: 'dev' });
+      const later = (await repairs(ctx)).filter((row) => row.payload.action === 'recognized');
+      expect(later).toHaveLength(2);
+      expect(later[1]?.id).not.toBe(ids[0]);
+      await ctx.ack(actor, next?.id ?? '');
+      await ctx.submit(actor, next?.id ?? '', B);
+    }
+    expect((await ctx.task()).column).toBe(receipt === 'confirmed' ? 'ready-to-merge' : 'review');
+    expect((await ctx.turns()).filter((turn) => turn.column === 'dev')).toHaveLength(
+      laterTurn ? 4 : 3,
+    );
+  });
+
   it('rolls receipt and coverage back together when a lifecycle write fails', async () => {
     const ctx = await workerQa();
     await ctx.pr({
