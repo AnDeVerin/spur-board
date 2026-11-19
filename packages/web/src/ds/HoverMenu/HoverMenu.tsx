@@ -25,31 +25,44 @@ export type HoverMenuItem<V extends string> = {
 /** Both menu item roles, in DOM order: the roving focus and the open target walk these. */
 const itemSelector = '[role="menuitemradio"], [role="menuitem"]';
 
-type OpenMenu = { root: HTMLElement; escape: () => void };
+export type OpenMenu = { root: HTMLElement; escape: () => void };
 
-/** Open menus in opening order; one document key listener serves them all while any is open. */
+/**
+ * Open menus and popovers in registration order; one document key listener serves them all while
+ * any is open. Registration order is not nesting order: a child's effect runs before its parent's.
+ */
 const openMenus: OpenMenu[] = [];
 
 /**
- * Closes one menu per Escape: the live menu holding focus, else the most recently opened live
- * one. A menu under a layer (inside an `inert` element) is not live. The listener sits on
- * `document`, so it runs before the layer's `window` listener, which skips the handled event.
+ * Closes one menu or popover per Escape: the innermost live entry holding focus (one whose root
+ * contains no other live entry holding focus), else the most recently registered live one. An
+ * entry under a layer (inside an `inert` element) is not live. The listener sits on `document`,
+ * so it runs before the layer's `window` listener, which skips the handled event.
  */
 function onEscape(event: globalThis.KeyboardEvent): void {
   if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
   const live = openMenus.filter((menu) => menu.root.closest('[inert]') === null);
-  const target = live.find((menu) => menu.root.contains(document.activeElement)) ?? live.at(-1);
+  const focused = live.filter((menu) => menu.root.contains(document.activeElement));
+  const target =
+    focused.find(
+      (menu) => !focused.some((other) => other !== menu && menu.root.contains(other.root)),
+    ) ?? live.at(-1);
   if (!target) return;
   event.preventDefault();
   target.escape();
 }
 
-function addOpenMenu(entry: OpenMenu): void {
+/**
+ * Registers an open surface for the shared Escape; internal to the design system, not exported
+ * from `index.ts`. Callers: `HoverMenu` and `Popover`.
+ */
+export function addOpenMenu(entry: OpenMenu): void {
   if (openMenus.length === 0) document.addEventListener('keydown', onEscape);
   openMenus.push(entry);
 }
 
-function removeOpenMenu(entry: OpenMenu): void {
+/** Unregisters a surface `addOpenMenu` registered; the last one drops the key listener. */
+export function removeOpenMenu(entry: OpenMenu): void {
   const index = openMenus.indexOf(entry);
   if (index !== -1) openMenus.splice(index, 1);
   if (openMenus.length === 0) document.removeEventListener('keydown', onEscape);
@@ -80,11 +93,11 @@ function removeOpenMenu(entry: OpenMenu): void {
  *   ever open, so a Space keyup cannot close what keydown opened. ArrowDown opens it as well.
  * - Arrows wrap, Home and End jump; Tab and choosing an item close it and focus the trigger.
  * - Escape closes it from anywhere while open and returns focus to the trigger when focus was
- *   inside; a pointer down outside closes it. One Escape closes one menu: the open menu holding
- *   focus, else the most recently opened. A menu under a layer (inside an `inert` element)
- *   ignores Escape, so the top Modal or SidePanel closes instead; a menu in the element a layer
- *   keeps live still closes first. An Escape already handled (`defaultPrevented`) or composing
- *   closes no menu.
+ *   inside; a pointer down outside closes it. One Escape closes one menu or `Popover`: the
+ *   innermost open one holding focus (a menu inside a popover before the popover), else the most
+ *   recently opened. A menu under a layer (inside an `inert` element) ignores Escape, so the top
+ *   Modal or SidePanel closes instead; a menu in the element a layer keeps live still closes
+ *   first. An Escape already handled (`defaultPrevented`) or composing closes no menu.
  *
  * `defaultOpen` renders it open and pinned on mount without moving focus.
  */

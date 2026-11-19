@@ -82,6 +82,7 @@ describe('design system examples rule', () => {
         'Logo',
         'Meter',
         'Modal',
+        'Popover',
         'Quiet',
         'Scrim',
         'SidePanel',

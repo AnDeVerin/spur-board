@@ -115,6 +115,8 @@
   --size-modal: 760px;
   --size-modal-header: 44px;
   --size-panel: 480px;
+  --size-popover: 380px;
+  --size-popover-height: 70dvh;
   --stroke-icon: 1.6;
 
   /* lines and states */
@@ -131,6 +133,7 @@
   --lines-title: 3;
   --lines-fold: 3;
   --duration-pulse: 2s;
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.35);
 
   /* transforms */
   --rotate-collapsed: -90deg;

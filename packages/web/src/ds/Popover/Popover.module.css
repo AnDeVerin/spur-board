@@ -1,0 +1,71 @@
+/* Placed from the anchor's box, which Popover.tsx writes as --popover-left and --popover-top.
+   100% is the window (the containing block of a fixed box): the width keeps --space-2 off each
+   window edge, and the left edge is clamped inside while the anchor shows. No overflow here: a
+   menu in the header may extend past the panel. */
+.root {
+  position: fixed;
+  z-index: var(--z-menu);
+  top: calc(var(--popover-top) + var(--space-1));
+  left: clamp(
+    var(--space-2),
+    var(--popover-left),
+    100% - var(--space-2) - min(var(--size-popover), 100% - var(--space-2) - var(--space-2))
+  );
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--size-popover), 100% - var(--space-2) - var(--space-2));
+  max-height: min(
+    var(--size-popover-height),
+    100% - var(--popover-top) - var(--space-1) - var(--space-2)
+  );
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  box-shadow: var(--shadow-popover);
+}
+/* The anchor scrolled out of the window: the panel leaves with it. */
+.root[data-away] {
+  left: var(--popover-left);
+}
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  gap: var(--space-3);
+  min-height: var(--size-section-header);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+}
+/* The title takes the free space of the row, so actions and Close sit at the right; it
+   ellipsizes first, so Close is never pushed out. */
+.title {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--color-text-primary);
+}
+/* Stretched to the header height, so an underline tablist sits on the header border. */
+.actions {
+  display: flex;
+  align-self: stretch;
+  flex: none;
+}
+.close {
+  display: inline-flex;
+  flex: none;
+}
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: var(--space-1) var(--space-3) var(--space-3);
+}
