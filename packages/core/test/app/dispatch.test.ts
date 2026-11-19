@@ -6455,9 +6455,11 @@ describe('approvalRule github-rules', () => {
           });
       }
       // The clock runs only for a head with no decision that waits on GitHub alone; Ready to Merge
-      // keeps its satisfied decision through an unknown merge state.
+      // keeps its satisfied decision through an unknown merge state, and GitHub's changes request
+      // names someone to act though the gate does not count it then.
       const clock =
         reason === 'merge_state_unknown' &&
+        requested !== BY_GITHUB &&
         !(column === 'ready-to-merge' && mergeState === 'unknown');
       const [row] = await ruleRows(ctx);
       expect(JSON.parse(row?.value ?? '{}')).toMatchObject(
@@ -6474,6 +6476,12 @@ describe('approvalRule github-rules', () => {
   const STORED = { none: 'behind', satisfied: 'clean', blocked: 'blocked' } as const;
   const LATEST = {
     unknown: { source: GITHUB, patch: { mergeState: 'unknown' } },
+    // GitHub's verdict from the operator's login or a bot, so no reviewer's review shows it.
+    'unknown with changes requested by GitHub': {
+      source: GITHUB,
+      patch: { mergeState: 'unknown' },
+      requested: true,
+    },
     behind: { source: GITHUB, patch: { mergeState: 'behind' } },
     'blocked with an unresolved thread': {
       source: GITHUB,
@@ -6495,7 +6503,7 @@ describe('approvalRule github-rules', () => {
     },
   } as const satisfies Record<
     string,
-    { source: string; patch: Partial<PrFacts>; denied?: boolean }
+    { source: string; patch: Partial<PrFacts>; denied?: boolean; requested?: boolean }
   >;
   it.each(
     (Object.keys(STORED) as (keyof typeof STORED)[]).flatMap((stored) =>
@@ -6514,9 +6522,15 @@ describe('approvalRule github-rules', () => {
     const { source, patch } = LATEST[latest];
     const own = source === GITHUB;
     const denied = 'denied' in LATEST[latest];
+    const requested = 'requested' in LATEST[latest];
     await ctx.rulePr(
       { ...approved, ...patch },
-      own ? rule(denied ? { rule: null } : {}) : undefined,
+      own
+        ? rule({
+            ...(denied ? { rule: null } : {}),
+            ...(requested ? { reviewDecision: 'changes_requested' as const } : {}),
+          })
+        : undefined,
       source,
     );
     // A newer shared read never makes a decision the own source has not stored; its block
@@ -6557,6 +6571,7 @@ describe('approvalRule github-rules', () => {
         gate === 'unresolved_threads' ||
         gate === 'review_rule_unreadable') &&
       sharedDecision === null &&
+      !requested &&
       (stored === 'none' || (own && latest !== 'unknown'));
     ctx.wait(HALF_HOUR);
     await ctx.tick();

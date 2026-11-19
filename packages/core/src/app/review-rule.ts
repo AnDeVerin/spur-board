@@ -92,7 +92,8 @@ function verdictOf(pr: PrFacts, reviewRule: PrReviewRule, requested: boolean): R
  * with its first read's review rule again, which rewrites no unchanged row and writes a lost one
  * back, as after a rolled-back observation. A new head starts without a decision; `keep` (GitHub
  * has not computed the merge state) keeps the stored one. The 30-minute clock runs only while the
- * head has no decision and the gate reads the same read as waiting on GitHub alone. Returns true
+ * head has no decision, the gate reads the same read as waiting on GitHub alone and nobody asks
+ * for changes, GitHub's verdict on an unknown merge state included. Returns true
  * when the decision, GitHub's verdict or the rule changed.
  */
 export async function recordReviewRule(
@@ -113,7 +114,14 @@ export async function recordReviewRule(
   const requested = changesRequested(fact, reviewRule.reviewDecision, agentLogin);
   const verdict = verdictOf(fact, reviewRule, requested);
   const decision = storedDecision(verdict, old?.decision ?? null);
-  const clock = onClock(verdict, requiredCheckState(fact, reviewRule.rule), decision, requested);
+  // GitHub's changes request names someone to act, though the gate ignores it on an unknown
+  // merge state, so it keeps the clock off.
+  const clock = onClock(
+    verdict,
+    requiredCheckState(fact, reviewRule.rule),
+    decision,
+    requested || reviewRule.reviewDecision === 'changes_requested',
+  );
   const next: Stored = {
     headSha: fact.headSha.toLowerCase(),
     decision,
