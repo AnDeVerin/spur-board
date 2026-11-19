@@ -264,6 +264,26 @@ describe('Popover', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('under a layer (inside an inert element) a mousedown outside does not close it', () => {
+    const onClose = vi.fn();
+    render(
+      createElement(
+        'div',
+        { id: 'under', inert: true },
+        createElement(Harness, { initial: true, onClose }),
+      ),
+    );
+    // A press on a Modal control the popover opened lands outside it.
+    mouse('mousedown', document.body);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(popover()).toBeDefined();
+    act(() => {
+      document.getElementById('under')?.removeAttribute('inert');
+    });
+    mouse('mousedown', document.body);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('follows the anchor on nested scroll and resize', () => {
     anchorRect();
     render(createElement(Harness, { initial: true }));

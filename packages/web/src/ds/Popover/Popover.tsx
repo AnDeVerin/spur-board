@@ -36,9 +36,11 @@ import styles from './Popover.module.css';
  * on open; with none (focus on `body`), focus stays put. Escape and Close call `onClose`; Close
  * then focuses the opener, Escape only when focus was inside the panel. A `mousedown` outside the
  * panel and the anchor calls `onClose` and moves no focus; the anchor is not outside, so its own
- * click toggles. A `pointerdown` alone never closes it, so a touch scroll of the board keeps it
- * open, while a tap still closes it through the compatibility `mousedown`. Leaving the panel by
- * Tab does not close it.
+ * click toggles. Under a layer (inside an `inert` element), as when a `Modal` opened from the
+ * panel portals to `body`, no press is outside: the popover stays open under the layer. A
+ * `pointerdown` alone never closes it, so a touch scroll of the board keeps it open, while a tap
+ * still closes it through the compatibility `mousedown`. Leaving the panel by Tab does not close
+ * it.
  *
  * Escape is shared with `HoverMenu`: one Escape closes one surface, the innermost open menu or
  * popover holding focus (a menu inside the panel before the panel), else the most recently
@@ -186,7 +188,8 @@ function OpenPopover({
     };
     const outside = (event: MouseEvent) => {
       const target = event.target;
-      if (!(target instanceof Node)) return;
+      // Under a layer, such as a Modal opened from the panel, a press on the layer is not outside.
+      if (!(target instanceof Node) || element.closest('[inert]')) return;
       if (element.contains(target) || anchor.current?.contains(target)) return;
       latest.current();
     };
