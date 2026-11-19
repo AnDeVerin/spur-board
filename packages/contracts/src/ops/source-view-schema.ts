@@ -29,6 +29,13 @@ export const sourceViewSchema = z
       .optional()
       .describe('Reported source points consumed during the preceding hour.'),
     source: z.string().min(1).describe('Adapter source identifier.'),
+    project: z
+      .string()
+      .min(1)
+      .nullable()
+      .describe(
+        'Board project whose tracker or repository this source polls; null for the shared spur source.',
+      ),
     observedAt: z.iso.datetime().nullable().describe('Time of the latest observation, if any.'),
     lastCompleteAt: z.iso
       .datetime()

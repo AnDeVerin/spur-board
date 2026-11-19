@@ -196,7 +196,7 @@ Arguments: none.
 
 Flags:
 
-`--project <value>` — Project to limit the answer to; absent means every project the caller may see.
+`--project <value>` — Project to limit tasks, items, blocks and bindings to; absent means every project the caller may see. Sources and services always cover every project the caller may see, whatever project says.
 `--detail` — Include full ticket, pull request and session facts; absent means compact rows.
 `--json` — Print JSON output or a JSON error.
 

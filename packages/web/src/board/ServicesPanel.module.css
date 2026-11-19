@@ -7,6 +7,26 @@
   padding: var(--space-2) var(--space-2-5);
   color: var(--color-text-tertiary);
 }
+/* One project's boxes under its id, closer to them than to the group above. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.boxes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+/* Same tokens as the inbox section heading (InboxPanel.module.css .heading). */
+.heading {
+  margin: 0;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-bar);
+}
 /* The state word of a box head, coloured as the dot beside it. */
 .state {
   display: inline-flex;

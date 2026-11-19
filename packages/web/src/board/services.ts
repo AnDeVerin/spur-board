@@ -271,6 +271,8 @@ export interface PanelBox {
   id: string;
   /** The status bar button that scrolls to it; null for the host. */
   service: ServiceName | null;
+  /** The board project whose group holds it; null for the shared boxes at the top. */
+  project: string | null;
   icon: IconName;
   name: string;
   /** The coloured word in the head; null for the host, which has no single state. */
@@ -284,9 +286,10 @@ const GONE: PanelRow[] = [{ key: 'Unknown while the daemon does not answer.', no
 const tail = (source: string) => source.split(':').at(-1) ?? '';
 
 /**
- * The panel boxes: daemon, host, slack, one per GitHub source, spur, one per Jira source. A
- * source box takes its word from its own fields. While the daemon does not answer every box but
- * the daemon reads unknown; before the first status there are none.
+ * The panel boxes: the shared daemon, host, slack and spur, then one run per project in the order
+ * its sources come, each with one box per GitHub pull request source, GitHub issue source and Jira
+ * source. A source box takes its word from its own fields. While the daemon does not answer every
+ * box but the daemon reads unknown; before the first status there are none.
  */
 export function panelBoxes(
   snapshot: HealthSnapshot,
@@ -302,6 +305,7 @@ export function panelBoxes(
     return {
       id: service,
       service,
+      project: null,
       icon: ICONS[service],
       name: service,
       health: found ? { tone: found.tone, word: found.word } : UNKNOWN,
@@ -311,22 +315,31 @@ export function panelBoxes(
   const sourceBox = (source: BoardSourceView, service: ServiceName, name: string): PanelBox => ({
     id: source.source,
     service,
+    project: source.project,
     icon: ICONS[service],
     name,
     health: live ? sourceState(source) : UNKNOWN,
     rows: live ? sourceRows(source, formatTime) : GONE,
   });
-  // A kind with several sources names each by its repo, or its project for Jira.
-  const named = (prefix: string, name: string, service: ServiceName) => {
-    const list = (status?.sources ?? []).filter((source) => source.source.startsWith(`${prefix}:`));
+  const sources = (status?.sources ?? []).filter((source) => source.source !== 'spur');
+  // A kind with several sources in one project's group names each by its repo.
+  const named = (project: string | null, prefix: string, name: string, service: ServiceName) => {
+    const list = sources.filter(
+      (source) => source.project === project && source.source.startsWith(`${prefix}:`),
+    );
     return list.map((source) =>
       sourceBox(source, service, list.length > 1 ? `${name} · ${tail(source.source)}` : name),
     );
   };
-  const github = [
-    ...named('github', 'github pull requests', 'github'),
-    ...named('github-issues', 'github issues', 'github'),
-  ];
+  // A source with no project, which core does not send today, stays with the shared boxes.
+  const groups = [null, ...new Set(sources.flatMap((source) => source.project ?? []))].map(
+    (project) => [
+      ...named(project, 'github', 'github pull requests', 'github'),
+      ...named(project, 'github-issues', 'github issues', 'github'),
+      ...named(project, 'jira', 'jira', 'jira'),
+    ],
+  );
+  const hasGithub = sources.some((source) => serviceOf(source.source) === 'github');
   const spurSource = status?.sources.find((source) => source.source === 'spur');
   const spur = spurSource
     ? sourceBox(spurSource, 'spur', 'spur')
@@ -338,6 +351,7 @@ export function panelBoxes(
     {
       id: 'host',
       service: null,
+      project: null,
       icon: 'pulse',
       name: 'host',
       health: null,
@@ -352,8 +366,21 @@ export function panelBoxes(
           )
         : GONE,
     ),
-    ...(github.length > 0 ? github : [serviceBox('github', live ? [] : GONE)]),
     spur,
-    ...named('jira', 'jira', 'jira'),
+    ...(hasGithub ? [] : [serviceBox('github', live ? [] : GONE)]),
+    ...groups.flat(),
   ];
+}
+
+/**
+ * The box a status bar button scrolls to: the first box of its service that is failing, else the
+ * first degraded one, else its first box; undefined when the service has none.
+ */
+export function scrollTarget(boxes: readonly PanelBox[], service: ServiceName): string | undefined {
+  const own = boxes.filter((box) => box.service === service);
+  return (
+    own.find((box) => box.health?.tone === 'error') ??
+    own.find((box) => box.health?.tone === 'warn') ??
+    own[0]
+  )?.id;
 }

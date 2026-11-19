@@ -8,6 +8,7 @@ import {
   hostRows,
   indicators,
   panelBoxes,
+  scrollTarget,
   sourceRows,
   type PanelRow,
 } from '../src/board/services.ts';
@@ -212,6 +213,75 @@ describe('services panel rows', () => {
     ]);
     const noBudget = first(parse(status(undefined, [polled('jira:a')])).sources);
     expect(texts(sourceRows(noBudget, time)).at(-1)).toEqual(['Budget', '—']);
+  });
+
+  it('groups source boxes by project after the shared boxes', () => {
+    const boxes = panelBoxes(
+      snap(
+        status(
+          undefined,
+          [
+            polled('spur'),
+            polled('jira:a'),
+            polled('github:a:ex/repo'),
+            polled('github-issues:b:ex/other'),
+            polled('github:b:ex/other'),
+            polled('github:b:ex/third'),
+          ],
+          { services: [...HEALTHY, service('jira', 'healthy')], transport: [SLACK_UP] },
+        ),
+      ),
+      time,
+    );
+    expect(boxes.map((box) => box.id)).toEqual([
+      'daemon',
+      'host',
+      'slack',
+      'spur',
+      'github:a:ex/repo',
+      'jira:a',
+      'github:b:ex/other',
+      'github:b:ex/third',
+      'github-issues:b:ex/other',
+    ]);
+    expect(boxes.map((box) => box.project)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      'a',
+      'a',
+      'b',
+      'b',
+      'b',
+    ]);
+    expect(boxes.slice(4).map((box) => box.name)).toEqual([
+      'github pull requests',
+      'jira',
+      'github pull requests · ex/other',
+      'github pull requests · ex/third',
+      'github issues',
+    ]);
+  });
+
+  it('scrolls a service button to its worst box', () => {
+    const target = (sources: unknown[], name: 'github' | 'jira') =>
+      scrollTarget(
+        panelBoxes(
+          snap(status(undefined, [polled('spur'), ...sources], { services: HEALTHY })),
+          time,
+        ),
+        name,
+      );
+    expect(target([polled('jira:a'), polled('jira:b', { blindReason: 'auth' })], 'jira')).toBe(
+      'jira:b',
+    );
+    const ok = polled('github:a:ex/repo');
+    const stale = polled('github:b:ex/other', { stale: true });
+    const blind = polled('github:b:ex/third', { blindReason: 'auth' });
+    expect(target([ok, stale, blind], 'github')).toBe('github:b:ex/third');
+    expect(target([ok, stale], 'github')).toBe('github:b:ex/other');
+    expect(target([ok, polled('github:b:ex/other')], 'github')).toBe('github:a:ex/repo');
   });
 
   it('maps gateway, daemon and host fields to rows', () => {

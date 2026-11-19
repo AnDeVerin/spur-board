@@ -146,7 +146,8 @@ async function op<T>(
 
 interface Status {
   items: { key: string; summary: string }[];
-  sources: { source: string; blindReason: string | null }[];
+  sources: { source: string; project: string | null; blindReason: string | null }[];
+  services: { service: string; state: string }[];
   tasks: { key: string; column: string; state: string }[];
 }
 
@@ -1004,6 +1005,15 @@ describe('each scenario', () => {
       expect.objectContaining({ source: 'github-issues:stand:stand-org/board', blindReason: null }),
     );
     expect(items.map(({ key }) => key)).toContain(`source:${source}`);
+    // Another project chosen: the blind Jira source and its service still show; items stay its own.
+    const chosen = await op<Status>(current(), 'status.get', { project: 'stand' });
+    expect(chosen.sources).toContainEqual(
+      expect.objectContaining({ source, project: 'stand-jira', blindReason: 'auth' }),
+    );
+    expect(chosen.services).toContainEqual(
+      expect.objectContaining({ service: 'jira', state: 'failing' }),
+    );
+    expect(chosen.items.map(({ key }) => key)).not.toContain(`source:${source}`);
     const inbox = await op<{ items: { url?: string }[] }>(current(), 'inbox.operator', {});
     expect(inbox.items).toContainEqual(
       expect.objectContaining({

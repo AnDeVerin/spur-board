@@ -844,9 +844,10 @@ describe('snapshot', () => {
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
     // Integration base 66092119: includes upstream config.get timing fields as well as every
-    // existing schema, example and transport binding. Original intake was efa72d3b.
+    // existing schema, example and transport binding. Original intake was efa72d3b. #761 then
+    // added sources[].project and board-wide sources and services texts to status.get.
     expect(await catalogVersion(baseline)).toBe(
-      '407cd042fac141647a7b3bdac05235bf76d95bdf665debc0f06a572e50c67eae',
+      '7393e9b2645ecb355327d21970784012fa6b8818182bd8731a6e758e960a1100',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

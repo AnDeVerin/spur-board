@@ -105,9 +105,15 @@ const sinceText = (source: BoardSource) =>
     ? 'has never completed a poll'
     : `has not answered since ${formatDataTime(Date.parse(source.lastCompleteAt))}`;
 
-function blindBanner(sources: readonly BoardSource[]): BoardBanner | undefined {
+/** Blind or stale sources of the chosen project and the shared spur; other projects' are left out. */
+function blindBanner(
+  sources: readonly BoardSource[],
+  project: string | undefined,
+): BoardBanner | undefined {
   const blind = sources.filter(
-    (source) => source.blindReason !== null || (source.stale && !source.warmingUp),
+    (source) =>
+      (source.project === null || source.project === project) &&
+      (source.blindReason !== null || (source.stale && !source.warmingUp)),
   );
   const [first] = blind;
   if (first === undefined) return undefined;
@@ -172,7 +178,7 @@ export function banners(snapshot: BoardSnapshot): BoardBanner[] {
     });
   else if (snapshot.stream === 'offline')
     list.push({ variant: 'error', icon: 'x', text: 'Live updates are lost.', detail: data });
-  const blind = blindBanner(snapshot.status?.sources ?? []);
+  const blind = blindBanner(snapshot.status?.sources ?? [], snapshot.project);
   if (blind) list.push(blind);
   if (chosenProject(snapshot)?.dispatcher.mode === 'shadow')
     list.push({

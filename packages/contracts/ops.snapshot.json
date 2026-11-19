@@ -1,5 +1,5 @@
 {
-  "version": "f90ec13088316ec9faf294c1bcde732010acf649088af3f1160a8627e2f1abfb",
+  "version": "70c6fa626cef48bea4805901a03a522ebb56142666765b92976c7f424f961f28",
   "grants": [
     "operator",
     "project-agent",
@@ -1172,7 +1172,7 @@
         "type": "object",
         "properties": {
           "project": {
-            "description": "Project to limit the answer to; absent means every project the caller may see.",
+            "description": "Project to limit tasks, items, blocks and bindings to; absent means every project the caller may see. Sources and services always cover every project the caller may see, whatever project says.",
             "type": "string",
             "minLength": 1,
             "maxLength": 256
@@ -1249,7 +1249,7 @@
           },
           "warmingUp": {
             "type": "boolean",
-            "description": "Whether required sources still need a complete poll."
+            "description": "Whether a source of the requested projects or spur still needs a complete poll."
           },
           "spurUnavailable": {
             "description": "One combined Spur availability line, or null when available.",
@@ -1426,7 +1426,7 @@
               "additionalProperties": false,
               "description": "Health of one service."
             },
-            "description": "One health row per service: daemon, each chat gateway, then github, spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up only the sources listed."
+            "description": "One health row per service: daemon, each chat gateway, then github, spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up the sources listed, which cover every project the caller may see whatever project says."
           },
           "transport": {
             "type": "array",
@@ -1485,6 +1485,10 @@
                   "type": "string",
                   "minLength": 1,
                   "description": "Adapter source identifier."
+                },
+                "project": {
+                  "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }],
+                  "description": "Board project whose tracker or repository this source polls; null for the shared spur source."
                 },
                 "observedAt": {
                   "anyOf": [
@@ -1634,6 +1638,7 @@
               },
               "required": [
                 "source",
+                "project",
                 "observedAt",
                 "lastCompleteAt",
                 "blindReason",
@@ -1646,7 +1651,7 @@
               "additionalProperties": false,
               "description": "Freshness and availability of one source."
             },
-            "description": "Freshness and availability of each source."
+            "description": "Freshness and availability of each source of every project the caller may see, whatever project says, with spur first."
           },
           "tasks": {
             "type": "array",
