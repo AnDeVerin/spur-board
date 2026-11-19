@@ -71,8 +71,9 @@ interface RunnerEntry {
 
 export interface AdapterRunner {
   /**
-   * Sources whose next regular poll this runner has put off for the rate budget: the last
-   * regular poll delivered a budget under its reserve, and the paused poll has not started. An
+   * Sources whose next regular poll this runner has put off for a rate limit: the last regular
+   * poll delivered a budget under its reserve or failed as throttled with a retry time, and the
+   * paused poll has not started. An
    * on-demand poll never adds or removes one, and `stop` removes every one. `startRunner` owns
    * the set and `startAdapters` passes the same set through (both return a `StartedRunner`, so
    * the compiler rejects a wrapper that drops it); empty in one-shot mode. Optional only for

@@ -48,7 +48,10 @@ export interface DelayInput {
 export interface Delay {
   delayMs: number;
   failures: number;
-  /** The delay is a pause for the rate budget: the batch reported a budget under the reserve. */
+  /**
+   * The delay is a pause for a rate limit: the batch reported a budget under the reserve, or the
+   * poll failed as throttled with a retry time.
+   */
   budgetWait: boolean;
 }
 
@@ -73,7 +76,7 @@ export function nextDelay(input: DelayInput): Delay {
     }
     const retryAt = throttledRetryAt(error);
     if (retryAt !== undefined)
-      return { delayMs: Math.max(retryAt - now, intervalMs), failures, budgetWait: false };
+      return { delayMs: Math.max(retryAt - now, intervalMs), failures, budgetWait: true };
   }
   const next = failures + 1;
   const cap = Math.max(MAX_BACKOFF_MS, intervalMs);

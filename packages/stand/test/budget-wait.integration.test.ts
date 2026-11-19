@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema, type Batch } from '@spur-board/contracts';
+import { AdapterError, configSchema, type Batch } from '@spur-board/contracts';
 import { createFakeAdapter } from '@spur-board/adapters/testing';
 import {
   createObservationCore,
@@ -54,8 +54,8 @@ afterEach(() => {
 interface Row {
   /** A budget under the reserve that an earlier daemon run stored for alpha. */
   stored?: boolean;
-  /** Each source's regular polls in order; the last one repeats. */
-  alpha: Partial<Batch>[];
+  /** Each source's regular polls in order, a batch or the error it fails with; the last repeats. */
+  alpha: (Partial<Batch> | AdapterError)[];
   beta: Partial<Batch>[];
   /** The budget an on-demand refresh of an alpha PR reports after the first polls. */
   refresh?: Batch['budget'];
@@ -65,6 +65,8 @@ interface Row {
   /** Alpha's stored budget remaining at the read. */
   alphaRemaining: number | null;
   reason: string | null;
+  /** A second read after the runner runs this much longer. */
+  later?: { runMs: number; waiting: string[]; reason: string | null };
 }
 
 // status.get reads the regular runner's pause of this daemon run, never the stored budget.
@@ -115,6 +117,23 @@ it.each<[string, Row]>([
     },
   ],
   [
+    'an on-demand refresh under the reserve, then a throttled regular poll until its retry',
+    {
+      alpha: [
+        high,
+        new AdapterError('throttled', 'Rate limited', { retryAt: new Date(RESET) }),
+        {},
+      ],
+      beta: [high],
+      refresh: low.budget,
+      runMs: I,
+      waiting: [alpha],
+      alphaRemaining: reserve - 1,
+      reason: `${alpha} waits for its rate budget`,
+      later: { runMs: RESET - T0 - I, waiting: [], reason: null },
+    },
+  ],
+  [
     'an on-demand refresh under the reserve',
     {
       alpha: [high],
@@ -152,7 +171,7 @@ it.each<[string, Row]>([
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const adapter = (source: string, polls: Partial<Batch>[]) => {
+  const adapter = (source: string, polls: (Partial<Batch> | AdapterError)[]) => {
     let n = 0;
     return createFakeAdapter({
       id: source,
@@ -161,6 +180,7 @@ it.each<[string, Row]>([
         const startedAt = observedAt();
         const next = polls[Math.min(n++, polls.length - 1)];
         await gate;
+        if (next instanceof AdapterError) throw next;
         return { source, observedAt: startedAt, complete: true, items: [], entities: [], ...next };
       },
       pollPr: (pr) =>
@@ -212,6 +232,14 @@ it.each<[string, Row]>([
       row.alphaRemaining,
     );
     expect(status.services.find((entry) => entry.service === 'github')?.reason).toBe(row.reason);
+    if (row.later !== undefined) {
+      await vi.advanceTimersByTimeAsync(row.later.runMs);
+      const later = await query(registry['status.get'], { project: 'beta' }, 'operator');
+      expect(await waiting()).toEqual(row.later.waiting);
+      expect(later.services.find((entry) => entry.service === 'github')?.reason).toBe(
+        row.later.reason,
+      );
+    }
   } finally {
     await runner?.stop();
     await store.close();

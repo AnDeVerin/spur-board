@@ -47,7 +47,7 @@ function serviceOf(source: string): 'github' | 'spur' | 'jira' | null {
   return null;
 }
 
-/** The degraded word of a source the daemon's runner pauses for its rate budget. */
+/** The degraded word of a source the daemon's runner pauses for a rate limit. */
 const BUDGET_WAIT = 'waits for rate budget';
 
 /** Health of one source from its own fields, in core's order of reasons. */

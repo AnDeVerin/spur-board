@@ -20,9 +20,9 @@ Service dots follow `status.get` health: green healthy, amber degraded, red fail
 - github, spur and jira: `polling` when healthy. GitHub takes the worst across repository pull
   request and issue sources. Otherwise the first source matching the service's colour supplies
   `blind: <reason>`, `waits for rate budget`, `never completed`, `warming up` or `stale`;
-  `waits for rate budget` means the daemon put off that GitHub source's next poll, for at least
-  one poll interval, because its last poll left the budget under the configured reserve; hover
-  for the reason. After a daemon restart a button reads `warming up` until every source of its own
+  `waits for rate budget` means the daemon put off that source's next poll, for at least one poll
+  interval, because its last poll left a GitHub budget under the configured reserve or was
+  throttled with a retry time; hover for the reason. After a daemon restart a button reads `warming up` until every source of its own
   service, in every project, has polled once: an unpolled Jira source does not keep github or spur
   warming up, and a blind source, a source waiting for its rate budget, or a stale one listed
   first, of the same service shows its word instead.
@@ -43,9 +43,9 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
   no volume could be read or no sample yet. A host load wait adds an amber row.
 - slack: when down, Down since, Reason and Spaces.
 - spur, then one group per project, headed by the project id, with one box per GitHub source and
-  one per Jira source of that project. Each box is headed by its own state, so every GitHub
-  source the daemon pauses for its rate budget reads `waits for rate budget`, even before its
-  first complete poll after a restart: Last complete poll, Last observation, Blind (when blind),
+  one per Jira source of that project. Each box is headed by its own state, so every source the
+  daemon pauses for a rate limit reads `waits for rate budget`, even before its first complete
+  poll after a restart: Last complete poll, Last observation, Blind (when blind),
   Freshness, Warming up, Points last hour (pull request sources) and Budget: a bar of requests
   left over the limit with its reset time, amber at 20% and red at 5%; `<n> left` without a
   limit; `—` without a budget. The spur box adds an availability line while Spur is unavailable.

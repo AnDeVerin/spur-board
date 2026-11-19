@@ -681,11 +681,11 @@ describe('budget', () => {
         kind: 'failed',
         error: new AdapterError('throttled', 'slow', { retryAt: new Date(T0 + 600_000) }),
       },
-      false,
+      true,
     ],
     ['an auth failure', { kind: 'failed', error: new AdapterError('auth', 'bad token') }, false],
   ] as const)(
-    'nextDelay marks only a budget pause as a budget wait: %s',
+    'nextDelay marks only a rate limit pause as a budget wait: %s',
     (_name, outcome, budgetWait) => {
       expect(
         nextDelay({
