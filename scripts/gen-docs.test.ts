@@ -57,7 +57,11 @@ describe('generated public references', () => {
     expect(project?.columns.find((c) => c.id === 'external-review')?.approvalRule).toBe(
       'github-rules',
     );
-    for (const text of ['branch protection and rulesets', 'after 30 minutes', 'board rollback'])
+    for (const text of [
+      'branch protection and rulesets',
+      'undecided for 30 minutes',
+      'board rollback',
+    ])
       expect(section?.split('\n## ')[0]).toContain(text);
   });
 
