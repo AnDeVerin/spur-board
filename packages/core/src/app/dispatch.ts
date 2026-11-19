@@ -1262,7 +1262,7 @@ export async function dispatchTasks(
     if (project === undefined) continue;
     const mode = project.dispatcher.mode;
     if (mode === 'on')
-      await recordExternalRounds(trx, { task, project, config: ctx.config, at: ctx.at });
+      await recordExternalRounds(trx, { task, project, config: ctx.config, at: ctx.at, blind });
     const read = await readInput(trx, task, project, mode, blind, ctx.config, ctx);
     if (read === null) continue;
     // Before the merged-ticket hold: a merge settles the submit whatever the ticket says.

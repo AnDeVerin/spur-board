@@ -6,6 +6,7 @@ import {
   type Config,
   type GateReason,
   type MoveReason,
+  prSourceId,
   type PrFacts,
 } from '@spur-board/contracts';
 import { sql } from 'kysely';
@@ -287,15 +288,22 @@ function externalReviewer(pr: PrFacts, agentLogin: string, login: string): boole
  * While the task is in Dev with the dispatcher on and External Review's course check on, records
  * one `external_round` for each external change request on the open PR that came after the task
  * entered Dev, on a head not yet counted under External Review: by an earlier round or by a
- * return counted there, resets ignored. Then, with no cycle-limit or course-check item open,
+ * return counted there, resets ignored, and not while the PR's GitHub source is `blind` (no
+ * complete poll since the start, or blind). Then, with no cycle-limit or course-check item open,
  * raises External Review's course check once its rounds since the last check, one external
  * round among them, reach its `courseCheck`.
  */
 export async function recordExternalRounds(
   trx: Trx,
-  input: { task: Task; project: Project; config: Config; at: Date },
+  input: {
+    task: Task;
+    project: Project;
+    config: Config;
+    at: Date;
+    blind: (source: string) => boolean;
+  },
 ): Promise<void> {
-  const { task, project, config, at } = input;
+  const { task, project, config, at, blind } = input;
   const external = externalColumn(project);
   if (
     project.dispatcher.mode !== 'on' ||
@@ -313,7 +321,7 @@ export async function recordExternalRounds(
             externalReviewer(pr, project.operatorGithubLogin, review.reviewer),
         )
       : [];
-  if (pr !== null && requests.length > 0) {
+  if (pr !== null && requests.length > 0 && !blind(prSourceId(project.id, pr.repo))) {
     const { course } = await courseRounds(trx, task.id, project);
     const counted = new Set(
       course.flatMap((entry) =>

@@ -3916,6 +3916,33 @@ describe('external change-request rounds', () => {
     expect(block.reason).not.toContain('- return to Dev');
   });
 
+  it('a partial poll before the first complete one after a restart records no round', async () => {
+    const options = { externalReview: true };
+    const ctx = await inDev(options);
+    ctx.restart(options);
+    ctx.wait(1_000);
+    const submittedAt = ctx.at();
+    await ctx.pr(
+      {
+        headSha: B,
+        reviews: [{ reviewer: EXTERNAL, state: 'changes_requested', commitSha: B, submittedAt }],
+        feedback: [
+          {
+            kind: 'review',
+            id: 'r-partial',
+            author: { login: EXTERNAL, type: 'user' },
+            postedAt: submittedAt,
+          },
+        ],
+      },
+      false,
+    );
+    expect(await rounds(ctx)).toEqual([]);
+
+    await ctx.github();
+    expect(await rounds(ctx)).toEqual(roundsOn(B));
+  });
+
   it('repeated change requests on one head count once', async () => {
     const ctx = await inDev({ externalReview: true, curator: true });
     await devRound(ctx, B);
