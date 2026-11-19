@@ -43,7 +43,7 @@
 
 ## Acceptance gates
 
-<!--- Required when this PR changes a UI file: a path under packages/web/ outside its top-level test/, gallery/ and kit/, or docs/design-system-decisions.md (prototype paths do not count). Each line takes the full head SHA the gate's last passed run checked, or n/a when the gate did not run. CI acceptance-gates fails while a UI file changed after a named head; a description edit re-runs it. A PR that changes no UI file passes whatever this says: delete the section then. -->
+<!--- Required when this PR changes a UI file: a path under packages/web/ outside its top-level test/, gallery/ and kit/, or docs/design-system-decisions.md (prototype paths do not count). Each line takes the full head SHA of the gate's last passing run (tester PASS, designer APPROVED), never a failed head. Write n/a only for a gate this task does not use; an applicable gate that has not passed keeps its last passed head, or the placeholder when it never passed: CI stays red, Testing names it under Missing and a human decides. CI acceptance-gates fails while a UI file changed after a named head; a description edit re-runs it. A PR that changes no UI file passes whatever this says: delete the section then. -->
 
 tester: <sha | n/a>
 designer: <sha | n/a>

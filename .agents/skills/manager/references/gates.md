@@ -50,7 +50,8 @@ The numbers are the canonical gate order.
     with the report table, the screenshot names, the round path relative to the artifacts
     directory and each `tester` and `designer` (code) verdict as `<verdict> (x<N>) on <sha>`; a
     prototype or `ds/` API run fills `## Design System decisions` from the `developer` output,
-    and `## Acceptance gates` gets each gate's last passed head or `n/a` (`gitflow`).
+    and `## Acceptance gates` gets each gate's last passed head, or `n/a` for a gate the task
+    does not use (`gitflow`).
     Skip only without commits or when the issue says no PR.
 16. Close-out - one evidence line per acceptance criterion, taken from a gate output (a reviewer
     Requirements row, a command with its observed result, a tester scenario). Work is committed;

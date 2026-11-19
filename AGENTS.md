@@ -184,8 +184,8 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
   first in the subject, e.g. `feat(core): #15 add the config schema`.
 - The body comes from `.github/pull_request_template.md`, filled as `gitflow` says, and keeps
   `Closes #<issue-number>`.
-- A PR that changes a UI file fills `## Acceptance gates` with each gate's last passed head or
-  `n/a`; CI `acceptance-gates` checks it (`gitflow`).
+- A PR that changes a UI file fills `## Acceptance gates` with each gate's last passed head, or
+  `n/a` for a gate the task does not use; CI `acceptance-gates` checks it (`gitflow`).
 - Before opening the PR run `pnpm check`, then `pnpm guardrails`. Every file guardrails reports,
   and every deleted, skipped or weakened check, gets a line under `## Changed checks`; the CI
   guardrails job fails otherwise. The developer fills that section from its report.

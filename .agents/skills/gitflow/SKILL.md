@@ -45,7 +45,8 @@ appends the PR number: `feat(core): #15 add the config schema (#71)`.
 2. Fill each section as mapped below and follow the rules in the template's comments.
 3. Delete every `<!---` comment line, the placeholder rows, `## Changed checks` when it has
    no entries, and `## Acceptance gates` when the PR changes no UI file; otherwise fill its
-   `tester:` and `designer:` lines (`references/pr-body.md`).
+   `tester:` and `designer:` lines (`references/pr-body.md`): `n/a` only for a gate the task
+   does not use, never for an applicable gate that has not passed.
 4. Keep `Closes #<issue-number>`. The last line is the session marker: the one your launch
    instructions give, else `[AI-generated, session: $SPUR_SESSION]` with the variable expanded.
    It appears once.
