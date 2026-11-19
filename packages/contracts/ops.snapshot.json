@@ -1,5 +1,5 @@
 {
-  "version": "8b9afc85a76f46e2411adf7b4bb5d33c4f93e089197ca5f2dc7bbdeedf654671",
+  "version": "6db27f0f709aa60017b92d8f3727ee66f1f4a5f1a04daa2a2006b98f274f6cbf",
   "grants": [
     "operator",
     "project-agent",
@@ -1652,7 +1652,7 @@
                 },
                 "waitsForBudget": {
                   "type": "boolean",
-                  "description": "Whether this GitHub source waits for its rate budget: its budget is under github.reserveRemaining and its resetAt has not passed. Always false for other sources."
+                  "description": "Whether this GitHub source waits for its rate budget: it has a complete poll in this daemon run (not warmingUp, lastCompleteAt not null), its budget is under github.reserveRemaining and its resetAt has not passed. Always false for other sources."
                 },
                 "healthySince": {
                   "anyOf": [

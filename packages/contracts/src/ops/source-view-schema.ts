@@ -64,7 +64,7 @@ export const sourceViewSchema = z
     waitsForBudget: z
       .boolean()
       .describe(
-        'Whether this GitHub source waits for its rate budget: its budget is under github.reserveRemaining and its resetAt has not passed. Always false for other sources.',
+        'Whether this GitHub source waits for its rate budget: it has a complete poll in this daemon run (not warmingUp, lastCompleteAt not null), its budget is under github.reserveRemaining and its resetAt has not passed. Always false for other sources.',
       ),
     healthySince: z.iso
       .datetime()

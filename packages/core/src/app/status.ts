@@ -394,6 +394,10 @@ export async function getStatus(
             resetAt: row.budget_reset_at,
           }
         : null;
+    // `lastCompleteAt` is stored, but the runner does not reload it, so the first report or
+    // incomplete observe after a restart can clear it. `completeSince` holds only polls since
+    // this process started, so a source warms up until its first complete poll after a restart.
+    const warmingUp = !completeSince.has(source);
     return {
       source,
       project: projectForSource(config, source)?.id ?? null,
@@ -406,16 +410,16 @@ export async function getStatus(
       blindReason,
       message: row?.blind_message ?? null,
       budget,
-      waitsForBudget: waitsForBudget(source, budget, config, clock.now()),
+      // The stored budget survives a restart, but the runner of this run waits on it only after
+      // the source's first complete poll in this run.
+      waitsForBudget:
+        !warmingUp && last !== null && waitsForBudget(source, budget, config, clock.now()),
       stale:
         last === null ||
         clock.now() - Date.parse(last) >
           config.thresholds.staleMultiplier * sourceInterval(config, source),
       healthySince: deps.healthySince?.get(source) ?? null,
-      // `lastCompleteAt` is stored, but the runner does not reload it, so the first report or
-      // incomplete observe after a restart can clear it. `completeSince` holds only polls since
-      // this process started, so a source warms up until its first complete poll after a restart.
-      warmingUp: !completeSince.has(source),
+      warmingUp,
     };
   });
   const itemRows = await store.db
