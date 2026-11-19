@@ -76,20 +76,17 @@ function Harness({
         ),
       ),
     ),
-    createElement(
-      Popover,
-      {
-        open,
-        onClose: () => {
-          onClose();
-          setOpen(false);
-        },
-        anchor,
-        title: 'Review',
-        actions: createElement('span', { id: 'actions' }, 'Tabs'),
+    createElement(Popover, {
+      open,
+      onClose: () => {
+        onClose();
+        setOpen(false);
       },
-      children ?? createElement('p', null, 'Body'),
-    ),
+      anchor,
+      title: 'Review',
+      actions: createElement('span', { id: 'actions' }, 'Tabs'),
+      children: children ?? createElement('p', null, 'Body'),
+    }),
     after,
   );
 }
@@ -110,17 +107,14 @@ function ModalHost({ children }: { children?: ReactNode }) {
       },
       'Open modal',
     ),
-    createElement(
-      Modal,
-      {
-        open,
-        onClose: () => {
-          setOpen(false);
-        },
-        title: 'Task',
+    createElement(Modal, {
+      open,
+      onClose: () => {
+        setOpen(false);
       },
-      children ?? 'Modal body',
-    ),
+      title: 'Task',
+      children: children ?? 'Modal body',
+    }),
   );
 }
 
