@@ -49,10 +49,11 @@ import styles from './Popover.module.css';
  * put. Escape and Close call `onClose` and return focus to `trigger`, else,
  * while it is not attached, to the opener: in Safari a click does not focus the trigger, so the
  * opener may be an unrelated control. Close always returns it; Escape only when focus was inside
- * the panel or on `body`. Every handler (placement, the press outside, Escape and Close) reads the
- * current `anchor` and `trigger`, so a caller may swap either ref while the panel is open. Every
- * focus move, the one to Close on open included, uses `preventScroll`: returning to a trigger
- * scrolled out of its strip leaves the strip where it is.
+ * the panel, or on `body` while the panel was shown: a hidden panel (its anchor out of view, its
+ * trigger maybe offscreen) closed from `body` leaves focus there. Every handler (placement, the
+ * press outside, Escape and Close) reads the current `anchor` and `trigger`, so a caller may swap
+ * either ref while the panel is open. Every focus move, the one to Close on open included, uses
+ * `preventScroll`: returning to a trigger scrolled out of its strip leaves the strip where it is.
  *
  * A `mousedown` outside the panel, the anchor and the trigger calls `onClose` and moves no focus;
  * the anchor and the trigger are not outside, so the trigger's own click toggles. Under a layer
@@ -289,9 +290,11 @@ function OpenPopover({
       hidden: () => element.hasAttribute('data-away'),
       escape: () => {
         const active = document.activeElement;
-        const inside = !active || active === document.body || element.contains(active);
+        const onBody = !active || active === document.body;
+        // A hidden panel closed from body leaves focus there: its trigger may be offscreen.
+        const back = element.contains(active) || (onBody && !element.hasAttribute('data-away'));
         latest.current.onClose();
-        if (inside) returnTarget()?.focus({ preventScroll: true });
+        if (back) returnTarget()?.focus({ preventScroll: true });
       },
     };
     const outside = (event: MouseEvent) => {

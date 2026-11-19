@@ -373,6 +373,23 @@ describe('Popover', () => {
     expect(document.activeElement).toBe(button('Close', opened()));
   });
 
+  it('with focus on body, Escape returns focus to the trigger only from a shown panel', () => {
+    // A hidden panel (its anchor scrolled out) closes and leaves focus where it was: on body.
+    for (const [left, shown] of [
+      [100, true],
+      [-400, false],
+    ] as const) {
+      stubAnchorRect({ left, right: left + 320, top: 20, bottom: 40 });
+      const onClose = vi.fn();
+      render(createElement(Fragment, null));
+      render(createElement(Harness, { initial: true, onClose }));
+      expect(opened().hasAttribute('data-away')).toBe(!shown);
+      key('Escape');
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(document.activeElement, String(shown)).toBe(shown ? button('Help') : document.body);
+    }
+  });
+
   it('with focus on body, Escape closes the most recent shown surface, else a hidden one', () => {
     anchorRect();
     // The hidden popover opens last: its anchor is not mounted.
