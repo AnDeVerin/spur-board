@@ -77,13 +77,13 @@ describe('inbox no-session item', () => {
     [
       'count, oldest and minutes',
       `${HEAD}; ${OLDEST}; ${waiting(2)}`,
-      `${FIRST} 2 turns wait; the oldest for 1h 36m; no live session for 14 min.`,
+      `${FIRST} 2 turns wait; the oldest, T524, for 1h 36m; no live session for 14 min.`,
       '1h 36m',
     ],
     [
       'one turn and one minute',
       `${HEAD}; ${OLDEST}; ${waiting(1, 1)}`,
-      `${FIRST} 1 turn waits; the oldest for 1h 36m; no live session for 1 min.`,
+      `${FIRST} 1 turn waits; the oldest, T524, for 1h 36m; no live session for 1 min.`,
       '1h 36m',
     ],
     [
@@ -92,7 +92,12 @@ describe('inbox no-session item', () => {
       `${FIRST} 2 turns wait; no live session for 14 min.`,
       '12m',
     ],
-    ['oldest only', `${HEAD}; ${OLDEST}`, `${FIRST} The oldest turn waits for 1h 36m.`, '1h 36m'],
+    [
+      'oldest only',
+      `${HEAD}; ${OLDEST}`,
+      `${FIRST} The oldest turn, T524, waits for 1h 36m.`,
+      '1h 36m',
+    ],
     ['neither', HEAD, FIRST, '12m'],
   ])('renders the column, Spur project and %s', async (_, text, description, at) => {
     const d = daemon();
@@ -162,7 +167,7 @@ describe('inbox no-session item', () => {
     expect(activeIds()).toEqual(['I9']);
     expect(handledIds()).toEqual([]);
     expect(lines('I9')[1]).toBe(
-      `${FIRST} 1 turn waits; the oldest for 30m; no live session for 14 min.`,
+      `${FIRST} 1 turn waits; the oldest, T530, for 30m; no live session for 14 min.`,
     );
     expect(meta('I9').at(-1)).toBe('30m');
   });
@@ -209,7 +214,7 @@ describe('inbox no-session item', () => {
     // The entry's action does not end its text, so it stays a separate line.
     expect(lines('I2')).toEqual([
       'No session to ring for dev',
-      'The dev orchestrator is the Spur project qa, and it has no live session. The oldest turn waits for 42m.',
+      'The dev orchestrator is the Spur project qa, and it has no live session. The oldest turn, T1, waits for 42m.',
       named('qa'),
       CLEARS,
     ]);
@@ -235,7 +240,7 @@ describe('inbox no-session item', () => {
     await openInbox(d);
     expect(lines('I7')).toEqual([
       'No session to ring for qa',
-      `${FIRST} 2 turns wait; the oldest for 1h 36m; no live session for 14 min.`,
+      `${FIRST} 2 turns wait; the oldest, T524, for 1h 36m; no live session for 14 min.`,
       CLEARS,
     ]);
   });
@@ -345,7 +350,7 @@ describe('inbox no-session item', () => {
         : [
             [
               'No session to ring for qa',
-              `${first} 2 turns wait; the oldest for 1h 36m; no live session for 14 min.`,
+              `${first} 2 turns wait; the oldest, T524, for 1h 36m; no live session for 14 min.`,
               ...actions,
               CLEARS,
             ],

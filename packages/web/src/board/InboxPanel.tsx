@@ -26,14 +26,15 @@ interface NoSession {
   expects: string;
   /** The waiting turns and the whole minutes without a live session. */
   waiting?: { count: number; minutes: number };
-  oldestAt?: string;
+  /** The oldest waiting turn and when it was raised. */
+  oldest?: { turn: string; at: string };
 }
 // The wording of core `turnsWithoutSession` (app/fromYou.ts) and `noSessionText`
 // (app/operator-inbox.ts). Text that no longer matches falls back to the generic row.
 const NO_SESSION = /^(\S+) (\S+): turns wait for a live session of Spur project /;
 const NAMED_ACTION =
   /^start a session in Spur project (.+), or take over its turns with board inbox ack$/;
-const OLDEST = /^oldest T\d+ since (\S+)$/;
+const OLDEST = /^oldest (T\d+) since (\S+)$/;
 const WAITING = /^(\d+) waiting, no live session for (\d+) min$/;
 
 /** The no-session reading of an entry's description (action removed), or undefined. */
@@ -59,8 +60,13 @@ function noSession(entry: Entry, description: string, handled: boolean): NoSessi
   const found: NoSession = { column: match[2] ?? '', expects };
   // Clauses come in any order; one the web does not know is left out.
   for (const clause of clauses) {
-    const oldest = OLDEST.exec(clause)?.[1];
-    if (oldest !== undefined && !Number.isNaN(Date.parse(oldest))) found.oldestAt = oldest;
+    const oldest = OLDEST.exec(clause);
+    if (
+      oldest?.[1] !== undefined &&
+      oldest[2] !== undefined &&
+      !Number.isNaN(Date.parse(oldest[2]))
+    )
+      found.oldest = { turn: oldest[1], at: oldest[2] };
     const waiting = WAITING.exec(clause);
     if (waiting) found.waiting = { count: Number(waiting[1]), minutes: Number(waiting[2]) };
   }
@@ -207,16 +213,21 @@ export function InboxPanel({
         : entry.text;
     const known = noSession(entry, description, handled);
     // A handled one keeps only its title and first sentence: the waiting turns are gone.
-    const oldestAt = handled ? undefined : known?.oldestAt;
+    const oldest = handled ? undefined : known?.oldest;
     const waiting = handled ? undefined : known?.waiting;
-    const oldest = oldestAt === undefined ? undefined : `the oldest for ${age(oldestAt, now)}`;
     const tail =
       waiting !== undefined
-        ? ` ${[turns(waiting.count), oldest, `no live session for ${String(waiting.minutes)} min`]
+        ? ` ${[
+            turns(waiting.count),
+            oldest === undefined
+              ? undefined
+              : `the oldest, ${oldest.turn}, for ${age(oldest.at, now)}`,
+            `no live session for ${String(waiting.minutes)} min`,
+          ]
             .filter((part) => part !== undefined)
             .join('; ')}.`
-        : oldestAt !== undefined
-          ? ` The oldest turn waits for ${age(oldestAt, now)}.`
+        : oldest !== undefined
+          ? ` The oldest turn, ${oldest.turn}, waits for ${age(oldest.at, now)}.`
           : '';
     const body =
       known === undefined ? (
@@ -264,7 +275,7 @@ export function InboxPanel({
           {handled && (
             <span>Handled{entry.answeredVia ? ` · answered via ${entry.answeredVia}` : ''}</span>
           )}
-          <span className={styles.age}>{age(oldestAt ?? entry.at, now)}</span>
+          <span className={styles.age}>{age(oldest?.at ?? entry.at, now)}</span>
         </span>
         {body}
       </>

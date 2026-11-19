@@ -22,8 +22,8 @@ Header, left to right:
   attention, newest first within severity. Handled entries retain query order, marked handled
   with their answer channel when supplied. Supplied actions appear separately; an exact terminal
   `: <action>` is removed from the description. A column orchestrator with no live session reads
-  `No session to ring for <column>`, its Spur project, the turns waiting, the oldest one's age and
-  how long it has had no live session, then its action and
+  `No session to ring for <column>`, its Spur project, the turns waiting, the oldest one's `T<n>`
+  and age, and how long it has had no live session, then its action and
   `It clears itself when a session appears.`; it opens the oldest waiting turn's task and moves to
   handled once it is cleared, keeping only its title and first sentence. A re-raise for the same
   column replaces it, and the earlier item is not listed. Text it cannot read keeps the plain row.
