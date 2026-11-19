@@ -1,4 +1,5 @@
 import { act, createElement, Fragment, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { HoverMenu, Modal, Popover, type HoverMenuItem } from '../src/ds/index.ts';
 import { dialogs } from './ds-layers-helpers.ts';
@@ -209,6 +210,51 @@ export const refuseHiddenFocus = () => {
   ) {
     if (!this.closest('[data-away]')) focus.call(this, options);
   });
+};
+
+/** A popover whose `onClose` unmounts it at once (`flushSync`); `attached` keeps its anchor. */
+export function Closing({ attached }: { attached: boolean }) {
+  const anchor = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(true);
+  return createElement(
+    Fragment,
+    null,
+    attached && createElement('div', { id: 'anchor', ref: anchor }),
+    createElement(Popover, {
+      open,
+      // Unmounts the panel synchronously, inside the frame that closes it.
+      onClose: () => {
+        flushSync(() => {
+          setOpen(false);
+        });
+      },
+      anchor,
+      trigger: anchor,
+      title: 'T',
+      children: 'Body',
+    }),
+  );
+}
+
+/** Queues animation frames instead of running them; `frame()` runs the queued ones once. */
+export const stubFrames = () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let next = 0;
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    frames.set(++next, callback);
+    return next;
+  });
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+    frames.delete(id);
+  });
+  const frame = () => {
+    const queued = [...frames.values()];
+    frames.clear();
+    act(() => {
+      for (const callback of queued) callback(0);
+    });
+  };
+  return { frames, frame };
 };
 
 export function stubEachTest(): void {

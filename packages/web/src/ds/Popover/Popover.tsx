@@ -31,10 +31,11 @@ import styles from './Popover.module.css';
  * hide that would take focus with it moves focus to the trigger first, and the panel showing again
  * gives it back, unless the element left the panel or focus moved on from the trigger.
  *
- * An open panel closes (calls `onClose` once, moving no focus) when its anchor element unmounts,
- * or when the column re-renders a different element under the same ref: the panel belongs to an
- * element that is gone. An anchor not attached yet, as when both mount in one commit, is waited
- * for. A caller that passes a new ref object retargets the panel to it instead.
+ * An open panel closes (calls `onClose` once, moving no focus) when its anchor element unmounts or
+ * leaves the document, or when the column re-renders a different element under the same ref: the
+ * panel belongs to an element that is gone. Until an anchor attaches, as when both mount in one
+ * commit, the panel stays hidden the same way. A caller that passes a new ref object retargets the
+ * panel to it, hidden until that ref attaches.
  *
  * Near the bottom of the window its height shrinks to the space under the anchor, down to
  * `--space-2` above the window edge, and the body scrolls. With less space than the header as
@@ -162,7 +163,8 @@ function OpenPopover({
   const panel = useRef<HTMLDivElement>(null);
   const header = useRef<HTMLDivElement>(null);
   const close = useRef<HTMLSpanElement>(null);
-  // The move to Close on open, held while the panel is hidden (its anchor out of view).
+  // The move to Close on open, held while the panel is hidden (its anchor out of view or not
+  // attached yet).
   const pendingFocus = useRef(false);
   const focusClose = () => {
     close.current?.querySelector('button')?.focus({ preventScroll: true });
@@ -214,22 +216,28 @@ function OpenPopover({
   const seen = useRef<{ ref: RefObject<HTMLElement | null>; element: HTMLElement } | null>(null);
   const closed = useRef(false);
   // Writes the anchor's box on the panel, not in React state, and only when it changed.
-  // `data-away` names the side an anchor out of view left by, or `empty` when nothing of the
-  // window is visible to it (a scroller wholly outside the window).
+  // `data-away` names the side an anchor out of view left by, `empty` when nothing of the window
+  // is visible to it (a scroller wholly outside the window), or `pending` before it attaches.
   const place = () => {
     const element = panel.current;
     if (!element || closed.current) return;
     const ref = latest.current.anchor;
     const target = ref.current;
-    // The anchor unmounted, or the column re-rendered a new element under the same ref: the
-    // panel belongs to an element that is gone, so it closes once. A new ref object retargets.
-    if (seen.current?.ref === ref && seen.current.element !== target) {
+    // The anchor unmounted, left the document, or the column re-rendered a new element under the
+    // same ref: the panel belongs to an element that is gone, so it closes once. A new ref object
+    // retargets.
+    if (seen.current?.ref === ref && (seen.current.element !== target || !target.isConnected)) {
       closed.current = true;
       latest.current.onClose();
       return;
     }
-    // Not attached yet (it mounts in the same commit as the panel): the next placement sees it.
-    if (!target) return;
+    // Not attached yet (it mounts in the same commit as the panel, or a new ref has none yet):
+    // hidden, so it neither paints at its static or old place nor takes focus, until it attaches.
+    if (!target) {
+      if (written.current !== 'pending') hide(element, 'pending');
+      written.current = 'pending';
+      return;
+    }
     seen.current = { ref, element: target };
     const rect = target.getBoundingClientRect();
     const view = visibleArea(target);
@@ -269,9 +277,11 @@ function OpenPopover({
     // Every frame while open: the anchor also moves on a layout change with no scroll or resize,
     // such as a column before it growing.
     let frame = 0;
+    // The next frame is asked for first: a close inside `place` that unmounts the panel at once
+    // runs the cleanup, which then cancels it.
     const tick = () => {
-      place();
       frame = requestAnimationFrame(tick);
+      place();
     };
     frame = requestAnimationFrame(tick);
     // Scroll does not bubble: capture it on window to hear every scroller. These place the panel

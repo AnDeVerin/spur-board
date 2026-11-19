@@ -37,8 +37,8 @@
   border: var(--size-hairline) solid var(--color-border-strong);
   box-shadow: var(--shadow-popover);
 }
-/* The anchor out of view: the panel is not rendered, so no descendant can show itself and its
-   controls leave the tab order. Placement reads only the anchor. */
+/* The anchor out of view or not attached yet: the panel is not rendered, so no descendant can
+   show itself and its controls leave the tab order. Placement reads only the anchor. */
 .root[data-away] {
   display: none;
 }

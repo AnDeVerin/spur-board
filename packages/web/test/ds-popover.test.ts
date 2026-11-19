@@ -12,6 +12,7 @@ import {
   render,
 } from './ds-layers-helpers.ts';
 import {
+  Closing,
   Harness,
   ModalHost,
   type Rect,
@@ -26,6 +27,7 @@ import {
   refuseHiddenFocus,
   stubAnchorRect,
   stubEachTest,
+  stubFrames,
 } from './ds-popover-helpers.ts';
 
 mountEachTest();
@@ -150,23 +152,27 @@ describe('Popover', () => {
     }
   });
 
-  it('closes once when its anchor unmounts or is replaced under the same ref', () => {
+  it('closes once when its anchor unmounts, is replaced under the same ref, or is disconnected', () => {
     const control = createElement('button', { type: 'button' }, 'Body control');
-    for (const how of ['unmounts', 'replaced'] as const) {
+    for (const how of ['unmounts', 'replaced', 'disconnected'] as const) {
       const onClose = vi.fn();
       const harness = (change: boolean) =>
         createElement(Harness, {
           initial: true,
           onClose,
           children: control,
-          ...(change ? (how === 'unmounts' ? { attached: false } : { generation: 1 }) : {}),
+          ...(change && how === 'unmounts' ? { attached: false } : {}),
+          ...(change && how === 'replaced' ? { generation: 1 } : {}),
         });
       render(createElement(Fragment, null));
       render(harness(false));
       act(() => {
         button('Body control', opened()).focus();
       });
-      // The column re-renders under the panel; the next placements find it gone.
+      // The column re-renders under the panel, or its element leaves the document while the ref
+      // still holds it; the next placements find it gone.
+      const anchor = document.getElementById('anchor');
+      if (how === 'disconnected') anchor?.remove();
       render(harness(true));
       for (let index = 0; index < 2; index++)
         act(() => {
@@ -176,7 +182,29 @@ describe('Popover', () => {
       expect(popover(), how).toBeUndefined();
       // The popover moved no focus: the removed control's focus fell to body.
       expect(document.activeElement, how).toBe(document.body);
+      // Back in place, so React can remove it on unmount.
+      if (how === 'disconnected' && anchor) document.getElementById('scroller')?.append(anchor);
     }
+  });
+
+  it('stays hidden until its anchor attaches', () => {
+    render(createElement(Harness, { initial: true, attached: false }));
+    expect(opened().getAttribute('data-away')).toBe('pending');
+    render(createElement(Harness, { initial: true }));
+    act(() => {
+      document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
+    });
+    expect(placement()).toEqual(box(100, 420, 20, 40, null));
+  });
+
+  it('a close that unmounts the panel inside a frame leaves no frame scheduled', () => {
+    const { frames, frame } = stubFrames();
+    render(createElement(Closing, { attached: true }));
+    render(createElement(Closing, { attached: false }));
+    expect(frames.size).toBe(1);
+    frame();
+    expect(popover()).toBeUndefined();
+    expect(frames.size).toBe(0);
   });
 
   it('a mousedown outside closes; inside the panel or the anchor, or a pointerdown alone, does not', () => {
@@ -220,22 +248,7 @@ describe('Popover', () => {
   });
 
   it('follows a layout change each frame, writes only a change, and stops on close', () => {
-    const frames = new Map<number, FrameRequestCallback>();
-    let next = 0;
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
-      frames.set(++next, callback);
-      return next;
-    });
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
-      frames.delete(id);
-    });
-    const frame = () => {
-      const queued = [...frames.entries()];
-      frames.clear();
-      act(() => {
-        for (const [, callback] of queued) callback(0);
-      });
-    };
+    const { frames, frame } = stubFrames();
     anchorRect();
     render(createElement(Harness, { initial: true }));
     expect(frames.size).toBe(1);
