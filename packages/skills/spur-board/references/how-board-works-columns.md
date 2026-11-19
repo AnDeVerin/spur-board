@@ -18,7 +18,7 @@ Manual: operator-only; enabled Todo-group endpoints, else
 workers give `work_started`. CLI defaults to manual (`--manual`); MCP uses
 `task_move`, `mode: manual`; also operator web API.
 Both modes: real column, new visit at end (same-column too).
-Idle preserves placement; work/completion/reopen follow facts. Ties: journal
+Idle stays; only later reopen resets; work/completion follow facts. Ties: journal
 order; saved reverse-time/key sorts win. Require non-blank literal reason
 (max 20,000 UTF-16 units) and explicit non-blank key; retry identical input/key.
 Exact reason in events/move views; history normalizes whitespace to one line.

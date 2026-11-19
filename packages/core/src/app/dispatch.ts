@@ -7,6 +7,7 @@ import {
   parseActorId,
   prSourceId,
   trackerSourceId,
+  eventPayloadSchemas,
   type ActorId,
   type ColumnId,
   type Config,
@@ -835,10 +836,34 @@ async function settlePending(
   };
 }
 
-/**
- * The dispatcher input of one task, or null when a stored snapshot is missing or unreadable. It
- * only reads.
- */
+/** Whether a reopen still needs to override the latest explicit placement. */
+async function reopenNeedsDispatch(trx: Trx, taskId: number, project: Project): Promise<boolean> {
+  const placement = await trx
+    .selectFrom('event')
+    .select(['id', 'kind'])
+    .where('task_id', '=', taskId)
+    .where('kind', 'in', ['task_manually_moved', 'task_corrected'])
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+  if (placement?.kind !== 'task_manually_moved') return true;
+  // The manual visit acknowledges older reopen facts, not their permanent PR exclusion.
+  // Journal order also distinguishes a new reopen when both writes share a timestamp.
+  const statuses = await trx
+    .selectFrom('event')
+    .select('payload')
+    .where('task_id', '=', taskId)
+    .where('kind', '=', 'ticket_status_changed')
+    .where('id', '>', placement.id)
+    .execute();
+  return statuses.some((row) => {
+    const status = parseJson(eventPayloadSchemas.ticket_status_changed, row.payload);
+    return (
+      status.from !== null && ticketDone(project, status.from) && !ticketDone(project, status.to)
+    );
+  });
+}
+
+/** The dispatcher input, or null when a stored snapshot is missing or unreadable. Only reads. */
 export async function readInput(
   trx: Trx,
   task: Task,
@@ -1025,7 +1050,8 @@ export async function readInput(
             .select('id')
             .where('task_id', '=', task.id)
             .where('reopen_hidden_at', 'is not', null)
-            .executeTakeFirst()) !== undefined),
+            .executeTakeFirst()) !== undefined) &&
+        (await reopenNeedsDispatch(trx, task.id, project)),
       ticketDone: done,
       hasOpenLinkedPr,
       allGithubReposReady,
