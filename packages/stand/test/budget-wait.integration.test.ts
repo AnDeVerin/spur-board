@@ -66,7 +66,8 @@ interface Row {
   alphaRemaining: number | null;
   reason: string | null;
   /** A second read after the runner runs this much longer. */
-  later?: { runMs: number; waiting: string[]; reason: string | null };
+  /** `alphaPolls`: regular alpha polls by the second read, so a retry moved forward fails it. */
+  later?: { runMs: number; waiting: string[]; reason: string | null; alphaPolls?: number };
 }
 
 // status.get reads the regular runner's pause of this daemon run, never the stored budget.
@@ -174,7 +175,7 @@ it.each<[string, Row]>([
       alphaRemaining: reserve - 1,
       reason: `${alpha} waits for its rate budget`,
       // Past the reset and before the backoff poll at three intervals, the wait has ended.
-      later: { runMs: 2000, waiting: [], reason: null },
+      later: { runMs: 2000, waiting: [], reason: null, alphaPolls: 2 },
     },
   ],
   [
@@ -251,9 +252,11 @@ it.each<[string, Row]>([
       .filter((entry) => entry.waitsForBudget)
       .map((entry) => entry.source);
   try {
+    // Counts only regular polls; on-demand reads go to prRequests.
+    const alphaAdapter = adapter(alpha, row.alpha);
     runner = startRunner({
       entries: [
-        { adapter: adapter(alpha, row.alpha), reserveRemaining: reserve },
+        { adapter: alphaAdapter, reserveRemaining: reserve },
         { adapter: adapter(beta, row.beta), reserveRemaining: reserve },
       ],
       core,
@@ -280,6 +283,8 @@ it.each<[string, Row]>([
       await vi.advanceTimersByTimeAsync(row.later.runMs);
       const later = await query(registry['status.get'], { project: 'beta' }, 'operator');
       expect(await waiting()).toEqual(row.later.waiting);
+      if (row.later.alphaPolls !== undefined)
+        expect(alphaAdapter.contexts).toHaveLength(row.later.alphaPolls);
       expect(later.services.find((entry) => entry.service === 'github')?.reason).toBe(
         row.later.reason,
       );
