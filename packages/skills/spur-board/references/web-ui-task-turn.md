@@ -101,6 +101,6 @@ The section folds like the others; folding keeps the form, its text and its keys
 up the turn: `T<n> · not taken`, `T<n> · taken by <name>` or `T<n> · you hold it`; `Closing
 T<n>…` while a request runs; `T<n> · refused, you hold it` after a refusal once the turn is held,
 else `T<n> · refused`; `T<n> submitted` or `T<n> returned` after your close; `T<n> closed by
-<name>` or `T<n> closed: <outcome>` after a close elsewhere. There `<name>` is the session alone, cut to 16 characters, so the
-section title keeps its room. A newer open turn is added after a
-`;`. A close while the section is folded does not move focus.
+<name>` or `T<n> closed: <outcome>` after a close elsewhere. In the header, both `taken by <name>` and `closed by <name>` name the
+session alone, cut to 16 characters, so the section title keeps its room; the turn line and the
+notice show the full name. A newer open turn is added after a `;`. A close while the section is folded does not move focus.

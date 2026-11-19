@@ -3,6 +3,7 @@ import {
   Banner,
   Button,
   CollapsibleSection,
+  focusRing,
   FormRow,
   StatusDot,
   TabPanel,
@@ -439,7 +440,12 @@ export function TaskTurn({
       <div className={styles.turn} key={turn.id}>
         {line(turn, 'closed', own === undefined && triggers(turn, true, true))}
         {own !== undefined ? (
-          <p role="status" tabIndex={-1} ref={statusRef} className={styles.status}>
+          <p
+            role="status"
+            tabIndex={-1}
+            ref={statusRef}
+            className={`${styles.status ?? ''} ${focusRing}`}
+          >
             {own.outcome === 'submitted'
               ? `${turn.id} submitted.${own.pending ? ' The board confirms the head on its next polls.' : ''}`
               : `${turn.id} returned to dev.`}

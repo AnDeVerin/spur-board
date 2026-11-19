@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
+import { focusRing } from '../src/ds/index.ts';
 import { envelope, orchestratorTaskGet, problem, taskGet, deferred } from './board-fixtures.ts';
 import { mountEachTest, press, settle } from './board-harness.ts';
 import {
@@ -173,6 +174,8 @@ describe('Turn section focus', () => {
     await send();
     expect(document.activeElement?.textContent).toBe('T5 submitted.');
     expect(document.activeElement?.getAttribute('role')).toBe('status');
+    // Focused by the section, the status line shows the design system's one focus ring.
+    expect(document.activeElement?.classList.contains(focusRing)).toBe(true);
   });
 
   it('keeps the own-close result after task.get answers turn null', async () => {
