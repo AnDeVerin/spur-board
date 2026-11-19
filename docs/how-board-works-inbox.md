@@ -30,6 +30,6 @@ Kinds of [operator inbox](how-board-works-blocks.md#operator-inbox) entries, wha
 | `turn` | a turn is yours | listed as its `T…` entry | attention | the turn closes | absent |
 | `anomaly` | a live session or turn of the task is stuck, or a worker completed without a PR, its ticket not done, and has no current open turn | wait for the answer to `B<n>`, or answer it yourself; listed only when addressed to the curator; otherwise shown as its block | attention | the condition ends (a done ticket ends it even while Spur is blind) or its block closes | stored target |
 | `cycle_limit` | the task reached its column's cycle limit | not listed: shown as its block | attention | its block closes | stored target |
-| `course_check` | the task keeps returning from a column | wait for the answer to `B<n>`, or answer it yourself; listed only when addressed to the curator or orchestrator; otherwise shown as its block | attention | its block closes | stored target |
+| `course_check` | the task keeps returning from a column, or keeps getting external change requests (counted under External Review) | wait for the answer to `B<n>`, or answer it yourself; listed only when addressed to the curator or orchestrator; otherwise shown as its block | attention | its block closes | stored target |
 | `conversation_waiting` | your conversation waits for a live session | start a session in its Spur project, or close `B<n>` with a reason | attention | a session starts or the block closes | stored target |
 <!-- prettier-ignore-end -->
