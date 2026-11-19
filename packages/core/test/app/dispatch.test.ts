@@ -6503,7 +6503,13 @@ describe('approvalRule github-rules', () => {
 
   // Class 2: the 30-minute item follows the gate's read. The stored decision comes from a read of
   // the project's own source; the latest read is its own or another project's newer one.
-  const STORED = { none: 'behind', satisfied: 'clean', blocked: 'blocked' } as const;
+  // `unreadable` stores no decision under a rule the token could not read.
+  const STORED = {
+    none: 'behind',
+    unreadable: 'clean',
+    satisfied: 'clean',
+    blocked: 'blocked',
+  } as const;
   const LATEST = {
     unknown: { source: GITHUB, patch: { mergeState: 'unknown' } },
     // GitHub's verdict from the operator's login or a bot, so no reviewer's review shows it.
@@ -6559,13 +6565,17 @@ describe('approvalRule github-rules', () => {
       sharedRepo: entry.listed === undefined ? true : 'github-rules',
     });
     // Without the approval a satisfied decision does not release the task.
-    await ctx.rulePr({ mergeState: STORED[stored] }, rule());
+    await ctx.rulePr(
+      { mergeState: STORED[stored] },
+      rule(stored === 'unreadable' ? { rule: null } : {}),
+    );
     // A head with no decision has its item open before the latest read.
+    const undecided = stored === 'none' || stored === 'unreadable';
     ctx.wait(HALF_HOUR);
     await ctx.tick();
     const open = async () =>
       (await ruleItems(ctx)).filter((item) => item.cleared_at === null).length;
-    expect(await open()).toBe(stored === 'none' ? 1 : 0);
+    expect(await open()).toBe(undecided ? 1 : 0);
     const { source, patch } = entry;
     const own = source === GITHUB;
     const denied = 'denied' in entry;
@@ -6596,9 +6606,10 @@ describe('approvalRule github-rules', () => {
         ? 'checks_pending'
         : latest === 'blocked with an unresolved thread'
           ? 'unresolved_threads'
-          : denied
+          : // Only the project's own read replaces the rule it could not read.
+            denied || (stored === 'unreadable' && !own)
             ? 'review_rule_unreadable'
-            : sharedDecision === null || stored === 'none'
+            : sharedDecision === null || undecided
               ? 'merge_state_unknown'
               : sharedDecision === 'blocked' || stored === 'blocked'
                 ? 'review_rule_blocked'
@@ -6615,23 +6626,29 @@ describe('approvalRule github-rules', () => {
     });
     expect((await ctx.task()).column).toBe(gate === null ? 'ready-to-merge' : 'external-review');
     // The item names a head with no decision whose gate waits on GitHub alone, while no read of
-    // the head carries GitHub's decision; an item open before such a read clears.
+    // the head carries GitHub's decision (a rule the token could not read decides nothing); an
+    // item open before such a read clears.
     const raised =
       (gate === 'merge_state_unknown' ||
         gate === 'unresolved_threads' ||
         gate === 'review_rule_unreadable') &&
-      sharedDecision === null &&
+      (sharedDecision === null || gate === 'review_rule_unreadable') &&
       !requested &&
-      (stored === 'none' || (own && latest !== 'unknown'));
+      (undecided || (own && latest !== 'unknown'));
     ctx.wait(HALF_HOUR);
     await ctx.tick();
     expect(await open()).toBe(raised ? 1 : 0);
+    // The open item names the current cause: a change of cause replaces the first item.
+    const cause = (unreadable: boolean) => (unreadable ? 'unreadable' : 'undecided');
+    const first = undecided ? cause(stored === 'unreadable') : null;
+    const last = raised ? cause(gate === 'review_rule_unreadable') : null;
     const items = await ruleItems(ctx);
-    expect(items).toHaveLength(raised || stored === 'none' ? 1 : 0);
-    // A head first raised as undecided keeps its text; a new stretch names the unreadable rule.
-    if (raised)
-      expect(items[0]?.text).toContain(
-        denied && stored !== 'none'
+    expect(items).toHaveLength(
+      (first === null ? 0 : 1) + (last !== null && last !== first ? 1 : 0),
+    );
+    if (last !== null)
+      expect(items.at(-1)?.text).toContain(
+        last === 'unreadable'
           ? 'The GitHub review rule for the base branch of o/r#7 could not be read'
           : 'GitHub has not decided the review rule of o/r#7',
       );

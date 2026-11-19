@@ -48,7 +48,8 @@ const storedSchema = z.strictObject({
   undecidedSince: z.iso.datetime().nullable(),
   /**
    * GitHub's raw values for the item, frozen at the first reconcile 30 minutes after
-   * `undecidedSince`. The PR's tasks share it; each item's summary adds its own task key.
+   * `undecidedSince` and again when the cause changes. The PR's tasks share it; each item's
+   * summary adds its own task key.
    */
   raised: z.string().nullable(),
   /**
@@ -223,7 +224,8 @@ const upper = (value: string | null): string => (value === null ? 'null' : value
  * alone: a newer read of the head by another project's source can name someone to act first or
  * carry GitHub's decision, satisfied or blocked, and then no item is raised or kept.
  * GitHub's values are frozen in the row at the first reconcile past the threshold, so a later
- * poll or a restart keeps the item as raised.
+ * poll or a restart keeps the item as raised, until the cause changes between an undecided answer
+ * and a rule the token could not read.
  */
 export async function reviewRuleItems(
   trx: Trx,
@@ -265,12 +267,14 @@ export async function reviewRuleItems(
     if (!waitsOnGitHub(gate) || decided) continue;
     // The slug as the meta key holds it: a manual link and a poll can spell it differently.
     const ref = `${pr.repo.toLowerCase()}#${String(pr.number)}`;
+    const what =
+      gate.decision === 'unreadable'
+        ? `The GitHub review rule for the base branch of ${ref} could not be read`
+        : `GitHub has not decided the review rule of ${ref}`;
+    // The text names the current cause: a change between an undecided answer and an unreadable
+    // rule freezes it again, and the changed summary replaces the item.
     let raised = row.raised;
-    if (raised === null) {
-      const what =
-        gate.decision === 'unreadable'
-          ? `The GitHub review rule for the base branch of ${ref} could not be read`
-          : `GitHub has not decided the review rule of ${ref}`;
+    if (raised?.startsWith(what) !== true) {
       raised = `${what} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;
       const value = toJson(storedSchema, { ...row, raised });
       await trx.updateTable('meta').set({ value }).where('key', '=', key).execute();
