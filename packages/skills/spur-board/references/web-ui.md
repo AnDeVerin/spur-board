@@ -16,7 +16,7 @@ Reads: `config.get`, chosen-project `status.get`, `inbox.operator`, open-task `t
 
 ## Screens
 
-- [Board](web-ui-board.md): the header, the inbox and the task columns.
+- [Board](web-ui-board.md): the header, the inbox, the task columns and the Backlog group.
 - [Status bar and services](web-ui-status.md): service health and the services panel.
 - [Task view](web-ui-task-view.md): a card or `?open=<task key>` opens links, **Why it is here**,
   **Blocks**, **Comments** and **History** (journal events with channel, e.g. `operator (web)`).

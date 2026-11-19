@@ -105,6 +105,7 @@ interface BoardDataOptions {
 
 const PROJECT_KEY = 'board-project';
 const sortKey = (project: string, column: string) => `board-sort:${project}:${column}`;
+const foldKey = (project: string, group: string) => `board-fold:${project}:${group}`;
 
 /**
  * Board reads outside React: `config.get`, then `status.get` for the chosen project, and
@@ -520,6 +521,22 @@ export function createBoardData(options: BoardDataOptions) {
         options.storage().setItem(sortKey(project, column), sort);
       } catch {
         /* The order lasts until reload without storage. */
+      }
+    },
+    /** Whether a column group is folded; unfolded when none is stored, it is unknown or storage fails. */
+    columnFold(project: string, group: string): boolean {
+      try {
+        return options.storage().getItem(foldKey(project, group)) === 'folded';
+      } catch {
+        return false;
+      }
+    },
+    /** Keep the fold of a column group for its project; view state, like the column order. */
+    setColumnFold(project: string, group: string, folded: boolean) {
+      try {
+        options.storage().setItem(foldKey(project, group), folded ? 'folded' : 'unfolded');
+      } catch {
+        /* The fold lasts until reload without storage. */
       }
     },
     /** Unsent text of the task view writers, kept across a reload after a board update. */

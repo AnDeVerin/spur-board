@@ -82,7 +82,9 @@
 }
 .column[data-stale],
 .unknown[data-stale],
-.spine[data-stale] {
+.spine[data-stale],
+.groupHead[data-stale],
+.groupSection[data-stale] {
   opacity: var(--opacity-stale);
 }
 
@@ -141,6 +143,73 @@
   writing-mode: vertical-rl;
   color: var(--color-text-tertiary);
   white-space: nowrap;
+}
+
+/* A column group: a band with the fold toggle and the total over its parts. Unfolded, the parts
+   are columns side by side; folded, one column of sections that scrolls, padded like .body so a
+   card's focus ring stays inside its clip. */
+.group {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 0;
+}
+.group[data-folded] {
+  width: var(--size-column);
+}
+.groupHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-logo);
+  margin-bottom: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-1);
+  background: var(--color-row-hover);
+  border-top: var(--size-hairline) solid var(--color-border-strong);
+}
+.groupTitle {
+  display: flex;
+  margin: 0;
+  font-size: var(--text-micro);
+}
+.groupName {
+  color: var(--color-text-primary);
+}
+.parts {
+  flex: 1;
+  display: flex;
+  gap: var(--space-3);
+  min-height: 0;
+}
+.stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: calc(2 * var(--space-0-25));
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.groupSection {
+  flex: none;
+}
+.groupCards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.groupEmpty {
+  margin: 0;
+  padding: var(--space-1) 0;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.partLabel {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
 }
 
 /* Done rows are links: they keep the text colour and drop the underline. */

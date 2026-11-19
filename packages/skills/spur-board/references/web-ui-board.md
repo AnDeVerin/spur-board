@@ -1,6 +1,7 @@
 # Web UI: board
 
-The Board screen of the [web UI](web-ui.md): the header, the inbox and the task columns.
+The Board screen of the [web UI](web-ui.md): the header, the inbox, the task columns and the
+Backlog group.
 
 ## What it shows
 
@@ -46,6 +47,11 @@ Columns follow configuration order:
   time go last. The browser keeps the order per project and column. Spines have none; the filter
   only dims.
 - An empty column collapses to a spine with its name and `0`.
+- Two or three adjacent Todo-group columns (`todo`, `triage`, `ready-for-dev`) sit under one
+  `Backlog` band with their total count; `todo` alone stays a plain column. Each part's head
+  reads `manual` instead of the executor. The band's caret toggle folds the group into one
+  column with a section per part (`empty` when it has no tasks) and unfolds it back into
+  columns. The browser keeps the fold per project; a fold reads nothing from the daemon.
 - `done` lists every done task in a compact scrolling list, each with its time in the column.
 - A card opens the task view on click or Enter, a new tab on a modified click. It shows the short
   key (full key on hover) and its time in the column, the ticket title, then:

@@ -6,9 +6,12 @@ export type BoardProject = BoardConfig['projects'][number];
 export type BoardColumnConfig = BoardProject['columns'][number];
 export type BoardRow = Output<'status.get'>['tasks'][number];
 type BoardSource = Output<'status.get'>['sources'][number];
+type BoardGroup = NonNullable<BoardColumnConfig['group']>;
 
 export interface BoardColumn {
   id: string;
+  /** `config.get` group of a Todo-group column, else null. */
+  group: BoardGroup | null;
   /** Executor line: kind, then the named Spur project when there is one. */
   executor: string;
   /** Rows of this column in `status.get` order, before `sortRows`; none makes it a spine. */
@@ -26,11 +29,45 @@ export function boardColumns(
   const byId = new Map<string, BoardColumn>(
     columns.map((column) => [
       column.id,
-      { id: column.id, executor: executorLine(column), rows: [] },
+      { id: column.id, group: column.group ?? null, executor: executorLine(column), rows: [] },
     ]),
   );
   for (const row of rows) byId.get(row.column)?.rows.push(row);
   return [...byId.values()];
+}
+
+const GROUP_LABELS: Record<BoardGroup, string> = { todo: 'Backlog' };
+
+/**
+ * Where a group part's tasks come from, on the second line of its head. Every part is filled by
+ * hand today; the mirror UI (issue 751) reads it from the config view.
+ */
+export const PART_SOURCE = 'manual';
+
+/** One board item: a plain column, or a group band over its parts. */
+type BoardItem =
+  | { kind: 'column'; column: BoardColumn }
+  | { kind: 'group'; id: BoardGroup; label: string; parts: BoardColumn[] };
+
+/** Columns in order, with each run of two or more adjacent columns of one group as one group. */
+export function boardLayout(columns: readonly BoardColumn[]): BoardItem[] {
+  const items: BoardItem[] = [];
+  for (const column of columns) {
+    const last = items.at(-1);
+    const previous = last?.kind === 'group' ? last.parts.at(-1) : last?.column;
+    const { group } = column;
+    if (group === null || previous === undefined || previous.group !== group)
+      items.push({ kind: 'column', column });
+    else if (last?.kind === 'group') last.parts.push(column);
+    else
+      items[items.length - 1] = {
+        kind: 'group',
+        id: group,
+        label: GROUP_LABELS[group],
+        parts: [previous, column],
+      };
+  }
+  return items;
 }
 
 /** How a column orders its rows: by the time in the column or by key, ascending or descending. */
