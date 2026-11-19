@@ -206,6 +206,26 @@ describe('Turn section focus', () => {
     expect(document.activeElement).toBe(status);
     expect(text()).not.toContain('was closed by');
     expect(summary()).toBe('T5 submitted');
+    // Once a read shows the submission confirmed, the line stops promising a confirmation.
+    const confirmed = {
+      column: 'review',
+      sha: 'a'.repeat(40),
+      at: AT,
+      basis: 'tested',
+      from: null,
+      testedOrigin: null,
+      reason: null,
+      pending: false,
+      voided: false,
+    };
+    await reread(
+      d,
+      orchestratorTaskGet(
+        {},
+        { turn: null, turns: [closedTurn('submitted', 'operator')], submission: confirmed },
+      ),
+    );
+    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
   });
 
   it('skips the success focus while folded', async () => {

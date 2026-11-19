@@ -14,21 +14,26 @@ import {
 import { ProblemError } from '../lib/api.ts';
 import type { BoardConfig, BoardData, BoardTask } from './data.ts';
 import type { BoardColumnConfig, BoardRow } from './model.ts';
-import { actorDisplayName, age, columnAfter } from './task-model.ts';
+import { actorDisplayName, age } from './task-model.ts';
 import type { TurnIntent, TurnPhase } from './turn-intent.ts';
 import {
   ARCHIVED,
   BASES,
   BASIS_ID,
   brief,
+  closedSubmitDetail,
   isBasis,
   NOTE,
   orchestrated,
+  otherConditionsUnmet,
   OUTCOME,
+  ownSubmitPending,
   PHASE,
   reasonError,
   RETURNABLE,
   shaError,
+  submitConfirmation,
+  submitMove,
   UNAVAILABLE,
   type Basis,
 } from './turn-model.ts';
@@ -41,7 +46,7 @@ type FieldErrors = Partial<Record<'sha' | 'from' | 'reason', string | undefined>
 interface Bound {
   turn: Turn;
   /** This section closed it. */
-  own: { outcome: 'submitted' | 'returned'; pending: boolean } | undefined;
+  own: { outcome: 'submitted' | 'returned'; pending: boolean; sha: string } | undefined;
   /** A write answered that the turn is closed, whatever the last read says. */
   refusedClosed: boolean;
 }
@@ -256,6 +261,7 @@ export function TaskTurn({
           own: {
             outcome: form === 'submit' ? 'submitted' : 'returned',
             pending: result.status === 'pending',
+            sha: commit,
           },
           refusedClosed: false,
         });
@@ -340,14 +346,8 @@ export function TaskTurn({
     );
   };
   const formElement = (turn: Turn) => {
-    const next = columnAfter(turn.column, columns) ?? 'the next column';
-    const gate = value.why?.gates.find((entry) => entry.column === turn.column);
-    const later = gate?.conditions.some(
-      (condition) =>
-        condition.state !== 'met' &&
-        condition.condition !== 'submit_on_head' &&
-        condition.condition !== 'review_on_head',
-    );
+    const next = submitMove(turn.column, columns);
+    const later = otherConditionsUnmet(value.why, turn.column);
     const reasonRow = (hint: string) => (
       <FormRow label="Reason" hint={hint} error={errors.reason}>
         <TextArea value={reason} onChange={edit(setReason, 'reason')} disabled={fieldsOff} />
@@ -423,7 +423,7 @@ export function TaskTurn({
         )}
         <p className={styles.confirm}>
           {form === 'submit'
-            ? `This closes ${turn.id} in your name and moves the task to ${next}. It cannot be undone.${later ? ' The task moves once its other exit conditions hold.' : ''}`
+            ? submitConfirmation(turn, next, later)
             : `This closes ${turn.id} in your name and returns the task to dev. It cannot be undone, and it counts toward the cycle limit.`}
         </p>
         <div className={styles.buttons} ref={cancelRow}>
@@ -431,7 +431,9 @@ export function TaskTurn({
             {inFlight
               ? PHASE[phase]
               : form === 'submit'
-                ? `Submit and move to ${next}`
+                ? next === undefined
+                  ? 'Submit'
+                  : `Submit and move to ${next}`
                 : 'Return to dev'}
           </Button>
           <Button disabled={inFlight} onClick={cancel}>
@@ -459,7 +461,7 @@ export function TaskTurn({
             className={`${styles.status ?? ''} ${focusRing}`}
           >
             {own.outcome === 'submitted'
-              ? `${turn.id} submitted.${own.pending ? ' The board confirms the head on its next polls.' : ''}`
+              ? `${turn.id} submitted.${ownSubmitPending(value.submission, { ...own, column: turn.column }) ? ' The board confirms the head on its next polls.' : ''}`
               : `${turn.id} returned to dev.`}
           </p>
         ) : (
@@ -469,9 +471,7 @@ export function TaskTurn({
               icon="check"
               detail={
                 outcome === 'submitted'
-                  ? value.submission
-                    ? `Submitted ${value.submission.basis}, ${value.submission.sha.slice(0, 7)}, ${age(value.submission.at, now)} ago.`
-                    : undefined
+                  ? record && closedSubmitDetail(value.submission, record, now)
                   : outcome === 'returned' && record?.closed
                     ? `Returned to dev ${age(record.closed.at, now)} ago.`
                     : undefined

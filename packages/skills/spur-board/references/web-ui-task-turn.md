@@ -36,7 +36,10 @@ Above the button a line says `This closes T<n> in your name and moves the task t
 cannot be undone.` `<next>` is the enabled column after the turn's column. When the column has
 an unmet exit condition other than the submit or review on the head, it adds `The task moves
 once its other exit conditions hold.` The button reads `Submit and move to <next>`; there is no
-confirm dialog.
+confirm dialog. A passing gate never moves a task into Done: only a merged pull request or a done
+ticket completes it. So when the next column is Done, or there is none, the line says the task
+stays in its column until it completes, a Done wrap-up turn says the task stays in done, and the
+button reads `Submit`.
 
 ## Return
 
@@ -49,8 +52,9 @@ name and returns the task to dev. It cannot be undone, and it counts toward the 
 
 Pressing the button first checks the fields: a missing or wrong field shows its error and nothing
 is sent. Then the section takes the turn with `inbox.ack` and closes it with `task.submit` or
-`task.return`. Each request carries its own idempotency key. When the task read already shows the
-operator holding the turn, the ack is skipped.
+`task.return`. Each request carries its own idempotency key; the web listener refuses these three
+writes without one (`usage`). When the task read already shows the operator holding the turn, the
+ack is skipped.
 
 While a request runs, the button reads `Taking the turn`, then `Closing the turn`, and a status
 line says the same. The fields, the tabs, Cancel and the turn's buttons wait until it ends.
@@ -72,8 +76,9 @@ and the hold line says so.
 A form stays bound to the turn it opened on: its requests only ever name that turn. When that
 turn closes elsewhere while the form is open, or a write answers `turn_closed`, or the ack answers
 `not_found`, the section re-reads the task and shows a notice. For a submit or a return it reads
-`T<n> was closed by <name>`: the taker closed it. A submit adds its basis, short SHA and age from
-the latest submission; a return adds its age. Other closes name no closer, only the outcome:
+`T<n> was closed by <name>`: the taker closed it. A submit adds its age, with its basis and short
+SHA when the task's latest submission is the one that closed the turn (same column, same time);
+a return adds its age. Other closes name no closer, only the outcome:
 `T<n> was closed: the task was moved`, `the column was corrected`, `the turn went to another
 executor`, `the dispatcher mode changed` or `the task was archived`.
 
@@ -87,7 +92,8 @@ the notice.
 
 After a close the section keeps a focused status line, `T<n> submitted.` or `T<n> returned to
 dev.`, even when the task then has no open turn. A submit the Board still has to confirm adds
-`The board confirms the head on its next polls.` A turn the same write opened shows below.
+`The board confirms the head on its next polls.`, until a read shows that submission confirmed or
+voided. A turn the same write opened shows below.
 
 ## Unavailable and archived
 

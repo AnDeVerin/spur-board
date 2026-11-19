@@ -19,10 +19,14 @@ const reviewConfig = {
     index === 0
       ? {
           ...entry,
-          columns: entry.columns.map((column) =>
+          // Review, then QA before Done: a passing Review submit moves the task to QA.
+          columns: entry.columns.flatMap((column) =>
             column.id === 'review'
-              ? { ...column, executor: { kind: 'orchestrator', name: 'rev-bot' } }
-              : column,
+              ? [
+                  { ...column, executor: { kind: 'orchestrator', name: 'rev-bot' } },
+                  { id: 'qa', executor: { kind: 'orchestrator', name: 'qa-bot' } },
+                ]
+              : [column],
           ),
         }
       : entry,

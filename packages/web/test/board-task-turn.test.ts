@@ -69,9 +69,9 @@ describe('Turn section', () => {
       if (basis === 'carried') type(source(), SOURCE);
       if (basis !== 'tested') type(reason(), 'Verified elsewhere.');
       const { primary, line } = confirmation();
-      expect(primary?.textContent).toBe('Submit and move to done');
+      expect(primary?.textContent).toBe('Submit and move to qa');
       expect(line).toBe(
-        'This closes T5 in your name and moves the task to done. It cannot be undone.',
+        'This closes T5 in your name and moves the task to qa. It cannot be undone.',
       );
       await send();
       expect(writes().map(({ op, input }) => ({ op, input }))).toEqual([
@@ -137,6 +137,17 @@ describe('Turn section', () => {
     expect(summary()).toBe('T5 returned');
   });
 
+  it.each([
+    ['qa', 'the task stays in qa until it completes: a merged pull request or a done ticket.'],
+    ['done', 'the task stays in done.'],
+  ])('promises no move when %s has no next column but done', async (column, stays) => {
+    await open(orchestratorTaskGet({ column, addressee: `orchestrator:${column}` }));
+    await click('Submit…');
+    const { primary, line } = confirmation();
+    expect(primary?.textContent).toBe('Submit');
+    expect(line).toBe(`This closes T5 in your name; ${stays} It cannot be undone.`);
+  });
+
   it('adds the exit-condition sentence when other conditions of the turn column are unmet', async () => {
     const why = {
       ...taskGet().why,
@@ -157,27 +168,29 @@ describe('Turn section', () => {
     await open(orchestratorTaskGet({}, { why }));
     await click('Submit…');
     expect(confirmation().line).toBe(
-      'This closes T5 in your name and moves the task to done. It cannot be undone. The task moves once its other exit conditions hold.',
+      'This closes T5 in your name and moves the task to qa. It cannot be undone. The task moves once its other exit conditions hold.',
     );
   });
 });
+
+/** The latest submission of the submit that closed T5 at `AT`. */
+const submission = {
+  column: 'review',
+  sha: HEAD,
+  at: AT,
+  basis: 'tested',
+  from: null,
+  testedOrigin: null,
+  reason: null,
+  pending: false,
+  voided: false,
+};
 
 describe('Turn section when the turn closes elsewhere', () => {
   it('disables the form when another viewer closes the turn while it is open', async () => {
     const { d, writes } = await open();
     await click('Submit…');
     type(commit(), HEAD);
-    const submission = {
-      column: 'review',
-      sha: HEAD,
-      at: AT,
-      basis: 'tested',
-      from: null,
-      testedOrigin: null,
-      reason: null,
-      pending: false,
-      voided: false,
-    };
     await reread(
       d,
       orchestratorTaskGet({}, { turn: null, turns: [closedTurn('submitted')], submission }),
@@ -214,6 +227,28 @@ describe('Turn section when the turn closes elsewhere', () => {
       expect(confirmation().primary?.disabled).toBe(true);
     },
   );
+
+  it('names no basis or SHA from a latest submission made outside the closed turn', async () => {
+    const { d } = await open();
+    await click('Submit…');
+    const later = {
+      ...submission,
+      sha: SOURCE,
+      basis: 'skipped',
+      at: '2026-11-15T13:30:00.000Z',
+    };
+    await reread(
+      d,
+      orchestratorTaskGet(
+        { id: 'T6', at: AT },
+        { turns: [closedTurn('submitted')], submission: later },
+      ),
+    );
+    expect(text()).toContain('T5 was closed by qa / qa-1');
+    expect(text()).toContain('Submitted 0m ago.');
+    expect(text()).not.toContain('skipped');
+    expect(text()).not.toContain(SOURCE.slice(0, 7));
+  });
 
   it.each(['moved', 'corrected', 'archived'])('names no closer for a %s close', async (outcome) => {
     const { d } = await open();
