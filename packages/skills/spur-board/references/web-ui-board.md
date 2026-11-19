@@ -25,21 +25,22 @@ Header, left to right:
   `No session to ring for <column>`, its Spur project, the turns waiting, the oldest one's `T<n>`
   and age, and how long it has had no live session, then its action and
   `It clears itself when a session appears.`; it opens the oldest waiting turn's task and moves to
-  handled once it is cleared, keeping only its title and first sentence. A re-raise for the same
-  column replaces it, and the earlier item is not listed. Text it cannot read keeps the plain row.
-  Before the first success, the panel says inbox data is unavailable; later failures retain data.
-  Task rows open above the retained panel and select their project when config arrives. Task close
-  focuses its row or panel Close if removed; panel close focuses the header inbox button.
-  Back/Forward follow these layers. Task-less rows with a known HTTP(S) destination open it in a new
-  tab on click or Enter, retaining the inbox. This applies to active and handled entries. Task
-  navigation takes precedence even when a URL is supplied. Rows without a safe destination remain
-  focusable. Each active item entry (`I<n>`) has a quiet `Close I<n>` below its row that sends one
-  `item.close`, as Slack's Close does: a ledger item's block closes with it and a failed post stays
-  unsent. Blocks, turns and handled entries have none. It reads `Closing I<n>` while sent, then
-  `Closed I<n>, waiting for the board.` until the re-read moves the entry to handled; focus then
-  goes to the next row, else the previous one, else panel Close. A failure keeps the entry with
-  `Could not close I<n>: <message>`: the daemon's problem message, `the request failed.` for any
-  other failure, or `the board is unavailable.` while the daemon or live updates are unavailable.
+  handled once it is cleared, keeping its title, first sentence, the oldest turn's `T<n>` and its
+  action. A re-raise for the same column replaces it, and the earlier item is not listed. Text it
+  cannot read keeps the plain row. Before the first success, the panel says inbox data is
+  unavailable; later failures retain data. Task rows open above the retained panel and select their
+  project when config arrives. Task close focuses its row or panel Close if removed; panel close
+  focuses the header inbox button. Back/Forward follow these layers. Task-less rows with a known
+  HTTP(S) destination open it in a new tab on click or Enter, retaining the inbox. This applies to
+  active and handled entries. Task navigation takes precedence even when a URL is supplied. Rows
+  without a safe destination remain focusable. Each active item entry (`I<n>`) has a quiet
+  `Close I<n>` below its row that sends one `item.close`, as Slack's Close does: a ledger item's
+  block closes with it and a failed post stays unsent. Blocks, turns and handled entries have none.
+  It reads `Closing I<n>` while sent, then `Closed I<n>, waiting for the board.` until the re-read
+  moves the entry to handled; focus then goes to the next row, else the previous one, else panel
+  Close. A failure keeps the entry with `Could not close I<n>: <message>`: the daemon's problem
+  message, `the request failed.` for any other failure, or `the board is unavailable.` while the
+  daemon or live updates are unavailable.
 
 Columns follow configuration order:
 

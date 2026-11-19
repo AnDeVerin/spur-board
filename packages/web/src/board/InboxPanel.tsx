@@ -212,7 +212,8 @@ export function InboxPanel({
         ? entry.text.slice(0, -suffix.length)
         : entry.text;
     const known = noSession(entry, description, handled);
-    // A handled one keeps only its title and first sentence: the waiting turns are gone.
+    // A handled one keeps its title, first sentence, oldest turn id and action: its condition
+    // may have ended, so it has no count, ages or clears-itself line.
     const oldest = handled ? undefined : known?.oldest;
     const waiting = handled ? undefined : known?.waiting;
     const tail =
@@ -228,7 +229,9 @@ export function InboxPanel({
             .join('; ')}.`
         : oldest !== undefined
           ? ` The oldest turn, ${oldest.turn}, waits for ${age(oldest.at, now)}.`
-          : '';
+          : handled && known?.oldest !== undefined
+            ? ` The oldest turn was ${known.oldest.turn}.`
+            : '';
     const body =
       known === undefined ? (
         <>
@@ -246,7 +249,7 @@ export function InboxPanel({
             <strong className={styles.expects}>{known.expects}</strong>, and it has no live session.
             {tail}
           </span>
-          {!handled && entry.action !== undefined && (
+          {entry.action !== undefined && (
             <span className={`${styles.action ?? ''} ${styles.small ?? ''}`}>{entry.action}</span>
           )}
           {!handled && (

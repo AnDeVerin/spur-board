@@ -149,7 +149,19 @@ describe('inbox no-session item', () => {
     expect(handledIds()).toEqual(['I7']);
     expect(meta('I7')).toContain('Handled');
     expect(meta('I7').at(-1)).toBe('12m');
-    expect(lines('I7')).toEqual(['No session to ring for qa', FIRST]);
+    expect(lines('I7')).toEqual([
+      'No session to ring for qa',
+      `${FIRST} The oldest turn was T524.`,
+      ACTION,
+    ]);
+  });
+
+  it('leaves out the oldest turn on a handled row without an oldest clause', async () => {
+    const d = daemon();
+    serveInbox(d, [], [{ ...entry('I7', HEAD), handledAt: '2026-11-18T14:41:00.000Z' }]);
+    await openInbox(d);
+    expect(handledIds()).toEqual(['I7']);
+    expect(lines('I7')).toEqual(['No session to ring for qa', FIRST, ACTION]);
   });
 
   it('shows only the re-raised item when the oldest turn changes', async () => {
@@ -354,7 +366,7 @@ describe('inbox no-session item', () => {
               ...actions,
               CLEARS,
             ],
-            ['No session to ring for qa', first],
+            ['No session to ring for qa', `${first} The oldest turn was T524.`, ...actions],
           ];
     expect(lines('I7')).toEqual(active);
     expect(lines('I8')).toEqual(handled);
