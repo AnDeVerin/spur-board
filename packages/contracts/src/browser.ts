@@ -1,4 +1,12 @@
 import { taskMoveInputSchema, taskMoveOutputSchema } from './ops/move-schemas.ts';
+import {
+  inboxAckInputSchema,
+  inboxAckOutputSchema,
+  taskReturnInputSchema,
+  taskReturnOutputSchema,
+  taskSubmitInputSchema,
+  taskSubmitOutputSchema,
+} from './ops/turn-write-schemas.ts';
 /** Browser-safe operation schemas; never import the operation catalog here. */
 import { z } from 'zod';
 import {
@@ -9,6 +17,7 @@ import {
   OPERATOR_BINDING_SOURCES,
   VIAS,
 } from './enums.ts';
+export { COLUMNS } from './enums.ts';
 import { EVENT_KINDS } from './events.ts';
 import { actorIdSchema, blockIdSchema, itemIdSchema, taskKeyInputSchema } from './ids.ts';
 import { SPACE_IDS } from './gateway/schemas.ts';
@@ -489,5 +498,23 @@ export const browserOperations = {
     kind: 'mutation',
     input: itemInputSchema,
     output: itemOutputSchema,
+  },
+  'inbox.ack': {
+    id: 'inbox.ack',
+    kind: 'mutation',
+    input: inboxAckInputSchema,
+    output: inboxAckOutputSchema,
+  },
+  'task.submit': {
+    id: 'task.submit',
+    kind: 'mutation',
+    input: taskSubmitInputSchema,
+    output: taskSubmitOutputSchema,
+  },
+  'task.return': {
+    id: 'task.return',
+    kind: 'mutation',
+    input: taskReturnInputSchema,
+    output: taskReturnOutputSchema,
   },
 } as const;

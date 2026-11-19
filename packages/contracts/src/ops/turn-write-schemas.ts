@@ -1,0 +1,103 @@
+// The inputs and outputs of the writes that take and close a turn: `inbox.ack`, `task.submit` and
+// `task.return`. The catalog and the browser operations share these objects (`ops.test.ts`).
+import { z } from 'zod';
+import { SUBMISSION_BASES } from '../enums.ts';
+import { commitShaSchema } from '../facts.ts';
+import {
+  blockIdSchema,
+  commentIdSchema,
+  ringIdSchema,
+  taskKeyInputSchema,
+  turnIdSchema,
+} from '../ids.ts';
+import { blockViewSchema, taskViewSchema } from './schemas.ts';
+
+/** Most entries one `inbox.ack` call acknowledges. */
+const ACK_ENTRIES_MAX = 100;
+export const inboxAckInputSchema = z.strictObject({
+  entries: z
+    .array(
+      z.union([
+        z.strictObject({
+          id: commentIdSchema,
+          revision: z.int().positive().describe('Revision the caller read.'),
+        }),
+        z.strictObject({ id: blockIdSchema }),
+        z.strictObject({ id: turnIdSchema }),
+        z.strictObject({ id: ringIdSchema }),
+      ]),
+    )
+    .min(1)
+    .max(ACK_ENTRIES_MAX)
+    .describe('Comment revisions, blocks, turns and ring IDs to acknowledge.'),
+});
+export const inboxAckOutputSchema = z.strictObject({
+  acked: z
+    .array(z.union([commentIdSchema, blockIdSchema, turnIdSchema, ringIdSchema]))
+    .describe('Entries now acknowledged.'),
+  alreadyHandled: z
+    .array(z.union([commentIdSchema, blockIdSchema, turnIdSchema, ringIdSchema]))
+    .optional()
+    .describe('Entries that were already handled; nothing new was acknowledged for them.'),
+});
+
+export const taskSubmitInputSchema = z.strictObject({
+  turn: z
+    .union([turnIdSchema, taskKeyInputSchema])
+    .describe(
+      'Turn ID you took (T4); while the project dispatcher is in shadow mode, the task key instead.',
+    ),
+  sha: commitShaSchema
+    .max(64)
+    .describe('Full commit SHA at the head of the pull request, lowercase.'),
+  basis: z
+    .enum(SUBMISSION_BASES)
+    .optional()
+    .describe(
+      'Testing provenance: tested (default), carried from a tested origin on this task, or skipped with a reason.',
+    ),
+  from: commitShaSchema
+    .max(64)
+    .optional()
+    .describe('Full lowercase source SHA on this task; required only for carried.'),
+  reason: z
+    .string()
+    .max(2000)
+    .optional()
+    .describe(
+      'Literal nonblank explanation, up to 2000 UTF-16 units; required for carried and skipped.',
+    ),
+});
+export const taskSubmitOutputSchema = z.strictObject({
+  task: taskViewSchema,
+  turn: turnIdSchema
+    .nullable()
+    .describe('The closed turn; null for a submit by task key in shadow mode.'),
+  sha: commitShaSchema.describe('The submitted commit SHA.'),
+  // The default reads a result stored before pending submits existed, when every submit
+  // confirmed its head; a new call always sets status, so the output schema keeps it required.
+  status: z
+    .enum(['confirmed', 'pending'])
+    .default('confirmed')
+    .describe(
+      'confirmed: the board saw the PR head at sha. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block.',
+    ),
+});
+
+export const taskReturnInputSchema = z.strictObject({
+  turn: turnIdSchema,
+  reason: z
+    .string()
+    .min(1)
+    .max(20_000)
+    .describe('What the worker must change, sent to the worker as a code block.'),
+  findings: z
+    .int()
+    .min(0)
+    .optional()
+    .describe("Number of review findings the return sends; shown on the task's status row."),
+});
+export const taskReturnOutputSchema = z.strictObject({
+  task: taskViewSchema,
+  block: blockViewSchema,
+});

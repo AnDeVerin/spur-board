@@ -7,7 +7,8 @@ assets, health and catalog operations whose `web` binding is enabled. It uses th
 authorization, idempotency and operation hooks as the agent API, with the operator caller.
 Effective project configuration is available through `config.get`.
 Enabled writes are `comment.add`, `block.answer`, `block.followup`, `item.close` and
-`task.move`. Task moves use the operator API; the shell has no move control.
+`task.move`, plus `inbox.ack`, `task.submit` and `task.return` from the task view's Turn
+section. Task moves use the operator API; the shell has no move control.
 Token and skill routes stay on the agent API. The web listener is off by default
 and a failed bind does not stop the agent API.
 

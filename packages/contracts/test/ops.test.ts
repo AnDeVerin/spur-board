@@ -110,7 +110,7 @@ describe('catalog', () => {
     if (!isObject(property)) throw new Error('Missing column entry schema');
     expect(property['description']).toContain('original add');
   });
-  it('defaults web off and exposes exactly the screen reads and five operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and eight operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
@@ -121,6 +121,7 @@ describe('catalog', () => {
       'columns.describe',
       'comment.add',
       'config.get',
+      'inbox.ack',
       'inbox.get',
       'inbox.operator',
       'item.close',
@@ -128,12 +129,23 @@ describe('catalog', () => {
       'task.get',
       'task.history',
       'task.move',
+      'task.return',
+      'task.submit',
     ]);
     expect(
       OPERATIONS.filter((op) => op.kind === 'mutation' && op.web !== null)
         .map((op) => op.id)
         .sort(),
-    ).toEqual(['block.answer', 'block.followup', 'comment.add', 'item.close', 'task.move']);
+    ).toEqual([
+      'block.answer',
+      'block.followup',
+      'comment.add',
+      'inbox.ack',
+      'item.close',
+      'task.move',
+      'task.return',
+      'task.submit',
+    ]);
     expect(OPERATIONS.find((op) => op.id === 'schema.get')?.web).toBeNull();
     expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
       true,
@@ -869,13 +881,14 @@ describe('comment shape', () => {
 });
 
 describe('snapshot', () => {
-  it('pins the catalog excluding columns.describe after adding manual moves', async () => {
+  it('pins the catalog excluding columns.describe after opening the Turn writes to the web', async () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
-    // Manual moves extend task.move, move views, schema metadata and the error catalog.
+    // The web Turn section sets web on inbox.ack, task.submit and task.return; their schemas,
+    // grants and errors are unchanged.
     expect(await catalogVersion(baseline)).toBe(
-      '9eccfebc2ab94a7f06e4420a34fa9d7307c7c9415ece807202798356b3519fd9',
+      'd252fff9288726bfa9ccf0d153407287c2f5f67cebed4af38e6dffac885df6ad',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
