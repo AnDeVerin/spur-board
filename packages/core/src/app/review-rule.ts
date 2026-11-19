@@ -169,7 +169,8 @@ const upper = (value: string | null): string => (value === null ? 'null' : value
 /**
  * The items of github-rules tasks in External Review whose head has stayed undecided for
  * `REVIEW_RULE_UNDECIDED_MS` and whose gate, read as `readInput` reads it, still waits on GitHub
- * alone: a newer read of the head by another project's source can name someone to act first.
+ * alone: a newer read of the head by another project's source can name someone to act first or
+ * carry GitHub's decision, satisfied or blocked, and then no item is raised or kept.
  * GitHub's values are frozen in the row at the first reconcile past the threshold, so a later
  * poll or a restart keeps the item as raised.
  */
@@ -204,8 +205,11 @@ export async function reviewRuleItems(
     if (now - Date.parse(row.undecidedSince) < REVIEW_RULE_UNDECIDED_MS) continue;
     const gatePr =
       project.checksGate === 'dev' ? pr : await withUnconfirmedCancels(trx, source, pr);
-    if (!waitsOnGitHub(await storedReviewRule(trx, source, gatePr, project.operatorGithubLogin)))
-      continue;
+    const gate = await storedReviewRule(trx, source, gatePr, project.operatorGithubLogin);
+    // Another project's newer read may already be GitHub's decision on the head: the gate waits
+    // for this source's own read, but GitHub has not left the rule undecided.
+    const decided = storedDecision(verdictOf(gatePr, row, gate.changesRequested), null) !== null;
+    if (!waitsOnGitHub(gate) || decided) continue;
     let raised = row.raised;
     if (raised === null) {
       raised = `GitHub has not decided the review rule of ${pr.repo}#${String(pr.number)} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;

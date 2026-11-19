@@ -6394,6 +6394,7 @@ describe('approvalRule github-rules', () => {
       patch: { mergeState: 'blocked', reviewThreads: [{ resolved: false, id: 'PRRT_1' }] },
     },
     'newer shared blocked': { source: 'github:web:o/r', patch: { mergeState: 'blocked' } },
+    'newer shared clean': { source: 'github:web:o/r', patch: { mergeState: 'clean' } },
     'newer shared blocked with a required check rerunning': {
       source: 'github:web:o/r',
       patch: {
@@ -6410,31 +6411,54 @@ describe('approvalRule github-rules', () => {
     const ctx = await pastProductReview({ ...RULED, sharedRepo: true });
     // Without the approval a satisfied decision does not release the task.
     await ctx.rulePr({ mergeState: STORED[stored] }, rule());
+    // A head with no decision has its item open before the latest read.
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    const open = async () =>
+      (await ruleItems(ctx)).filter((item) => item.cleared_at === null).length;
+    expect(await open()).toBe(stored === 'none' ? 1 : 0);
     const { source, patch } = LATEST[latest];
     const own = source === GITHUB;
     await ctx.rulePr({ ...approved, ...patch }, own ? rule() : undefined, source);
+    // A newer shared read never makes a decision the own source has not stored; its block
+    // overrides a stored satisfied one, and a stored block outlasts its clean state.
+    const sharedDecision =
+      latest === 'newer shared blocked'
+        ? 'blocked'
+        : latest === 'newer shared clean'
+          ? 'satisfied'
+          : null;
     const gate =
       latest === 'newer shared blocked with a required check rerunning'
         ? 'checks_pending'
         : latest === 'blocked with an unresolved thread'
           ? 'unresolved_threads'
-          : latest === 'newer shared blocked' && stored !== 'none'
-            ? 'review_rule_blocked'
-            : 'merge_state_unknown';
+          : sharedDecision === null || stored === 'none'
+            ? 'merge_state_unknown'
+            : sharedDecision === 'blocked' || stored === 'blocked'
+              ? 'review_rule_blocked'
+              : null;
     expect((await externalConditions(ctx))?.at(-1)).toEqual({
       condition: 'review_rule_satisfied',
-      state: gate === 'review_rule_blocked' || gate === 'unresolved_threads' ? 'failed' : 'waiting',
+      state:
+        gate === null
+          ? 'met'
+          : gate === 'review_rule_blocked' || gate === 'unresolved_threads'
+            ? 'failed'
+            : 'waiting',
       reason: gate,
     });
-    expect((await ctx.task()).column).toBe('external-review');
-    // The item names a head with no decision whose gate waits on GitHub alone.
+    expect((await ctx.task()).column).toBe(gate === null ? 'ready-to-merge' : 'external-review');
+    // The item names a head with no decision whose gate waits on GitHub alone, while no read of
+    // the head carries GitHub's decision; an item open before such a read clears.
     const raised =
       (gate === 'merge_state_unknown' || gate === 'unresolved_threads') &&
+      sharedDecision === null &&
       (stored === 'none' || (own && latest !== 'unknown'));
     ctx.wait(HALF_HOUR);
     await ctx.tick();
-    expect(await ruleItems(ctx)).toHaveLength(raised ? 1 : 0);
-    expect((await ctx.task()).column).toBe('external-review');
+    expect(await open()).toBe(raised ? 1 : 0);
+    expect(await ruleItems(ctx)).toHaveLength(raised || stored === 'none' ? 1 : 0);
   });
 
   it('waits on GitHub until the first full read of the head and drops the decision on a new head', async () => {
