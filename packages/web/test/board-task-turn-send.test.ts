@@ -210,59 +210,17 @@ describe('Turn section focus', () => {
     );
   });
 
-  it('names the column of the write answer until a re-read after it succeeds', async () => {
+  it('names the column of the write answer, then the next task read', async () => {
     const { d } = await open();
-    const refresh = deferred();
+    const next = deferred();
     await click('Return to dev…');
     type(reason(), 'Handle the empty list.');
-    d.routes['task.get'] = () => refresh.promise;
+    d.routes['task.get'] = () => next.promise;
     await send();
     const line = () => turnSection().querySelector('[role="status"]')?.textContent;
     // The read from before the write still says Review; the return's answer says Dev.
     expect(line()).toBe('T5 returned to dev. The task is in dev.');
-    refresh.resolve(await problem('unexpected', 500));
-    await settle();
-    expect(line()).toBe('T5 returned to dev. The task is in dev.');
-    // A read after the write that answers names the column from then on.
-    await reread(
-      d,
-      orchestratorTaskGet(
-        {},
-        {
-          task: { ...taskGet().task, column: 'todo' },
-          turn: null,
-          turns: [closedTurn('returned', 'operator')],
-        },
-      ),
-    );
-    expect(line()).toBe('T5 returned to dev. The task is in todo.');
-  });
-
-  it('ignores a read issued before the close that answers during the send', async () => {
-    const { d } = await open();
-    const write = deferred();
-    const early = deferred();
-    const returned = d.routes['task.return'];
-    d.routes['task.return'] = () => write.promise;
-    await click('Return to dev…');
-    type(reason(), 'Handle the empty list.');
-    await send();
-    // A stream change issues a task.get while the return still runs; it answers after the close.
-    d.routes['task.get'] = () => early.promise;
-    d.send('event: reset\ndata: {}\n\n');
-    await settle();
-    write.resolve(await returned({ turn: 'T5', reason: 'Handle the empty list.' }));
-    await settle();
-    const line = () => turnSection().querySelector('[role="status"]')?.textContent;
-    expect(line()).toBe('T5 returned to dev. The task is in dev.');
-    // The write's own re-read waits behind the early one; that early answer still says Review.
-    const late = deferred();
-    d.routes['task.get'] = () => late.promise;
-    early.resolve(envelope(orchestratorTaskGet()));
-    await settle();
-    expect(line()).toBe('T5 returned to dev. The task is in dev.');
-    // Once the read the write started answers, the line follows it.
-    late.resolve(
+    next.resolve(
       envelope(
         orchestratorTaskGet(
           {},

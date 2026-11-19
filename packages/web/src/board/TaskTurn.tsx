@@ -46,18 +46,10 @@ interface Bound {
   turn: Turn;
   /**
    * This section closed it, by a submit or a return. `column` is the task's column in the write's
-   * answer, shown until the re-read the write started settles: a read issued before the close
-   * can finish during the send and must not count. `fresh` is that re-read answering; when it
-   * failed, `baseline` is the read shown then, and only a newer good read replaces it.
+   * answer and `at` the read shown at the close: the line names `column` until a newer task read
+   * arrives, then that read's column.
    */
-  own:
-    | {
-        outcome: 'submitted' | 'returned';
-        column: string;
-        fresh: boolean;
-        baseline: BoardTask | undefined;
-      }
-    | undefined;
+  own: { outcome: 'submitted' | 'returned'; column: string; at: BoardTask } | undefined;
   /** A write answered that the turn is closed, whatever the last read says. */
   refusedClosed: boolean;
 }
@@ -104,8 +96,6 @@ export function TaskTurn({
   const [phase, setPhase] = useState<TurnPhase | 'idle'>('idle');
   const intent = useRef<{ signature: string; value: TurnIntent }>(undefined);
   const mounted = useRef(true);
-  const latest = useRef(value);
-  latest.current = value;
   const actions = useRef<HTMLSpanElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const cancelRow = useRef<HTMLDivElement>(null);
@@ -263,17 +253,12 @@ export function TaskTurn({
         setPhase('idle');
         setForm(undefined);
         const outcome = form === 'submit' ? 'submitted' : 'returned';
-        const own = { outcome, column: closed.column, fresh: false, baseline: undefined } as const;
-        setBound({ turn, own, refusedClosed: false });
-        pendingFocus.current = 'status';
-        void closed.refresh.then((fresh) => {
-          if (!mounted.current) return;
-          setBound((current) =>
-            current?.own && current.turn.id === turn.id
-              ? { ...current, own: { ...current.own, fresh, baseline: latest.current } }
-              : current,
-          );
+        setBound({
+          turn,
+          own: { outcome, column: closed.column, at: value },
+          refusedClosed: false,
         });
+        pendingFocus.current = 'status';
       },
       (cause: unknown) => {
         if (!mounted.current) return;
@@ -460,7 +445,7 @@ export function TaskTurn({
             ref={statusRef}
             className={`${styles.status ?? ''} ${focusRing}`}
           >
-            {`${turn.id} ${own.outcome === 'submitted' ? 'submitted' : 'returned to dev'}. The task is in ${own.fresh || (own.baseline !== undefined && value !== own.baseline) ? value.task.column : own.column}.`}
+            {`${turn.id} ${own.outcome === 'submitted' ? 'submitted' : 'returned to dev'}. The task is in ${value === own.at ? own.column : value.task.column}.`}
           </p>
         ) : (
           <div ref={noticeRef} tabIndex={-1} className={focusRing}>

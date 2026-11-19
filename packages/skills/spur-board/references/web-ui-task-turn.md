@@ -88,8 +88,8 @@ the notice.
 ## Your own close
 
 After a close the section keeps a focused status line, `T<n> submitted.` or
-`T<n> returned to dev.`, then `The task is in <column>.`: the column in the write's answer until
-the re-read the write started answers, then the latest read's. It stays even when the task then has no
+`T<n> returned to dev.`, then `The task is in <column>.`: the column in the write's answer, then
+the column of the next task read once it arrives. It stays even when the task then has no
 open turn. A turn the same write opened shows below.
 
 Keys are reused only within the open form. A reload, one after a Board update included, closes the form and
