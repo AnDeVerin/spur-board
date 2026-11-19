@@ -27,11 +27,12 @@
 .root[data-away] {
   left: var(--popover-left);
 }
+/* Content-box, as the prototype: the hairline sits under a full section-header row, so an
+   underline tablist stretched to the row is the full section-header height. */
 .header {
   flex: none;
   display: flex;
   align-items: center;
-  box-sizing: border-box;
   gap: var(--space-3);
   min-height: var(--size-section-header);
   padding: 0 var(--space-1) 0 var(--space-3);
