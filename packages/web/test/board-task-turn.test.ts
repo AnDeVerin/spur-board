@@ -170,7 +170,7 @@ describe('Turn section', () => {
   it.each([
     [
       'qa',
-      `${REEVALUATE} If they hold, the task stays in qa until it completes: its pull request merges, or its ticket is done with no open pull request and no live worker.${UNMET} It cannot be undone.`,
+      `${REEVALUATE} If they hold, the task stays in qa until the board's completion rule moves it to done.${UNMET} It cannot be undone.`,
     ],
     ['done', 'This closes T5 in your name; the task stays in done. It cannot be undone.'],
   ])('promises no move when %s has no next column but done', async (column, expected) => {

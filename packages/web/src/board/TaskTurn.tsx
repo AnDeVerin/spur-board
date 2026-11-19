@@ -21,18 +21,20 @@ import {
   ARCHIVED,
   BASES,
   BASIS_ID,
-  brief,
+  boundSummary,
   closedDetail,
   closedNotice,
+  draftText,
   commitDefault,
   isBasis,
   NOTE,
+  openSummary,
   orchestrated,
   otherConditionsUnmet,
-  OUTCOME,
   ownSubmitNote,
   PHASE,
   reasonError,
+  restoreDraft,
   RETURNABLE,
   settledSubmit,
   shaError,
@@ -139,7 +141,8 @@ export function TaskTurn({
   const open = orchestrated(value.turn);
   const inFlight = phase !== 'idle';
   const draftOpen = bound && form ? { turn: bound.turn.id, form } : undefined;
-  const draft = useTurnDraft(drafts, taskKey, draftOpen, reason);
+  const draftFields = { sha, basis, from, reason };
+  const draft = useTurnDraft(drafts, taskKey, draftOpen, form ? draftText(form, draftFields) : '');
   const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
   const closed = bound !== undefined && !boundOpen && !inFlight;
   const blocked =
@@ -148,7 +151,9 @@ export function TaskTurn({
       : unavailable === undefined
         ? undefined
         : UNAVAILABLE;
-  const sendOff = closed || blocked !== undefined;
+  // A send of this turn from before the view was reopened still runs: no second one overlaps it.
+  const elsewhere = bound !== undefined && !inFlight && draft.sending(bound.turn.id);
+  const sendOff = closed || blocked !== undefined || elsewhere;
   const fieldsOff = inFlight || sendOff;
   /** An open turn other than the bound one: the next turn a close opened. */
   const newer =
@@ -197,12 +202,6 @@ export function TaskTurn({
     if (entry === undefined) return undefined;
     return entry.name === null ? entry.kind : `${entry.kind} ${entry.name}`;
   };
-  const openSummary = (turn: Turn) =>
-    turn.taken === null
-      ? `${turn.id} · not taken`
-      : turn.taken.by === 'operator'
-        ? `${turn.id} · you hold it`
-        : `${turn.id} · taken by ${brief(turn.taken.by)}`;
   const outcome = record?.closed?.outcome;
   const closer =
     outcome === 'submitted' || outcome === 'returned'
@@ -213,10 +212,15 @@ export function TaskTurn({
 
   const start = (next: Form, turn: Turn) => {
     setBound({ turn, own: undefined, refusedClosed: false });
-    setSha(commitDefault(row, value.why, turn.id));
-    setBasis('tested');
-    setFrom('');
-    setReason(draft.restored(turn.id, next));
+    const kept = restoreDraft(
+      next,
+      draft.restored(turn.id, next),
+      commitDefault(row, value.why, turn.id),
+    );
+    setSha(kept.sha);
+    setBasis(kept.basis);
+    setFrom(kept.from);
+    setReason(kept.reason);
     setErrors({});
     setRefusal(undefined);
     intent.current = undefined;
@@ -232,7 +236,7 @@ export function TaskTurn({
   };
   const send = (event: { preventDefault: () => void }) => {
     event.preventDefault();
-    if (inFlight || !bound || !boundOpen || blocked !== undefined || form === undefined) return;
+    if (inFlight || elsewhere || !bound || !boundOpen || blocked !== undefined || !form) return;
     const commit = sha.trim();
     const source = from.trim();
     const found: FieldErrors =
@@ -452,9 +456,9 @@ export function TaskTurn({
             Cancel
           </Button>
         </div>
-        {inFlight && (
+        {(inFlight || elsewhere) && (
           <p role="status" className={styles.status}>
-            {PHASE[phase]}…
+            {inFlight ? `${PHASE[phase]}…` : `An earlier send of ${turn.id} is still running.`}
           </p>
         )}
       </form>
@@ -492,22 +496,17 @@ export function TaskTurn({
     );
   };
 
-  const boundSummary = (entry: Bound) => {
-    const { id } = entry.turn;
-    if (inFlight) return `Closing ${id}…`;
-    if (entry.own) return `${id} ${entry.own.outcome}`;
-    if (!boundOpen)
-      return closer !== undefined
-        ? `${id} closed by ${record?.taken ? brief(record.taken.by) : closer}`
-        : outcome !== undefined
-          ? `${id} closed: ${OUTCOME[outcome] ?? outcome}`
-          : `${id} closed`;
-    if (refusal !== undefined)
-      return `${id} · refused${intent.current?.value.taken() || open.taken?.by === 'operator' ? ', you hold it' : ''}`;
-    return openSummary(open);
-  };
   const summary = [
-    bound ? boundSummary(bound) : open && openSummary(open),
+    bound
+      ? boundSummary(bound.turn.id, {
+          inFlight,
+          own: bound.own,
+          open: boundOpen ? open : undefined,
+          record,
+          refused: refusal !== undefined,
+          held: intent.current?.value.taken() === true,
+        })
+      : open && openSummary(open),
     newer && openSummary(newer),
   ]
     .filter(Boolean)

@@ -89,7 +89,7 @@ export function submitConfirmation(
     return `This closes ${turn.id} in your name; the task stays in done. It cannot be undone.`;
   const outcome =
     next === undefined
-      ? `the task stays in ${turn.column} until it completes: its pull request merges, or its ticket is done with no open pull request and no live worker`
+      ? `the task stays in ${turn.column} until the board's completion rule moves it to done`
       : `the task moves to ${next}`;
   return `This closes ${turn.id} in your name and the board re-evaluates the task's gates. If they hold, ${outcome}.${unmet ? ' Some exit conditions do not hold now, so the task may wait, or move back to a column whose gate fails.' : ''} It cannot be undone.`;
 }
@@ -231,4 +231,85 @@ export function otherConditionsUnmet(why: BoardTask['why']): boolean {
         ),
     ) ?? false
   );
+}
+
+/** The fields of the submit form, kept together in its draft. */
+export interface SubmitFields {
+  sha: string;
+  basis: Basis;
+  from: string;
+  reason: string;
+}
+/**
+ * The draft text of a form: a return keeps its reason; a submit keeps commit, basis, source and
+ * reason together, so a resumed Skipped or Carried draft never comes back as Tested. A submit with
+ * no source and no reason typed has nothing unsent.
+ */
+export function draftText(form: 'submit' | 'return', fields: SubmitFields): string {
+  if (form === 'return') return fields.reason;
+  return fields.from === '' && fields.reason === '' ? '' : JSON.stringify(fields);
+}
+/** The fields a form opens with from its kept draft text; `sha` starts the commit without one. */
+export function restoreDraft(form: 'submit' | 'return', text: string, sha: string): SubmitFields {
+  const empty: SubmitFields = { sha, basis: 'tested', from: '', reason: '' };
+  if (form === 'return') return { ...empty, reason: text };
+  if (text === '') return empty;
+  try {
+    const kept: unknown = JSON.parse(text);
+    if (typeof kept !== 'object' || kept === null) return empty;
+    const field = (name: string) => {
+      const value: unknown = (kept as Record<string, unknown>)[name];
+      return typeof value === 'string' ? value : undefined;
+    };
+    const basis = field('basis');
+    return {
+      sha: field('sha') ?? sha,
+      basis: basis !== undefined && isBasis(basis) ? basis : 'tested',
+      from: field('from') ?? '',
+      reason: field('reason') ?? '',
+    };
+  } catch {
+    return empty;
+  }
+}
+
+type SummaryTurn = NonNullable<BoardTask['turn']>;
+/** The fold summary of an open turn: who holds it, with the taker's session cut short. */
+export function openSummary(turn: SummaryTurn): string {
+  if (turn.taken === null) return `${turn.id} · not taken`;
+  return turn.taken.by === 'operator'
+    ? `${turn.id} · you hold it`
+    : `${turn.id} · taken by ${brief(turn.taken.by)}`;
+}
+
+/**
+ * The fold summary of the bound turn `id`: closing while a send runs, the own close, how it closed
+ * elsewhere (the taker named for a submit or a return), a refusal, else as an open turn.
+ */
+export function boundSummary(
+  id: string,
+  state: {
+    inFlight: boolean;
+    own: OwnClose | undefined;
+    /** The bound turn while it is still open. */
+    open: SummaryTurn | undefined;
+    record: { taken: { by: string } | null; closed: { outcome: string } | null } | undefined;
+    refused: boolean;
+    /** This section's ack landed. */
+    held: boolean;
+  },
+): string {
+  if (state.inFlight) return `Closing ${id}…`;
+  if (state.own) return `${id} ${state.own.outcome}`;
+  const { open, record } = state;
+  if (open === undefined) {
+    const outcome = record?.closed?.outcome;
+    if ((outcome === 'submitted' || outcome === 'returned') && record?.taken)
+      return `${id} closed by ${brief(record.taken.by)}`;
+    if (outcome === 'submitted' || outcome === 'returned') return `${id} closed by the board`;
+    return outcome === undefined ? `${id} closed` : `${id} closed: ${OUTCOME[outcome] ?? outcome}`;
+  }
+  if (state.refused)
+    return `${id} · refused${state.held || open.taken?.by === 'operator' ? ', you hold it' : ''}`;
+  return openSummary(open);
 }

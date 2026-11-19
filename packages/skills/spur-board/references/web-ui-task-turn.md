@@ -38,11 +38,13 @@ The button reads **Submit**; there is no confirm dialog. A submit closes the tur
 re-evaluates every gate of the task. The line above the button starts
 `This closes T<n> in your name and the board re-evaluates the task's gates.`, then says where
 the task goes if they hold: `the task moves to <next>`, the enabled column after the turn's
-column. A passing gate never moves a task into Done; completion does: its pull request merges, or
-its ticket is done with no open pull request and no live worker, once GitHub and Spur have a
-fresh complete poll (see [Columns](how-board-works-columns.md)). So when the next column is Done
-or there is none, the line says the task stays in its column until it completes. When any gate has an unmet exit condition other than the submit or
-review on the head, it adds that the task may wait, or move back to a column whose gate fails. A
+column. A passing gate never moves a task into Done; the Board's completion rule does (see
+[Columns](how-board-works-columns.md)): a merged pull request with its ticket done, or a done
+ticket with no open pull request and no live worker. A merge whose ticket is still seen open after
+one tracker interval sends the task back to work without that pull request. So when the next
+column is Done or there is none, the line says the task stays in its column until the
+completion rule moves it to Done. When any gate has an unmet exit condition other than the
+submit or review on the head, it adds that the task may wait, or move back to a column whose gate fails. A
 Done wrap-up turn says the task stays in done. The line ends `It cannot be undone.`
 
 ## Return
@@ -104,8 +106,10 @@ needs another submit: a pull request merged at another head can void it and stil
 turn the same write opened shows below.
 
 A Board update waits to reload the page while the ack and the close run, even when the task view
-closes first, so it never leaves the operator holding a turn mid-close. An unsent reason survives
-that reload and comes back only in the same form of the same turn.
+closes first, so it never leaves the operator holding a turn mid-close. A view reopened while
+such a send runs keeps its send disabled and says the earlier send is still running. An unsent
+draft survives that reload and comes back only in the same form of the same turn: a return keeps
+its reason, a submit keeps its commit, basis, source and reason together.
 
 ## Unavailable and archived
 

@@ -1,6 +1,21 @@
 import { useLayoutEffect } from 'react';
 import type { BoardData } from './data.ts';
 
+/**
+ * Sends in flight per board data's drafts and per task and turn: they outlive a closed task view,
+ * so a reopened one sees an earlier send still running, and the reload stays held until the last
+ * one settles.
+ */
+const SENDING = new WeakMap<BoardData['drafts'], Map<string, number>>();
+const sendingOf = (drafts: BoardData['drafts']) => {
+  let map = SENDING.get(drafts);
+  if (map === undefined) {
+    map = new Map();
+    SENDING.set(drafts, map);
+  }
+  return map;
+};
+
 /** The draft id of one form: a reason belongs to its task, turn and form. */
 const draftId = (taskKey: string, turn: string, form: 'submit' | 'return') =>
   JSON.stringify(['turn', taskKey, turn, form]);
@@ -32,12 +47,22 @@ export function useTurnDraft(
     /** The reason a reload kept for this form of this turn, else empty. */
     restored: (turn: string, form: 'submit' | 'return') =>
       drafts.restored(draftId(taskKey, turn, form)) ?? '',
-    /** Hold a board update reload until `sending` settles. */
+    /** A send of `turn` is still in flight, from this view or one closed before. */
+    sending: (turn: string) =>
+      (sendingOf(drafts).get(JSON.stringify(['turn-send', taskKey, turn])) ?? 0) > 0,
+    /** Hold a board update reload until `sending` and every other send of `turn` settle. */
     hold(turn: string, sending: Promise<unknown>) {
       const sendId = JSON.stringify(['turn-send', taskKey, turn]);
+      const counts = sendingOf(drafts);
+      counts.set(sendId, (counts.get(sendId) ?? 0) + 1);
       drafts.report(sendId, { text: '', busy: true });
       const release = () => {
-        drafts.release(sendId);
+        const left = (counts.get(sendId) ?? 1) - 1;
+        if (left > 0) counts.set(sendId, left);
+        else {
+          counts.delete(sendId);
+          drafts.release(sendId);
+        }
       };
       sending.then(release, release);
     },
