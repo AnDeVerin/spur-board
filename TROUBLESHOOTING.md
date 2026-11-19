@@ -273,7 +273,7 @@ Listed only when a project's `external-review` column sets `approvalRule: github
 of that project's `projects[].repos`, the daemon reads the default branch's review rule from its
 branch protection and the rulesets that apply to it, and prints what it read: the source (branch
 protection, ruleset or both), the required approvals, code owner review, resolved conversations and
-required checks. The board reads each PR's own base branch the same way on every full PR read. The
+required checks. The Board reads each PR's own base branch the same way on every full PR read. The
 check never blocks and is separate from `github.credentials`. It warns when the branch has no
 branch protection or ruleset, when the rule requires neither an approval nor a code owner review
 (no review rule to follow), when the read fails, for example because the token cannot read the

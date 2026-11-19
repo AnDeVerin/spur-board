@@ -6245,18 +6245,21 @@ describe('approvalRule github-rules', () => {
       patch: { mergeState: 'blocked', reviewThreads: [{ resolved: false, id: 'PRRT_1' }] },
     },
     { name: 'behind the base branch', patch: { mergeState: 'behind' } },
-  ] as const)('$name for 30 minutes raises one item', async ({ patch }) => {
-    const ctx = await pastProductReview(RULED);
-    await ctx.rulePr({ ...approved, ...patch }, rule());
-    expect((await ctx.task()).column).toBe('external-review');
-    ctx.wait(HALF_HOUR);
-    await ctx.tick();
-    await ctx.rulePr({ ...patch }, rule());
-    const items = await ruleItems(ctx);
-    expect(items).toHaveLength(1);
-    expect(items[0]?.text).toContain(`mergeStateStatus=${patch.mergeState.toUpperCase()}`);
-    expect(items[0]?.cleared_at).toBeNull();
-  });
+  ] satisfies { name: string; patch: Partial<PrFacts> & Pick<PrFacts, 'mergeState'> }[])(
+    '$name for 30 minutes raises one item',
+    async ({ patch }) => {
+      const ctx = await pastProductReview(RULED);
+      await ctx.rulePr({ ...approved, ...patch }, rule());
+      expect((await ctx.task()).column).toBe('external-review');
+      ctx.wait(HALF_HOUR);
+      await ctx.tick();
+      await ctx.rulePr({ ...patch }, rule());
+      const items = await ruleItems(ctx);
+      expect(items).toHaveLength(1);
+      expect(items[0]?.text).toContain(`mergeStateStatus=${patch.mergeState.toUpperCase()}`);
+      expect(items[0]?.cleared_at).toBeNull();
+    },
+  );
 
   it.each([
     {
@@ -6290,7 +6293,13 @@ describe('approvalRule github-rules', () => {
       column: 'external-review',
       gate: null,
     },
-  ] as const)('$name raises no item after 30 minutes', async ({ patch, review, column, gate }) => {
+  ] satisfies {
+    name: string;
+    patch: Partial<PrFacts>;
+    review: PrReviewRule;
+    column: ColumnId;
+    gate: string[] | null;
+  }[])('$name raises no item after 30 minutes', async ({ patch, review, column, gate }) => {
     const ctx = await pastProductReview(RULED);
     await ctx.rulePr({ ...approved, ...patch }, review);
     expect((await ctx.task()).column).toBe(column);

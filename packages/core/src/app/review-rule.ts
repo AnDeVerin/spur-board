@@ -27,7 +27,7 @@ import { parsePr, taskPr, type Trx } from './board-utils.ts';
 // on that head. Only calls for a github-rules project write it; nothing else reads it.
 
 /** How long a head may stay undecided in External Review before the operator gets an item. */
-export const REVIEW_RULE_UNDECIDED_MS = 30 * 60_000;
+const REVIEW_RULE_UNDECIDED_MS = 30 * 60_000;
 
 const storedSchema = z.strictObject({
   headSha: prFactsSchema.shape.headSha,
