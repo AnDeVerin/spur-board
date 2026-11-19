@@ -40,7 +40,7 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
 - slack: when down, Down since, Reason and Spaces.
 - spur, then one group per project, headed by the project id, with one box per GitHub source and
   one per Jira source of that project. Each box is headed by its own state, or by
-  `waits for rate budget` when the daemon blames that source for its service's colour: Last
+  `waits for rate budget` when the daemon blames that source for a rate budget wait: Last
   complete poll, Last observation, Blind (when blind), Freshness, Warming up, Points last hour
   (pull request sources) and Budget: a bar of requests left over the limit with its reset time,
   amber at 20% and red at 5%; `<n> left` without a limit; `—` without a budget. The spur box adds
@@ -48,8 +48,8 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
 
 A box name adds `· <repo>` only when its group has two sources of that kind. A service button
 scrolls the panel to its service's first failing box, else its first degraded box, else its
-first box, so a GitHub source waiting for its rate budget in any project is the one it
-reaches. Healthy services omit their healthy-since time. Before the first status the panel
+first box, so it reaches a GitHub source waiting for its rate budget in any project when the
+daemon blames that source and no box is failing. Healthy services omit their healthy-since time. Before the first status the panel
 waits; an unreachable daemon makes boxes unknown. Lost live updates with a reachable daemon show
 `Data from <time>` and retain data. Close, Escape, the scrim or services button closes the panel;
 focus returns to its opener, or services after a link.

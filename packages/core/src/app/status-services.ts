@@ -33,6 +33,8 @@ function pickTime(values: readonly (string | null)[], pick: 'latest' | 'oldest')
 }
 
 /** One source's health: failing when blind, degraded while not fully usable, else healthy. */
+// The web reads the `<source id> ` prefix of these reasons (sourceHealth in panelBoxes,
+// packages/web/src/board/services.ts): a format change here must update the web.
 function sourceHealth(
   source: SourceView,
   config: Config,
