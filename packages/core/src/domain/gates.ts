@@ -329,7 +329,7 @@ const CONDITION_DEFINITIONS: Record<GateCondition, ConditionDefinition> = {
           : ['not_approved'],
   },
   review_rule_satisfied: {
-    text: "GitHub's review rule for the base branch, from branch protection and rulesets, is satisfied on the current PR head: a required check completed, no changes requested and the merge not blocked.",
+    text: "GitHub's review rule for the base branch, from branch protection and rulesets, is satisfied on the current PR head: a required check completed (met when none is required), no changes requested and the merge not blocked.",
     reasons: ({ reviewRule }) =>
       reviewRule === undefined || reviewRule.changesRequested
         ? []
