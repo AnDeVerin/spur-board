@@ -101,10 +101,11 @@ type CourseLog = (Round | { kind: 'reset'; counter: ColumnId })[];
  * course rounds with the resets of each counter. A return's head is the head the active PR moved
  * to last before it, else the one the next head change left, else the PR's current head; a
  * return counted under External Review takes the head of the latest external change request
- * made since the task entered the column it left, as the PR facts journaled before the return
- * show it, so a push seen in the same poll does not take its place. External Review counts each
- * head once, resets ignored: a later return or round on a head it already counted adds to the
- * cycle events only. `externalHeads` are the heads External Review counted.
+ * made since the dispatcher last moved the task, as the active PR's facts journaled before the
+ * return show it, so a push seen in the same poll does not take its place. A correction is no
+ * boundary: a request it bounces on is still unhandled and is the return's cause. External
+ * Review counts each head once, resets ignored: a later return or round on a head it already
+ * counted adds to the cycle events only. `externalHeads` are the heads External Review counted.
  */
 async function courseRounds(
   trx: Trx,
@@ -165,21 +166,19 @@ async function courseRounds(
       .select('payload')
       .where('task_id', '=', taskId)
       .where('kind', '=', 'pr_facts_changed')
+      .where(sql<boolean>`json_extract(payload, '$.facts.number') = ${pr.number}`)
+      .where(sql<boolean>`lower(json_extract(payload, '$.facts.repo')) = ${pr.repo.toLowerCase()}`)
       .where('id', '<', id)
       .orderBy('id', 'desc')
       .executeTakeFirst();
-    const changed = eventPayloadSchemas.pr_facts_changed.safeParse(
-      JSON.parse(row?.payload ?? 'null'),
-    );
-    const facts = changed.success ? changed.data.facts : null;
-    if (facts?.repo.toLowerCase() !== pr.repo.toLowerCase() || facts.number !== pr.number)
-      return null;
-    const latest = facts.reviews
+    const seen = eventPayloadSchemas.pr_facts_changed.safeParse(JSON.parse(row?.payload ?? 'null'));
+    if (!seen.success) return null;
+    const latest = seen.data.facts.reviews
       .filter(
         (review) =>
           review.state === 'changes_requested' &&
           Date.parse(review.submittedAt) > since &&
-          externalReviewer(facts, project.operatorGithubLogin, review.reviewer),
+          externalReviewer(seen.data.facts, project.operatorGithubLogin, review.reviewer),
       )
       .sort((left, right) => Date.parse(right.submittedAt) - Date.parse(left.submittedAt))[0];
     return latest?.commitSha.toLowerCase() ?? null;

@@ -388,6 +388,23 @@ function board(options: Options = {}) {
         blind,
       );
     },
+    /**
+     * One complete GitHub poll that merges each patch over its PR's current facts, in order; the
+     * first patched PR becomes the current one.
+     */
+    async prsPoll(...patches: Partial<PrFacts>[]) {
+      const changed = patches.map((patch) => {
+        const number = patch.number ?? current?.number ?? 7;
+        const facts = prFacts({ ...prs.get(number), ...patch });
+        prs.set(number, facts);
+        return facts;
+      });
+      current = changed[0] ?? current;
+      await observe(
+        GITHUB,
+        [...prs.values()].map((facts) => ({ kind: 'pr' as const, facts })),
+      );
+    },
     /** The on-demand poll of a submit answers `result` from now on. */
     pollAnswers: (result: Awaited<ReturnType<PrPoller['pollPr']>>) => {
       pollAnswer = result;
@@ -3990,6 +4007,53 @@ describe('external change-request rounds', () => {
       },
       course: 1,
       heads: [B],
+    },
+    {
+      name: 'a changed closed PR in the same poll does not hide the active PR',
+      act: async (ctx: Board) => {
+        await ctx.pr({
+          number: 8,
+          url: 'https://github.com/o/r/pull/8',
+          headSha: C,
+          state: 'closed',
+        });
+        ctx.wait(1_000);
+        const submittedAt = ctx.at();
+        await ctx.prsPoll(
+          {
+            number: 7,
+            headSha: B,
+            reviews: [
+              { reviewer: EXTERNAL, state: 'changes_requested', commitSha: A, submittedAt },
+            ],
+            feedback: [
+              {
+                kind: 'review',
+                id: 'r-on-a',
+                author: { login: EXTERNAL, type: 'user' },
+                postedAt: submittedAt,
+              },
+            ],
+          },
+          { number: 8, title: 'o/r#9 closed follow-up' },
+        );
+        const changed = await ctx.events('pr_facts_changed');
+        expect(changed.at(-1)?.payload).toMatchObject({ facts: { number: 8 } });
+      },
+      course: 1,
+      heads: [B],
+    },
+    {
+      name: 'a correction into Review bounces on the request it did not hand over',
+      act: async (ctx: Board) => {
+        await ctx.move('dev');
+        await devRound(ctx, A);
+        await ctx.pr({ headSha: B });
+        await ctx.move('review');
+        expect((await ctx.moves()).at(-1)?.gate).toContain('external_comments');
+      },
+      course: 1,
+      heads: [A, B],
     },
     {
       name: 'a request from an earlier visit does not name a later return',
