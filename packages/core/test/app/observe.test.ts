@@ -3861,6 +3861,96 @@ describe('anomaly blocks', () => {
       ]);
     });
 
+    /** Link histories: each ends with the PR facts its last poll reports. */
+    const histories = {
+      /** #7 merged. */
+      merged: async (b: Board) => {
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven]);
+        return [seven];
+      },
+      /** #7 merged, then follow-up #8 linked and closed unmerged. */
+      followUpClosed: async (b: Board) => {
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven]);
+        now += 1_000;
+        await prs(b, [seven, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [seven, eight]);
+        return [seven, eight];
+      },
+      /** Active #7 closed unmerged, then #8, linked as a conflict while #7 was open, merged. */
+      conflictMerged: async (b: Board) => {
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [pr(7, 'open'), pr(8, 'open')]);
+        now += 1_000;
+        const seven = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [seven, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven, eight]);
+        return [seven, eight];
+      },
+    };
+    const UNCONFIRMED = { pr: 'merged', mergedOpen: null, unconfirmed: true };
+    it.each([
+      ['merged', 'untouched', [], UNCONFIRMED],
+      [
+        'merged',
+        'changed',
+        ['health:worker-1:worker_completed'],
+        { pr: null, mergedOpen: 7, unconfirmed: false },
+      ],
+      ['merged', 'done', [], { pr: 'merged', mergedOpen: null, unconfirmed: false }],
+      [
+        'followUpClosed',
+        'untouched',
+        ['pr-closed', 'health:worker-1:worker_completed'],
+        UNCONFIRMED,
+      ],
+      ['followUpClosed', 'done', [], { pr: 'merged', mergedOpen: null, unconfirmed: false }],
+      [
+        'conflictMerged',
+        'untouched',
+        ['pr-closed', 'health:worker-1:worker_completed'],
+        { pr: 'closed', mergedOpen: null, unconfirmed: false },
+      ],
+    ] as const)(
+      'agrees with the dispatcher on which merged PR counts: %s, ticket %s',
+      async (history, change, ledger, outcome) => {
+        const { b, ticket } = await split();
+        const before = iso();
+        await spur(b, [session('worker-1', 'working')]);
+        await ticket('open', before);
+        now += 1_000;
+        const last = await histories[history](b);
+        now += 1_000;
+        if (change === 'untouched') await ticket('open', before);
+        else await ticket(change === 'done' ? 'closed' : 'open');
+        now += 1_000;
+        await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+        now += 1_000;
+        await prs(b, last);
+        expect(await openLedger(b)).toEqual(ledger);
+        const project = b.config.projects[0];
+        if (project === undefined) throw new Error('missing project');
+        const read = await b.store.transaction(async (trx) => {
+          const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+          return readInput(trx, task, project, 'on', () => false, b.config, {
+            at: new Date(now),
+            complete: new Map(),
+          });
+        });
+        expect({
+          pr: read?.input.facts.pr?.state ?? null,
+          mergedOpen: read?.mergedOpen?.number ?? null,
+          unconfirmed: read?.ticketUnconfirmed,
+        }).toEqual(outcome);
+      },
+    );
+
     it('opens the PR-closed block for an unmerged follow-up beside a merged PR while the ticket is seen open', async () => {
       const { b, ticket } = await split();
       await prs(b, [pr(7, 'merged')]);

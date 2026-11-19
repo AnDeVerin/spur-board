@@ -518,49 +518,60 @@ export async function reconcileItems(
         project !== undefined && ticket !== undefined && ticketDone(project, ticket.status),
     };
   }
+  // When a closed PR closed. Facts stored by an earlier version carry no close time; their last
+  // change stands in for it.
+  const closeTime = (pr: (typeof prs)[number]) => {
+    const facts = pr.detail === null ? null : parseJson(prFactsSchema, pr.detail);
+    return facts === null ? NaN : Date.parse(facts.closedAt ?? facts.updatedAt);
+  };
   // Each task's newest merge time; null when no merged PR's detail is readable.
   const mergedAt = new Map<number, string | null>();
-  // Each task's merged PR as the dispatcher judges it (`taskMergedPr`): the newest active link,
-  // else the newest link; `at` is null when its detail is unreadable.
-  const judged = new Map<number, { active: boolean; id: number; at: string | null; ref: string }>();
+  // Each task's merged PR as the dispatcher judges it (`taskMergedPr`): the newest eligible link;
+  // `at` is null when its detail is unreadable. A conflict link never counts as the task's PR.
+  const judged = new Map<number, { id: number; at: string | null; ref: string }>();
   for (const pr of prs) {
     const state = taskPrs[String(pr.task_id)];
     if (state === undefined) continue;
     if (pr.state === 'open') state.hasOpenPr = true;
-    if (pr.state !== 'merged') continue;
+    if (pr.state !== 'merged' || pr.pr_state !== 'active') continue;
     const facts = parsePr(pr.detail ?? undefined);
     const at = facts === null ? null : (facts.mergedAt ?? facts.updatedAt);
     const newest = mergedAt.get(pr.task_id) ?? null;
     if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest)))
       mergedAt.set(pr.task_id, at);
-    const active = pr.pr_state === 'active';
     const current = judged.get(pr.task_id);
-    if (
-      current === undefined ||
-      (active && !current.active) ||
-      (active === current.active && pr.id > current.id)
-    )
-      judged.set(pr.task_id, {
-        active,
-        id: pr.id,
-        at,
-        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
-      });
+    if (current === undefined || pr.id > current.id)
+      judged.set(pr.task_id, { id: pr.id, at, ref: `${pr.repo ?? ''}#${String(pr.number)}` });
   }
   // Tasks whose merged PR stopped counting, with the clause their worker-end item names.
   const reopened = new Map<number, string>();
-  for (const [taskId, { at, ref }] of judged) {
+  for (const [taskId, { id, at, ref }] of judged) {
     const state = taskPrs[String(taskId)];
     const task = taskById.get(taskId);
     if (state === undefined || task === undefined) continue;
     const project = config.projects.find((entry) => entry.id === task.project);
     // A merged PR counts as finished work unless the ticket changed after it and is not done: a
-    // split task back in Dev is watched like any task without a PR.
+    // split task back in Dev is watched like any task without a PR. A newer eligible link closed
+    // unmerged after the merge also ends it while the ticket is not done, so its close is raised.
     const ticket = tickets.find((entry) => entry.task_id === taskId);
+    const judgement =
+      at === null || project === undefined
+        ? 'unconfirmed'
+        : mergedTicket(project, ticket, task.manual_include === 1, at);
+    const followUpClosed =
+      at !== null &&
+      prs.some(
+        (pr) =>
+          pr.task_id === taskId &&
+          pr.pr_state === 'active' &&
+          pr.state === 'closed' &&
+          pr.id > id &&
+          !(closeTime(pr) < Date.parse(at)),
+      );
     state.hasMergedPr =
       at === null ||
       project === undefined ||
-      mergedTicket(project, ticket, task.manual_include === 1, at) !== 'reopened';
+      (judgement !== 'reopened' && (judgement === 'done' || !followUpClosed));
     // No ticket status in the text: the item fingerprint hashes it, and a move between two
     // non-done statuses must not raise the item again.
     if (!state.hasMergedPr) reopened.set(taskId, `; PR ${ref} merged, ticket reopened`);
@@ -569,19 +580,15 @@ export async function reconcileItems(
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
     if (state === undefined || state.hasOpenPr || state.hasMergedPr) continue;
-    // A PR closed before the task's newest merge was superseded by it. Facts stored by an earlier
-    // version carry no close time; their last change stands in for it.
+    // A PR closed before the task's newest merge was superseded by it.
     const mergedSince = Date.parse(mergedAt.get(task.id) ?? '');
     const closed = prs
       .filter((pr) => pr.task_id === task.id && pr.state === 'closed')
-      .map((pr) => {
-        const facts = pr.detail === null ? null : parseJson(prFactsSchema, pr.detail);
-        return {
-          ...pr,
-          ref: `${pr.repo ?? ''}#${String(pr.number)}`,
-          closedAt: facts === null ? NaN : Date.parse(facts.closedAt ?? facts.updatedAt),
-        };
-      })
+      .map((pr) => ({
+        ...pr,
+        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
+        closedAt: closeTime(pr),
+      }))
       .filter((pr) => !(pr.closedAt < mergedSince))
       .sort((left, right) => left.ref.localeCompare(right.ref));
     const first = closed[0];
