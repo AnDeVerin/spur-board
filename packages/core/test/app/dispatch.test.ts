@@ -3843,6 +3843,41 @@ describe('external change-request rounds', () => {
         .execute()
     ).map((item) => item.item_key);
 
+  it.each([
+    { name: 'the earlier request wins', gap: 1_000, winner: 'zed', loser: 'amy' },
+    { name: 'the lower login wins a tie', gap: 0, winner: 'amy', loser: 'zed' },
+  ])(
+    'several requests on one head in one poll make one round: $name',
+    async ({ gap, winner, loser }) => {
+      const ctx = await inDev({ externalReview: true });
+      ctx.wait(1_000);
+      const first = ctx.at();
+      ctx.wait(gap);
+      const second = ctx.at();
+      // The loser is listed first, so only the sort picks the winner.
+      const requests = [
+        { reviewer: loser, submittedAt: second },
+        { reviewer: winner, submittedAt: first },
+      ];
+      await ctx.pr({
+        headSha: B,
+        reviews: requests.map(({ reviewer, submittedAt }) => ({
+          reviewer,
+          state: 'changes_requested' as const,
+          commitSha: B,
+          submittedAt,
+        })),
+        feedback: requests.map(({ reviewer, submittedAt }) => ({
+          kind: 'review' as const,
+          id: `r-${reviewer}`,
+          author: { login: reviewer, type: 'user' as const },
+          postedAt: submittedAt,
+        })),
+      });
+      expect(await rounds(ctx)).toEqual([{ repo: 'o/r', pr: 7, head: B, reviewer: winner }]);
+    },
+  );
+
   it('repeated change requests on one head count once', async () => {
     const ctx = await inDev({ externalReview: true, curator: true });
     await devRound(ctx, B);
