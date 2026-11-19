@@ -6573,6 +6573,26 @@ describe('approvalRule github-rules', () => {
     expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['external_comments'] });
   });
 
+  it('a reused read sending the same review rule leaves the row byte-identical and writes a lost one back', async () => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr({ ...approved, mergeState: 'behind' }, rule());
+    const before = await ruleRows(ctx);
+    expect(JSON.parse(before[0]?.value ?? '{}')).not.toMatchObject({ undecidedSince: null });
+    ctx.wait(60_000);
+    await ctx.rulePr({}, rule());
+    expect(await ruleRows(ctx)).toEqual(before);
+    await ctx.rulePr({ mergeState: 'blocked' }, rule());
+    const blocked = await ruleRows(ctx);
+    // The first observation's row is gone, as after a rollback: the replay writes it again.
+    await ctx.store.db.deleteFrom('meta').where('key', 'like', 'review-rule:%').execute();
+    expect((await ctx.why()).waiting?.[0]?.reason).toBe('merge_state_unknown');
+    await ctx.rulePr({}, rule());
+    expect(await ruleRows(ctx)).toEqual(blocked);
+    expect((await ctx.why()).waiting).toEqual([
+      { reason: 'review_rule_blocked', head: A, text: 'merge blocked by the GitHub review rule' },
+    ]);
+  });
+
   it('a reused read without the review rule leaves the row as it is', async () => {
     const ctx = await pastProductReview(RULED);
     await ctx.rulePr({ ...approved, mergeState: 'blocked' }, rule());

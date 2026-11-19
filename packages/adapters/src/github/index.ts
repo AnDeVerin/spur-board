@@ -440,7 +440,7 @@ async function processPr(
   data: Record<string, unknown>,
   scopedErrors: GraphError[],
   ref?: PrEntityRef,
-): Promise<PrFacts | undefined> {
+): Promise<Pick<CachedPr, 'facts' | 'reviewRule'> | undefined> {
   // A denied base branch rule keeps the PR's facts; its review rule goes out unreadable.
   const ruleDenied = scopedErrors.some(deniedBranchRule);
   const errors = withoutDeniedReferences(scopedErrors).filter((entry) => !deniedBranchRule(entry));
@@ -516,7 +516,7 @@ async function processPr(
     ...(reviewRule === undefined ? {} : { reviewRule }),
   });
   if (ref) acc.entities.push({ ref, status: 'ok' });
-  return facts;
+  return { facts, ...(reviewRule === undefined ? {} : { reviewRule }) };
 }
 /** The entry of one PR in a per-PR list of the poll context. */
 function entryFor<T extends { ref: PrEntityRef }>(
@@ -822,10 +822,13 @@ async function pollRepository({
     ]);
   const changed: number[] = [];
   for (const number of numbers) {
-    const facts = reusable(cache.get(number), entries.get(number), cursorKey(number), now());
+    const cached = cache.get(number);
+    const facts = reusable(cached, entries.get(number), cursorKey(number), now());
     const ref = byNumber.get(number);
     if (facts !== undefined) {
-      acc.items.push({ kind: 'pr', facts });
+      // The review rule goes out again with the facts: core may not have kept the first send.
+      const reviewRule = cached?.reviewRule;
+      acc.items.push({ kind: 'pr', facts, ...(reviewRule === undefined ? {} : { reviewRule }) });
       if (ref !== undefined) acc.entities.push({ ref, status: 'ok' });
       continue;
     }
@@ -881,15 +884,15 @@ async function pollRepository({
         const alias = `pr${String(i)}`;
         const ref = byNumber.get(number);
         const errors = scoped(response.errors, alias);
-        const facts = await processPr(scope, acc, number, alias, response.data, errors, ref);
-        if (facts === undefined) {
+        const read = await processPr(scope, acc, number, alias, response.data, errors, ref);
+        if (read === undefined) {
           if (found.numbers.includes(number)) discoveredOk = false;
           continue;
         }
         // Without this poll's index entry the PR is only indexed next poll, never reused.
         cache.set(number, {
           fingerprint: entries.get(number)?.fingerprint ?? null,
-          facts,
+          ...read,
           cursorKey: cursorKey(number),
           readAt: now(),
         });

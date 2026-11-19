@@ -80,8 +80,9 @@ function verdictOf(pr: PrFacts, reviewRule: PrReviewRule, requested: boolean): R
 
 /**
  * Records one full read's review rule for a github-rules project's source. A PR that is not open
- * drops its row; an item without a review rule (facts reused from an earlier read) says nothing
- * new. A new head starts without a decision; `keep` (GitHub has not computed the merge state)
+ * drops its row; an item without a review rule says nothing new. The adapter sends a reused read
+ * with its first read's review rule again, which rewrites no unchanged row and writes a lost one
+ * back, as after a rolled-back observation. A new head starts without a decision; `keep` (GitHub has not computed the merge state)
  * keeps the stored one and runs the 30-minute clock once a required check has completed, as the
  * gate then waits on GitHub. Returns true when the decision, GitHub's verdict or the rule changed.
  */
@@ -121,6 +122,8 @@ export async function recordReviewRule(
     raised: clock ? (old?.raised ?? null) : null,
   };
   const value = toJson(storedSchema, next);
+  // A reused read sends the same review rule again: an unchanged row is not rewritten.
+  if (old !== null && toJson(storedSchema, old) === value) return false;
   await trx
     .insertInto('meta')
     .values({ key, value })

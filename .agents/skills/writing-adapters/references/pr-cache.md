@@ -27,4 +27,6 @@ Read with `references/github-responses.md`, PR poll chunks and index.
   never reused. Delete the entry on `not_found`, `no_access` and `pollPr`. An old entry would
   re-emit facts older than ones already delivered.
 - A new input to what a full read returns, such as a comment cursor or a held history, joins
-  the cache key. A re-emitted entry carries no `continuation`, so core keeps its row.
+  the cache key. A re-emitted entry carries no `continuation`, so core keeps its row. It carries
+  the full read's `reviewRule` again (github-rules sources), so a batch core did not accept
+  loses no review rule.

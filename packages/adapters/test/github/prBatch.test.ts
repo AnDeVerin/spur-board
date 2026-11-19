@@ -3711,7 +3711,7 @@ describe('approvalRule github-rules', () => {
     expect(failed.complete).toBe(false);
   });
 
-  it('approvalRule github-rules: a full read carries the review rule, a reused one none', async () => {
+  it('approvalRule github-rules: a full read carries the review rule and a reuse sends it again', async () => {
     let t = Date.parse('2026-01-02T00:00:00.000Z');
     const pr = {
       ...wire(),
@@ -3797,10 +3797,10 @@ describe('approvalRule github-rules', () => {
     expect(sentQueries(fetcher, 'PrDetails')[0]).toBe(detailQuery([7], true, true));
     expect(sentQueries(fetcher, 'PrIndex')[0]).toBe(indexQuery([7], true));
     t += 60_000;
-    // The index shows the PR unchanged, so its facts are reused without a full read.
+    // The index shows the PR unchanged, so its facts and review rule are reused without a full read.
     const second = await source.poll(context());
     expect(sentQueries(fetcher, 'PrDetails')).toHaveLength(1);
-    expect(second.items).toEqual([{ kind: 'pr', facts: first.items[0]?.facts }]);
+    expect(second.items).toEqual([first.items[0]]);
     // A new review decision changes the index fingerprint and forces a full read.
     index.reviewDecision = 'APPROVED';
     pr.reviewDecision = 'APPROVED';
