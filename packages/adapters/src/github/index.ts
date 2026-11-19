@@ -8,6 +8,7 @@ import {
   type PrFacts,
   type PrFeedback,
   type SourceCursor,
+  approvalRuleOf,
   prSourceId,
   sourceCursorSchema,
 } from '@spur-board/contracts';
@@ -36,7 +37,13 @@ import {
   pastCursor,
   type Discovery,
 } from './discovery.ts';
-import { commentWire, normalizePr, projectKeyRule, type KeyRule } from './prBatch.ts';
+import {
+  commentWire,
+  normalizePr,
+  normalizeReviewRule,
+  projectKeyRule,
+  type KeyRule,
+} from './prBatch.ts';
 import { indexEntry, reusable, type CachedPr, type IndexEntry } from './prIndex.ts';
 
 const MALFORMED = 'Malformed GitHub response';
@@ -101,6 +108,8 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       const id = prSourceId(project.id, repo);
       const client = new GithubClient(options.token, options.now, options.fetch);
       const keys = projectKeyRule(project.tracker, project.link, repo);
+      // Only a github-rules project's sources read the review rule; others send the same queries.
+      const reviewRule = approvalRuleOf(project) === 'github-rules';
       // Per source: the facts of each requested or discovered PR's last full read, keyed by
       // number. Kept in memory only. A discovered PR core does not request, also each one at the
       // cursor tie after a restart, gets two full reads (the first without a fingerprint, the
@@ -142,11 +151,12 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
                 ctx,
                 reserveRemaining: config.github.reserveRemaining,
                 cache,
+                reviewRule,
               }),
             ),
           pollPr: (ref, ctx) =>
             withUsage(ctx.signal, () =>
-              pollOnePr({ id, repo, keys, client, now: options.now, ref, ctx, cache }),
+              pollOnePr({ id, repo, keys, client, now: options.now, ref, ctx, cache, reviewRule }),
             ),
         },
       });
@@ -410,6 +420,8 @@ interface PrScope {
   continuations?: PollContext['continuations'];
   /** Whether items state a continuation (A10): true for `poll`, false for `pollPr` (A9). */
   states: boolean;
+  /** Whether items carry the review rule: the source of a github-rules project. */
+  reviewRule: boolean;
 }
 function malformed(acc: Accumulator, error: AdapterError, ref?: PrEntityRef): void {
   acc.parseError ??= error;
@@ -486,8 +498,18 @@ async function processPr(
     malformed(acc, facts, ref);
     return undefined;
   }
+  const reviewRule = scope.reviewRule ? content(() => normalizeReviewRule(pr)) : undefined;
+  if (reviewRule instanceof AdapterError) {
+    malformed(acc, reviewRule, ref);
+    return undefined;
+  }
   const { continuation } = feedback;
-  acc.items.push({ kind: 'pr', facts, ...(continuation === undefined ? {} : { continuation }) });
+  acc.items.push({
+    kind: 'pr',
+    facts,
+    ...(continuation === undefined ? {} : { continuation }),
+    ...(reviewRule === undefined ? {} : { reviewRule }),
+  });
   if (ref) acc.entities.push({ ref, status: 'ok' });
   return facts;
 }
@@ -664,10 +686,13 @@ async function readIndex(
   scope: RequestScope,
   acc: Accumulator,
   numbers: readonly number[],
+  reviewRule: boolean,
 ): Promise<Map<number, IndexEntry>> {
   const entries = new Map<number, IndexEntry>();
   for (const chunk of chunks(numbers, INDEX_CHUNK)) {
-    for (const { numbers: sent, response } of await sendChunk(scope, chunk, indexQuery)) {
+    for (const { numbers: sent, response } of await sendChunk(scope, chunk, (part) =>
+      indexQuery(part, reviewRule),
+    )) {
       if (response === undefined) continue;
       acc.budget = response.budget;
       // An unscoped error leaves the whole chunk to the full read.
@@ -692,6 +717,7 @@ interface PollArgs {
   ctx: PollContext;
   reserveRemaining: number;
   cache: Map<number, CachedPr>;
+  reviewRule: boolean;
 }
 async function pollRepository({
   id,
@@ -703,6 +729,7 @@ async function pollRepository({
   ctx,
   reserveRemaining,
   cache,
+  reviewRule,
 }: PollArgs): Promise<Batch> {
   const observedAt = sourceCursorSchema.parse(new Date(now()).toISOString());
   const bootstrap = ctx.cursor === undefined;
@@ -781,7 +808,7 @@ async function pollRepository({
   for (const number of cache.keys())
     if (!byNumber.has(number) && discovery.ok && !found.numbers.includes(number))
       cache.delete(number);
-  const entries = await readIndex(request, acc, numbers);
+  const entries = await readIndex(request, acc, numbers, reviewRule);
   // A changed feedback cursor or held history forces a full read.
   const cursorKey = (number: number): string =>
     JSON.stringify([
@@ -811,6 +838,7 @@ async function pollRepository({
     ...(ctx.feedbackCursors === undefined ? {} : { feedbackCursors: ctx.feedbackCursors }),
     ...(ctx.continuations === undefined ? {} : { continuations: ctx.continuations }),
     states: true,
+    reviewRule,
   };
   let discoveredOk = true;
   // A chunk given up, deferred for budget or never sent: its PRs are unread, not missing.
@@ -833,7 +861,9 @@ async function pollRepository({
       unread(chunk);
       continue;
     }
-    const segments = await sendChunk(request, chunk, (sent) => detailQuery(sent, closing));
+    const segments = await sendChunk(request, chunk, (sent) =>
+      detailQuery(sent, closing, reviewRule),
+    );
     // Every segment was answered before any PR pages, so their budgets come first, in order.
     for (const { response } of segments) if (response !== undefined) acc.budget = response.budget;
     for (const { numbers: sent, response } of segments) {
@@ -900,18 +930,29 @@ interface PrArgs {
   ref: PrEntityRef;
   ctx: Parameters<NonNullable<Adapter['pollPr']>>[1];
   cache: Map<number, CachedPr>;
+  reviewRule: boolean;
 }
 // Reads one requested PR without discovery (A9): never complete, no cursor, no continuation; it
 // merges the held history but leaves it to the next poll to state. It drops the PR's cached
 // facts, so the next poll cannot re-emit facts older than these.
-async function pollOnePr({ id, repo, keys, client, now, ref, ctx, cache }: PrArgs): Promise<Batch> {
+async function pollOnePr({
+  id,
+  repo,
+  keys,
+  client,
+  now,
+  ref,
+  ctx,
+  cache,
+  reviewRule,
+}: PrArgs): Promise<Batch> {
   const { signal } = ctx;
   const observedAt = new Date(now()).toISOString();
   const [owner, name] = repo.split('/');
   if (!owner || !name) throw new AdapterError('config', 'Invalid repository');
   cache.delete(ref.number);
   const response = await client.query(
-    detailQuery([ref.number], closingSelected(keys)),
+    detailQuery([ref.number], closingSelected(keys), reviewRule),
     { owner, repo: name },
     signal,
   );
@@ -927,6 +968,7 @@ async function pollOnePr({ id, repo, keys, client, now, ref, ctx, cache }: PrArg
     ...(ctx.feedbackCursors === undefined ? {} : { feedbackCursors: ctx.feedbackCursors }),
     ...(ctx.continuations === undefined ? {} : { continuations: ctx.continuations }),
     states: false,
+    reviewRule,
   };
   await processPr(
     scope,

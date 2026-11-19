@@ -19,6 +19,9 @@ const indexAliasWire = z.object({
     mergeable: z.string(),
     mergeStateStatus: z.string(),
     headRefOid: z.string(),
+    // Selected only for a source of a github-rules project: a new review decision forces a full
+    // read, which carries the review rule.
+    reviewDecision: z.string().nullish(),
     // Each check by name and state: a SUCCESS rollup also covers skipped checks, which core
     // judges red when required, and `isRequired` is not read here.
     statusCheckRollup: z

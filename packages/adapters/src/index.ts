@@ -16,6 +16,7 @@ import { createSpurAdapter, type SpurNotice } from './spur/spur.ts';
 export type { AdapterCore, SourceState } from '@spur-board/contracts';
 export type { AdapterRunner, PollFailure } from './runner/runner.ts';
 export { sampleLinkRules } from './github/linkSample.ts';
+export { readBranchRule } from './github/branchRule.ts';
 // Board doctor classifies its own GitHub probes with the same rules as the PR source.
 export { classifyHttpFailure } from './runner/http.ts';
 export {

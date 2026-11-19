@@ -1,0 +1,55 @@
+{
+  "data": {
+    "repository": {
+      "defaultBranchRef": {
+        "name": "main",
+        "refUpdateRule": null,
+        "rules": {
+          "nodes": [
+            {
+              "type": "REQUIRED_STATUS_CHECKS",
+              "parameters": {
+                "__typename": "RequiredStatusChecksParameters",
+                "requiredStatusChecks": [
+                  {
+                    "context": "ci-ok"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "PULL_REQUEST",
+              "parameters": {
+                "__typename": "PullRequestParameters",
+                "requiredApprovingReviewCount": 1,
+                "requireCodeOwnerReview": false,
+                "requiredReviewThreadResolution": true
+              }
+            },
+            {
+              "type": "PULL_REQUEST",
+              "parameters": {
+                "__typename": "PullRequestParameters",
+                "requiredApprovingReviewCount": 0,
+                "requireCodeOwnerReview": false,
+                "requiredReviewThreadResolution": true
+              }
+            },
+            {
+              "type": "REQUIRED_LINEAR_HISTORY",
+              "parameters": null
+            },
+            {
+              "type": "NON_FAST_FORWARD",
+              "parameters": null
+            },
+            {
+              "type": "DELETION",
+              "parameters": null
+            }
+          ]
+        }
+      }
+    }
+  }
+}
