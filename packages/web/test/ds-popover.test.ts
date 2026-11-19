@@ -251,9 +251,10 @@ describe('Popover', () => {
     }
   });
 
-  it('returns focus to the anchor trigger before an unrelated opener', () => {
+  it('returns focus to the anchor trigger before an unrelated opener, without scrolling', () => {
     // Safari: a control elsewhere holds focus and the click on Help does not move it.
     const other = createElement('button', { type: 'button' }, 'Other');
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
     for (const how of ['Escape', 'Close'] as const) {
       render(createElement(Fragment, null));
       render(createElement(Harness, { after: other }));
@@ -270,6 +271,11 @@ describe('Popover', () => {
         });
       expect(popover(), how).toBeUndefined();
       expect(document.activeElement, how).toBe(button('Help'));
+      // Both moves the popover made, to Close and back to Help, leave a scrolled strip still.
+      expect(focus.mock.calls.slice(-2), how).toEqual([
+        [{ preventScroll: true }],
+        [{ preventScroll: true }],
+      ]);
     }
   });
 

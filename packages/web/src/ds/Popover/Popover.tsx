@@ -39,7 +39,8 @@ import styles from './Popover.module.css';
  * or its first descendant with `aria-expanded`, else the anchor when it is focusable), else, for
  * an anchor with no trigger, to the opener: in Safari a click does not focus the trigger, so the
  * opener may be an unrelated control. Close always returns it; Escape only when focus was inside
- * the panel or on `body`.
+ * the panel or on `body`. Every focus move, the one to Close on open included, uses
+ * `preventScroll`: returning to a trigger scrolled out of its strip leaves the strip where it is.
  *
  * A `mousedown` outside the panel and the anchor calls `onClose` and moves no focus; the anchor
  * is not outside, so its own click toggles. Under a layer (inside an `inert` element), as when a
@@ -212,14 +213,14 @@ function OpenPopover({
   useLayoutEffect(() => {
     const element = panel.current;
     if (!element) return;
-    if (opener) close.current?.querySelector('button')?.focus();
+    if (opener) close.current?.querySelector('button')?.focus({ preventScroll: true });
     const entry: OpenMenu = {
       root: element,
       escape: () => {
         const active = document.activeElement;
         const inside = !active || active === document.body || element.contains(active);
         latest.current();
-        if (inside) returnTarget()?.focus();
+        if (inside) returnTarget()?.focus({ preventScroll: true });
       },
     };
     const outside = (event: MouseEvent) => {
@@ -249,7 +250,7 @@ function OpenPopover({
             label="Close"
             onClick={() => {
               latest.current();
-              returnTarget()?.focus();
+              returnTarget()?.focus({ preventScroll: true });
             }}
           />
         </span>
