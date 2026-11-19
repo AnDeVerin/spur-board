@@ -22,32 +22,6 @@ export function classifyHttpFailure(failure: HttpFailure, now: number): AdapterE
   return new AdapterError('transient', message);
 }
 
-/**
- * Classifies a failed response with its body. When the body read fails, a rate limit that the
- * status and headers show is still `throttled`; any other failure, and any read failure after
- * `signal` (the caller's) aborted, rethrows the read error.
- */
-export async function classifyResponseFailure(
-  response: Response,
-  now: number,
-  signal?: AbortSignal,
-): Promise<AdapterError> {
-  const { status, headers } = response;
-  let body: string;
-  try {
-    body = await response.text();
-  } catch (error) {
-    // A caller abort keeps its own reason, so withTimeout passes it through.
-    if (signal?.aborted) throw error;
-    const failure = classifyHttpFailure({ status, headers }, now);
-    // GitHub can name a secondary rate limit only in the body, so only a rate limit the headers
-    // show is classified without it.
-    if (failure.kind === 'throttled') return failure;
-    throw error;
-  }
-  return classifyHttpFailure({ status, headers, body }, now);
-}
-
 function retryAt(headers: Headers, now: number): Date | undefined {
   const retryAfter = headers.get('retry-after')?.trim();
   if (retryAfter) {
@@ -67,9 +41,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * Runs one request under `signal` and a {@link REQUEST_TIMEOUT_MS} timer. A timeout rejects as a
- * `transient` error with `message`, except a `throttled` error, which passes through: its status
- * and headers were classified before the timer ended the body read. A caller abort passes through
- * unchanged.
+ * `transient` error with `message`; a caller abort passes through unchanged.
  */
 export async function withTimeout<T>(
   signal: AbortSignal,
@@ -83,10 +55,8 @@ export async function withTimeout<T>(
   try {
     return await work(AbortSignal.any([signal, timer.signal]));
   } catch (cause) {
-    if (timer.signal.aborted && !signal.aborted) {
-      if (cause instanceof AdapterError && cause.kind === 'throttled') throw cause;
+    if (timer.signal.aborted && !signal.aborted)
       throw new AdapterError('transient', message, { cause });
-    }
     throw cause;
   } finally {
     clearTimeout(handle);

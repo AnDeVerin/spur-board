@@ -174,34 +174,6 @@ describe('GitHub Issues source', () => {
     expect(batch.items).toEqual([]);
   });
 
-  it('fails the poll with the read error, not no_access, when the 403 of a key has an unreadable body', async () => {
-    const pending = { kind: 'ticket', trackerId: id, key: 'acme/board#9' } as const;
-    const unreadable = new ReadableStream({
-      start(controller) {
-        controller.error(new Error('connection reset'));
-      },
-    });
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json([]))
-      .mockResolvedValueOnce(new Response(unreadable, { status: 403 }));
-    const adapter = createGithubIssuesAdapter({
-      id,
-      tracker: labelTracker,
-      token: 'test',
-      intervalMs: 60_000,
-      now,
-      fetch: fetcher,
-    });
-    const error: unknown = await adapter.poll(context([pending])).then(
-      () => undefined,
-      (reason: unknown) => reason,
-    );
-    expect(error).toBeInstanceOf(Error);
-    expect(error instanceof AdapterError).toBe(false);
-    expect(error instanceof Error ? error.message : undefined).toBe('connection reset');
-  });
-
   it('keeps the first page but marks a failed later page incomplete', async () => {
     const next = 'https://api.github.com/repos/acme/board/issues?page=2';
     const fetcher = vi

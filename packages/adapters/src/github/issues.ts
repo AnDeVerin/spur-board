@@ -7,7 +7,7 @@ import {
   type TicketFacts,
 } from '@spur-board/contracts';
 import { z } from 'zod';
-import { classifyResponseFailure, withTimeout } from '../runner/http.ts';
+import { classifyHttpFailure, withTimeout } from '../runner/http.ts';
 import { parseWire } from '../runner/wire.ts';
 
 type Tracker = Extract<Config['projects'][number]['tracker'], { type: 'github-issues' }>;
@@ -138,7 +138,10 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
       }
       budget = restBudget(response.headers) ?? budget;
       if (!response.ok) {
-        const failure = await classifyResponseFailure(response, options.now(), signal);
+        const failure = classifyHttpFailure(
+          { status: response.status, headers: response.headers, body: await response.text() },
+          options.now(),
+        );
         throw new GithubIssuesHttpError(response.status, failure);
       }
       let value: unknown;
