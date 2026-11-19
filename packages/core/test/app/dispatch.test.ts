@@ -6245,6 +6245,73 @@ describe('approvalRule github-rules', () => {
     expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
   });
 
+  it('clears the item on a decision in External Review and raises a new one for the next undecided stretch', async () => {
+    const ctx = await pastProductReview(RULED);
+    const threads = (resolved: boolean) => ({
+      mergeState: 'blocked' as const,
+      reviewThreads: [{ resolved, id: 'PRRT_1' }],
+    });
+    await ctx.rulePr({ ...approved, ...threads(false) }, rule());
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    const [first] = await ruleItems(ctx);
+    expect(first?.cleared_at).toBeNull();
+
+    await ctx.rulePr(threads(true), rule());
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await ctx.why()).waiting).toEqual([
+      { reason: 'review_rule_blocked', head: A, text: 'merge blocked by the GitHub review rule' },
+    ]);
+    expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+
+    await ctx.rulePr(threads(false), rule());
+    ctx.wait(HALF_HOUR - 2 * 60_000);
+    await ctx.tick();
+    expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+    ctx.wait(60_000);
+    await ctx.tick();
+    const items = await ruleItems(ctx);
+    expect(items.map((entry) => entry.cleared_at === null)).toEqual([false, true]);
+    expect(items[1]?.item_key).toBe(first?.item_key);
+  });
+
+  it('keeps a closed item closed for a later undecided stretch with the same text', async () => {
+    const ctx = await pastProductReview(RULED);
+    const threads = (resolved: boolean) => ({
+      mergeState: 'blocked' as const,
+      reviewThreads: [{ resolved, id: 'PRRT_1' }],
+    });
+    await ctx.rulePr({ ...approved, ...threads(false) }, rule());
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    const [first] = await ruleItems(ctx);
+    await ctx.closeItem(`I${String(first?.id)}`);
+    await ctx.rulePr(threads(true), rule());
+    await ctx.rulePr(threads(false), rule());
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+  });
+
+  it('a return to External Review on the same head keeps the clock that ran outside it', async () => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr({ ...approved, mergeState: 'behind' }, rule());
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    const [first] = await ruleItems(ctx);
+    await ctx.move('dev');
+    await ctx.tick();
+    expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+    await ctx.ack(WORKER, 'T4');
+    await ctx.submit(WORKER, 'T4', A);
+    expect((await ctx.task()).column).toBe('external-review');
+    await ctx.tick();
+    const items = await ruleItems(ctx);
+    expect(items.map((entry) => entry.cleared_at === null)).toEqual([false, true]);
+    expect(items[1]?.text).toBe(first?.text);
+  });
+
   it.each([
     {
       name: 'blocked with an unresolved thread',
