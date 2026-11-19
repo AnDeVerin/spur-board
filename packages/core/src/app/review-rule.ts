@@ -139,7 +139,9 @@ export async function recordReviewRule(
  * What External Review reads under github-rules: the stored row of the project's own source on
  * the current head with the PR's facts. Without a row on the head GitHub's answer is undecided.
  * While the merge state is unknown the stored decision does not count: the task waits on a
- * running required check or on GitHub, which holds it without returning it.
+ * running required check or on GitHub, which holds it without returning it. The facts may come
+ * from another project's newer read of the same head: its block overrides a stored satisfied
+ * decision, its satisfied state never overrides a stored block, and neither changes the row.
  */
 export async function storedReviewRule(
   trx: Trx,
@@ -161,7 +163,9 @@ export async function storedReviewRule(
         ? verdict
         : verdict === 'dev' || verdict === 'changes_requested'
           ? 'undecided'
-          : (row.decision ?? 'undecided');
+          : verdict === 'blocked' && row.decision !== null
+            ? 'blocked'
+            : (row.decision ?? 'undecided');
   return { approved, changesRequested: requested, decision };
 }
 

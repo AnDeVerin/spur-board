@@ -6666,6 +6666,28 @@ describe('approvalRule github-rules', () => {
     ]);
   });
 
+  it.each([
+    { stored: 'clean', newer: 'blocked' },
+    { stored: 'blocked', newer: 'clean' },
+  ] as const)(
+    "another project's newer $newer read of the shared head over a stored $stored decision: a block wins",
+    async ({ stored, newer }) => {
+      const ctx = await pastProductReview({ ...RULED, sharedRepo: true });
+      // Without the approval a satisfied decision does not release the task yet.
+      await ctx.rulePr({ mergeState: stored }, rule());
+      expect((await ctx.task()).column).toBe('external-review');
+      const before = await ruleRows(ctx);
+      await ctx.rulePr({ ...approved, mergeState: newer }, undefined, 'github:web:o/r');
+      expect((await ctx.task()).column).toBe('external-review');
+      expect(await ruleRows(ctx)).toEqual(before);
+      expect((await externalConditions(ctx))?.at(-1)).toEqual({
+        condition: 'review_rule_satisfied',
+        state: 'failed',
+        reason: 'review_rule_blocked',
+      });
+    },
+  );
+
   it('without the key a review rule beside the facts writes nothing and changes no wait', async () => {
     const ctx = await pastProductReview({ externalReview: true });
     await ctx.rulePr({ mergeState: 'blocked' }, rule({ reviewDecision: 'changes_requested' }));
