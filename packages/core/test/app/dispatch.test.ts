@@ -79,6 +79,7 @@ type Options = {
   secondRepo?: boolean;
   unrelatedProject?: boolean;
   movingClock?: boolean;
+  frozenClock?: boolean;
   /** Enables QA, run by `coord`, and hands Ready to Merge to `coord` instead of the operator. */
   qa?: boolean;
   qaOrchestrator?: string;
@@ -323,7 +324,7 @@ function board(options: Options = {}) {
   let { registry, apply, query } = build();
   let keys = 0;
   const step = () => {
-    now += 60_000;
+    if (options.frozenClock !== true) now += 60_000;
     return new Date(now).toISOString();
   };
   const observe = async (
@@ -529,6 +530,13 @@ function board(options: Options = {}) {
       return apply(registry['task.archive'], { task: KEY }, 'operator', `key-${String(++keys)}`);
     },
     /** The operator corrects the task's column. */
+    manual: (column: ColumnId, key = `manual-${String(++keys)}`) =>
+      apply(
+        registry['task.move'],
+        { mode: 'manual', task: KEY, column, reason: 'Ready for work.' },
+        'operator',
+        key,
+      ),
     move: (column: Exclude<ColumnId, 'done'>, reason = 'The board put it in the wrong column.') => {
       step();
       return apply(
@@ -1407,6 +1415,89 @@ async function pastProductReview(options: Options = {}): Promise<Board> {
 const at = (minute: number) => new Date(BASE + minute * 60_000).toISOString();
 
 describe('the Todo group', () => {
+  it.each(
+    (['todo', 'triage', 'ready-for-dev'] as const).flatMap((column) =>
+      (['on', 'shadow'] as const).flatMap((mode) =>
+        [false, true].map((frozenClock) => ({ column, mode, frozenClock })),
+      ),
+    ),
+  )(
+    'preserves $column after a processed reopen in $mode (frozen=$frozenClock)',
+    async ({ column, mode, frozenClock }) => {
+      const ctx = await started({ columns: 'todo-group', mode, frozenClock });
+      const position = async () => {
+        const task = await ctx.task();
+        return mode === 'shadow' ? task.shadow_column : task.column;
+      };
+      await ctx.pr();
+      await ctx.pr({ state: 'merged' });
+      await ctx.ticket('closed');
+      expect(await position()).toBe('done');
+      await ctx.ticket('open');
+      expect(await position()).toBe('todo');
+      await ctx.spur('ended');
+      await ctx.manual(column, 'after-reopen');
+      const hidden = () =>
+        ctx.store.db
+          .selectFrom('link')
+          .select(['number', 'reopen_hidden_at'])
+          .where('reopen_hidden_at', 'is not', null)
+          .execute();
+      const oldLinks = await hidden();
+      expect(oldLinks.map((link) => link.number)).toEqual([7]);
+      expect(oldLinks.every((link) => typeof link.reopen_hidden_at === 'string')).toBe(true);
+      await ctx.tick();
+      expect((await ctx.task()).column).toBe(column);
+      expect(await position()).toBe(column);
+      await ctx.pr({ state: 'merged' });
+      await ctx.tick();
+      expect(await position()).toBe(column);
+      expect(await hidden()).toEqual(oldLinks);
+      expect(await ctx.move(column)).toMatchObject({ column: 'todo' });
+      await ctx.manual(column, 'after-correction');
+      await ctx.ticket('closed');
+      await ctx.ticket('open');
+      expect(await position()).toBe('todo');
+      await ctx.manual(column, 'after-new-reopen');
+      await ctx.pr({ number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' });
+      await ctx.tick();
+      expect(await position()).toBe('dev');
+      await ctx.tick();
+      expect(await position()).toBe('dev');
+      expect((await hidden()).map((link) => link.number)).toEqual([7]);
+    },
+  );
+  it.each(['on', 'shadow'] as const)(
+    'keeps manual placement and replay across idle ticks in %s',
+    async (mode) => {
+      const ctx = await started({ columns: 'todo-group', mode }, 'none');
+      const result = await ctx.manual('triage', 'manual-idle');
+      await ctx.tick();
+      await ctx.tick();
+      expect((await ctx.task()).column).toBe('triage');
+      const events = await ctx.store.db.selectFrom('event').selectAll().execute();
+      expect(await ctx.manual('triage', 'manual-idle')).toEqual(result);
+      expect(await ctx.store.db.selectFrom('event').selectAll().execute()).toEqual(events);
+      expect(await ctx.turns()).toEqual([]);
+      await ctx.pr();
+      await ctx.tick();
+      const task = await ctx.task();
+      expect(mode === 'on' ? task.column : task.shadow_column).toBe('dev');
+      expect(task.column).toBe(mode === 'on' ? 'dev' : 'triage');
+    },
+  );
+  it.each([
+    ['shadow', 'on'],
+    ['on', 'shadow'],
+  ] as const)('synchronizes %s to %s before manual placement', async (from, to) => {
+    const ctx = await started({ columns: 'todo-group', mode: from }, 'none');
+    await ctx.move('ready-for-dev');
+    ctx.restart({ columns: 'todo-group', mode: to });
+    expect(await ctx.manual('triage')).toMatchObject({ from: 'ready-for-dev', column: 'triage' });
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('triage');
+    expect((await ctx.task()).shadow_column).toBe(to === 'shadow' ? 'triage' : null);
+  });
   const corrected = (ctx: Board) =>
     ctx.store.db.selectFrom('event').select('id').where('kind', '=', 'task_corrected').execute();
 

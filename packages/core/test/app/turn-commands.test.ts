@@ -73,6 +73,7 @@ function board(
         ],
         columns: [
           { id: 'todo', orchestrator: 'none' },
+          { id: 'triage', orchestrator: 'none', enabled: false },
           { id: 'ready-for-dev', orchestrator: 'none' },
           { id: 'dev', orchestrator: 'none' },
           { id: 'review', orchestrator: reviewOrchestrator },
@@ -341,6 +342,29 @@ async function setup(
         actor,
         key,
       ),
+    manual: (
+      column: ColumnId,
+      reason = 'Ready.',
+      key: string | undefined = 'manual-1',
+      actor: ActorId = 'operator',
+      mode: 'manual' | 'correct' = 'manual',
+    ) => {
+      if (mode === 'correct') {
+        if (column === 'done') throw new Error('Correction excludes Done');
+        return apply(
+          registry['task.move'],
+          { mode, task: 'o/r#9', column, reason },
+          actor,
+          key === '<missing>' ? undefined : key,
+        );
+      }
+      return apply(
+        registry['task.move'],
+        { mode, task: 'o/r#9', column, reason },
+        actor,
+        key === '<missing>' ? undefined : key,
+      );
+    },
     unlinkPr: () =>
       apply(
         registry['link.remove'],
@@ -1899,6 +1923,140 @@ describe('task.get why', () => {
 });
 
 describe('task.move', () => {
+  const pairs = [
+    ['todo', 'triage'],
+    ['todo', 'ready-for-dev'],
+    ['triage', 'todo'],
+    ['triage', 'ready-for-dev'],
+    ['ready-for-dev', 'todo'],
+    ['ready-for-dev', 'triage'],
+    ['todo', 'todo'],
+  ] as const;
+  it.each(
+    pairs.flatMap(([from, to]) => (['on', 'shadow'] as const).map((mode) => ({ from, to, mode }))),
+  )(
+    'manually moves $from to $to in $mode with exact reason and replay',
+    async ({ from, to, mode }) => {
+      const ctx = await setup({ column: from, mode });
+      const triage = ctx.config.projects[0]?.columns.find((column) => column.id === 'triage');
+      if (triage === undefined) throw new Error('Missing triage');
+      triage.enabled = true;
+      await ctx.store.db.deleteFrom('link').execute();
+      const reason = '  literal  reason\t\r\n<script> <!chan\u006eel> <@U123> *bold* `code` &  ';
+      const before = await ctx.task();
+      const result = await ctx.manual(to, reason);
+      expect(result).toMatchObject({ from, to, column: to, settled: [], task: { column: to } });
+      expect(await ctx.task()).toMatchObject({
+        column: to,
+        column_epoch: before.column_epoch + 1,
+        ...(mode === 'shadow' ? { shadow_column: to } : {}),
+      });
+      expect((await ctx.events()).filter((event) => event.kind === 'task_manually_moved')).toEqual([
+        { kind: 'task_manually_moved', payload: { from, to, reason } },
+      ]);
+      expect((await ctx.why()).moves.at(-1)).toMatchObject({
+        kind: 'task_manually_moved',
+        actor: 'operator',
+        reason: 'manual',
+        text: reason,
+      });
+      expect((await ctx.history()).at(-1)).toMatchObject({
+        actor: 'operator',
+        kind: 'task_manually_moved',
+        summary: `Manually moved ${from} → ${to}: ${reason}`.replace(/\s+/g, ' ').trim(),
+      });
+      const after = await ctx.tables();
+      expect(await ctx.manual(to, reason)).toEqual(result);
+      expect(await ctx.tables()).toEqual(after);
+      for (const change of [
+        { column: from === to ? ('triage' as const) : from, reason, mode: 'manual' as const },
+        { column: to, reason: 'Different', mode: 'manual' as const },
+        { column: to, reason, mode: 'correct' as const },
+      ])
+        await expect(
+          ctx.manual(change.column, change.reason, 'manual-1', 'operator', change.mode),
+        ).rejects.toMatchObject({ code: 'idempotency_key_mismatch' });
+      expect(await ctx.store.db.selectFrom('turn').selectAll().execute()).toEqual([]);
+      expect(await ctx.store.db.selectFrom('submission').selectAll().execute()).toEqual([]);
+    },
+  );
+  it.each(['<missing>', '', '   '])('requires explicit manual key %j', async (key) => {
+    const ctx = await setup({ column: 'todo' });
+    const before = await ctx.tables();
+    await expect(ctx.manual('ready-for-dev', 'Ready.', key)).rejects.toMatchObject({
+      code: 'usage',
+    });
+    expect(await ctx.tables()).toEqual(before);
+  });
+  it.each(['', ' \t\r\n', 'x'.repeat(20_001)])(
+    'rejects invalid manual reason of length %s',
+    async (reason) => {
+      const ctx = await setup({ column: 'todo' });
+      await expect(ctx.manual('ready-for-dev', reason)).rejects.toMatchObject({ code: 'usage' });
+    },
+  );
+  it('accepts the 20,000-unit reason boundary', async () => {
+    const ctx = await setup({ column: 'todo' });
+    await ctx.store.db.deleteFrom('link').execute();
+    await ctx.manual('ready-for-dev', 'x'.repeat(20_000));
+    expect((await ctx.why()).moves.at(-1)?.text).toHaveLength(20_000);
+  });
+  it.each(['dev', 'done', 'triage'] as const)(
+    'refuses non-group or disabled target %s',
+    async (column) => {
+      const ctx = await setup({ column: 'todo' });
+      const before = await ctx.tables();
+      await expect(ctx.manual(column)).rejects.toMatchObject({ code: 'move_outside_todo_group' });
+      expect(await ctx.tables()).toEqual(before);
+    },
+  );
+  it.each(['dev', 'done'] as const)('refuses non-group source %s', async (column) => {
+    const ctx = await setup({ column });
+    await expect(ctx.manual('todo')).rejects.toMatchObject({ code: 'move_outside_todo_group' });
+  });
+  it.each(['pr', 'conflict', 'worker'] as const)(
+    'refuses started work through %s without writes',
+    async (kind) => {
+      const ctx = await setup({ column: 'todo' });
+      if (kind === 'worker')
+        await ctx.store.db.deleteFrom('link').where('entity', '=', 'pr').execute();
+      else {
+        await ctx.store.db.deleteFrom('link').where('entity', '=', 'session').execute();
+        if (kind === 'conflict')
+          await ctx.store.db
+            .updateTable('link')
+            .set({ pr_state: 'conflict' })
+            .where('entity', '=', 'pr')
+            .execute();
+      }
+      const before = await ctx.tables();
+      await expect(ctx.manual('ready-for-dev')).rejects.toMatchObject({ code: 'work_started' });
+      expect(await ctx.tables()).toEqual(before);
+    },
+  );
+  it.each(['ended', 'banned'] as const)('ignores %s workers', async (kind) => {
+    const ctx = await setup({ column: 'todo' });
+    await ctx.store.db.deleteFrom('link').where('entity', '=', 'pr').execute();
+    if (kind === 'banned')
+      await ctx.store.db
+        .updateTable('link')
+        .set({ banned: 1 })
+        .where('role', '=', 'worker')
+        .execute();
+    else
+      await ctx.store.db
+        .updateTable('session_snapshot')
+        .set({ ended_at: AT, state: 'ended' })
+        .where('id', '=', 'worker-1')
+        .execute();
+    await expect(ctx.manual('ready-for-dev')).resolves.toMatchObject({ column: 'ready-for-dev' });
+  });
+  it.each([WORKER_1, REV_1])('refuses manual moves by %s', async (actor) => {
+    const ctx = await setup({ column: 'todo' });
+    await expect(ctx.manual('ready-for-dev', 'Ready.', 'manual-1', actor)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+  });
   it.each(['qa', 'operator', 'none'] as const)(
     'correction into QA clears confirmed and pending QA with executor %s',
     async (qaOrchestrator) => {

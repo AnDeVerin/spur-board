@@ -208,6 +208,12 @@ describe('web design assets and policy', () => {
     expect(rule).toBeDefined();
     expect(rule).toContain('padding-top: calc(var(--width-ring) + var(--offset-ring));');
   });
+  it('a layer header puts its actions at the right, directly before Close', () => {
+    const margins = cssRules(read('src/ds/Scrim/Scrim.module.css')).flatMap(({ selector, body }) =>
+      [...body.matchAll(/margin-left\s*:\s*([^;]+);/g)].map((m) => `${selector}: ${m[1] ?? ''}`),
+    );
+    expect(margins).toEqual(['.actions: auto', '.close: auto', '.actions + .close: 0']);
+  });
   it('a layer body keeps its outward ring inside the surface and its content in place', () => {
     const one = 'calc(var(--width-ring) + var(--offset-ring))';
     const rules = (file: string) =>

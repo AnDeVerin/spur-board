@@ -91,11 +91,14 @@ export interface Operation<
   preconditions: { blockTypes: readonly BlockType[] } | null;
   /** Every error the operation can return: the common ones plus its own, in `ERRORS` order. */
   errors: readonly ServerErrorCode[];
+  /** Modes requiring a caller-chosen key even for operators. */
+  explicitKeyModes?: readonly string[];
   /** `modes`: one flag per branch of a union input; null when the input is a plain object. */
   cli: {
     command: string;
     args: readonly string[];
     modes: readonly CliMode[] | null;
+    defaultMode?: string;
     key: '--key' | null;
   };
   mcp: {
@@ -141,13 +144,28 @@ export function defineOperation<
   grants: Grants;
   preconditions?: { blockTypes: readonly BlockType[] };
   errors: readonly ServerErrorCode[];
-  cli: { command: string; args: readonly string[]; modes?: readonly [CliMode, ...CliMode[]] };
+  explicitKeyModes?: readonly string[];
+  cli: {
+    command: string;
+    args: readonly string[];
+    modes?: readonly [CliMode, ...CliMode[]];
+    defaultMode?: string;
+  };
   mcp: { whenToUse: string; whenNotToUse: string; destructive?: boolean };
   slack: SlackBinding | null;
   web?: true | null;
   examples: readonly [Example<I, O>, ...Example<I, O>[]];
 }): Operation<Id, K, I, O> {
   const mutation = spec.kind === 'mutation';
+  for (const mode of [
+    ...(spec.explicitKeyModes ?? []),
+    ...(spec.cli.defaultMode === undefined ? [] : [spec.cli.defaultMode]),
+  ]) {
+    if (!spec.cli.modes?.some((entry) => entry.mode === mode))
+      throw new Error(`Unknown mode ${mode} in ${spec.id}.`);
+  }
+  if (!mutation && spec.explicitKeyModes?.length)
+    throw new Error('Only mutations require explicit keys.');
   const order = Object.keys(ERRORS);
   const errors = [
     ...new Set([...COMMON_ERRORS, ...(mutation ? MUTATION_ERRORS : []), ...spec.errors]),
@@ -161,6 +179,7 @@ export function defineOperation<
       command: spec.cli.command,
       args: spec.cli.args,
       modes: spec.cli.modes ?? null,
+      ...(spec.cli.defaultMode === undefined ? {} : { defaultMode: spec.cli.defaultMode }),
       key: mutation ? '--key' : null,
     },
     mcp: {

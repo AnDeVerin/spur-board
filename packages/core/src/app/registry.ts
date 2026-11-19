@@ -107,6 +107,9 @@ export function createOperationRegistry(deps: {
                     ...(rule.blockTypes === undefined ? {} : { blockTypes: [...rule.blockTypes] }),
                   })),
             errors: [...operation.errors],
+            ...(operation.explicitKeyModes === undefined
+              ? {}
+              : { explicitKeyModes: [...operation.explicitKeyModes] }),
             cli: {
               ...operation.cli,
               args: [...operation.cli.args],

@@ -110,7 +110,7 @@ describe('catalog', () => {
     if (!isObject(property)) throw new Error('Missing column entry schema');
     expect(property['description']).toContain('original add');
   });
-  it('defaults web off and exposes exactly the screen reads and four operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and five operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
@@ -127,12 +127,13 @@ describe('catalog', () => {
       'status.get',
       'task.get',
       'task.history',
+      'task.move',
     ]);
     expect(
       OPERATIONS.filter((op) => op.kind === 'mutation' && op.web !== null)
         .map((op) => op.id)
         .sort(),
-    ).toEqual(['block.answer', 'block.followup', 'comment.add', 'item.close']);
+    ).toEqual(['block.answer', 'block.followup', 'comment.add', 'item.close', 'task.move']);
     expect(OPERATIONS.find((op) => op.id === 'schema.get')?.web).toBeNull();
     expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
       true,
@@ -217,7 +218,24 @@ describe('catalog', () => {
     expect(operation.input.safeParse(input).success).toBe(true);
     expect(operation.input.safeParse({ ...input, column: 'done' }).success).toBe(false);
     expect(operation.cli.args).toEqual(['task', 'column']);
-    expect(operation.cli.modes).toEqual([{ mode: 'correct', flag: '--correct', value: null }]);
+    expect(operation.cli.modes).toEqual([
+      { mode: 'manual', flag: '--manual', value: null },
+      { mode: 'correct', flag: '--correct', value: null },
+    ]);
+    expect(operation.cli.defaultMode).toBe('manual');
+    expect(operation.explicitKeyModes).toEqual(['manual']);
+    const reason = '  literal\r\n\t<script> & *text*  ';
+    expect(operation.input.parse({ ...input, mode: 'manual', column: 'done', reason })).toEqual({
+      ...input,
+      mode: 'manual',
+      column: 'done',
+      reason,
+    });
+    for (const reason of ['', ' \t\r\n', 'x'.repeat(20_001)])
+      expect(operation.input.safeParse({ ...input, mode: 'manual', reason }).success).toBe(false);
+    expect(
+      operation.input.safeParse({ ...input, mode: 'manual', reason: 'x'.repeat(20_000) }).success,
+    ).toBe(true);
   });
 
   it('shows a separate ticket link in task detail without changing the task view', () => {
@@ -691,7 +709,19 @@ describe('grants', () => {
       null,
       [...archived, 'turn_closed', 'not_turn_taker', 'return_not_allowed'],
     ],
-    ['task.move', 'mutation', [operator], null, [...archived, 'move_not_allowed']],
+    [
+      'task.move',
+      'mutation',
+      [operator],
+      null,
+      [
+        ...archived,
+        'move_not_allowed',
+        'move_outside_todo_group',
+        'work_started',
+        'column_mirrored',
+      ],
+    ],
     ['config.get', 'query', [operator, projectAgent], null, ['not_found']],
     ['columns.describe', 'query', [operator, projectAgent], null, ['not_found']],
   ];
@@ -839,15 +869,14 @@ describe('comment shape', () => {
 });
 
 describe('snapshot', () => {
-  it('adds columns.describe without changing any pre-existing operation, grant or error', async () => {
+  it('pins the catalog excluding columns.describe after adding manual moves', async () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
-    // Integration base 66092119: includes upstream config.get timing fields as well as every
-    // existing schema, example and transport binding. Original intake was efa72d3b. #733 adds the
-    // review-rule gate reasons and condition to task.get --why.
+    // Manual moves extend task.move, move views, schema metadata and the error catalog. #733 adds
+    // the review-rule gate reasons and condition to task.get --why.
     expect(await catalogVersion(baseline)).toBe(
-      '5629622f1c9bfed9bf726b3abec38b2ef8427d62030c1cb4a27801ca3835e9d9',
+      'e9c3e21fdf6259976dac0b0bd4643c81dcb84c89420e1f64cc2d64a13f97becf',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

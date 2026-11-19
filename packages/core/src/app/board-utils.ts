@@ -294,7 +294,12 @@ export function eventActor(row: Pick<Selectable<EventTable>, 'actor' | 'actor_re
   return encodeActorId({ actor: row.actor, actorRef });
 }
 
-const MOVE_KINDS = ['task_moved', 'task_shadow_moved', 'task_corrected'] as const;
+const MOVE_KINDS = [
+  'task_moved',
+  'task_shadow_moved',
+  'task_corrected',
+  'task_manually_moved',
+] as const;
 
 /** One column move as `task.get --why` and `task.move` show it. */
 interface MoveView {
@@ -303,7 +308,7 @@ interface MoveView {
   actor: ActorId;
   from: ColumnId;
   to: ColumnId;
-  reason: MoveReason | 'returned' | 'corrected';
+  reason: MoveReason | 'returned' | 'corrected' | 'manual';
   gate: GateReason[];
   text: string | null;
 }
@@ -311,6 +316,19 @@ interface MoveView {
 function moveView(row: Selectable<EventTable>): MoveView | null {
   const base = { at: row.at, actor: eventActor(row) };
   const payload: unknown = JSON.parse(row.payload);
+  if (row.kind === 'task_manually_moved') {
+    const parsed = eventPayloadSchemas.task_manually_moved.safeParse(payload);
+    if (!parsed.success) return null;
+    return {
+      ...base,
+      kind: row.kind,
+      from: parsed.data.from,
+      to: parsed.data.to,
+      reason: 'manual',
+      gate: [],
+      text: parsed.data.reason,
+    };
+  }
   if (row.kind === 'task_corrected') {
     const parsed = eventPayloadSchemas.task_corrected.safeParse(payload);
     if (!parsed.success) return null;

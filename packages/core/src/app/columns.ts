@@ -224,8 +224,8 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
         text:
           metadata.group !== null
             ? column.id === 'todo'
-              ? 'New and reopened tasks enter Todo; task add and operator correction place work here. Work starting leaves the whole Todo group.'
-              : 'Operator correction places a task here. New and reopened tasks enter Todo; work starting leaves the whole Todo group.'
+              ? 'New and reopened tasks enter Todo; task add and manual moves place idle work here; operator correction can also repair placement. Work starting leaves the whole Todo group.'
+              : 'Manual moves place idle work here; operator correction can also repair placement. New and reopened tasks enter Todo; work starting leaves the whole Todo group.'
             : 'The dispatcher advances passing gates and completion shortcuts; in shadow mode it records only a shadow position. Operator corrections can also place tasks here.',
       },
     });

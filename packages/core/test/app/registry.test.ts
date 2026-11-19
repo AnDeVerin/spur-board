@@ -485,6 +485,87 @@ it('registers one handler with a matching id for every catalog operation', () =>
 });
 
 const entryTime = (hour: number) => `2026-11-04T0${String(hour)}:00:00.000Z`;
+it('orders Todo-group visits by entry then journal position under a frozen clock', async () => {
+  const store = openTempStore('board-manual-order-').store;
+  stores.push(store);
+  for (const id of [1, 2, 3, 4])
+    await store.db
+      .insertInto('task')
+      .values({
+        project: 'first',
+        tracker_kind: 'github-issues',
+        tracker_id: String(id),
+        key: `o/first#${String(id)}`,
+        membership: 'active',
+        column: 'ready-for-dev',
+        created_at: new Date(clock.now()).toISOString(),
+      })
+      .execute();
+  const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+  const apply = createApply({ store, config, clock });
+  const query = createQuery({ store, config, clock });
+  await apply(
+    registry['task.move'],
+    { mode: 'manual', task: 'o/first#2', column: 'ready-for-dev', reason: 'Re-enter.' },
+    'operator',
+    'manual-two',
+  );
+  await apply(
+    registry['task.move'],
+    { mode: 'manual', task: 'o/first#1', column: 'ready-for-dev', reason: 'Re-enter again.' },
+    'operator',
+    'manual-one',
+  );
+  await store.db
+    .insertInto('task')
+    .values({
+      project: 'first',
+      tracker_kind: 'github-issues',
+      tracker_id: '5',
+      key: 'o/first#5',
+      membership: 'active',
+      column: 'ready-for-dev',
+      created_at: new Date(clock.now()).toISOString(),
+    })
+    .execute();
+  await store.db
+    .insertInto('event')
+    .values({
+      actor: 'operator',
+      actor_ref: null,
+      request_id: null,
+      v: 1,
+      via: 'web',
+      project: 'first',
+      task_id: 5,
+      kind: 'task_added',
+      at: new Date(clock.now()).toISOString(),
+      payload: JSON.stringify({ column: 'ready-for-dev' }),
+    })
+    .execute();
+  for (const detail of [false, true]) {
+    const status = await query(registry['status.get'], { project: 'first', detail }, 'operator');
+    expect(status.tasks.map((task) => task.key)).toEqual([
+      'o/first#3',
+      'o/first#4',
+      'o/first#2',
+      'o/first#1',
+      'o/first#5',
+    ]);
+    expect(new Set(status.tasks.map((task) => task.columnEnteredAt)).size).toBe(1);
+  }
+  const schema = await query(registry['schema.get'], {}, 'operator');
+  expect(schema.operations.find((operation) => operation.id === 'task.move')).toMatchObject({
+    explicitKeyModes: ['manual'],
+    cli: { defaultMode: 'manual' },
+  });
+  const policies = await query(registry['columns.describe'], { project: 'first' }, 'operator');
+  const movedBy = policies.projects[0]?.columns.find(
+    (column) => column.id === 'ready-for-dev',
+  )?.movedBy;
+  expect(movedBy?.kind).toBe('manual');
+  expect(movedBy?.text).toContain('Manual moves');
+});
 const move = (to: string, time: number, kind = 'task_moved', shadow = false) => ({
   kind,
   at: entryTime(time),

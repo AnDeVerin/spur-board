@@ -68,6 +68,24 @@ const cells = () =>
   );
 
 describe('task history tab', () => {
+  it('renders normalized manual move history as literal text with provenance', async () => {
+    const d = daemon();
+    const reason = '  <script>alert(1)</script>\r\n<!channel> <@U123> *bold* `code` &  ';
+    const summary = `Manually moved todo → ready-for-dev: ${reason}`.replace(/\s+/g, ' ').trim();
+    d.routes['task.history'] = () =>
+      Promise.resolve(
+        envelope(
+          taskHistory([
+            { ...historyEvent(T, 'task_manually_moved', 'operator', summary), via: 'web' },
+          ]),
+        ),
+      );
+    await openHistory(d);
+    expect(panel().textContent).toContain(summary);
+    expect(panel().textContent).toContain('operator');
+    expect(panel().textContent).toContain('web');
+    expect(panel().querySelector('script, b, strong, code, a')).toBeNull();
+  });
   it('renders full provenance and long unbroken reasons literally', async () => {
     const d = daemon();
     const reason = '<img src=x onerror=alert(1)> <!here> *bold*' + 'x'.repeat(1950);

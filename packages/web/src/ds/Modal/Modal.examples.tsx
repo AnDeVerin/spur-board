@@ -73,8 +73,9 @@ function Demo({ children }: { children: string }) {
 export function Default() {
   return (
     <Demo>
-      Open it: focus lands on Close, Tab wraps inside, the page behind does not scroll; Escape,
-      Close or a scrim click closes it and focus returns to the button.
+      Open it: the tabs sit at the right of the header, right before Close. Focus lands on Close,
+      Tab wraps inside, the page behind does not scroll; Escape, Close or a scrim click closes it
+      and focus returns to the button.
     </Demo>
   );
 }

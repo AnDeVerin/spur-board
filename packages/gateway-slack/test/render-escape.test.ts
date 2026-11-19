@@ -115,6 +115,19 @@ const kindRows = Object.entries(kindCases).flatMap(([kind, make]) =>
 );
 
 describe('outside text stays literal', () => {
+  it('renders a manual move reason without mentions or formatting', async () => {
+    const reason = '<script> <!channel> <@U123> *bold* `code` &';
+    const { fake, gateway } = await setup();
+    await gateway.deliver({
+      ...request('manual-move'),
+      body: [{ kind: 'quote', children: [{ kind: 'text', text: reason }] }],
+    });
+    const values = mrkdwnOf(fake);
+    expect(values.join('\n')).toContain('&lt;!channel&gt;');
+    expect(values.join('\n')).toContain('&lt;@U123&gt;');
+    expect(values.join('\n')).toContain('&amp;');
+    expectNoRawMarkup(values);
+  });
   it.each(kindRows)('renders %s holding %j literally', async (_kind, _title, rich, expected) => {
     const { fake, gateway } = await setup();
     expect((await gateway.deliver({ ...request('kind'), body: rich })).status).toBe('delivered');

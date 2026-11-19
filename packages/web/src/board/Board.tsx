@@ -227,6 +227,12 @@ export function Board({ data }: { data: BoardData }) {
               data.setColumnSort(snapshot.project ?? '', column, sort);
             },
           }}
+          folds={{
+            get: (group) => data.columnFold(snapshot.project ?? '', group),
+            set: (group, folded) => {
+              data.setColumnFold(snapshot.project ?? '', group, folded);
+            },
+          }}
           filter={filter}
           stale={list[0]?.variant === 'error'}
           now={snapshot.lastGoodAt}

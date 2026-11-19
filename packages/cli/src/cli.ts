@@ -301,13 +301,18 @@ function buildInput(
     }
   }
   const selected = op.cli.modes?.filter((mode) => options[optionField(mode.flag)] !== undefined);
-  if (selected && selected.length !== 1)
+  if (
+    selected &&
+    (selected.length > 1 || (selected.length === 0 && op.cli.defaultMode === undefined))
+  )
     throw new CliError(
       'usage',
       undefined,
       undefined,
       `Pass exactly one of ${(op.cli.modes ?? []).map((mode) => mode.flag).join(', ')}.`,
     );
+  if (selected?.length === 0 && op.cli.defaultMode !== undefined)
+    input['mode'] = op.cli.defaultMode;
   if (selected?.[0]) {
     input['mode'] = selected[0].mode;
     if (selected[0].value) {
@@ -498,13 +503,23 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
     registerOptions(command, op);
     command.addHelpText(
       'after',
-      `\nExamples:\n${op.examples.map((example) => `  ${exampleCommand(op, example.input as Record<string, unknown>)} — ${example.summary}`).join('\n')}\n`,
+      `\nExamples:\n${op.examples.map((example) => `  ${exampleCommand(op, example.input as Record<string, unknown>)}${op.explicitKeyModes?.includes(String((example.input as Record<string, unknown>)['mode'])) ? ` --key ${op.mcp.name}-example-001` : ''} — ${example.summary}`).join('\n')}\n`,
     );
     command.action(async (...parts: unknown[]) => {
       const invoked = parts.at(-1) as CommandUnknownOpts;
       const json = Boolean(invoked.opts()['json'] || program.opts()['json']);
       const input = buildInput(op, parts.slice(0, -1), invoked.opts());
       const keyOption = invoked.opts()['key'];
+      if (
+        op.explicitKeyModes?.includes((input as Record<string, string>)['mode'] ?? '') &&
+        (typeof keyOption !== 'string' || keyOption.trim() === '')
+      )
+        throw new CliError(
+          'usage',
+          undefined,
+          undefined,
+          'Pass an explicit non-blank --key for this mode.',
+        );
       if (keyOption !== undefined && (typeof keyOption !== 'string' || keyOption === ''))
         throw new CliError(
           'usage',

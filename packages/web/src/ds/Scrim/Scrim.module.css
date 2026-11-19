@@ -40,17 +40,22 @@
   letter-spacing: var(--tracking-bar);
   color: var(--color-text-secondary);
 }
-/* Stretched to the header height, so an underline tablist sits on the header border. */
+/* Stretched to the header height, so an underline tablist sits on the header border. The free
+   space of the row goes before the actions, which then sit at the right, right before Close. */
 .actions {
   display: flex;
   align-self: stretch;
   flex: none;
-  margin-left: var(--space-3);
+  margin-left: auto;
 }
+/* Close sits at the right; after actions it follows them at the header gap. */
 .close {
   display: inline-flex;
   flex: none;
   margin-left: auto;
+}
+.actions + .close {
+  margin-left: 0;
 }
 .body {
   flex: 1;
@@ -63,11 +68,4 @@
      Modal and SidePanel take the same amount off their side and bottom paddings. */
   margin: 0 calc(var(--width-ring) + var(--offset-ring))
     calc(var(--width-ring) + var(--offset-ring));
-}
-
-/* breakpoints.narrow */
-@media (max-width: 760px) {
-  .actions {
-    margin-left: 0;
-  }
 }

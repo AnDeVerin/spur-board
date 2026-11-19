@@ -6,8 +6,10 @@ With `web.port` and `web.publicOrigin` configured, a second loopback listener se
 assets, health and catalog operations whose `web` binding is enabled. It uses the same registry,
 authorization, idempotency and operation hooks as the agent API, with the operator caller.
 Effective project configuration is available through `config.get`.
-Only `comment.add`, `block.answer`, `block.followup` and `item.close` are enabled writes. Token and skill routes stay on the
-agent API. The web listener is off by default and a failed bind does not stop the agent API.
+Enabled writes are `comment.add`, `block.answer`, `block.followup`, `item.close` and
+`task.move`. Task moves use the operator API; the shell has no move control.
+Token and skill routes stay on the agent API. The web listener is off by default
+and a failed bind does not stop the agent API.
 
 A private-network proxy must preserve Host. Exact Origin, Host, JSON and fetch-metadata checks
 reject foreign browser pages; anyone with network or local access can still act as operator.
@@ -35,7 +37,8 @@ Archived tasks also disable the writes while keeping drafts. If a question close
 reassigned, newer unsent answer text stays selectable, read-only.
 The header holds the project switcher,
 dispatcher mode, a key, session and block filter that dims and never hides cards, the live
-indicator and the inbox count; columns follow configuration order, empty ones collapse and
+indicator and the inbox count; columns follow configuration order, empty ones collapse,
+adjacent Todo-group columns show under one Backlog band that folds into one column, and
 `done` lists every done task. The status bar holds one health button per service (daemon,
 slack, github, spur, and jira when configured), coloured from the `services` rows of
 `status.get`, the persistent Light/Dark/Auto theme choice and the daemon version; its services

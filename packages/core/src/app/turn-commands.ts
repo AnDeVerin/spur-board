@@ -16,7 +16,7 @@ import { queueBlockOpen } from './block-thread.ts';
 import { authorizationTarget, blockView, openBlock, taskTarget } from './blocks.ts';
 import { emit, moveViews, taskPr, taskView, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
-import { correctColumn, dispatchTasks, moveLeft } from './dispatch.ts';
+import { correctColumn, dispatchTasks, manuallyMoveColumn, moveLeft } from './dispatch.ts';
 import { canonicalKey } from './membership.ts';
 import { taskSubject } from './subject.ts';
 import { closeTurns } from './turns.ts';
@@ -506,6 +506,17 @@ export function createTurnMutations(deps: {
       if (task === undefined) throw new CommandError('not_found', 'Check the task key.');
       if (task.membership === 'archived') {
         throw new CommandError('task_archived', 'Add the task again before changing it.');
+      }
+      if (input.mode === 'manual') {
+        const moved = await manuallyMoveColumn(trx, {
+          taskId: task.id,
+          to: input.column,
+          ...input,
+          at: new Date(ctx.at),
+          actor: ctx.actor,
+          config,
+        });
+        return { ...moved, task: taskView(await taskById(trx, task.id)), settled: [] };
       }
       const project = config.projects.find((entry) => entry.id === task.project);
       if (project === undefined) {

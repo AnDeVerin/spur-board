@@ -1,3 +1,4 @@
+import { taskMoveInputSchema, taskMoveOutputSchema } from './move-schemas.ts';
 import {
   statusInputSchema,
   statusOutputSchema,
@@ -19,7 +20,7 @@ import {
 import { z } from 'zod';
 import { configViewSchema } from './config-view-schema.ts';
 import { columnsDescribeOutputSchema } from './columns-schema.ts';
-import { BLOCK_TYPES, COLUMN_IDS, TOKEN_STATUSES, SUBMISSION_BASES } from '../enums.ts';
+import { BLOCK_TYPES, TOKEN_STATUSES, SUBMISSION_BASES } from '../enums.ts';
 import {
   blockIdSchema,
   commentIdSchema,
@@ -34,7 +35,6 @@ import {
   SCHEMA_ROLES,
   blockViewSchema,
   commentSchema,
-  moveViewSchema,
   schemaGetOutputSchema,
   taskViewSchema,
   taskWhySchema,
@@ -1467,45 +1467,47 @@ export const OPERATIONS = [
     id: 'task.move',
     kind: 'mutation',
     description:
-      'Correct the column of a task by hand; the gates then settle the task from that column at once.',
+      'Move an idle task inside the Todo group, or correct its column and settle the gates.',
     mcp: {
       whenToUse:
-        'Put a task the board moved wrongly into the right column, Done excluded; the reply names the column it settled in.',
+        'Place idle work at the end of an enabled Todo-group column with a literal reason and explicit key, or correct a wrong column with mode correct.',
       whenNotToUse: 'Use task_get with why to read why the task is where it is.',
     },
-    input: z.discriminatedUnion('mode', [
-      z.strictObject({
-        mode: z.literal('correct').describe('Correct a wrong column by hand.'),
-        task: taskKeyInputSchema,
-        column: z
-          .enum(COLUMN_IDS)
-          .exclude(['done'])
-          .describe('Enabled column to put the task in; Done is reached only from the facts.'),
-        reason: text('Why the column is corrected, kept in the journal.', TEXT_MAX),
-      }),
-    ]),
-    output: z.strictObject({
-      task: taskViewSchema,
-      from: z.enum(COLUMN_IDS).describe('Column the dispatcher worked from before the correction.'),
-      to: z.enum(COLUMN_IDS).describe('Column the correction put the task in.'),
-      column: z
-        .enum(COLUMN_IDS)
-        .describe(
-          'Column the gates settled the task in; the shadow column while the dispatcher is in shadow mode.',
-        ),
-      settled: z
-        .array(moveViewSchema)
-        .describe('The dispatcher moves from the corrected column, oldest first.'),
-    }),
+    input: taskMoveInputSchema,
+    output: taskMoveOutputSchema,
+    explicitKeyModes: ['manual'],
+    web: true,
     grants: operatorOnly,
-    errors: ['wrong_id_kind', 'not_found', 'task_archived', 'move_not_allowed'],
+    errors: [
+      'wrong_id_kind',
+      'not_found',
+      'task_archived',
+      'move_not_allowed',
+      'move_outside_todo_group',
+      'work_started',
+      'column_mirrored',
+    ],
     cli: {
       command: 'move',
       args: ['task', 'column'],
-      modes: [{ mode: 'correct', flag: '--correct', value: null }],
+      modes: [
+        { mode: 'manual', flag: '--manual', value: null },
+        { mode: 'correct', flag: '--correct', value: null },
+      ],
+      defaultMode: 'manual',
     },
     slack: null,
     examples: [
+      {
+        summary: 'Place idle work at the end of Ready for Dev',
+        input: {
+          mode: 'manual',
+          task: 'PROJ-123',
+          column: 'ready-for-dev',
+          reason: 'Ready for the next worker.',
+        },
+        output: { task, from: 'todo', to: 'ready-for-dev', column: 'ready-for-dev', settled: [] },
+      },
       {
         summary: 'Correct a task the board put in Done by mistake',
         input: {

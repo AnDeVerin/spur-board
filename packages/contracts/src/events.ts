@@ -38,6 +38,7 @@ export const EVENT_KINDS = [
   'task_moved',
   'task_shadow_moved',
   'task_corrected',
+  'task_manually_moved',
   'dispatcher_mode_changed',
   'turn_opened',
   'turn_taken',
@@ -194,6 +195,11 @@ export const eventPayloadSchemas = {
     reason: z.enum(MOVE_REASONS),
     gate: z.array(z.enum(GATE_REASONS)).optional(),
     courseCheck: z.literal(true).optional(),
+  }),
+  task_manually_moved: z.looseObject({
+    from: z.enum(COLUMN_IDS),
+    to: z.enum(COLUMN_IDS),
+    reason: S,
   }),
   task_corrected: z.looseObject({
     from: z.enum(COLUMN_IDS),

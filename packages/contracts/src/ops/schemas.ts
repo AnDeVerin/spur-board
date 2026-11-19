@@ -121,17 +121,17 @@ export const moveViewSchema = z
   .strictObject({
     at: z.iso.datetime().describe('When the task moved, ISO 8601 UTC.'),
     kind: z
-      .enum(['task_moved', 'task_shadow_moved', 'task_corrected'])
+      .enum(['task_moved', 'task_shadow_moved', 'task_corrected', 'task_manually_moved'])
       .describe(
-        'task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction.',
+        'task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement.',
       ),
     actor: actorIdSchema,
     from: z.enum(COLUMN_IDS).describe('Column the task left.'),
     to: z.enum(COLUMN_IDS).describe('Column the task entered.'),
     reason: z
-      .enum([...MOVE_REASONS, 'returned', 'corrected'])
+      .enum([...MOVE_REASONS, 'returned', 'corrected', 'manual'])
       .describe(
-        'Why it moved: a dispatcher reason, returned (a column executor returned it to Dev) or corrected (the operator corrected the column).',
+        'Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), or manual (operator Todo-group placement).',
       ),
     gate: z
       .array(z.enum(GATE_REASONS))
@@ -140,7 +140,7 @@ export const moveViewSchema = z
       .string()
       .nullable()
       .describe(
-        'The block a return opened, or the reason the operator gave for a correction; null otherwise.',
+        'The block a return opened, or the literal reason for an operator correction or manual move; null otherwise.',
       ),
   })
   .describe('A column move of a task.');
@@ -466,9 +466,19 @@ export const schemaGetOutputSchema = z
               .union([z.literal('any'), z.array(grantRuleSchema).min(1)])
               .describe('Who may call it: any identified caller, or the listed rules.'),
             errors: z.array(z.string()).describe('Error codes the operation can return.'),
+            explicitKeyModes: z
+              .array(z.string())
+              .optional()
+              .describe(
+                'Modes requiring a caller-chosen idempotency key, including for operators.',
+              ),
             cli: z
               .strictObject({
                 command: z.string().describe('CLI command after `board`.'),
+                defaultMode: z
+                  .string()
+                  .optional()
+                  .describe('Input mode used when no mode flag is supplied.'),
                 args: z.array(z.string()).describe('Input fields given as positional arguments.'),
                 modes: z
                   .array(cliModeSchema)
