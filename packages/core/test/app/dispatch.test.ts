@@ -3913,7 +3913,7 @@ describe('external change-request rounds', () => {
       start: inReview,
       cycle: 2,
       heads: [C],
-      summary: '1 returns for external comments, 1 change requests on new heads',
+      summary: '1 return for external comments, 1 change request on a new head',
       listed: 1,
     },
     {
@@ -4142,7 +4142,7 @@ describe('external change-request rounds', () => {
       },
       returns: 1,
       course: 2,
-      summary: '1 executor returns, 1 change requests on new heads',
+      summary: '1 executor return, 1 change request on a new head',
     },
     {
       name: 'repeated executor returns on one head',
@@ -4330,7 +4330,7 @@ describe('external change-request rounds', () => {
     expect(block.addressee_role).toBe('curator');
     expect(block.reason).toContain('3 external review rounds');
     expect(block.reason).toContain(
-      '3 external review rounds since the last check: 1 returns for external comments, 2 change requests on new heads',
+      '3 external review rounds since the last check: 1 return for external comments, 2 change requests on new heads',
     );
     expect(block.reason).toContain(
       '- return to Dev from external-review for external comments on aaaaaaa',
@@ -4357,6 +4357,8 @@ describe('external change-request rounds', () => {
         await devRound(ctx, D);
         expect(await rounds(ctx)).toEqual(roundsOn(B, C, D));
       },
+      first: '3 external review rounds since the last check: 3 change requests on new heads\n',
+      text: 'course check after 3 external review rounds',
     },
     {
       name: 'returns only',
@@ -4366,10 +4368,12 @@ describe('external change-request rounds', () => {
         expect((await ctx.task()).column).toBe('dev');
         expect(await rounds(ctx)).toEqual([]);
       },
+      first: '1 external review round since the last check: 1 return for external comments\n',
+      text: 'course check after 1 external review round',
     },
   ])(
     'a threshold reached while another item is open raises on the first pass after it closes: $name',
-    async ({ options, act }) => {
+    async ({ options, act, first, text }) => {
       const ctx = await inReview(options);
       await act(ctx);
       const [limit] = await itemsOf(ctx, 'cycle_limit');
@@ -4380,6 +4384,15 @@ describe('external change-request rounds', () => {
       await ctx.tick();
       expect(await openKeys(ctx)).toEqual(['course-check:1:external-review']);
       expect(await ctx.openTurn()).toBeNull();
+      // One round reads in the singular, several in the plural.
+      expect((await courseBlock(ctx)).reason).toContain(first);
+      const [item] = (await itemsOf(ctx, 'course_check')).map((entry) => entry.id);
+      const { text: itemText } = await ctx.store.db
+        .selectFrom('operator_item')
+        .select('text')
+        .where('id', '=', item ?? 0)
+        .executeTakeFirstOrThrow();
+      expect(itemText.endsWith(text)).toBe(true);
     },
   );
 

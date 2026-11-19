@@ -16,7 +16,6 @@ import { curatorProject } from './authorize.ts';
 import { openSystemBlock } from './blocks.ts';
 import { parsePr, taskPr, taskUrl, type Trx } from './board-utils.ts';
 import { capPoints, raiseItem } from './feed.ts';
-import { counts } from './status-views.ts';
 
 // The course check: after `columns[].courseCheck` counted rounds under a column, the board holds
 // the task and asks `columns[].courseCheckTo` (by default the curator, or the operator without
@@ -342,7 +341,7 @@ export async function raiseCourseCheck(
     kind: 'course_check',
     text:
       column === EXTERNAL_COUNTER
-        ? `${task.key}: course check after ${String(count)} external review rounds`
+        ? `${task.key}: course check after ${countOf(count, EXTERNAL_ROUNDS)}`
         : `${task.key}: course check after ${String(count)} returns from ${column}`,
     url,
     taskId: task.id,
@@ -373,14 +372,22 @@ export function courseAddressee(
 }
 
 /** A counted return's cause in the course question. */
-type Cause = keyof typeof ROUND_KINDS;
+type Cause = Exclude<keyof typeof ROUND_KINDS, 'request'>;
 
-/** How External Review's course question counts each kind of return. */
+/** How External Review's course question counts each kind of round: `[singular, plural]`. */
 const ROUND_KINDS = {
-  executor: 'executor returns',
-  external: 'returns for external comments',
-  other: 'other returns',
+  executor: ['executor return', 'executor returns'],
+  external: ['return for external comments', 'returns for external comments'],
+  other: ['other return', 'other returns'],
+  request: ['change request on a new head', 'change requests on new heads'],
 } as const;
+
+/** External Review's rounds, in the singular for one. */
+const EXTERNAL_ROUNDS = ['external review round', 'external review rounds'] as const;
+
+/** `n` of a thing, in the singular form for one. */
+const countOf = (n: number, [one, many]: readonly [string, string]) =>
+  `${String(n)} ${n === 1 ? one : many}`;
 
 /** The question of a course check: the count, the counted rounds, the open findings and the links. */
 async function courseSummary(
@@ -401,13 +408,16 @@ async function courseSummary(
   };
   const rounds = roundsSince((await courseRounds(trx, task.id, project)).course, column);
   const external = column === EXTERNAL_COUNTER;
-  const kinds = rounds.map((round) =>
-    round.kind === 'external_round' ? 'change requests on new heads' : ROUND_KINDS[round.cause],
-  );
+  const kinds = rounds.map((round) => (round.kind === 'external_round' ? 'request' : round.cause));
+  const split = Object.entries(ROUND_KINDS)
+    .map(([kind, forms]) => ({ n: kinds.filter((entry) => entry === kind).length, forms }))
+    .filter(({ n }) => n > 0)
+    .map(({ n, forms }) => countOf(n, forms))
+    .join(', ');
   const findings = await openFindings(trx, task.id);
   const lines = [
     external
-      ? `course check: ${String(count)} external review rounds since the last check: ${counts(kinds, [...Object.values(ROUND_KINDS), 'change requests on new heads'])}`
+      ? `course check: ${countOf(count, EXTERNAL_ROUNDS)} since the last check: ${split}`
       : `course check: ${String(count)} returns to Dev from ${column} since the last check`,
     rounds.length === 0 ? 'Counted rounds: none recorded' : 'Counted rounds:',
     ...rounds.map((round) => {
