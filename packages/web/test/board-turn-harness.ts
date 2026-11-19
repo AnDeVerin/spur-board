@@ -61,11 +61,18 @@ export const closedTurn = (outcome: string, by: string | null = 'agent:qa/qa-1')
 });
 
 type Call = { op: string; input: Record<string, unknown>; key: string | undefined };
-/** Opens ex/repo#7 on a fake daemon; `update` turns on the page's version check. */
-export async function open(answer: unknown = orchestratorTaskGet(), update?: UpdateOptions) {
+/**
+ * Opens ex/repo#7 on a fake daemon; `update` turns on the page's version check, and `rows` are
+ * the chosen project's status rows (by default #7 in Review with one open PR at `HEAD`).
+ */
+export async function open(
+  answer: unknown = orchestratorTaskGet(),
+  update?: UpdateOptions,
+  rows: unknown[] = [row('ex/repo#7', 'review', { prs: [prFacts(HEAD)] })],
+) {
   const d = daemon();
   const calls: Call[] = [];
-  serve(d, [row('ex/repo#7', 'review', { prs: [prFacts(HEAD)] })], reviewConfig);
+  serve(d, rows, reviewConfig);
   setTask(d, answer);
   history.replaceState(null, '', '/?open=ex%2Frepo%237');
   mount(

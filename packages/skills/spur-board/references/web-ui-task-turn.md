@@ -19,7 +19,9 @@ until you finish or it takes the turn back.`
 ## Submit
 
 **Submit…** opens a form, focused on **Commit**. Commit starts as the head SHA of the task's only
-open pull request; with none or several it starts empty. Enter a full lowercase SHA, 40 to 64
+open pull request in the chosen project's Board. Without one, for example for a task of another
+project, it starts as the head the turn opened on, which may be stale; the field stays editable
+and the Board refuses a head that is not the pull request's (`head_mismatch`). Enter a full lowercase SHA, 40 to 64
 characters: surrounding spaces are trimmed, upper case is refused.
 
 **Basis** is a tab row: **Tested**, **Carried** or **Skipped**.
@@ -97,9 +99,9 @@ dev.`, even when the task then has no open turn. A submit the Board still has to
 A voided one says the Board voided it: it no longer counts for the gates, so the work needs
 another submit. A turn the same write opened shows below.
 
-A Board update waits to reload the page while the ack and the close run, so it never leaves the
-operator holding a turn mid-close. An unsent reason survives that reload and fills the next form
-opened.
+A Board update waits to reload the page while the ack and the close run, even when the task view
+closes first, so it never leaves the operator holding a turn mid-close. An unsent reason survives
+that reload and comes back only in the same form of the same turn.
 
 ## Unavailable and archived
 

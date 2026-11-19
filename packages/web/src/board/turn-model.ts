@@ -102,41 +102,66 @@ export function submitConfirmation(
 }
 
 type Submission = NonNullable<BoardTask['submission']>;
+/** A closed turn as `task.get` detail lists it. */
+type ClosedTurn = { column: string; closed: { at: string } | null };
 /**
- * The detail of a submit that closed turn `closed` elsewhere. `task.get` lists only the task's
- * latest submission, which carries no turn: its basis and SHA are shown only when it was made in
- * the turn's column at the moment the turn closed, as one submit writes both.
+ * The task's latest submission when it is the submit that closed `turn`. `task.get` lists only
+ * the latest submission and it carries no turn, but one submit writes the submission and closes
+ * the turn at the same instant, in the turn's column.
  */
+function closingSubmission(
+  submission: Submission | null | undefined,
+  turn: ClosedTurn | undefined,
+): Submission | undefined {
+  if (!submission || !turn?.closed) return undefined;
+  return submission.column === turn.column &&
+    Date.parse(submission.at) === Date.parse(turn.closed.at)
+    ? submission
+    : undefined;
+}
+
+/** The detail of a submit that closed `closed` elsewhere: its basis and SHA when the read ties them. */
 export function closedSubmitDetail(
   submission: Submission | null | undefined,
-  closed: { column: string; closed: { at: string } | null },
+  closed: ClosedTurn,
   now: number,
 ): string | undefined {
   if (closed.closed === null) return undefined;
   const at = closed.closed.at;
-  if (
-    submission &&
-    submission.column === closed.column &&
-    Date.parse(submission.at) === Date.parse(at)
-  )
-    return `Submitted ${submission.basis}, ${submission.sha.slice(0, 7)}, ${age(at, now)} ago.`;
-  return `Submitted ${age(at, now)} ago.`;
+  const own = closingSubmission(submission, closed);
+  return own
+    ? `Submitted ${own.basis}, ${own.sha.slice(0, 7)}, ${age(at, now)} ago.`
+    : `Submitted ${age(at, now)} ago.`;
 }
 
 /**
- * What became of an own submit of `sha` in `column`: the latest submission tells once a read
- * shows it, `voided` when it no longer counts for the gates; before that, the write's answer does.
+ * What became of an own submit that closed `turn`: the submission that closed it tells once a
+ * read shows it, `voided` when it no longer counts for the gates; before that, `pending` from the
+ * write's answer does.
  */
 export function ownSubmitState(
   submission: Submission | null | undefined,
-  own: { sha: string; column: string; pending: boolean },
+  turn: ClosedTurn | undefined,
+  pending: boolean,
 ): 'pending' | 'voided' | 'counted' {
-  const matched =
-    submission && submission.sha === own.sha && submission.column === own.column
-      ? submission
-      : undefined;
+  const matched = closingSubmission(submission, turn);
   if (matched?.voided === true) return 'voided';
-  return (matched?.pending ?? own.pending) ? 'pending' : 'counted';
+  return (matched?.pending ?? pending) ? 'pending' : 'counted';
+}
+
+/**
+ * The Commit field's start: the head of the task's only open pull request in the chosen
+ * project's status row, else the head `task.get` why stored when `turn` opened (it may be stale;
+ * the field stays editable and the server refuses a wrong head with `head_mismatch`).
+ */
+export function commitDefault(
+  row: { prs?: readonly { state: string; headSha: string }[] | undefined } | undefined,
+  why: BoardTask['why'],
+  turn: string,
+): string {
+  const prs = row?.prs?.filter((pr) => pr.state === 'open') ?? [];
+  const only = prs.length === 1 ? prs[0]?.headSha : undefined;
+  return only ?? (why?.turn?.id === turn ? (why.turn.head ?? '') : '');
 }
 
 /**

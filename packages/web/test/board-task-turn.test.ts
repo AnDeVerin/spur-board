@@ -103,6 +103,24 @@ describe('Turn section', () => {
     },
   );
 
+  it('starts Commit from the head the turn opened on when the task has no status row', async () => {
+    const opened = {
+      id: 'T5',
+      task: 'ex/repo#7',
+      column: 'review',
+      addressee: 'orchestrator:review',
+      reason: 'Review',
+      handed: [],
+      head: SOURCE,
+      at: AT,
+      taken: null,
+    };
+    // A task of another project: the chosen project's status has no row for it.
+    await open(orchestratorTaskGet({}, { why: { ...taskGet().why, turn: opened } }), undefined, []);
+    await click('Submit…');
+    expect(commit().value).toBe(SOURCE);
+  });
+
   it('requires the fields of each basis before sending', async () => {
     const { writes } = await open();
     await click('Submit…');

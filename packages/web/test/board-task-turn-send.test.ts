@@ -135,11 +135,16 @@ describe('Turn section sends', () => {
 });
 
 describe('Turn section and the board update guard', () => {
-  const DRAFT_ID = JSON.stringify(['turn', 'ex/repo#7']);
-  /** The page runs 0.4.0; `daemon.version` is what the daemon's answers say. */
-  async function openVersioned() {
+  const draftId = (turn: string, form: string) => JSON.stringify(['turn', 'ex/repo#7', turn, form]);
+  /**
+   * The page runs 0.4.0; `daemon.version` is what the daemon's answers say. `kept` is the drafts a
+   * reload after an update saved, as the reopened page finds them.
+   */
+  async function openVersioned(kept: Record<string, string> = {}) {
     const daemonVersion = { value: '0.4.0' };
-    const session = memorySession();
+    const session = memorySession({
+      values: Object.keys(kept).length > 0 ? { 'board-drafts': JSON.stringify(kept) } : {},
+    });
     const reload = vi.fn();
     const opened = await open(undefined, { version: '0.4.0', session: session.session, reload });
     const fetcher = versioned(opened.d.fetcher, () => daemonVersion.value);
@@ -176,8 +181,56 @@ describe('Turn section and the board update guard', () => {
     await reread(d, orchestratorTaskGet());
     expect(reload).toHaveBeenCalledTimes(1);
     expect(JSON.parse(session.values.get('board-drafts') ?? '{}')).toEqual({
-      [DRAFT_ID]: 'Handle the empty list.',
+      [draftId('T5', 'return')]: 'Handle the empty list.',
     });
+  });
+});
+
+describe('Turn section after a reload', () => {
+  it('restores a kept reason only into the same form of the same turn', async () => {
+    const id = (turn: string, form: string) => JSON.stringify(['turn', 'ex/repo#7', turn, form]);
+    const session = memorySession({
+      values: {
+        'board-drafts': JSON.stringify({
+          [id('T5', 'return')]: 'Kept for returning T5.',
+          [id('T4', 'submit')]: 'Kept for an older turn.',
+        }),
+      },
+    });
+    await open(undefined, { version: '0.4.0', session: session.session, reload: vi.fn() });
+    await click('Submit…');
+    await choose('Skipped');
+    expect(reason().value).toBe('');
+    await click('Cancel');
+    await click('Return to dev…');
+    expect(reason().value).toBe('Kept for returning T5.');
+  });
+
+  it('keeps holding the reload when the task view closes mid-send', async () => {
+    const daemonVersion = { value: '0.4.0' };
+    const session = memorySession();
+    const reload = vi.fn();
+    const { d } = await open(undefined, { version: '0.4.0', session: session.session, reload });
+    d.fetcher = versioned(d.fetcher, () => daemonVersion.value).fetch;
+    const ack = deferred();
+    const answer = d.routes['inbox.ack'];
+    d.routes['inbox.ack'] = () => ack.promise;
+    await click('Submit…');
+    act(() => {
+      form().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    const close = document.querySelector('[role="dialog"] [aria-label="Close"]');
+    if (!close) throw new Error('no Close');
+    press(close, 'click');
+    await settle();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    daemonVersion.value = '0.5.0';
+    d.send('event: reset\ndata: {}\n\n');
+    await settle();
+    expect(reload).not.toHaveBeenCalled();
+    ack.resolve(await answer({ entries: [{ id: 'T5' }] }));
+    await settle();
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -274,6 +327,22 @@ describe('Turn section focus', () => {
       ),
     );
     expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
+    // An older voided row with the same SHA in the same column is another submit, so the write's
+    // own pending answer still stands.
+    await reread(
+      d,
+      orchestratorTaskGet(
+        {},
+        {
+          turn: null,
+          turns: [closedTurn('submitted', 'operator')],
+          submission: { ...confirmed, voided: true, at: '2026-11-15T12:00:00.000Z' },
+        },
+      ),
+    );
+    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe(
+      'T5 submitted. The board confirms the head on its next polls.',
+    );
     // A voided submission no longer counts: the line says the work needs another submit.
     await reread(
       d,

@@ -23,6 +23,7 @@ import {
   BASIS_ID,
   brief,
   closedSubmitDetail,
+  commitDefault,
   isBasis,
   NOTE,
   orchestrated,
@@ -135,8 +136,8 @@ export function TaskTurn({
 
   const open = orchestrated(value.turn);
   const inFlight = phase !== 'idle';
-  const draft = form === undefined ? undefined : reason;
-  const takeRestored = useTurnDraft(drafts, taskKey, draft, inFlight);
+  const draftOpen = bound && form ? { turn: bound.turn.id, form } : undefined;
+  const draft = useTurnDraft(drafts, taskKey, draftOpen, reason);
   const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
   const closed = bound !== undefined && !boundOpen && !inFlight;
   const blocked =
@@ -204,11 +205,10 @@ export function TaskTurn({
 
   const start = (next: Form, turn: Turn) => {
     setBound({ turn, own: undefined, refusedClosed: false });
-    const prs = row?.prs?.filter((pr) => pr.state === 'open') ?? [];
-    setSha(prs.length === 1 ? (prs[0]?.headSha ?? '') : '');
+    setSha(commitDefault(row, value.why, turn.id));
     setBasis('tested');
     setFrom('');
-    setReason(takeRestored());
+    setReason(draft.restored(turn.id, next));
     setErrors({});
     setRefusal(undefined);
     intent.current = undefined;
@@ -258,7 +258,9 @@ export function TaskTurn({
       };
     const sent = intent.current.value;
     setRefusal(undefined);
-    void sent.run(setPhase).then(
+    const running = sent.run(setPhase);
+    draft.hold(turn.id, running);
+    void running.then(
       (result) => {
         if (!mounted.current) return;
         setPhase('idle');
@@ -462,7 +464,7 @@ export function TaskTurn({
             className={`${styles.status ?? ''} ${focusRing}`}
           >
             {own.outcome === 'submitted'
-              ? `${turn.id} submitted.${OWN_SUBMIT[ownSubmitState(value.submission, { ...own, column: turn.column })]}`
+              ? `${turn.id} submitted.${OWN_SUBMIT[ownSubmitState(value.submission, record, own.pending)]}`
               : `${turn.id} returned to dev.`}
           </p>
         ) : (

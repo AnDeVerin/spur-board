@@ -1,33 +1,45 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect } from 'react';
 import type { BoardData } from './data.ts';
 
+/** The draft id of one form: a reason belongs to its task, turn and form. */
+const draftId = (taskKey: string, turn: string, form: 'submit' | 'return') =>
+  JSON.stringify(['turn', taskKey, turn, form]);
+
 /**
- * The Turn section's part in the board update guard, as `TaskWrite` reports its own: `text` is
- * the unsent reason of the open form, kept across a reload after a board update, and `busy` holds
- * that reload while the ack and the close run, so it never leaves the operator holding a turn.
- * Returns a function that hands a kept reason to the first form opened, once.
+ * The Turn section's part in the board update guard, as `TaskWrite` reports its own. The open
+ * form reports its unsent reason under its task, turn and form, so a reload after a board update
+ * keeps it and only the same form of the same turn gets it back. A send holds the reload until its
+ * promise settles, even when the task view closes first, so a reload never falls between the ack
+ * and the close.
  */
 export function useTurnDraft(
   drafts: BoardData['drafts'],
   taskKey: string,
-  text: string | undefined,
-  busy: boolean,
-): () => string {
-  const draftId = JSON.stringify(['turn', taskKey]);
-  const [restored] = useState(() => drafts.restored(draftId));
-  const kept = useRef(restored);
+  open: { turn: string; form: 'submit' | 'return' } | undefined,
+  text: string,
+) {
+  const id = open === undefined ? undefined : draftId(taskKey, open.turn, open.form);
   useLayoutEffect(() => {
-    drafts.report(draftId, { text: text ?? kept.current ?? '', busy });
+    if (id !== undefined) drafts.report(id, { text, busy: false });
   });
   useLayoutEffect(
     () => () => {
-      drafts.release(draftId);
+      if (id !== undefined) drafts.release(id);
     },
-    [drafts, draftId],
+    [drafts, id],
   );
-  return () => {
-    const value = kept.current ?? '';
-    kept.current = undefined;
-    return value;
+  return {
+    /** The reason a reload kept for this form of this turn, else empty. */
+    restored: (turn: string, form: 'submit' | 'return') =>
+      drafts.restored(draftId(taskKey, turn, form)) ?? '',
+    /** Hold a board update reload until `sending` settles. */
+    hold(turn: string, sending: Promise<unknown>) {
+      const sendId = JSON.stringify(['turn-send', taskKey, turn]);
+      drafts.report(sendId, { text: '', busy: true });
+      const release = () => {
+        drafts.release(sendId);
+      };
+      sending.then(release, release);
+    },
   };
 }
