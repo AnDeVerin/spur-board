@@ -1,11 +1,10 @@
-import { createMutationIntent, ProblemError, type createApi, type Output } from '../lib/api.ts';
+import { createMutationIntent, ProblemError, type createApi } from '../lib/api.ts';
 
 /** The step a turn write is on: taking the turn through `inbox.ack`, then closing it. */
 export type TurnPhase = 'taking' | 'closing';
-/** A landed close: the re-read of the task it started, and a submit's head confirmation. */
+/** A landed close: the re-read of the task it started. */
 export interface TurnClosed {
   refresh: Promise<boolean>;
-  status: Output<'task.submit'>['status'] | undefined;
 }
 type TurnWrite =
   | { id: 'task.submit'; input: Parameters<typeof createMutationIntent<'task.submit'>>[2] }
@@ -44,11 +43,8 @@ export function createTurnIntent(options: {
     }
     onPhase('closing');
     try {
-      const result = await close.run();
-      confirmed = {
-        refresh: options.refresh(),
-        status: 'status' in result ? result.status : undefined,
-      };
+      await close.run();
+      confirmed = { refresh: options.refresh() };
       return confirmed;
     } catch (error) {
       if (error instanceof ProblemError && error.code === 'not_turn_taker') {

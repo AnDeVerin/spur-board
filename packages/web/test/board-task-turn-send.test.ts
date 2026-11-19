@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { focusRing } from '../src/ds/index.ts';
-import { envelope, orchestratorTaskGet, problem, taskGet, deferred } from './board-fixtures.ts';
+import { orchestratorTaskGet, problem, taskGet, deferred } from './board-fixtures.ts';
 import { mountEachTest, press, settle } from './board-harness.ts';
 import {
   AT,
@@ -133,26 +133,6 @@ describe('Turn section sends', () => {
   });
 });
 
-/** `why.pendingSubmit` while the dispatcher waits to confirm the own submit at `HEAD`. */
-const PENDING = {
-  sha: 'a'.repeat(40),
-  until: '2026-11-15T13:03:00.000Z',
-  text: 'submit pending confirmation of aaaaaaa',
-};
-
-/** The latest submission of the own Review submit at `HEAD` that closed T5 at `AT`. */
-const submittedRow = {
-  column: 'review',
-  sha: 'a'.repeat(40),
-  at: AT,
-  basis: 'tested',
-  from: null,
-  testedOrigin: null,
-  reason: null,
-  pending: false,
-  voided: false,
-};
-
 describe('Turn section focus', () => {
   it.each([
     ['the browser blurs the disabled field', true],
@@ -192,7 +172,7 @@ describe('Turn section focus', () => {
     expect(document.activeElement).toBe(button('Return to dev…'));
     await click('Submit…');
     await send();
-    expect(document.activeElement?.textContent).toBe('T5 submitted.');
+    expect(document.activeElement?.textContent).toBe('T5 submitted. The task is in review.');
     expect(document.activeElement?.getAttribute('role')).toBe('status');
     // Focused by the section, the status line shows the design system's one focus ring.
     expect(document.activeElement?.classList.contains(focusRing)).toBe(true);
@@ -200,240 +180,34 @@ describe('Turn section focus', () => {
 
   it('keeps the own-close result after task.get answers turn null', async () => {
     const { d } = await open();
-    d.routes['task.submit'] = (input) =>
-      Promise.resolve(
-        envelope({
-          task: taskGet().task,
-          turn: input['turn'],
-          sha: input['sha'],
-          status: 'pending',
-        }),
-      );
     await click('Submit…');
-    // The dispatcher tracks the submit as the current visit's pending one.
-    const waiting = { ...taskGet().why, column: 'review', pendingSubmit: PENDING };
     const afterSubmit = orchestratorTaskGet(
       {},
-      {
-        turn: null,
-        turns: [closedTurn('submitted', 'operator')],
-        why: waiting,
-        submission: { ...submittedRow, pending: true },
-      },
+      { turn: null, turns: [closedTurn('submitted', 'operator')] },
     );
     setTask(d, afterSubmit);
     await send();
     await reread(d, afterSubmit);
     const status = turnSection().querySelector('[role="status"]');
-    expect(status?.textContent).toBe(
-      'T5 submitted. The board confirms the head on its next polls.',
-    );
+    expect(status?.textContent).toBe('T5 submitted. The task is in review.');
     expect(document.activeElement).toBe(status);
     expect(text()).not.toContain('was closed by');
     expect(summary()).toBe('T5 submitted');
-    // Once a read shows the submission confirmed, the line stops promising a confirmation.
-    const confirmed = {
-      column: 'review',
-      sha: 'a'.repeat(40),
-      at: AT,
-      basis: 'tested',
-      from: null,
-      testedOrigin: null,
-      reason: null,
-      pending: false,
-      voided: false,
-    };
-    await reread(
-      d,
-      orchestratorTaskGet(
-        {},
-        { turn: null, turns: [closedTurn('submitted', 'operator')], submission: confirmed },
-      ),
-    );
-    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
-    // An older voided row with the same SHA in the same column is another submit: it neither
-    // voids this one nor brings back the wait, and the confirmation already seen stays.
+    // The line states the task's column from the latest read, and predicts nothing.
     await reread(
       d,
       orchestratorTaskGet(
         {},
         {
+          task: { ...taskGet().task, column: 'qa' },
           turn: null,
           turns: [closedTurn('submitted', 'operator')],
-          submission: { ...confirmed, voided: true, at: '2026-11-15T12:00:00.000Z' },
-        },
-      ),
-    );
-    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
-    // A voided submission no longer counts; nothing here says the work came back to Dev.
-    const voided = { ...confirmed, voided: true };
-    const line = () => turnSection().querySelector('[role="status"]')?.textContent;
-    const VOIDED =
-      'T5 submitted. The board voided this submission: it no longer counts for the gates.';
-    await reread(
-      d,
-      orchestratorTaskGet(
-        {},
-        { turn: null, turns: [closedTurn('submitted', 'operator')], submission: voided },
-      ),
-    );
-    expect(line()).toBe(VOIDED);
-    // T6 then submits a replacement: T5's line keeps its settled state, it never waits again.
-    const replacement = { ...confirmed, sha: 'c'.repeat(40), at: '2026-11-15T13:40:00.000Z' };
-    await reread(
-      d,
-      orchestratorTaskGet(
-        { id: 'T6', at: AT },
-        { turns: [closedTurn('submitted', 'operator')], submission: replacement },
-      ),
-    );
-    expect(line()).toBe(VOIDED);
-  });
-
-  it.each([
-    [
-      'the Board handed the work back to Dev',
-      'dev',
-      null,
-      ' The work went back to Dev and needs another submit.',
-    ],
-    ['a merge at another head moved the task to Done', 'done', null, ''],
-    [
-      'a Done wrap-up turn is open for the worker',
-      'done',
-      {
-        id: 'T7',
-        column: 'done',
-        addressee: 'worker',
-        at: AT,
-        taken: null,
-        handed: [],
-        closed: null,
-      },
-      '',
-    ],
-  ])('asks for another submit after a void only when %s', async (_, column, turn, handback) => {
-    const { d } = await open();
-    d.routes['task.submit'] = (input) =>
-      Promise.resolve(
-        envelope({
-          task: taskGet().task,
-          turn: input['turn'],
-          sha: input['sha'],
-          status: 'pending',
-        }),
-      );
-    await click('Submit…');
-    await send();
-    const voided = { ...submittedRow, voided: true };
-    await reread(
-      d,
-      orchestratorTaskGet(
-        {},
-        {
-          task: { ...taskGet().task, column },
-          turn,
-          turns: [closedTurn('submitted', 'operator')],
-          submission: voided,
         },
       ),
     );
     expect(turnSection().querySelector('[role="status"]')?.textContent).toBe(
-      `T5 submitted. The board voided this submission: it no longer counts for the gates.${handback}`,
+      'T5 submitted. The task is in qa.',
     );
-  });
-
-  it('waits only while the dispatcher tracks the submit as its pending one', async () => {
-    const { d } = await open();
-    d.routes['task.submit'] = (input) =>
-      Promise.resolve(
-        envelope({
-          task: taskGet().task,
-          turn: input['turn'],
-          sha: input['sha'],
-          status: 'pending',
-        }),
-      );
-    await click('Submit…');
-    await send();
-    const line = () => turnSection().querySelector('[role="status"]')?.textContent;
-    const ownPending = { ...submittedRow, pending: true };
-    // A correction opened a new Review visit: the old pending row is still the latest submission,
-    // but the dispatcher confirms only the current visit's submits, so nothing waits.
-    await reread(
-      d,
-      orchestratorTaskGet(
-        { id: 'T6', at: AT },
-        { turns: [closedTurn('submitted', 'operator')], submission: ownPending },
-      ),
-    );
-    expect(line()).toBe('T5 submitted.');
-    // Five newer closes later T5 left the detail: the wait stays cleared.
-    await reread(
-      d,
-      orchestratorTaskGet({ id: 'T6', at: AT }, { turns: [], submission: ownPending }),
-    );
-    expect(line()).toBe('T5 submitted.');
-  });
-
-  it('never waits on a replacement turn that submitted the same SHA', async () => {
-    const { d } = await open();
-    d.routes['task.submit'] = (input) =>
-      Promise.resolve(
-        envelope({
-          task: taskGet().task,
-          turn: input['turn'],
-          sha: input['sha'],
-          status: 'pending',
-        }),
-      );
-    await click('Submit…');
-    await send();
-    // A correction opened a new Review visit, and its turn T6 submitted the same SHA: the
-    // dispatcher's pending submit is T6's, not T5's.
-    const sameSha = { ...submittedRow, pending: true, at: '2026-11-15T13:40:00.000Z' };
-    await reread(
-      d,
-      orchestratorTaskGet(
-        { id: 'T7', at: AT },
-        {
-          turns: [
-            { ...closedTurn('submitted', 'operator'), id: 'T6' },
-            closedTurn('submitted', 'operator'),
-          ],
-          submission: sameSha,
-          why: { ...taskGet().why, column: 'review', pendingSubmit: PENDING },
-        },
-      ),
-    );
-    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
-  });
-
-  it('stops promising a confirmation once another submission replaced the own one', async () => {
-    const { d } = await open();
-    d.routes['task.submit'] = (input) =>
-      Promise.resolve(
-        envelope({
-          task: taskGet().task,
-          turn: input['turn'],
-          sha: input['sha'],
-          status: 'pending',
-        }),
-      );
-    await click('Submit…');
-    await send();
-    expect(turnSection().querySelector('[role="status"]')?.textContent).toContain(
-      'confirms the head',
-    );
-    const replacement = { ...submittedRow, sha: 'c'.repeat(40), at: '2026-11-15T13:40:00.000Z' };
-    await reread(
-      d,
-      orchestratorTaskGet(
-        { id: 'T6', at: AT },
-        { turns: [closedTurn('submitted', 'operator')], submission: replacement },
-      ),
-    );
-    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
   });
 
   it('skips the success focus while folded', async () => {

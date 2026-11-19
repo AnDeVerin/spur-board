@@ -61,70 +61,16 @@ function brief(actor: string): string {
 }
 
 /**
- * Where a passing submit sends the task: the next enabled column, or none when the turn is in
- * Done, is the last enabled column, or the next one is Done. The dispatcher never moves a task
- * into Done on a passing gate; only completion does (`nextColumn` and `COMPLETION_RULE` in
- * `packages/core/src/domain/dispatch.ts`).
- */
-export function submitMove(
-  column: string,
-  columns: readonly Pick<BoardColumnConfig, 'id' | 'group'>[],
-): string | undefined {
-  if (column === 'done') return undefined;
-  const next = columnAfter(column, columns);
-  return next === 'done' ? undefined : next;
-}
-
-/**
- * The line above the submit button. A submit closes the turn and the board re-evaluates every
- * gate: `next` is where the task goes if they hold; `unmet` says some do not hold now, so the task
- * may wait, or move back to an earlier column whose gate fails.
+ * The line above the submit button: what the submit closes and what it hands on, stated without
+ * predicting the dispatcher. The board's gates decide where the task goes; the next enabled column
+ * is named only as a fact of the configuration.
  */
 export function submitConfirmation(
   turn: { id: string; column: string },
-  next: string | undefined,
-  unmet: boolean,
+  columns: readonly Pick<BoardColumnConfig, 'id' | 'group'>[],
 ): string {
-  if (turn.column === 'done')
-    return `This closes ${turn.id} in your name; the task stays in done. It cannot be undone.`;
-  const outcome =
-    next === undefined
-      ? `the task stays in ${turn.column} until the board's completion rule moves it to done`
-      : `the task moves to ${next}`;
-  return `This closes ${turn.id} in your name and the board re-evaluates the task's gates. If they hold, ${outcome}.${unmet ? ' Some exit conditions do not hold now, so the task may wait, or move back to a column whose gate fails.' : ''} It cannot be undone.`;
-}
-
-type Submission = NonNullable<BoardTask['submission']>;
-/** A closed turn as `task.get` detail lists it. */
-type ClosedTurn = { column: string; closed: { at: string } | null };
-/**
- * The task's latest submission when it is the submit that closed `turn`. `task.get` lists only
- * the latest submission and it carries no turn, but one submit writes the submission and closes
- * the turn at the same instant, in the turn's column.
- */
-function closingSubmission(
-  submission: Submission | null | undefined,
-  turn: ClosedTurn | undefined,
-): Submission | undefined {
-  if (!submission || !turn?.closed) return undefined;
-  return submission.column === turn.column &&
-    Date.parse(submission.at) === Date.parse(turn.closed.at)
-    ? submission
-    : undefined;
-}
-
-/** The detail of a submit that closed `closed` elsewhere: its basis and SHA when the read ties them. */
-function closedSubmitDetail(
-  submission: Submission | null | undefined,
-  closed: ClosedTurn,
-  now: number,
-): string | undefined {
-  if (closed.closed === null) return undefined;
-  const at = closed.closed.at;
-  const own = closingSubmission(submission, closed);
-  return own
-    ? `Submitted ${own.basis}, ${own.sha.slice(0, 7)}, ${age(at, now)} ago.`
-    : `Submitted ${age(at, now)} ago.`;
+  const next = columnAfter(turn.column, columns);
+  return `This closes ${turn.id} in your name and hands the task to the board's gates for ${turn.column}.${next === undefined ? '' : ` Next column: ${next}.`} It cannot be undone.`;
 }
 
 /** The closed notice's main line: who closed the turn for a submit or a return, else how. */
@@ -139,90 +85,15 @@ export function closedNotice(
     : `${id} was closed: ${OUTCOME[outcome] ?? outcome}`;
 }
 
-/** The closed notice's detail: the submit that closed the turn, or how long ago it returned. */
+/** The closed notice's detail: how long ago the turn was submitted or returned. */
 export function closedDetail(
-  submission: Submission | null | undefined,
-  record: (ClosedTurn & { closed: { at: string; outcome: string } | null }) | undefined,
+  record: { closed: { at: string; outcome: string } | null } | undefined,
   now: number,
 ): string | undefined {
   if (!record?.closed) return undefined;
-  if (record.closed.outcome === 'submitted') return closedSubmitDetail(submission, record, now);
-  return record.closed.outcome === 'returned'
-    ? `Returned to dev ${age(record.closed.at, now)} ago.`
-    : undefined;
-}
-
-/** The section's own close of a turn, by submit or return. */
-export interface OwnClose {
-  outcome: 'submitted' | 'returned';
-  pending: boolean;
-  sha: string;
-  /** How the submit settled once a read showed it, kept after a later one replaces it. */
-  seen: SettledSubmit | undefined;
-}
-
-/** A settled own submit: the Board confirmed it, or voided it. */
-export type SettledSubmit = 'counted' | 'voided';
-/** How the submission that closed `turn` settled, once a read shows it; none while it waits. */
-function settledSubmit(
-  submission: Submission | null | undefined,
-  turn: ClosedTurn | undefined,
-): SettledSubmit | undefined {
-  const matched = closingSubmission(submission, turn);
-  if (matched === undefined || (matched.pending && !matched.voided)) return undefined;
-  return matched.voided ? 'voided' : 'counted';
-}
-
-/**
- * How an own submit of turn `turn.id` stands in the latest read, or none while that read is from
- * before the submit (the turn still open there). The submission that closed the turn settles it;
- * else it waits only while the submission that closed the turn is still pending and is the one the
- * dispatcher tracks, `why.pendingSubmit` of the current visit (`readPendingSubmit` in `packages/core/src/app/dispatch.ts`); anything else,
- * a replacement, a new visit or a task gone from the column, waits for nothing.
- */
-export function ownSubmitSeen(
-  value: BoardTask,
-  turn: { id: string },
-  record: ClosedTurn | undefined,
-  own: { sha: string },
-): SettledSubmit | 'pending' | undefined {
-  if (value.turn?.id === turn.id) return undefined;
-  const settled = settledSubmit(value.submission, record);
-  if (settled !== undefined) return settled;
-  // `pendingSubmit` names only a SHA; the latest submission ties it to this turn: the one that
-  // closed it, at its close instant, so a same-SHA submit of a replacement turn never counts.
-  const closing = closingSubmission(value.submission, record);
-  return closing?.pending === true && value.why?.pendingSubmit?.sha === own.sha
-    ? 'pending'
-    : 'counted';
-}
-
-/**
- * What follows `T<n> submitted.` on the own-close line. Once an own submit was seen settled or no
- * longer waiting, `seen` keeps it so, even after its turn leaves `task.get` detail; a voided one
- * stays voided. A voided one asks for another submit only when the Board handed the work back to
- * Dev: a Done wrap-up turn is a worker turn too, but in Done (`dispatch` in
- * `packages/core/src/domain/dispatch.ts`), where a merge at another head can void it.
- */
-export function ownSubmitNote(
-  value: BoardTask,
-  turn: { id: string },
-  record: ClosedTurn | undefined,
-  own: { sha: string; pending: boolean; seen: SettledSubmit | undefined },
-): string {
-  const now = ownSubmitSeen(value, turn, record, own);
-  const state =
-    now === 'voided' || own.seen === 'voided'
-      ? 'voided'
-      : own.seen === 'counted'
-        ? 'counted'
-        : (now ?? (own.pending ? 'pending' : 'counted'));
-  if (state === 'pending') return ' The board confirms the head on its next polls.';
-  if (state === 'counted') return '';
-  const handedBack =
-    value.task.column === 'dev' ||
-    (value.turn?.addressee === 'worker' && value.turn.column === 'dev');
-  return ` The board voided this submission: it no longer counts for the gates.${handedBack ? ' The work went back to Dev and needs another submit.' : ''}`;
+  const { at, outcome } = record.closed;
+  if (outcome === 'submitted') return `Submitted ${age(at, now)} ago.`;
+  return outcome === 'returned' ? `Returned to dev ${age(at, now)} ago.` : undefined;
 }
 
 /**
@@ -238,75 +109,6 @@ export function commitDefault(
   const prs = row?.prs?.filter((pr) => pr.state === 'open') ?? [];
   const only = prs.length === 1 ? prs[0]?.headSha : undefined;
   return only ?? (why?.turn?.id === turn ? (why.turn.head ?? '') : '');
-}
-
-/**
- * An enabled gate of the task has an unmet exit condition other than the submit or review on the
- * head, which the submit itself provides.
- */
-export function otherConditionsUnmet(why: BoardTask['why']): boolean {
-  return (
-    why?.gates.some(
-      (gate) =>
-        gate.enabled &&
-        gate.conditions.some(
-          (condition) =>
-            condition.state !== 'met' &&
-            condition.condition !== 'submit_on_head' &&
-            condition.condition !== 'review_on_head',
-        ),
-    ) ?? false
-  );
-}
-
-/** The fields of the submit form, kept together in its draft. */
-export interface SubmitFields {
-  sha: string;
-  basis: Basis;
-  from: string;
-  reason: string;
-}
-/**
- * The draft text of a form: a return keeps its reason; a submit keeps commit, basis, source and
- * reason together, so a resumed Skipped or Carried draft never comes back as Tested. A submit has
- * nothing unsent only while it still equals what it opened with: Tested, `openedSha`, no source
- * and no reason.
- */
-export function draftText(
-  form: 'submit' | 'return',
-  fields: SubmitFields,
-  openedSha: string,
-): string {
-  if (form === 'return') return fields.reason;
-  const opened =
-    fields.basis === 'tested' &&
-    fields.sha === openedSha &&
-    fields.from === '' &&
-    fields.reason === '';
-  return opened ? '' : JSON.stringify(fields);
-}
-/** The fields a form opens with from its kept draft text; `sha` starts the commit without one. */
-export function restoreDraft(form: 'submit' | 'return', text: string, sha: string): SubmitFields {
-  const empty: SubmitFields = { sha, basis: 'tested', from: '', reason: '' };
-  if (form === 'return') return { ...empty, reason: text };
-  if (text === '') return empty;
-  try {
-    const kept: unknown = JSON.parse(text);
-    if (typeof kept !== 'object' || kept === null) return empty;
-    const field = (name: string) => {
-      const value: unknown = (kept as Record<string, unknown>)[name];
-      return typeof value === 'string' ? value : undefined;
-    };
-    const basis = field('basis');
-    return {
-      sha: field('sha') ?? sha,
-      basis: basis !== undefined && isBasis(basis) ? basis : 'tested',
-      from: field('from') ?? '',
-      reason: field('reason') ?? '',
-    };
-  } catch {
-    return empty;
-  }
 }
 
 type SummaryTurn = NonNullable<BoardTask['turn']>;
@@ -326,7 +128,7 @@ export function boundSummary(
   id: string,
   state: {
     inFlight: boolean;
-    own: OwnClose | undefined;
+    own: 'submitted' | 'returned' | undefined;
     /** The bound turn while it is still open. */
     open: SummaryTurn | undefined;
     record: { taken: { by: string } | null; closed: { outcome: string } | null } | undefined;
@@ -336,7 +138,7 @@ export function boundSummary(
   },
 ): string {
   if (state.inFlight) return `Closing ${id}…`;
-  if (state.own) return `${id} ${state.own.outcome}`;
+  if (state.own) return `${id} ${state.own}`;
   const { open, record } = state;
   if (open === undefined) {
     const outcome = record?.closed?.outcome;

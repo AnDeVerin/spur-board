@@ -34,18 +34,11 @@ characters: surrounding spaces are trimmed, upper case is refused.
 A reason must hold text other than spaces and is at most 2000 characters. The request carries
 `from` only for carried and `reason` only for carried and skipped.
 
-The button reads **Submit**; there is no confirm dialog. A submit closes the turn and the Board
-re-evaluates every gate of the task. The line above the button starts
-`This closes T<n> in your name and the board re-evaluates the task's gates.`, then says where
-the task goes if they hold: `the task moves to <next>`, the enabled column after the turn's
-column. A passing gate never moves a task into Done; the Board's completion rule does (see
-[Columns](how-board-works-columns.md)): a merged pull request with its ticket done, or a done
-ticket with no open pull request and no live worker. A merge whose ticket is still seen open after
-one tracker interval sends the task back to work without that pull request. So when the next
-column is Done or there is none, the line says the task stays in its column until the
-completion rule moves it to Done. When any gate has an unmet exit condition other than the
-submit or review on the head, it adds that the task may wait, or move back to a column whose gate fails. A
-Done wrap-up turn says the task stays in done. The line ends `It cannot be undone.`
+The button reads **Submit**; there is no confirm dialog. The line above it says
+`This closes T<n> in your name and hands the task to the board's gates for <column>.`, then
+`Next column: <next>.` when the column has an enabled column after it, and ends
+`It cannot be undone.` It names the next column only as a fact of the configuration: the Board's
+gates decide where the task goes.
 
 ## Return
 
@@ -82,9 +75,7 @@ and the hold line says so.
 A form stays bound to the turn it opened on: its requests only ever name that turn. When that
 turn closes elsewhere while the form is open, or a write answers `turn_closed`, or the ack answers
 `not_found`, the section re-reads the task and shows a notice. For a submit or a return it reads
-`T<n> was closed by <name>`: the taker closed it. A submit adds its age, with its basis and short
-SHA when the task's latest submission is the one that closed the turn (same column, same time);
-a return adds its age. Other closes name no closer, only the outcome:
+`T<n> was closed by <name>`: the taker closed it, and the notice adds how long ago. Other closes name no closer, only the outcome:
 `T<n> was closed: the task was moved`, `the column was corrected`, `the turn went to another
 executor`, `the dispatcher mode changed` or `the task was archived`.
 
@@ -96,20 +87,11 @@ the notice.
 
 ## Your own close
 
-After a close the section keeps a focused status line, `T<n> submitted.` or `T<n> returned to
-dev.`, even when the task then has no open turn. A submit the Board still has to confirm adds
-`The board confirms the head on its next polls.` only while the Board tracks this turn's submit as the
-pending submit of the current visit; once it settled, was replaced or left the visit, it never waits
-again. A voided one says it no longer counts for the gates, and asks for another submit only when
-the work went back to Dev; a Done wrap-up turn does not count. A turn the same write opened shows
-below.
-
-A Board update waits to reload the page while the ack and the close run, even when the task view
-closes first, so it never leaves the operator holding a turn mid-close. A view reopened, by a short or
-full key, while such a send runs keeps its send disabled and says the earlier send is still running. An unsent
-draft survives that reload and comes back only in the same form of the same turn: a return keeps
-its reason; a submit changed in any way from how it opened, a basis chosen or a commit edited
-included, keeps its commit, basis, source and reason together.
+After a close the section keeps a focused status line, `T<n> submitted.` or
+`T<n> returned to dev.`, then the task's column from the latest read, `The task is in <column>.`,
+even when the task then has no open turn. A turn the same write opened shows below. Reloading the
+page closes an open form and drops its text; an unchanged resend after a failure uses the same
+keys, so a write that landed is never applied twice.
 
 ## Unavailable and archived
 

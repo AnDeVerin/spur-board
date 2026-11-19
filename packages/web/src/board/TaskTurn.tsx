@@ -16,7 +16,6 @@ import type { BoardConfig, BoardData, BoardTask } from './data.ts';
 import type { BoardColumnConfig, BoardRow } from './model.ts';
 import { actorDisplayName, age } from './task-model.ts';
 import type { TurnIntent, TurnPhase } from './turn-intent.ts';
-import { useTurnDraft } from './turn-draft.ts';
 import {
   ARCHIVED,
   BASES,
@@ -24,23 +23,16 @@ import {
   boundSummary,
   closedDetail,
   closedNotice,
-  draftText,
   commitDefault,
   isBasis,
   NOTE,
   openSummary,
   orchestrated,
-  otherConditionsUnmet,
-  ownSubmitNote,
   PHASE,
   reasonError,
-  restoreDraft,
   RETURNABLE,
-  ownSubmitSeen,
   shaError,
-  type OwnClose,
   submitConfirmation,
-  submitMove,
   UNAVAILABLE,
   type Basis,
 } from './turn-model.ts';
@@ -52,8 +44,8 @@ type FieldErrors = Partial<Record<'sha' | 'from' | 'reason', string | undefined>
 /** The turn a form opened on; the section keeps it until a form opens on a newer turn. */
 interface Bound {
   turn: Turn;
-  /** This section closed it. */
-  own: OwnClose | undefined;
+  /** This section closed it, by a submit or a return. */
+  own: 'submitted' | 'returned' | undefined;
   /** A write answered that the turn is closed, whatever the last read says. */
   refusedClosed: boolean;
 }
@@ -74,7 +66,6 @@ export function TaskTurn({
   unavailable,
   submitTurnIntent,
   returnTurnIntent,
-  drafts,
   refreshTask,
 }: {
   value: BoardTask;
@@ -88,8 +79,6 @@ export function TaskTurn({
   unavailable: string | undefined;
   submitTurnIntent: BoardData['submitTurnIntent'];
   returnTurnIntent: BoardData['returnTurnIntent'];
-  /** Where the unsent reason is kept across a reload after a board update. */
-  drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
 }) {
   const [bound, setBound] = useState<Bound>();
@@ -140,11 +129,6 @@ export function TaskTurn({
 
   const open = orchestrated(value.turn);
   const inFlight = phase !== 'idle';
-  const draftOpen = bound && form ? { turn: bound.turn.id, form } : undefined;
-  const openedSha = useRef('');
-  const text = form ? draftText(form, { sha, basis, from, reason }, openedSha.current) : '';
-  // Keyed by the canonical key: a short link and a board card reach the same sends and drafts.
-  const draft = useTurnDraft(drafts, value.task.key, draftOpen, text);
   const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
   const closed = bound !== undefined && !boundOpen && !inFlight;
   const blocked =
@@ -153,9 +137,7 @@ export function TaskTurn({
       : unavailable === undefined
         ? undefined
         : UNAVAILABLE;
-  // A send of this turn from before the view was reopened still runs: no second one overlaps it.
-  const elsewhere = bound !== undefined && !inFlight && draft.sending(bound.turn.id);
-  const sendOff = closed || blocked !== undefined || elsewhere;
+  const sendOff = closed || blocked !== undefined;
   const fieldsOff = inFlight || sendOff;
   /** An open turn other than the bound one: the next turn a close opened. */
   const newer =
@@ -190,18 +172,8 @@ export function TaskTurn({
       cancelRow.current?.querySelectorAll('button')[sendOff ? 1 : 0]?.focus();
   }, [sendOff, inFlight]);
 
-  const record = bound && value.turns?.find((turn) => turn.id === bound.turn.id);
-  const seenNow =
-    bound?.own?.outcome === 'submitted'
-      ? ownSubmitSeen(value, bound.turn, record, bound.own)
-      : undefined;
-  const settled = seenNow === 'pending' ? undefined : seenNow;
-  useEffect(() => {
-    // A voided submit stays voided; a settled or no longer waiting one never waits again.
-    if (settled === undefined || bound?.own === undefined || bound.own.seen === 'voided') return;
-    if (bound.own.seen !== settled) setBound({ ...bound, own: { ...bound.own, seen: settled } });
-  });
   if (open === undefined && bound === undefined) return null;
+  const record = bound && value.turns?.find((turn) => turn.id === bound.turn.id);
   const name = (actor: string) => actorDisplayName(actor, config);
   const executor = (column: string) => {
     const entry = columns.find((candidate) => candidate.id === column)?.executor;
@@ -218,12 +190,10 @@ export function TaskTurn({
 
   const start = (next: Form, turn: Turn) => {
     setBound({ turn, own: undefined, refusedClosed: false });
-    openedSha.current = commitDefault(row, value.why, turn.id);
-    const kept = restoreDraft(next, draft.restored(turn.id, next), openedSha.current);
-    setSha(kept.sha);
-    setBasis(kept.basis);
-    setFrom(kept.from);
-    setReason(kept.reason);
+    setSha(commitDefault(row, value.why, turn.id));
+    setBasis('tested');
+    setFrom('');
+    setReason('');
     setErrors({});
     setRefusal(undefined);
     intent.current = undefined;
@@ -239,7 +209,7 @@ export function TaskTurn({
   };
   const send = (event: { preventDefault: () => void }) => {
     event.preventDefault();
-    if (inFlight || elsewhere || !bound || !boundOpen || blocked !== undefined || !form) return;
+    if (inFlight || !bound || !boundOpen || blocked !== undefined || !form) return;
     const commit = sha.trim();
     const source = from.trim();
     const found: FieldErrors =
@@ -273,23 +243,12 @@ export function TaskTurn({
       };
     const sent = intent.current.value;
     setRefusal(undefined);
-    const running = sent.run(setPhase);
-    draft.hold(turn.id, running);
-    void running.then(
-      (result) => {
+    void sent.run(setPhase).then(
+      () => {
         if (!mounted.current) return;
         setPhase('idle');
         setForm(undefined);
-        setBound({
-          turn,
-          own: {
-            outcome: form === 'submit' ? 'submitted' : 'returned',
-            pending: result.status === 'pending',
-            sha: commit,
-            seen: undefined,
-          },
-          refusedClosed: false,
-        });
+        setBound({ turn, own: form === 'submit' ? 'submitted' : 'returned', refusedClosed: false });
         pendingFocus.current = 'status';
       },
       (cause: unknown) => {
@@ -371,8 +330,6 @@ export function TaskTurn({
     );
   };
   const formElement = (turn: Turn) => {
-    const next = submitMove(turn.column, columns);
-    const later = otherConditionsUnmet(value.why);
     const reasonRow = (hint: string) => (
       <FormRow label="Reason" hint={hint} error={errors.reason}>
         <TextArea value={reason} onChange={edit(setReason, 'reason')} disabled={fieldsOff} />
@@ -448,7 +405,7 @@ export function TaskTurn({
         )}
         <p className={styles.confirm}>
           {form === 'submit'
-            ? submitConfirmation(turn, next, later)
+            ? submitConfirmation(turn, columns)
             : `This closes ${turn.id} in your name and returns the task to dev. It cannot be undone, and it counts toward the cycle limit.`}
         </p>
         <div className={styles.buttons} ref={cancelRow}>
@@ -459,9 +416,9 @@ export function TaskTurn({
             Cancel
           </Button>
         </div>
-        {(inFlight || elsewhere) && (
+        {inFlight && (
           <p role="status" className={styles.status}>
-            {inFlight ? `${PHASE[phase]}…` : `An earlier send of ${turn.id} is still running.`}
+            {PHASE[phase]}…
           </p>
         )}
       </form>
@@ -479,17 +436,11 @@ export function TaskTurn({
             ref={statusRef}
             className={`${styles.status ?? ''} ${focusRing}`}
           >
-            {own.outcome === 'submitted'
-              ? `${turn.id} submitted.${ownSubmitNote(value, turn, record, own)}`
-              : `${turn.id} returned to dev.`}
+            {`${turn.id} ${own === 'submitted' ? 'submitted' : 'returned to dev'}. The task is in ${value.task.column}.`}
           </p>
         ) : (
           <div ref={noticeRef} tabIndex={-1} className={focusRing}>
-            <Banner
-              variant="info"
-              icon="check"
-              detail={closedDetail(value.submission, record, now)}
-            >
+            <Banner variant="info" icon="check" detail={closedDetail(record, now)}>
               {closedNotice(turn.id, closer, outcome)}
             </Banner>
           </div>

@@ -1,14 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { focusRing } from '../src/ds/index.ts';
-import {
-  allMet,
-  condition,
-  gate,
-  orchestratorTaskGet,
-  problem,
-  taskGet,
-} from './board-fixtures.ts';
+import { orchestratorTaskGet, problem, taskGet } from './board-fixtures.ts';
 import { mountEachTest, press, settle } from './board-harness.ts';
 import {
   HEAD,
@@ -37,9 +30,7 @@ import {
 
 mountEachTest();
 
-const REEVALUATE = "This closes T5 in your name and the board re-evaluates the task's gates.";
-const UNMET =
-  ' Some exit conditions do not hold now, so the task may wait, or move back to a column whose gate fails.';
+const GATES = "This closes T5 in your name and hands the task to the board's gates for review.";
 
 describe('Turn section', () => {
   it('shows an open orchestrator turn with its taker and both actions', async () => {
@@ -81,10 +72,7 @@ describe('Turn section', () => {
       if (basis !== 'tested') type(reason(), 'Verified elsewhere.');
       const { primary, line } = confirmation();
       expect(primary?.textContent).toBe('Submit');
-      // The fixture's Dev gate has checks_green failed: the line warns the task may go back.
-      expect(line).toBe(
-        `${REEVALUATE} If they hold, the task moves to qa.${UNMET} It cannot be undone.`,
-      );
+      expect(line).toBe(`${GATES} Next column: qa. It cannot be undone.`);
       await send();
       expect(writes().map(({ op, input }) => ({ op, input }))).toEqual([
         { op: 'inbox.ack', input: { entries: [{ id: 'T5' }] } },
@@ -116,7 +104,7 @@ describe('Turn section', () => {
       taken: null,
     };
     // A task of another project: the chosen project's status has no row for it.
-    await open(orchestratorTaskGet({}, { why: { ...taskGet().why, turn: opened } }), undefined, []);
+    await open(orchestratorTaskGet({}, { why: { ...taskGet().why, turn: opened } }), []);
     await click('Submit…');
     expect(commit().value).toBe(SOURCE);
   });
@@ -170,34 +158,18 @@ describe('Turn section', () => {
   it.each([
     [
       'qa',
-      `${REEVALUATE} If they hold, the task stays in qa until the board's completion rule moves it to done.${UNMET} It cannot be undone.`,
+      "This closes T5 in your name and hands the task to the board's gates for qa. Next column: done. It cannot be undone.",
     ],
-    ['done', 'This closes T5 in your name; the task stays in done. It cannot be undone.'],
-  ])('promises no move when %s has no next column but done', async (column, expected) => {
+    [
+      'done',
+      "This closes T5 in your name and hands the task to the board's gates for done. It cannot be undone.",
+    ],
+  ])('names the next column of %s only as a fact', async (column, expected) => {
     await open(orchestratorTaskGet({ column, addressee: `orchestrator:${column}` }));
     await click('Submit…');
     const { primary, line } = confirmation();
     expect(primary?.textContent).toBe('Submit');
     expect(line).toBe(expected);
-  });
-
-  it.each([
-    [
-      'an earlier gate fails',
-      [gate('dev', [condition('checks_green', 'failed', 'checks_red')])],
-      true,
-    ],
-    [
-      'only the review on the head waits',
-      [allMet, gate('review', [condition('review_on_head', 'waiting')])],
-      false,
-    ],
-  ])('warns about unmet exit conditions of any gate when %s', async (_, gates, warns) => {
-    await open(orchestratorTaskGet({}, { why: { ...taskGet().why, column: 'review', gates } }));
-    await click('Submit…');
-    expect(confirmation().line).toBe(
-      `${REEVALUATE} If they hold, the task moves to qa.${warns ? UNMET : ''} It cannot be undone.`,
-    );
   });
 });
 
@@ -224,7 +196,7 @@ describe('Turn section when the turn closes elsewhere', () => {
       orchestratorTaskGet({}, { turn: null, turns: [closedTurn('submitted')], submission }),
     );
     expect(text()).toContain('T5 was closed by qa / qa-1');
-    expect(text()).toContain('Submitted tested, aaaaaaa, 0m ago.');
+    expect(text()).toContain('Submitted 0m ago.');
     expect(confirmation().primary?.disabled).toBe(true);
     expect(button('Cancel').disabled).toBe(false);
     expect(button('Submit…').disabled).toBe(true);
@@ -255,28 +227,6 @@ describe('Turn section when the turn closes elsewhere', () => {
       expect(confirmation().primary?.disabled).toBe(true);
     },
   );
-
-  it('names no basis or SHA from a latest submission made outside the closed turn', async () => {
-    const { d } = await open();
-    await click('Submit…');
-    const later = {
-      ...submission,
-      sha: SOURCE,
-      basis: 'skipped',
-      at: '2026-11-15T13:30:00.000Z',
-    };
-    await reread(
-      d,
-      orchestratorTaskGet(
-        { id: 'T6', at: AT },
-        { turns: [closedTurn('submitted')], submission: later },
-      ),
-    );
-    expect(text()).toContain('T5 was closed by qa / qa-1');
-    expect(text()).toContain('Submitted 0m ago.');
-    expect(text()).not.toContain('skipped');
-    expect(text()).not.toContain(SOURCE.slice(0, 7));
-  });
 
   it.each(['moved', 'corrected', 'archived'])('names no closer for a %s close', async (outcome) => {
     const { d } = await open();
