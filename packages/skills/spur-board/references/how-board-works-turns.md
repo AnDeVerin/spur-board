@@ -109,7 +109,9 @@ or finished state), the operator gets one `no-session:` inbox item per column.
 `courseCheck: 0` disables it. `projects[].columns[].cycleLimit` defaults to 10 and
 takes priority. Executor returns and external comments (a changes-requested
 review is one) count, as do thread returns; CI failures, conflicts and drafts alone do not count, nor
-reopened tickets or mode switches.
+reopened tickets or mode switches. With External Review enabled, returns for external comments
+count toward its `courseCheck` instead, as does each external change request on a new PR head
+while the task is in Dev, once per head; `cycleLimit` stays per column.
 
 If returns keep hitting the same mechanism, fix the bug class once; cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description. Still fix P0/P1 and user-visible findings in this PR.
 `projects[].columns[].courseCheckTo`: `operator`, curator or column orchestrator.
