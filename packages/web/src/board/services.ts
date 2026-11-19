@@ -288,8 +288,9 @@ const tail = (source: string) => source.split(':').at(-1) ?? '';
 /**
  * The panel boxes: the shared daemon, host, slack and spur, then one run per project in the order
  * its sources come, each with one box per GitHub pull request source, GitHub issue source and Jira
- * source. A source box takes its word from its own fields. While the daemon does not answer every
- * box but the daemon reads unknown; before the first status there are none.
+ * source. A source box takes its word from its own fields, or `waits for rate budget` with its
+ * service row's state when that row blames it and its fields cannot show why. While the daemon
+ * does not answer every box but the daemon reads unknown; before the first status there are none.
  */
 export function panelBoxes(
   snapshot: HealthSnapshot,
@@ -312,13 +313,23 @@ export function panelBoxes(
       rows,
     };
   };
+  const sourceHealth = (source: BoardSourceView, service: ServiceName): Health => {
+    const own = sourceState(source);
+    // Core's row reason starts with the id of the source it blames. When that source's own fields
+    // miss the row's state, as a budget wait past the configured reserve does, take the row's.
+    const row = live?.services.find((candidate) => candidate.service === service);
+    if (row === undefined || row.state === 'healthy' || TONES[row.state] === own.tone) return own;
+    return row.reason?.startsWith(`${source.source} `) === true
+      ? { tone: TONES[row.state], word: BUDGET_WAIT }
+      : own;
+  };
   const sourceBox = (source: BoardSourceView, service: ServiceName, name: string): PanelBox => ({
     id: source.source,
     service,
     project: source.project,
     icon: ICONS[service],
     name,
-    health: live ? sourceState(source) : UNKNOWN,
+    health: live ? sourceHealth(source, service) : UNKNOWN,
     rows: live ? sourceRows(source, formatTime) : GONE,
   });
   const sources = (status?.sources ?? []).filter((source) => source.source !== 'spur');

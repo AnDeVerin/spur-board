@@ -264,24 +264,75 @@ describe('services panel rows', () => {
     ]);
   });
 
-  it('scrolls a service button to its worst box', () => {
-    const target = (sources: unknown[], name: 'github' | 'jira') =>
-      scrollTarget(
-        panelBoxes(
-          snap(status(undefined, [polled('spur'), ...sources], { services: HEALTHY })),
-          time,
-        ),
-        name,
-      );
-    expect(target([polled('jira:a'), polled('jira:b', { blindReason: 'auth' })], 'jira')).toBe(
-      'jira:b',
-    );
+  describe('scrolls a service button to its worst box', () => {
     const ok = polled('github:a:ex/repo');
     const stale = polled('github:b:ex/other', { stale: true });
     const blind = polled('github:b:ex/third', { blindReason: 'auth' });
-    expect(target([ok, stale, blind], 'github')).toBe('github:b:ex/third');
-    expect(target([ok, stale], 'github')).toBe('github:b:ex/other');
-    expect(target([ok, polled('github:b:ex/other')], 'github')).toBe('github:a:ex/repo');
+    // Core blames this source in the github row; its own fields look healthy to the browser.
+    const waiting = polled('github:b:ex/other', {
+      budget: { remaining: 10, limit: 5000, resetAt: '2026-11-15T15:00:00.000Z' },
+    });
+    const waits = 'github:b:ex/other waits for its rate budget until 2026-11-15T15:00:00.000Z';
+    const github = (state: 'healthy' | 'degraded' | 'failing', reason?: string) => [
+      ...HEALTHY.filter((row) => row.service !== 'github'),
+      service('github', state, reason === undefined ? {} : { reason }),
+    ];
+    it.each([
+      {
+        when: 'a box is failing',
+        name: 'jira' as const,
+        sources: [polled('jira:a'), polled('jira:b', { blindReason: 'auth' })],
+        services: [...HEALTHY, service('jira', 'failing', { reason: 'jira:b blind (auth)' })],
+        expected: 'jira:b',
+      },
+      {
+        when: 'a box is failing and another degraded',
+        name: 'github' as const,
+        sources: [ok, stale, blind],
+        services: github('failing', 'github:b:ex/third blind (auth)'),
+        expected: 'github:b:ex/third',
+      },
+      {
+        when: 'a box is degraded',
+        name: 'github' as const,
+        sources: [ok, stale],
+        services: github('degraded', 'github:b:ex/other stale'),
+        expected: 'github:b:ex/other',
+      },
+      {
+        when: "the daemon blames a later project's source waiting for its rate budget",
+        name: 'github' as const,
+        sources: [ok, waiting, polled('github:b:ex/third')],
+        services: github('degraded', waits),
+        expected: 'github:b:ex/other',
+      },
+      {
+        when: 'all boxes are healthy',
+        name: 'github' as const,
+        sources: [ok, polled('github:b:ex/other')],
+        services: github('healthy'),
+        expected: 'github:a:ex/repo',
+      },
+    ])('$when', ({ name, sources, services, expected }) => {
+      const boxes = panelBoxes(
+        snap(status(undefined, [polled('spur'), ...sources], { services })),
+        time,
+      );
+      expect(scrollTarget(boxes, name)).toBe(expected);
+    });
+
+    it("heads the blamed box with the daemon's rate budget wait", () => {
+      const boxes = panelBoxes(
+        snap(
+          status(undefined, [polled('spur'), ok, waiting], { services: github('degraded', waits) }),
+        ),
+        time,
+      );
+      expect(boxes.slice(-2).map((box) => box.health)).toEqual([
+        { tone: 'ok', word: 'polling' },
+        { tone: 'warn', word: 'waits for rate budget' },
+      ]);
+    });
   });
 
   it('maps gateway, daemon and host fields to rows', () => {
