@@ -6,6 +6,7 @@ import {
   type Config,
   type PrFacts,
   type PrReviewRule,
+  type ReviewRule,
 } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
 import { z } from 'zod';
@@ -50,11 +51,26 @@ const storedSchema = z.strictObject({
    * `undecidedSince`. The PR's tasks share it; each item's summary adds its own task key.
    */
   raised: z.string().nullable(),
+  /**
+   * When a read last changed the row; a reused read that changes nothing keeps it. Rows written
+   * before the field have none and count as the oldest.
+   */
+  observedAt: z.iso.datetime().optional(),
 });
 type Stored = z.output<typeof storedSchema>;
 
+const prSuffix = (ref: { repo: string; number: number }): string =>
+  `:pr:${ref.repo.toLowerCase()}#${String(ref.number)}`;
 const reviewRuleKey = (source: string, ref: { repo: string; number: number }): string =>
-  `review-rule:${source}:pr:${ref.repo.toLowerCase()}#${String(ref.number)}`;
+  `review-rule:${source}${prSuffix(ref)}`;
+
+const parseStored = (value: string): Stored | null => {
+  try {
+    return parseJson(storedSchema, value);
+  } catch {
+    return null;
+  }
+};
 
 /** The stored row of `pr` on its current head; null when absent, unreadable or on another head. */
 async function rowOnHead(
@@ -67,14 +83,34 @@ async function rowOnHead(
     .select('value')
     .where('key', '=', reviewRuleKey(source, pr))
     .executeTakeFirst();
-  if (row === undefined) return null;
-  let stored: Stored;
-  try {
-    stored = parseJson(storedSchema, row.value);
-  } catch {
-    return null;
+  const stored = row === undefined ? null : parseStored(row.value);
+  return stored?.headSha.toLowerCase() === pr.headSha.toLowerCase() ? stored : null;
+}
+
+/**
+ * The base branch rule of the most recently changed row on the head among every source's rows of
+ * the PR: the rule belongs to the repo and base branch, so another project's newer read of it
+ * counts too. `own` wins a tie. Only the rule is shared; each source keeps its own decision.
+ */
+async function newestRule(
+  trx: Trx,
+  pr: Pick<PrFacts, 'repo' | 'number' | 'headSha'>,
+  own: Stored,
+): Promise<ReviewRule | null> {
+  const suffix = prSuffix(pr);
+  const rows = await trx
+    .selectFrom('meta')
+    .select('value')
+    .where('key', 'like', 'review-rule:%')
+    .where(sql<boolean>`substr(key, ${-suffix.length}) = ${suffix}`)
+    .execute();
+  let newest = own;
+  for (const row of rows) {
+    const stored = parseStored(row.value);
+    if (stored?.headSha.toLowerCase() !== pr.headSha.toLowerCase()) continue;
+    if ((stored.observedAt ?? '') > (newest.observedAt ?? '')) newest = stored;
   }
-  return stored.headSha.toLowerCase() === pr.headSha.toLowerCase() ? stored : null;
+  return newest.rule;
 }
 
 function verdictOf(pr: PrFacts, reviewRule: PrReviewRule, requested: boolean): ReviewRuleVerdict {
@@ -129,10 +165,15 @@ export async function recordReviewRule(
     rule: reviewRule.rule,
     undecidedSince: clock ? (old?.undecidedSince ?? at) : null,
     raised: clock ? (old?.raised ?? null) : null,
+    observedAt: at,
   };
-  const value = toJson(storedSchema, next);
   // A reused read sends the same review rule again: an unchanged row is not rewritten.
-  if (old !== null && toJson(storedSchema, old) === value) return false;
+  if (
+    old !== null &&
+    toJson(storedSchema, { ...old, observedAt: at }) === toJson(storedSchema, next)
+  )
+    return false;
+  const value = toJson(storedSchema, next);
   await trx
     .insertInto('meta')
     .values({ key, value })
@@ -148,7 +189,8 @@ export async function recordReviewRule(
 
 /**
  * What External Review reads under github-rules: the stored row of the project's own source on
- * the current head with the PR's facts. Without a row on the head GitHub's answer is undecided.
+ * the current head with the PR's facts, under the newest base branch rule any source read for the
+ * head (`newestRule`). Without a row on the head GitHub's answer is undecided.
  * While the merge state is unknown the stored decision does not count: the task waits on a
  * running required check or on GitHub, which holds it without returning it. The facts may come
  * from another project's newer read of the same head: its block overrides a stored satisfied
@@ -164,9 +206,10 @@ export async function storedReviewRule(
   const requested = changesRequested(pr, row?.reviewDecision ?? null, agentLogin);
   const approved = externalReviews(pr, agentLogin).some((review) => review.state === 'approved');
   if (row === null) return { approved, changesRequested: requested, decision: 'undecided' };
+  const rule = await newestRule(trx, pr, row);
   const decision = ruleDecision(
-    verdictOf(pr, row, requested),
-    requiredCheckState(pr, row.rule),
+    verdictOf(pr, { ...row, rule }, requested),
+    requiredCheckState(pr, rule),
     row.decision,
   );
   return { approved, changesRequested: requested, decision };
@@ -216,7 +259,9 @@ export async function reviewRuleItems(
     const gate = await storedReviewRule(trx, source, gatePr, project.operatorGithubLogin);
     // Another project's newer read may already be GitHub's decision on the head: the gate waits
     // for this source's own read, but GitHub has not left the rule undecided.
-    const decided = storedDecision(verdictOf(gatePr, row, gate.changesRequested), null) !== null;
+    const rule = await newestRule(trx, gatePr, row);
+    const decided =
+      storedDecision(verdictOf(gatePr, { ...row, rule }, gate.changesRequested), null) !== null;
     if (!waitsOnGitHub(gate) || decided) continue;
     // The slug as the meta key holds it: a manual link and a poll can spell it differently.
     const ref = `${pr.repo.toLowerCase()}#${String(pr.number)}`;

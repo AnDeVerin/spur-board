@@ -94,8 +94,11 @@ type Options = {
   checksGate?: CheckGateColumn;
   /** External Review's `approvalRule`; unset by default. */
   approvalRule?: 'any-approval' | 'github-rules';
-  /** Adds the project `web` that also polls `o/r`, without `approvalRule`. */
-  sharedRepo?: boolean;
+  /**
+   * Adds the project `web` that also polls `o/r`, without `approvalRule`; `github-rules` gives its
+   * External Review that rule too.
+   */
+  sharedRepo?: boolean | 'github-rules';
 };
 
 function boardConfig(options: Options = {}) {
@@ -165,7 +168,7 @@ function boardConfig(options: Options = {}) {
             },
           ]
         : []),
-      ...(options.sharedRepo === true
+      ...(options.sharedRepo !== undefined && options.sharedRepo !== false
         ? [
             {
               id: 'web',
@@ -173,6 +176,17 @@ function boardConfig(options: Options = {}) {
               repos: ['o/r'],
               operatorGithubLogin: 'agent-bot',
               spurProjects: [{ name: 'web-worker', role: 'worker' }],
+              ...(options.sharedRepo === 'github-rules'
+                ? {
+                    columns: [
+                      { id: 'todo' },
+                      { id: 'dev' },
+                      { id: 'external-review', approvalRule: 'github-rules' },
+                      { id: 'ready-to-merge' },
+                      { id: 'done' },
+                    ],
+                  }
+                : {}),
               dispatcher: { mode: options.mode ?? 'on' },
             },
           ]
@@ -6340,6 +6354,15 @@ describe('approvalRule github-rules', () => {
       listed: ['ci', 'e2e'],
       pinned: ['e2e'],
     },
+    // Another opted-in project's newer read of the head lists a newly required e2e, still absent;
+    // the project's own row lists only ci. Ready to Merge only: in External Review the project has
+    // no row of its own on the head yet.
+    'listed check absent in a newer read by another project': {
+      state: 'pending',
+      rollup: [run('ci', 'success')],
+      listed: ['ci', 'e2e'],
+      source: 'github:web:o/r',
+    },
   } as const satisfies Record<
     string,
     {
@@ -6348,12 +6371,16 @@ describe('approvalRule github-rules', () => {
       required?: readonly ReturnType<typeof run>[];
       listed: readonly string[];
       pinned?: readonly string[];
+      source?: string;
     }
   >;
   it.each(
     (Object.keys(CHECKS) as (keyof typeof CHECKS)[]).flatMap((checks) =>
       (['blocked', 'unknown', 'behind', 'clean'] as const).flatMap((mergeState) =>
-        (['external-review', 'ready-to-merge'] as const).flatMap((column) =>
+        ('source' in CHECKS[checks]
+          ? (['ready-to-merge'] as const)
+          : (['external-review', 'ready-to-merge'] as const)
+        ).flatMap((column) =>
           (['dev', 'external-review'] as const).flatMap((checksGate) =>
             // On an unknown merge state, changes requested by GitHub's verdict or by a reviewer.
             (mergeState === 'unknown' ? REQUESTED : ['' as const]).map((requested) => ({
@@ -6374,6 +6401,7 @@ describe('approvalRule github-rules', () => {
       const variant: (typeof CHECKS)[keyof typeof CHECKS] & {
         required?: readonly ReturnType<typeof run>[];
         pinned?: readonly string[];
+        source?: string;
       } = CHECKS[checks];
       const { state, rollup, listed } = variant;
       const read = async (board: Board, rules: boolean) => {
@@ -6393,14 +6421,16 @@ describe('approvalRule github-rules', () => {
             [...(variant.pinned ?? [])],
             rules && requested === BY_GITHUB ? 'changes_requested' : undefined,
           ),
+          variant.source,
         );
         return moves;
       };
-      const ctx = await pastProductReview({ ...RULED, checksGate });
+      const shared = variant.source === undefined ? {} : { sharedRepo: 'github-rules' as const };
+      const ctx = await pastProductReview({ ...RULED, checksGate, ...shared });
       const moves = await read(ctx, true);
       if (requested === BY_REVIEWER) {
         // A reviewer's changes request moves the task as under any-approval.
-        const plain = await pastProductReview({ externalReview: true, checksGate });
+        const plain = await pastProductReview({ externalReview: true, checksGate, ...shared });
         const plainMoves = await read(plain, false);
         expect((await ctx.task()).column).toBe((await plain.task()).column);
         expect((await ctx.moves()).length - moves).toBe((await plain.moves()).length - plainMoves);
@@ -6501,16 +6531,33 @@ describe('approvalRule github-rules', () => {
         requiredChecks: [run('ci', 'success'), run('e2e', 'pending')],
       },
     },
+    // The other project follows the rule too, and its read lists a newly required e2e.
+    'newer shared blocked with a newly required check absent': {
+      source: 'github:web:o/r',
+      patch: { mergeState: 'blocked' },
+      listed: ['ci', 'e2e'],
+    },
   } as const satisfies Record<
     string,
-    { source: string; patch: Partial<PrFacts>; denied?: boolean; requested?: boolean }
+    {
+      source: string;
+      patch: Partial<PrFacts>;
+      denied?: boolean;
+      requested?: boolean;
+      listed?: readonly string[];
+    }
   >;
   it.each(
     (Object.keys(STORED) as (keyof typeof STORED)[]).flatMap((stored) =>
       (Object.keys(LATEST) as (keyof typeof LATEST)[]).map((latest) => ({ stored, latest })),
     ),
   )('stored decision $stored, latest read $latest', async ({ stored, latest }) => {
-    const ctx = await pastProductReview({ ...RULED, sharedRepo: true });
+    const entry: (typeof LATEST)[keyof typeof LATEST] & { listed?: readonly string[] } =
+      LATEST[latest];
+    const ctx = await pastProductReview({
+      ...RULED,
+      sharedRepo: entry.listed === undefined ? true : 'github-rules',
+    });
     // Without the approval a satisfied decision does not release the task.
     await ctx.rulePr({ mergeState: STORED[stored] }, rule());
     // A head with no decision has its item open before the latest read.
@@ -6519,10 +6566,10 @@ describe('approvalRule github-rules', () => {
     const open = async () =>
       (await ruleItems(ctx)).filter((item) => item.cleared_at === null).length;
     expect(await open()).toBe(stored === 'none' ? 1 : 0);
-    const { source, patch } = LATEST[latest];
+    const { source, patch } = entry;
     const own = source === GITHUB;
-    const denied = 'denied' in LATEST[latest];
-    const requested = 'requested' in LATEST[latest];
+    const denied = 'denied' in entry;
+    const requested = 'requested' in entry;
     await ctx.rulePr(
       { ...approved, ...patch },
       own
@@ -6530,7 +6577,9 @@ describe('approvalRule github-rules', () => {
             ...(denied ? { rule: null } : {}),
             ...(requested ? { reviewDecision: 'changes_requested' as const } : {}),
           })
-        : undefined,
+        : entry.listed === undefined
+          ? undefined
+          : listing([...entry.listed], []),
       source,
     );
     // A newer shared read never makes a decision the own source has not stored; its block
@@ -6542,7 +6591,8 @@ describe('approvalRule github-rules', () => {
           ? 'satisfied'
           : null;
     const gate =
-      latest === 'newer shared blocked with a required check rerunning'
+      latest === 'newer shared blocked with a required check rerunning' ||
+      entry.listed !== undefined
         ? 'checks_pending'
         : latest === 'blocked with an unresolved thread'
           ? 'unresolved_threads'
@@ -6913,11 +6963,20 @@ describe('approvalRule github-rules', () => {
     expect(await ruleRows(ctx)).toEqual(before);
     await ctx.rulePr({ mergeState: 'blocked' }, rule());
     const blocked = await ruleRows(ctx);
-    // The first observation's row is gone, as after a rollback: the replay writes it again.
+    // The first observation's row is gone, as after a rollback: the replay writes it again, as
+    // observed at the replay.
     await ctx.store.db.deleteFrom('meta').where('key', 'like', 'review-rule:%').execute();
     expect((await ctx.why()).waiting?.[0]?.reason).toBe('merge_state_unknown');
     await ctx.rulePr({}, rule());
-    expect(await ruleRows(ctx)).toEqual(blocked);
+    const parsed = (rows: { key: string; value: string }[], observedAt?: string) =>
+      rows.map((row) => ({
+        key: row.key,
+        value: {
+          ...(JSON.parse(row.value) as Record<string, unknown>),
+          ...(observedAt === undefined ? {} : { observedAt }),
+        },
+      }));
+    expect(parsed(await ruleRows(ctx))).toEqual(parsed(blocked, ctx.at()));
     expect((await ctx.why()).waiting).toEqual([
       { reason: 'review_rule_blocked', head: A, text: 'merge blocked by the GitHub review rule' },
     ]);
