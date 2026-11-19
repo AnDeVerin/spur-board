@@ -2202,6 +2202,14 @@ describe('daemon doctor github.review_rule', () => {
     );
   });
 
+  it('github.review_rule warns when the branch has more ruleset rules than one read returns', async () => {
+    const { rule } = await checkOf(ruleFetch('truncated'));
+    expect(rule).toMatchObject({ status: 'warning', blocking: false });
+    expect(rule?.fix).toContain(
+      'board example/board@main: more than 100 ruleset rules, more than the Board reads.',
+    );
+  });
+
   it('github.review_rule warns on a failed read and leaves github.credentials passing', async () => {
     const { rule, credentials } = await checkOf(ruleFetch('error'));
     expect(rule).toMatchObject({ status: 'warning', blocking: false });

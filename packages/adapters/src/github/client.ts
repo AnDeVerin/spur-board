@@ -73,9 +73,11 @@ const THREAD_FIELDS =
 const CLOSING_FIELDS =
   'nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor }';
 // A base branch's review rule as `branchRuleWire` (branchRule.ts) parses it: its branch protection
-// and the rules of the rulesets that apply to it, 100 at most, the rest ignored.
+// and the first 100 rules of the rulesets that apply to it. A branch with more rules reads as a
+// rule the token could not read (`branchRuleOf`), since a rule past the page may be the one that
+// holds the merge.
 export const BRANCH_RULE_FIELDS =
-  'refUpdateRule { pattern requiredApprovingReviewCount requiresCodeOwnerReviews requiresConversationResolution requiredStatusCheckContexts } rules(first: 100) { nodes { type parameters { __typename ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview requiredReviewThreadResolution } ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } } } }';
+  'refUpdateRule { pattern requiredApprovingReviewCount requiresCodeOwnerReviews requiresConversationResolution requiredStatusCheckContexts } rules(first: 100) { nodes { type parameters { __typename ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview requiredReviewThreadResolution } ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } } } pageInfo { hasNextPage } }';
 // `closing` adds the issues a PR closes; only the tracker repo of a github-issues project
 // whose `link.sources` lists `closing` selects them. `reviewRule` adds GitHub's review decision
 // and the base branch's review rule; only a source of a project whose External Review sets

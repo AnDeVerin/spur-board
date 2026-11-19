@@ -428,6 +428,12 @@ function ruleSegment({ project, repo, read }: RuleOutcome): LinkSegment {
     unmatched: false,
     text: () => `${where}: ${text}, no review rule to follow`,
   });
+  if (rule === null)
+    return {
+      problem: true,
+      unmatched: false,
+      text: () => `${where}: more than 100 ruleset rules, more than the Board reads`,
+    };
   if (rule.sources.length === 0) return unfollowed('no branch protection or ruleset');
   const sources = rule.sources.map((source) => RULE_SOURCE_TEXT[source]).join(' and ');
   const checks = rule.requiredChecks.length === 0 ? 'none' : rule.requiredChecks.join(', ');

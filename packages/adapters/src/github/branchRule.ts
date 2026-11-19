@@ -28,6 +28,8 @@ export const branchRuleWire = z.object({
   rules: z
     .object({
       nodes: z.array(z.object({ type: z.string(), parameters: parametersWire }).nullable()),
+      // Absent in reads recorded before the query selected it: one page, all rules read.
+      pageInfo: z.object({ hasNextPage: z.boolean() }).nullish(),
     })
     .nullish(),
 });
@@ -36,9 +38,12 @@ export type BranchRuleWire = z.output<typeof branchRuleWire>;
 /**
  * The merged rule: the largest approval count, a code owner review or resolved conversations
  * when any source requires one, and every required check once. A ruleset counts as a source only
- * through a pull request or required status checks rule.
+ * through a pull request or required status checks rule. Null when the rules run past the one
+ * page read, as for a rule the token could not read: an unread rule may require a check or a
+ * review.
  */
-export function branchRuleOf(wire: BranchRuleWire | null | undefined): ReviewRule {
+export function branchRuleOf(wire: BranchRuleWire | null | undefined): ReviewRule | null {
+  if (wire?.rules?.pageInfo?.hasNextPage === true) return null;
   const protection = wire?.refUpdateRule ?? null;
   const nodes = wire?.rules?.nodes ?? [];
   const parametersOf = (type: string, typename: string) =>
@@ -79,7 +84,8 @@ const defaultBranchWire = z.object({
 
 /**
  * Reads the review rule of `repo`'s default branch; null when the repository has no default
- * branch. Any GraphQL error rejects with a transient `AdapterError`.
+ * branch, and a null rule when the branch has more ruleset rules than one read returns. Any
+ * GraphQL error rejects with a transient `AdapterError`.
  */
 export async function readBranchRule(
   repo: string,
@@ -89,7 +95,7 @@ export async function readBranchRule(
     fetch: fetcher,
     signal,
   }: { token: string; now: () => number; fetch?: typeof fetch; signal: AbortSignal },
-): Promise<{ branch: string; rule: ReviewRule } | null> {
+): Promise<{ branch: string; rule: ReviewRule | null } | null> {
   const [owner, name] = repo.split('/');
   if (!owner || !name) throw new AdapterError('config', 'Invalid repository');
   const response = await new GithubClient(token, now, fetcher).query(

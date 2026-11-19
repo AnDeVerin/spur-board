@@ -3591,6 +3591,18 @@ describe('approvalRule github-rules', () => {
     };
     expect(rule('none')).toEqual(none);
     expect(branchRuleOf(null)).toEqual(none);
+    // Rules past the one page read may require a check or a review: unreadable, not partial.
+    expect(rule('truncated')).toBeNull();
+    const truncated = fixtures('branch-rule').find((fixture) => fixture.name === 'truncated');
+    const data = truncated?.value['data'] as { repository: { defaultBranchRef: unknown } };
+    expect(
+      normalizeReviewRule({
+        ...wire(),
+        reviewDecision: 'APPROVED',
+        baseRef: data.repository.defaultBranchRef,
+      }),
+    ).toEqual({ reviewDecision: 'approved', rule: null });
+    expect(branchRuleOf({ rules: { nodes: [], pageInfo: { hasNextPage: false } } })).toEqual(none);
     expect(
       branchRuleOf({
         refUpdateRule: {
@@ -3636,6 +3648,7 @@ describe('approvalRule github-rules', () => {
     expect(indexQuery([7], false)).toBe(indexQuery([7]));
     expect(detailQuery([7], false, true)).toContain('reviewDecision baseRef { refUpdateRule {');
     expect(detailQuery([7], false, true)).toContain('rules(first: 100)');
+    expect(detailQuery([7], false, true)).toContain('} pageInfo { hasNextPage } }');
     expect(indexQuery([7], true)).toContain('reviewDecision');
     expect(indexQuery([7], true)).not.toContain('baseRef');
   });

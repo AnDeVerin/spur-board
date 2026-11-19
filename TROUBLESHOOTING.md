@@ -276,8 +276,9 @@ protection, ruleset or both), the required approvals, code owner review, resolve
 required checks. The Board reads each PR's own base branch the same way on every full PR read. The
 check never blocks and is separate from `github.credentials`. It warns when the branch has no
 branch protection or ruleset, when the rule requires no approval, code owner review or resolved
-conversations (no review rule to follow), when the read fails, for example because the token
-cannot read the rules, or when `GITHUB_TOKEN` is missing. The check reads only the default
+conversations (no review rule to follow), when more than 100 ruleset rules apply, more than the
+Board reads (it then treats the rule as unreadable), when the read fails, for example because the
+token cannot read the rules, or when `GITHUB_TOKEN` is missing. The check reads only the default
 branch: a PR whose own base branch rule the token cannot read keeps its head undecided in
 External Review, and the task's `--why` shows it as `review_rule_unreadable`, even while this
 check passes. Add a required approval or code owner review to the default branch, give the token
