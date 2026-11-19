@@ -22,6 +22,7 @@ import { z } from 'zod';
 import {
   describeCompletion as describeDomainCompletion,
   dispatch,
+  returnCauses,
   turnReason,
 } from '../domain/dispatch.ts';
 import type { GateMark } from '../domain/gates.ts';
@@ -46,7 +47,6 @@ import {
   raiseCourseDue,
   recordExternalRounds,
   returnCounts,
-  returnEntry,
   shadowCourseCheck,
   uncounted,
 } from './course-check.ts';
@@ -267,7 +267,14 @@ export async function moveLeft(
     project,
     config,
     at,
-    counter: courseCounter(returnEntry(task.column, gate, block !== undefined), project),
+    counter: courseCounter(
+      {
+        kind: 'return',
+        column: task.column,
+        causes: returnCauses(gate ?? [], block !== undefined),
+      },
+      project,
+    ),
     requireRound: false,
   });
   return { task: moved, limitReached: course !== null };

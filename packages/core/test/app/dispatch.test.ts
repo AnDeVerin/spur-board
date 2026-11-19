@@ -3346,6 +3346,17 @@ const itemsOf = (ctx: Board, kind: 'cycle_limit' | 'course_check') =>
     .orderBy('id')
     .execute();
 
+/** The block of the task's one active course-check item. */
+async function courseBlock(ctx: Board) {
+  const items = (await itemsOf(ctx, 'course_check')).filter((item) => item.cleared_at === null);
+  expect(items).toHaveLength(1);
+  return ctx.store.db
+    .selectFrom('block')
+    .selectAll()
+    .where('id', '=', items[0]?.block_id ?? 0)
+    .executeTakeFirstOrThrow();
+}
+
 describe('cycle limit', () => {
   it('raises one operator block per limit, holds the task and resets on its close', async () => {
     // Four counted returns: the course check is off so only the cycle limit stops the task.
@@ -3427,17 +3438,6 @@ describe('course check', () => {
     await cycle(ctx);
     await resubmit(ctx, third);
     await cycle(ctx);
-  }
-
-  /** The block of the task's one active course-check item. */
-  async function courseBlock(ctx: Board) {
-    const items = (await itemsOf(ctx, 'course_check')).filter((item) => item.cleared_at === null);
-    expect(items).toHaveLength(1);
-    return ctx.store.db
-      .selectFrom('block')
-      .selectAll()
-      .where('id', '=', items[0]?.block_id ?? 0)
-      .executeTakeFirstOrThrow();
   }
 
   it('asks the curator on the third counted return instead of a Dev turn', async () => {
@@ -3791,12 +3791,12 @@ describe('course check', () => {
   });
 });
 
-/** An external change request by `reviewer` on `head`, dated a second after the last step. */
-async function requestChanges(
+/** A change request by `reviewer` on `head` in Dev, dated a second after the last step. */
+async function devRound(
   ctx: Board,
   head: string,
-  reviewer: string,
-  type: 'user' | 'bot',
+  reviewer = EXTERNAL,
+  type: 'user' | 'bot' = 'user',
 ): Promise<void> {
   ctx.wait(1_000);
   const submittedAt = ctx.at();
@@ -3819,12 +3819,8 @@ async function requestChanges(
   });
 }
 
-/** An external change request on `head` while the task is in Dev. */
-const devRound = (ctx: Board, head: string, reviewer = EXTERNAL, type: 'user' | 'bot' = 'user') =>
-  requestChanges(ctx, head, reviewer, type);
-
 /** An external change request on `head` that returns the task from Review or later. */
-const externalReturn = (ctx: Board, head: string) => requestChanges(ctx, head, EXTERNAL, 'user');
+const externalReturn = (ctx: Board, head: string) => devRound(ctx, head);
 
 /** The payloads of the task's `external_round` events. */
 const rounds = async (ctx: Board) =>
@@ -3836,17 +3832,6 @@ const roundsOn = (...heads: string[]) =>
 
 describe('external change-request rounds', () => {
   const NOTE = 'Fix the parser once and cover its variants with one table test.';
-
-  /** The block of the task's one active course-check item. */
-  async function courseBlock(ctx: Board) {
-    const items = (await itemsOf(ctx, 'course_check')).filter((item) => item.cleared_at === null);
-    expect(items).toHaveLength(1);
-    return ctx.store.db
-      .selectFrom('block')
-      .selectAll()
-      .where('id', '=', items[0]?.block_id ?? 0)
-      .executeTakeFirstOrThrow();
-  }
 
   const openKeys = async (ctx: Board) =>
     (

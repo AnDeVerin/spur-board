@@ -70,7 +70,7 @@ const externalColumn = (project: Pick<Project, 'columns'>) =>
   project.columns.find((column) => column.id === EXTERNAL_COUNTER && column.enabled);
 
 /** One entry of a course count: a return to Dev with its causes, or an external round. */
-export type CourseEntry =
+type CourseEntry =
   { kind: 'return'; column: ColumnId; causes: readonly ReturnCause[] } | { kind: 'external_round' };
 
 /**
@@ -86,13 +86,6 @@ export function courseCounter(entry: CourseEntry, project: Pick<Project, 'column
     ? EXTERNAL_COUNTER
     : entry.column;
 }
-
-/** A return to Dev from `column` as a course entry. */
-export const returnEntry = (
-  column: ColumnId,
-  gate: readonly GateReason[] | undefined,
-  byExecutor: boolean,
-): CourseEntry => ({ kind: 'return', column, causes: returnCauses(gate ?? [], byExecutor) });
 
 /** The column help of External Review while its course check is on. */
 export const EXTERNAL_ROUNDS_RULE =
@@ -120,6 +113,9 @@ type Round =
   | { kind: 'return'; counter: ColumnId; from: ColumnId; head: string | null }
   | { kind: 'external_round'; counter: ColumnId; reviewer: string; head: string };
 
+/** A course log in journal order: the counted rounds and the resets of each counter. */
+type CourseLog = (Round | { kind: 'reset'; counter: ColumnId })[];
+
 /**
  * The task's journal replayed for its counts, in journal order: the cycle events, and the
  * course rounds with the resets of each counter. A return's head is the head the active PR moved
@@ -130,7 +126,7 @@ async function courseRounds(
   taskId: number,
   project: Pick<Project, 'columns'>,
   pr: PrFacts | null,
-): Promise<{ cycle: CycleEvent[]; course: (Round | { kind: 'reset'; counter: ColumnId })[] }> {
+): Promise<{ cycle: CycleEvent[]; course: CourseLog }> {
   const prefixes = { cycle: cycleKeyPrefix(taskId), course: courseKeyPrefix(taskId) };
   const items = await trx
     .selectFrom('operator_item')
@@ -178,7 +174,7 @@ async function courseRounds(
       pr?.headSha
     )?.toLowerCase() ?? null;
   const cycle: CycleEvent[] = [];
-  const course: (Round | { kind: 'reset'; counter: ColumnId })[] = [];
+  const course: CourseLog = [];
   for (const row of rows) {
     if (row.kind === 'from_you_cleared') {
       const cleared = eventPayloadSchemas.from_you_cleared.safeParse(JSON.parse(row.payload));
@@ -213,10 +209,7 @@ async function courseRounds(
 }
 
 /** The rounds counted under `counter` since the last close of its course-check item. */
-function roundsSince(
-  course: Awaited<ReturnType<typeof courseRounds>>['course'],
-  counter: ColumnId,
-): Round[] {
+function roundsSince(course: CourseLog, counter: ColumnId): Round[] {
   const rounds: Round[] = [];
   for (const entry of course) {
     if (entry.counter !== counter) continue;
@@ -270,13 +263,14 @@ export async function raiseCourseDue(
 }
 
 /** Whether a reviewer is external: not the agent login and not a bot that left feedback. */
-function externalReviewer(pr: PrFacts, agentLogin: string) {
-  return (login: string) =>
+function externalReviewer(pr: PrFacts, agentLogin: string, login: string): boolean {
+  return (
     login.toLowerCase() !== agentLogin.toLowerCase() &&
     !(pr.feedback ?? []).some(
       (entry) =>
         entry.author?.type === 'bot' && entry.author.login.toLowerCase() === login.toLowerCase(),
-    );
+    )
+  );
 }
 
 /**
@@ -301,11 +295,12 @@ export async function recordExternalRounds(
   )
     return;
   const pr = await prFacts(trx, task.id);
-  const isExternal = pr === null ? () => false : externalReviewer(pr, project.operatorGithubLogin);
   const requests =
     pr?.state === 'open'
       ? pr.reviews.filter(
-          (review) => review.state === 'changes_requested' && isExternal(review.reviewer),
+          (review) =>
+            review.state === 'changes_requested' &&
+            externalReviewer(pr, project.operatorGithubLogin, review.reviewer),
         )
       : [];
   if (pr !== null && requests.length > 0) {
