@@ -2115,11 +2115,12 @@ describe('daemon doctor github.review_rule', () => {
     { id: 'external-review', approvalRule: 'github-rules' },
     { id: 'done' },
   ];
-  const ruledContext = (secrets?: Readonly<Record<string, string>>) =>
+  const ruledContext = (secrets?: Readonly<Record<string, string>>, repos?: readonly string[]) =>
     doctorContext({
       operator: true,
       slack: false,
       ...(secrets === undefined ? {} : { secrets }),
+      ...(repos === undefined ? {} : { repos }),
       projects: [{ id: 'board', spurProjects: [], columns: ruledColumns }],
     });
   // A branch-rule fixture recorded or written for the adapter tests, as GitHub answers it.
@@ -2132,12 +2133,15 @@ describe('daemon doctor github.review_rule', () => {
     ) as { data: { repository: unknown } };
   const isRuleRead = (init?: RequestInit) =>
     typeof init?.body === 'string' && init.body.includes('query BranchRule');
-  // Answers the rule read with the fixture `answer`, or a GraphQL error for `error`; every other
-  // request goes to `doctorFetch`.
-  const ruleFetch = (answer: string): typeof fetch => {
+  // Answers the rule read with the fixture `answers` names, one for every repo or one per repo
+  // name, or a GraphQL error for `error`; every other request goes to `doctorFetch`.
+  const ruleFetch = (answers: string | Readonly<Record<string, string>>): typeof fetch => {
     const fallback = doctorFetch();
     return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (!isRuleRead(init)) return fallback(input, init);
+      const { repo } = (JSON.parse(init?.body as string) as { variables: { repo: string } })
+        .variables;
+      const answer = typeof answers === 'string' ? answers : (answers[repo] ?? 'error');
       const rateLimit = { remaining: 4000, resetAt: '2026-11-04T09:00:00.000Z' };
       if (answer === 'error')
         return Promise.resolve(
@@ -2219,6 +2223,18 @@ describe('daemon doctor github.review_rule', () => {
     );
     expect(rule?.fix).not.toContain('secret-canary');
     expect(credentials).toMatchObject({ status: 'pass' });
+  });
+
+  it('github.review_rule keeps approvalRule when another repo of the project is unread', async () => {
+    const { rule } = await checkOf(
+      ruleFetch({ a: 'none', b: 'error' }),
+      ruledContext(undefined, ['o/a', 'o/b']),
+    );
+    expect(rule).toMatchObject({ status: 'warning', blocking: false });
+    // Removing the shared approvalRule would also turn off the gate of the unread repo.
+    expect(rule?.fix).toBe(
+      "board o/a@main: no branch protection or ruleset, no review rule to follow. board o/b: could not read the review rule. Require an approval or code owner review on the default branch. Give the token read access to the default branch's branch protection and rulesets, then rerun board doctor.",
+    );
   });
 
   it('github.review_rule warns without a GitHub token and is absent without github-rules', async () => {
