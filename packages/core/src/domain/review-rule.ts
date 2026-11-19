@@ -55,7 +55,7 @@ export function reviewRuleVerdict(
 
 /**
  * Whether the verdict runs the 30-minute clock: GitHub's answer names nobody to act. For `keep`
- * the caller also requires a completed required check.
+ * the caller also requires a completed required check and no changes requested.
  */
 export function onClock(verdict: ReviewRuleVerdict): boolean {
   return verdict === 'keep' || verdict === 'unresolved_threads' || verdict === 'undecided';

@@ -6272,13 +6272,20 @@ describe('approvalRule github-rules', () => {
     (['none', 'satisfied', 'blocked'] as const).flatMap((stored) =>
       (['external-review', 'ready-to-merge'] as const).flatMap((column) =>
         stored === 'satisfied' || column === 'external-review'
-          ? [false, true].map((running) => ({ stored, column, running }))
+          ? [false, true].flatMap((running) =>
+              (column === 'external-review' ? [false, true] : [false]).map((requested) => ({
+                stored,
+                column,
+                running,
+                requested,
+              })),
+            )
           : [],
       ),
     ),
   )(
-    'an unknown merge state with an approval arriving moves no task: stored $stored, in $column, required check running $running',
-    async ({ stored, column, running }) => {
+    'an unknown merge state with an approval arriving moves no task: stored $stored, in $column, required check running $running, changes requested $requested',
+    async ({ stored, column, running, requested }) => {
       const ctx = await pastProductReview(RULED);
       // Only an approved task reaches Ready to Merge; in External Review the approval arrives
       // with the unknown read.
@@ -6292,18 +6299,20 @@ describe('approvalRule github-rules', () => {
       const moves = (await ctx.moves()).length;
       await ctx.rulePr(
         { ...approved, mergeState: 'unknown', requiredChecks: running ? RUNNING : DONE },
-        rule({ reviewDecision: 'approved' }),
+        rule({ reviewDecision: requested ? 'changes_requested' : 'approved' }),
       );
       expect((await ctx.task()).column).toBe(column);
       expect(await ctx.moves()).toHaveLength(moves);
       expect((await ctx.why()).waiting).toEqual([
         running
           ? { reason: 'checks_pending', head: A, text: `waiting for CI on ${A}` }
-          : {
-              reason: 'merge_state_unknown',
-              head: A,
-              text: 'GitHub has not computed the merge state yet',
-            },
+          : requested
+            ? { reason: 'changes_requested', head: A, text: 'changes requested' }
+            : {
+                reason: 'merge_state_unknown',
+                head: A,
+                text: 'GitHub has not computed the merge state yet',
+              },
       ]);
       // The read keeps the stored decision; the clock runs only while the wait is on GitHub.
       const [row] = await ruleRows(ctx);
@@ -6312,11 +6321,13 @@ describe('approvalRule github-rules', () => {
         undecidedSince: unknown;
       };
       expect(value.decision).toBe(stored === 'none' ? null : stored);
-      expect(value.undecidedSince === null).toBe(running);
+      expect(value.undecidedSince === null).toBe(running || requested);
       ctx.wait(HALF_HOUR);
       await ctx.tick();
       expect((await ctx.task()).column).toBe(column);
-      expect(await ruleItems(ctx)).toHaveLength(!running && column === 'external-review' ? 1 : 0);
+      expect(await ruleItems(ctx)).toHaveLength(
+        !running && !requested && column === 'external-review' ? 1 : 0,
+      );
     },
   );
 

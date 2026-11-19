@@ -37,7 +37,8 @@ const storedSchema = z.strictObject({
   rule: prReviewRuleSchema.shape.rule,
   /**
    * When this head's undecided GitHub answer started: no decision, or a merge state GitHub has
-   * not computed with a required check completed. Null while the read names someone to act.
+   * not computed with a required check completed and no changes requested. Null while the read
+   * names someone to act.
    */
   undecidedSince: z.iso.datetime().nullable(),
   /** The item summary, frozen at the first reconcile 30 minutes after `undecidedSince`. */
@@ -83,8 +84,8 @@ function verdictOf(pr: PrFacts, reviewRule: PrReviewRule, requested: boolean): R
  * drops its row; an item without a review rule says nothing new. The adapter sends a reused read
  * with its first read's review rule again, which rewrites no unchanged row and writes a lost one
  * back, as after a rolled-back observation. A new head starts without a decision; `keep` (GitHub has not computed the merge state)
- * keeps the stored one and runs the 30-minute clock once a required check has completed, as the
- * gate then waits on GitHub. Returns true when the decision, GitHub's verdict or the rule changed.
+ * keeps the stored one and runs the 30-minute clock once a required check has completed and no
+ * changes are requested, as the gate then waits on GitHub. Returns true when the decision, GitHub's verdict or the rule changed.
  */
 export async function recordReviewRule(
   trx: Trx,
@@ -101,18 +102,15 @@ export async function recordReviewRule(
   }
   if (reviewRule === undefined) return false;
   const old = await rowOnHead(trx, source, fact);
-  const verdict = verdictOf(
-    fact,
-    reviewRule,
-    changesRequested(fact, reviewRule.reviewDecision, agentLogin),
-  );
+  const requested = changesRequested(fact, reviewRule.reviewDecision, agentLogin);
+  const verdict = verdictOf(fact, reviewRule, requested);
   const decision =
     verdict === 'keep'
       ? (old?.decision ?? null)
       : verdict === 'satisfied' || verdict === 'blocked'
         ? verdict
         : null;
-  const clock = onClock(verdict) && requiredCheckCompleted(fact, reviewRule.rule);
+  const clock = onClock(verdict) && !requested && requiredCheckCompleted(fact, reviewRule.rule);
   const next: Stored = {
     headSha: fact.headSha.toLowerCase(),
     decision,
