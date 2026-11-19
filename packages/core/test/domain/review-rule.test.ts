@@ -103,6 +103,19 @@ const CASES: Case[] = [
     clock: false,
   },
   {
+    name: 'a pinned check completed only by another integration',
+    pr: pr({
+      mergeState: 'blocked',
+      checks: [
+        { name: 'ci', state: 'success', completedAt: AT },
+        { name: 'e2e', state: 'success', completedAt: AT },
+      ],
+    }),
+    rule: { ...PROTECTION, requiredChecks: ['ci', 'e2e'], pinnedChecks: ['e2e'] },
+    verdict: 'checks_pending',
+    clock: false,
+  },
+  {
     name: 'changes requested',
     pr: pr({ mergeState: 'blocked' }),
     changesRequested: true,
@@ -314,6 +327,8 @@ describe('reviewRuleVerdict', () => {
 describe('requiredCheckState', () => {
   const none: ReviewRule = { ...PROTECTION, requiredChecks: [] };
   const two: ReviewRule = { ...PROTECTION, requiredChecks: ['ci', 'e2e'] };
+  // A ruleset pins e2e to one integration: only its run, which GitHub marks required, counts.
+  const pinned: ReviewRule = { ...two, pinnedChecks: ['e2e'] };
   const run = (name: string, state: 'success' | 'failure' | 'pending' | 'expected') => ({
     name,
     state,
@@ -346,6 +361,33 @@ describe('requiredCheckState', () => {
       state: 'pending',
     },
     { name: 'one completed, a listed one absent', pr: pr(), rule: two, state: 'pending' },
+    {
+      name: 'a pinned check completed by its integration',
+      pr: pr({
+        requiredChecks: [run('ci', 'success'), run('e2e', 'success')],
+        checks: [run('ci', 'success'), run('e2e', 'success')],
+      }),
+      rule: pinned,
+      state: 'done',
+    },
+    {
+      name: 'a pinned check completed by another integration',
+      pr: pr({ checks: [run('ci', 'success'), run('e2e', 'success')] }),
+      rule: pinned,
+      state: 'pending',
+    },
+    {
+      name: 'a pinned check absent',
+      pr: pr(),
+      rule: pinned,
+      state: 'pending',
+    },
+    {
+      name: 'the only listed check pinned, completed by another integration',
+      pr: pr({ requiredChecks: [], checks: [run('e2e', 'success')] }),
+      rule: { ...PROTECTION, requiredChecks: ['e2e'], pinnedChecks: ['e2e'] },
+      state: 'none',
+    },
     {
       name: 'one completed, a listed one absent, rule unreadable',
       pr: pr(),

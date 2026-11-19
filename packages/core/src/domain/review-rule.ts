@@ -39,7 +39,8 @@ type RulePr = Pick<PrFacts, 'draft' | 'mergeable' | 'mergeState' | 'requiredChec
  *   as for `checks_green`: every check except skipped ones green and at least one, or no checks at
  *   all on the head, gives `done`, anything else `none`.
  * - `pending`: a check GitHub marks required has completed while another required check is
- *   expected, pending, or a listed context has no completed run on the head (absent included).
+ *   expected, pending, or a listed context has no completed run on the head (absent included). A
+ *   context a ruleset pins to one integration counts only a completed run GitHub marks required.
  * - `done`: every required check has completed.
  */
 export type RequiredCheckState = 'none' | 'pending' | 'done';
@@ -57,9 +58,14 @@ export function requiredCheckState(pr: RulePr, rule: ReviewRule | null): Require
   }
   // Only a check GitHub marks required completes the rule, as the issue asks.
   if (pr.requiredChecks.every(running)) return 'none';
-  const runs = [...pr.requiredChecks, ...pr.checks];
-  return pr.requiredChecks.some(running) ||
-    listed.some((context) => !runs.some((check) => check.name === context && !running(check)))
+  // A context a ruleset pins to one integration completes only through the run GitHub marks
+  // required, which is that integration's; any other context completes by name.
+  const pinned = rule?.pinnedChecks ?? [];
+  const completed = (context: string) =>
+    (pinned.includes(context) ? pr.requiredChecks : [...pr.requiredChecks, ...pr.checks]).some(
+      (check) => check.name === context && !running(check),
+    );
+  return pr.requiredChecks.some(running) || listed.some((context) => !completed(context))
     ? 'pending'
     : 'done';
 }

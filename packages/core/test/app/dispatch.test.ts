@@ -6273,7 +6273,11 @@ describe('approvalRule github-rules', () => {
     state,
     completedAt: state === 'pending' ? null : at(29),
   });
-  const listing = (requiredChecks: string[], reviewDecision?: 'changes_requested') =>
+  const listing = (
+    requiredChecks: string[],
+    pinnedChecks: string[],
+    reviewDecision?: 'changes_requested',
+  ) =>
     rule({
       ...(reviewDecision === undefined ? {} : { reviewDecision }),
       rule: {
@@ -6282,6 +6286,7 @@ describe('approvalRule github-rules', () => {
         codeOwners: false,
         conversationResolution: true,
         requiredChecks,
+        ...(pinnedChecks.length === 0 ? {} : { pinnedChecks }),
       },
     });
   const BY_GITHUB = ', changes requested by GitHub';
@@ -6315,7 +6320,36 @@ describe('approvalRule github-rules', () => {
       rollup: [run('ci', 'pending')],
       listed: ['ci'],
     },
-  } as const;
+    // A ruleset pins e2e to one integration; GitHub marks only that integration's run required.
+    'pinned check completed by its integration': {
+      state: 'done',
+      rollup: [run('ci', 'success'), run('e2e', 'success')],
+      listed: ['ci', 'e2e'],
+      pinned: ['e2e'],
+    },
+    'pinned check completed by another integration': {
+      state: 'pending',
+      rollup: [run('ci', 'success'), run('e2e', 'success')],
+      required: [run('ci', 'success')],
+      listed: ['ci', 'e2e'],
+      pinned: ['e2e'],
+    },
+    'pinned check absent': {
+      state: 'pending',
+      rollup: [run('ci', 'success')],
+      listed: ['ci', 'e2e'],
+      pinned: ['e2e'],
+    },
+  } as const satisfies Record<
+    string,
+    {
+      state: 'done' | 'pending' | 'none';
+      rollup: readonly ReturnType<typeof run>[];
+      required?: readonly ReturnType<typeof run>[];
+      listed: readonly string[];
+      pinned?: readonly string[];
+    }
+  >;
   it.each(
     (Object.keys(CHECKS) as (keyof typeof CHECKS)[]).flatMap((checks) =>
       (['blocked', 'unknown', 'behind', 'clean'] as const).flatMap((mergeState) =>
@@ -6337,7 +6371,11 @@ describe('approvalRule github-rules', () => {
   )(
     '$checks, merge state $mergeState, in $column, checksGate $label',
     async ({ checks, mergeState, column, checksGate, requested }) => {
-      const { state, rollup, listed } = CHECKS[checks];
+      const variant: (typeof CHECKS)[keyof typeof CHECKS] & {
+        required?: readonly ReturnType<typeof run>[];
+        pinned?: readonly string[];
+      } = CHECKS[checks];
+      const { state, rollup, listed } = variant;
       const read = async (board: Board, rules: boolean) => {
         if (column === 'ready-to-merge')
           await board.rulePr({ ...approved, mergeState: 'clean' }, rule());
@@ -6347,10 +6385,14 @@ describe('approvalRule github-rules', () => {
           {
             ...(requested === BY_REVIEWER ? changesByReviewer : approved),
             mergeState,
-            requiredChecks: [...rollup],
+            requiredChecks: [...(variant.required ?? rollup)],
             checks: [...rollup],
           },
-          listing([...listed], rules && requested === BY_GITHUB ? 'changes_requested' : undefined),
+          listing(
+            [...listed],
+            [...(variant.pinned ?? [])],
+            rules && requested === BY_GITHUB ? 'changes_requested' : undefined,
+          ),
         );
         return moves;
       };

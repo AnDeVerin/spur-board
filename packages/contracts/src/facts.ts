@@ -304,6 +304,12 @@ export const reviewRuleSchema = z
     requiredChecks: z
       .array(z.string().min(1))
       .describe('Check names any source requires, once each.'),
+    pinnedChecks: z
+      .array(z.string().min(1))
+      .optional()
+      .describe(
+        'Required check names a ruleset pins to one integration, once each; absent when none is pinned.',
+      ),
   })
   .describe("The base branch's review rule.");
 export type ReviewRule = z.output<typeof reviewRuleSchema>;

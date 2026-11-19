@@ -27,7 +27,8 @@
               "__typename": "RequiredStatusChecksParameters",
               "requiredStatusChecks": [
                 {
-                  "context": "ci-ok"
+                  "context": "ci-ok",
+                  "integrationId": 15368
                 }
               ]
             }
@@ -129,7 +130,8 @@
       "approvals": 1,
       "codeOwners": false,
       "conversationResolution": true,
-      "requiredChecks": ["ci-ok"]
+      "requiredChecks": ["ci-ok"],
+      "pinnedChecks": ["ci-ok"]
     }
   },
   "facts": {
