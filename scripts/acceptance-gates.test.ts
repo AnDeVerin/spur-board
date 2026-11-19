@@ -285,6 +285,28 @@ describe('acceptance-gates.ts CLI', () => {
     }
   });
 
+  it('does not count a gate line inside a code fence', () => {
+    const { box, gate } = uiPr();
+    box.merge();
+    for (const fence of ['```', '~~~~']) {
+      const fenced = `## Acceptance gates\n\n${fence}\ntester: ${gate}\n${fence}\n\ndesigner: ${gate}`;
+      const result = box.run(fenced);
+      expect(result.status).toBe(1);
+      expect(errorLine(result.stdout)[0]).toContain('- tester: no "tester:" line');
+    }
+  });
+
+  it('passes two valid gate lines next to a fenced extra tester line', () => {
+    const { box, gate } = uiPr();
+    box.merge();
+    const section = `## Acceptance gates\n\ntester: ${gate}\n\n\`\`\`\ntester: PASS\n\`\`\`\n\ndesigner: ${gate}`;
+    const result = box.run(section);
+    expect(result.status).toBe(0);
+    expect(last(result.stdout)).toBe(
+      `acceptance-gates: PASS (no UI change since tester ${gate}, designer ${gate})`,
+    );
+  });
+
   it('exits 2 on an argument or outside pull_request, and 1 off a merge ref', () => {
     const { box, gate } = uiPr();
     expect(box.run(body(gate, gate), ['x']).status).toBe(2);

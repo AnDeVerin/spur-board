@@ -7,7 +7,7 @@
 // change both together. Imports only `node:` builtins and ./guardrails.ts, so the job skips
 // `pnpm install`.
 import { spawnSync } from 'node:child_process';
-import { escapeCommand, readPullRequest, sectionText } from './guardrails.ts';
+import { codeFences, escapeCommand, readPullRequest, sectionText } from './guardrails.ts';
 
 const GATES = ['tester', 'designer'] as const;
 
@@ -27,11 +27,14 @@ const SHA = /^[0-9a-f]{7,64}$/i;
 
 /**
  * Reads the `tester:` and `designer:` lines of an `## Acceptance gates` section. Each value is a
- * 7-64 digit hex SHA or `n/a` (null), optionally in backticks; other lines are ignored.
+ * 7-64 digit hex SHA or `n/a` (null), optionally in backticks; other lines and lines in code
+ * fences are ignored.
  */
 export function parseGates(section: string): ParsedGates {
   const values: Record<Gate, string[]> = { tester: [], designer: [] };
+  const inFence = codeFences();
   for (const line of section.split('\n')) {
+    if (inFence(line)) continue;
     const match = GATE_LINE.exec(line);
     if (!match) continue;
     const gate = (match[1] ?? '').toLowerCase() as Gate;

@@ -372,6 +372,30 @@ export function reportFindings(files: FileChange[]): Finding[] {
 }
 
 /**
+ * A CommonMark code fence tracker, fed one line at a time in order: returns true for a fence line
+ * or a line inside a fence. An unclosed fence runs to the end.
+ */
+export function codeFences(): (line: string) => boolean {
+  // The open fence: its character and run length.
+  let fence: { char: string; length: number } | null = null;
+  return (line) => {
+    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      const closes =
+        run !== undefined &&
+        run[0] === fence.char &&
+        run.length >= fence.length &&
+        /^ {0,3}(?:`+|~+)[ \t]*$/.test(line);
+      if (closes) fence = null;
+      return true;
+    }
+    if (run === undefined) return false;
+    fence = { char: run[0] ?? '', length: run.length };
+    return true;
+  };
+}
+
+/**
  * The text of every `## <heading>` section (heading matched case-insensitively), with HTML
  * comments removed. A section ends at the next `#` or `##` heading outside a code fence.
  */
@@ -393,20 +417,9 @@ export function sectionText(body: string, heading: string): string {
   }
   const kept: string[] = [];
   let inSection = false;
-  // The open CommonMark code fence: its character and run length. Unclosed, it runs to the end.
-  let fence: { char: string; length: number } | null = null;
+  const inFence = codeFences();
   for (const line of visible.split('\n')) {
-    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (fence) {
-      const closes =
-        run !== undefined &&
-        run[0] === fence.char &&
-        run.length >= fence.length &&
-        /^ {0,3}(?:`+|~+)[ \t]*$/.test(line);
-      if (closes) fence = null;
-      if (inSection) kept.push(line);
-    } else if (run !== undefined) {
-      fence = { char: run[0] ?? '', length: run.length };
+    if (inFence(line)) {
       if (inSection) kept.push(line);
     } else if (/^##[ \t]+(.*?)[ \t]*$/.exec(line)?.[1]?.toLowerCase() === wanted) inSection = true;
     else if (/^#{1,2}[ \t]/.test(line)) inSection = false;
