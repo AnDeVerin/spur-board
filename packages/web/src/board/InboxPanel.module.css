@@ -55,7 +55,13 @@
   font-weight: var(--weight-bold);
 }
 .description {
+  display: block;
+  margin-top: var(--space-1);
   color: var(--color-text-secondary);
+}
+.description,
+.small {
+  font-size: var(--text-small);
 }
 .expects {
   font-weight: var(--weight-medium);

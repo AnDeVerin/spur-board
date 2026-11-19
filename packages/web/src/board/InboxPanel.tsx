@@ -218,10 +218,12 @@ export function InboxPanel({
             {tail}
           </span>
           {!handled && entry.action !== undefined && (
-            <span className={styles.action}>{entry.action}</span>
+            <span className={`${styles.action ?? ''} ${styles.small ?? ''}`}>{entry.action}</span>
           )}
           {!handled && (
-            <span className={styles.action}>It clears itself when a session appears.</span>
+            <span className={`${styles.action ?? ''} ${styles.small ?? ''}`}>
+              It clears itself when a session appears.
+            </span>
           )}
         </>
       );
