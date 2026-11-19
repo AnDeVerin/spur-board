@@ -147,12 +147,32 @@ export const columnsDescribeOutputSchema = z.strictObject({
                     .describe(
                       'Question escalation starting at the executor; self-role steps are skipped using runtime routing.',
                     ),
+                  noRecipient: z
+                    .strictObject({
+                      operatorItemAfterMs: z
+                        .int()
+                        .min(1)
+                        .describe(
+                          'Effective noRecipientAfterMs before one operator item per project/column for untaken named-orchestrator turns without a recipient; a positive duration, not a zero-disabled policy.',
+                        ),
+                      text: z
+                        .string()
+                        .describe(
+                          'Wait origin, recipient eligibility, source readiness, item clearing and no-reroute qualifications.',
+                        ),
+                    })
+                    .nullable()
+                    .describe(
+                      'Untaken named-turn no-recipient policy; null for Todo or columns without a named orchestrator. The turn keeps waiting while the operator item is raised.',
+                    ),
                   silent: z
                     .strictObject({
                       remindAfterMs: z
                         .int()
                         .min(0)
-                        .describe('Idle time for a taken agent turn before reminder.'),
+                        .describe(
+                          'Idle time before reminder for the configured agent executor: effective quietTurnAfterMs for a named turn, global idle threshold for a worker turn. Existing turns retain role-based timing.',
+                        ),
                       operatorItemAfterReminderReadMs: z
                         .int()
                         .min(0)

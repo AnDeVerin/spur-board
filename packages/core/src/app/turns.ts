@@ -1,4 +1,5 @@
 import {
+  columnTurnTimings,
   parseActorId,
   sessionFactsSchema,
   turnHandedSchema,
@@ -33,6 +34,7 @@ import { clearItem, raiseItem } from './feed.ts';
 
 type Turn = Row<'turn'>;
 type Handed = z.output<typeof turnHandedSchema>;
+type TurnPlace = Pick<Turn, 'role' | 'column'>;
 type CloseReason = NonNullable<Turn['closed_reason']>;
 
 const handedSchema = z.array(turnHandedSchema);
@@ -292,9 +294,15 @@ export async function rerouteDemotedWorkerTurn(
   return true;
 }
 
-/** How long the holder of a taken turn may sit quiet before it is reminded, then flagged. */
-export function stuckTurnAfterMs(config: Config): number {
-  return config.health.idleInDevAfterMs;
+/**
+ * How long the holder of a taken turn may sit quiet before it is reminded, then flagged: the column
+ * `quietTurnAfterMs` for its named orchestrator's turn (by role: a worker turn can stay in a column
+ * a config change named), else `health.idleInDevAfterMs`.
+ */
+export function stuckTurnAfterMs(config: Config, projectId: string, turn: TurnPlace): number {
+  const own = turn.role === `orchestrator:${turn.column}`;
+  const timings = own ? columnTurnTimings(config, projectId, turn.column) : null;
+  return timings?.quietTurnAfterMs ?? config.health.idleInDevAfterMs;
 }
 
 /**
@@ -408,7 +416,8 @@ export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Prom
   if (await spurBlind(trx)) return;
   for (const { turn, sessionId, ended, quietSince, reminder } of await quietTurns(trx)) {
     if (ended || quietSince === null || reminder !== undefined) continue;
-    if (at.getTime() < Date.parse(quietSince) + stuckTurnAfterMs(config)) continue;
+    const threshold = stuckTurnAfterMs(config, await taskProject(trx, turn.task_id), turn);
+    if (at.getTime() < Date.parse(quietSince) + threshold) continue;
     await registerTurnReminder(trx, turn, sessionId, at);
   }
 }
@@ -434,11 +443,10 @@ export async function ringDue(
   if (n?.kind !== 'turn_reminder') return true;
   if (await spurBlind(trx)) return false;
   const quiet = (await quietTurns(trx)).find((entry) => entry.reminder?.id === notificationId);
+  if (quiet === undefined || quiet.ended || quiet.quietSince === null) return false;
+  const project = await taskProject(trx, quiet.turn.task_id);
   return (
-    quiet !== undefined &&
-    !quiet.ended &&
-    quiet.quietSince !== null &&
-    at.getTime() >= Date.parse(quiet.quietSince) + stuckTurnAfterMs(config)
+    at.getTime() >= Date.parse(quiet.quietSince) + stuckTurnAfterMs(config, project, quiet.turn)
   );
 }
 

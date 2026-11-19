@@ -10,6 +10,7 @@ import {
   type Config,
   configBindings,
   configJsonSchema,
+  columnTurnTimings,
   configSchema,
   defaultAddressee,
 } from '../src/index.ts';
@@ -219,6 +220,58 @@ describe('fixtures', () => {
   it('parses the checks gate fixture with External Review as the green checks column', () => {
     const config = configSchema.parse(readFixture('checks-gate-project.yaml'));
     expect(config.projects[0]?.checksGate).toBe('external-review');
+  });
+
+  it('parses the QA turn timings fixture and resolves the column timings', () => {
+    const config = configSchema.parse(readFixture('qa-turn-timings.yaml'));
+    expect(columnTurnTimings(config, 'web', 'qa')).toEqual({
+      orchestrator: 'qa-bot',
+      quietTurnAfterMs: 5_400_000,
+      noRecipientAfterMs: 900_000,
+    });
+    expect(columnTurnTimings(config, 'web', 'review')).toBeNull();
+    expect(columnTurnTimings(config, 'web', 'missing')).toBeNull();
+  });
+
+  it('applies the turn timing defaults and keeps column objects without the keys unchanged', () => {
+    const input = validConfig({
+      spurProjects: [{ name: 'qa-bot', role: 'orchestrator' }],
+      columns: [
+        ...columns('todo', 'dev'),
+        { id: 'qa', orchestrator: 'qa-bot' },
+        ...columns('done'),
+      ],
+    });
+    const config = configSchema.parse(input);
+    expect(config.projects[0]?.columns.find((c) => c.id === 'qa')).toEqual({
+      id: 'qa',
+      enabled: true,
+      orchestrator: 'qa-bot',
+      cycleLimit: 10,
+      courseCheck: 3,
+    });
+    expect(columnTurnTimings(config, 'web', 'qa')).toEqual({
+      orchestrator: 'qa-bot',
+      quietTurnAfterMs: 1_800_000,
+      noRecipientAfterMs: 600_000,
+    });
+  });
+
+  it('accepts turn timings on a board-wide filled column', () => {
+    const config = configSchema.parse(
+      boardWide([br], {
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', quietTurnAfterMs: 60_000, noRecipientAfterMs: 120_000 },
+          ...columns('done'),
+        ],
+      }),
+    );
+    expect(columnTurnTimings(config, 'web', 'review')).toEqual({
+      orchestrator: 'br',
+      quietTurnAfterMs: 60_000,
+      noRecipientAfterMs: 120_000,
+    });
   });
 
   it.each(['dev', 'review', 'product-review', 'external-review'])(
@@ -1330,6 +1383,54 @@ describe('invalid configs', () => {
     );
   });
 
+  it.each<[string, Record<string, unknown>, string]>([
+    ['an unfilled none column', { id: 'review' }, 'in project web use one of qa'],
+    ['an operator column', { id: 'review', orchestrator: 'operator' }, 'use one of qa'],
+    [
+      'a disabled named column',
+      { id: 'review', orchestrator: 'qa-bot', enabled: false },
+      'use one of qa',
+    ],
+  ])('rejects turn timings on %s at the column key', (_name, review, allowed) => {
+    for (const key of ['quietTurnAfterMs', 'noRecipientAfterMs']) {
+      const result = configSchema.safeParse(
+        validConfig({
+          spurProjects: [{ name: 'qa-bot', role: 'orchestrator' }],
+          columns: [
+            ...columns('todo', 'dev'),
+            { ...review, [key]: 60_000 },
+            { id: 'qa', orchestrator: 'qa-bot' },
+            ...columns('done'),
+          ],
+        }),
+      );
+      expect(result.success).toBe(false);
+      expect(result.error?.issues).toHaveLength(1);
+      expect(result.error?.issues[0]?.path).toEqual(['projects', 0, 'columns', 2, key]);
+      expect(result.error?.issues[0]?.message).toContain(
+        `${key} is allowed only on an enabled column with a named orchestrator`,
+      );
+      expect(result.error?.issues[0]?.message).toContain(allowed);
+    }
+  });
+
+  it('names a project without named orchestrator columns in the turn timings error', () => {
+    const result = configSchema.safeParse(
+      validConfig({
+        columns: [...columns('todo', 'dev'), { id: 'qa', quietTurnAfterMs: 1 }, ...columns('done')],
+      }),
+    );
+    expect(result.error?.issues).toHaveLength(1);
+    expect(result.error?.issues[0]?.path).toEqual([
+      'projects',
+      0,
+      'columns',
+      2,
+      'quietTurnAfterMs',
+    ]);
+    expect(result.error?.issues[0]?.message).toContain('project web has none');
+  });
+
   it('rejects the reserved project id with one issue', () => {
     const result = configSchema.safeParse(validConfig({ id: RESERVED_PROJECT }));
     expect(result.success).toBe(false);
@@ -1501,6 +1602,8 @@ describe('JSON Schema', () => {
       '.health.idleInDevAfterMs',
       '.health.needsInputAfterMs',
       '.health.turnStallAfterMs',
+      '.projects[].columns[].noRecipientAfterMs',
+      '.projects[].columns[].quietTurnAfterMs',
       '.projects[].dispatcher.submitConfirmMs',
       '.sources.authRetryMs',
       '.thresholds.blockOpenMs',

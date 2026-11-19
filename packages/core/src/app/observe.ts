@@ -55,6 +55,7 @@ import {
   type Trx,
 } from './board-utils.ts';
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
+import { earliestTime, FINISHED_STATES } from './doorbells.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
 import {
@@ -849,6 +850,12 @@ async function session(
   const changed =
     previous === null ||
     comparableFacts(previous, 'lastActivityAt') !== comparableFacts(fact, 'lastActivityAt');
+  // A listed session keeps endedAt null in a finished state; this is when it stopped taking rings.
+  // A session relisted finished after an end or absence stopped at the earliest of those, which
+  // this listing clears.
+  const finishedAt = FINISHED_STATES.includes(fact.lifecycle)
+    ? (earliestTime([old?.finished_at, old?.ended_at, old?.absent_since]) ?? at)
+    : null;
   await trx
     .insertInto('session_snapshot')
     .values({
@@ -866,6 +873,7 @@ async function session(
       source,
       observed_at: at,
       absent_since: null,
+      finished_at: finishedAt,
     })
     .onConflict((oc) =>
       oc.column('id').doUpdateSet({
@@ -880,6 +888,7 @@ async function session(
         source,
         observed_at: at,
         absent_since: null,
+        finished_at: finishedAt,
       }),
     )
     .execute();

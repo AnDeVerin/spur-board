@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
 import styles from './Icon.module.css';
 
-/** Every glyph the board-v1 prototype draws, by its prototype name. */
+/**
+ * Every glyph the board-v1 prototype draws, by its prototype name, then the four that board-v1-2
+ * adds: `agent`, `dispatcher` and `mirror` from `ACTOR_ICONS`, `grip` from `GripIcon`.
+ */
 export const iconNames = [
   'mark',
   'caret',
@@ -25,11 +28,16 @@ export const iconNames = [
   'sun',
   'moon',
   'auto',
+  'agent',
+  'dispatcher',
+  'mirror',
+  'grip',
 ] as const;
 
 export type IconName = (typeof iconNames)[number];
 
-// Path data copied from design/prototypes/board-v1/base.js; ds.test.ts checks it stays equal.
+// Path data copied from design/prototypes/board-v1/base.js, and for the last four from
+// design/prototypes/board-v1-2/app.jsx; ds-icon-logo.test.ts checks it stays equal.
 // Functions, so no JSX runs while the module loads.
 const glyphs: Record<IconName, () => ReactNode> = {
   mark: () => <path d="M8 1.5v13M2.4 4.75l11.2 6.5M13.6 4.75L2.4 11.25" />,
@@ -124,6 +132,26 @@ const glyphs: Record<IconName, () => ReactNode> = {
       <path d="M8 4.5l3.5 3.5L8 11.5" />
     </>
   ),
+  agent: () => (
+    <>
+      <rect x="3" y="5.5" width="10" height="7.5" />
+      <path d="M8 5.5V3.2M6 8.6v1.6M10 8.6v1.6" />
+      <circle cx="8" cy="2.4" r="0.7" />
+    </>
+  ),
+  dispatcher: () => (
+    <>
+      <circle cx="8" cy="8" r="2.8" />
+      <path d="M8 1.6v2.2M8 12.2v2.2M1.6 8h2.2M12.2 8h2.2M3.5 3.5l1.5 1.5M11 11l1.5 1.5M3.5 12.5L5 11M11 5l1.5-1.5" />
+    </>
+  ),
+  mirror: () => (
+    <>
+      <path d="M8 2v12" strokeDasharray="1.6 1.6" />
+      <path d="M5.6 4.5L2 11.5h3.6zM10.4 4.5l3.6 7h-3.6z" />
+    </>
+  ),
+  grip: () => <path d="M6 3.5v.01M10 3.5v.01M6 8v.01M10 8v.01M6 12.5v.01M10 12.5v.01" />,
 };
 
 /**
@@ -132,7 +160,8 @@ const glyphs: Record<IconName, () => ReactNode> = {
  *
  * Roles on the board: services - daemon `pulse`, Slack `hash`, GitHub `pr`, Spur `mark`, Jira
  * `diamond`; quick links - ticket `ticket`, PR `pr`, Spur session `term`; chevron `caret`; close
- * `x`; filter field `search`; theme - `sun`, `moon`, `auto`.
+ * `x`; filter field `search`; theme - `sun`, `moon`, `auto`; column actor - `person`, agent
+ * session `agent`, dispatcher `dispatcher`, tracker mirror `mirror`; drag grip in Manual `grip`.
  */
 export function Icon({ name, label }: { name: IconName; label?: string }) {
   const a11y = label === undefined ? { 'aria-hidden': true } : { role: 'img', 'aria-label': label };

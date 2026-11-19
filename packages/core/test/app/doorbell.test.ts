@@ -1247,8 +1247,14 @@ describe('rings held in the Spur queue', () => {
   });
 });
 
-/** One board project with a `qa` orchestrator on `dev`, a `cur` curator and an `ops` operator. */
-function policyBoard(devOrchestrator = 'qa'): Config {
+/**
+ * One board project with a `qa` orchestrator on `dev`, a `cur` curator and an `ops` operator;
+ * `dev` adds turn timing keys to the dev column.
+ */
+function policyBoard(
+  devOrchestrator = 'qa',
+  dev: { quietTurnAfterMs?: number; noRecipientAfterMs?: number } = {},
+): Config {
   return configSchema.parse({
     projects: [
       {
@@ -1265,7 +1271,7 @@ function policyBoard(devOrchestrator = 'qa'): Config {
         columns: [
           { id: 'todo', orchestrator: 'none' },
           { id: 'ready-for-dev', orchestrator: 'none' },
-          { id: 'dev', orchestrator: devOrchestrator },
+          { id: 'dev', orchestrator: devOrchestrator, ...dev },
           { id: 'review', orchestrator: 'none' },
           { id: 'qa', orchestrator: 'none' },
           { id: 'ready-to-merge', orchestrator: 'none' },
@@ -1302,6 +1308,7 @@ async function addSession(
         end_reason: null,
         first_seen: seen,
         absent_since: extra.absent === true ? seen : null,
+        finished_at: null,
         detail:
           extra.activity === undefined ? '{}' : JSON.stringify({ lastActivityAt: extra.activity }),
       })
@@ -1366,14 +1373,20 @@ async function queueRings(
  * are stored first so the observer reads a valid previous detail; the poll then writes the
  * lifecycle columns itself.
  */
-async function observeHealth(ctx: Board, id: string, health: string, project = 'web') {
+async function observeHealth(
+  ctx: Board,
+  id: string,
+  health: string,
+  project = 'web',
+  lifecycle = 'running',
+) {
   const facts = sessionFactsSchema.parse({
     id,
     spurProject: project,
     branch: null,
     pr: null,
     links: {},
-    lifecycle: 'running',
+    lifecycle,
     health,
     healthSince: ctx.now().toISOString(),
     lastActivityAt: null,
@@ -3726,6 +3739,393 @@ describe('turns', () => {
     expect(await stuck()).toEqual([{ kind: 'anomaly', item_key: 'stuck-turn:1' }]);
     expect(ctx.sent).toHaveLength(1);
     expect(await reminders(ctx)).toHaveLength(1);
+  });
+
+  describe('per-column turn timings', () => {
+    const NO_RECIPIENT = 600_000;
+
+    function reconcile(ctx: Board, spurComplete = true) {
+      return scanTransaction(ctx.store, ctx.config, async (trx) => {
+        await reconcileItems(trx, ctx.config, ctx.now().getTime(), spurComplete);
+      });
+    }
+
+    function noSession(ctx: Board) {
+      return ctx.store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('item_key', 'like', 'no-session:%')
+        .orderBy('id')
+        .execute();
+    }
+
+    async function active(ctx: Board) {
+      return (await noSession(ctx)).filter((item) => item.cleared_at === null);
+    }
+
+    async function raisedCount(ctx: Board) {
+      const rows = await ctx.store.db
+        .selectFrom('event')
+        .select('id')
+        .where('kind', '=', 'from_you_raised')
+        .execute();
+      return rows.length;
+    }
+
+    /** Inserts task 2 in Dev and opens its turn at the current time. */
+    async function openSecond(ctx: Board) {
+      await ctx.store.transaction(async (trx) => {
+        await trx
+          .insertInto('task')
+          .values({
+            ...sampleRows.task,
+            id: 2,
+            key: 'o/r#102',
+            tracker_id: '102',
+            project: 'proj',
+            membership: 'active',
+            archive_reason: null,
+            column: 'dev',
+          })
+          .execute();
+      });
+      return scanTransaction(ctx.store, ctx.config, async (trx) => {
+        const task = await trx
+          .selectFrom('task')
+          .selectAll()
+          .where('id', '=', 2)
+          .executeTakeFirstOrThrow();
+        return openTurn(trx, {
+          task,
+          reason: 'Review',
+          handed: [],
+          at: ctx.now(),
+          config: ctx.config,
+        });
+      });
+    }
+
+    /** A dev board orchestrated by qa with no qa session; worker-1 has full facts. */
+    async function waitingBoard(
+      dev: { quietTurnAfterMs?: number; noRecipientAfterMs?: number } = {},
+    ) {
+      const ctx = await setup({ config: policyBoard('qa', dev) });
+      await health(ctx, 'worker-1', 'web', 'working', ctx.now());
+      return ctx;
+    }
+
+    async function liveQa(ctx: Board, id: string) {
+      await addSession(ctx, id, 'qa', { firstSeen: ctx.now().getTime() - START });
+      await health(ctx, id, 'qa', 'waiting', ctx.now());
+    }
+
+    it.each([IDLE / 2, IDLE * 3])(
+      'reminds a quiet orchestrator turn at its column quietTurnAfterMs (%d)',
+      async (quiet) => {
+        const ctx = await setup({ config: policyBoard('qa', { quietTurnAfterMs: quiet }) });
+        await addSession(ctx, 'qa-1', 'qa');
+        await open(ctx);
+        await step(ctx);
+        await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-1', 'ack-qa-1');
+        await health(ctx, 'qa-1', 'qa', 'waiting', ctx.now());
+        const rung = sessionsRung(ctx).length;
+        if (quiet > IDLE) {
+          ctx.advance(IDLE);
+          await remind(ctx);
+          expect(await reminders(ctx)).toEqual([]);
+          ctx.advance(quiet - IDLE - 1);
+        } else ctx.advance(quiet - 1);
+        await remind(ctx);
+        expect(await reminders(ctx)).toEqual([]);
+
+        ctx.advance(1);
+        await remind(ctx);
+        await step(ctx);
+        expect(sessionsRung(ctx).slice(rung)).toEqual(['qa-1']);
+      },
+    );
+
+    it('keeps the global threshold for a worker turn left in a column that became orchestrated', async () => {
+      const first = await setup({ config: policyBoard('none') });
+      await takenByWorker(first);
+      await health(first, 'worker-1', 'web', 'waiting', first.now());
+      const quietStart = first.now().getTime();
+      const ctx = await setup({
+        reopen: first.file,
+        config: policyBoard('qa', { quietTurnAfterMs: IDLE / 2 }),
+      });
+      expect((await turns(ctx)).map((turn) => turn.role)).toEqual(['worker']);
+      ctx.advance(quietStart - START + IDLE / 2);
+      await remind(ctx);
+      expect(await reminders(ctx)).toEqual([]);
+
+      ctx.advance(IDLE / 2);
+      await remind(ctx);
+      expect(await reminders(ctx)).toEqual([
+        expect.objectContaining({ author_session: 'worker-1', role: 'worker' }),
+      ]);
+    });
+
+    it('escalates a stuck orchestrator turn at its column quietTurnAfterMs', async () => {
+      const quiet = IDLE / 2;
+      const ctx = await setup({ config: policyBoard('qa', { quietTurnAfterMs: quiet }) });
+      await addSession(ctx, 'qa-1', 'qa');
+      await open(ctx);
+      await step(ctx);
+      await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-1', 'ack-qa-1');
+      await health(ctx, 'qa-1', 'qa', 'waiting', ctx.now());
+      await health(ctx, 'worker-1', 'web', 'working', ctx.now());
+      ctx.advance(quiet);
+      await remind(ctx);
+      await step(ctx);
+      expect(await reminders(ctx)).toEqual([
+        expect.objectContaining({ rings: 1, acked_at: ctx.now().toISOString() }),
+      ]);
+      const stuck = async () =>
+        (await itemKinds(ctx)).filter((item) => item.item_key === 'stuck-turn:1');
+
+      ctx.advance(quiet - 1);
+      await reconcile(ctx);
+      expect(await stuck()).toEqual([]);
+      ctx.advance(1);
+      await reconcile(ctx);
+      expect(await stuck()).toEqual([{ kind: 'anomaly', item_key: 'stuck-turn:1' }]);
+    });
+
+    it.each([undefined, 2_700_000])(
+      'raises one no-session item per column after noRecipientAfterMs (%s)',
+      async (afterMs) => {
+        const threshold = afterMs ?? NO_RECIPIENT;
+        const ctx = await waitingBoard(
+          afterMs === undefined ? {} : { noRecipientAfterMs: afterMs },
+        );
+        await open(ctx);
+        const ring = (await notices(ctx))[0];
+        expect(ring).toEqual(expect.objectContaining({ kind: 'turn', role: 'orchestrator:dev' }));
+        ctx.advance(threshold - 1);
+        await reconcile(ctx);
+        expect(await noSession(ctx)).toEqual([]);
+
+        ctx.advance(1);
+        await reconcile(ctx);
+        const [item, ...rest] = await noSession(ctx);
+        expect(rest).toEqual([]);
+        expect(item).toEqual(
+          expect.objectContaining({
+            item_key: 'no-session:proj:dev',
+            kind: 'board_observation',
+            task_id: 1,
+            cleared_at: null,
+            fact_at: ring?.created_at,
+            text: `proj dev: turns wait for a live session of Spur project qa; oldest T1 since ${ring?.created_at ?? ''}`,
+          }),
+        );
+        expect(item?.text).not.toMatch(/\d+ waiting/);
+        const raised = await raisedCount(ctx);
+        const outboxRows = (await ctx.store.db.selectFrom('outbox').select('id').execute()).length;
+
+        ctx.advance(60_000);
+        await reconcile(ctx);
+        await openSecond(ctx);
+        ctx.advance(threshold);
+        await reconcile(ctx);
+        expect((await active(ctx)).map((row) => row.id)).toEqual([item?.id]);
+        expect(await raisedCount(ctx)).toBe(raised);
+        expect((await ctx.store.db.selectFrom('outbox').select('id').execute()).length).toBe(
+          outboxRows,
+        );
+
+        await liveQa(ctx, 'qa-1');
+        await reconcile(ctx);
+        expect(await active(ctx)).toEqual([]);
+      },
+    );
+
+    it('raises nothing for a session gap shorter than noRecipientAfterMs', async () => {
+      // A ring with no session that a session takes up before the threshold.
+      const late = await waitingBoard();
+      await open(late);
+      late.advance(NO_RECIPIENT - 1);
+      await liveQa(late, 'qa-1');
+      await reconcile(late);
+      late.advance(NO_RECIPIENT * 2);
+      await reconcile(late);
+      expect(await noSession(late)).toEqual([]);
+
+      // A session restart shorter than the threshold.
+      const ctx = await waitingBoard();
+      await liveQa(ctx, 'qa-1');
+      await open(ctx);
+      ctx.advance(NO_RECIPIENT * 2);
+      await reconcile(ctx);
+      expect(await noSession(ctx)).toEqual([]);
+      await setSession(ctx, 'qa-1', { ended_at: ctx.now().toISOString(), state: 'stopped' });
+      await reconcile(ctx);
+      expect(await noSession(ctx)).toEqual([]);
+      ctx.advance(NO_RECIPIENT - 1);
+      await reconcile(ctx);
+      await liveQa(ctx, 'qa-2');
+      await reconcile(ctx);
+      ctx.advance(NO_RECIPIENT * 3);
+      await reconcile(ctx);
+      expect(await noSession(ctx)).toEqual([]);
+    });
+
+    // Every way a session that could take the ring stops being a recipient, alone and followed
+    // by later timestamps on the same gap. `listed` steps come from a Spur poll that still lists
+    // the session with no end time, as Spur does for a finished session; `new listed killed`
+    // lists a second session of the column's Spur project that was never a recipient.
+    type GoneStep =
+      | 'ended'
+      | 'absent'
+      | 'listed stopped'
+      | 'listed completed'
+      | 'listed errored'
+      | 'listed killed'
+      | 'new listed killed';
+    it.each<{ steps: readonly GoneStep[]; linked: boolean }>([
+      { steps: ['ended'], linked: false },
+      { steps: ['absent'], linked: false },
+      { steps: ['listed stopped'], linked: false },
+      { steps: ['listed completed'], linked: false },
+      { steps: ['listed errored'], linked: false },
+      { steps: ['listed killed'], linked: false },
+      { steps: ['ended'], linked: true },
+      { steps: ['listed stopped'], linked: true },
+      { steps: ['listed killed'], linked: true },
+      { steps: ['listed killed', 'absent'], linked: false },
+      { steps: ['listed killed', 'ended'], linked: false },
+      { steps: ['absent', 'ended'], linked: false },
+      { steps: ['listed killed', 'ended'], linked: true },
+      { steps: ['ended', 'listed killed'], linked: false },
+      { steps: ['absent', 'listed killed'], linked: false },
+      { steps: ['listed completed', 'listed killed'], linked: false },
+      { steps: ['ended', 'new listed killed'], linked: false },
+    ])(
+      'raises noRecipientAfterMs after the first loss of a gap and keeps it open ($steps, linked $linked)',
+      async ({ steps, linked }) => {
+        const ctx = await waitingBoard();
+        const [session, project] = linked ? ['cur-9', 'cur'] : ['qa-1', 'qa'];
+        if (linked) {
+          await addSession(ctx, 'cur-9', 'cur');
+          await addLink(ctx, 50, 'cur-9', 'orchestrator');
+          await health(ctx, 'cur-9', 'cur', 'waiting', ctx.now());
+        } else await liveQa(ctx, 'qa-1');
+        await open(ctx);
+        // Each check follows a fresh Spur poll, so stale Spur data never holds the item.
+        const poll = async () => {
+          await observeHealth(ctx, 'worker-1', 'working');
+          await reconcile(ctx);
+        };
+        ctx.advance(NO_RECIPIENT * 2);
+        await poll();
+        expect(await noSession(ctx)).toEqual([]);
+        const apply = async (step: GoneStep) => {
+          const at = ctx.now().toISOString();
+          if (step === 'ended') await setSession(ctx, session, { ended_at: at });
+          else if (step === 'absent') await setSession(ctx, session, { absent_since: at });
+          else if (step === 'new listed killed')
+            await observeHealth(ctx, 'qa-2', 'waiting', 'qa', 'killed');
+          else await observeHealth(ctx, session, 'waiting', project, step.slice('listed '.length));
+        };
+        const [first, ...later] = steps;
+        const end = ctx.now().toISOString();
+        if (first !== undefined) await apply(first);
+        await poll();
+        expect(await noSession(ctx)).toEqual([]);
+        ctx.advance(NO_RECIPIENT - 1);
+        // A later poll that still lists the finished session keeps the first finish time.
+        if (first?.startsWith('listed ') === true) await apply(first);
+        await poll();
+        expect(await noSession(ctx)).toEqual([]);
+        ctx.advance(1);
+        await poll();
+        const [item] = await active(ctx);
+        expect(await noSession(ctx)).toEqual([
+          expect.objectContaining({ item_key: 'no-session:proj:dev', fact_at: end }),
+        ]);
+        const raised = await raisedCount(ctx);
+        const outboxRows = (await ctx.store.db.selectFrom('outbox').select('id').execute()).length;
+
+        for (const step of later) {
+          ctx.advance(60_000);
+          await apply(step);
+          await poll();
+        }
+        ctx.advance(NO_RECIPIENT);
+        await poll();
+        expect(await noSession(ctx)).toEqual([
+          expect.objectContaining({ id: item?.id, cleared_at: null, fact_at: end }),
+        ]);
+        expect(await raisedCount(ctx)).toBe(raised);
+        expect((await ctx.store.db.selectFrom('outbox').select('id').execute()).length).toBe(
+          outboxRows,
+        );
+      },
+    );
+
+    it('keeps a closed no-session item closed while its oldest turn waits', async () => {
+      const ctx = await waitingBoard();
+      await open(ctx);
+      await openSecond(ctx);
+      ctx.advance(NO_RECIPIENT);
+      await reconcile(ctx);
+      const [item] = await active(ctx);
+      expect(item?.text).toContain('oldest T1 since');
+      await ctx.apply(
+        createItemMutations({}).close,
+        { item: `I${String(item?.id)}` },
+        'operator',
+        'close',
+      );
+      await reconcile(ctx);
+      expect(await active(ctx)).toEqual([]);
+
+      await liveQa(ctx, 'qa-1');
+      await reconcile(ctx);
+      await setSession(ctx, 'qa-1', { ended_at: ctx.now().toISOString(), state: 'stopped' });
+      ctx.advance(NO_RECIPIENT + 1);
+      await reconcile(ctx);
+      expect(await active(ctx)).toEqual([]);
+
+      await close(ctx);
+      await reconcile(ctx);
+      expect(await active(ctx)).toEqual([
+        expect.objectContaining({
+          item_key: 'no-session:proj:dev',
+          task_id: 2,
+          text: expect.stringContaining('oldest T2 since') as unknown,
+        }),
+      ]);
+    });
+
+    it('keeps one no-session item across a restart', async () => {
+      const ctx = await waitingBoard();
+      await open(ctx);
+      ctx.advance(NO_RECIPIENT);
+      await reconcile(ctx);
+      const [item] = await active(ctx);
+      const raised = await raisedCount(ctx);
+      const reopened = await setup({ reopen: ctx.file, config: ctx.config });
+      reopened.advance(NO_RECIPIENT * 2);
+      await reconcile(reopened, false);
+      expect((await active(reopened)).map((row) => row.id)).toEqual([item?.id]);
+      await reconcile(reopened, true);
+      expect((await active(reopened)).map((row) => row.id)).toEqual([item?.id]);
+      expect(await raisedCount(reopened)).toBe(raised);
+
+      // A ring created before a restart raises after it on its stored creation time.
+      const before = await waitingBoard();
+      await open(before);
+      const [ring] = await notices(before);
+      const after = await setup({ reopen: before.file, config: before.config });
+      after.advance(NO_RECIPIENT - 1);
+      await reconcile(after, false);
+      expect(await noSession(after)).toEqual([]);
+      after.advance(1);
+      await reconcile(after, true);
+      expect(await active(after)).toEqual([expect.objectContaining({ fact_at: ring?.created_at })]);
+    });
   });
 
   it('defers a queued reminder while its holder has an open question and sends it after a fresh quiet period', async () => {

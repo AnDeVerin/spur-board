@@ -85,6 +85,7 @@ export const sampleRows: SampleRows = {
     source: 'spur',
     observed_at: at,
     absent_since: at,
+    finished_at: at,
   },
   link: {
     id: 1,

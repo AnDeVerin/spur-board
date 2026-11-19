@@ -161,6 +161,8 @@ describe('catalog', () => {
         ".projects[].columns[].executor.kind",
         ".projects[].columns[].executor.name",
         ".projects[].columns[].group",
+        ".projects[].columns[].quietTurnAfterMs",
+        ".projects[].columns[].noRecipientAfterMs",
         ".projects[].dispatcher",
         ".projects[].dispatcher.mode",
         ".projects[].spurProjects",
@@ -841,9 +843,10 @@ describe('snapshot', () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
-    // Intake catalog at efa72d3b: this includes schemas, examples and transport bindings.
+    // Integration base 66092119: includes upstream config.get timing fields as well as every
+    // existing schema, example and transport binding. Original intake was efa72d3b.
     expect(await catalogVersion(baseline)).toBe(
-      '416b30cdcaec12b283991565c2d4ee82c0a21fe20660ff8b1ca300455a7ab1db',
+      '407cd042fac141647a7b3bdac05235bf76d95bdf665debc0f06a572e50c67eae',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

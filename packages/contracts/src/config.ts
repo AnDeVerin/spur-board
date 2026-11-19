@@ -300,7 +300,26 @@ const columnConfig = z.strictObject({
     .describe(
       "true: a task leaves this column, and every column right of it, only when its PR has no unresolved review thread; an unresolved one sends it back to Dev, and the worker's Dev turn lists each thread. Outdated threads count; a thread counts until someone resolves it, whoever wrote it. Defaults to true on ready-to-merge and false elsewhere; allowed on dev through ready-to-merge.",
     ),
+  quietTurnAfterMs: z
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      'How long the orchestrator session holding a turn of this column may sit quiet at its prompt before the board reminds it, then raises a stuck-turn anomaly, in milliseconds. Defaults to health.idleInDevAfterMs. Named orchestrator only: allowed on an enabled column whose orchestrator is a Spur project, set here or filled board-wide; a worker or operator turn left in the column keeps health.idleInDevAfterMs.',
+    ),
+  noRecipientAfterMs: z
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      "How long an untaken turn of this column may wait with no live session to ring before the board raises one operator item for the project and column, in milliseconds. The time runs from the later of the turn ring's creation and the moment the last session that could take it stopped being a recipient: the first of its end, leaving Spur's list or reaching a finished state (stopped, killed, errored or completed), so later changes in the same gap do not move it. Sessions that could take it are those of the column's Spur project and the task's linked orchestrator. Defaults to 600000 (10 minutes). Named orchestrator only: allowed on an enabled column whose orchestrator is a Spur project, set here or filled board-wide.",
+    ),
 });
+
+/** The default of `projects[].columns[].noRecipientAfterMs`. */
+export const DEFAULT_NO_RECIPIENT_AFTER_MS = 600_000;
+
+const TURN_TIMING_KEYS = ['quietTurnAfterMs', 'noRecipientAfterMs'] as const;
 
 type ColumnConfig = z.output<typeof columnConfig>;
 
@@ -964,7 +983,7 @@ const configObject = z.strictObject({
       ),
       idleInDevAfterMs: durationMs(
         1_800_000,
-        'How long a worker session without an open PR, or the executor of a taken turn, waits at its prompt before it is flagged',
+        'How long a worker session without an open PR, or the executor of a taken turn, waits at its prompt before it is flagged; an orchestrator turn uses its column quietTurnAfterMs when set',
       ),
       flipSmoothingMs: durationMs(
         30_000,
@@ -1098,6 +1117,40 @@ function checkBoardWideAgainstProjects(config: ConfigObject, ctx: z.RefinementCt
   });
 }
 
+/** Whether a column, before board-wide expansion, is enabled and taken by a named Spur project. */
+function namedOrchestratorColumn(
+  config: ConfigObject,
+  column: ProjectConfig['columns'][number],
+): boolean {
+  if (!column.enabled || column.orchestrator === 'operator') return false;
+  if (column.orchestrator !== 'none') return true;
+  return config.spurProjects.some((entry) => entry.role !== 'operator' && fills(entry, column));
+}
+
+/** `quietTurnAfterMs` and `noRecipientAfterMs` only on enabled named-orchestrator columns. */
+function checkTurnTimings(config: ConfigObject, ctx: z.RefinementCtx): void {
+  config.projects.forEach((project, i) => {
+    const allowed = project.columns
+      .filter((column) => namedOrchestratorColumn(config, column))
+      .map((column) => column.id);
+    project.columns.forEach((column, j) => {
+      if (namedOrchestratorColumn(config, column)) return;
+      for (const key of TURN_TIMING_KEYS) {
+        if (column[key] === undefined) continue;
+        ctx.addIssue({
+          code: 'custom',
+          path: ['projects', i, 'columns', j, key],
+          message: `${key} is allowed only on an enabled column with a named orchestrator: ${
+            allowed.length === 0
+              ? `project ${project.id} has none`
+              : `in project ${project.id} use one of ${allowed.join(', ')}`
+          }`,
+        });
+      }
+    });
+  });
+}
+
 /**
  * The board config file. Every object rejects unknown keys; no key holds a secret. The parsed
  * value has top-level `spurProjects` applied to every board project's columns and
@@ -1105,6 +1158,7 @@ function checkBoardWideAgainstProjects(config: ConfigObject, ctx: z.RefinementCt
  */
 export const configSchema = configObject
   .superRefine(checkBoardWideAgainstProjects)
+  .superRefine(checkTurnTimings)
   .superRefine((config, ctx) => {
     const { web } = config;
     if (web.publicOrigin !== undefined && !validOrigin(web.publicOrigin, web.port)) {
@@ -1185,6 +1239,40 @@ export function boardWideSpurProject(
   name: string,
 ): Config['spurProjects'][number] | undefined {
   return config.spurProjects.find((entry) => entry.name === name);
+}
+
+/** The turn timings of a column a named Spur project orchestrates. */
+export interface ColumnTurnTimings {
+  /** The Spur project that takes the column's turns. */
+  readonly orchestrator: string;
+  readonly quietTurnAfterMs: number;
+  readonly noRecipientAfterMs: number;
+}
+
+/**
+ * The effective turn timings of a project column, defaults applied; null when the column is
+ * missing, disabled or not taken by a named Spur project.
+ */
+export function columnTurnTimings(
+  config: Config,
+  projectId: string,
+  column: string,
+): ColumnTurnTimings | null {
+  const entry = config.projects
+    .find((project) => project.id === projectId)
+    ?.columns.find((candidate) => candidate.id === column);
+  if (
+    entry === undefined ||
+    !entry.enabled ||
+    entry.orchestrator === 'none' ||
+    entry.orchestrator === 'operator'
+  )
+    return null;
+  return {
+    orchestrator: entry.orchestrator,
+    quietTurnAfterMs: entry.quietTurnAfterMs ?? config.health.idleInDevAfterMs,
+    noRecipientAfterMs: entry.noRecipientAfterMs ?? DEFAULT_NO_RECIPIENT_AFTER_MS,
+  };
 }
 
 /** The Spur project a new orchestrators-channel message without a known prefix goes to. */

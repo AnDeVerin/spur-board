@@ -113,6 +113,8 @@ export interface SessionSnapshotTable {
   observed_at: string;
   /** When a complete poll of `source` first omitted the session; null while it is observed. */
   absent_since: string | null;
+  /** When the board first saw `state` in `FINISHED_STATES`; null while it is in another state. */
+  finished_at: string | null;
 }
 
 /** Only the identity columns for `entity` are set on a link. */

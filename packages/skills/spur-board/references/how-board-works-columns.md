@@ -14,6 +14,11 @@ or curator and ordinary orchestrator questions wait for a live recipient. Questi
 addressed to the curator and course checks addressed to an agent fall back to the
 operator when no live recipient exists.
 
+`escalation.silent` uses per-column `quietTurnAfterMs` for named turns;
+worker turns keep the global idle threshold. `escalation.noRecipient` gives the
+`noRecipientAfterMs` operator-item policy for untaken named turns waiting for a
+session; it does not reroute them.
+
 `exit.to` describes normal gate progression: it is null at the last enabled stage
 before Done and at Done itself. Passing green checks and submitting an open PR
 does not complete a task. The project's separate `completion` route reaches Done

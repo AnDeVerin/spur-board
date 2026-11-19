@@ -185,44 +185,47 @@ describe('CLI exit classes and mutation keys', () => {
     expect(JSON.parse(output.stdout)).toEqual(OPERATIONS[0].examples[0].output);
   });
 
-  it.each([undefined, 'http: [', 'http: { port: -1 }', gatedConfig('qa', 9)])(
-    'refuses to send without BOARD_DAEMON_URL or a valid config (%s)',
-    async (text) => {
-      const home = boardHome(text);
-      const sent: string[] = [];
-      const output = capture();
-      expect(
-        await runCli(['status', '--json'], {
-          env: { BOARD_HOME: home, BOARD_TOKEN: 'token' },
-          io: output.io,
-          sendOperation(op) {
-            sent.push(op.id);
-            return Promise.resolve(OPERATIONS[0].examples[0].output);
-          },
-        }),
-      ).toBe(4);
-      expect(sent).toEqual([]);
-      const { error } = errorEnvelopeSchema.parse(JSON.parse(output.stderr));
-      expect(error.code).toBe('config');
-      expect(error.context).toEqual({
-        environmentVariable: 'BOARD_DAEMON_URL',
-        configPath: join(home, 'config.yaml'),
-      });
-      expect(error.hint).toContain('BOARD_DAEMON_URL');
-      expect(error.hint).toContain('http.port');
+  it.each([
+    undefined,
+    'http: [',
+    'http: { port: -1 }',
+    gatedConfig('qa', 9),
+    gatedConfig('dev', 9).replace('{ id: review }', '{ id: review, quietTurnAfterMs: 60000 }'),
+  ])('refuses to send without BOARD_DAEMON_URL or a valid config (%s)', async (text) => {
+    const home = boardHome(text);
+    const sent: string[] = [];
+    const output = capture();
+    expect(
+      await runCli(['status', '--json'], {
+        env: { BOARD_HOME: home, BOARD_TOKEN: 'token' },
+        io: output.io,
+        sendOperation(op) {
+          sent.push(op.id);
+          return Promise.resolve(OPERATIONS[0].examples[0].output);
+        },
+      }),
+    ).toBe(4);
+    expect(sent).toEqual([]);
+    const { error } = errorEnvelopeSchema.parse(JSON.parse(output.stderr));
+    expect(error.code).toBe('config');
+    expect(error.context).toEqual({
+      environmentVariable: 'BOARD_DAEMON_URL',
+      configPath: join(home, 'config.yaml'),
+    });
+    expect(error.hint).toContain('BOARD_DAEMON_URL');
+    expect(error.hint).toContain('http.port');
 
-      const into = boardHome();
-      const enrollment = capture();
-      expect(
-        await runCli(['token', 'create', '--name', 'n', '--into', into, '--json'], {
-          env: { BOARD_HOME: home },
-          io: enrollment.io,
-        }),
-      ).toBe(4);
-      expect(errorEnvelopeSchema.parse(JSON.parse(enrollment.stderr)).error.code).toBe('config');
-      expect(existsSync(join(into, '.spur-board'))).toBe(false);
-    },
-  );
+    const into = boardHome();
+    const enrollment = capture();
+    expect(
+      await runCli(['token', 'create', '--name', 'n', '--into', into, '--json'], {
+        env: { BOARD_HOME: home },
+        io: enrollment.io,
+      }),
+    ).toBe(4);
+    expect(errorEnvelopeSchema.parse(JSON.parse(enrollment.stderr)).error.code).toBe('config');
+    expect(existsSync(join(into, '.spur-board'))).toBe(false);
+  });
 
   it('returns 3 when a connection is refused before dispatch', async () => {
     const { url, server } = await fakeServer(() => {});

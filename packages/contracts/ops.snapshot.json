@@ -1,5 +1,5 @@
 {
-  "version": "e1c94cd118e28859101445a4b4e7f5127ed7ee2b68fca8adf6647f4b89da3f55",
+  "version": "f90ec13088316ec9faf294c1bcde732010acf649088af3f1160a8627e2f1abfb",
   "grants": [
     "operator",
     "project-agent",
@@ -11300,6 +11300,18 @@
                         "description": "Column group; present only on Todo-group columns.",
                         "type": "string",
                         "enum": ["todo"]
+                      },
+                      "quietTurnAfterMs": {
+                        "description": "Effective quiet time of an orchestrator turn before its reminder, in milliseconds; present only on columns with a named orchestrator.",
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "noRecipientAfterMs": {
+                        "description": "Effective wait of an untaken turn with no live session before the operator item, in milliseconds; present only on columns with a named orchestrator.",
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
                       }
                     },
                     "required": ["id", "executor"],
@@ -11455,7 +11467,7 @@
                       "session": null,
                       "text": "No executor turn opens in the Todo group, even with a configured binding."
                     },
-                    "escalation": { "chain": [], "silent": null },
+                    "escalation": { "chain": [], "noRecipient": null, "silent": null },
                     "movedBy": {
                       "kind": "manual",
                       "text": "Manual placement; work starting leaves the whole Todo group."
@@ -11908,6 +11920,29 @@
                             },
                             "description": "Question escalation starting at the executor; self-role steps are skipped using runtime routing."
                           },
+                          "noRecipient": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "operatorItemAfterMs": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991,
+                                    "description": "Effective noRecipientAfterMs before one operator item per project/column for untaken named-orchestrator turns without a recipient; a positive duration, not a zero-disabled policy."
+                                  },
+                                  "text": {
+                                    "type": "string",
+                                    "description": "Wait origin, recipient eligibility, source readiness, item clearing and no-reroute qualifications."
+                                  }
+                                },
+                                "required": ["operatorItemAfterMs", "text"],
+                                "additionalProperties": false
+                              },
+                              { "type": "null" }
+                            ],
+                            "description": "Untaken named-turn no-recipient policy; null for Todo or columns without a named orchestrator. The turn keeps waiting while the operator item is raised."
+                          },
                           "silent": {
                             "anyOf": [
                               {
@@ -11917,7 +11952,7 @@
                                     "type": "integer",
                                     "minimum": 0,
                                     "maximum": 9007199254740991,
-                                    "description": "Idle time for a taken agent turn before reminder."
+                                    "description": "Idle time before reminder for the configured agent executor: effective quietTurnAfterMs for a named turn, global idle threshold for a worker turn. Existing turns retain role-based timing."
                                   },
                                   "operatorItemAfterReminderReadMs": {
                                     "type": "integer",
@@ -11949,7 +11984,7 @@
                             "description": "Taken-agent-turn silence policy; null for operator, dispatcher and Todo."
                           }
                         },
-                        "required": ["chain", "silent"],
+                        "required": ["chain", "noRecipient", "silent"],
                         "additionalProperties": false,
                         "description": "Question and silent-executor escalation."
                       },

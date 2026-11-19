@@ -555,10 +555,11 @@ async function sessionById(trx: Trx, id: string): Promise<Session | undefined> {
 
 async function liveSession(trx: Trx, id: string): Promise<Session | undefined> {
   const row = await sessionById(trx, id);
-  return row?.ended_at === null && row.state !== 'killed' && row.state !== 'stopped'
-    ? row
-    : undefined;
+  return row?.ended_at === null && !LINKED_FINISHED_STATES.includes(row.state) ? row : undefined;
 }
+
+/** Spur lifecycle states of a linked session that can no longer read a ring. */
+export const LINKED_FINISHED_STATES = ['killed', 'stopped'];
 
 /** Spur lifecycle states of a session that can no longer read a ring. */
 export const FINISHED_STATES = ['killed', 'stopped', 'errored', 'completed'];
@@ -586,6 +587,17 @@ function instant(value: unknown): number | null {
   if (typeof value !== 'string') return null;
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? null : ms;
+}
+
+/** The earliest readable stored time among `values`, or undefined for none. */
+export function earliestTime(values: readonly (string | null | undefined)[]): string | undefined {
+  let earliest: { value: string; ms: number } | undefined;
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const ms = Date.parse(value);
+    if (!Number.isNaN(ms) && (earliest === undefined || ms < earliest.ms)) earliest = { value, ms };
+  }
+  return earliest?.value;
 }
 
 /** Orders later times first and missing times last. Compared, never subtracted. */

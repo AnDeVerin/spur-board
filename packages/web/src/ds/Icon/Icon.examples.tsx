@@ -16,6 +16,10 @@ const roles: Partial<Record<IconName, string>> = {
   sun: 'theme light',
   moon: 'theme dark',
   auto: 'theme auto',
+  agent: 'column actor: agent',
+  dispatcher: 'column actor: dispatcher',
+  mirror: 'column actor: mirror',
+  grip: 'drag grip in Manual',
 };
 
 function Grid({ background, caption }: { background: string; caption: string }) {
@@ -54,7 +58,7 @@ export function OnBase() {
   return (
     <Grid
       background="var(--color-bg-base)"
-      caption="All 22 glyphs on the base background, by prototype name and board role"
+      caption="All 26 glyphs on the base background, by prototype name and board role"
     />
   );
 }

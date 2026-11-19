@@ -1,6 +1,7 @@
 import {
   COLUMNS,
   COLUMN_IDS,
+  columnTurnTimings,
   encodeActorId,
   type AddresseeRole,
   type ColumnId,
@@ -16,7 +17,7 @@ import { bestProjectSession, observedFacts } from './doorbells.ts';
 import { describeCompletion } from './dispatch.ts';
 import type { Query } from './queries.ts';
 import { projectTargets, visibleProjects } from './task-queries.ts';
-import { stuckTurnAfterMs } from './turns.ts';
+import { stuckTurnAfterMs, turnExecutor } from './turns.ts';
 
 type Project = Config['projects'][number];
 
@@ -162,6 +163,11 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
     }
     const returns = returnRules(column.id, metadata.returnable, kind === 'dispatcher', from);
     const next = nextColumn(project, column.id);
+    const timings = columnTurnTimings(config, project.id, column.id);
+    const quietAfterMs = stuckTurnAfterMs(config, project.id, {
+      column: column.id,
+      role: turnExecutor(column.id, column.orchestrator, true),
+    });
     columns.push({
       id: column.id,
       name: metadata.name,
@@ -196,14 +202,21 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
       },
       escalation: {
         chain,
+        noRecipient:
+          metadata.group !== null || timings === null
+            ? null
+            : {
+                operatorItemAfterMs: timings.noRecipientAfterMs,
+                text: 'Active with dispatcher on: an untaken named-orchestrator turn with no recipient raises one operator item per project/column. The wait starts at the later of ring creation and loss of the last eligible session from the named project or task-linked orchestrator; later changes in the same gap do not restart it. Spur being blind, incomplete or stale suppresses raising; existing items stay. A recipient clears the item; a closed item stays closed while the same oldest turn waits. The turn waits for a session and is not rerouted.',
+              },
         silent:
           metadata.group !== null || kind === 'operator' || kind === 'dispatcher'
             ? null
             : {
-                remindAfterMs: stuckTurnAfterMs(config),
-                operatorItemAfterReminderReadMs: stuckTurnAfterMs(config),
+                remindAfterMs: quietAfterMs,
+                operatorItemAfterReminderReadMs: quietAfterMs,
                 unhealthyAfterMs: config.health.turnStallAfterMs,
-                text: `Active with dispatcher on; shadow only models policy. A taken agent turn gets one reminder after observed idle time; an operator item follows after the reminder is read and another quiet period. Open questions and blind sources pause observation. An unread reminder does not start the post-read timer; an exhausted failed reminder can raise an operator item once the current quiet period reaches remindAfterMs. Unhealthy executor episodes use continuous observation and turnStallAfterMs. Ordinary doorbells wait ${String(config.doorbells.firstRetryMs)}, then ${String(config.doorbells.secondRetryMs)} ms between delivered rings; the final unanswered pause is ${String(config.doorbells.unansweredAfterMs)} ms.`,
+                text: `Active with dispatcher on; shadow only models policy. A taken named executor uses its effective column quietTurnAfterMs. Existing worker/operator turns keep the global idle threshold. A taken agent turn gets one reminder after observed idle time; an operator item follows after the reminder is read and another quiet period. Open questions and blind sources pause observation. An unread reminder does not start the post-read timer; an exhausted failed reminder can raise an operator item once the current quiet period reaches remindAfterMs. Unhealthy executor episodes use continuous observation and turnStallAfterMs. Ordinary doorbells wait ${String(config.doorbells.firstRetryMs)}, then ${String(config.doorbells.secondRetryMs)} ms between delivered rings; the final unanswered pause is ${String(config.doorbells.unansweredAfterMs)} ms.`,
               },
       },
       movedBy: {

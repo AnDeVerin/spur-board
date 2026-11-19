@@ -239,6 +239,10 @@ describe('inbox.operator actions', () => {
         ],
         [await raise('misc:1', 'board_observation'), 'check the task, then close the item'],
         [
+          await raise('no-session:first:review', 'board_observation'),
+          'start a session in Spur project first-orch, or take over its turns with board inbox ack',
+        ],
+        [
           await raise('answer_author_unavailable:2', 'answer_author_unavailable'),
           'comment on the task so a live session reads the answer, then close the item',
         ],
@@ -269,6 +273,91 @@ describe('inbox.operator actions', () => {
       const entry = byId.get(id);
       expect(entry, action).toMatchObject({ action, text: `${entry?.kind ?? ''} text: ${action}` });
     }
+  });
+
+  it('adds the waiting turns of non-archived tasks and the minutes without a session to an open no-session item', async () => {
+    const { store, inbox } = setup();
+    const text = 'first review: turns wait for a live session of Spur project first-orch';
+    const ids = await store.transaction(async (trx) => {
+      const first = await task(trx, { project: 'first', key: 'o/first#1' });
+      const tasks = [
+        first,
+        await task(trx, { project: 'first', key: 'o/first#2' }),
+        await task(trx, { project: 'first', key: 'o/first#3', membership: 'archived' }),
+      ];
+      for (const [index, taskId] of tasks.entries()) {
+        const row = await trx
+          .insertInto('turn')
+          .values({
+            task_id: taskId,
+            column: 'review',
+            epoch: 1,
+            seq: 1,
+            role: 'orchestrator:review',
+            reason: 'Review the PR',
+            handed: '[]',
+            acked_by: null,
+            acked_at: null,
+            closed_at: null,
+            closed_reason: null,
+            created_at: ago(30 - index),
+            head_sha: null,
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+        await trx
+          .insertInto('notification')
+          .values({
+            source_key: `turn:${String(row.id)}`,
+            kind: 'turn',
+            task_id: taskId,
+            block_id: null,
+            comment_id: null,
+            revision: null,
+            role: 'orchestrator:review',
+            author_session: null,
+            recipient_session: null,
+            next_at: ago(1),
+            last_outbox_id: null,
+            acked_at: null,
+            exhausted_at: null,
+            created_at: ago(30 - index),
+            turn_id: row.id,
+          })
+          .execute();
+      }
+      const open = await item(trx, {
+        key: 'no-session:first:review',
+        kind: 'board_observation',
+        taskId: first,
+        text,
+      });
+      const cleared = await item(trx, {
+        key: 'no-session:first:dev',
+        kind: 'board_observation',
+        taskId: first,
+        text,
+        clearedAt: ago(HOUR),
+      });
+      await trx
+        .updateTable('operator_item')
+        .set({ fact_at: ago(14.5) })
+        .where('item_key', 'like', 'no-session:%')
+        .execute();
+      return { open, cleared };
+    });
+
+    const { items, handled } = await inbox();
+
+    const action =
+      'start a session in Spur project first-orch, or take over its turns with board inbox ack';
+    expect(items.find((entry) => entry.id === ids.open)).toMatchObject({
+      text: `${text}; 2 waiting, no live session for 14 min: ${action}`,
+      action,
+    });
+    expect(handled.find((entry) => entry.id === ids.cleared)).toMatchObject({
+      text: `${text}: start a session in its Spur project, or take over its turns with board inbox ack`,
+    });
   });
 
   it('marks a default-branch item a failure under _board', async () => {
