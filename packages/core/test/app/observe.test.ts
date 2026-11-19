@@ -4078,6 +4078,8 @@ describe('anomaly blocks', () => {
       closeHeld: followUpOpen,
       closeFresh: followUpOpen,
       blindAfterRaised: followUpOpen,
+      closedDuringTrackerOutage: followUpOpen,
+      unlinkDuringTrackerOutage: async (b: Board) => histories.followUpClosed(b),
       blindThenLiveWorker: followUpOpen,
       blindAfterDismissed: followUpOpen,
       /** #7 closed, #8 linked and merged, then #7 reopened as the only open PR and closed again. */
@@ -4154,14 +4156,27 @@ describe('anomaly blocks', () => {
         now += 1_000;
         await prs(b, [seven, legacy]);
       },
-      // A recently closed #9 is linked after both alerts opened: they hold through its grace.
+      // A recently closed #9 is linked after both alerts opened: the worker-end item stays the
+      // same, and the pr-closed item names both PRs at once, its grace counted from the merge.
       secondClosure: async (b, last, ticket) => {
         await seeAgain(b, ticket);
         now += 1_000;
         await prs(b, last);
         expect(await openLedger(b)).toEqual(['pr-closed', ENDED]);
+        const ended = () =>
+          b.store.db
+            .selectFrom('operator_item')
+            .select('id')
+            .where('item_key', 'like', 'health:%')
+            .where('cleared_at', 'is', null)
+            .execute();
+        const before = await ended();
         now += 1_000;
         await prs(b, [...last, { ...pr(9, 'closed'), updatedAt: iso(), closedAt: iso() }]);
+        expect(await ended()).toEqual(before);
+        expect((await surface(b)).blocks.at(-1)?.reason).toBe(
+          'linked pull request o/r#8, o/r#9 closed without merge, no open PR',
+        );
       },
       // The ticket reaches done within the grace after the close: no alert at any step.
       closedDoneInGrace: async (b, last, ticket) => {
@@ -4184,6 +4199,47 @@ describe('anomaly blocks', () => {
         await ticket('open', (JSON.parse(detail) as { updatedAt: string }).updatedAt);
         now += 1_000;
         await prs(b, [edited]);
+      },
+      // Seen open past the merge's grace while #8 is open; #8 closes days later in a tracker outage.
+      closedDuringTrackerOutage: async (b, last, ticket) => {
+        await seeAgain(b, ticket);
+        now += 1_000;
+        await prs(b, last);
+        expect(await openLedger(b)).toEqual([]);
+        await blindTracker(b);
+        now += 3 * 24 * 60 * 60_000;
+        const eight = { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
+        now += 1_000;
+        await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
+      },
+      // #9, closed, is linked and #8 unlinked in a tracker outage: the block names only #9.
+      unlinkDuringTrackerOutage: async (b, last, ticket) => {
+        await seeAgain(b, ticket);
+        now += 1_000;
+        await prs(b, last);
+        expect(await openLedger(b)).toEqual(['pr-closed', ENDED]);
+        await blindTracker(b);
+        now += 1_000;
+        const nine = { ...pr(9, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [...last, nine]);
+        await b.apply(
+          createLinkMutations(b.config).remove,
+          {
+            mode: 'pr',
+            task: b.task.key,
+            pr: 'https://github.com/o/r/pull/8',
+            reason: 'Wrong PR.',
+          },
+          'operator',
+        );
+        now += 1_000;
+        await prs(b, [...last, nine]);
+        const open = (await surface(b)).blocks.filter((block) => block.state === 'open');
+        expect(open.map((block) => block.reason)).toContain(
+          'linked pull request o/r#9 closed without merge, no open PR',
+        );
+        expect(open.map((block) => block.reason).join('\n')).not.toContain('o/r#8');
       },
       blindAfterRaised: async (b, last, ticket) => {
         await finals.closeFresh?.(b, last, ticket);
@@ -4216,6 +4272,14 @@ describe('anomaly blocks', () => {
         ]);
       },
     };
+    /** A tracker poll that fails as blind: the ticket is not seen again until it recovers. */
+    const blindTracker = (b: Board) =>
+      b.core.observe(source, {
+        batch: { source, observedAt: iso(), complete: false, items: [], entities: [] },
+        effectiveComplete: false,
+        state: { blind: { reason: 'auth', message: 'Bad token' }, gone: [] },
+        outcomes: [],
+      });
     /** A GitHub poll that fails as blind: its alerts and dismissals hold through the outage. */
     const blindGithub = (b: Board) =>
       b.core.observe(github, {
@@ -4241,7 +4305,7 @@ describe('anomaly blocks', () => {
       ['followUpClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
       ['followUpClosed', 'done', [], null, DONE],
       ['closedDoneInGrace', 'untouched', [], null, DONE],
-      ['secondClosure', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
+      ['secondClosure', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['laterMergeAfterEdit', 'untouched', [], null, UNCONFIRMED],
       ['legacyThenStored', 'untouched', [], null, UNCONFIRMED],
       [
@@ -4258,6 +4322,8 @@ describe('anomaly blocks', () => {
       ['closeHeld', 'untouched', [], null, UNCONFIRMED],
       ['closeFresh', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['blindAfterRaised', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      ['closedDuringTrackerOutage', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      ['unlinkDuringTrackerOutage', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['blindThenLiveWorker', 'untouched', ['pr-closed'], null, UNCONFIRMED],
       // Seen open past the interval only: the merged PR stops counting, with no reopen named.
       ['legacyMerged', 'changed', [ENDED], NO_PR, { pr: null, mergedOpen: 7, unconfirmed: false }],

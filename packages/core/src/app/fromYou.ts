@@ -605,8 +605,7 @@ export async function reconcileItems(
   // Tasks whose ticket reopened after the judged merge, with the clause their worker-end item names.
   const reopened = new Map<number, string>();
   // Tasks whose merged PR suppresses alerts only while their pr-closed item is held, as when a repo
-  // is blind, or waits for the tracker grace of a newer close: their shown alerts hold as they are,
-  // and nothing new is raised.
+  // is blind: their shown alerts hold as they are, and nothing new is raised.
   const liftHeld = new Set<number>();
   for (const [taskId, { facts, at, ref }] of judged) {
     const state = taskPrs[String(taskId)];
@@ -615,8 +614,8 @@ export async function reconcileItems(
     const project = config.projects.find((entry) => entry.id === task.project);
     // A merged PR counts as finished work unless the ticket changed after it and is not done: a
     // split task back in Dev is watched like any task without a PR. A raised pr-closed item also
-    // ends it once the ticket is seen still not done one tracker interval after the close, the
-    // grace in which a close the merge triggers may still be polled.
+    // ends it once the ticket is seen still not done one tracker interval after the newest merge,
+    // the grace in which a close the merge triggers may still be polled.
     const ticket = tickets.find((entry) => entry.task_id === taskId);
     // The newest stored merge decides; without one, the PR's interval fallback (`mergedTicket`).
     const storedMerge = latest([facts?.mergedAt, newestMerge.get(taskId)]);
@@ -631,7 +630,13 @@ export async function reconcileItems(
     const followUpClosed =
       closure?.held === false &&
       project !== undefined &&
-      seenOpenSince(project, config, ticket, task.manual_include === 1, closure.closedAt);
+      seenOpenSince(
+        project,
+        config,
+        ticket,
+        task.manual_include === 1,
+        Date.parse(mergedAt.get(taskId) ?? ''),
+      );
     state.hasMergedPr =
       at === null ||
       project === undefined ||
@@ -641,7 +646,7 @@ export async function reconcileItems(
     // No ticket status in the text: the item fingerprint hashes it, and a move between two
     // non-done statuses must not raise the item again.
     if (judgement === 'reopened') reopened.set(taskId, `; PR ${ref} merged, ticket reopened`);
-    if (state.hasMergedPr && judgement !== 'done' && closure !== undefined) liftHeld.add(taskId);
+    if (state.hasMergedPr && judgement !== 'done' && closure?.held === true) liftHeld.add(taskId);
   }
   const heldKeys: string[] = [];
   for (const task of tasks) {
