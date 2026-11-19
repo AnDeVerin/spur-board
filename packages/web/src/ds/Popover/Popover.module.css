@@ -34,9 +34,11 @@
   border: var(--size-hairline) solid var(--color-border-strong);
   box-shadow: var(--shadow-popover);
 }
-/* The anchor scrolled out of the window: the whole panel leaves with it. */
+/* The anchor out of view: the panel hides, which also takes its controls out of the tab order,
+   and still follows the anchor out. */
 .root[data-away] {
   left: var(--popover-left);
+  visibility: hidden;
 }
 /* Out by the left edge: the panel's right edge at or left of the anchor's, even when the anchor
    is narrower than the panel. */

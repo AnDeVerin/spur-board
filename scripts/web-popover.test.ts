@@ -63,7 +63,8 @@ describe('Popover styles', () => {
     );
   });
   it('leaves the window wholly with an anchor scrolled out', () => {
-    expect(rule('.root[data-away]')).toEqual(['left: var(--popover-left)']);
+    // Not in view: hidden, which also takes its controls out of the tab order.
+    expect(rule('.root[data-away]')).toEqual(['left: var(--popover-left)', 'visibility: hidden']);
     // An anchor narrower than the panel: its right edge, not its left, takes the panel out.
     expect(rule(".root[data-away='left']")).toEqual([
       'left: min(var(--popover-left), var(--popover-right) - var(--popover-width))',

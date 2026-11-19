@@ -130,22 +130,43 @@ const mouse = (type: 'mousedown', target: Element) => {
   });
 };
 
-let rect = { left: 100, right: 420, top: 20, bottom: 40 };
-const stubAnchorRect = (next: typeof rect) => {
+type Rect = { left: number; right: number; top: number; bottom: number };
+let rect: Rect = { left: 100, right: 420, top: 20, bottom: 40 };
+// The box of `#scroller` when a test makes it clip, else none.
+let scrollerRect: Rect | undefined;
+const stubAnchorRect = (next: Rect) => {
   rect = next;
 };
-/** Stubs the anchor's box and a 1024px window: happy-dom reports `clientWidth` 0. */
+const domRect = ({ left, right, top, bottom }: Rect) => {
+  const box = { left, right, top, bottom, x: left, y: top, width: right - left };
+  return { ...box, height: bottom - top, toJSON: () => box };
+};
+/**
+ * Stubs the anchor's box and a 1024x768 window: happy-dom reports `clientWidth` and
+ * `clientHeight` 0. The popover reads only the anchor's box and those of its clipping ancestors.
+ */
 const anchorRect = () => {
-  Object.defineProperty(document.documentElement, 'clientWidth', {
-    configurable: true,
-    get: () => 1024,
+  for (const [name, value] of [
+    ['clientWidth', 1024],
+    ['clientHeight', 768],
+  ] as const)
+    Object.defineProperty(document.documentElement, name, { configurable: true, get: () => value });
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    return domRect(this.id === 'scroller' && scrollerRect ? scrollerRect : rect);
   });
-  // Only the popover reads a box in these tests, and only the anchor's.
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(() => {
-    const { left, right, top, bottom } = rect;
-    const box = { left, right, top, bottom, x: left, y: top, width: right - left };
-    return { ...box, height: bottom - top, toJSON: () => box };
-  });
+};
+/** Makes `#scroller` clip both axes to `area` (its padding box: no border here), or stop. */
+const clip = (area: Rect | undefined) => {
+  scrollerRect = area;
+  const scroller = document.getElementById('scroller');
+  if (!scroller) throw new Error('no scroller');
+  scroller.style.overflowX = area ? 'auto' : '';
+  scroller.style.overflowY = area ? 'auto' : '';
+  for (const [name, value] of [
+    ['clientWidth', area ? area.right - area.left : 0],
+    ['clientHeight', area ? area.bottom - area.top : 0],
+  ] as const)
+    Object.defineProperty(scroller, name, { configurable: true, get: () => value });
 };
 /** The anchor box the popover wrote: left, right, top and bottom edges, and which side it left by. */
 const placement = () => {
@@ -168,7 +189,9 @@ const box = (left: number, right: number, top: number, bottom: number, away: str
 
 afterEach(() => {
   Reflect.deleteProperty(document.documentElement, 'clientWidth');
+  Reflect.deleteProperty(document.documentElement, 'clientHeight');
   rect = { left: 100, right: 420, top: 20, bottom: 40 };
+  scrollerRect = undefined;
 });
 
 describe('Popover', () => {
@@ -257,27 +280,41 @@ describe('Popover', () => {
     expect(placement()).toEqual(box(200, 520, 50, 70, null));
   });
 
-  it('leaves with an anchor scrolled out of the window', () => {
+  it('is in view only while the anchor meets the window and every clipping ancestor', () => {
     anchorRect();
     render(createElement(Harness, { initial: true }));
-    const scroll = (next: typeof rect) => {
-      stubAnchorRect(next);
+    const scroller: Rect = { left: 200, right: 800, top: 0, bottom: 600 };
+    // Anchor edges, the clipping scroller if any, and the side `data-away` names (null: in view).
+    // An anchor narrower than the panel leaves by the left too: the CSS then puts the panel's
+    // right edge at or left of the anchor's (web-popover.test.ts).
+    for (const [left, right, top, bottom, area, away] of [
+      [-400, -20, 20, 40, undefined, 'left'],
+      [-300, -20, 20, 40, undefined, 'left'],
+      [-249, 0, 20, 40, undefined, 'left'],
+      [1024, 1344, 20, 40, undefined, 'right'],
+      [100, 420, -21, -1, undefined, 'top'],
+      [100, 420, -20, 0, undefined, 'top'],
+      [100, 420, 768, 788, undefined, 'bottom'],
+      [100, 420, 769, 789, undefined, 'bottom'],
+      [-100, 200, 20, 40, scroller, 'left'],
+      [800, 1000, 20, 40, scroller, 'right'],
+      [300, 620, -40, 0, scroller, 'top'],
+      [300, 620, 600, 620, scroller, 'bottom'],
+      [100, 420, 20, 40, undefined, null],
+      [1000, 1320, 20, 40, undefined, null],
+      [-300, 20, 20, 40, undefined, null],
+      [100, 420, -19, 1, undefined, null],
+      [100, 420, 767, 787, undefined, null],
+      [150, 470, 590, 610, scroller, null],
+    ] as const) {
+      clip(area);
+      stubAnchorRect({ left, right, top, bottom });
       act(() => {
         document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
       });
-    };
-    // Each side, and an anchor narrower than the panel: the CSS puts the panel's right edge at
-    // or left of the anchor's right edge when it left by the left (web-popover.test.ts).
-    for (const [left, right, away] of [
-      [-400, -20, 'left'],
-      [-300, -20, 'left'],
-      [-249, 0, 'left'],
-      [1024, 1344, 'right'],
-      [1000, 1320, null],
-      [-300, 20, null],
-    ] as const) {
-      scroll({ left, right, top: 20, bottom: 40 });
-      expect(placement()).toEqual(box(left, right, 20, 40, away));
+      expect(placement(), JSON.stringify({ left, right, top, bottom, area })).toEqual(
+        box(left, right, top, bottom, away),
+      );
     }
   });
 

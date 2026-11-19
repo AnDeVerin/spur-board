@@ -19,16 +19,18 @@ import styles from './Popover.module.css';
  *
  * Placement: it sits `--space-1` under the anchor's bottom edge, starting at its left edge, and
  * follows the anchor on any scroll (a nested scroller included) and on resize. While the anchor
- * shows in the window horizontally the panel keeps `--space-2` inside the window edges; an anchor
- * scrolled wholly out of the window takes the panel out with it. Vertically it follows the anchor
- * out of the window too; an anchor narrower than the panel still takes all of it out, by the
- * anchor's right edge on the left side. Near the bottom of the window its height shrinks to the
- * space under the anchor, down to `--space-2` above the window edge, and the body scrolls. With
- * less space than the header and the body padding need, the panel moves up just enough to keep
- * its header in view and may cover the bottom of the anchor; it never flips above the anchor.
- * It is never shorter than that least height, so an anchor whose top is below the window takes
- * the whole panel out with it. At 375px it fills the window width less `--space-2` on each side,
- * still under its anchor: not a bottom sheet.
+ * is in view the panel keeps `--space-2` inside the window edges. In view means the anchor's box
+ * meets the visible area: the window cut, per axis, by the padding box of every ancestor whose
+ * overflow clips (up to `body`, or to a `position: fixed` ancestor). An anchor out of view, out
+ * of the window or clipped away by a scroller such as a board strip, hides the panel
+ * (`visibility: hidden`, so its controls leave the tab order too) and the panel still follows
+ * it out, by the anchor's right edge on the left side. Near the bottom of the window its height
+ * shrinks to the space under the anchor, down to `--space-2` above the window edge, and the body
+ * scrolls. With less space than the header and the body padding need, the panel moves up just
+ * enough to keep its header in view and may cover the bottom of the anchor; it never flips above
+ * the anchor. It is never shorter than that least height, so it slides out whole with an anchor
+ * whose top is below the window. At 375px it fills the window width less `--space-2` on each
+ * side, still under its anchor: not a bottom sheet.
  *
  * Focus: the opener is the element focused at the first render. With one, focus moves to Close
  * on open; with none (focus on `body`), focus stays put. Escape and Close call `onClose`; Close
@@ -67,6 +69,44 @@ export function Popover({
   return <OpenPopover {...props} />;
 }
 
+type Area = { left: number; top: number; right: number; bottom: number };
+
+/**
+ * Where `element` can show: the window cut, per axis, by the padding box of every ancestor whose
+ * overflow on that axis clips. `body` and the root are left out (their overflow goes to the
+ * window), inline and `display: contents` ancestors clip nothing, and the walk stops after a
+ * `position: fixed` ancestor, whose own ancestors do not clip it.
+ */
+function visibleArea(element: HTMLElement): Area {
+  const root = document.documentElement;
+  const area: Area = { left: 0, top: 0, right: root.clientWidth, bottom: root.clientHeight };
+  for (
+    let node = element.parentElement;
+    node && node !== document.body && node !== root;
+    node = node.parentElement
+  ) {
+    const style = getComputedStyle(node);
+    if (style.display === 'inline' || style.display === 'contents') continue;
+    const clipsX = style.overflowX !== '' && style.overflowX !== 'visible';
+    const clipsY = style.overflowY !== '' && style.overflowY !== 'visible';
+    if (clipsX || clipsY) {
+      const box = node.getBoundingClientRect();
+      const left = box.left + node.clientLeft;
+      const top = box.top + node.clientTop;
+      if (clipsX) {
+        area.left = Math.max(area.left, left);
+        area.right = Math.min(area.right, left + node.clientWidth);
+      }
+      if (clipsY) {
+        area.top = Math.max(area.top, top);
+        area.bottom = Math.min(area.bottom, top + node.clientHeight);
+      }
+    }
+    if (style.position === 'fixed') break;
+  }
+  return area;
+}
+
 /** The mounted panel: its effects run only while the popover is open. */
 function OpenPopover({
   onClose,
@@ -96,18 +136,23 @@ function OpenPopover({
     latest.current = onClose;
   });
   // Writes the anchor's box on the panel, not in React state: one style write per scroll frame.
-  // `data-away` names the side an anchor wholly out of the window left by.
+  // `data-away` names the side an anchor out of view left by.
   const place = () => {
     const element = panel.current;
-    const rect = anchor.current?.getBoundingClientRect();
-    if (!element || !rect) return;
+    const target = anchor.current;
+    if (!element || !target) return;
+    const rect = target.getBoundingClientRect();
+    const view = visibleArea(target);
+    let away: 'left' | 'right' | 'top' | 'bottom' | null = null;
+    if (rect.right <= view.left) away = 'left';
+    else if (rect.left >= view.right) away = 'right';
+    else if (rect.bottom <= view.top) away = 'top';
+    else if (rect.top >= view.bottom) away = 'bottom';
     const px = (value: number) => `${String(value)}px`;
     element.style.setProperty('--popover-left', px(rect.left));
     element.style.setProperty('--popover-right', px(rect.right));
     element.style.setProperty('--popover-anchor-top', px(rect.top));
     element.style.setProperty('--popover-top', px(rect.bottom));
-    const away =
-      rect.right <= 0 ? 'left' : rect.left >= document.documentElement.clientWidth ? 'right' : null;
     if (away) element.setAttribute('data-away', away);
     else element.removeAttribute('data-away');
   };
