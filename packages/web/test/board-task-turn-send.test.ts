@@ -214,7 +214,12 @@ describe('Turn section focus', () => {
     const waiting = { ...taskGet().why, column: 'review', pendingSubmit: PENDING };
     const afterSubmit = orchestratorTaskGet(
       {},
-      { turn: null, turns: [closedTurn('submitted', 'operator')], why: waiting },
+      {
+        turn: null,
+        turns: [closedTurn('submitted', 'operator')],
+        why: waiting,
+        submission: { ...submittedRow, pending: true },
+      },
     );
     setTask(d, afterSubmit);
     await send();
@@ -369,6 +374,39 @@ describe('Turn section focus', () => {
       orchestratorTaskGet({ id: 'T6', at: AT }, { turns: [], submission: ownPending }),
     );
     expect(line()).toBe('T5 submitted.');
+  });
+
+  it('never waits on a replacement turn that submitted the same SHA', async () => {
+    const { d } = await open();
+    d.routes['task.submit'] = (input) =>
+      Promise.resolve(
+        envelope({
+          task: taskGet().task,
+          turn: input['turn'],
+          sha: input['sha'],
+          status: 'pending',
+        }),
+      );
+    await click('Submit…');
+    await send();
+    // A correction opened a new Review visit, and its turn T6 submitted the same SHA: the
+    // dispatcher's pending submit is T6's, not T5's.
+    const sameSha = { ...submittedRow, pending: true, at: '2026-11-15T13:40:00.000Z' };
+    await reread(
+      d,
+      orchestratorTaskGet(
+        { id: 'T7', at: AT },
+        {
+          turns: [
+            { ...closedTurn('submitted', 'operator'), id: 'T6' },
+            closedTurn('submitted', 'operator'),
+          ],
+          submission: sameSha,
+          why: { ...taskGet().why, column: 'review', pendingSubmit: PENDING },
+        },
+      ),
+    );
+    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
   });
 
   it('stops promising a confirmation once another submission replaced the own one', async () => {

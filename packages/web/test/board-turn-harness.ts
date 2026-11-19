@@ -69,12 +69,14 @@ export async function open(
   answer: unknown = orchestratorTaskGet(),
   update?: UpdateOptions,
   rows: unknown[] = [row('ex/repo#7', 'review', { prs: [prFacts(HEAD)] })],
+  /** The `?open=` value: the full key by default, `repo%237` for the short one. */
+  openKey = 'ex%2Frepo%237',
 ) {
   const d = daemon();
   const calls: Call[] = [];
   serve(d, rows, reviewConfig);
   setTask(d, answer);
-  history.replaceState(null, '', '/?open=ex%2Frepo%237');
+  history.replaceState(null, '', `/?open=${openKey}`);
   mount(
     {
       ...d,

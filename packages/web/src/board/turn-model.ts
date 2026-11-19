@@ -176,8 +176,8 @@ function settledSubmit(
 /**
  * How an own submit of turn `turn.id` stands in the latest read, or none while that read is from
  * before the submit (the turn still open there). The submission that closed the turn settles it;
- * else it waits only while it is the pending submit the dispatcher tracks, `why.pendingSubmit` of
- * the current visit (`readPendingSubmit` in `packages/core/src/app/dispatch.ts`); anything else,
+ * else it waits only while the submission that closed the turn is still pending and is the one the
+ * dispatcher tracks, `why.pendingSubmit` of the current visit (`readPendingSubmit` in `packages/core/src/app/dispatch.ts`); anything else,
  * a replacement, a new visit or a task gone from the column, waits for nothing.
  */
 export function ownSubmitSeen(
@@ -189,7 +189,12 @@ export function ownSubmitSeen(
   if (value.turn?.id === turn.id) return undefined;
   const settled = settledSubmit(value.submission, record);
   if (settled !== undefined) return settled;
-  return value.why?.pendingSubmit?.sha === own.sha ? 'pending' : 'counted';
+  // `pendingSubmit` names only a SHA; the latest submission ties it to this turn: the one that
+  // closed it, at its close instant, so a same-SHA submit of a replacement turn never counts.
+  const closing = closingSubmission(value.submission, record);
+  return closing?.pending === true && value.why?.pendingSubmit?.sha === own.sha
+    ? 'pending'
+    : 'counted';
 }
 
 /**

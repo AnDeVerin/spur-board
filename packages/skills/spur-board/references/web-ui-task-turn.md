@@ -98,15 +98,15 @@ the notice.
 
 After a close the section keeps a focused status line, `T<n> submitted.` or `T<n> returned to
 dev.`, even when the task then has no open turn. A submit the Board still has to confirm adds
-`The board confirms the head on its next polls.` only while the Board tracks it as the pending
-submit of the current visit; once it settled, was replaced or left the visit, it never waits
+`The board confirms the head on its next polls.` only while the Board tracks this turn's submit as the
+pending submit of the current visit; once it settled, was replaced or left the visit, it never waits
 again. A voided one says it no longer counts for the gates, and asks for another submit only when
 the work went back to Dev; a Done wrap-up turn does not count. A turn the same write opened shows
 below.
 
 A Board update waits to reload the page while the ack and the close run, even when the task view
-closes first, so it never leaves the operator holding a turn mid-close. A view reopened while
-such a send runs keeps its send disabled and says the earlier send is still running. An unsent
+closes first, so it never leaves the operator holding a turn mid-close. A view reopened, by a short or
+full key, while such a send runs keeps its send disabled and says the earlier send is still running. An unsent
 draft survives that reload and comes back only in the same form of the same turn: a return keeps
 its reason; a submit changed in any way from how it opened, a basis chosen or a commit edited
 included, keeps its commit, basis, source and reason together.

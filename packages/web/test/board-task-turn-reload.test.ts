@@ -182,6 +182,34 @@ describe('Turn section after a reload', () => {
     expect(writes()).toEqual([]);
   });
 
+  it('blocks a send from the full key while one started from the short key runs', async () => {
+    const { d, writes } = await open(undefined, undefined, undefined, 'repo%237');
+    const ack = deferred();
+    const answer = d.routes['inbox.ack'];
+    d.routes['inbox.ack'] = () => ack.promise;
+    await click('Submit…');
+    act(() => {
+      form().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    const close = document.querySelector('[role="dialog"] [aria-label="Close"]');
+    if (!close) throw new Error('no Close');
+    press(close, 'click');
+    await settle();
+    // The board card opens the full key.
+    const card = document.querySelector('main a[title="ex/repo#7"]');
+    if (!card) throw new Error('no card');
+    press(card, 'click');
+    await settle();
+    expect(location.search).toContain('ex%2Frepo%237');
+    await click('Return to dev…');
+    type(reason(), 'Fix the parser.');
+    expect(confirmation().primary?.disabled).toBe(true);
+    await send();
+    expect(writes().filter((call) => call.op === 'task.return')).toEqual([]);
+    ack.resolve(await answer({ entries: [{ id: 'T5' }] }));
+    await settle();
+  });
+
   it('blocks a second send of the turn from a reopened view while the first one runs', async () => {
     const daemonVersion = { value: '0.4.0' };
     const session = memorySession();

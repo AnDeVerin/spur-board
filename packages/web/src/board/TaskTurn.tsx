@@ -143,7 +143,8 @@ export function TaskTurn({
   const draftOpen = bound && form ? { turn: bound.turn.id, form } : undefined;
   const openedSha = useRef('');
   const text = form ? draftText(form, { sha, basis, from, reason }, openedSha.current) : '';
-  const draft = useTurnDraft(drafts, taskKey, draftOpen, text);
+  // Keyed by the canonical key: a short link and a board card reach the same sends and drafts.
+  const draft = useTurnDraft(drafts, value.task.key, draftOpen, text);
   const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
   const closed = bound !== undefined && !boundOpen && !inFlight;
   const blocked =
