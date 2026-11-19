@@ -1,28 +1,7 @@
 # Columns and executors
 
 `board columns describe [--project <project>]` (`columns_describe` in MCP) reads
-visible enabled columns' exits, returns, executors and escalation timing.
-JSON: IDs; terminal: readable text. Cumulative rules appear once per owner.
-Task state: `board task <KEY> --why`.
-Named sessions: doctor's live project selection. Orchestrator recipients
-(curator turns too) may use live authors/task-linked sessions.
-Curator questions/course checks use its selected session. Executor turns/ordinary
-orchestrator questions await recipients; curator questions and agent course checks
-fall back to the operator. `escalation.silent` uses per-column `quietTurnAfterMs`
-for named turns, global idle timing for workers. `escalation.noRecipient` uses
-`noRecipientAfterMs` for untaken named turns; it raises an item without rerouting.
-
-`exit.to` is null at Done and the last enabled stage before it. Green checks and
-an open PR do not complete work. `completion` bypasses gates (Ready to Merge too): eligible merged PR + done ticket, or done ticket with
-no open PR/live worker after fresh, complete, non-blind observations of every
-repo and Spur since task change. Done means GitHub `closed` or Jira
-`doneStatuses`; text names statuses/tracker interval. After merge,
-missing/unconfirmed tickets hold dispatch. Open tickets resume without that PR after one tracker interval,
-observed in-filter or manually included;
-dropped-filter evidence stays unconfirmed. Blind GitHub/pending submits hold both
-routes. Exclude archived tasks; links: unbanned/past the reopen floor.
-Missing/unreadable PR facts (chosen/fallback) hold. Cycle holds allow
-completion. Dispatcher `on` applies moves; `shadow` computes shadow position.
+column/exit/completion policy. Task facts: `board task <KEY> --why`.
 
 ## Columns and executors
 
@@ -32,28 +11,35 @@ completion. Dispatcher `on` applies moves; `shadow` computes shadow position.
 To Do, Dev, Done stay enabled. `triage` is off unless `columns` lists it.
 
 The Todo group is `todo`, `triage` and `ready-for-dev`: the dispatcher never moves a task between them.
-Open PR/live worker skips the group to Dev. New/reopened tasks enter `todo`,
-including reopen with a hidden PR from another group column.
+Open PR/live worker skips the group to Dev. New/reopened tasks enter `todo`.
 
-`board move <task> <column> --reason <text> --key <key>` defaults to manual;
-Explicit `--manual`. MCP: `task_move`, `mode: manual`; also operator web API.
-Operators only. Require enabled Todo-group source/target, else
-`move_outside_todo_group`. Eligible unbanned open PRs (including conflict links) or
-live linked workers give `work_started`.
+Manual: operator-only; enabled Todo-group endpoints, else
+`move_outside_todo_group`; eligible unbanned open PRs (conflicts too) or live linked
+workers give `work_started`. CLI defaults to manual (`--manual`); MCP uses
+`task_move`, `mode: manual`; also operator web API.
+Both modes: real column, new visit at end (same-column too).
+Idle preserves placement; work/completion/reopen follow facts. Ties: journal
+order; saved reverse-time/key sorts win. Require non-blank literal reason
+(max 20,000 UTF-16 units) and explicit non-blank key; retry identical input/key.
+Exact reason in events/move views; history normalizes whitespace to one line.
 
-Manual moves change the real column in both modes: a fresh visit at target end,
-even same-column moves. Idle ticks keep placement; work/completion/reopen follow
-facts. Timestamp ties use journal order; saved reverse-time/key sorts win.
-Reason: non-blank, max 20,000 UTF-16 units, literal in events/move views; history
-normalizes whitespace to one line. Key: explicit, non-blank; retry identical input
-with the same key. `--correct` retains correction/settling behavior.
+Normal moves are automatic; commands below are operator placement. `--correct`
+repairs enabled non-Done columns then settles gates. Dev return:
+`board return <turn> <reason>`. QA: `board submit <turn> <sha>` records evidence;
+the dispatcher moves.
 
-| Placement             | Owner             |
-| --------------------- | ----------------- |
-| New/reopen to `todo`  | Dispatcher        |
-| Idle Todo-group move  | Operator: manual  |
-| Work/completion/gates | Dispatcher        |
-| Repair and settle     | Operator: correct |
+| Column            | Position source                | Who moves                    | Command                                                       |
+| ----------------- | ------------------------------ | ---------------------------- | ------------------------------------------------------------- |
+| `todo`            | New/reopened; manual           | Dispatcher/operator          | `board move <task> todo --reason <text> --key <key>`          |
+| `triage`          | Manual                         | Operator                     | `board move <task> triage --reason <text> --key <key>`        |
+| `ready-for-dev`   | Manual                         | Operator                     | `board move <task> ready-for-dev --reason <text> --key <key>` |
+| `dev`             | Work start/gate failure/return | Dispatcher/executor/operator | `board move <task> dev --correct --reason <text>`             |
+| `review`          | Gates: internal review         | Dispatcher/operator          | `board move <task> review --correct --reason <text>`          |
+| `product-review`  | Gates: product review          | Dispatcher/operator          | `board move <task> product-review --correct --reason <text>`  |
+| `external-review` | Gates: external approval       | Dispatcher/operator          | `board move <task> external-review --correct --reason <text>` |
+| `qa`              | Gates: QA confirmation         | Dispatcher/operator          | `board move <task> qa --correct --reason <text>`              |
+| `ready-to-merge`  | Gates: merge                   | Dispatcher/operator          | `board move <task> ready-to-merge --correct --reason <text>`  |
+| `done`            | Completion: PR/ticket facts    | Dispatcher                   | None (automatic)                                              |
 
 No mirroring config; reserved `column_mirrored` directs status to the named project.
 `board config get`: `group: todo`; `board status`: `columnGroups`.
