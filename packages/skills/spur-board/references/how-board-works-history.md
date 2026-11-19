@@ -30,6 +30,6 @@ Checks count the required ones, else all but skipped. A facts row leaves out wha
 other rows say (head, checks, PR state, mergeability, reviews, ticket status) and
 update and activity times; with nothing else changed it is not shown.
 
-Manual move event payloads and `task get --why` move text preserve the literal
+Manual move event payloads and `board task <KEY> --why` move text preserve the literal
 reason. History summaries normalize whitespace to one line and display plain text;
 markup-like text is never interpreted as HTML or a Slack mention.

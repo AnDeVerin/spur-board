@@ -1,5 +1,5 @@
 {
-  "version": "ff484205644782343dfc9f68eb0d7d4a784ebf64295281557e6c904fa81f96e3",
+  "version": "708d5af721ba97a01a8da3c8a07b2a27c0f4fdde7d2434f012a10f3932301fb2",
   "grants": [
     "operator",
     "project-agent",
@@ -11154,7 +11154,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 20000,
-                "description": "Why the column is corrected, kept in the journal."
+                "description": "Literal reason for manual placement or correction, kept in the journal."
               }
             },
             "required": ["mode", "task", "column", "reason"],

@@ -623,7 +623,7 @@ Arguments: `<task> <column>`.
 
 Flags:
 
-`--reason <value>` — Why the column is corrected, kept in the journal.
+`--reason <value>` — Literal reason for manual placement or correction, kept in the journal.
 `--manual` — Place an idle task inside the Todo group.
 `--correct` — Correct a wrong column by hand.
 `--key <key>` — Idempotency key for this action.

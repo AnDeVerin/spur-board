@@ -934,6 +934,11 @@ describe('catalog commands', () => {
   });
 
   it('shows the generated revision and mode-value syntax in help', async () => {
+    const move = capture();
+    expect(await runCli(['move', '--help'], { env: {}, io: move.io })).toBe(0);
+    expect(move.stdout).toMatch(
+      /--reason <value>\s+Literal reason for manual placement or correction/,
+    );
     const ack = capture();
     expect(await runCli(['inbox', 'ack', '--help'], { env: {}, io: ack.io })).toBe(0);
     expect(ack.stdout).toContain('board inbox ack C3@1');

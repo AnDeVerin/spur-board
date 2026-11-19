@@ -277,7 +277,8 @@ describe('how the Board works guide', () => {
       topic: 'web',
       clauses: [
         /second loopback listener serves browser\s*assets/,
-        /Only `comment.add`, `block.answer`, `block.followup` and `item.close` are\s+enabled writes/,
+        /Enabled writes are `comment.add`, `block.answer`, `block.followup`, `item.close` and\s+`task.move`/,
+        /Task moves use the operator API; the shell has no move control/,
         /a failed bind does not stop the agent API/,
       ],
       keys: ['web.port', 'web.publicOrigin'],

@@ -30,7 +30,7 @@ export const taskMoveInputSchema = z.discriminatedUnion('mode', [
       .string()
       .min(1)
       .max(20_000)
-      .describe('Why the column is corrected, kept in the journal.'),
+      .describe('Literal reason for manual placement or correction, kept in the journal.'),
   }),
 ]);
 
