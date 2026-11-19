@@ -23,7 +23,7 @@ export const PHASE: Record<TurnPhase, string> = {
   closing: 'Closing the turn',
 };
 /** A close by anything but a submit or a return names no closer: the read does not know one. */
-export const OUTCOME: Record<string, string> = {
+const OUTCOME: Record<string, string> = {
   moved: 'the task was moved',
   corrected: 'the column was corrected',
   rerouted: 'the turn went to another executor',
@@ -55,7 +55,7 @@ export function reasonError(value: string, max: number): string | undefined {
  * The fold summary names an actor by its session alone, cut to `BRIEF_MAX` characters, so a long
  * session id leaves the section title room; the turn line and the notice keep the full name.
  */
-export function brief(actor: string): string {
+function brief(actor: string): string {
   const short = actor === 'operator' ? 'you' : actorName(actor);
   return short.length > BRIEF_MAX ? `${short.slice(0, BRIEF_MAX - 1)}…` : short;
 }
