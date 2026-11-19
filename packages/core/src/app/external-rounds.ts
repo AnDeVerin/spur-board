@@ -24,9 +24,10 @@ type Project = Config['projects'][number];
  * one `external_round` for each external change request on the open PR that came after the task
  * entered Dev, on a head not yet counted under External Review: by an earlier round or by a
  * return counted there, resets ignored, and not while the PR's GitHub source is `blind` (no
- * complete poll since the start, or blind). Then, with no cycle-limit or course-check item open,
- * raises External Review's course check once its rounds since the last check reach its
- * `courseCheck`, returns alone included: a return that reached it while another item was open.
+ * complete poll since the start, or blind). Then, with the PR still open and no cycle-limit or
+ * course-check item open, raises External Review's course check once its rounds since the last
+ * check reach its `courseCheck`, returns alone included: a return that reached it while another
+ * item was open.
  */
 export async function recordExternalRounds(
   trx: Trx,
@@ -84,6 +85,8 @@ export async function recordExternalRounds(
       }
     }
   }
+  // A merged or closed PR completes or leaves the task in this pass: completion goes first.
+  if (pr?.state !== 'open') return;
   const open = await trx
     .selectFrom('operator_item')
     .select('id')

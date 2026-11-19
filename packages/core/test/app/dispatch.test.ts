@@ -4180,6 +4180,25 @@ describe('external change-request rounds', () => {
     },
   );
 
+  it('a merge seen with a deferred External Review check finishes the task without it', async () => {
+    const ctx = await inReview({
+      externalReview: true,
+      curator: true,
+      cycleLimit: 1,
+      externalCourseCheck: 1,
+    });
+    await externalReturn(ctx, A);
+    const [limit] = await itemsOf(ctx, 'cycle_limit');
+    expect(limit?.item_key).toBe('cycle-limit:1:review');
+    await ctx.closeItem(`I${String(limit?.id)}`);
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+
+    await ctx.pr({ state: 'merged' });
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+  });
+
   it('repeated change requests on one head count once', async () => {
     const ctx = await inDev({ externalReview: true, curator: true });
     await devRound(ctx, B);
