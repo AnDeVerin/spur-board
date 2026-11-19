@@ -1,5 +1,5 @@
 import { act, createElement, Fragment, useRef, useState, type ReactNode } from 'react';
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import { HoverMenu, Modal, Popover, type HoverMenuItem } from '../src/ds/index.ts';
 import { dialogs } from './ds-layers-helpers.ts';
 
@@ -189,8 +189,25 @@ export const box = (
   away,
 });
 
-/** Restores the window size, the anchor box and the scroller after each test. */
+/** Stubs the window and the anchor box before each test, and restores them after it. */
+/**
+ * Emulates a browser that does not focus an element it does not render: one inside a popover
+ * hidden by `data-away`. happy-dom would focus it.
+ */
+export const refuseHiddenFocus = () => {
+  type Focus = (this: HTMLElement, options?: FocusOptions) => void;
+  const focus: Focus = Reflect.get(HTMLElement.prototype, 'focus');
+  vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (
+    this: HTMLElement,
+    options?: FocusOptions,
+  ) {
+    if (!this.closest('[data-away]')) focus.call(this, options);
+  });
+};
+
 export function stubEachTest(): void {
+  // A shown panel by default: without a window size happy-dom gives an empty view, which hides it.
+  beforeEach(anchorRect);
   afterEach(() => {
     Reflect.deleteProperty(document.documentElement, 'clientWidth');
     Reflect.deleteProperty(document.documentElement, 'clientHeight');

@@ -23,6 +23,7 @@ import {
   opened,
   placement,
   popover,
+  refuseHiddenFocus,
   stubAnchorRect,
   stubEachTest,
 } from './ds-popover-helpers.ts';
@@ -183,6 +184,11 @@ describe('Popover', () => {
     frame();
     expect(write).not.toHaveBeenCalled();
     expect(frames.size).toBe(1);
+    // Segmented tabs wrap: the header grows, and the least height follows it.
+    const header = opened().firstElementChild as HTMLElement;
+    Object.defineProperty(header, 'offsetHeight', { configurable: true, get: () => 66 });
+    frame();
+    expect(opened().style.getPropertyValue('--popover-header')).toBe('66px');
     press(button('Help'));
     expect(popover()).toBeUndefined();
     expect(frames.size).toBe(0);
@@ -263,22 +269,24 @@ describe('Popover', () => {
     }
   });
 
-  it('reads the current anchor and trigger after the caller swaps their refs', () => {
+  it('reads the current anchor and trigger, a trigger outside the anchor, after a swap', () => {
     const onClose = vi.fn();
+    // Anchors One and Two, each with its trigger outside it, Help one and Help two.
     function Swap({ second }: { second: boolean }) {
       const refs = [useRef<HTMLButtonElement>(null), useRef<HTMLButtonElement>(null)] as const;
-      const current = refs[second ? 1 : 0];
+      const triggers = [useRef<HTMLButtonElement>(null), useRef<HTMLButtonElement>(null)] as const;
+      const names = ['One', 'Two', 'Help one', 'Help two'];
       return createElement(
         Fragment,
         null,
-        ['One', 'Two'].map((name, index) =>
-          createElement('button', { key: name, type: 'button', ref: refs[index] }, name),
+        [...refs, ...triggers].map((ref, index) =>
+          createElement('button', { key: index, type: 'button', ref }, names[index]),
         ),
         createElement(Popover, {
           open: true,
           onClose,
-          anchor: current,
-          trigger: current,
+          anchor: refs[second ? 1 : 0],
+          trigger: triggers[second ? 1 : 0],
           title: 'T',
           children: 'Body',
         }),
@@ -286,16 +294,22 @@ describe('Popover', () => {
     }
     render(createElement(Swap, { second: false }));
     render(createElement(Swap, { second: true }));
-    mouse('mousedown', button('Two'));
-    expect(onClose).not.toHaveBeenCalled();
+    // The current anchor and the current trigger are not outside; the old ones are.
+    for (const [name, closes] of [
+      ['Two', 0],
+      ['Help two', 0],
+      ['One', 1],
+      ['Help one', 2],
+    ] as const) {
+      mouse('mousedown', button(name));
+      expect(onClose, name).toHaveBeenCalledTimes(closes);
+    }
     act(() => {
       button('Close', opened()).focus();
     });
     key('Escape');
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(document.activeElement).toBe(button('Two'));
-    mouse('mousedown', button('One'));
-    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onClose).toHaveBeenCalledTimes(3);
+    expect(document.activeElement).toBe(button('Help two'));
   });
 
   it('measures on open as a child of its anchor, whose ref attaches after its layout effect', () => {
@@ -315,8 +329,30 @@ describe('Popover', () => {
         }),
       );
     }
-    render(createElement(Inside));
+    const opener = createElement('button', { key: 'opener', type: 'button' }, 'Opener');
+    render([opener]);
+    act(() => {
+      button('Opener').focus();
+    });
+    refuseHiddenFocus();
+    render([opener, createElement(Inside, { key: 'inside' })]);
     expect(placement()).toEqual(box(100, 420, 20, 40, null));
+    // Something held focus at open: the move to Close waits until the panel is shown.
+    expect(document.activeElement).toBe(button('Close', opened()));
+  });
+
+  it('with focus on body, Escape closes the most recent shown surface, else a hidden one', () => {
+    anchorRect();
+    // The hidden popover opens last: its anchor is not mounted.
+    for (const shown of [true, false]) {
+      const hidden = createElement(Harness, { key: 'hidden', initial: true, attached: false });
+      render(createElement(Fragment, null));
+      render([shown && createElement(Harness, { key: 'shown', initial: true }), hidden]);
+      const away = () => dialogs().map((dialog) => dialog.hasAttribute('data-away'));
+      expect(away()).toEqual(shown ? [false, true] : [true]);
+      key('Escape');
+      expect(away(), String(shown)).toEqual(shown ? [true] : []);
+    }
   });
 
   it('a HoverMenu and a Popover: Escape closes the focused one, else the most recent', () => {

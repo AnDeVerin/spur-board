@@ -25,7 +25,8 @@ export type HoverMenuItem<V extends string> = {
 /** Both menu item roles, in DOM order: the roving focus and the open target walk these. */
 const itemSelector = '[role="menuitemradio"], [role="menuitem"]';
 
-export type OpenMenu = { root: HTMLElement; escape: () => void };
+/** An open surface; `hidden` tells when it is not shown, as a Popover whose anchor left. */
+export type OpenMenu = { root: HTMLElement; escape: () => void; hidden?: () => boolean };
 
 /**
  * Open menus and popovers in registration order; one document key listener serves them all while
@@ -35,7 +36,8 @@ const openMenus: OpenMenu[] = [];
 
 /**
  * Closes one menu or popover per Escape: the innermost live entry holding focus (one whose root
- * contains no other live entry holding focus), else the most recently registered live one. An
+ * contains no other live entry holding focus), else the most recently registered live one that
+ * is shown (not inside a `hidden` entry), else the most recently registered live one. An
  * entry under a layer (inside an `inert` element) is not live. The listener sits on `document`,
  * so it runs before the layer's `window` listener, which skips the handled event.
  */
@@ -43,10 +45,17 @@ function onEscape(event: globalThis.KeyboardEvent): void {
   if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
   const live = openMenus.filter((menu) => menu.root.closest('[inert]') === null);
   const focused = live.filter((menu) => menu.root.contains(document.activeElement));
+  // A surface inside a hidden one is hidden too.
+  const shown = live.filter(
+    (menu) =>
+      !openMenus.some((other) => other.hidden?.() === true && other.root.contains(menu.root)),
+  );
   const target =
     focused.find(
       (menu) => !focused.some((other) => other !== menu && menu.root.contains(other.root)),
-    ) ?? live.at(-1);
+    ) ??
+    shown.at(-1) ??
+    live.at(-1);
   if (!target) return;
   event.preventDefault();
   target.escape();

@@ -27,22 +27,24 @@ import styles from './Popover.module.css';
  * an absolute anchor is clipped only from its nearest positioned ancestor up, and a fixed one by
  * none. An empty visible area (a scroller wholly outside the window) is not in view. An anchor out
  * of view, out of the window or clipped away by a scroller such as a board strip, hides the panel
- * (`visibility: hidden`, so its controls leave the tab order too) and the panel still follows it
- * out, by the anchor's right edge on the left side. With no anchor (its element unmounted while
- * the panel stays open) the panel hides the same way until the ref attaches again.
+ * (`display: none`, so nothing inside can show itself and its controls leave the tab order). With
+ * no anchor (its element unmounted while the panel stays open, or not attached yet when both mount
+ * in one commit) the panel hides the same way until the ref attaches.
  *
  * Near the bottom of the window its height shrinks to the space under the anchor, down to
- * `--space-2` above the window edge, and the body scrolls. With less space than the header and
- * one standard control (`--size-control`) in the padded body need, the panel moves up just enough
- * to keep them in view and may cover the bottom of the anchor; it never flips above the anchor.
+ * `--space-2` above the window edge, and the body scrolls. With less space than the header as
+ * rendered (measured each frame, so tabs that wrap to two rows count) and one standard control
+ * (`--size-control`) in the padded body need, the panel moves up just enough to keep them in view
+ * and may cover the bottom of the anchor; it never flips above the anchor.
  * It is never shorter than that least height, so it slides out whole with an anchor whose top is
  * below the window. At 375px it fills the window width less `--space-2` on each side, still under
  * its anchor: not a bottom sheet.
  *
  * Focus: `trigger` is the element that opens the panel (the caller's control with
  * `aria-expanded`); the opener is the element focused at the first render. With an opener, focus
- * moves to Close on open; with none (focus on `body`, as after a click in Safari or an open from
- * the URL), focus stays put. Escape and Close call `onClose` and return focus to `trigger`, else,
+ * moves to Close on open, or on the first placement that shows the panel when it opens hidden;
+ * with none (focus on `body`, as after a click in Safari or an open from the URL), focus stays
+ * put. Escape and Close call `onClose` and return focus to `trigger`, else,
  * while it is not attached, to the opener: in Safari a click does not focus the trigger, so the
  * opener may be an unrelated control. Close always returns it; Escape only when focus was inside
  * the panel or on `body`. Every handler (placement, the press outside, Escape and Close) reads the
@@ -50,17 +52,18 @@ import styles from './Popover.module.css';
  * focus move, the one to Close on open included, uses `preventScroll`: returning to a trigger
  * scrolled out of its strip leaves the strip where it is.
  *
- * A `mousedown` outside the panel and the anchor calls `onClose` and moves no focus; the anchor
- * is not outside, so its own click toggles. Under a layer (inside an `inert` element), as when a
- * `Modal` opened from the panel portals to `body`, no press is outside: the popover stays open
- * under the layer. A `pointerdown` alone never closes it, so a touch scroll of the board keeps it
- * open, while a tap still closes it through the compatibility `mousedown`. Leaving the panel by
- * Tab does not close it.
+ * A `mousedown` outside the panel, the anchor and the trigger calls `onClose` and moves no focus;
+ * the anchor and the trigger are not outside, so the trigger's own click toggles. Under a layer
+ * (inside an `inert` element), as when a `Modal` opened from the panel portals to `body`, no press
+ * is outside: the popover stays open under the layer. A `pointerdown` alone never closes it, so a
+ * touch scroll of the board keeps it open, while a tap still closes it through the compatibility
+ * `mousedown`. Leaving the panel by Tab does not close it.
  *
  * Escape is shared with `HoverMenu`: one Escape closes one surface, the innermost open menu or
  * popover holding focus (a menu inside the panel before the panel), else the most recently
- * opened. A popover under a layer (inside an `inert` element) ignores Escape; one inside a
- * `Modal` closes before the Modal. An Escape already handled or composing closes nothing.
+ * opened one that is shown, else the most recently opened hidden one. A popover under a layer
+ * (inside an `inert` element) ignores Escape; one inside a `Modal` closes before the Modal. An
+ * Escape already handled or composing closes nothing.
  *
  * The body is not a tab stop: its content must be focusable or sit in a `TabPanel`.
  *
@@ -151,7 +154,13 @@ function OpenPopover({
 }) {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
+  const header = useRef<HTMLDivElement>(null);
   const close = useRef<HTMLSpanElement>(null);
+  // The move to Close on open, held while the panel is hidden (an anchor not attached yet).
+  const pendingFocus = useRef(false);
+  const focusClose = () => {
+    close.current?.querySelector('button')?.focus({ preventScroll: true });
+  };
   // The latest props every handler reads, so none holds a ref object from an earlier render: a
   // caller may swap `anchor` or `trigger` while the panel stays open.
   const latest = useRef({ onClose, anchor, trigger });
@@ -170,6 +179,7 @@ function OpenPopover({
   const returnTarget = (): HTMLElement | null => latest.current.trigger.current ?? opener;
   // The values last written, so an unchanged frame writes nothing.
   const written = useRef('');
+  const headerWritten = useRef(0);
   // Writes the anchor's box on the panel, not in React state, and only when it changed.
   // `data-away` names the side an anchor out of view left by, `empty` when nothing of the window
   // is visible to it (a scroller wholly outside the window), or `detached` with no anchor (its
@@ -179,9 +189,8 @@ function OpenPopover({
     if (!element) return;
     const target = latest.current.anchor.current;
     if (!target) {
-      if (written.current === 'detached') return;
+      if (written.current !== 'detached') element.setAttribute('data-away', 'detached');
       written.current = 'detached';
-      element.setAttribute('data-away', 'detached');
       return;
     }
     const rect = target.getBoundingClientRect();
@@ -192,16 +201,31 @@ function OpenPopover({
     else if (rect.left >= view.right) away = 'right';
     else if (rect.bottom <= view.top) away = 'top';
     else if (rect.top >= view.bottom) away = 'bottom';
-    const values = [rect.left, rect.right, rect.top, rect.bottom, away].join(' ');
-    if (values === written.current) return;
-    written.current = values;
     const px = (value: number) => `${String(value)}px`;
-    element.style.setProperty('--popover-left', px(rect.left));
-    element.style.setProperty('--popover-right', px(rect.right));
-    element.style.setProperty('--popover-anchor-top', px(rect.top));
-    element.style.setProperty('--popover-top', px(rect.bottom));
-    if (away) element.setAttribute('data-away', away);
-    else element.removeAttribute('data-away');
+    const values = [rect.left, rect.right, rect.top, rect.bottom, away].join(' ');
+    if (values !== written.current) {
+      written.current = values;
+      element.style.setProperty('--popover-left', px(rect.left));
+      element.style.setProperty('--popover-right', px(rect.right));
+      element.style.setProperty('--popover-anchor-top', px(rect.top));
+      element.style.setProperty('--popover-top', px(rect.bottom));
+      if (away) element.setAttribute('data-away', away);
+      else element.removeAttribute('data-away');
+    }
+    if (away) return;
+    // The rendered header, which grows when its actions wrap, sets the least height. Read only
+    // while shown: a hidden panel has no box. Zero means not laid out yet.
+    const height = header.current?.offsetHeight ?? 0;
+    if (height > 0 && height !== headerWritten.current) {
+      headerWritten.current = height;
+      element.style.setProperty('--popover-header', px(height));
+    }
+    // The first placement that shows the panel takes the held move to Close, unless focus has
+    // moved on since the open.
+    if (pendingFocus.current) {
+      pendingFocus.current = false;
+      if (document.activeElement === opener) focusClose();
+    }
   };
   useLayoutEffect(() => {
     place();
@@ -232,9 +256,12 @@ function OpenPopover({
   useLayoutEffect(() => {
     const element = panel.current;
     if (!element) return;
-    if (opener) close.current?.querySelector('button')?.focus({ preventScroll: true });
+    // A hidden panel cannot take focus: hold the move until a placement shows it.
+    if (opener && element.hasAttribute('data-away')) pendingFocus.current = true;
+    else if (opener) focusClose();
     const entry: OpenMenu = {
       root: element,
+      hidden: () => element.hasAttribute('data-away'),
       escape: () => {
         const active = document.activeElement;
         const inside = !active || active === document.body || element.contains(active);
@@ -246,7 +273,9 @@ function OpenPopover({
       const target = event.target;
       // Under a layer, such as a Modal opened from the panel, a press on the layer is not outside.
       if (!(target instanceof Node) || element.closest('[inert]')) return;
-      if (element.contains(target) || latest.current.anchor.current?.contains(target)) return;
+      // The anchor and the trigger are not outside, so the trigger's own click toggles.
+      const { anchor: current, trigger: opens } = latest.current;
+      if ([element, current.current, opens.current].some((node) => node?.contains(target))) return;
       latest.current.onClose();
     };
     document.addEventListener('mousedown', outside);
@@ -258,7 +287,7 @@ function OpenPopover({
   }, []);
   return (
     <div ref={panel} className={styles.root} role="dialog" aria-labelledby={titleId}>
-      <div className={styles.header}>
+      <div ref={header} className={styles.header}>
         <span id={titleId} className={styles.title}>
           {title}
         </span>

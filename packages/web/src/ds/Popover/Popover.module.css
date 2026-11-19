@@ -5,11 +5,13 @@
    extend past the panel. */
 .root {
   --popover-width: min(var(--size-popover), 100% - var(--space-2) - var(--space-2));
-  /* The least height: the header row with its hairline, the body padding around room for one
-     standard control, and the two borders. */
+  /* The least height: the header as rendered (Popover.tsx writes --popover-header; a one-row
+     header with its hairline until then), the body padding around room for one standard
+     control, and the two borders. */
   --popover-least: calc(
-    var(--size-section-header) + var(--size-hairline) + var(--space-1) + var(--size-control) +
-      var(--space-3) + var(--size-hairline) + var(--size-hairline)
+    var(--popover-header, calc(var(--size-section-header) + var(--size-hairline))) +
+      var(--space-1) + var(--size-control) + var(--space-3) + var(--size-hairline) +
+      var(--size-hairline)
   );
   /* Under the anchor; near the bottom, up just enough for the least height. The lower bound
      only acts once the anchor's top is below the window: the panel then follows it out. */
@@ -35,16 +37,10 @@
   border: var(--size-hairline) solid var(--color-border-strong);
   box-shadow: var(--shadow-popover);
 }
-/* The anchor out of view: the panel hides, which also takes its controls out of the tab order,
-   and still follows the anchor out. */
+/* The anchor out of view or not attached: the panel is not rendered, so no descendant can show
+   itself and its controls leave the tab order. Placement reads only the anchor. */
 .root[data-away] {
-  left: var(--popover-left);
-  visibility: hidden;
-}
-/* Out by the left edge: the panel's right edge at or left of the anchor's, even when the anchor
-   is narrower than the panel. */
-.root[data-away='left'] {
-  left: min(var(--popover-left), var(--popover-right) - var(--popover-width));
+  display: none;
 }
 /* Content-box, as the prototype: the hairline sits under a full section-header row, so an
    underline tablist stretched to the row is the full section-header height. */

@@ -48,7 +48,7 @@ describe('Popover styles', () => {
     // The header row (content-box, with its hairline), the body padding, room for one standard
     // control in the body, and the root's borders.
     expect(root).toContain(
-      '--popover-least: calc(var(--size-section-header) + var(--size-hairline) + var(--space-1) + var(--size-control) + var(--space-3) + var(--size-hairline) + var(--size-hairline))',
+      '--popover-least: calc(var(--popover-header, calc(var(--size-section-header) + var(--size-hairline))) + var(--space-1) + var(--size-control) + var(--space-3) + var(--size-hairline) + var(--size-hairline))',
     );
     expect(rule('.header')).toEqual(
       expect.arrayContaining([
@@ -80,12 +80,11 @@ describe('Popover styles', () => {
     expect(rule('.title')).toEqual(expect.arrayContaining(['flex: 0 1 auto', 'min-width: 0']));
   });
   it('leaves the window wholly with an anchor scrolled out', () => {
-    // Not in view: hidden, which also takes its controls out of the tab order.
-    expect(rule('.root[data-away]')).toEqual(['left: var(--popover-left)', 'visibility: hidden']);
-    // An anchor narrower than the panel: its right edge, not its left, takes the panel out.
-    expect(rule(".root[data-away='left']")).toEqual([
-      'left: min(var(--popover-left), var(--popover-right) - var(--popover-width))',
-    ]);
+    // Not in view: not rendered, so no descendant can show itself and its controls leave the tab
+    // order. Its position no longer matters, so no other rule keys on the side.
+    expect(rule('.root[data-away]')).toEqual(['display: none']);
+    expect(source).not.toContain("[data-away='");
+    expect(source).not.toContain('visibility');
   });
   it('has one layout at every width: at 375px it fills the window less --space-2 a side', () => {
     expect(source).not.toContain('@media');
