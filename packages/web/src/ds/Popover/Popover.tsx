@@ -28,8 +28,9 @@ import styles from './Popover.module.css';
  * none. An empty visible area (a scroller wholly outside the window) is not in view. An anchor out
  * of view, out of the window or clipped away by a scroller such as a board strip, hides the panel
  * (`display: none`, so nothing inside can show itself and its controls leave the tab order). A
- * hide that would take focus with it moves focus to the trigger first, and the panel showing again
- * gives it back, unless the element left the panel or focus moved on from the trigger. With
+ * hide that would take focus with it moves focus to the trigger first (to body when the trigger
+ * unmounted too), and the panel showing again gives it back, unless the element left the panel or
+ * focus moved on from the trigger or body. With
  * no anchor (its element unmounted while the panel stays open, or not attached yet when both mount
  * in one commit) the panel hides the same way until the ref attaches.
  *
@@ -191,18 +192,21 @@ function OpenPopover({
       element.contains(active)
     ) {
       parked.current = active;
-      returnTarget()?.focus({ preventScroll: true });
+      // With no trigger in the document (it unmounted with the anchor) focus falls to body.
+      const target = returnTarget();
+      if (target?.isConnected) target.focus({ preventScroll: true });
     }
     element.setAttribute('data-away', away);
   };
   // Shown again: focus goes back where it was, unless the element left the panel or focus moved
-  // on from the trigger meanwhile.
+  // on meanwhile from where the hide left it, the trigger or body.
   const show = (element: HTMLElement) => {
     element.removeAttribute('data-away');
     const held = parked.current;
     parked.current = null;
-    if (held?.isConnected && element.contains(held) && document.activeElement === returnTarget())
-      held.focus({ preventScroll: true });
+    const active = document.activeElement;
+    const waiting = !active || active === document.body || active === returnTarget();
+    if (held?.isConnected && element.contains(held) && waiting) held.focus({ preventScroll: true });
   };
   // The values last written, so an unchanged frame writes nothing.
   const written = useRef('');

@@ -126,24 +126,41 @@ describe('Popover', () => {
         document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
       });
     };
-    for (const movedOn of [false, true]) {
+    // stay: the anchor scrolls out and back; movedOn: the user focuses Other meanwhile; detached:
+    // the column head (anchor and trigger together) unmounts and mounts again.
+    for (const how of ['stay', 'movedOn', 'detached'] as const) {
+      const harness = (attached: boolean) =>
+        createElement(Harness, { children: control, after: other, attached });
       render(createElement(Fragment, null));
-      render(createElement(Harness, { initial: true, children: control, after: other }));
+      render(harness(true));
+      press(button('Help'));
       act(() => {
         button('Body control', opened()).focus();
       });
-      // The anchor scrolls wholly out: the panel hides, and focus goes to the trigger first.
-      scroll(-400);
-      expect(opened().getAttribute('data-away')).toBe('left');
-      expect(document.activeElement).toBe(button('Help'));
-      if (movedOn)
+      if (how === 'detached') {
+        render(harness(false));
+        scroll(100);
+        expect(opened().getAttribute('data-away')).toBe('detached');
+        // No trigger to move to: the browser drops focus from the hidden panel to body.
+        expect(document.activeElement).toBe(button('Body control', opened()));
+        act(() => {
+          (document.activeElement as HTMLElement).blur();
+        });
+        render(harness(true));
+      } else {
+        // The anchor scrolls wholly out: the panel hides, and focus goes to the trigger first.
+        scroll(-400);
+        expect(opened().getAttribute('data-away')).toBe('left');
+        expect(document.activeElement).toBe(button('Help'));
+      }
+      if (how === 'movedOn')
         act(() => {
           button('Other').focus();
         });
       scroll(100);
       expect(opened().hasAttribute('data-away')).toBe(false);
-      expect(document.activeElement, String(movedOn)).toBe(
-        movedOn ? button('Other') : button('Body control', opened()),
+      expect(document.activeElement, how).toBe(
+        how === 'movedOn' ? button('Other') : button('Body control', opened()),
       );
     }
   });
