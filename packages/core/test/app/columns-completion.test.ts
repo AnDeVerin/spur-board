@@ -229,7 +229,7 @@ const ticketEvidence = [
   {
     name: 'done ticket',
     status: 'done',
-    afterInterval: false,
+    changedAfterMerge: false,
     inFilter: true,
     manual: false,
     column: 'done',
@@ -238,25 +238,25 @@ const ticketEvidence = [
   {
     name: 'missing ticket',
     status: 'missing',
-    afterInterval: false,
+    changedAfterMerge: false,
     inFilter: true,
     manual: false,
     column: 'ready-to-merge',
     unconfirmed: true,
   },
   {
-    name: 'open before interval',
+    name: 'open, untouched since merge, observed past interval',
     status: 'open',
-    afterInterval: false,
+    changedAfterMerge: false,
     inFilter: true,
     manual: false,
     column: 'ready-to-merge',
     unconfirmed: true,
   },
   {
-    name: 'confirmed open in filter',
+    name: 'open, changed after merge in filter',
     status: 'open',
-    afterInterval: true,
+    changedAfterMerge: true,
     inFilter: true,
     manual: false,
     column: 'dev',
@@ -265,25 +265,25 @@ const ticketEvidence = [
   {
     name: 'dropped filter keeps stale status',
     status: 'open',
-    afterInterval: true,
+    changedAfterMerge: true,
     inFilter: false,
     manual: false,
     column: 'ready-to-merge',
     unconfirmed: true,
   },
   {
-    name: 'manual inclusion confirms outside filter',
+    name: 'manual inclusion, changed after merge outside filter',
     status: 'open',
-    afterInterval: true,
+    changedAfterMerge: true,
     inFilter: false,
     manual: true,
     column: 'dev',
     unconfirmed: false,
   },
   {
-    name: 'manual inclusion still waits before interval',
+    name: 'manual inclusion still waits while untouched since merge',
     status: 'open',
-    afterInterval: false,
+    changedAfterMerge: false,
     inFilter: false,
     manual: true,
     column: 'ready-to-merge',
@@ -315,7 +315,7 @@ it.each(
   ),
 )(
   'qualifies completion against app ticket evidence in $name',
-  async ({ tracker, status, afterInterval, inFilter, manual, column, unconfirmed }) => {
+  async ({ tracker, status, changedAfterMerge, inFilter, manual, column, unconfirmed }) => {
     const store = openTempStore('board-app-completion-').store;
     stores.push(store);
     const config = configSchema.parse({
@@ -349,9 +349,9 @@ it.each(
     const mergedAt = '2026-11-04T08:00:00.000Z';
     const now = Date.parse(mergedAt) + 2 * interval;
     const at = new Date(now);
-    const observedAt = new Date(
-      Date.parse(mergedAt) + (afterInterval ? interval : interval - 1),
-    ).toISOString();
+    // Observed past the tracker interval either way: only a change after the merge counts.
+    const observedAt = new Date(Date.parse(mergedAt) + interval).toISOString();
+    const updatedAt = new Date(Date.parse(mergedAt) + (changedAfterMerge ? 1 : -1)).toISOString();
     const key = jira ? 'POL-1' : 'o/r#1';
     const pr: PrFacts = {
       repo: 'o/r',
@@ -427,7 +427,7 @@ it.each(
           labels: [],
           inFilter,
           url: 'https://issues.example.test/1',
-          updatedAt: observedAt,
+          updatedAt,
         };
         await trx
           .insertInto('ticket_snapshot')
@@ -489,7 +489,7 @@ it.each(
       'manually included',
       'resumes work',
       doneStatus,
-      String(interval),
+      'changed after the merge',
     ])
       expect(policy?.completion.text).toContain(qualification);
   },

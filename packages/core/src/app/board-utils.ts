@@ -63,33 +63,29 @@ export function ticketDone(project: Config['projects'][number], status: string):
 }
 
 /**
- * How the ticket of a task stands after its PR merged at `mergedAt`: `done`; `open` once the
- * tracker saw it open at least one tracker interval after the merge, in the filter or fetched by
- * key for a hand-added task; else `unconfirmed`, since the close a merge triggers may not be
- * polled yet and a ticket dropped from the filter keeps a stale status.
+ * How the ticket of a task stands after its PR merged at `mergedAt`: `done`; `reopened` once the
+ * ticket changed after the merge and is still not done, in the filter or fetched by key for a
+ * hand-added task; else `unconfirmed`, since a ticket untouched since the merge only waits to be
+ * moved to done, and a ticket dropped from the filter keeps a stale status.
  */
 export function mergedTicket(
   project: Config['projects'][number],
-  config: Config,
-  ticket: { status: string; detail: string; observed_at: string } | undefined,
+  ticket: { status: string; detail: string } | undefined,
   manualInclude: boolean,
   mergedAt: string,
-): 'done' | 'open' | 'unconfirmed' {
+): 'done' | 'reopened' | 'unconfirmed' {
   if (ticket === undefined) return 'unconfirmed';
   if (ticketDone(project, ticket.status)) return 'done';
-  let inFilter: boolean;
+  let facts: { inFilter: boolean; updatedAt: string };
   try {
     const parsed = ticketFactsSchema.safeParse(JSON.parse(ticket.detail));
     if (!parsed.success) return 'unconfirmed';
-    inFilter = parsed.data.inFilter;
+    facts = parsed.data;
   } catch {
     return 'unconfirmed';
   }
-  const { intervalMs } =
-    project.tracker.type === 'jira' ? config.adapters.jira : config.adapters.githubIssues;
-  return (inFilter || manualInclude) &&
-    Date.parse(ticket.observed_at) >= Date.parse(mergedAt) + intervalMs
-    ? 'open'
+  return (facts.inFilter || manualInclude) && Date.parse(facts.updatedAt) > Date.parse(mergedAt)
+    ? 'reopened'
     : 'unconfirmed';
 }
 

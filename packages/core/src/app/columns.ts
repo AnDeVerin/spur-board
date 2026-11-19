@@ -236,7 +236,7 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
     checksGate: project.checksGate,
     reposWithoutCi: [...project.reposWithoutCi],
     resolvedThreadsFrom: from ?? null,
-    completion: describeCompletion(project, config),
+    completion: describeCompletion(project),
     columns,
   };
 }

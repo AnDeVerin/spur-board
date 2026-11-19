@@ -73,9 +73,9 @@ const stallObservationSchema = z.object({
 });
 
 const ENDED_WORKER_LABELS: Partial<Record<SessionHealthFlagKind, string>> = {
-  worker_completed: 'worker ended (completed), no PR',
-  worker_killed: 'worker ended (killed), no PR',
-  worker_vanished: 'worker vanished, no PR',
+  worker_completed: 'worker ended (completed)',
+  worker_killed: 'worker ended (killed)',
+  worker_vanished: 'worker vanished',
 };
 
 /** Health flags only the operator can resolve; each opens an operator block. */
@@ -516,8 +516,10 @@ export async function reconcileItems(
         project !== undefined && ticket !== undefined && ticketDone(project, ticket.status),
     };
   }
-  // Each task's newest merge time; null when no merged PR's detail is readable.
+  // Each task's newest merge time and its PR; the time is null when no merged PR's detail is
+  // readable.
   const mergedAt = new Map<number, string | null>();
+  const mergedRef = new Map<number, string>();
   for (const pr of prs) {
     const state = taskPrs[String(pr.task_id)];
     if (state === undefined) continue;
@@ -526,26 +528,30 @@ export async function reconcileItems(
     const facts = parsePr(pr.detail ?? undefined);
     const at = facts === null ? null : (facts.mergedAt ?? facts.updatedAt);
     const newest = mergedAt.get(pr.task_id) ?? null;
-    if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest)))
+    if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest))) {
       mergedAt.set(pr.task_id, at);
+      mergedRef.set(pr.task_id, `${pr.repo}#${String(pr.number)}`);
+    }
   }
+  // Tasks whose merged PR stopped counting, with the clause their worker-end item names.
+  const reopened = new Map<number, string>();
   for (const [taskId, at] of mergedAt) {
     const state = taskPrs[String(taskId)];
     const task = taskById.get(taskId);
     if (state === undefined || task === undefined) continue;
     const project = config.projects.find((entry) => entry.id === task.project);
-    // A merged PR counts as finished work unless the ticket was seen open after it: a split task
-    // back in Dev is watched like any task without a PR.
+    // A merged PR counts as finished work unless the ticket changed after it and is not done: a
+    // split task back in Dev is watched like any task without a PR.
+    const ticket = tickets.find((entry) => entry.task_id === taskId);
     state.hasMergedPr =
       at === null ||
       project === undefined ||
-      mergedTicket(
-        project,
-        config,
-        tickets.find((entry) => entry.task_id === taskId),
-        task.manual_include === 1,
-        at,
-      ) !== 'open';
+      mergedTicket(project, ticket, task.manual_include === 1, at) !== 'reopened';
+    if (!state.hasMergedPr && ticket !== undefined)
+      reopened.set(
+        taskId,
+        `; PR ${mergedRef.get(taskId) ?? ''} merged, ticket reopened (${ticket.status})`,
+      );
   }
   const heldKeys: string[] = [];
   for (const task of tasks) {
@@ -871,7 +877,11 @@ export async function reconcileItems(
             ? 'worker_ended'
             : 'board_observation',
       taskId: task.id,
-      summary: `${task.key}: ${endedLabel ?? flag.kind.replaceAll('_', ' ')} (${flag.sessionId})`,
+      summary: `${task.key}: ${
+        endedLabel === undefined
+          ? flag.kind.replaceAll('_', ' ')
+          : `${endedLabel}${reopened.get(task.id) ?? ', no PR'}`
+      } (${flag.sessionId})`,
       // An ended worker's "no PR" holds while Spur keeps completing polls.
       factAt:
         endedLabel === undefined

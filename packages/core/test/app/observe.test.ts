@@ -3701,20 +3701,20 @@ describe('anomaly blocks', () => {
     expect((await surface(merged.b)).blocks).toEqual([]);
   });
 
-  describe('a merged PR beside a ticket seen open past the tracker interval', () => {
+  describe('a merged PR beside a ticket changed after the merge', () => {
     const interval = config.adapters.githubIssues.intervalMs;
     /** A hand-added task and its ticket, observed by key as the tracker requests it. */
     async function split() {
       const b = await board();
       const ref = (await b.core.context(source)).observe.tickets[0];
       if (ref === undefined) throw new Error('Missing ticket request');
-      const ticket = (status: string) =>
+      const ticket = (status: string, updatedAt = iso()) =>
         b.core.observe(source, {
           batch: {
             source,
             observedAt: iso(),
             complete: true,
-            items: [{ kind: 'ticket', facts: { ...fact(), status, updatedAt: iso() } }],
+            items: [{ kind: 'ticket', facts: { ...fact(), status, updatedAt } }],
             entities: [{ ref, status: 'ok' }],
           },
           effectiveComplete: true,
@@ -3732,7 +3732,7 @@ describe('anomaly blocks', () => {
       return { b, ticket, healthItems };
     }
 
-    it('raises the worker-end item beside a merged PR once the ticket is seen open past the tracker interval', async () => {
+    it('raises the worker-end item naming the merged PR once the ticket changed after the merge', async () => {
       const { b, ticket, healthItems } = await split();
       await spur(b, [session('worker-1', 'working')]);
       await prs(b, [pr(7, 'merged')]);
@@ -3745,19 +3745,38 @@ describe('anomaly blocks', () => {
 
       now += interval;
       await ticket('open');
-      expect(await healthItems()).toEqual([
-        ['worker_completed', 'o/r#9: worker ended (completed), no PR (worker-1)', null],
-      ]);
+      const text =
+        'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (open) (worker-1)';
+      expect(await healthItems()).toEqual([['worker_completed', text, null]]);
 
       now += 1_000;
       await ticket('closed');
-      expect(await healthItems()).toEqual([
-        [
-          'worker_completed',
-          'o/r#9: worker ended (completed), no PR (worker-1)',
-          expect.any(String),
-        ],
-      ]);
+      expect(await healthItems()).toEqual([['worker_completed', text, expect.any(String)]]);
+    });
+
+    it('raises no worker-end item while the ticket is untouched since the merge, up to done', async () => {
+      const { b, ticket, healthItems } = await split();
+      const before = iso();
+      await spur(b, [session('worker-1', 'working')]);
+      await ticket('open', before);
+      now += 1_000;
+      const merged = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [merged]);
+      now += 1_000;
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+      now += 1_000;
+      await prs(b, [merged]);
+      expect(await healthItems()).toEqual([]);
+
+      // The operator moves the ticket to done minutes after the worker ended.
+      now += interval;
+      await ticket('open', before);
+      await prs(b, [merged]);
+      expect(await healthItems()).toEqual([]);
+      now += 3 * 60_000;
+      await ticket('closed');
+      await prs(b, [merged]);
+      expect(await healthItems()).toEqual([]);
     });
 
     it('opens the PR-closed block for an unmerged follow-up beside a merged PR while the ticket is seen open', async () => {
