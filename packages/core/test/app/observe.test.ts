@@ -3965,6 +3965,14 @@ describe('anomaly blocks', () => {
       ]);
     });
 
+    /** #7 merged and follow-up #8 open; the final steps close #8. */
+    const followUpOpen = async (b: Board) => {
+      const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [seven]);
+      now += 1_000;
+      await prs(b, [seven, pr(8, 'open')]);
+      return [seven, pr(8, 'open')];
+    };
     /** Link histories: each ends with the PR facts its last poll reports. */
     const histories = {
       /** #7 merged. */
@@ -4020,6 +4028,21 @@ describe('anomaly blocks', () => {
         await prs(b, [seven, eight, nine]);
         return [seven, eight, nine];
       },
+      /** #7 merged while follow-up #8, linked as a conflict, was open; #8 then closed unmerged. */
+      conflictFollowUpClosed: async (b: Board) => {
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [pr(7, 'open'), pr(8, 'open')]);
+        now += 1_000;
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [seven, eight]);
+        return [seven, eight];
+      },
+      closeHeld: followUpOpen,
+      closeFresh: followUpOpen,
       /** #7 closed, #8 linked and merged, then #7 reopened as the only open PR and closed again. */
       reopenedClosed: async (b: Board) => {
         const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
@@ -4037,6 +4060,27 @@ describe('anomaly blocks', () => {
         const seven = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
         await prs(b, [seven, eight]);
         return [seven, eight];
+      },
+    };
+    /** #8 closes after the worker ended, seen by a poll that started before the close. */
+    const closeSeenStale = async (b: Board, [seven]: PrFacts[]) => {
+      const startedAt = iso();
+      now += 1_000;
+      const eight = { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() };
+      await prs(b, [seven ?? pr(7, 'merged'), eight], startedAt);
+      return eight;
+    };
+    /** Final steps after the worker ended; by default a complete poll of the last PR facts. */
+    const finals: Partial<
+      Record<keyof typeof histories, (b: Board, last: PrFacts[]) => Promise<void>>
+    > = {
+      closeHeld: async (b, last) => {
+        await closeSeenStale(b, last);
+      },
+      closeFresh: async (b, last) => {
+        const eight = await closeSeenStale(b, last);
+        now += 1_000;
+        await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
       },
     };
     const NO_PR = 'o/r#9: worker ended (completed), no PR (worker-1)';
@@ -4065,6 +4109,9 @@ describe('anomaly blocks', () => {
       ['supersededClose', 'untouched', [], null, UNCONFIRMED],
       ['reopenedClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
       ['reopenedClosed', 'done', [], null, DONE],
+      ['conflictFollowUpClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
+      ['closeHeld', 'untouched', [], null, UNCONFIRMED],
+      ['closeFresh', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
     ] as const)(
       'agrees with the dispatcher on which merged PR counts: %s, ticket %s',
       async (history, change, ledger, ended, outcome) => {
@@ -4080,7 +4127,7 @@ describe('anomaly blocks', () => {
         now += 1_000;
         await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
         now += 1_000;
-        await prs(b, last);
+        await (finals[history] ?? prs)(b, last);
         expect(await openLedger(b)).toEqual(ledger);
         const shown = await b.store.db
           .selectFrom('operator_item')

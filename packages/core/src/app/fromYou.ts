@@ -543,11 +543,51 @@ export async function reconcileItems(
     if (current === undefined || pr.id > current.id)
       judged.set(pr.task_id, { id: pr.id, at, ref: `${pr.repo ?? ''}#${String(pr.number)}` });
   }
-  // A closed PR the operator must hear about: one closed before the task's newest merge was
-  // superseded by it. The pr-closed item raises for these, and an eligible one ends the merged
-  // PR's suppression, so the two always agree.
-  const openClosure = (pr: (typeof prs)[number]) =>
-    pr.state === 'closed' && !(closeTime(pr) < Date.parse(mergedAt.get(pr.task_id) ?? ''));
+  // Each task's pr-closed item when it has no open PR: its PRs closed unmerged, less those closed
+  // before the newest merge, which superseded them. It is held until every repo completed a poll
+  // since the last close, so a replacement PR is seen first. A raised one also ends the merged
+  // PR's suppression below, so the two always agree.
+  const prClosed = new Map<
+    number,
+    { held: true; key: string } | { held: false; item: ItemCandidate }
+  >();
+  for (const task of tasks) {
+    const state = taskPrs[String(task.id)];
+    if (state === undefined || state.hasOpenPr) continue;
+    const mergedSince = Date.parse(mergedAt.get(task.id) ?? '');
+    const closed = prs
+      .filter((pr) => pr.task_id === task.id && pr.state === 'closed')
+      .map((pr) => ({
+        ...pr,
+        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
+        closedAt: closeTime(pr),
+      }))
+      .filter((pr) => !(pr.closedAt < mergedSince))
+      .sort((left, right) => left.ref.localeCompare(right.ref));
+    const first = closed[0];
+    if (first === undefined) continue;
+    const closedAt = Math.max(...closed.map((pr) => pr.closedAt));
+    const key = `pr-closed:${String(task.id)}`;
+    if (state.prCompleteAt === null || !(state.prCompleteAt >= closedAt)) {
+      prClosed.set(task.id, { held: true, key });
+      continue;
+    }
+    const refs = closed.map((pr) => pr.ref);
+    // Projects sharing a repo overwrite the snapshot's source, so the task's own repo source names it.
+    prClosed.set(task.id, {
+      held: false,
+      item: {
+        key,
+        kind: 'anomaly',
+        taskId: task.id,
+        summary: `${task.key}: linked pull request ${refs.join(', ')} closed without merge, no open PR`,
+        factAt: first.observed_at,
+        source: prSourceId(task.project, first.repo ?? ''),
+        priority: 4,
+        revision: refs.join(','),
+      },
+    });
+  }
   // Tasks whose ticket reopened after the judged merge, with the clause their worker-end item names.
   const reopened = new Map<number, string>();
   for (const [taskId, { at, ref }] of judged) {
@@ -556,17 +596,14 @@ export async function reconcileItems(
     if (state === undefined || task === undefined) continue;
     const project = config.projects.find((entry) => entry.id === task.project);
     // A merged PR counts as finished work unless the ticket changed after it and is not done: a
-    // split task back in Dev is watched like any task without a PR. An eligible link closed
-    // unmerged at or after every merge also ends it while the ticket is not done, so its close is
-    // raised.
+    // split task back in Dev is watched like any task without a PR. A raised pr-closed item also
+    // ends it while the ticket is not done, so the close reaches the operator.
     const ticket = tickets.find((entry) => entry.task_id === taskId);
     const judgement =
       at === null || project === undefined
         ? 'unconfirmed'
         : mergedTicket(project, ticket, task.manual_include === 1, at);
-    const followUpClosed = prs.some(
-      (pr) => pr.task_id === taskId && pr.pr_state === 'active' && openClosure(pr),
-    );
+    const followUpClosed = prClosed.get(taskId)?.held === false;
     state.hasMergedPr =
       at === null ||
       project === undefined ||
@@ -577,37 +614,10 @@ export async function reconcileItems(
   }
   const heldKeys: string[] = [];
   for (const task of tasks) {
-    const state = taskPrs[String(task.id)];
-    if (state === undefined || state.hasOpenPr || state.hasMergedPr) continue;
-    const closed = prs
-      .filter((pr) => pr.task_id === task.id && openClosure(pr))
-      .map((pr) => ({
-        ...pr,
-        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
-        closedAt: closeTime(pr),
-      }))
-      .sort((left, right) => left.ref.localeCompare(right.ref));
-    const first = closed[0];
-    if (first === undefined) continue;
-    // A replacement PR counts only once every repo completed a poll since the last close.
-    const closedAt = Math.max(...closed.map((pr) => pr.closedAt));
-    const key = `pr-closed:${String(task.id)}`;
-    if (state.prCompleteAt === null || !(state.prCompleteAt >= closedAt)) {
-      heldKeys.push(key);
-      continue;
-    }
-    const refs = closed.map((pr) => pr.ref);
-    // Projects sharing a repo overwrite the snapshot's source, so the task's own repo source names it.
-    candidates.push({
-      key,
-      kind: 'anomaly',
-      taskId: task.id,
-      summary: `${task.key}: linked pull request ${refs.join(', ')} closed without merge, no open PR`,
-      factAt: first.observed_at,
-      source: prSourceId(task.project, first.repo ?? ''),
-      priority: 4,
-      revision: refs.join(','),
-    });
+    const closure = prClosed.get(task.id);
+    if (closure === undefined || taskPrs[String(task.id)]?.hasMergedPr !== false) continue;
+    if (closure.held) heldKeys.push(closure.key);
+    else candidates.push(closure.item);
   }
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
