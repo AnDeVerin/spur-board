@@ -147,10 +147,23 @@ const anchorRect = () => {
     return { ...box, height: bottom - top, toJSON: () => box };
   });
 };
-const placement = () => ({
-  left: opened().style.getPropertyValue('--popover-left'),
-  top: opened().style.getPropertyValue('--popover-top'),
-  away: opened().hasAttribute('data-away'),
+/** The anchor box the popover wrote: left, right, top and bottom edges, and which side it left by. */
+const placement = () => {
+  const style = opened().style;
+  return {
+    left: style.getPropertyValue('--popover-left'),
+    right: style.getPropertyValue('--popover-right'),
+    top: style.getPropertyValue('--popover-anchor-top'),
+    bottom: style.getPropertyValue('--popover-top'),
+    away: opened().getAttribute('data-away'),
+  };
+};
+const box = (left: number, right: number, top: number, bottom: number, away: string | null) => ({
+  left: `${String(left)}px`,
+  right: `${String(right)}px`,
+  top: `${String(top)}px`,
+  bottom: `${String(bottom)}px`,
+  away,
 });
 
 afterEach(() => {
@@ -231,17 +244,17 @@ describe('Popover', () => {
   it('follows the anchor on nested scroll and resize', () => {
     anchorRect();
     render(createElement(Harness, { initial: true }));
-    expect(placement()).toEqual({ left: '100px', top: '40px', away: false });
+    expect(placement()).toEqual(box(100, 420, 20, 40, null));
     stubAnchorRect({ left: 60, right: 380, top: 10, bottom: 30 });
     act(() => {
       document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
     });
-    expect(placement()).toEqual({ left: '60px', top: '30px', away: false });
+    expect(placement()).toEqual(box(60, 380, 10, 30, null));
     stubAnchorRect({ left: 200, right: 520, top: 50, bottom: 70 });
     act(() => {
       window.dispatchEvent(new Event('resize'));
     });
-    expect(placement()).toEqual({ left: '200px', top: '70px', away: false });
+    expect(placement()).toEqual(box(200, 520, 50, 70, null));
   });
 
   it('leaves with an anchor scrolled out of the window', () => {
@@ -253,14 +266,39 @@ describe('Popover', () => {
         document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
       });
     };
-    scroll({ left: -400, right: -20, top: 20, bottom: 40 });
-    expect(placement()).toEqual({ left: '-400px', top: '40px', away: true });
-    scroll({ left: 1024, right: 1344, top: 20, bottom: 40 });
-    expect(placement()).toEqual({ left: '1024px', top: '40px', away: true });
-    scroll({ left: 1000, right: 1320, top: 20, bottom: 40 });
-    expect(placement()).toEqual({ left: '1000px', top: '40px', away: false });
-    scroll({ left: -300, right: 20, top: 20, bottom: 40 });
-    expect(placement().away).toBe(false);
+    // Each side, and an anchor narrower than the panel: the CSS puts the panel's right edge at
+    // or left of the anchor's right edge when it left by the left (web-popover.test.ts).
+    for (const [left, right, away] of [
+      [-400, -20, 'left'],
+      [-300, -20, 'left'],
+      [-249, 0, 'left'],
+      [1024, 1344, 'right'],
+      [1000, 1320, null],
+      [-300, 20, null],
+    ] as const) {
+      scroll({ left, right, top: 20, bottom: 40 });
+      expect(placement()).toEqual(box(left, right, 20, 40, away));
+    }
+  });
+
+  it('measures on open as a child of its anchor, whose ref attaches after its layout effect', () => {
+    anchorRect();
+    function Inside() {
+      const anchor = useRef<HTMLDivElement>(null);
+      return createElement(
+        'div',
+        { id: 'anchor', ref: anchor },
+        createElement(Popover, {
+          open: true,
+          onClose: () => undefined,
+          anchor,
+          title: 'Review',
+          children: 'Body',
+        }),
+      );
+    }
+    render(createElement(Inside));
+    expect(placement()).toEqual(box(100, 420, 20, 40, null));
   });
 
   it('a HoverMenu and a Popover: Escape closes the focused one, else the most recent', () => {

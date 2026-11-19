@@ -1,31 +1,42 @@
-/* Placed from the anchor's box, which Popover.tsx writes as --popover-left and --popover-top.
-   100% is the window (the containing block of a fixed box): the width keeps --space-2 off each
-   window edge, and the left edge is clamped inside while the anchor shows. No overflow here: a
-   menu in the header may extend past the panel. */
+/* Placed from the anchor's box, which Popover.tsx writes as --popover-left, --popover-right,
+   --popover-anchor-top and --popover-top (the anchor's bottom edge). 100% is the window (the
+   containing block of a fixed box): the width keeps --space-2 off each window edge, and the left
+   edge is clamped inside while the anchor shows. No overflow here: a menu in the header may
+   extend past the panel. */
 .root {
+  --popover-width: min(var(--size-popover), 100% - var(--space-2) - var(--space-2));
+  /* The least height: the header row with its hairline, the body padding and the two borders. */
+  --popover-least: calc(
+    var(--size-section-header) + var(--size-hairline) + var(--space-1) + var(--space-3) +
+      var(--size-hairline) + var(--size-hairline)
+  );
+  /* Under the anchor; near the bottom, up just enough for the least height. The lower bound
+     only acts once the anchor's top is below the window: the panel then follows it out. */
+  --popover-y: max(
+    min(var(--popover-top) + var(--space-1), 100% - var(--space-2) - var(--popover-least)),
+    var(--popover-anchor-top) - var(--popover-least) - var(--space-2)
+  );
   position: fixed;
   z-index: var(--z-menu);
-  top: calc(var(--popover-top) + var(--space-1));
-  left: clamp(
-    var(--space-2),
-    var(--popover-left),
-    100% - var(--space-2) - min(var(--size-popover), 100% - var(--space-2) - var(--space-2))
-  );
+  top: var(--popover-y);
+  left: clamp(var(--space-2), var(--popover-left), 100% - var(--space-2) - var(--popover-width));
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  width: min(var(--size-popover), 100% - var(--space-2) - var(--space-2));
-  max-height: min(
-    var(--size-popover-height),
-    100% - var(--popover-top) - var(--space-1) - var(--space-2)
-  );
+  width: var(--popover-width);
+  max-height: min(var(--size-popover-height), 100% - var(--popover-y) - var(--space-2));
   background: var(--color-bg-elevated);
   border: var(--size-hairline) solid var(--color-border-strong);
   box-shadow: var(--shadow-popover);
 }
-/* The anchor scrolled out of the window: the panel leaves with it. */
+/* The anchor scrolled out of the window: the whole panel leaves with it. */
 .root[data-away] {
   left: var(--popover-left);
+}
+/* Out by the left edge: the panel's right edge at or left of the anchor's, even when the anchor
+   is narrower than the panel. */
+.root[data-away='left'] {
+  left: min(var(--popover-left), var(--popover-right) - var(--popover-width));
 }
 /* Content-box, as the prototype: the hairline sits under a full section-header row, so an
    underline tablist stretched to the row is the full section-header height. */

@@ -1,4 +1,12 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { addOpenMenu, removeOpenMenu, type OpenMenu } from '../HoverMenu/HoverMenu.tsx';
 import { IconButton } from '../IconButton/IconButton.tsx';
 import styles from './Popover.module.css';
@@ -13,9 +21,12 @@ import styles from './Popover.module.css';
  * follows the anchor on any scroll (a nested scroller included) and on resize. While the anchor
  * shows in the window horizontally the panel keeps `--space-2` inside the window edges; an anchor
  * scrolled wholly out of the window takes the panel out with it. Vertically it follows the anchor
- * out of the window too. Near the bottom of the window its height shrinks to the space under the
- * anchor, down to `--space-2` above the window edge, and the body scrolls; it never flips above
- * the anchor. At 375px it fills the window width less `--space-2` on each side, still under its
+ * out of the window too; an anchor narrower than the panel still takes all of it out, by the
+ * anchor's right edge on the left side. Near the bottom of the window its height shrinks to the
+ * space under the anchor, down to `--space-2` above the window edge, and the body scrolls. With
+ * less space than the header and the body padding need, the panel moves up just enough to keep
+ * its header in view and may cover the bottom of the anchor; it never flips above the anchor.
+ * An anchor whose top is below the window takes the panel out with it. At 375px it fills the window width less `--space-2` on each side, still under its
  * anchor: not a bottom sheet.
  *
  * Focus: the opener is the element focused at the first render. With one, focus moves to Close
@@ -83,18 +94,23 @@ function OpenPopover({
   useLayoutEffect(() => {
     latest.current = onClose;
   });
-  useLayoutEffect(() => {
+  // Writes the anchor's box on the panel, not in React state: one style write per scroll frame.
+  // `data-away` names the side an anchor wholly out of the window left by.
+  const place = () => {
     const element = panel.current;
-    if (!element) return;
-    // Written on the element, not in React state: one style write per scroll frame.
-    const place = () => {
-      const rect = anchor.current?.getBoundingClientRect();
-      if (!rect) return;
-      element.style.setProperty('--popover-left', `${String(rect.left)}px`);
-      element.style.setProperty('--popover-top', `${String(rect.bottom)}px`);
-      const away = rect.right <= 0 || rect.left >= document.documentElement.clientWidth;
-      element.toggleAttribute('data-away', away);
-    };
+    const rect = anchor.current?.getBoundingClientRect();
+    if (!element || !rect) return;
+    const px = (value: number) => `${String(value)}px`;
+    element.style.setProperty('--popover-left', px(rect.left));
+    element.style.setProperty('--popover-right', px(rect.right));
+    element.style.setProperty('--popover-anchor-top', px(rect.top));
+    element.style.setProperty('--popover-top', px(rect.bottom));
+    const away =
+      rect.right <= 0 ? 'left' : rect.left >= document.documentElement.clientWidth ? 'right' : null;
+    if (away) element.setAttribute('data-away', away);
+    else element.removeAttribute('data-away');
+  };
+  useLayoutEffect(() => {
     place();
     // Scroll does not bubble: capture it on window to hear every scroller.
     window.addEventListener('scroll', place, true);
@@ -103,7 +119,12 @@ function OpenPopover({
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
     };
-  }, [anchor]);
+  }, []);
+  // Again after the whole commit: a popover rendered inside its anchor runs its layout effects
+  // before React attaches the anchor's ref, so the first measure finds no anchor.
+  useEffect(() => {
+    place();
+  }, []);
   // A layout effect, as a layer's: inside a layer opening in the same commit it runs first.
   useLayoutEffect(() => {
     const element = panel.current;
