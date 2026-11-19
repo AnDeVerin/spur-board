@@ -6455,11 +6455,16 @@ describe('approvalRule github-rules', () => {
 
   it('two tasks on one PR each get an item naming their own task, kept on the next reconcile', async () => {
     const ctx = await pastProductReview(RULED);
+    /** A copy of `row` for an insert, without its generated id. */
+    const withoutId = <T extends { id: number }>(row: T): Omit<T, 'id'> => {
+      const copy: Partial<T> = { ...row };
+      delete copy.id;
+      return copy as Omit<T, 'id'>;
+    };
     const first = await ctx.task();
-    const { id: _id, ...copy } = first;
     const second = await ctx.store.db
       .insertInto('task')
-      .values({ ...copy, key: 'o/r#10', tracker_id: null })
+      .values({ ...withoutId(first), key: 'o/r#10', tracker_id: null })
       .returning('id')
       .executeTakeFirstOrThrow();
     const link = await ctx.store.db
@@ -6468,20 +6473,19 @@ describe('approvalRule github-rules', () => {
       .where('task_id', '=', first.id)
       .where('entity', '=', 'pr')
       .executeTakeFirstOrThrow();
-    const { id: _linkId, ...linkCopy } = link;
     await ctx.store.db
       .insertInto('link')
-      .values({ ...linkCopy, task_id: second.id })
+      .values({ ...withoutId(link), task_id: second.id })
       .execute();
     // The reviewers' marks on the head, so the second task also stays in External Review.
-    for (const { id: _submission, ...submission } of await ctx.store.db
+    for (const submission of await ctx.store.db
       .selectFrom('submission')
       .selectAll()
       .where('task_id', '=', first.id)
       .execute())
       await ctx.store.db
         .insertInto('submission')
-        .values({ ...submission, task_id: second.id })
+        .values({ ...withoutId(submission), task_id: second.id })
         .execute();
     await ctx.rulePr({ ...approved, mergeState: 'behind' }, rule());
     ctx.wait(HALF_HOUR);
