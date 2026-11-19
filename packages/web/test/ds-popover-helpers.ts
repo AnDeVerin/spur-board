@@ -236,6 +236,16 @@ export function Closing({ attached }: { attached: boolean }) {
   );
 }
 
+/**
+ * A scroll of `#scroller` (window when there is none); a scroll does not bubble, and the popover
+ * hears it on window, capturing.
+ */
+export const scrolled = () => {
+  act(() => {
+    (document.getElementById('scroller') ?? window).dispatchEvent(new Event('scroll'));
+  });
+};
+
 /** Queues animation frames instead of running them; `frame()` runs the queued ones once. */
 export const stubFrames = () => {
   const frames = new Map<number, FrameRequestCallback>();

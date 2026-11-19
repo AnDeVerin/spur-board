@@ -212,7 +212,7 @@ function OpenPopover({
   // The values last written, so an unchanged frame writes nothing.
   const written = useRef('');
   const headerWritten = useRef(0);
-  // The anchor element the first placement saw, under the ref object that held it.
+  // The anchor element the first placement saw connected, under the ref object that held it.
   const seen = useRef<{ ref: RefObject<HTMLElement | null>; element: HTMLElement } | null>(null);
   const closed = useRef(false);
   // Writes the anchor's box on the panel, not in React state, and only when it changed.
@@ -231,9 +231,10 @@ function OpenPopover({
       latest.current.onClose();
       return;
     }
-    // Not attached yet (it mounts in the same commit as the panel, or a new ref has none yet):
-    // hidden, so it neither paints at its static or old place nor takes focus, until it attaches.
-    if (!target) {
+    // Not attached yet (it mounts in the same commit as the panel, or a new ref holds none or an
+    // element not in the document yet): hidden, so it neither paints at its static or old place
+    // nor takes focus, until it attaches. Only an anchor placed while connected can close it.
+    if (!target?.isConnected) {
       if (written.current !== 'pending') hide(element, 'pending');
       written.current = 'pending';
       return;

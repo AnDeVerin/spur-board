@@ -25,6 +25,7 @@ import {
   placement,
   popover,
   refuseHiddenFocus,
+  scrolled,
   stubAnchorRect,
   stubEachTest,
   stubFrames,
@@ -124,9 +125,7 @@ describe('Popover', () => {
     const other = createElement('button', { type: 'button' }, 'Other');
     const scroll = (left: number) => {
       stubAnchorRect({ left, right: left + 320, top: 20, bottom: 40 });
-      act(() => {
-        document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
-      });
+      scrolled();
     };
     // stay: the anchor scrolls out and back; movedOn: the user focuses Other meanwhile.
     for (const how of ['stay', 'movedOn'] as const) {
@@ -174,10 +173,7 @@ describe('Popover', () => {
       const anchor = document.getElementById('anchor');
       if (how === 'disconnected') anchor?.remove();
       render(harness(true));
-      for (let index = 0; index < 2; index++)
-        act(() => {
-          document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
-        });
+      for (let index = 0; index < 2; index++) scrolled();
       expect(onClose, how).toHaveBeenCalledTimes(1);
       expect(popover(), how).toBeUndefined();
       // The popover moved no focus: the removed control's focus fell to body.
@@ -188,13 +184,28 @@ describe('Popover', () => {
   });
 
   it('stays hidden until its anchor attaches', () => {
-    render(createElement(Harness, { initial: true, attached: false }));
-    expect(opened().getAttribute('data-away')).toBe('pending');
-    render(createElement(Harness, { initial: true }));
-    act(() => {
-      document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
-    });
-    expect(placement()).toEqual(box(100, 420, 20, 40, null));
+    const onClose = vi.fn();
+    // unmounted: the anchor element is not rendered yet; detached: the ref already holds an
+    // element that is not in the document yet.
+    const element = document.createElement('div');
+    const held = { current: element };
+    const props = { open: true, onClose, anchor: held, trigger: held, title: 'T', children: 'B' };
+    for (const how of ['unmounted', 'detached'] as const) {
+      render(createElement(Fragment, null));
+      render(
+        how === 'unmounted'
+          ? createElement(Harness, { initial: true, attached: false, onClose })
+          : createElement(Popover, props),
+      );
+      for (let index = 0; index < 2; index++) scrolled();
+      expect(opened().getAttribute('data-away'), how).toBe('pending');
+      expect(onClose, how).not.toHaveBeenCalled();
+      if (how === 'unmounted') render(createElement(Harness, { initial: true, onClose }));
+      else document.body.append(element);
+      scrolled();
+      expect(placement(), how).toEqual(box(100, 420, 20, 40, null));
+    }
+    element.remove();
   });
 
   it('a close that unmounts the panel inside a frame leaves no frame scheduled', () => {
@@ -275,9 +286,7 @@ describe('Popover', () => {
     render(createElement(Harness, { initial: true }));
     expect(placement()).toEqual(box(100, 420, 20, 40, null));
     stubAnchorRect({ left: 60, right: 380, top: 10, bottom: 30 });
-    act(() => {
-      document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
-    });
+    scrolled();
     expect(placement()).toEqual(box(60, 380, 10, 30, null));
     stubAnchorRect({ left: 200, right: 520, top: 50, bottom: 70 });
     act(() => {
@@ -332,9 +341,7 @@ describe('Popover', () => {
       clip(area, scrollerPosition);
       document.getElementById('anchor')?.style.setProperty('position', anchorPosition);
       stubAnchorRect({ left, right, top, bottom });
-      act(() => {
-        document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
-      });
+      scrolled();
       expect(placement(), JSON.stringify({ left, right, top, bottom, area, layout })).toEqual(
         box(left, right, top, bottom, away),
       );
