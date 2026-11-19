@@ -105,7 +105,14 @@ export function TaskTurn({
   const noticeRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<'field' | Form | 'status'>(undefined);
   const turnsRef = useRef<HTMLDivElement>(null);
-  const firstActions = useCallback(() => actions.current, []);
+  // A newer turn's actions come first once one is enabled: the read may have closed the bound turn.
+  const firstActions = useCallback(
+    () =>
+      newerActions.current?.querySelector('button:not(:disabled)')
+        ? newerActions.current
+        : actions.current,
+    [],
+  );
   const turns = useCallback(() => turnsRef.current, []);
   // The re-read after a take or a close is pending or failed: no holder and no sends then.
   const { reread, watch, line: plainLine } = useTurnReread(value, firstActions, turns);

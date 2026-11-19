@@ -21,6 +21,7 @@ import {
   reread,
   turnSection,
   button,
+  buttons,
   form,
   text,
   summary,
@@ -304,7 +305,8 @@ describe('Turn section focus', () => {
   // refused take writes nothing, so no read follows it.
   type Row = {
     write: 'take ok, close refused' | 'take refused' | 'close ok' | 'turn_closed';
-    read: 'answers' | 'fails' | 'is pending' | 'stalls past the deadline';
+    read:
+      'answers' | 'fails' | 'is pending' | 'is pending, then opens T6' | 'stalls past the deadline';
     after: ReturnType<typeof orchestratorTaskGet> | 'fail' | 'pending' | 'stall';
     shows?: string;
     header: string;
@@ -313,6 +315,8 @@ describe('Turn section focus', () => {
     plain?: string;
     /** Whether the form's send is disabled; null once the form closed. */
     sendOff: boolean | null;
+    /** What a pending read answers after Cancel; focus then lands on the last Submit…. */
+    answer?: ReturnType<typeof orchestratorTaskGet>;
   };
   it.each<Row>([
     {
@@ -334,6 +338,18 @@ describe('Turn section focus', () => {
       hold: false,
       plain: REFRESHING,
       sendOff: true,
+      answer: held,
+    },
+    {
+      write: 'take ok, close refused',
+      read: 'is pending, then opens T6',
+      after: 'pending',
+      header: 'T5 · refreshing',
+      holder: false,
+      hold: false,
+      plain: REFRESHING,
+      sendOff: true,
+      answer: orchestratorTaskGet({ id: 'T6', at: AT }, { turns: [closedTurn('submitted')] }),
     },
     {
       write: 'take ok, close refused',
@@ -417,7 +433,7 @@ describe('Turn section focus', () => {
     },
   ])(
     'after $write and a read that $read, claims the holder only from a read',
-    async ({ write, after, shows, header, holder, hold, plain, sendOff }) => {
+    async ({ write, after, shows, header, holder, hold, plain, sendOff, answer }) => {
       const { d } = await open();
       if (write === 'take refused') d.routes['inbox.ack'] = () => problem('forbidden', 403);
       if (write === 'take ok, close refused')
@@ -454,11 +470,14 @@ describe('Turn section focus', () => {
         expect(document.activeElement?.textContent).toBe(plain);
         expect(document.activeElement?.classList.contains(focusRing)).toBe(true);
       }
-      if (after === 'pending') {
-        // The read answers and the focused line goes: focus moves to the first enabled action.
-        late.resolve(envelope(held));
+      if (answer !== undefined) {
+        // The read answers and the focused line goes: focus moves to the first enabled action,
+        // the newer turn's when the read closed T5 and opened T6.
+        late.resolve(envelope(answer));
         await settle();
-        expect(document.activeElement).toBe(button('Submit…'));
+        const submits = buttons().filter((entry) => entry.textContent === 'Submit…');
+        expect(document.activeElement).toBe(submits.at(-1));
+        expect(submits.at(-1)?.disabled).toBe(false);
       }
     },
   );
