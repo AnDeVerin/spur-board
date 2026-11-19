@@ -2,7 +2,8 @@ import type { PrFacts, PrReviewRule, ReviewRule } from '@spur-board/contracts';
 import { VERDICT, type TaskGateFacts } from './gates.ts';
 
 /**
- * What one read of a PR head says about its base branch's review rule, in rule order:
+ * What one read of a PR head says about its base branch's review rule, in rule order, a draft
+ * (`dev`) first:
  * - `checks_pending`: no required check has completed on the head (with none required, a
  *   non-skipped check pending or red, or only skipped ones), or, unless GitHub reports the merge
  *   not blocked, a required check is still pending (see `requiredCheckState`). On an unknown
@@ -75,9 +76,11 @@ export function reviewRuleVerdict(
   unresolvedThreads: number,
 ): ReviewRuleVerdict {
   const checks = requiredCheckState(pr, rule);
+  // A known draft is Dev's even before GitHub computes the merge state.
+  if (pr.draft) return 'dev';
   if (pr.mergeable === 'unknown' || pr.mergeState === 'unknown')
     return checks !== 'done' ? 'checks_pending' : rule === null ? 'unreadable' : 'unknown';
-  if (pr.draft || pr.mergeable === 'conflicting') return 'dev';
+  if (pr.mergeable === 'conflicting') return 'dev';
   if (checks === 'none') return 'checks_pending';
   if (changesRequested) return 'changes_requested';
   // GitHub's own answer that the merge is not blocked wins over a check it does not wait for.

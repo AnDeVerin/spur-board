@@ -77,6 +77,18 @@ const CASES: Case[] = [
     clock: false,
   },
   {
+    name: 'a draft goes to Dev while GitHub has not computed the merge state',
+    pr: pr({ draft: true, mergeState: 'unknown' }),
+    verdict: 'dev',
+    clock: false,
+  },
+  {
+    name: 'a draft goes to Dev while GitHub has not computed mergeability',
+    pr: pr({ draft: true, mergeable: 'unknown', mergeState: 'draft' }),
+    verdict: 'dev',
+    clock: false,
+  },
+  {
     name: 'a conflict goes to Dev',
     pr: pr({ mergeable: 'conflicting', mergeState: 'dirty' }),
     verdict: 'dev',

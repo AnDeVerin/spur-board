@@ -6681,6 +6681,13 @@ describe('approvalRule github-rules', () => {
       gate: ['pr_draft'],
     },
     {
+      name: 'a draft with a merge state GitHub has not computed',
+      patch: { draft: true, mergeState: 'unknown' },
+      review: rule(),
+      column: 'dev',
+      gate: ['pr_draft'],
+    },
+    {
       name: 'a conflict',
       patch: { mergeable: 'conflicting', mergeState: 'dirty' },
       review: rule(),
