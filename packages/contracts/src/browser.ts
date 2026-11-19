@@ -1,3 +1,4 @@
+import { taskMoveInputSchema, taskMoveOutputSchema } from './ops/move-schemas.ts';
 /** Browser-safe operation schemas; never import the operation catalog here. */
 import { z } from 'zod';
 import {
@@ -435,6 +436,12 @@ const taskHistoryReadSchema = taskHistoryOutputSchema.extend({
  * whole answer.
  */
 export const browserOperations = {
+  'task.move': {
+    id: 'task.move',
+    kind: 'mutation',
+    input: taskMoveInputSchema,
+    output: taskMoveOutputSchema,
+  },
   'columns.describe': {
     id: 'columns.describe',
     kind: 'query',

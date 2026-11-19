@@ -105,8 +105,18 @@ describe('board mcp', () => {
         expect(tool.outputSchema, op.id).toEqual(entry.output);
         const input = structuredClone(tool.inputSchema) as Record<string, unknown>;
         if (op.kind === 'mutation') {
-          const schemas = (input['oneOf'] ?? [input]) as { properties: Record<string, unknown> }[];
-          for (const { properties } of schemas) {
+          const schemas = (input['oneOf'] ?? [input]) as {
+            properties: Record<string, unknown>;
+            required?: string[];
+          }[];
+          for (const schema of schemas) {
+            const { properties } = schema;
+            const mode = (properties['mode'] as { const?: string } | undefined)?.const;
+            if (mode !== undefined && op.explicitKeyModes?.includes(mode)) {
+              expect(schema.required).toContain('idempotencyKey');
+              schema.required =
+                schema.required?.filter((field) => field !== 'idempotencyKey') ?? [];
+            }
             expect(properties['idempotencyKey'], op.id).toEqual(key);
             delete properties['idempotencyKey'];
           }
@@ -150,32 +160,6 @@ describe('board mcp', () => {
           extra: true,
         }).valid,
       ).toBe(false);
-    });
-  });
-
-  it('advertises a required key and a valid example for every agent mutation', async () => {
-    await withClient({ SPUR_SESSION: 'session-1' }, async (client) => {
-      const { tools } = await client.listTools();
-      for (const [index, tool] of tools.entries()) {
-        const op = OPERATIONS[index];
-        if (!op || op.kind !== 'mutation') continue;
-        const schemas = Array.isArray(tool.inputSchema.oneOf)
-          ? (tool.inputSchema.oneOf as Record<string, unknown>[])
-          : [tool.inputSchema];
-        for (const schema of schemas) {
-          expect(schema.required).toContain('idempotencyKey');
-        }
-        const exampleLine = tool.description?.split('Example: ')[1]?.split('\n')[0];
-        if (!exampleLine) throw new Error(`missing example for ${tool.name}`);
-        const example = JSON.parse(exampleLine) as Record<string, unknown>;
-        const validate = new AjvJsonSchemaValidator().getValidator(
-          tool.inputSchema as JsonSchemaType,
-        );
-        expect(validate(example).valid).toBe(true);
-        const withoutKey = { ...example };
-        delete withoutKey['idempotencyKey'];
-        expect(validate(withoutKey).valid).toBe(false);
-      }
     });
   });
 

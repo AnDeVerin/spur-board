@@ -1,5 +1,5 @@
 {
-  "version": "3fa6c54a802feccd37c31979f4e3d81795d6f69bb4773e986892653c79b2c442",
+  "version": "cb05a2698e1f978f5ba33666fcaa76d6f843f859f4f96f61c24f6be39857b1cd",
   "grants": [
     "operator",
     "project-agent",
@@ -464,6 +464,93 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#move_not_allowed",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "move_outside_todo_group": {
+      "status": 409,
+      "exit": 1,
+      "message": "Manual moves require an enabled Todo-group source and destination.",
+      "hint": "Pick an enabled Todo-group column; use `board move --correct` to correct a wrong column.",
+      "recovery": {
+        "action": "Pick an enabled Todo-group column or correct a wrong column.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#move_outside_todo_group",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "work_started": {
+      "status": 409,
+      "exit": 1,
+      "message": "Work has started on this task.",
+      "hint": "Read `board task <KEY> --why`; resolve the open pull request or live worker before moving idle work.",
+      "recovery": {
+        "action": "Resolve the open pull request or live worker before moving idle work.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#work_started",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "column_mirrored": {
+      "status": 409,
+      "exit": 1,
+      "message": "The column is mirrored from the project tracker.",
+      "hint": "Change the task status in the named project tracker instead.",
+      "recovery": {
+        "action": "Change the task status in the named project tracker instead.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#column_mirrored",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -5675,8 +5762,13 @@
                     },
                     "kind": {
                       "type": "string",
-                      "enum": ["task_moved", "task_shadow_moved", "task_corrected"],
-                      "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction."
+                      "enum": [
+                        "task_moved",
+                        "task_shadow_moved",
+                        "task_corrected",
+                        "task_manually_moved"
+                      ],
+                      "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement."
                     },
                     "actor": {
                       "anyOf": [
@@ -5728,9 +5820,10 @@
                         "ticket_reopened",
                         "mode_changed",
                         "returned",
-                        "corrected"
+                        "corrected",
+                        "manual"
                       ],
-                      "description": "Why it moved: a dispatcher reason, returned (a column executor returned it to Dev) or corrected (the operator corrected the column)."
+                      "description": "Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), or manual (operator Todo-group placement)."
                     },
                     "gate": {
                       "type": "array",
@@ -5756,7 +5849,7 @@
                       "description": "The failing gate reasons of a gate_broken move; empty otherwise."
                     },
                     "text": {
-                      "description": "The block a return opened, or the reason the operator gave for a correction; null otherwise.",
+                      "description": "The block a return opened, or the literal reason for an operator correction or manual move; null otherwise.",
                       "type": ["string", "null"]
                     }
                   },
@@ -5963,6 +6056,7 @@
                     "task_moved",
                     "task_shadow_moved",
                     "task_corrected",
+                    "task_manually_moved",
                     "dispatcher_mode_changed",
                     "turn_opened",
                     "turn_taken",
@@ -6165,10 +6259,19 @@
                   "items": { "type": "string" },
                   "description": "Error codes the operation can return."
                 },
+                "explicitKeyModes": {
+                  "description": "Modes requiring a caller-chosen idempotency key, including for operators.",
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
                 "cli": {
                   "type": "object",
                   "properties": {
                     "command": { "type": "string", "description": "CLI command after `board`." },
+                    "defaultMode": {
+                      "description": "Input mode used when no mode flag is supplied.",
+                      "type": "string"
+                    },
                     "args": {
                       "type": "array",
                       "items": { "type": "string" },
@@ -10864,7 +10967,7 @@
     {
       "id": "task.move",
       "kind": "mutation",
-      "description": "Correct the column of a task by hand; the gates then settle the task from that column at once.",
+      "description": "Move an idle task inside the Todo group, or correct its column and settle the gates.",
       "grants": [{ "grant": "operator" }],
       "preconditions": null,
       "errors": [
@@ -10874,28 +10977,57 @@
         "not_found",
         "not_implemented",
         "move_not_allowed",
+        "move_outside_todo_group",
+        "work_started",
+        "column_mirrored",
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
         "starting",
         "stopping"
       ],
+      "explicitKeyModes": ["manual"],
       "cli": {
         "command": "move",
         "args": ["task", "column"],
-        "modes": [{ "mode": "correct", "flag": "--correct", "value": null }],
+        "modes": [
+          { "mode": "manual", "flag": "--manual", "value": null },
+          { "mode": "correct", "flag": "--correct", "value": null }
+        ],
+        "defaultMode": "manual",
         "key": "--key"
       },
       "mcp": {
         "name": "task_move",
         "key": "idempotencyKey",
-        "whenToUse": "Put a task the board moved wrongly into the right column, Done excluded; the reply names the column it settled in.",
+        "whenToUse": "Place idle work at the end of an enabled Todo-group column with a literal reason and explicit key, or correct a wrong column with mode correct.",
         "whenNotToUse": "Use task_get with why to read why the task is where it is.",
         "destructive": true
       },
       "slack": null,
-      "web": null,
+      "web": true,
       "examples": [
+        {
+          "summary": "Place idle work at the end of Ready for Dev",
+          "input": {
+            "mode": "manual",
+            "task": "PROJ-123",
+            "column": "ready-for-dev",
+            "reason": "Ready for the next worker."
+          },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "dev",
+              "membership": "active"
+            },
+            "from": "todo",
+            "to": "ready-for-dev",
+            "column": "ready-for-dev",
+            "settled": []
+          }
+        },
         {
           "summary": "Correct a task the board put in Done by mistake",
           "input": {
@@ -10958,6 +11090,47 @@
             "properties": {
               "mode": {
                 "type": "string",
+                "const": "manual",
+                "description": "Place an idle task inside the Todo group."
+              },
+              "task": {
+                "type": "string",
+                "maxLength": 300,
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "column": {
+                "type": "string",
+                "enum": [
+                  "todo",
+                  "triage",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done"
+                ],
+                "description": "Enabled Todo-group destination; a new visit places the task at its end."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20000,
+                "pattern": "\\S",
+                "description": "Literal reason for the move, kept exactly in the journal; must contain non-whitespace text."
+              }
+            },
+            "required": ["mode", "task", "column", "reason"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
                 "const": "correct",
                 "description": "Correct a wrong column by hand."
               },
@@ -10986,7 +11159,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 20000,
-                "description": "Why the column is corrected, kept in the journal."
+                "description": "Literal reason for manual placement or correction, kept in the journal."
               }
             },
             "required": ["mode", "task", "column", "reason"],
@@ -11051,7 +11224,7 @@
               "ready-to-merge",
               "done"
             ],
-            "description": "Column the dispatcher worked from before the correction."
+            "description": "Column the task left; correction uses the dispatcher position."
           },
           "to": {
             "type": "string",
@@ -11067,7 +11240,7 @@
               "ready-to-merge",
               "done"
             ],
-            "description": "Column the correction put the task in."
+            "description": "Requested destination column."
           },
           "column": {
             "type": "string",
@@ -11083,7 +11256,7 @@
               "ready-to-merge",
               "done"
             ],
-            "description": "Column the gates settled the task in; the shadow column while the dispatcher is in shadow mode."
+            "description": "Resulting position; correction uses the shadow position in shadow mode."
           },
           "settled": {
             "type": "array",
@@ -11098,8 +11271,13 @@
                 },
                 "kind": {
                   "type": "string",
-                  "enum": ["task_moved", "task_shadow_moved", "task_corrected"],
-                  "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction."
+                  "enum": [
+                    "task_moved",
+                    "task_shadow_moved",
+                    "task_corrected",
+                    "task_manually_moved"
+                  ],
+                  "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement."
                 },
                 "actor": {
                   "anyOf": [
@@ -11151,9 +11329,10 @@
                     "ticket_reopened",
                     "mode_changed",
                     "returned",
-                    "corrected"
+                    "corrected",
+                    "manual"
                   ],
-                  "description": "Why it moved: a dispatcher reason, returned (a column executor returned it to Dev) or corrected (the operator corrected the column)."
+                  "description": "Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), or manual (operator Todo-group placement)."
                 },
                 "gate": {
                   "type": "array",
@@ -11179,7 +11358,7 @@
                   "description": "The failing gate reasons of a gate_broken move; empty otherwise."
                 },
                 "text": {
-                  "description": "The block a return opened, or the reason the operator gave for a correction; null otherwise.",
+                  "description": "The block a return opened, or the literal reason for an operator correction or manual move; null otherwise.",
                   "type": ["string", "null"]
                 }
               },
@@ -11187,7 +11366,7 @@
               "additionalProperties": false,
               "description": "A column move of a task."
             },
-            "description": "The dispatcher moves from the corrected column, oldest first."
+            "description": "Dispatcher moves after a correction, oldest first; empty for manual placement."
           }
         },
         "required": ["task", "from", "to", "column", "settled"],

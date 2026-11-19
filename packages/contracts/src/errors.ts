@@ -209,6 +209,27 @@ export const ERRORS = {
       'Read why the task is where it is; pick an enabled column, and unlink a merged pull request first.',
     ),
   }),
+  move_outside_todo_group: spec('move_outside_todo_group', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'Manual moves require an enabled Todo-group source and destination.',
+    hint: 'Pick an enabled Todo-group column; use `board move --correct` to correct a wrong column.',
+    recovery: noRetry('Pick an enabled Todo-group column or correct a wrong column.'),
+  }),
+  work_started: spec('work_started', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'Work has started on this task.',
+    hint: 'Read `board task <KEY> --why`; resolve the open pull request or live worker before moving idle work.',
+    recovery: noRetry('Resolve the open pull request or live worker before moving idle work.'),
+  }),
+  column_mirrored: spec('column_mirrored', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The column is mirrored from the project tracker.',
+    hint: 'Change the task status in the named project tracker instead.',
+    recovery: noRetry('Change the task status in the named project tracker instead.'),
+  }),
   task_archived: spec('task_archived', {
     status: 409,
     exit: EXIT_CODES.refused,

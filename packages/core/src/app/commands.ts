@@ -199,6 +199,12 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
     const parsed = entry.input.safeParse(input);
     if (!parsed.success)
       throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
+    const explicit = 'mode' in parsed.data && entry.explicitKeyModes?.includes(parsed.data.mode);
+    if (explicit && (key === undefined || key.trim() === ''))
+      throw new CommandError(
+        'usage',
+        'Choose an explicit non-blank idempotency key for this mode.',
+      );
     if (key === '' || (actor !== 'operator' && key === undefined)) {
       throw new CommandError(
         'usage',

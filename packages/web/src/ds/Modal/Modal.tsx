@@ -10,10 +10,14 @@ import styles from './Modal.module.css';
  * does not scroll, and focus returns to the element that opened it.
  *
  * `title` labels the dialog; `detail` is a secondary label beside it.
- * `actions` sits in the header before Close, e.g. an underline `Tabs`. Keep it narrow. At 390px
- * the header row holds the title, the detail, `actions` and Close; `actions` does not shrink, and
- * the title and detail ellipsize first; content wider than about 200px pushes the title to
- * nothing.
+ * `actions` sits at the right of the header, right before Close, e.g. an underline `Tabs`; the
+ * free space of the row lies between the detail and `actions`. Keep it narrow. At 375px the
+ * header stays one row and nothing wraps: `actions` and Close keep their width, the free space
+ * goes first, then the detail and the title ellipsize. With the 122px Now and History tabs the
+ * title and detail share about 180px.
+ *
+ * Design system decision (board V1.2, operator session 2026-11-18): actions sit at the right of
+ * the header, before Close (was: after the detail).
  *
  * A modal may open over a `SidePanel`, also in the same render as a panel it is nested in (a deep
  * link): it is the top layer either way. A `SidePanel` opened over an open modal is unsupported:

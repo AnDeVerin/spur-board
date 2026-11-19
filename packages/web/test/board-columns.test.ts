@@ -196,6 +196,25 @@ const named = (target: Element) => [
 ];
 
 describe('column sort', () => {
+  it('keeps frozen-time server visit order by default while alternate key sorting wins', () => {
+    const visits = typed(
+      ['ex/repo#3', 'ex/repo#4', 'ex/repo#2', 'ex/repo#1'].map((key) =>
+        row(key, 'ready-for-dev', { columnEnteredAt: at(5) }),
+      ),
+    );
+    expect(sortRows(visits, 'entered-asc').map((item) => item.key)).toEqual([
+      'ex/repo#3',
+      'ex/repo#4',
+      'ex/repo#2',
+      'ex/repo#1',
+    ]);
+    expect(sortRows(visits, 'key-asc').map((item) => item.key)).toEqual([
+      'ex/repo#1',
+      'ex/repo#2',
+      'ex/repo#3',
+      'ex/repo#4',
+    ]);
+  });
   const rows = [
     row('ex/repo#10', 'dev', { columnEnteredAt: at(30) }),
     row('ex/repo#9', 'dev', { columnEnteredAt: at(90) }),

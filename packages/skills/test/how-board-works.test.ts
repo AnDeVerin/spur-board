@@ -5,6 +5,24 @@ import { describe, expect, it } from 'vitest';
 import { ITEM_KINDS } from '../../contracts/src/index.ts';
 
 describe('how the Board works guide', () => {
+  it('maps every built-in column to its position source, mover and placement command', () => {
+    const path = new URL('../../../docs/how-board-works-columns.md', import.meta.url);
+    const rows = (readFileSync(path, 'utf8').match(/^\|.+/gm) ?? []).map((row) =>
+      row.replace(/^\|\s*|\s*\|$|`/g, '').replace(/\s*\|\s*/g, '|'),
+    );
+    expect(rows[0]).toBe('Column|Position source|Who moves|Command');
+    expect(rows.slice(2).join('\n'))
+      .toBe(`todo|New/reopened; manual|Dispatcher/operator|board move <task> todo --reason <text> --key <key>
+triage|Manual|Operator|board move <task> triage --reason <text> --key <key>
+ready-for-dev|Manual|Operator|board move <task> ready-for-dev --reason <text> --key <key>
+dev|Work start/gate failure/return|Dispatcher/executor/operator|board move <task> dev --correct --reason <text>
+review|Gates: internal review|Dispatcher/operator|board move <task> review --correct --reason <text>
+product-review|Gates: product review|Dispatcher/operator|board move <task> product-review --correct --reason <text>
+external-review|Gates: external approval|Dispatcher/operator|board move <task> external-review --correct --reason <text>
+qa|Gates: QA confirmation|Dispatcher/operator|board move <task> qa --correct --reason <text>
+ready-to-merge|Gates: merge|Dispatcher/operator|board move <task> ready-to-merge --correct --reason <text>
+done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
+  });
   it.each([
     {
       section: 'Columns and executors',
@@ -277,7 +295,8 @@ describe('how the Board works guide', () => {
       topic: 'web',
       clauses: [
         /second loopback listener serves browser\s*assets/,
-        /Only `comment.add`, `block.answer`, `block.followup` and `item.close` are\s+enabled writes/,
+        /Enabled writes are `comment.add`, `block.answer`, `block.followup`, `item.close` and\s+`task.move`/,
+        /Task moves use the operator API; the shell has no move control/,
         /a failed bind does not stop the agent API/,
       ],
       keys: ['web.port', 'web.publicOrigin'],

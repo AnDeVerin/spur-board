@@ -1,11 +1,13 @@
 import {
   COLUMNS,
   COLUMN_IDS,
+  TODO_GROUP_COLUMN_IDS,
   DISPATCHER_MODES,
   isExternalAuthor,
   parseActorId,
   prSourceId,
   trackerSourceId,
+  eventPayloadSchemas,
   type ActorId,
   type ColumnId,
   type Config,
@@ -47,6 +49,7 @@ import {
 } from './course-check.ts';
 import { withUnconfirmedCancels } from './cancelled-checks.ts';
 import { linkedSession } from './doorbells.ts';
+import { CommandError } from './commands.ts';
 import { raiseCycleLimit } from './fromYou.ts';
 import {
   carriedFeedback,
@@ -346,6 +349,65 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
       to: mode,
     });
   }
+}
+
+/** Place idle work in a fresh real-column visit after synchronizing dispatcher mode. */
+export async function manuallyMoveColumn(
+  trx: Trx,
+  input: { taskId: number; to: ColumnId; at: Date; actor: ActorId; reason: string; config: Config },
+): Promise<{ from: ColumnId; to: ColumnId; column: ColumnId }> {
+  const { taskId, to, at, actor, reason, config } = input;
+  await syncModes(trx, config, at);
+  const task = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('id', '=', taskId)
+    .executeTakeFirstOrThrow();
+  const project = config.projects.find((entry) => entry.id === task.project);
+  const enabledGroup = (id: ColumnId) =>
+    TODO_GROUP_COLUMN_IDS.some((column) => column === id) &&
+    project?.columns.some((column) => column.id === id && column.enabled);
+  if (!enabledGroup(task.column) || !enabledGroup(to))
+    throw new CommandError(
+      'move_outside_todo_group',
+      `Pick enabled Todo-group columns in project ${task.project}.`,
+    );
+  const openPr = await trx
+    .selectFrom('link')
+    .select('id')
+    .where('task_id', '=', taskId)
+    .where('entity', '=', 'pr')
+    .where('banned', '=', 0)
+    .where('pr_open', '=', 1)
+    .where(pastReopenFloor)
+    .executeTakeFirst();
+  if (openPr !== undefined || (await linkedSession(trx, taskId, 'worker')) !== undefined)
+    throw new CommandError(
+      'work_started',
+      'Resolve the open pull request or live worker before moving idle work.',
+    );
+  await trx
+    .updateTable('task')
+    .set({
+      column: to,
+      shadow_column:
+        task.shadow_column === null && project?.dispatcher.mode !== 'shadow' ? null : to,
+      column_epoch: task.column_epoch + 1,
+      last_change_at: taskChangeAt(at.toISOString()),
+    })
+    .where('id', '=', taskId)
+    .execute();
+  await closeTurns(trx, { taskId, reason: 'moved', at });
+  await emit(
+    trx,
+    'task_manually_moved',
+    task.project,
+    taskId,
+    at.toISOString(),
+    { from: task.column, to, reason },
+    actor,
+  );
+  return { from: task.column, to, column: to };
 }
 
 /**
@@ -774,10 +836,34 @@ async function settlePending(
   };
 }
 
-/**
- * The dispatcher input of one task, or null when a stored snapshot is missing or unreadable. It
- * only reads.
- */
+/** Whether a reopen still needs to override the latest explicit placement. */
+async function reopenNeedsDispatch(trx: Trx, taskId: number, project: Project): Promise<boolean> {
+  const placement = await trx
+    .selectFrom('event')
+    .select(['id', 'kind'])
+    .where('task_id', '=', taskId)
+    .where('kind', 'in', ['task_manually_moved', 'task_corrected'])
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+  if (placement?.kind !== 'task_manually_moved') return true;
+  // The manual visit acknowledges older reopen facts, not their permanent PR exclusion.
+  // Journal order also distinguishes a new reopen when both writes share a timestamp.
+  const statuses = await trx
+    .selectFrom('event')
+    .select('payload')
+    .where('task_id', '=', taskId)
+    .where('kind', '=', 'ticket_status_changed')
+    .where('id', '>', placement.id)
+    .execute();
+  return statuses.some((row) => {
+    const status = parseJson(eventPayloadSchemas.ticket_status_changed, row.payload);
+    return (
+      status.from !== null && ticketDone(project, status.from) && !ticketDone(project, status.to)
+    );
+  });
+}
+
+/** The dispatcher input, or null when a stored snapshot is missing or unreadable. Only reads. */
 export async function readInput(
   trx: Trx,
   task: Task,
@@ -964,7 +1050,8 @@ export async function readInput(
             .select('id')
             .where('task_id', '=', task.id)
             .where('reopen_hidden_at', 'is not', null)
-            .executeTakeFirst()) !== undefined),
+            .executeTakeFirst()) !== undefined) &&
+        (await reopenNeedsDispatch(trx, task.id, project)),
       ticketDone: done,
       hasOpenLinkedPr,
       allGithubReposReady,

@@ -1124,6 +1124,40 @@ it('task.get and detailed status expose known reset facts and clear them only on
 });
 
 describe('task history summaries', () => {
+  it('projects a real manual move with literal storage and a normalized history summary', async () => {
+    const { store, registry, query, apply } = await seeded();
+    await store.db.updateTable('task').set({ column: 'todo' }).where('id', '=', 1).execute();
+    await store.db.deleteFrom('link').where('task_id', '=', 1).execute();
+    const reason = '  keep  spaces\t\r\n<script> <!chan\u006eel> <@U123> *bold* `code` &  ';
+    await withVia('web', () =>
+      apply(
+        registry['task.move'],
+        { mode: 'manual', task: KEY, column: 'ready-for-dev', reason },
+        'operator',
+        'manual-history',
+      ),
+    );
+    const stored = await store.db
+      .selectFrom('event')
+      .selectAll()
+      .where('kind', '=', 'task_manually_moved')
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(stored.payload)).toEqual({ from: 'todo', to: 'ready-for-dev', reason });
+    const detail = await query(registry['task.get'], { task: KEY, why: true }, worker);
+    expect(detail.why?.moves.at(-1)).toMatchObject({
+      reason: 'manual',
+      text: reason,
+      actor: 'operator',
+    });
+    const history = await query(registry['task.history'], { task: KEY }, worker);
+    expect(history.events.at(-1)).toMatchObject({
+      kind: 'task_manually_moved',
+      actor: 'operator',
+      via: 'web',
+      summary: `Manually moved todo → ready-for-dev: ${reason}`.replace(/\s+/g, ' ').trim(),
+    });
+    expect(history.events.every((event) => !/[\r\n]/.test(event.summary))).toBe(true);
+  });
   const SHA = 'abcdef1'.padEnd(40, '0');
   const pr: PrFacts = {
     repo: 'o/r',
