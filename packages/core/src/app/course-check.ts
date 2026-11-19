@@ -74,6 +74,10 @@ export const externalColumn = (project: Pick<Project, 'columns'>) =>
 type CourseEntry =
   { kind: 'return'; column: ColumnId; causes: readonly ReturnCause[] } | { kind: 'external_round' };
 
+/** Whether a return came from external feedback: an external cause, and not its executor. */
+const externalCause = (causes: readonly ReturnCause[]) =>
+  !causes.includes('executor') && causes.some((cause) => EXTERNAL_CAUSES.includes(cause));
+
 /**
  * The column whose course count an entry adds to. An external round, and a return caused by
  * external comments while External Review is enabled, count under External Review, whatever
@@ -81,9 +85,7 @@ type CourseEntry =
  */
 export function courseCounter(entry: CourseEntry, project: Pick<Project, 'columns'>): ColumnId {
   if (entry.kind === 'external_round') return EXTERNAL_COUNTER;
-  if (entry.causes.includes('executor')) return entry.column;
-  return entry.causes.some((cause) => EXTERNAL_CAUSES.includes(cause)) &&
-    externalColumn(project) !== undefined
+  return externalCause(entry.causes) && externalColumn(project) !== undefined
     ? EXTERNAL_COUNTER
     : entry.column;
 }
@@ -98,21 +100,20 @@ type CourseLog = (Round | { kind: 'reset'; counter: ColumnId })[];
 
 /**
  * The task's journal replayed for its counts, in journal order: the cycle events, and the
- * course rounds with the resets of each counter. A return's head is the head the active PR moved
- * to last before it, else the one the next head change left, else the PR's current head; a
- * return counted under External Review takes the head of the latest external change request
- * made since the dispatcher last moved the task, as the active PR's facts journaled before the
- * return show it, so a push seen in the same poll does not take its place. A correction is no
- * boundary: a request it bounces on is still unhandled and is the return's cause. External
- * Review counts each head once, resets ignored: a later return or round on a head it already
- * counted adds to the cycle events only. `externalHeads` are the heads External Review counted.
+ * course rounds with the resets of each counter. A return is resolved against the PR active
+ * when it happened: the newest open PR among the facts journaled before it. Its head is that
+ * PR's head then, or unknown without one; a return for external feedback takes the head of the
+ * PR's latest external change request made since the dispatcher last moved the task, so a push
+ * seen in the same poll does not take its place. A correction is no boundary: a request it
+ * bounces on is still unhandled and is the return's cause. External Review counts each head of
+ * external feedback (rounds and such returns) once, resets ignored; a later one on a counted
+ * head adds to the cycle events only. `externalHeads` are those heads.
  */
 async function courseRounds(
   trx: Trx,
   taskId: number,
   project: Pick<Project, 'columns' | 'operatorGithubLogin'>,
 ): Promise<{ cycle: CycleEvent[]; course: CourseLog; externalHeads: Set<string> }> {
-  const pr = await prFacts(trx, taskId);
   const prefixes = { cycle: cycleKeyPrefix(taskId), course: courseKeyPrefix(taskId) };
   const items = await trx
     .selectFrom('operator_item')
@@ -138,29 +139,34 @@ async function courseRounds(
     .selectFrom('event')
     .select(['id', 'at', 'kind', 'payload'])
     .where('task_id', '=', taskId)
-    .where('kind', 'in', ['task_moved', 'from_you_cleared', 'external_round', 'head_moved'])
+    .where('kind', 'in', ['task_moved', 'from_you_cleared', 'external_round'])
     .orderBy('id')
     .execute();
-  const heads: { id: number; from: string | null; to: string }[] = [];
-  if (pr !== null)
-    for (const row of rows) {
-      if (row.kind !== 'head_moved') continue;
-      const moved = eventPayloadSchemas.head_moved.safeParse(JSON.parse(row.payload));
-      if (
-        moved.success &&
-        moved.data.repo.toLowerCase() === pr.repo.toLowerCase() &&
-        moved.data.pr === pr.number
-      )
-        heads.push({ id: row.id, from: moved.data.from, to: moved.data.to });
+  const facts = await trx
+    .selectFrom('event')
+    .select((eb) => [
+      'id',
+      eb.fn<string>('json_extract', ['payload', sql.lit('$.facts.repo')]).as('repo'),
+      eb.fn<number>('json_extract', ['payload', sql.lit('$.facts.number')]).as('number'),
+      eb.fn<string>('json_extract', ['payload', sql.lit('$.facts.state')]).as('state'),
+      eb.fn<string>('json_extract', ['payload', sql.lit('$.facts.headSha')]).as('head'),
+    ])
+    .where('task_id', '=', taskId)
+    .where('kind', '=', 'pr_facts_changed')
+    .orderBy('id')
+    .execute();
+  /** The PR active at event `id`: the newest open one, by first facts, in the facts before it. */
+  const prAt = (id: number) => {
+    const seen = new Map<string, (typeof facts)[number] & { first: number }>();
+    for (const row of facts.filter((entry) => entry.id < id)) {
+      const key = `${row.repo.toLowerCase()}#${String(row.number)}`;
+      seen.set(key, { ...row, first: seen.get(key)?.first ?? row.id });
     }
-  const headAt = (id: number) =>
-    (
-      heads.filter((head) => head.id < id).at(-1)?.to ??
-      heads.find((head) => head.id > id && head.from !== null)?.from ??
-      pr?.headSha
-    )?.toLowerCase() ?? null;
-  const reviewedHead = async (id: number, since: number) => {
-    if (pr === null) return null;
+    return [...seen.values()]
+      .filter((entry) => entry.state === 'open')
+      .sort((left, right) => right.first - left.first)[0];
+  };
+  const reviewedHead = async (id: number, since: number, pr: { repo: string; number: number }) => {
     const row = await trx
       .selectFrom('event')
       .select('payload')
@@ -187,8 +193,8 @@ async function courseRounds(
   const course: CourseLog = [];
   const externalHeads = new Set<string>();
   let enteredAt = Number.NEGATIVE_INFINITY;
-  const count = (round: Round) => {
-    if (round.counter === EXTERNAL_COUNTER && round.head !== null) {
+  const count = (round: Round, external: boolean) => {
+    if (external && round.head !== null) {
       if (externalHeads.has(round.head)) return;
       externalHeads.add(round.head);
     }
@@ -204,12 +210,15 @@ async function courseRounds(
     } else if (row.kind === 'external_round') {
       const round = eventPayloadSchemas.external_round.safeParse(JSON.parse(row.payload));
       if (round.success)
-        count({
-          kind: 'external_round',
-          counter: courseCounter({ kind: 'external_round' }, project),
-          reviewer: round.data.reviewer,
-          head: round.data.head.toLowerCase(),
-        });
+        count(
+          {
+            kind: 'external_round',
+            counter: courseCounter({ kind: 'external_round' }, project),
+            reviewer: round.data.reviewer,
+            head: round.data.head.toLowerCase(),
+          },
+          true,
+        );
     } else if (row.kind === 'task_moved') {
       const since = enteredAt;
       enteredAt = Date.parse(row.at);
@@ -219,14 +228,13 @@ async function courseRounds(
       cycle.push(event);
       if (countCycles([event], event.column, Infinity).count === 0) continue;
       const counter = courseCounter(event, project);
-      count({
-        kind: 'return',
-        counter,
-        from: event.column,
-        head:
-          (counter === EXTERNAL_COUNTER ? await reviewedHead(row.id, since) : null) ??
-          headAt(row.id),
-      });
+      const external = counter === EXTERNAL_COUNTER;
+      const pr = prAt(row.id);
+      const head =
+        pr === undefined
+          ? null
+          : ((external ? await reviewedHead(row.id, since, pr) : null) ?? pr.head.toLowerCase());
+      count({ kind: 'return', counter, from: event.column, head }, external);
     }
   }
   return { cycle, course, externalHeads };

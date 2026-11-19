@@ -4072,19 +4072,37 @@ describe('external change-request rounds', () => {
       course: 2,
       heads: [],
     },
+    {
+      name: 'a replacement PR does not lend its head to a return on the old one',
+      act: async (ctx: Board) => {
+        await externalReturn(ctx, A);
+        expect((await ctx.moves()).at(-1)).toMatchObject({ from: 'review', to: 'dev' });
+        await ctx.prsPoll(
+          { number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' },
+          { number: 7, state: 'closed' },
+        );
+        expect(ctx.facts()).toMatchObject({ number: 8, headSha: C });
+      },
+      course: 1,
+      next: C,
+      heads: [C],
+      repr: { pr: 8 },
+    },
   ])(
     'a return under External Review counts the head the change request was on: $name',
-    async ({ act, course, heads }) => {
+    async ({ act, course, heads, next = B, repr = {} }) => {
       const options = { externalReview: true, curator: true };
       const ctx = await inReview(options);
       await act(ctx);
-      expect((await ctx.moves()).at(-1)).toMatchObject({ from: 'review', to: 'dev' });
+      expect((await ctx.moves()).filter((move) => move.from === 'review').at(-1)).toMatchObject({
+        to: 'dev',
+      });
       expect(
         (await returnCounts(ctx.store.db, 1, 'external-review', project(options))).course,
       ).toBe(course);
 
-      await devRound(ctx, B);
-      expect(await rounds(ctx)).toEqual(roundsOn(...heads));
+      await devRound(ctx, next);
+      expect(await rounds(ctx)).toEqual(roundsOn(...heads).map((round) => ({ ...round, ...repr })));
     },
   );
 
