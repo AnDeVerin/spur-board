@@ -241,14 +241,22 @@ export function InboxPanel({
       ) : (
         <>
           <span className={styles.title}>
-            <StatusDot tone="warn" />
+            <StatusDot tone={handled ? 'unknown' : 'warn'} />
             <span>No session to ring for {known.column}</span>
           </span>
-          <span className={styles.description}>
-            The {known.column} orchestrator is the Spur project{' '}
-            <strong className={styles.expects}>{known.expects}</strong>, and it has no live session.
-            {tail}
-          </span>
+          {handled ? (
+            <span className={styles.description}>
+              The {known.column} orchestrator, the Spur project{' '}
+              <strong className={styles.expects}>{known.expects}</strong>, had no live session.
+              {tail}
+            </span>
+          ) : (
+            <span className={styles.description}>
+              The {known.column} orchestrator is the Spur project{' '}
+              <strong className={styles.expects}>{known.expects}</strong>, and it has no live
+              session.{tail}
+            </span>
+          )}
           {!handled && entry.action !== undefined && (
             <span className={`${styles.action ?? ''} ${styles.small ?? ''}`}>{entry.action}</span>
           )}
