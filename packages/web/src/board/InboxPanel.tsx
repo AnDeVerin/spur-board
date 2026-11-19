@@ -232,17 +232,27 @@ export function InboxPanel({
           : handled && known?.oldest !== undefined
             ? ` The oldest turn was ${known.oldest.turn}.`
             : '';
+    // A handled no-session item read as generic keeps no action: its command could take a
+    // turn now held.
+    const withholdAction =
+      handled &&
+      entry.kind === 'board_observation' &&
+      NO_SESSION.exec(description)?.[1] === entry.project;
     const body =
       known === undefined ? (
         <>
           <span>{description}</span>
-          {entry.action !== undefined && <span className={styles.action}>{entry.action}</span>}
+          {!withholdAction && entry.action !== undefined && (
+            <span className={styles.action}>{entry.action}</span>
+          )}
         </>
       ) : (
         <>
           <span className={styles.title}>
             <StatusDot tone={handled ? 'unknown' : 'warn'} />
-            <span>No session to ring for {known.column}</span>
+            <span>
+              {handled ? 'Had no session' : 'No session'} to ring for {known.column}
+            </span>
           </span>
           {handled ? (
             <span className={styles.description}>

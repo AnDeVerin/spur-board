@@ -151,7 +151,10 @@ describe('inbox no-session item', () => {
     expect(handledIds()).toEqual(['I7']);
     expect(meta('I7')).toContain('Handled');
     expect(meta('I7').at(-1)).toBe('12m');
-    expect(lines('I7')).toEqual(['No session to ring for qa', `${PAST} The oldest turn was T524.`]);
+    expect(lines('I7')).toEqual([
+      'Had no session to ring for qa',
+      `${PAST} The oldest turn was T524.`,
+    ]);
   });
 
   it('leaves out the oldest turn on a handled row without an oldest clause', async () => {
@@ -159,7 +162,23 @@ describe('inbox no-session item', () => {
     serveInbox(d, [], [{ ...entry('I7', HEAD), handledAt: '2026-11-18T14:41:00.000Z' }]);
     await openInbox(d);
     expect(handledIds()).toEqual(['I7']);
-    expect(lines('I7')).toEqual(['No session to ring for qa', PAST]);
+    expect(lines('I7')).toEqual(['Had no session to ring for qa', PAST]);
+  });
+
+  it('keeps the action on a handled generic row that is not a no-session item', async () => {
+    const d = daemon();
+    const handledAt = '2026-11-18T14:41:00.000Z';
+    serveInbox(
+      d,
+      [],
+      [
+        { ...entry('I7', 'a qa: something else happened'), handledAt },
+        { ...entry('I8', `${HEAD}; ${OLDEST}`), kind: 'worker_ended', handledAt },
+      ],
+    );
+    await openInbox(d);
+    expect(lines('I7')).toEqual(['a qa: something else happened', ACTION]);
+    expect(lines('I8')).toEqual([`${HEAD}; ${OLDEST}`, ACTION]);
   });
 
   it('shows only the re-raised item when the oldest turn changes', async () => {
@@ -354,10 +373,7 @@ describe('inbox no-session item', () => {
     const actions = action === undefined ? [] : [action];
     const [active, handled] =
       expects === undefined
-        ? [
-            [activeText, ...actions],
-            [handledText, ...actions],
-          ]
+        ? [[activeText, ...actions], [handledText]]
         : [
             [
               'No session to ring for qa',
@@ -365,7 +381,7 @@ describe('inbox no-session item', () => {
               ...actions,
               CLEARS,
             ],
-            ['No session to ring for qa', `${past} The oldest turn was T524.`],
+            ['Had no session to ring for qa', `${past} The oldest turn was T524.`],
           ];
     expect(lines('I7')).toEqual(active);
     expect(lines('I8')).toEqual(handled);
