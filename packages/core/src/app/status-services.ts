@@ -42,14 +42,10 @@ function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 'reason'> 
     };
   }
   const degraded = (reason: string) => ({ state: 'degraded' as const, reason });
-  // A source the runner pauses for a rate limit names the pause first: while paused its regular
-  // poll does not run, so it cannot complete, warm up or turn fresh. On-demand reads can still run
-  // during a budget pause; before a timed throttle's retry time the runner refuses them.
-  // No time: the runner's wake time is its own, so the stored budget's resetAt can be wrong. The
-  // requested delay is the later of the reset and one interval for a budget pause, the later of
-  // the retry time and one interval for a timed throttle, and the backoff (jitter can make it
-  // shorter than an interval) for an untimed one; the runner caps any wait at its longest timer,
-  // about 24.8 days, so a far-off reset or retry time ends the wait earlier.
+  // A source the runner holds back from its regular polls because GitHub or Jira throttled it
+  // (a budget under the reserve or a throttled response) names the wait first: while held back it
+  // does not poll, so it cannot complete, warm up or turn fresh. The reason names no time; see
+  // policy.ts and runner.ts for the timing.
   if (source.waitsForBudget) return degraded(`${source.source} waits for its rate budget`);
   // The runner does not reload lastCompleteAt, so a restarted source can read null while it
   // completed in an earlier run: name it warming up until its first complete poll.
