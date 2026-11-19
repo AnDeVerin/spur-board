@@ -4043,6 +4043,8 @@ describe('anomaly blocks', () => {
       },
       closeHeld: followUpOpen,
       closeFresh: followUpOpen,
+      blindAfterRaised: followUpOpen,
+      blindAfterDismissed: followUpOpen,
       /** #7 closed, #8 linked and merged, then #7 reopened as the only open PR and closed again. */
       reopenedClosed: async (b: Board) => {
         const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
@@ -4082,7 +4084,34 @@ describe('anomaly blocks', () => {
         now += 1_000;
         await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
       },
+      blindAfterRaised: async (b, last) => {
+        await finals.closeFresh?.(b, last);
+        now += 1_000;
+        await blindGithub(b);
+      },
+      blindAfterDismissed: async (b, last) => {
+        await finals.closeFresh?.(b, last);
+        const item = await b.store.db
+          .selectFrom('operator_item')
+          .selectAll()
+          .where('item_key', 'like', 'pr-closed:%')
+          .executeTakeFirstOrThrow();
+        await b.store.transaction((trx) => dismissItem(trx, item, 'operator', new Date(now)));
+        now += 1_000;
+        await blindGithub(b);
+        expect(await b.store.db.selectFrom('dismissal').select('item_key').execute()).toEqual([
+          { item_key: item.item_key },
+        ]);
+      },
     };
+    /** A GitHub poll that fails as blind: its alerts and dismissals hold through the outage. */
+    const blindGithub = (b: Board) =>
+      b.core.observe(github, {
+        batch: { source: github, observedAt: iso(), complete: false, items: [], entities: [] },
+        effectiveComplete: false,
+        state: { blind: { reason: 'auth', message: 'Bad token' }, gone: [] },
+        outcomes: [],
+      });
     const NO_PR = 'o/r#9: worker ended (completed), no PR (worker-1)';
     const UNCONFIRMED = { pr: 'merged', mergedOpen: null, unconfirmed: true };
     const DONE = { pr: 'merged', mergedOpen: null, unconfirmed: false };
@@ -4112,6 +4141,9 @@ describe('anomaly blocks', () => {
       ['conflictFollowUpClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
       ['closeHeld', 'untouched', [], null, UNCONFIRMED],
       ['closeFresh', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      ['blindAfterRaised', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      // The dismissed pr-closed item is cleared; its block stays open, as for any dismissal.
+      ['blindAfterDismissed', 'untouched', [ENDED, null], NO_PR, UNCONFIRMED],
     ] as const)(
       'agrees with the dispatcher on which merged PR counts: %s, ticket %s',
       async (history, change, ledger, ended, outcome) => {

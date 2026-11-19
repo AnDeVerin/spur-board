@@ -590,6 +590,9 @@ export async function reconcileItems(
   }
   // Tasks whose ticket reopened after the judged merge, with the clause their worker-end item names.
   const reopened = new Map<number, string>();
+  // Tasks whose merged PR suppresses alerts only while their pr-closed item is held, as when a repo
+  // is blind: their shown alerts hold as they are, and nothing new is raised.
+  const liftHeld = new Set<number>();
   for (const [taskId, { at, ref }] of judged) {
     const state = taskPrs[String(taskId)];
     const task = taskById.get(taskId);
@@ -611,13 +614,34 @@ export async function reconcileItems(
     // No ticket status in the text: the item fingerprint hashes it, and a move between two
     // non-done statuses must not raise the item again.
     if (judgement === 'reopened') reopened.set(taskId, `; PR ${ref} merged, ticket reopened`);
+    if (state.hasMergedPr && judgement !== 'done' && prClosed.get(taskId)?.held === true)
+      liftHeld.add(taskId);
   }
   const heldKeys: string[] = [];
   for (const task of tasks) {
     const closure = prClosed.get(task.id);
-    if (closure === undefined || taskPrs[String(task.id)]?.hasMergedPr !== false) continue;
-    if (closure.held) heldKeys.push(closure.key);
-    else candidates.push(closure.item);
+    if (closure === undefined) continue;
+    if (closure.held && (liftHeld.has(task.id) || taskPrs[String(task.id)]?.hasMergedPr === false))
+      heldKeys.push(closure.key);
+    else if (!closure.held && taskPrs[String(task.id)]?.hasMergedPr === false)
+      candidates.push(closure.item);
+  }
+  if (liftHeld.size > 0) {
+    const shown = await trx
+      .selectFrom('operator_item')
+      .select('item_key')
+      .where('item_key', 'like', 'health:%')
+      .where('cleared_at', 'is', null)
+      .execute();
+    heldKeys.push(
+      ...shown
+        .map((item) => item.item_key)
+        .filter((key) => {
+          const parts = key.split(':');
+          const kind = parts.at(-1) as SessionHealthFlagKind;
+          return liftHeld.has(Number(parts[1])) && ENDED_WORKER_LABELS[kind] !== undefined;
+        }),
+    );
   }
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
