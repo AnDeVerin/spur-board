@@ -3,7 +3,8 @@
 ## Failures, backoff and budget
 
 - Map a failed HTTP response with `classifyHttpFailure` in `packages/adapters/src/runner/http.ts`:
-  429, or 403 with a rate-limit sign, is `throttled` with `retryAt`; other 401 and 403 are `auth`;
+  429, or 403 with a rate-limit sign, is `throttled` with `retryAt`; a 403 whose body cannot be
+  read and whose headers carry no rate-limit sign is `transient`; other 401 and 403 are `auth`;
   the rest is `transient`. Board doctor reuses it and the GraphQL rules.
 - `nextDelay` in `packages/adapters/src/runner/policy.ts` waits `authRetryMs` after `auth` or
   `config`, until `retryAt` after `throttled`, and backs off exponentially otherwise.
