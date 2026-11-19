@@ -41,19 +41,25 @@ const menu = (label: string) =>
     onSelect: () => undefined,
   });
 
-/** A Help trigger inside an anchor inside a scroller, and the Popover it opens. */
+/**
+ * A Help trigger inside an anchor inside a scroller, and the Popover it opens. `shared` puts a
+ * collapsed menu trigger (`aria-expanded`) before Help in the anchor, as a column head holds.
+ */
 function Harness({
   initial = false,
   onClose = () => undefined,
   children,
   after,
+  shared = false,
 }: {
   initial?: boolean;
   onClose?: () => void;
   children?: ReactNode;
   after?: ReactNode;
+  shared?: boolean;
 }) {
   const anchor = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(initial);
   return createElement(
     Fragment,
@@ -64,10 +70,12 @@ function Harness({
       createElement(
         'div',
         { id: 'anchor', ref: anchor },
+        shared && createElement('button', { type: 'button', 'aria-expanded': false }, 'Order'),
         createElement(
           'button',
           {
             type: 'button',
+            ref: trigger,
             'aria-expanded': open,
             onClick: () => {
               setOpen(!open);
@@ -84,6 +92,7 @@ function Harness({
         setOpen(false);
       },
       anchor,
+      trigger,
       title: 'Review',
       actions: createElement('span', { id: 'actions' }, 'Tabs'),
       children: children ?? createElement('p', null, 'Body'),
@@ -228,69 +237,53 @@ describe('Popover', () => {
     expect(document.activeElement).toBe(document.body);
   });
 
-  it('Escape closes and returns focus to the opener', () => {
+  it('Escape and Close each call onClose once; the Escape is handled', () => {
     const onClose = vi.fn();
     render(createElement(Harness, { onClose }));
     press(button('Help'));
-    const event = key('Escape');
-    expect(event.defaultPrevented).toBe(true);
+    expect(key('Escape').defaultPrevented).toBe(true);
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(popover()).toBeUndefined();
-    expect(document.activeElement).toBe(button('Help'));
-  });
-
-  it('opened with focus on body, Escape and Close return focus to the anchor trigger', () => {
-    // Safari does not focus a clicked button: the popover opens with focus on body.
-    for (const how of ['Escape', 'Close'] as const) {
-      render(createElement(Fragment, null));
-      render(createElement(Harness, { initial: true }));
-      expect(document.activeElement).toBe(document.body);
-      if (how === 'Escape') key('Escape');
-      else
-        act(() => {
-          button('Close', opened()).click();
-        });
-      expect(popover(), how).toBeUndefined();
-      expect(document.activeElement, how).toBe(button('Help'));
-    }
-  });
-
-  it('returns focus to the anchor trigger before an unrelated opener, without scrolling', () => {
-    // Safari: a control elsewhere holds focus and the click on Help does not move it.
-    const other = createElement('button', { type: 'button' }, 'Other');
-    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
-    for (const how of ['Escape', 'Close'] as const) {
-      render(createElement(Fragment, null));
-      render(createElement(Harness, { after: other }));
-      act(() => {
-        button('Other').focus();
-        button('Help').click();
-      });
-      // Something held focus at open: focus moves to Close.
-      expect(document.activeElement, how).toBe(button('Close', opened()));
-      if (how === 'Escape') key('Escape');
-      else
-        act(() => {
-          button('Close', opened()).click();
-        });
-      expect(popover(), how).toBeUndefined();
-      expect(document.activeElement, how).toBe(button('Help'));
-      // Both moves the popover made, to Close and back to Help, leave a scrolled strip still.
-      expect(focus.mock.calls.slice(-2), how).toEqual([
-        [{ preventScroll: true }],
-        [{ preventScroll: true }],
-      ]);
-    }
-  });
-
-  it('Close returns focus to the opener', () => {
-    const onClose = vi.fn();
-    render(createElement(Harness, { onClose }));
     press(button('Help'));
     press(button('Close', opened()));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(2);
     expect(popover()).toBeUndefined();
-    expect(document.activeElement).toBe(button('Help'));
+  });
+
+  it('returns focus to its trigger without scrolling, however it opened and closed', () => {
+    const other = createElement('button', { type: 'button' }, 'Other');
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    // keyboard: the trigger holds focus; pointer: Safari leaves focus on body; unrelated: Safari
+    // leaves it on a control elsewhere. Shared: a collapsed menu trigger sits before Help.
+    for (const opening of ['keyboard', 'pointer', 'unrelated'] as const)
+      for (const shared of [false, true])
+        for (const closing of ['Escape inside', 'Escape on body', 'Close'] as const) {
+          const row = `${opening}, ${shared ? 'shared' : 'single'}, ${closing}`;
+          render(createElement(Fragment, null));
+          render(createElement(Harness, { shared, after: other }));
+          act(() => {
+            if (opening === 'keyboard') button('Help').focus();
+            if (opening === 'unrelated') button('Other').focus();
+            button('Help').click();
+          });
+          const close = button('Close', opened());
+          // Focus moves to Close only when something held focus, and without scrolling.
+          expect(document.activeElement, row).toBe(opening === 'pointer' ? document.body : close);
+          if (opening !== 'pointer')
+            expect(focus.mock.calls.at(-1), row).toEqual([{ preventScroll: true }]);
+          act(() => {
+            if (closing === 'Escape inside') close.focus();
+            if (closing === 'Escape on body') (document.activeElement as HTMLElement).blur();
+          });
+          focus.mockClear();
+          if (closing === 'Close')
+            act(() => {
+              close.click();
+            });
+          else key('Escape');
+          expect(popover(), row).toBeUndefined();
+          expect(document.activeElement, row).toBe(button('Help'));
+          expect(focus.mock.calls, row).toEqual([[{ preventScroll: true }]]);
+        }
   });
 
   it('a mousedown outside closes; inside the panel or the anchor, or a pointerdown alone, does not', () => {
@@ -448,6 +441,7 @@ describe('Popover', () => {
           open: true,
           onClose: () => undefined,
           anchor,
+          trigger: anchor,
           title: 'Review',
           children: 'Body',
         }),

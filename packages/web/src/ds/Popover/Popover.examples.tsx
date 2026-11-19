@@ -11,16 +11,32 @@ const helpTabs: TabItem[] = [
 const caption = { margin: 0, color: 'var(--color-text-tertiary)' };
 const text = { margin: 0 };
 
+/**
+ * The anchor wrapper and the button inside it, kept by one ref callback on the wrapper: the ds
+ * Button takes no ref, and its `<button>` is attached before the wrapper's ref runs.
+ */
+function useAnchor() {
+  const anchor = useRef<HTMLElement | null>(null);
+  const trigger = useRef<HTMLElement | null>(null);
+  const hold = (wrapper: HTMLElement | null) => {
+    anchor.current = wrapper;
+    trigger.current = wrapper?.querySelector('button') ?? null;
+  };
+  return { anchor, trigger, hold };
+}
+
 /** A help panel with Who and Rules tabs in its header; `lines` sets the body length. */
 function HelpPopover({
   open,
   onClose,
   anchor,
+  trigger,
   lines,
 }: {
   open: boolean;
   onClose: () => void;
   anchor: RefObject<HTMLElement | null>;
+  trigger: RefObject<HTMLElement | null>;
   lines: number;
 }) {
   const id = useId();
@@ -31,6 +47,7 @@ function HelpPopover({
       open={open}
       onClose={onClose}
       anchor={anchor}
+      trigger={trigger}
       title="Review"
       actions={<Tabs id={id} label="Column help" tabs={helpTabs} value={tab} onChange={setTab} />}
     >
@@ -60,12 +77,12 @@ function Demo({
   end?: boolean;
   style?: CSSProperties;
 }) {
-  const anchor = useRef<HTMLDivElement>(null);
+  const { anchor, trigger, hold } = useAnchor();
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ display: 'grid', gap: 'var(--space-2)', ...style }}>
       <p style={caption}>{children}</p>
-      <div ref={anchor} style={{ justifySelf: end ? 'end' : 'start' }}>
+      <div ref={hold} style={{ justifySelf: end ? 'end' : 'start' }}>
         <Button
           expanded={open}
           onClick={() => {
@@ -81,6 +98,7 @@ function Demo({
           setOpen(false);
         }}
         anchor={anchor}
+        trigger={trigger}
         lines={lines}
       />
     </div>
@@ -100,7 +118,7 @@ export function Open() {
 }
 
 export function FollowsColumn() {
-  const head = useRef<HTMLDivElement>(null);
+  const { anchor, trigger, hold } = useAnchor();
   const [open, setOpen] = useState(true);
   const column: CSSProperties = {
     flex: 'none',
@@ -117,7 +135,7 @@ export function FollowsColumn() {
       <div style={{ display: 'flex', overflowX: 'auto' }}>
         {['Todo', 'Working', 'Review', 'Waiting', 'Done', 'Archive'].map((name) =>
           name === 'Review' ? (
-            <div key={name} ref={head} style={column}>
+            <div key={name} ref={hold} style={column}>
               <Button
                 expanded={open}
                 onClick={() => {
@@ -139,7 +157,8 @@ export function FollowsColumn() {
         onClose={() => {
           setOpen(false);
         }}
-        anchor={head}
+        anchor={anchor}
+        trigger={trigger}
         lines={4}
       />
     </div>

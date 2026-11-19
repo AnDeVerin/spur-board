@@ -13,9 +13,10 @@ import styles from './Popover.module.css';
 
 /**
  * A non-modal panel under an anchor element, such as a column head: `role="dialog"` without
- * `aria-modal`, labelled by `title`. Controlled: it renders while `open` and calls `onClose`; the
- * caller's trigger carries `aria-expanded`. The header holds the title at the left, then
- * `actions` (e.g. an underline `Tabs`), then Close; the body scrolls.
+ * `aria-modal`, labelled by `title`. Controlled: it renders while `open` and calls `onClose`.
+ * `anchor` is the element it sits under; `trigger` is the caller's control that opens it, which
+ * carries `aria-expanded` and takes focus back on close. The header holds the title at the left,
+ * then `actions` (e.g. an underline `Tabs`), then Close; the body scrolls.
  *
  * Placement: it sits `--space-1` under the anchor's bottom edge, starting at its left edge, and
  * follows the anchor on any scroll (a nested scroller included), on resize, and on any layout
@@ -35,11 +36,11 @@ import styles from './Popover.module.css';
  * whose top is below the window. At 375px it fills the window width less `--space-2` on each
  * side, still under its anchor: not a bottom sheet.
  *
- * Focus: the opener is the element focused at the first render. With one, focus moves to Close
- * on open; with none (focus on `body`, as after a click in Safari or an open from the URL), focus
- * stays put. Escape and Close call `onClose` and return focus to the anchor's trigger (the anchor
- * or its first descendant with `aria-expanded`, else the anchor when it is focusable), else, for
- * an anchor with no trigger, to the opener: in Safari a click does not focus the trigger, so the
+ * Focus: `trigger` is the element that opens the panel (the caller's control with
+ * `aria-expanded`); the opener is the element focused at the first render. With an opener, focus
+ * moves to Close on open; with none (focus on `body`, as after a click in Safari or an open from
+ * the URL), focus stays put. Escape and Close call `onClose` and return focus to `trigger`, else,
+ * while it is not attached, to the opener: in Safari a click does not focus the trigger, so the
  * opener may be an unrelated control. Close always returns it; Escape only when focus was inside
  * the panel or on `body`. Every focus move, the one to Close on open included, uses
  * `preventScroll`: returning to a trigger scrolled out of its strip leaves the strip where it is.
@@ -73,6 +74,7 @@ export function Popover({
   open: boolean;
   onClose: () => void;
   anchor: RefObject<HTMLElement | null>;
+  trigger: RefObject<HTMLElement | null>;
   title: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
@@ -80,9 +82,6 @@ export function Popover({
   if (!open) return null;
   return <OpenPopover {...props} />;
 }
-
-/** Elements that take focus without a `tabindex`, or with one. */
-const focusable = 'a[href], button, input, select, textarea, summary, [tabindex]';
 
 type Area = { left: number; top: number; right: number; bottom: number };
 
@@ -132,12 +131,14 @@ function visibleArea(element: HTMLElement): Area {
 function OpenPopover({
   onClose,
   anchor,
+  trigger,
   title,
   actions,
   children,
 }: {
   onClose: () => void;
   anchor: RefObject<HTMLElement | null>;
+  trigger: RefObject<HTMLElement | null>;
   title: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
@@ -156,17 +157,9 @@ function OpenPopover({
   useLayoutEffect(() => {
     latest.current = onClose;
   });
-  // Where Escape and Close send focus: the anchor's trigger, else the opener. The trigger comes
-  // first: in Safari a click does not focus it, so the opener may be an unrelated control.
-  const returnTarget = (): HTMLElement | null => {
-    const element = anchor.current;
-    if (element?.matches('[aria-expanded]')) return element;
-    return (
-      element?.querySelector<HTMLElement>('[aria-expanded]') ??
-      (element?.matches(focusable) ? element : null) ??
-      opener
-    );
-  };
+  // Where Escape and Close send focus: the trigger, else the opener. The trigger comes first: in
+  // Safari a click does not focus it, so the opener may be an unrelated control.
+  const returnTarget = (): HTMLElement | null => trigger.current ?? opener;
   // The values last written, so an unchanged frame writes nothing.
   const written = useRef('');
   // Writes the anchor's box on the panel, not in React state, and only when it changed.
