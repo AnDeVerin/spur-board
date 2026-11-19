@@ -7,7 +7,8 @@ import { createJob } from './scheduler.ts';
 interface BoardModuleOptions {
   /** Test seams preserve the real core and lifecycle behavior. */
   core?: ReturnType<typeof createObservationCore>;
-  startAdapters?: typeof startAdapters;
+  /** Replaces `startAdapters`; a stand-in runner may leave out `pollPr` and `budgetWaits`. */
+  startAdapters?: (...args: Parameters<typeof startAdapters>) => AdapterRunner;
   tick?: typeof tickBoard;
   /** Called only after a tick resolves; a failed or stalled tick never calls it. */
   onTick?: () => void;

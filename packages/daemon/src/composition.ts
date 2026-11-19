@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
-import { startAdapters } from '@spur-board/adapters';
+import { startAdapters, type AdapterRunner } from '@spur-board/adapters';
 import { resolveWebOrigin, type Gateway } from '@spur-board/contracts';
 import {
   createObservationCore,
@@ -29,7 +29,7 @@ export interface DaemonModulePorts {
   productVersion?: string;
   gateway?: Gateway;
   spur?: SpurPort;
-  startAdapters?: typeof startAdapters;
+  startAdapters?: (...args: Parameters<typeof startAdapters>) => AdapterRunner;
   tick?: typeof tickBoard;
   sessionFetcher?: typeof fetch;
   afterOperation?: (response: ServerResponse) => void | Promise<void>;

@@ -254,7 +254,7 @@ function runnerController(standFetch: typeof fetch) {
       firstAttempts: runner.firstAttempts,
       // Reads the current runner, so a restart starts with no budget wait.
       get budgetWaits() {
-        return runner?.budgetWaits;
+        return runner?.budgetWaits ?? new Set<string>();
       },
       // Forwards to the current runner, so a restart keeps on-demand polls working.
       pollPr: (source, ref, pollOptions) =>

@@ -73,7 +73,10 @@ export interface AdapterRunner {
   /**
    * Sources whose next regular poll this runner has put off for the rate budget: the last
    * regular poll delivered a budget under its reserve, and the paused poll has not started. An
-   * on-demand poll never adds or removes one. Always set by `startRunner`; empty in one-shot mode.
+   * on-demand poll never adds or removes one, and `stop` removes every one. `startRunner` owns
+   * the set and `startAdapters` passes the same set through (both return a `StartedRunner`, so
+   * the compiler rejects a wrapper that drops it); empty in one-shot mode. Optional only for
+   * test stand-ins.
    */
   budgetWaits?: ReadonlySet<string> | undefined;
   /** Outcome of the first poll of each source, after its observation or failure report. */
@@ -90,6 +93,9 @@ export interface AdapterRunner {
    */
   stop(): Promise<void>;
 }
+
+/** A runner `startRunner` and `startAdapters` return: its budget waits are always present. */
+export type StartedRunner = AdapterRunner & { budgetWaits: ReadonlySet<string> };
 
 /** One failed step of a poll or a source report, for the warn log. Never carries a value. */
 export interface PollFailure {
@@ -117,7 +123,7 @@ export interface RunnerOptions {
   onFailure?: ((failure: PollFailure) => void) | undefined;
 }
 
-export function startRunner(options: RunnerOptions): AdapterRunner {
+export function startRunner(options: RunnerOptions): StartedRunner {
   const startedAt = options.now();
   const budgetWaits = new Set<string>();
   const sources = options.entries.map((entry) => runSource(entry, options, startedAt, budgetWaits));
