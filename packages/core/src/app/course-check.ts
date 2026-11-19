@@ -119,14 +119,16 @@ type CourseLog = (Round | { kind: 'reset'; counter: ColumnId })[];
 /**
  * The task's journal replayed for its counts, in journal order: the cycle events, and the
  * course rounds with the resets of each counter. A return's head is the head the active PR moved
- * to last before it, else the one the next head change left, else the current head of `pr`.
+ * to last before it, else the one the next head change left, else the PR's current head.
+ * External Review counts each head once, resets ignored: a later return or round on a head it
+ * already counted adds to the cycle events only.
  */
 async function courseRounds(
   trx: Trx,
   taskId: number,
   project: Pick<Project, 'columns'>,
-  pr: PrFacts | null,
 ): Promise<{ cycle: CycleEvent[]; course: CourseLog }> {
+  const pr = await prFacts(trx, taskId);
   const prefixes = { cycle: cycleKeyPrefix(taskId), course: courseKeyPrefix(taskId) };
   const items = await trx
     .selectFrom('operator_item')
@@ -175,6 +177,14 @@ async function courseRounds(
     )?.toLowerCase() ?? null;
   const cycle: CycleEvent[] = [];
   const course: CourseLog = [];
+  const externalHeads = new Set<string>();
+  const count = (round: Round) => {
+    if (round.counter === EXTERNAL_COUNTER && round.head !== null) {
+      if (externalHeads.has(round.head)) return;
+      externalHeads.add(round.head);
+    }
+    course.push(round);
+  };
   for (const row of rows) {
     if (row.kind === 'from_you_cleared') {
       const cleared = eventPayloadSchemas.from_you_cleared.safeParse(JSON.parse(row.payload));
@@ -185,7 +195,7 @@ async function courseRounds(
     } else if (row.kind === 'external_round') {
       const round = eventPayloadSchemas.external_round.safeParse(JSON.parse(row.payload));
       if (round.success)
-        course.push({
+        count({
           kind: 'external_round',
           counter: courseCounter({ kind: 'external_round' }, project),
           reviewer: round.data.reviewer,
@@ -197,7 +207,7 @@ async function courseRounds(
       if (event?.kind !== 'return') continue;
       cycle.push(event);
       if (countCycles([event], event.column, Infinity).count > 0)
-        course.push({
+        count({
           kind: 'return',
           counter: courseCounter(event, project),
           from: event.column,
@@ -230,7 +240,7 @@ export async function returnCounts(
   column: ColumnId,
   project: Pick<Project, 'columns'>,
 ): Promise<{ cycle: number; course: number }> {
-  const { cycle, course } = await courseRounds(trx, taskId, project, null);
+  const { cycle, course } = await courseRounds(trx, taskId, project);
   return {
     cycle: countCycles(cycle, column, Infinity).count,
     course: roundsSince(course, column).length,
@@ -256,7 +266,7 @@ export async function raiseCourseDue(
   const { task, project, config, at, counter, requireRound } = input;
   const threshold = project.columns.find((column) => column.id === counter)?.courseCheck ?? 0;
   if (threshold <= 0) return null;
-  const rounds = roundsSince((await courseRounds(trx, task.id, project, null)).course, counter);
+  const rounds = roundsSince((await courseRounds(trx, task.id, project)).course, counter);
   if (rounds.length < threshold) return null;
   if (requireRound && !rounds.some((round) => round.kind === 'external_round')) return null;
   return raiseCourseCheck(trx, { task, column: counter, count: rounds.length, at, config });
@@ -304,7 +314,7 @@ export async function recordExternalRounds(
         )
       : [];
   if (pr !== null && requests.length > 0) {
-    const { course } = await courseRounds(trx, task.id, project, pr);
+    const { course } = await courseRounds(trx, task.id, project);
     const counted = new Set(
       course.flatMap((entry) =>
         entry.kind !== 'reset' && entry.counter === EXTERNAL_COUNTER && entry.head !== null
@@ -443,7 +453,7 @@ async function courseSummary(
   const short = (sha: string) =>
     sha.toLowerCase() === current ? `${sha.slice(0, 7)} (current head)` : sha.slice(0, 7);
   const project = config.projects.find((entry) => entry.id === task.project) ?? { columns: [] };
-  const rounds = roundsSince((await courseRounds(trx, task.id, project, pr)).course, column);
+  const rounds = roundsSince((await courseRounds(trx, task.id, project)).course, column);
   const returns = rounds.filter((round) => round.kind === 'return').length;
   const findings = await openFindings(trx, task.id);
   const lines = [
