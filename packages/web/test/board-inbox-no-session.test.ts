@@ -275,6 +275,20 @@ describe('inbox no-session item', () => {
     ],
     ['a name holding an oldest clause and no action', withOldest, undefined, undefined, ''],
     [
+      'a name holding an oldest clause and an action naming its prefix',
+      withOldest,
+      named('QA'),
+      undefined,
+      '',
+    ],
+    [
+      'a name holding an oldest clause and an action naming no project',
+      withOldest,
+      unnamed,
+      undefined,
+      '',
+    ],
+    [
       'a name holding a waiting clause and a named action',
       withWaiting,
       named(withWaiting),
