@@ -219,8 +219,9 @@ describe('Turn section focus', () => {
     );
   });
 
-  // The submit's answer has the task in Review. A read that still shows T5 open is older than the
-  // close, so the line names the answer's column; a read that shows T5 closed names its own.
+  // The submit's answer has the task in Review, the return's in Dev. A read that still shows T5 open
+  // is older than the close, so the line names the answer's column; a read that shows T5 closed
+  // names its own.
   const openRead = (column: string) =>
     orchestratorTaskGet({}, { task: { ...taskGet().task, column } });
   const closedRead = (column: string) =>
@@ -233,17 +234,36 @@ describe('Turn section focus', () => {
       },
     );
   it.each([
-    ['no read follows the write', undefined, 'never', 'review'],
-    ['a read during the send still shows the turn open', openRead('dev'), 'never', 'review'],
-    ['a read during the send already shows the close in QA', closedRead('qa'), 'never', 'qa'],
-    ['the read after the write fails', undefined, 'fail', 'review'],
-    ['the read after the write shows the close in QA', undefined, closedRead('qa'), 'qa'],
-  ] as const)('names the column of the own submit when %s', async (_, during, after, column) => {
+    ['submit', 'no read follows the write', undefined, 'never', 'review'],
+    [
+      'submit',
+      'a read during the send still shows the turn open',
+      openRead('dev'),
+      'never',
+      'review',
+    ],
+    [
+      'submit',
+      'a read during the send already shows the close in QA',
+      closedRead('qa'),
+      'never',
+      'qa',
+    ],
+    ['submit', 'the read after the write fails', undefined, 'fail', 'review'],
+    ['submit', 'the read after the write shows the close in QA', undefined, closedRead('qa'), 'qa'],
+    // The open read says Review and the answer Dev, so only the answer can name Dev here.
+    ['return', 'the read after the write fails', undefined, 'fail', 'dev'],
+  ] as const)('names the column of the own %s when %s', async (kind, _, during, after, column) => {
     const { d } = await open();
     const write = deferred();
-    const submitted = d.routes['task.submit'];
-    d.routes['task.submit'] = () => write.promise;
-    await click('Submit…');
+    const route = kind === 'submit' ? 'task.submit' : 'task.return';
+    const answer = d.routes[route];
+    d.routes[route] = () => write.promise;
+    if (kind === 'submit') await click('Submit…');
+    else {
+      await click('Return to dev…');
+      type(reason(), 'Handle the empty list.');
+    }
     await send();
     if (during !== undefined) await reread(d, during);
     d.routes['task.get'] =
@@ -252,10 +272,16 @@ describe('Turn section focus', () => {
         : after === 'fail'
           ? failure
           : () => Promise.resolve(envelope(after));
-    write.resolve(await submitted({ turn: 'T5', sha: HEAD }));
+    write.resolve(
+      await answer(
+        kind === 'submit'
+          ? { turn: 'T5', sha: HEAD }
+          : { turn: 'T5', reason: 'Handle the empty list.' },
+      ),
+    );
     await settle();
     expect(turnSection().querySelector('[role="status"]')?.textContent).toBe(
-      `T5 submitted. The task is in ${column}.`,
+      `T5 ${kind === 'submit' ? 'submitted' : 'returned to dev'}. The task is in ${column}.`,
     );
   });
 
