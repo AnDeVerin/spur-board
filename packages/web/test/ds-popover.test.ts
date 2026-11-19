@@ -156,11 +156,15 @@ const anchorRect = () => {
     return domRect(this.id === 'scroller' && scrollerRect ? scrollerRect : rect);
   });
 };
-/** Makes `#scroller` clip both axes to `area` (its padding box: no border here), or stop. */
-const clip = (area: Rect | undefined) => {
+/**
+ * Makes `#scroller` clip both axes to `area` (its padding box: no border here), or stop, and
+ * gives it `position`.
+ */
+const clip = (area: Rect | undefined, position = '') => {
   scrollerRect = area;
   const scroller = document.getElementById('scroller');
   if (!scroller) throw new Error('no scroller');
+  scroller.style.position = position;
   scroller.style.overflowX = area ? 'auto' : '';
   scroller.style.overflowY = area ? 'auto' : '';
   for (const [name, value] of [
@@ -382,35 +386,52 @@ describe('Popover', () => {
     anchorRect();
     render(createElement(Harness, { initial: true }));
     const scroller: Rect = { left: 200, right: 800, top: 0, bottom: 600 };
-    // Anchor edges, the clipping scroller if any, and the side `data-away` names (null: in view).
+    // Wholly right of the window: its cut with the window is empty.
+    const beyond: Rect = { left: 1100, right: 1500, top: 0, bottom: 600 };
+    // Anchor edges, the clipping scroller if any, the side `data-away` names (null: in view), and
+    // the layout: in flow, a fixed anchor, an absolute one with the scroller static or positioned.
     // An anchor narrower than the panel leaves by the left too: the CSS then puts the panel's
     // right edge at or left of the anchor's (web-popover.test.ts).
-    for (const [left, right, top, bottom, area, away] of [
-      [-400, -20, 20, 40, undefined, 'left'],
-      [-300, -20, 20, 40, undefined, 'left'],
-      [-249, 0, 20, 40, undefined, 'left'],
-      [1024, 1344, 20, 40, undefined, 'right'],
-      [100, 420, -21, -1, undefined, 'top'],
-      [100, 420, -20, 0, undefined, 'top'],
-      [100, 420, 768, 788, undefined, 'bottom'],
-      [100, 420, 769, 789, undefined, 'bottom'],
-      [-100, 200, 20, 40, scroller, 'left'],
-      [800, 1000, 20, 40, scroller, 'right'],
-      [300, 620, -40, 0, scroller, 'top'],
-      [300, 620, 600, 620, scroller, 'bottom'],
-      [100, 420, 20, 40, undefined, null],
-      [1000, 1320, 20, 40, undefined, null],
-      [-300, 20, 20, 40, undefined, null],
-      [100, 420, -19, 1, undefined, null],
-      [100, 420, 767, 787, undefined, null],
-      [150, 470, 590, 610, scroller, null],
+    const positions = {
+      flow: ['', ''],
+      fixed: ['fixed', ''],
+      absolute: ['absolute', ''],
+      positioned: ['absolute', 'relative'],
+    } as const;
+    for (const [left, right, top, bottom, area, away, layout] of [
+      [-400, -20, 20, 40, undefined, 'left', 'flow'],
+      [-300, -20, 20, 40, undefined, 'left', 'flow'],
+      [-249, 0, 20, 40, undefined, 'left', 'flow'],
+      [1024, 1344, 20, 40, undefined, 'right', 'flow'],
+      [100, 420, -21, -1, undefined, 'top', 'flow'],
+      [100, 420, -20, 0, undefined, 'top', 'flow'],
+      [100, 420, 768, 788, undefined, 'bottom', 'flow'],
+      [100, 420, 769, 789, undefined, 'bottom', 'flow'],
+      [-100, 200, 20, 40, scroller, 'left', 'flow'],
+      [800, 1000, 20, 40, scroller, 'right', 'flow'],
+      [300, 620, -40, 0, scroller, 'top', 'flow'],
+      [300, 620, 600, 620, scroller, 'bottom', 'flow'],
+      [100, 420, 20, 40, undefined, null, 'flow'],
+      [1000, 1320, 20, 40, undefined, null, 'flow'],
+      [-300, 20, 20, 40, undefined, null, 'flow'],
+      [100, 420, -19, 1, undefined, null, 'flow'],
+      [100, 420, 767, 787, undefined, null, 'flow'],
+      [150, 470, 590, 610, scroller, null, 'flow'],
+      // A wide anchor spanning both window edges, in an empty visible area.
+      [-100, 1200, 20, 40, beyond, 'empty', 'flow'],
+      // The scroller is not on the anchor's containing-block chain: it does not clip.
+      [-100, 180, 20, 40, scroller, null, 'fixed'],
+      [-100, 180, 20, 40, scroller, null, 'absolute'],
+      [-100, 180, 20, 40, scroller, 'left', 'positioned'],
     ] as const) {
-      clip(area);
+      const [anchorPosition, scrollerPosition] = positions[layout];
+      clip(area, scrollerPosition);
+      document.getElementById('anchor')?.style.setProperty('position', anchorPosition);
       stubAnchorRect({ left, right, top, bottom });
       act(() => {
         document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
       });
-      expect(placement(), JSON.stringify({ left, right, top, bottom, area })).toEqual(
+      expect(placement(), JSON.stringify({ left, right, top, bottom, area, layout })).toEqual(
         box(left, right, top, bottom, away),
       );
     }

@@ -22,7 +22,9 @@ import styles from './Popover.module.css';
  * change: it measures the anchor every animation frame while open and writes only a change. While
  * the anchor is in view the panel keeps `--space-2` inside the window edges. In view means the
  * anchor's box meets the visible area: the window cut, per axis, by the padding box of every
- * ancestor whose overflow clips (up to `body`, or to a `position: fixed` ancestor). An anchor out
+ * ancestor on the anchor's containing-block chain whose overflow clips, up to `body`. As in CSS,
+ * an absolute anchor is clipped only from its nearest positioned ancestor up, and a fixed one by
+ * none. An empty visible area (a scroller wholly outside the window) is not in view. An anchor out
  * of view, out of the window or clipped away by a scroller such as a board strip, hides the panel
  * (`visibility: hidden`, so its controls leave the tab order too) and the panel still follows it
  * out, by the anchor's right edge on the left side. Near the bottom of the window its height
@@ -58,7 +60,8 @@ import styles from './Popover.module.css';
  *
  * Stacking and limits: the panel is `position: fixed` at `--z-menu`, rendered in place (no
  * portal). An ancestor with `transform`, `filter` or `contain` becomes its containing block and
- * breaks the placement. Left open while a `SidePanel` opens by keyboard, it draws above that
+ * breaks the placement; such an ancestor of a fixed anchor, which would clip it, is not followed
+ * by the in-view test either. Left open while a `SidePanel` opens by keyboard, it draws above that
  * panel (`--z-menu` over `--z-panel`), though inert; a mouse press closes it. Its root is a
  * stacking context: a `HoverMenu` inside stacks within the panel; in the header its menu may
  * extend past the panel, in the body the scrolling body clips it.
@@ -84,37 +87,43 @@ const focusable = 'a[href], button, input, select, textarea, summary, [tabindex]
 type Area = { left: number; top: number; right: number; bottom: number };
 
 /**
- * Where `element` can show: the window cut, per axis, by the padding box of every ancestor whose
- * overflow on that axis clips. `body` and the root are left out (their overflow goes to the
- * window), inline and `display: contents` ancestors clip nothing, and the walk stops after a
- * `position: fixed` ancestor, whose own ancestors do not clip it.
+ * Where `element` can show: the window cut, per axis, by the padding box of every ancestor on its
+ * containing-block chain whose overflow on that axis clips. Following the CSS rule, a box in flow
+ * is clipped by its parent's overflow, an absolute box only by its nearest positioned ancestor's
+ * and those above it, and a fixed box by none. `body` and the root are left out (their overflow
+ * goes to the window), and inline and `display: contents` ancestors clip nothing. A `transform`,
+ * `filter` or `contain` ancestor, which makes a fixed box's containing block, is not followed
+ * (the limit the Popover doc comment states). An empty result means nothing is visible.
  */
 function visibleArea(element: HTMLElement): Area {
   const root = document.documentElement;
   const area: Area = { left: 0, top: 0, right: root.clientWidth, bottom: root.clientHeight };
+  // The position of the last box on the chain: it decides which ancestor holds it next.
+  let position = getComputedStyle(element).position;
   for (
     let node = element.parentElement;
-    node && node !== document.body && node !== root;
+    node && node !== document.body && node !== root && position !== 'fixed';
     node = node.parentElement
   ) {
     const style = getComputedStyle(node);
+    // An absolute box skips static ancestors up to its containing block.
+    if (position === 'absolute' && (style.position === '' || style.position === 'static')) continue;
+    position = style.position;
     if (style.display === 'inline' || style.display === 'contents') continue;
     const clipsX = style.overflowX !== '' && style.overflowX !== 'visible';
     const clipsY = style.overflowY !== '' && style.overflowY !== 'visible';
-    if (clipsX || clipsY) {
-      const box = node.getBoundingClientRect();
-      const left = box.left + node.clientLeft;
-      const top = box.top + node.clientTop;
-      if (clipsX) {
-        area.left = Math.max(area.left, left);
-        area.right = Math.min(area.right, left + node.clientWidth);
-      }
-      if (clipsY) {
-        area.top = Math.max(area.top, top);
-        area.bottom = Math.min(area.bottom, top + node.clientHeight);
-      }
+    if (!clipsX && !clipsY) continue;
+    const box = node.getBoundingClientRect();
+    const left = box.left + node.clientLeft;
+    const top = box.top + node.clientTop;
+    if (clipsX) {
+      area.left = Math.max(area.left, left);
+      area.right = Math.min(area.right, left + node.clientWidth);
     }
-    if (style.position === 'fixed') break;
+    if (clipsY) {
+      area.top = Math.max(area.top, top);
+      area.bottom = Math.min(area.bottom, top + node.clientHeight);
+    }
   }
   return area;
 }
@@ -161,15 +170,17 @@ function OpenPopover({
   // The values last written, so an unchanged frame writes nothing.
   const written = useRef('');
   // Writes the anchor's box on the panel, not in React state, and only when it changed.
-  // `data-away` names the side an anchor out of view left by.
+  // `data-away` names the side an anchor out of view left by, or `empty` when nothing of the
+  // window is visible to it (a scroller wholly outside the window).
   const place = () => {
     const element = panel.current;
     const target = anchor.current;
     if (!element || !target) return;
     const rect = target.getBoundingClientRect();
     const view = visibleArea(target);
-    let away: 'left' | 'right' | 'top' | 'bottom' | null = null;
-    if (rect.right <= view.left) away = 'left';
+    let away: 'left' | 'right' | 'top' | 'bottom' | 'empty' | null = null;
+    if (view.left >= view.right || view.top >= view.bottom) away = 'empty';
+    else if (rect.right <= view.left) away = 'left';
     else if (rect.left >= view.right) away = 'right';
     else if (rect.bottom <= view.top) away = 'top';
     else if (rect.top >= view.bottom) away = 'bottom';
