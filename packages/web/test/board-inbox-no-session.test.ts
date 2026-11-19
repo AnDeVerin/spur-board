@@ -281,6 +281,22 @@ describe('inbox no-session item', () => {
       undefined,
       '',
     ],
+    // A renamed column: handled text from core never holds a waiting clause of its own.
+    [
+      'a name holding a waiting clause and an action naming its prefix',
+      withWaiting,
+      named('QA'),
+      undefined,
+      '',
+    ],
+    [
+      'a name holding a waiting clause and an action naming no project',
+      withWaiting,
+      unnamed,
+      undefined,
+      '',
+    ],
+    ['a name holding a waiting clause and no action', withWaiting, undefined, undefined, ''],
     ['an action naming a prefix of the stored name', 'QA; West', named('QA'), undefined, ''],
     ['an action naming another project', 'orbit-qa', named('other'), undefined, ''],
     ['a named action and an unknown clause next', 'orbit-qa', named('orbit-qa'), undefined, next],

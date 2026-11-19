@@ -37,13 +37,14 @@ const OLDEST = /^oldest T\d+ since (\S+)$/;
 const WAITING = /^(\d+) waiting, no live session for (\d+) min$/;
 
 /** The no-session reading of an entry's description (action removed), or undefined. */
-function noSession(entry: Entry, description: string): NoSession | undefined {
+function noSession(entry: Entry, description: string, handled: boolean): NoSession | undefined {
   if (entry.kind !== 'board_observation') return undefined;
   const match = NO_SESSION.exec(description);
   if (!match || match[1] !== entry.project) return undefined;
   // Structured only when the reading is unambiguous: the name is the text up to the first `; `,
   // equal to the name the action gives, if any; a known clause comes next; and each known kind
   // appears once. Anything else, such as a Spur project name holding `; `, is the generic row.
+  // Core adds the waiting clause to open items only, so a handled one holding it is ambiguous.
   const [expects = '', ...clauses] = description.slice(match[0].length).split('; ');
   const named = entry.action === undefined ? undefined : NAMED_ACTION.exec(entry.action)?.[1];
   const [next] = clauses;
@@ -52,7 +53,7 @@ function noSession(entry: Entry, description: string): NoSession | undefined {
     (named !== undefined && named !== expects) ||
     (next !== undefined && !OLDEST.test(next) && !WAITING.test(next)) ||
     clauses.filter((clause) => OLDEST.test(clause)).length > 1 ||
-    clauses.filter((clause) => WAITING.test(clause)).length > 1
+    clauses.filter((clause) => WAITING.test(clause)).length > (handled ? 0 : 1)
   )
     return undefined;
   const found: NoSession = { column: match[2] ?? '', expects };
@@ -204,7 +205,7 @@ export function InboxPanel({
       suffix !== undefined && entry.text.endsWith(suffix)
         ? entry.text.slice(0, -suffix.length)
         : entry.text;
-    const known = noSession(entry, description);
+    const known = noSession(entry, description, handled);
     // A handled one keeps only its title and first sentence: the waiting turns are gone.
     const oldestAt = handled ? undefined : known?.oldestAt;
     const waiting = handled ? undefined : known?.waiting;
