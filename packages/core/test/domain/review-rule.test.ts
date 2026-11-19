@@ -239,6 +239,16 @@ const CASES: Case[] = [
     clock: false,
   },
   {
+    name: 'clean with the only listed required check skipped',
+    pr: pr({
+      requiredChecks: [{ name: 'ci-ok', state: 'skipped', completedAt: AT }],
+      checks: [{ name: 'ci-ok', state: 'skipped', completedAt: AT }],
+    }),
+    rule: { ...PROTECTION, requiredChecks: ['ci-ok'] },
+    verdict: 'satisfied',
+    clock: false,
+  },
+  {
     name: 'blocked by the code-owner rule',
     pr: pr({ mergeState: 'blocked' }),
     rule: { ...PROTECTION, codeOwners: true },
@@ -320,6 +330,15 @@ describe('requiredCheckState', () => {
       name: 'a required check failed',
       pr: pr({ requiredChecks: [run('ci', 'failure')] }),
       rule: PROTECTION,
+      state: 'done',
+    },
+    {
+      name: 'the only listed required check skipped',
+      pr: pr({
+        requiredChecks: [{ name: 'ci-ok', state: 'skipped', completedAt: AT }],
+        checks: [{ name: 'ci-ok', state: 'skipped', completedAt: AT }],
+      }),
+      rule: { ...PROTECTION, requiredChecks: ['ci-ok'] },
       state: 'done',
     },
     {
