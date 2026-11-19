@@ -4,9 +4,11 @@
 
 One linked PR merging does not by itself finish the task. Done: `projects[].tracker.doneStatuses` for Jira; for GitHub, the Issue must be
 closed. A merged PR holds the task until the ticket is done; to continue the work, change the
-ticket at the merge or after it (for example, move it back to in progress), then link another PR.
-A merged PR with no stored merge time (facts from before the dispatcher) instead resumes work once
-the ticket, in the tracker filter or manually included, is seen open at or past the PR's last update plus the tracker interval.
+ticket, in the tracker filter or manually included, at or after the newest eligible merge (for
+example, move it back to in progress), then link another PR. When no merged PR of the task has a
+stored merge time (facts from before the dispatcher), work instead resumes once the ticket, in the
+tracker filter or manually included, is seen open at or past the judged PR's last update plus the
+tracker interval.
 
 A done ticket also finishes a task with no open linked PR and no live linked worker, even
 without a merged PR. Every configured GitHub repository and Spur must have a complete, unblind

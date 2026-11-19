@@ -618,14 +618,14 @@ export async function reconcileItems(
     // ends it once the ticket is seen still not done one tracker interval after the close, the
     // grace in which a close the merge triggers may still be polled.
     const ticket = tickets.find((entry) => entry.task_id === taskId);
+    // The newest stored merge decides; without one, the PR's interval fallback (`mergedTicket`).
+    const storedMerge = latest([facts?.mergedAt, newestMerge.get(taskId)]);
     const judgement =
       facts === null || project === undefined
         ? 'unconfirmed'
         : mergedTicket(project, config, ticket, task.manual_include === 1, {
             ...facts,
-            ...(facts.mergedAt === undefined
-              ? {}
-              : { mergedAt: latest([facts.mergedAt, newestMerge.get(taskId)]) ?? facts.mergedAt }),
+            ...(storedMerge === null ? {} : { mergedAt: storedMerge }),
           });
     const closure = prClosed.get(taskId);
     const followUpClosed =

@@ -4049,6 +4049,19 @@ describe('anomaly blocks', () => {
       },
       closedDoneInGrace: async (b: Board) => histories.followUpClosed(b),
       secondClosure: async (b: Board) => histories.followUpClosed(b),
+      /** #7 closed, then #8 linked and merged in facts of an earlier version, without mergedAt. */
+      legacyThenStored: async (b: Board) => {
+        const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [closed7]);
+        now += 1_000;
+        await prs(b, [closed7, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso() };
+        await prs(b, [closed7, eight]);
+        return [closed7, eight];
+      },
       /** #7 closed, then #8 linked and merged; the final steps reopen and merge #7 last. */
       laterMergeAfterEdit: async (b: Board) => {
         const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
@@ -4129,6 +4142,17 @@ describe('anomaly blocks', () => {
         now += 1_000;
         const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
         await prs(b, [seven, eight ?? pr(8, 'merged')]);
+      },
+      // #7 reopens and merges with a stored time; past #8's grace the untouched ticket still waits.
+      legacyThenStored: async (b, [, eight], ticket) => {
+        const legacy = eight ?? pr(8, 'merged');
+        await prs(b, [{ ...pr(7, 'open'), updatedAt: iso() }, legacy]);
+        now += 1_000;
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven, legacy]);
+        await seeAgain(b, ticket);
+        now += 1_000;
+        await prs(b, [seven, legacy]);
       },
       // A recently closed #9 is linked after both alerts opened: they hold through its grace.
       secondClosure: async (b, last, ticket) => {
@@ -4219,6 +4243,7 @@ describe('anomaly blocks', () => {
       ['closedDoneInGrace', 'untouched', [], null, DONE],
       ['secondClosure', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
       ['laterMergeAfterEdit', 'untouched', [], null, UNCONFIRMED],
+      ['legacyThenStored', 'untouched', [], null, UNCONFIRMED],
       [
         'conflictMerged',
         'untouched',
