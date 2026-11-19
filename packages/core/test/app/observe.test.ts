@@ -3798,6 +3798,7 @@ describe('anomaly blocks', () => {
       'unlinked after dismissal',
       'dismissed before the upgrade',
       'ended again after dismissal',
+      'unlinked while shown',
     ] as const)('keeps the dismissal of a worker-end item off its shown text: %s', async (row) => {
       const { b, ticket } = await split();
       /** The worker-end items not cleared or dismissed, by text. */
@@ -3852,11 +3853,8 @@ describe('anomaly blocks', () => {
       expect(item.text).toBe(
         'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)',
       );
-      await b.store.transaction((trx) => dismissItem(trx, item, 'operator', new Date(now)));
-      expect(await shown()).toEqual([]);
-      now += 1_000;
-      if (row === 'unlinked after dismissal') {
-        await b.apply(
+      const unlink = () =>
+        b.apply(
           createLinkMutations(b.config).remove,
           {
             mode: 'pr',
@@ -3866,6 +3864,26 @@ describe('anomaly blocks', () => {
           },
           'operator',
         );
+      if (row === 'unlinked while shown') {
+        // The same item and block stay, showing the current text; no new notification.
+        const outbox = await b.store.db.selectFrom('outbox').select('id').execute();
+        now += 1_000;
+        await unlink();
+        now += 1_000;
+        await prs(b, [merged]);
+        expect(await shown()).toEqual(['o/r#9: worker ended (completed), no PR (worker-1)']);
+        const { blocks } = await surface(b);
+        expect(blocks.map((block) => [block.id, block.state, block.reason])).toEqual([
+          [item.block_id, 'open', 'worker ended (completed), no PR (worker-1)'],
+        ]);
+        expect(await b.store.db.selectFrom('outbox').select('id').execute()).toEqual(outbox);
+        return;
+      }
+      await b.store.transaction((trx) => dismissItem(trx, item, 'operator', new Date(now)));
+      expect(await shown()).toEqual([]);
+      now += 1_000;
+      if (row === 'unlinked after dismissal') {
+        await unlink();
         now += 1_000;
         await prs(b, [merged]);
         expect(await shown()).toEqual([]);

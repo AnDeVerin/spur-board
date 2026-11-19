@@ -1050,6 +1050,20 @@ export async function reconcileItems(
           .set({ fact_at: candidate.factAt, source: candidate.source, text: candidate.summary })
           .where('id', '=', old.id)
           .execute();
+      // Its open block shows the same text in the inbox; the refresh notifies no one.
+      const task = candidate.taskId === null ? undefined : taskById.get(candidate.taskId);
+      if (
+        candidate.hashedSummary !== undefined &&
+        old.text !== candidate.summary &&
+        old.block_id !== null &&
+        task !== undefined
+      )
+        await trx
+          .updateTable('block')
+          .set({ reason: blockReason(task, candidate.summary) })
+          .where('id', '=', old.block_id)
+          .where('state', '=', 'open')
+          .execute();
       continue;
     }
     const task = candidate.taskId === null ? null : taskById.get(candidate.taskId);
@@ -1095,6 +1109,12 @@ function prCompleteAt(
  * Raises a ledger item with the operator block it stands for. An active item of the key is
  * returned as it is, so a repeated raise opens no second block.
  */
+/** The reason of an item's block: the item text without its task key prefix. */
+function blockReason(task: Row<'task'>, text: string): string {
+  const prefix = `${task.key}: `;
+  return text.startsWith(prefix) ? text.slice(prefix.length) : text;
+}
+
 async function raiseAnomaly(
   trx: Trx,
   config: Config,
@@ -1109,14 +1129,13 @@ async function raiseAnomaly(
     .where('cleared_at', 'is', null)
     .executeTakeFirst();
   if (active !== undefined) return active;
-  const prefix = `${task.key}: `;
   const toCurator =
     input.itemKey.startsWith('turn-stall:') &&
     curatorProject(config, task.project) !== null &&
     (await curatorSession(trx, config, task.project))?.id !== executorId;
   const block = await openSystemBlock(trx, {
     task,
-    reason: input.text.startsWith(prefix) ? input.text.slice(prefix.length) : input.text,
+    reason: blockReason(task, input.text),
     at: input.at.toISOString(),
     config,
     ...(toCurator ? { addressee: 'curator' as const } : {}),
