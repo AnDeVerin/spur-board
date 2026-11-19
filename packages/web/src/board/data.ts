@@ -21,6 +21,7 @@ export class BoardUnavailableError extends Error {
 }
 
 export type BoardConfig = Output<'config.get'>;
+type TurnWrite = Parameters<typeof createTurnIntent>[0]['write'];
 type BoardStatus = Output<'status.get'>;
 type BoardInbox = Output<'inbox.operator'>;
 export type BoardTask = Output<'task.get'>;
@@ -376,11 +377,7 @@ export function createBoardData(options: BoardDataOptions) {
   };
 
   /** Take turn `turn` of the open task, then close it with `write`; refused like `writeIntent`. */
-  const turnIntent = (
-    key: string,
-    turn: string,
-    write: Parameters<typeof createTurnIntent>[0]['write'],
-  ) => {
+  const turnIntent = (key: string, turn: string, write: TurnWrite) => {
     const epoch = taskEpoch;
     return createTurnIntent({
       api,
@@ -393,7 +390,10 @@ export function createBoardData(options: BoardDataOptions) {
           : unavailableFor(key, epoch)
             ? 'The turn cannot be closed while the board is unavailable.'
             : undefined,
-      refresh: refreshTask,
+      // Re-read only the task the write was for, while its view is still the open one.
+      refresh: () => {
+        if (key === taskKey && epoch === taskEpoch) refreshTask();
+      },
     });
   };
 

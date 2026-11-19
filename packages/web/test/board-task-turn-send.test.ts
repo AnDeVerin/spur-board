@@ -270,6 +270,30 @@ describe('Turn section focus', () => {
     expect(line()).toBe('T5 returned to dev. The task is in todo.');
   });
 
+  it('re-reads no other task when a close lands after another task opened', async () => {
+    const { d } = await open();
+    const write = deferred();
+    const returned = d.routes['task.return'];
+    d.routes['task.return'] = () => write.promise;
+    await click('Return to dev…');
+    type(reason(), 'Handle the empty list.');
+    await send();
+    // The operator opens task ABC-3 while the return of ex/repo#7 still runs.
+    history.pushState(null, '', '/?open=ABC-3');
+    act(() => {
+      dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await settle();
+    const reads: unknown[] = [];
+    d.routes['task.get'] = (input) => {
+      reads.push(input['task']);
+      return Promise.resolve(envelope(taskGet()));
+    };
+    write.resolve(await returned({ turn: 'T5', reason: 'Handle the empty list.' }));
+    await settle();
+    expect(reads).toEqual([]);
+  });
+
   it('skips the success focus while folded', async () => {
     const { d } = await open();
     const held = deferred();
