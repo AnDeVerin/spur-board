@@ -72,11 +72,12 @@ interface RunnerEntry {
 export interface AdapterRunner {
   /**
    * Sources whose next regular poll this runner has put off for a rate limit: the last regular
-   * poll delivered a budget under its reserve or failed as throttled (waiting for its retry time
-   * or its backoff), and the paused poll has not started. An on-demand poll never adds or
-   * removes one, and `stop` removes every one. `startRunner` owns the set and `startAdapters`
-   * passes the same set through (both return a `StartedRunner`, so the compiler rejects a wrapper
-   * that drops it); empty in one-shot mode. Optional only for test stand-ins.
+   * poll delivered a budget under its reserve or failed as throttled (waiting for the later of its
+   * retry time and one interval, or for its backoff), and the paused poll has not started. An
+   * on-demand poll never adds or removes one, and `stop` removes every one. `startRunner` owns
+   * the set and `startAdapters` passes the same set through (both return a `StartedRunner`, so
+   * the compiler rejects a wrapper that drops it); empty in one-shot mode. Optional only for test
+   * stand-ins.
    */
   budgetWaits?: ReadonlySet<string> | undefined;
   /** Outcome of the first poll of each source, after its observation or failure report. */
