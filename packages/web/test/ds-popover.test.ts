@@ -68,6 +68,7 @@ function Harness({
           'button',
           {
             type: 'button',
+            'aria-expanded': open,
             onClick: () => {
               setOpen(!open);
             },
@@ -168,7 +169,7 @@ const clip = (area: Rect | undefined) => {
   ] as const)
     Object.defineProperty(scroller, name, { configurable: true, get: () => value });
 };
-/** The anchor box the popover wrote: left, right, top and bottom edges, and which side it left by. */
+/** The anchor box the popover wrote: its four edges, and the side it left the view by. */
 const placement = () => {
   const style = opened().style;
   return {
@@ -232,6 +233,22 @@ describe('Popover', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(popover()).toBeUndefined();
     expect(document.activeElement).toBe(button('Help'));
+  });
+
+  it('opened with focus on body, Escape and Close return focus to the anchor trigger', () => {
+    // Safari does not focus a clicked button: the popover opens with focus on body.
+    for (const how of ['Escape', 'Close'] as const) {
+      render(createElement(Fragment, null));
+      render(createElement(Harness, { initial: true }));
+      expect(document.activeElement).toBe(document.body);
+      if (how === 'Escape') key('Escape');
+      else
+        act(() => {
+          button('Close', opened()).click();
+        });
+      expect(popover(), how).toBeUndefined();
+      expect(document.activeElement, how).toBe(button('Help'));
+    }
   });
 
   it('Close returns focus to the opener', () => {

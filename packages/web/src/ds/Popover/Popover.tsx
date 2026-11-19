@@ -34,14 +34,16 @@ import styles from './Popover.module.css';
  * side, still under its anchor: not a bottom sheet.
  *
  * Focus: the opener is the element focused at the first render. With one, focus moves to Close
- * on open; with none (focus on `body`), focus stays put. Escape and Close call `onClose`; Close
- * then focuses the opener, Escape only when focus was inside the panel. A `mousedown` outside the
- * panel and the anchor calls `onClose` and moves no focus; the anchor is not outside, so its own
- * click toggles. Under a layer (inside an `inert` element), as when a `Modal` opened from the
- * panel portals to `body`, no press is outside: the popover stays open under the layer. A
- * `pointerdown` alone never closes it, so a touch scroll of the board keeps it open, while a tap
- * still closes it through the compatibility `mousedown`. Leaving the panel by Tab does not close
- * it.
+ * on open; with none (focus on `body`, as after a click in Safari or an open from the URL), focus
+ * stays put. Escape and Close call `onClose` and return focus: to the opener, else to the
+ * anchor's trigger (the anchor or its first descendant with `aria-expanded`, else the anchor when
+ * it is focusable). Close always returns it; Escape only when focus was inside the panel or on
+ * `body`. A `mousedown` outside the panel and the anchor calls `onClose` and moves no focus; the
+ * anchor is not outside, so its own click toggles. Under a layer (inside an `inert` element), as
+ * when a `Modal` opened from the panel portals to `body`, no press is outside: the popover stays
+ * open under the layer. A `pointerdown` alone never closes it, so a touch scroll of the board
+ * keeps it open, while a tap still closes it through the compatibility `mousedown`. Leaving the
+ * panel by Tab does not close it.
  *
  * Escape is shared with `HoverMenu`: one Escape closes one surface, the innermost open menu or
  * popover holding focus (a menu inside the panel before the panel), else the most recently
@@ -71,6 +73,9 @@ export function Popover({
   if (!open) return null;
   return <OpenPopover {...props} />;
 }
+
+/** Elements that take focus without a `tabindex`, or with one. */
+const focusable = 'a[href], button, input, select, textarea, summary, [tabindex]';
 
 type Area = { left: number; top: number; right: number; bottom: number };
 
@@ -138,6 +143,17 @@ function OpenPopover({
   useLayoutEffect(() => {
     latest.current = onClose;
   });
+  // Where Escape and Close send focus: the opener, else the anchor's trigger.
+  const returnTarget = (): HTMLElement | null => {
+    if (opener) return opener;
+    const element = anchor.current;
+    if (!element) return null;
+    if (element.matches('[aria-expanded]')) return element;
+    return (
+      element.querySelector<HTMLElement>('[aria-expanded]') ??
+      (element.matches(focusable) ? element : null)
+    );
+  };
   // The values last written, so an unchanged frame writes nothing.
   const written = useRef('');
   // Writes the anchor's box on the panel, not in React state, and only when it changed.
@@ -197,9 +213,10 @@ function OpenPopover({
     const entry: OpenMenu = {
       root: element,
       escape: () => {
-        const inside = element.contains(document.activeElement);
+        const active = document.activeElement;
+        const inside = !active || active === document.body || element.contains(active);
         latest.current();
-        if (inside) opener?.focus();
+        if (inside) returnTarget()?.focus();
       },
     };
     const outside = (event: MouseEvent) => {
@@ -229,7 +246,7 @@ function OpenPopover({
             label="Close"
             onClick={() => {
               latest.current();
-              opener?.focus();
+              returnTarget()?.focus();
             }}
           />
         </span>
