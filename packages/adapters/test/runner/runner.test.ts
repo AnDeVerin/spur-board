@@ -683,6 +683,16 @@ describe('budget', () => {
       },
       true,
     ],
+    [
+      'a throttled failure without a retry time',
+      { kind: 'failed', error: new AdapterError('throttled', 'slow') },
+      true,
+    ],
+    [
+      'a config failure',
+      { kind: 'failed', error: new AdapterError('config', 'bad setting') },
+      false,
+    ],
     ['an auth failure', { kind: 'failed', error: new AdapterError('auth', 'bad token') }, false],
   ] as const)(
     'nextDelay marks only a rate limit pause as a budget wait: %s',

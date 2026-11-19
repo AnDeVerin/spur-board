@@ -134,6 +134,20 @@ it.each<[string, Row]>([
     },
   ],
   [
+    'an on-demand refresh under the reserve, then a regular poll throttled without a retry time',
+    {
+      alpha: [high, new AdapterError('throttled', 'HTTP 429'), {}],
+      beta: [high],
+      refresh: low.budget,
+      runMs: I,
+      waiting: [alpha],
+      alphaRemaining: reserve - 1,
+      reason: `${alpha} waits for its rate budget`,
+      // The first failure backs off for two intervals, then the backoff poll delivers.
+      later: { runMs: 2 * I, waiting: [], reason: null },
+    },
+  ],
+  [
     'an on-demand refresh under the reserve',
     {
       alpha: [high],

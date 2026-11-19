@@ -50,7 +50,7 @@ export interface Delay {
   failures: number;
   /**
    * The delay is a pause for a rate limit: the batch reported a budget under the reserve, or the
-   * poll failed as throttled with a retry time.
+   * poll failed as throttled, with or without a retry time.
    */
   budgetWait: boolean;
 }
@@ -83,7 +83,9 @@ export function nextDelay(input: DelayInput): Delay {
   return {
     delayMs: jitter(Math.min(intervalMs * 2 ** next, cap)),
     failures: next,
-    budgetWait: false,
+    // A throttled failure without a retry time backs off like a transient one, but the source
+    // still waits for a rate limit.
+    budgetWait: error instanceof AdapterError && error.kind === 'throttled',
   };
 }
 
