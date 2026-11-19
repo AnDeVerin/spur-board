@@ -68,13 +68,16 @@ export function ticketDone(project: Config['projects'][number], status: string):
  * a hand-added task; else `unconfirmed`, since a ticket untouched since the merge only waits to be
  * moved to done, and a ticket dropped from the filter keeps a stale status. An equal time counts as
  * a change: GitHub times have one-second precision, and a merge-triggered edit of the issue in the
- * same second shows the merge time.
+ * same second shows the merge time. PR facts stored by an earlier version carry no merge time: for
+ * them the ticket counts as reopened, as it did then, once seen open one tracker interval after the
+ * PR's last change.
  */
 export function mergedTicket(
   project: Config['projects'][number],
-  ticket: { status: string; detail: string } | undefined,
+  config: Config,
+  ticket: { status: string; detail: string; observed_at: string } | undefined,
   manualInclude: boolean,
-  mergedAt: string,
+  pr: { mergedAt?: string | undefined; updatedAt: string },
 ): 'done' | 'reopened' | 'unconfirmed' {
   if (ticket === undefined) return 'unconfirmed';
   if (ticketDone(project, ticket.status)) return 'done';
@@ -86,9 +89,15 @@ export function mergedTicket(
   } catch {
     return 'unconfirmed';
   }
-  return (facts.inFilter || manualInclude) && Date.parse(facts.updatedAt) >= Date.parse(mergedAt)
-    ? 'reopened'
-    : 'unconfirmed';
+  if (!(facts.inFilter || manualInclude)) return 'unconfirmed';
+  if (pr.mergedAt === undefined) {
+    const { intervalMs } =
+      project.tracker.type === 'jira' ? config.adapters.jira : config.adapters.githubIssues;
+    return Date.parse(ticket.observed_at) >= Date.parse(pr.updatedAt) + intervalMs
+      ? 'reopened'
+      : 'unconfirmed';
+  }
+  return Date.parse(facts.updatedAt) >= Date.parse(pr.mergedAt) ? 'reopened' : 'unconfirmed';
 }
 
 /**

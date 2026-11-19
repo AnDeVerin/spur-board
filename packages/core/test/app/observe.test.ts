@@ -4041,6 +4041,12 @@ describe('anomaly blocks', () => {
         await prs(b, [seven, eight]);
         return [seven, eight];
       },
+      /** #7 merged in facts of an earlier version, without mergedAt. */
+      legacyMerged: async (b: Board) => {
+        const seven = { ...pr(7, 'merged'), updatedAt: iso() };
+        await prs(b, [seven]);
+        return [seven];
+      },
       closeHeld: followUpOpen,
       closeFresh: followUpOpen,
       blindAfterRaised: followUpOpen,
@@ -4073,8 +4079,9 @@ describe('anomaly blocks', () => {
       return eight;
     };
     /** Final steps after the worker ended; by default a complete poll of the last PR facts. */
+    type Ticket = Awaited<ReturnType<typeof split>>['ticket'];
     const finals: Partial<
-      Record<keyof typeof histories, (b: Board, last: PrFacts[]) => Promise<void>>
+      Record<keyof typeof histories, (b: Board, last: PrFacts[], ticket: Ticket) => Promise<void>>
     > = {
       closeHeld: async (b, last) => {
         await closeSeenStale(b, last);
@@ -4084,13 +4091,26 @@ describe('anomaly blocks', () => {
         now += 1_000;
         await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
       },
-      blindAfterRaised: async (b, last) => {
-        await finals.closeFresh?.(b, last);
+      // #7 is edited after the ticket change; the ticket is seen again one interval after the edit.
+      legacyMerged: async (b, [seven], ticket) => {
+        const edited = { ...(seven ?? pr(7, 'merged')), updatedAt: iso() };
+        await prs(b, [edited]);
+        const { detail } = await b.store.db
+          .selectFrom('ticket_snapshot')
+          .select('detail')
+          .executeTakeFirstOrThrow();
+        now += interval;
+        await ticket('open', (JSON.parse(detail) as { updatedAt: string }).updatedAt);
+        now += 1_000;
+        await prs(b, [edited]);
+      },
+      blindAfterRaised: async (b, last, ticket) => {
+        await finals.closeFresh?.(b, last, ticket);
         now += 1_000;
         await blindGithub(b);
       },
-      blindAfterDismissed: async (b, last) => {
-        await finals.closeFresh?.(b, last);
+      blindAfterDismissed: async (b, last, ticket) => {
+        await finals.closeFresh?.(b, last, ticket);
         const item = await b.store.db
           .selectFrom('operator_item')
           .selectAll()
@@ -4142,6 +4162,13 @@ describe('anomaly blocks', () => {
       ['closeHeld', 'untouched', [], null, UNCONFIRMED],
       ['closeFresh', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['blindAfterRaised', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      [
+        'legacyMerged',
+        'changed',
+        [ENDED],
+        'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)',
+        { pr: null, mergedOpen: 7, unconfirmed: false },
+      ],
       // The dismissed pr-closed item is cleared; its block stays open, as for any dismissal.
       ['blindAfterDismissed', 'untouched', [ENDED, null], NO_PR, UNCONFIRMED],
     ] as const)(
@@ -4159,7 +4186,9 @@ describe('anomaly blocks', () => {
         now += 1_000;
         await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
         now += 1_000;
-        await (finals[history] ?? prs)(b, last);
+        const final = finals[history];
+        if (final === undefined) await prs(b, last);
+        else await final(b, last, ticket);
         expect(await openLedger(b)).toEqual(ledger);
         const shown = await b.store.db
           .selectFrom('operator_item')

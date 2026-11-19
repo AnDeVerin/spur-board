@@ -528,7 +528,10 @@ export async function reconcileItems(
   const mergedAt = new Map<number, string | null>();
   // Each task's merged PR as the dispatcher judges it (`taskMergedPr`): the newest eligible link;
   // `at` is null when its detail is unreadable. A conflict link never counts as the task's PR.
-  const judged = new Map<number, { id: number; at: string | null; ref: string }>();
+  const judged = new Map<
+    number,
+    { id: number; facts: ReturnType<typeof parsePr>; at: string | null; ref: string }
+  >();
   for (const pr of prs) {
     const state = taskPrs[String(pr.task_id)];
     if (state === undefined) continue;
@@ -541,7 +544,12 @@ export async function reconcileItems(
       mergedAt.set(pr.task_id, at);
     const current = judged.get(pr.task_id);
     if (current === undefined || pr.id > current.id)
-      judged.set(pr.task_id, { id: pr.id, at, ref: `${pr.repo ?? ''}#${String(pr.number)}` });
+      judged.set(pr.task_id, {
+        id: pr.id,
+        facts,
+        at,
+        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
+      });
   }
   // Each task's pr-closed item when it has no open PR: its PRs closed unmerged, less those closed
   // before the newest merge, which superseded them. It is held until every repo completed a poll
@@ -593,7 +601,7 @@ export async function reconcileItems(
   // Tasks whose merged PR suppresses alerts only while their pr-closed item is held, as when a repo
   // is blind: their shown alerts hold as they are, and nothing new is raised.
   const liftHeld = new Set<number>();
-  for (const [taskId, { at, ref }] of judged) {
+  for (const [taskId, { facts, at, ref }] of judged) {
     const state = taskPrs[String(taskId)];
     const task = taskById.get(taskId);
     if (state === undefined || task === undefined) continue;
@@ -603,9 +611,9 @@ export async function reconcileItems(
     // ends it while the ticket is not done, so the close reaches the operator.
     const ticket = tickets.find((entry) => entry.task_id === taskId);
     const judgement =
-      at === null || project === undefined
+      facts === null || project === undefined
         ? 'unconfirmed'
-        : mergedTicket(project, ticket, task.manual_include === 1, at);
+        : mergedTicket(project, config, ticket, task.manual_include === 1, facts);
     const followUpClosed = prClosed.get(taskId)?.held === false;
     state.hasMergedPr =
       at === null ||

@@ -924,12 +924,7 @@ export async function readInput(
   let ticketUnconfirmed = false;
   if (pr?.state === 'merged') {
     const ticket = await readTicket();
-    const judged = mergedTicket(
-      project,
-      ticket,
-      task.manual_include === 1,
-      pr.mergedAt ?? pr.updatedAt,
-    );
+    const judged = mergedTicket(project, config, ticket, task.manual_include === 1, pr);
     if (judged === 'reopened') mergedOpen = { repo: pr.repo, number: pr.number };
     ticketUnconfirmed = judged === 'unconfirmed';
   }
