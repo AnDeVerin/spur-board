@@ -4047,6 +4047,7 @@ describe('anomaly blocks', () => {
         await prs(b, [seven]);
         return [seven];
       },
+      closedDoneInGrace: async (b: Board) => histories.followUpClosed(b),
       closeHeld: followUpOpen,
       closeFresh: followUpOpen,
       blindAfterRaised: followUpOpen,
@@ -4079,18 +4080,41 @@ describe('anomaly blocks', () => {
       await prs(b, [seven ?? pr(7, 'merged'), eight], startedAt);
       return eight;
     };
-    /** Final steps after the worker ended; by default a complete poll of the last PR facts. */
     type Ticket = Awaited<ReturnType<typeof split>>['ticket'];
+    /** The tracker sees the ticket again, unchanged, one interval later: past a close's grace. */
+    const seeAgain = async (b: Board, ticket: Ticket) => {
+      const { detail } = await b.store.db
+        .selectFrom('ticket_snapshot')
+        .select('detail')
+        .executeTakeFirstOrThrow();
+      const facts = JSON.parse(detail) as { status: string; updatedAt: string };
+      now += interval;
+      await ticket(facts.status, facts.updatedAt);
+    };
+    /**
+     * Final steps after the worker ended; by default the ticket is seen again past the grace and
+     * the last PR facts are polled complete.
+     */
     const finals: Partial<
       Record<keyof typeof histories, (b: Board, last: PrFacts[], ticket: Ticket) => Promise<void>>
     > = {
       closeHeld: async (b, last) => {
         await closeSeenStale(b, last);
       },
-      closeFresh: async (b, last) => {
+      closeFresh: async (b, last, ticket) => {
         const eight = await closeSeenStale(b, last);
+        await seeAgain(b, ticket);
         now += 1_000;
         await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
+      },
+      // The ticket reaches done within the grace after the close: no alert at any step.
+      closedDoneInGrace: async (b, last, ticket) => {
+        await prs(b, last);
+        expect(await openLedger(b)).toEqual([]);
+        now += 1_000;
+        await ticket('closed');
+        now += 1_000;
+        await prs(b, last);
       },
       // #7 is edited after the ticket change; the ticket is seen again one interval after the edit.
       legacyMerged: async (b, [seven], ticket) => {
@@ -4160,6 +4184,7 @@ describe('anomaly blocks', () => {
       ['merged', 'done', [], null, DONE],
       ['followUpClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
       ['followUpClosed', 'done', [], null, DONE],
+      ['closedDoneInGrace', 'untouched', [], null, DONE],
       [
         'conflictMerged',
         'untouched',
@@ -4175,13 +4200,8 @@ describe('anomaly blocks', () => {
       ['closeFresh', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['blindAfterRaised', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['blindThenLiveWorker', 'untouched', ['pr-closed'], null, UNCONFIRMED],
-      [
-        'legacyMerged',
-        'changed',
-        [ENDED],
-        'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)',
-        { pr: null, mergedOpen: 7, unconfirmed: false },
-      ],
+      // Seen open past the interval only: the merged PR stops counting, with no reopen named.
+      ['legacyMerged', 'changed', [ENDED], NO_PR, { pr: null, mergedOpen: 7, unconfirmed: false }],
       // The dismissed pr-closed item is cleared; its block stays open, as for any dismissal.
       ['blindAfterDismissed', 'untouched', [ENDED, null], NO_PR, UNCONFIRMED],
     ] as const)(
@@ -4200,8 +4220,12 @@ describe('anomaly blocks', () => {
         await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
         now += 1_000;
         const final = finals[history];
-        if (final === undefined) await prs(b, last);
-        else await final(b, last, ticket);
+        if (final !== undefined) await final(b, last, ticket);
+        else {
+          await seeAgain(b, ticket);
+          now += 1_000;
+          await prs(b, last);
+        }
         expect(await openLedger(b)).toEqual(ledger);
         const shown = await b.store.db
           .selectFrom('operator_item')

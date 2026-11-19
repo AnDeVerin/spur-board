@@ -69,8 +69,8 @@ export function ticketDone(project: Config['projects'][number], status: string):
  * moved to done, and a ticket dropped from the filter keeps a stale status. An equal time counts as
  * a change: GitHub times have one-second precision, and a merge-triggered edit of the issue in the
  * same second shows the merge time. PR facts stored by an earlier version carry no merge time: for
- * them the ticket counts as reopened, as it did then, once seen open one tracker interval after the
- * PR's last change.
+ * them the ticket is `open`, as it was then, once seen open one tracker interval after the PR's
+ * last change; that stops the merged PR counting like `reopened`, without naming a reopen.
  */
 export function mergedTicket(
   project: Config['projects'][number],
@@ -78,9 +78,13 @@ export function mergedTicket(
   ticket: { status: string; detail: string; observed_at: string } | undefined,
   manualInclude: boolean,
   pr: { mergedAt?: string | undefined; updatedAt: string },
-): 'done' | 'reopened' | 'unconfirmed' {
+): 'done' | 'reopened' | 'open' | 'unconfirmed' {
   if (ticket === undefined) return 'unconfirmed';
   if (ticketDone(project, ticket.status)) return 'done';
+  if (pr.mergedAt === undefined)
+    return seenOpenSince(project, config, ticket, manualInclude, Date.parse(pr.updatedAt))
+      ? 'open'
+      : 'unconfirmed';
   let facts: { inFilter: boolean; updatedAt: string };
   try {
     const parsed = ticketFactsSchema.safeParse(JSON.parse(ticket.detail));
@@ -90,14 +94,33 @@ export function mergedTicket(
     return 'unconfirmed';
   }
   if (!(facts.inFilter || manualInclude)) return 'unconfirmed';
-  if (pr.mergedAt === undefined) {
-    const { intervalMs } =
-      project.tracker.type === 'jira' ? config.adapters.jira : config.adapters.githubIssues;
-    return Date.parse(ticket.observed_at) >= Date.parse(pr.updatedAt) + intervalMs
-      ? 'reopened'
-      : 'unconfirmed';
-  }
   return Date.parse(facts.updatedAt) >= Date.parse(pr.mergedAt) ? 'reopened' : 'unconfirmed';
+}
+
+/**
+ * Whether the tracker saw the ticket still not done, in the filter or fetched by key for a
+ * hand-added task, at least one tracker interval after `since`: the grace in which a close the
+ * PR's merge triggers may not be polled yet.
+ */
+export function seenOpenSince(
+  project: Config['projects'][number],
+  config: Config,
+  ticket: { status: string; detail: string; observed_at: string } | undefined,
+  manualInclude: boolean,
+  since: number,
+): boolean {
+  if (ticket === undefined || ticketDone(project, ticket.status)) return false;
+  const parsed = (() => {
+    try {
+      return ticketFactsSchema.safeParse(JSON.parse(ticket.detail));
+    } catch {
+      return null;
+    }
+  })();
+  if (parsed?.success !== true || !(parsed.data.inFilter || manualInclude)) return false;
+  const { intervalMs } =
+    project.tracker.type === 'jira' ? config.adapters.jira : config.adapters.githubIssues;
+  return Date.parse(ticket.observed_at) >= since + intervalMs;
 }
 
 /**

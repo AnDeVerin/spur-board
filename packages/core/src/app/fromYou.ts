@@ -38,6 +38,7 @@ import type { Row } from '../store/schema.ts';
 import { closeBlockIfOpen, openSystemBlock } from './blocks.ts';
 import {
   mergedTicket,
+  seenOpenSince,
   parseDefaultBranch,
   parsePr,
   pastReopenFloor,
@@ -557,7 +558,7 @@ export async function reconcileItems(
   // PR's suppression below, so the two always agree.
   const prClosed = new Map<
     number,
-    { held: true; key: string } | { held: false; item: ItemCandidate }
+    { held: true; key: string } | { held: false; item: ItemCandidate; closedAt: number }
   >();
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
@@ -584,6 +585,7 @@ export async function reconcileItems(
     // Projects sharing a repo overwrite the snapshot's source, so the task's own repo source names it.
     prClosed.set(task.id, {
       held: false,
+      closedAt,
       item: {
         key,
         kind: 'anomaly',
@@ -608,17 +610,24 @@ export async function reconcileItems(
     const project = config.projects.find((entry) => entry.id === task.project);
     // A merged PR counts as finished work unless the ticket changed after it and is not done: a
     // split task back in Dev is watched like any task without a PR. A raised pr-closed item also
-    // ends it while the ticket is not done, so the close reaches the operator.
+    // ends it once the ticket is seen still not done one tracker interval after the close, the
+    // grace in which a close the merge triggers may still be polled.
     const ticket = tickets.find((entry) => entry.task_id === taskId);
     const judgement =
       facts === null || project === undefined
         ? 'unconfirmed'
         : mergedTicket(project, config, ticket, task.manual_include === 1, facts);
-    const followUpClosed = prClosed.get(taskId)?.held === false;
+    const closure = prClosed.get(taskId);
+    const followUpClosed =
+      closure?.held === false &&
+      project !== undefined &&
+      seenOpenSince(project, config, ticket, task.manual_include === 1, closure.closedAt);
     state.hasMergedPr =
       at === null ||
       project === undefined ||
-      (judgement !== 'reopened' && (judgement === 'done' || !followUpClosed));
+      (judgement !== 'reopened' &&
+        judgement !== 'open' &&
+        (judgement === 'done' || !followUpClosed));
     // No ticket status in the text: the item fingerprint hashes it, and a move between two
     // non-done statuses must not raise the item again.
     if (judgement === 'reopened') reopened.set(taskId, `; PR ${ref} merged, ticket reopened`);

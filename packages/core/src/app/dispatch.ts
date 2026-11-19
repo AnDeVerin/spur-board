@@ -925,7 +925,8 @@ export async function readInput(
   if (pr?.state === 'merged') {
     const ticket = await readTicket();
     const judged = mergedTicket(project, config, ticket, task.manual_include === 1, pr);
-    if (judged === 'reopened') mergedOpen = { repo: pr.repo, number: pr.number };
+    if (judged === 'reopened' || judged === 'open')
+      mergedOpen = { repo: pr.repo, number: pr.number };
     ticketUnconfirmed = judged === 'unconfirmed';
   }
   // A merged PR that counts as no PR leaves the follow-up PR in any repo: every repo must see.
