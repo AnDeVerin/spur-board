@@ -70,6 +70,12 @@ interface RunnerEntry {
 }
 
 export interface AdapterRunner {
+  /**
+   * Sources whose next regular poll this runner has put off for the rate budget: the last
+   * regular poll delivered a budget under its reserve, and the paused poll has not started. An
+   * on-demand poll never adds or removes one. Always set by `startRunner`; empty in one-shot mode.
+   */
+  budgetWaits?: ReadonlySet<string> | undefined;
   /** Outcome of the first poll of each source, after its observation or failure report. */
   firstAttempts?:
     Promise<readonly { source: string; outcome: PollOutcome | undefined }[]> | undefined;
@@ -113,9 +119,11 @@ export interface RunnerOptions {
 
 export function startRunner(options: RunnerOptions): AdapterRunner {
   const startedAt = options.now();
-  const sources = options.entries.map((entry) => runSource(entry, options, startedAt));
+  const budgetWaits = new Set<string>();
+  const sources = options.entries.map((entry) => runSource(entry, options, startedAt, budgetWaits));
   const byId = new Map(sources.map((source) => [source.id, source]));
   return {
+    budgetWaits,
     firstAttempts: Promise.all(
       sources.map(async (source) => ({
         source: source.id,
@@ -143,7 +151,12 @@ type Timer = ReturnType<typeof setTimeout>;
 const noop = () => undefined;
 const stoppedError: PollPrError = { kind: 'stopped', message: 'The adapter runner is stopping' };
 
-function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: number) {
+function runSource(
+  entry: RunnerEntry,
+  options: RunnerOptions,
+  runnerStartMs: number,
+  budgetWaits: Set<string>,
+) {
   const { adapter, reserveRemaining } = entry;
   const { core, config } = options;
   const { now } = options;
@@ -278,11 +291,14 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     return result;
   }
 
-  function schedule(delayMs: number): void {
+  /** Arms the next regular poll; `budgetWait` marks it as put off for the rate budget. */
+  function schedule(delayMs: number, budgetWait: boolean): void {
     if (stopping) return;
+    if (budgetWait) budgetWaits.add(source);
     pollTimer = setTimeout(
       () => {
         pollTimer = undefined;
+        budgetWaits.delete(source);
         void run(poll);
       },
       Math.min(delayMs, MAX_TIMER_MS),
@@ -419,7 +435,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     throttledUntilMs = outcome.kind === 'failed' ? throttledRetryAt(outcome.error) : undefined;
     if (!options.oneShot) armDeadline();
     await report(usage);
-    if (!options.oneShot) schedule(delay.delayMs);
+    if (!options.oneShot) schedule(delay.delayMs, delay.budgetWait);
     return outcome;
   }
 
@@ -653,6 +669,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       clearTimeout(deadlineTimer);
       clearTimeout(hardBoundTimer);
       pollTimer = deadlineTimer = hardBoundTimer = undefined;
+      budgetWaits.delete(source);
       controller?.abort();
       for (const cancel of [...pending]) cancel();
       await chain;

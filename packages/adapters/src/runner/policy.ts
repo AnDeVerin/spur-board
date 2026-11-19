@@ -48,6 +48,8 @@ export interface DelayInput {
 export interface Delay {
   delayMs: number;
   failures: number;
+  /** The delay is a pause for the rate budget: the batch reported a budget under the reserve. */
+  budgetWait: boolean;
 }
 
 /** When a `throttled` error lets the source be called again; undefined without a valid time. */
@@ -62,19 +64,24 @@ export function nextDelay(input: DelayInput): Delay {
   const { outcome, intervalMs, failures, now } = input;
   if (outcome.kind === 'delivered') {
     const pause = budgetPause(outcome.budget, input.reserveRemaining, intervalMs, now);
-    return { delayMs: pause ?? jitter(intervalMs), failures: 0 };
+    return { delayMs: pause ?? jitter(intervalMs), failures: 0, budgetWait: pause !== undefined };
   }
   const { error } = outcome;
   if (error instanceof AdapterError) {
     if (error.kind === 'auth' || error.kind === 'config') {
-      return { delayMs: jitter(input.authRetryMs), failures };
+      return { delayMs: jitter(input.authRetryMs), failures, budgetWait: false };
     }
     const retryAt = throttledRetryAt(error);
-    if (retryAt !== undefined) return { delayMs: Math.max(retryAt - now, intervalMs), failures };
+    if (retryAt !== undefined)
+      return { delayMs: Math.max(retryAt - now, intervalMs), failures, budgetWait: false };
   }
   const next = failures + 1;
   const cap = Math.max(MAX_BACKOFF_MS, intervalMs);
-  return { delayMs: jitter(Math.min(intervalMs * 2 ** next, cap)), failures: next };
+  return {
+    delayMs: jitter(Math.min(intervalMs * 2 ** next, cap)),
+    failures: next,
+    budgetWait: false,
+  };
 }
 
 /** The time after which a source without a new complete observation is blind stale. */

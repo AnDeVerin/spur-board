@@ -19,7 +19,7 @@ import { parseDefaultBranch, projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
 import { latestSubmissions } from './submissions.ts';
-import { readOutageEnds, services, waitsForBudget } from './status-services.ts';
+import { readOutageEnds, services } from './status-services.ts';
 import {
   columnGroupViews,
   orderTodoGroupRows,
@@ -91,6 +91,8 @@ export async function getStatus(
     daemon?: { version: string; startedAt: string; lastDispatchAt: string | null } | undefined;
     /** When each source became usable in this daemon run; defaults to none. */
     healthySince?: ReadonlyMap<string, string> | undefined;
+    /** Sources the adapter runner of this run pauses for the rate budget; defaults to none. */
+    budgetWaits?: ReadonlySet<string> | undefined;
     /** The last host sample, or null before the first; never sampled here. */
     host?: StatusOutput['host'] | undefined;
   },
@@ -386,18 +388,6 @@ export async function getStatus(
       row?.blind_reason === 'stale'
         ? row.blind_reason
         : null;
-    const budget =
-      row?.budget_remaining != null && row.budget_reset_at != null
-        ? {
-            remaining: row.budget_remaining,
-            limit: row.budget_limit,
-            resetAt: row.budget_reset_at,
-          }
-        : null;
-    // `lastCompleteAt` is stored, but the runner does not reload it, so the first report or
-    // incomplete observe after a restart can clear it. `completeSince` holds only polls since
-    // this process started, so a source warms up until its first complete poll after a restart.
-    const warmingUp = !completeSince.has(source);
     return {
       source,
       project: projectForSource(config, source)?.id ?? null,
@@ -409,17 +399,26 @@ export async function getStatus(
       lastCompleteAt: last,
       blindReason,
       message: row?.blind_message ?? null,
-      budget,
-      // The stored budget survives a restart, but the runner of this run waits on it only after
-      // the source's first complete poll in this run.
-      waitsForBudget:
-        !warmingUp && last !== null && waitsForBudget(source, budget, config, clock.now()),
+      budget:
+        row?.budget_remaining != null && row.budget_reset_at != null
+          ? {
+              remaining: row.budget_remaining,
+              limit: row.budget_limit,
+              resetAt: row.budget_reset_at,
+            }
+          : null,
+      // The runner's own pause, not the stored budget: an on-demand poll or an earlier daemon
+      // run may have stored a budget under the reserve that no regular poll of this run waits on.
+      waitsForBudget: deps.budgetWaits?.has(source) ?? false,
       stale:
         last === null ||
         clock.now() - Date.parse(last) >
           config.thresholds.staleMultiplier * sourceInterval(config, source),
       healthySince: deps.healthySince?.get(source) ?? null,
-      warmingUp,
+      // `lastCompleteAt` is stored, but the runner does not reload it, so the first report or
+      // incomplete observe after a restart can clear it. `completeSince` holds only polls since
+      // this process started, so a source warms up until its first complete poll after a restart.
+      warmingUp: !completeSince.has(source),
     };
   });
   const itemRows = await store.db

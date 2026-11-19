@@ -47,17 +47,17 @@ function serviceOf(source: string): 'github' | 'spur' | 'jira' | null {
   return null;
 }
 
-/** The degraded word of a source whose rate budget is under the configured reserve. */
+/** The degraded word of a source the daemon's runner pauses for its rate budget. */
 const BUDGET_WAIT = 'waits for rate budget';
 
 /** Health of one source from its own fields, in core's order of reasons. */
 function sourceState(source: BoardSourceView): Health {
   if (source.blindReason !== null) return { tone: 'error', word: `blind: ${source.blindReason}` };
+  if (source.waitsForBudget) return { tone: 'warn', word: BUDGET_WAIT };
   if (source.lastCompleteAt === null)
     return { tone: 'warn', word: source.warmingUp ? 'warming up' : 'never completed' };
   if (source.stale) return { tone: 'warn', word: 'stale' };
   if (source.warmingUp) return { tone: 'warn', word: 'warming up' };
-  if (source.waitsForBudget) return { tone: 'warn', word: BUDGET_WAIT };
   return { tone: 'ok', word: 'polling' };
 }
 

@@ -17,12 +17,18 @@ interface BoardModuleOptions {
  * Compose the board's timer and adapter runner without adding lifecycle state to main. `tick`
  * runs the board-core job once more behind its active run and resolves when that run settles.
  * `pollPr` forwards to the running runner: `stopped` before its start and after its stop,
- * `unsupported` for a runner without on-demand polls.
+ * `unsupported` for a runner without on-demand polls. `budgetWaits` reads the running runner's
+ * rate budget pauses, none before its start and after its stop.
  */
 export function createBoardModules(
   ctxFor: (name: string) => ModuleContext<Store>,
   options: BoardModuleOptions = {},
-): { entries: ModuleEntry[]; tick: () => Promise<void>; pollPr: PrPoller['pollPr'] } {
+): {
+  entries: ModuleEntry[];
+  tick: () => Promise<void>;
+  pollPr: PrPoller['pollPr'];
+  budgetWaits: () => ReadonlySet<string> | undefined;
+} {
   const coreCtx = ctxFor('board-core');
   const adapterCtx = ctxFor('board-adapters');
   const core =
@@ -110,5 +116,10 @@ export function createBoardModules(
     }
     return runner.pollPr(source, ref, pollOptions);
   };
-  return { entries, tick: () => boardCore.trigger(), pollPr };
+  return {
+    entries,
+    tick: () => boardCore.trigger(),
+    pollPr,
+    budgetWaits: () => runner?.budgetWaits,
+  };
 }

@@ -871,11 +871,14 @@ it('rolls sources and the daemon into one health row per service', async () => {
   const store = openTempStore('board-registry-').store;
   stores.push(store);
   const core = createObservationCore({ store, config: healthConfig, clock: movingClock });
+  // The sources the adapter runner pauses for the rate budget.
+  const budgetWaits = new Set<string>();
   const registry = createOperationRegistry({
     config: healthConfig,
     clock: movingClock,
     completeSince: core.completeSince,
     healthySince: core.healthySince,
+    budgetWaits: () => budgetWaits,
     lastDispatchAt: () => lastDispatchAt,
   });
   const query = createQuery({ store, config: healthConfig, clock: movingClock });
@@ -896,9 +899,8 @@ it('rolls sources and the daemon into one health row per service', async () => {
       blind?: { reason: 'stale'; message: string };
       budget?: { remaining: number; limit: number; resetAt: string };
     } = {},
-    via: Pick<typeof core, 'observe'> = core,
   ) =>
-    via.observe(source, {
+    core.observe(source, {
       batch: {
         source,
         observedAt: iso(),
@@ -974,6 +976,7 @@ it('rolls sources and the daemon into one health row per service', async () => {
   now += 30_000;
   const resetAt = new Date(now + 3_600_000).toISOString();
   await observe(issuesBeta, { budget: { remaining: 999, limit: 5000, resetAt } });
+  budgetWaits.add(issuesBeta);
   expect(await row('github')).toEqual({
     service: 'github',
     state: 'degraded',
@@ -984,26 +987,9 @@ it('rolls sources and the daemon into one health row per service', async () => {
   expect((await status()).sources.find((entry) => entry.source === issuesBeta)?.healthySince).toBe(
     startedAt,
   );
-  await observe(issuesBeta, {
-    budget: { remaining: 999, limit: 5000, resetAt: new Date(now - 1).toISOString() },
-  });
+  // The stored budget stays under the reserve; the row follows the runner's pause alone.
+  budgetWaits.delete(issuesBeta);
   expect(await row('github')).toEqual(healthy('github', later, startedAt));
-  await observe(issuesBeta, { budget: { remaining: 5000, limit: 5000, resetAt } });
-  expect(await row('github')).toEqual(healthy('github', later, startedAt));
-  // Each source carries its own budget wait, so a second waiting source shows though the row
-  // names only the first.
-  const waiting = async () =>
-    (await status()).sources.filter((entry) => entry.waitsForBudget).map((entry) => entry.source);
-  expect(await waiting()).toEqual([]);
-  await observe(githubBeta, { budget: { remaining: 10, limit: 5000, resetAt } });
-  await observe(issuesBeta, { budget: { remaining: 999, limit: 5000, resetAt } });
-  expect(await waiting()).toEqual([issuesBeta, githubBeta]);
-  expect((await row('github'))?.reason).toBe(
-    `${issuesBeta} waits for its rate budget until ${resetAt}`,
-  );
-  await observe(githubBeta, { budget: { remaining: 5000, limit: 5000, resetAt } });
-  await observe(issuesBeta, { budget: { remaining: 5000, limit: 5000, resetAt } });
-  expect(await waiting()).toEqual([]);
 
   await core.reportSourceState('jira:alpha', {
     lastCompleteAt: iso(),
@@ -1044,9 +1030,7 @@ it('rolls sources and the daemon into one health row per service', async () => {
     lastGoodAt: iso(),
     reason: 'jira:alpha stale',
   });
-  // A jira source under the GitHub reserve does not wait for it.
-  await observe('jira:alpha', { budget: { remaining: 1, limit: 5000, resetAt } });
-  expect(await waiting()).toEqual([]);
+  await observe('jira:alpha');
   expect(await row('jira')).toEqual(healthy('jira', iso()));
 
   await observe('spur', { blind: { reason: 'stale', message: 'Spur polls keep failing' } });
@@ -1069,10 +1053,6 @@ it('rolls sources and the daemon into one health row per service', async () => {
   });
   now -= 1;
   expect(await row('daemon')).toEqual(healthy('daemon', startedAt, lastDispatchAt));
-
-  // A stored budget under the reserve survives a restart.
-  await observe(githubAlpha, { budget: { remaining: 10, limit: 5000, resetAt } });
-  expect(await waiting()).toEqual([githubAlpha]);
 
   // An empty runner report preserves the accepted complete stamp. Process freshness still
   // makes the restarted source read as warming up until its first complete poll.
@@ -1103,15 +1083,6 @@ it('rolls sources and the daemon into one health row per service', async () => {
     state: 'degraded',
     reason: `${githubAlpha} warming up`,
   });
-  // The runner of this run is not waiting yet, so the stored budget marks no wait until the
-  // source's first complete poll in this run.
-  const restartedWaiting = async () =>
-    (await query(restartedRegistry['status.get'], {}, 'operator')).sources
-      .filter((entry) => entry.waitsForBudget)
-      .map((entry) => entry.source);
-  expect(await restartedWaiting()).toEqual([]);
-  await observe(githubAlpha, {}, restarted);
-  expect(await restartedWaiting()).toEqual([githubAlpha]);
 });
 
 it('keeps the default status for 100 tasks under the budget and lists every item', async () => {

@@ -318,6 +318,22 @@ describe('services panel rows', () => {
         words: { 'github:a:ex/repo': `warn ${WAIT}`, 'github:b:ex/other': `warn ${WAIT}` },
       },
       {
+        // The first poll after a restart was incomplete and under the reserve.
+        when: 'a source waits for its rate budget before its first complete poll',
+        name: 'github' as const,
+        sources: [
+          polled('github:a:ex/repo', {
+            budget,
+            waitsForBudget: true,
+            warmingUp: true,
+            lastCompleteAt: null,
+          }),
+        ],
+        services: github('degraded', 'github:a:ex/repo waits for its rate budget'),
+        expected: 'github:a:ex/repo',
+        words: { 'github:a:ex/repo': `warn ${WAIT}` },
+      },
+      {
         // Core lists the issues tracker before the repos and blames it; the panel shows PRs first.
         when: 'the issues source waits for its rate budget and the PR source is stale',
         name: 'github' as const,
