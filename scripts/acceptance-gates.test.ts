@@ -33,46 +33,80 @@ describe('isUiPath', () => {
 
 describe('parseGates', () => {
   const sha = 'a'.repeat(40);
+  const shape = (line: string) =>
+    `line "${line}" is not "tester: <sha | n/a>" or "designer: <sha | n/a>"`;
 
-  it('reads a SHA and n/a, in backticks, bullets or any case', () => {
-    expect(parseGates(`tester: \`${sha}\`\n- Designer: N/A\nsome note`)).toEqual({
-      ok: true,
-      gates: { tester: sha, designer: null },
-    });
-    expect(parseGates(`tester: ${sha.toUpperCase().slice(0, 7)}\ndesigner: n/a`)).toEqual({
-      ok: true,
-      gates: { tester: 'aaaaaaa', designer: null },
-    });
-  });
-
-  it('rejects a missing, duplicate or malformed gate line', () => {
-    expect(parseGates(`tester: ${sha}`)).toEqual({
-      ok: false,
-      errors: ['designer: no "designer:" line'],
-    });
-    expect(parseGates(`tester: ${sha}\ntester: n/a\ndesigner: n/a`)).toEqual({
-      ok: false,
-      errors: ['tester: 2 "tester:" lines, expected one'],
-    });
-    expect(parseGates('tester: abc12\ndesigner: none')).toEqual({
-      ok: false,
-      errors: [
-        'tester: "abc12" is not a commit SHA or n/a',
-        'designer: "none" is not a commit SHA or n/a',
-      ],
-    });
-  });
-
-  it('rejects both placeholders of the PR template section', () => {
-    const section = sectionText(template, 'acceptance gates');
-    expect(section).toContain('tester:');
-    expect(parseGates(section)).toEqual({
-      ok: false,
-      errors: [
-        'tester: "<sha | n/a>" is not a commit SHA or n/a',
-        'designer: "<sha | n/a>" is not a commit SHA or n/a',
-      ],
-    });
+  it.each<[string, string, ReturnType<typeof parseGates>]>([
+    [
+      'both lines, short and upper-case SHA',
+      `tester: ${sha}\n\ndesigner: ${sha.toUpperCase().slice(0, 7)}\n`,
+      { ok: true, gates: { tester: sha, designer: 'aaaaaaa' } },
+    ],
+    [
+      'n/a in any case',
+      'tester: n/a\ndesigner: N/A',
+      { ok: true, gates: { tester: null, designer: null } },
+    ],
+    [
+      'an extra prose line',
+      `tester: ${sha}\ndesigner: n/a\nsome note`,
+      { ok: false, errors: [shape('some note')] },
+    ],
+    [
+      'a bullet or a backticked value',
+      `- tester: ${sha}\ndesigner: \`n/a\``,
+      {
+        ok: false,
+        errors: [
+          shape(`- tester: ${sha}`),
+          'tester: no "tester:" line',
+          'designer: "`n/a`" is not a commit SHA or n/a',
+        ],
+      },
+    ],
+    [
+      'a fence line next to both lines',
+      `tester: ${sha}\ndesigner: n/a\n\`\`\`\ntester: PASS\n\`\`\``,
+      {
+        ok: false,
+        errors: [shape('```'), shape('```'), 'tester: 2 "tester:" lines, expected one'],
+      },
+    ],
+    [
+      'a fenced declaration alone',
+      `~~~\ntester: ${sha}\ndesigner: n/a\n~~~`,
+      { ok: false, errors: [shape('~~~'), shape('~~~')] },
+    ],
+    [
+      'a duplicate line',
+      `tester: ${sha}\ntester: n/a\ndesigner: n/a`,
+      { ok: false, errors: ['tester: 2 "tester:" lines, expected one'] },
+    ],
+    ['a missing line', `tester: ${sha}`, { ok: false, errors: ['designer: no "designer:" line'] }],
+    [
+      'a malformed value',
+      'tester: abc12\ndesigner: none',
+      {
+        ok: false,
+        errors: [
+          'tester: "abc12" is not a commit SHA or n/a',
+          'designer: "none" is not a commit SHA or n/a',
+        ],
+      },
+    ],
+    [
+      'the PR template placeholders',
+      sectionText(template, 'acceptance gates'),
+      {
+        ok: false,
+        errors: [
+          'tester: "<sha | n/a>" is not a commit SHA or n/a',
+          'designer: "<sha | n/a>" is not a commit SHA or n/a',
+        ],
+      },
+    ],
+  ])('%s', (_name, section, expected) => {
+    expect(parseGates(section)).toEqual(expected);
   });
 });
 
@@ -140,7 +174,7 @@ describe('acceptance-gates.ts CLI', () => {
   }
 
   const body = (tester: string, designer: string) =>
-    `## Testing\n\n- ok\n\n## Acceptance gates\n\ntester: \`${tester}\`\ndesigner: ${designer}\n\n## Changed checks\n\nCloses #1`;
+    `## Testing\n\n- ok\n\n## Acceptance gates\n\ntester: ${tester}\ndesigner: ${designer}\n\n## Changed checks\n\nCloses #1`;
   const errorLine = (stdout: string) =>
     stdout.split('\n').filter((line) => line.startsWith('::error::'));
   const last = (stdout: string) => stdout.trimEnd().split('\n').at(-1);
@@ -285,26 +319,16 @@ describe('acceptance-gates.ts CLI', () => {
     }
   });
 
-  it('does not count a gate line inside a code fence', () => {
+  it('fails a UI PR whose section holds a code fence, naming the line', () => {
     const { box, gate } = uiPr();
     box.merge();
-    for (const fence of ['```', '~~~~']) {
-      const fenced = `## Acceptance gates\n\n${fence}\ntester: ${gate}\n${fence}\n\ndesigner: ${gate}`;
-      const result = box.run(fenced);
-      expect(result.status).toBe(1);
-      expect(errorLine(result.stdout)[0]).toContain('- tester: no "tester:" line');
-    }
-  });
-
-  it('passes two valid gate lines next to a fenced extra tester line', () => {
-    const { box, gate } = uiPr();
-    box.merge();
-    const section = `## Acceptance gates\n\ntester: ${gate}\n\n\`\`\`\ntester: PASS\n\`\`\`\n\ndesigner: ${gate}`;
-    const result = box.run(section);
-    expect(result.status).toBe(0);
-    expect(last(result.stdout)).toBe(
-      `acceptance-gates: PASS (no UI change since tester ${gate}, designer ${gate})`,
+    const result = box.run(
+      `## Acceptance gates\n\n\`\`\`\ntester: ${gate}\n\`\`\`\n\ndesigner: ${gate}`,
     );
+    expect(result.status).toBe(1);
+    const error = errorLine(result.stdout)[0];
+    expect(error).toContain('line "```" is not "tester: <sha | n/a>" or "designer: <sha | n/a>"');
+    expect(last(result.stdout)).toBe('acceptance-gates: FAIL');
   });
 
   it('exits 2 on an argument or outside pull_request, and 1 off a merge ref', () => {

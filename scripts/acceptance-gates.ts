@@ -7,7 +7,7 @@
 // change both together. Imports only `node:` builtins and ./guardrails.ts, so the job skips
 // `pnpm install`.
 import { spawnSync } from 'node:child_process';
-import { codeFences, escapeCommand, readPullRequest, sectionText } from './guardrails.ts';
+import { escapeCommand, readPullRequest, sectionText } from './guardrails.ts';
 
 const GATES = ['tester', 'designer'] as const;
 
@@ -22,26 +22,25 @@ export function isUiPath(path: string): boolean {
 type ParsedGates =
   { ok: true; gates: Record<Gate, string | null> } | { ok: false; errors: string[] };
 
-const GATE_LINE = /^[ \t]*(?:[-*][ \t]+)?(tester|designer)[ \t]*:[ \t]*(.*?)[ \t]*$/i;
+const GATE_LINE = /^(tester|designer):[ \t]*(.*?)[ \t]*$/;
 const SHA = /^[0-9a-f]{7,64}$/i;
 
 /**
- * Reads the `tester:` and `designer:` lines of an `## Acceptance gates` section. Each value is a
- * 7-64 digit hex SHA or `n/a` (null), optionally in backticks; other lines and lines in code
- * fences are ignored.
+ * Reads an `## Acceptance gates` section: each non-blank line is `tester: <value>` or
+ * `designer: <value>`, one per gate, and each value is a 7-64 digit hex SHA or `n/a` (null). Any
+ * other line, a code fence or a bullet included, is an error naming it.
  */
 export function parseGates(section: string): ParsedGates {
   const values: Record<Gate, string[]> = { tester: [], designer: [] };
-  const inFence = codeFences();
+  const errors: string[] = [];
   for (const line of section.split('\n')) {
-    if (inFence(line)) continue;
+    if (line.trim() === '') continue;
     const match = GATE_LINE.exec(line);
-    if (!match) continue;
-    const gate = (match[1] ?? '').toLowerCase() as Gate;
-    values[gate].push(match[2] ?? '');
+    if (match) values[match[1] as Gate].push(match[2] ?? '');
+    else
+      errors.push(`line "${line.trim()}" is not "tester: <sha | n/a>" or "designer: <sha | n/a>"`);
   }
   const gates: Record<Gate, string | null> = { tester: null, designer: null };
-  const errors: string[] = [];
   for (const gate of GATES) {
     const found = values[gate];
     if (found.length === 0) {
@@ -52,8 +51,7 @@ export function parseGates(section: string): ParsedGates {
       errors.push(`${gate}: ${String(found.length)} "${gate}:" lines, expected one`);
       continue;
     }
-    const raw = found[0] ?? '';
-    const value = /^`([^`]*)`$/.exec(raw)?.[1]?.trim() ?? raw;
+    const value = found[0] ?? '';
     if (/^n\/a$/i.test(value)) gates[gate] = null;
     else if (SHA.test(value)) gates[gate] = value.toLowerCase();
     else errors.push(`${gate}: "${value}" is not a commit SHA or n/a`);
