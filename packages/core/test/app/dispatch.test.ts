@@ -6331,6 +6331,38 @@ describe('approvalRule github-rules', () => {
     },
   );
 
+  it('checksGate external-review: a block while one required check reruns holds Ready to Merge on CI', async () => {
+    const ctx = await pastProductReview({ ...RULED, checksGate: 'external-review' });
+    const twoChecks = rule({
+      rule: {
+        sources: ['ruleset'],
+        approvals: 1,
+        codeOwners: false,
+        conversationResolution: true,
+        requiredChecks: ['ci', 'e2e'],
+      },
+    });
+    const e2e = (state: 'pending' | 'success') => ({
+      requiredChecks: [
+        { name: 'ci', state: 'success' as const, completedAt: at(29) },
+        { name: 'e2e', state, completedAt: state === 'pending' ? null : at(29) },
+      ],
+    });
+    await ctx.rulePr({ ...approved, ...e2e('success'), mergeState: 'clean' }, twoChecks);
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    const moves = (await ctx.moves()).length;
+    await ctx.rulePr({ ...e2e('pending'), mergeState: 'blocked' }, twoChecks);
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect(await ctx.moves()).toHaveLength(moves);
+    const conditions = await externalConditions(ctx);
+    expect(conditions?.map((entry) => entry.reason)).not.toContain('review_rule_blocked');
+    expect(conditions).toContainEqual({
+      condition: 'checks_green',
+      state: 'waiting',
+      reason: 'checks_pending',
+    });
+  });
+
   it('waits on GitHub until the first full read of the head and drops the decision on a new head', async () => {
     const ctx = await pastProductReview(RULED);
     await ctx.pr(approved);

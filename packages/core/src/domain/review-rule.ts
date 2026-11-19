@@ -4,11 +4,13 @@ import type { PrFacts, PrReviewRule, ReviewRule } from '@spur-board/contracts';
  * What one read of a PR head says about its base branch's review rule, in rule order:
  * - `keep`: GitHub has not computed mergeability or the merge state; the stored decision stands.
  * - `dev`: a draft or a conflict, which Dev's own conditions handle.
- * - `checks_pending`: no required check has completed on the head.
+ * - `checks_pending`: no required check has completed on the head, or the merge is blocked while
+ *   a required check is still running.
  * - `changes_requested`: a reviewer asked for changes.
  * - `satisfied`: the merge is not blocked (clean, unstable or has hooks).
  * - `unresolved_threads`: the merge is blocked while review threads stay unresolved.
- * - `blocked`: the merge is blocked with every thread resolved, so the rule itself holds it.
+ * - `blocked`: the merge is blocked with every thread resolved and every required check
+ *   completed, so the rule itself holds it.
  * - `undecided`: any other merge state, behind included, or a rule the token could not read
  *   (null), on which the read decides nothing.
  */
@@ -49,8 +51,12 @@ export function reviewRuleVerdict(
   if (rule === null) return 'undecided';
   if (pr.mergeState === 'clean' || pr.mergeState === 'unstable' || pr.mergeState === 'has_hooks')
     return 'satisfied';
-  if (pr.mergeState === 'blocked') return unresolvedThreads > 0 ? 'unresolved_threads' : 'blocked';
-  return 'undecided';
+  if (pr.mergeState !== 'blocked') return 'undecided';
+  if (unresolvedThreads > 0) return 'unresolved_threads';
+  // A required check still running may be what blocks the merge, so CI holds the head.
+  return pr.requiredChecks.some((check) => check.state === 'expected' || check.state === 'pending')
+    ? 'checks_pending'
+    : 'blocked';
 }
 
 /**

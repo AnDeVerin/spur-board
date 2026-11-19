@@ -135,6 +135,19 @@ const CASES: Case[] = [
     clock: true,
   },
   {
+    name: 'blocked while another required check is still running',
+    pr: pr({
+      mergeState: 'blocked',
+      requiredChecks: [
+        { name: 'ci', state: 'success', completedAt: AT },
+        { name: 'e2e', state: 'pending', completedAt: null },
+      ],
+    }),
+    rule: { ...PROTECTION, requiredChecks: ['ci', 'e2e'] },
+    verdict: 'checks_pending',
+    clock: false,
+  },
+  {
     name: 'blocked by the code-owner rule',
     pr: pr({ mergeState: 'blocked' }),
     rule: { ...PROTECTION, codeOwners: true },
