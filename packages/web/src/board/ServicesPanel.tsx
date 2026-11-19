@@ -127,28 +127,17 @@ export function ServicesPanel({
         {boxes.length === 0 ? (
           <p className={styles.note}>Waiting for the first status from the daemon.</p>
         ) : (
-          runs(boxes).map((run) =>
-            run.project === null ? (
-              <Fragment key="shared">
-                {run.boxes.map((box) => (
-                  <Box key={box.id} box={box} />
-                ))}
-              </Fragment>
+          runs(boxes).map(({ project, boxes: own }) => {
+            const items = own.map((box) => <Box key={box.id} box={box} />);
+            return project === null ? (
+              <Fragment key="shared">{items}</Fragment>
             ) : (
-              <section
-                key={`project:${run.project}`}
-                className={styles.group}
-                aria-label={run.project}
-              >
-                <h2 className={styles.heading}>{run.project}</h2>
-                <div className={styles.boxes}>
-                  {run.boxes.map((box) => (
-                    <Box key={box.id} box={box} />
-                  ))}
-                </div>
+              <section key={`project:${project}`} className={styles.group} aria-label={project}>
+                <h2 className={styles.heading}>{project}</h2>
+                <div className={styles.boxes}>{items}</div>
               </section>
-            ),
-          )
+            );
+          })
         )}
       </div>
     </SidePanel>

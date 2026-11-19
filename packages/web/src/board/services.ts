@@ -332,7 +332,7 @@ export function panelBoxes(
     );
   };
   // A source with no project, which core does not send today, stays with the shared boxes.
-  const groups = [null, ...new Set(sources.flatMap((source) => source.project ?? []))].map(
+  const grouped = [null, ...new Set(sources.flatMap((source) => source.project ?? []))].flatMap(
     (project) => [
       ...named(project, 'github', 'github pull requests', 'github'),
       ...named(project, 'github-issues', 'github issues', 'github'),
@@ -368,7 +368,7 @@ export function panelBoxes(
     ),
     spur,
     ...(hasGithub ? [] : [serviceBox('github', live ? [] : GONE)]),
-    ...groups.flat(),
+    ...grouped,
   ];
 }
 
