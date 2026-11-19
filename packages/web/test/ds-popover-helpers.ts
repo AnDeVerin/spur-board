@@ -169,6 +169,7 @@ export const placement = () => {
   const style = opened().style;
   return {
     left: style.getPropertyValue('--popover-left'),
+    // No CSS reads the anchor's right edge: the in-view test uses it, nothing writes it.
     right: style.getPropertyValue('--popover-right'),
     top: style.getPropertyValue('--popover-anchor-top'),
     bottom: style.getPropertyValue('--popover-top'),
@@ -183,7 +184,9 @@ export const box = (
   away: string | null,
 ) => ({
   left: `${String(left)}px`,
-  right: `${String(right)}px`,
+  // The right edge decides `away` (passed for the row to read as the anchor's box) but is not
+  // written.
+  right: '',
   top: `${String(top)}px`,
   bottom: `${String(bottom)}px`,
   away,

@@ -1,4 +1,4 @@
-/* Placed from the anchor's box, which Popover.tsx writes as --popover-left, --popover-right,
+/* Placed from the anchor's box, which Popover.tsx writes as --popover-left,
    --popover-anchor-top and --popover-top (the anchor's bottom edge). 100% is the window (the
    containing block of a fixed box): the width keeps --space-2 off each window edge, and the left
    edge is clamped inside while the anchor shows. No overflow here: a menu beside the title may

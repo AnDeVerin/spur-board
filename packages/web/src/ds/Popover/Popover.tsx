@@ -27,7 +27,9 @@ import styles from './Popover.module.css';
  * an absolute anchor is clipped only from its nearest positioned ancestor up, and a fixed one by
  * none. An empty visible area (a scroller wholly outside the window) is not in view. An anchor out
  * of view, out of the window or clipped away by a scroller such as a board strip, hides the panel
- * (`display: none`, so nothing inside can show itself and its controls leave the tab order). With
+ * (`display: none`, so nothing inside can show itself and its controls leave the tab order). A
+ * hide that would take focus with it moves focus to the trigger first, and the panel showing again
+ * gives it back, unless the element left the panel or focus moved on from the trigger. With
  * no anchor (its element unmounted while the panel stays open, or not attached yet when both mount
  * in one commit) the panel hides the same way until the ref attaches.
  *
@@ -177,6 +179,30 @@ function OpenPopover({
   // Where Escape and Close send focus: the trigger, else the opener. The trigger comes first: in
   // Safari a click does not focus it, so the opener may be an unrelated control.
   const returnTarget = (): HTMLElement | null => latest.current.trigger.current ?? opener;
+  // The focused element a hide moved focus away from, to restore when the panel shows again.
+  const parked = useRef<HTMLElement | null>(null);
+  // Hiding the panel would drop focus to the page: move it to the trigger first.
+  const hide = (element: HTMLElement, away: string) => {
+    const active = document.activeElement;
+    if (
+      !element.hasAttribute('data-away') &&
+      active instanceof HTMLElement &&
+      element.contains(active)
+    ) {
+      parked.current = active;
+      returnTarget()?.focus({ preventScroll: true });
+    }
+    element.setAttribute('data-away', away);
+  };
+  // Shown again: focus goes back where it was, unless the element left the panel or focus moved
+  // on from the trigger meanwhile.
+  const show = (element: HTMLElement) => {
+    element.removeAttribute('data-away');
+    const held = parked.current;
+    parked.current = null;
+    if (held?.isConnected && element.contains(held) && document.activeElement === returnTarget())
+      held.focus({ preventScroll: true });
+  };
   // The values last written, so an unchanged frame writes nothing.
   const written = useRef('');
   const headerWritten = useRef(0);
@@ -189,7 +215,7 @@ function OpenPopover({
     if (!element) return;
     const target = latest.current.anchor.current;
     if (!target) {
-      if (written.current !== 'detached') element.setAttribute('data-away', 'detached');
+      if (written.current !== 'detached') hide(element, 'detached');
       written.current = 'detached';
       return;
     }
@@ -206,11 +232,10 @@ function OpenPopover({
     if (values !== written.current) {
       written.current = values;
       element.style.setProperty('--popover-left', px(rect.left));
-      element.style.setProperty('--popover-right', px(rect.right));
       element.style.setProperty('--popover-anchor-top', px(rect.top));
       element.style.setProperty('--popover-top', px(rect.bottom));
-      if (away) element.setAttribute('data-away', away);
-      else element.removeAttribute('data-away');
+      if (away) hide(element, away);
+      else show(element);
     }
     if (away) return;
     // The rendered header, which grows when its actions wrap, sets the least height. Read only

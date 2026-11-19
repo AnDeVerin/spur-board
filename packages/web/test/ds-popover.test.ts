@@ -116,6 +116,38 @@ describe('Popover', () => {
         }
   });
 
+  it('moves focus to the trigger while hidden and back when shown, unless focus moved on', () => {
+    refuseHiddenFocus();
+    const control = createElement('button', { type: 'button' }, 'Body control');
+    const other = createElement('button', { type: 'button' }, 'Other');
+    const scroll = (left: number) => {
+      stubAnchorRect({ left, right: left + 320, top: 20, bottom: 40 });
+      act(() => {
+        document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
+      });
+    };
+    for (const movedOn of [false, true]) {
+      render(createElement(Fragment, null));
+      render(createElement(Harness, { initial: true, children: control, after: other }));
+      act(() => {
+        button('Body control', opened()).focus();
+      });
+      // The anchor scrolls wholly out: the panel hides, and focus goes to the trigger first.
+      scroll(-400);
+      expect(opened().getAttribute('data-away')).toBe('left');
+      expect(document.activeElement).toBe(button('Help'));
+      if (movedOn)
+        act(() => {
+          button('Other').focus();
+        });
+      scroll(100);
+      expect(opened().hasAttribute('data-away')).toBe(false);
+      expect(document.activeElement, String(movedOn)).toBe(
+        movedOn ? button('Other') : button('Body control', opened()),
+      );
+    }
+  });
+
   it('a mousedown outside closes; inside the panel or the anchor, or a pointerdown alone, does not', () => {
     const onClose = vi.fn();
     render(createElement(Harness, { onClose }));
