@@ -39,6 +39,7 @@ const BASE = Date.parse('2026-11-04T08:00:00.000Z');
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
 const C = 'c'.repeat(40);
+const D = 'd'.repeat(40);
 const KEY = 'o/r#9';
 const TRACKER = 'github-issues:proj:o/r';
 const GITHUB = 'github:proj:o/r';
@@ -70,6 +71,8 @@ type Options = {
   /** Adds the curator project `cur` with a live session `cur-1`. */
   curator?: boolean;
   externalReview?: boolean;
+  /** External Review's course check; the default applies when unset. */
+  externalCourseCheck?: number;
   devOrchestrator?: string;
   doneOrchestrator?: string;
   /** The task's project left the config: the only project tracks another repo. */
@@ -183,7 +186,16 @@ function columnsOf(options: Options) {
       ...(options.courseCheckTo === undefined ? {} : { courseCheckTo: options.courseCheckTo }),
     },
     { id: 'product-review', orchestrator: 'coord' },
-    ...(options.externalReview === true ? [{ id: 'external-review' }] : []),
+    ...(options.externalReview === true
+      ? [
+          {
+            id: 'external-review',
+            ...(options.externalCourseCheck === undefined
+              ? {}
+              : { courseCheck: options.externalCourseCheck }),
+          },
+        ]
+      : []),
     ...(options.qa === true ? [{ id: 'qa', orchestrator: options.qaOrchestrator ?? 'coord' }] : []),
     {
       id: 'ready-to-merge',
@@ -378,6 +390,8 @@ function board(options: Options = {}) {
     pollAnswers: (result: Awaited<ReturnType<PrPoller['pollPr']>>) => {
       pollAnswer = result;
     },
+    /** The PR facts of the last GitHub poll, or null before the first PR. */
+    facts: () => current,
     /** Moves the clock forward by `ms` with no other step. */
     wait: (ms: number) => {
       now += ms;
@@ -1373,6 +1387,13 @@ async function pastProductReview(options: Options = {}): Promise<Board> {
 
 const at = (minute: number) => new Date(BASE + minute * 60_000).toISOString();
 
+/** The task's project as configured with `options`. */
+const project = (options: Options = {}) => {
+  const [entry] = boardConfig(options).projects;
+  if (entry === undefined) throw new Error('no project');
+  return entry;
+};
+
 describe('the Todo group', () => {
   it.each(
     (['todo', 'triage', 'ready-for-dev'] as const).flatMap((column) =>
@@ -1556,7 +1577,7 @@ describe('unresolved review threads', () => {
   const REASON = 'dev: unresolved_threads, no_submit_on_head';
   const listed = async (ctx: Board) => (await ctx.why()).turn?.threads;
   const counts = async (ctx: Board) =>
-    returnCounts(ctx.store.db, (await ctx.task()).id, 'ready-to-merge');
+    returnCounts(ctx.store.db, (await ctx.task()).id, 'ready-to-merge', project());
   const reviewTurns = async (ctx: Board) =>
     (await ctx.turns()).filter((turn) => turn.column === 'review').length;
 
@@ -3445,6 +3466,10 @@ describe('course check', () => {
       state: 'open',
     });
     expect(block.reason).toContain('course check: 3 returns to Dev from review');
+    expect(block.reason).toContain('Counted rounds:');
+    expect(block.reason).toContain('- return to Dev from review on aaaaaaa');
+    expect(block.reason).toContain('- return to Dev from review on bbbbbbb');
+    expect(block.reason).toContain('- return to Dev from review on ccccccc (current head)');
     expect(block.reason).toContain('by rev/rev-1 on');
     expect(block.reason).toContain('on aaaaaaa: Handle the empty list.');
     expect(block.reason).toContain('PR: https://github.com/o/r/pull/7');
@@ -3763,6 +3788,350 @@ describe('course check', () => {
     expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toEqual(expect.any(String));
     await ctx.tick();
     expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+  });
+});
+
+/** An external change request by `reviewer` on `head`, dated a second after the last step. */
+async function requestChanges(
+  ctx: Board,
+  head: string,
+  reviewer: string,
+  type: 'user' | 'bot',
+): Promise<void> {
+  ctx.wait(1_000);
+  const submittedAt = ctx.at();
+  const facts = ctx.facts();
+  await ctx.pr({
+    headSha: head,
+    reviews: [
+      ...(facts?.reviews ?? []).filter((review) => review.reviewer !== reviewer),
+      { reviewer, state: 'changes_requested', commitSha: head, submittedAt },
+    ],
+    feedback: [
+      ...(facts?.feedback ?? []),
+      {
+        kind: 'review',
+        id: `r-${reviewer}-${submittedAt}`,
+        author: { login: reviewer, type },
+        postedAt: submittedAt,
+      },
+    ],
+  });
+}
+
+/** An external change request on `head` while the task is in Dev. */
+const devRound = (ctx: Board, head: string, reviewer = EXTERNAL, type: 'user' | 'bot' = 'user') =>
+  requestChanges(ctx, head, reviewer, type);
+
+/** An external change request on `head` that returns the task from Review or later. */
+const externalReturn = (ctx: Board, head: string) => requestChanges(ctx, head, EXTERNAL, 'user');
+
+/** The payloads of the task's `external_round` events. */
+const rounds = async (ctx: Board) =>
+  (await ctx.events('external_round')).map((event) => event.payload);
+
+/** The rounds recorded on `heads`, by the external reviewer. */
+const roundsOn = (...heads: string[]) =>
+  heads.map((head) => ({ repo: 'o/r', pr: 7, head, reviewer: EXTERNAL }));
+
+describe('external change-request rounds', () => {
+  const NOTE = 'Fix the parser once and cover its variants with one table test.';
+
+  /** The block of the task's one active course-check item. */
+  async function courseBlock(ctx: Board) {
+    const items = (await itemsOf(ctx, 'course_check')).filter((item) => item.cleared_at === null);
+    expect(items).toHaveLength(1);
+    return ctx.store.db
+      .selectFrom('block')
+      .selectAll()
+      .where('id', '=', items[0]?.block_id ?? 0)
+      .executeTakeFirstOrThrow();
+  }
+
+  const openKeys = async (ctx: Board) =>
+    (
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select('item_key')
+        .where('cleared_at', 'is', null)
+        .orderBy('id')
+        .execute()
+    ).map((item) => item.item_key);
+
+  it('repeated change requests on one head count once', async () => {
+    const ctx = await inDev({ externalReview: true, curator: true });
+    await devRound(ctx, B);
+    await devRound(ctx, B);
+    await devRound(ctx, B, 'second-reviewer');
+    await ctx.tick();
+    await ctx.tick();
+    await ctx.github();
+    expect(await rounds(ctx)).toEqual(roundsOn(B));
+
+    await ctx.pr({ headSha: C });
+    await ctx.github();
+    expect(await rounds(ctx)).toEqual(roundsOn(B));
+  });
+
+  it.each([
+    { name: 'an executor return head counts again', external: false, head: A, heads: [A] },
+    { name: 'an external return head counts once', external: true, head: A, heads: [] },
+    { name: 'a new head after an external return counts', external: true, head: B, heads: [B] },
+  ])(
+    "only External Review's counted heads dedupe a round: $name",
+    async ({ external, head, heads }) => {
+      const ctx = await inReview({ externalReview: true });
+      if (external) await externalReturn(ctx, A);
+      else await cycle(ctx);
+      expect((await ctx.task()).column).toBe('dev');
+      expect(await rounds(ctx)).toEqual([]);
+
+      await devRound(ctx, head);
+      expect(await rounds(ctx)).toEqual(roundsOn(...heads));
+    },
+  );
+
+  it.each([
+    { name: 'a bot changes-request', act: (ctx: Board) => devRound(ctx, B, 'review-app', 'bot') },
+    { name: 'the agent login', act: (ctx: Board) => devRound(ctx, B, 'agent-bot') },
+    {
+      name: 'shadow mode',
+      act: async (ctx: Board) => {
+        ctx.restart({ externalReview: true, mode: 'shadow' });
+        expect((await ctx.task()).column).toBe('dev');
+        await devRound(ctx, B);
+      },
+    },
+    {
+      name: 'a request before the Dev entry',
+      act: (ctx: Board) =>
+        ctx.pr({
+          reviews: [
+            { reviewer: EXTERNAL, state: 'changes_requested', commitSha: A, submittedAt: at(-10) },
+          ],
+          feedback: [
+            {
+              kind: 'review',
+              id: 'r-early',
+              author: { login: EXTERNAL, type: 'user' },
+              postedAt: at(-10),
+            },
+          ],
+        }),
+    },
+  ])(
+    'bots, the agent login, shadow mode and requests before the Dev entry make no round: $name',
+    async ({ act }) => {
+      const ctx = await inDev({ externalReview: true });
+      await act(ctx);
+      await ctx.tick();
+      expect(await rounds(ctx)).toEqual([]);
+    },
+  );
+
+  it('N external change requests on new heads in Dev fire the course check at the threshold', async () => {
+    const ctx = await inDev({ externalReview: true, curator: true });
+    await devRound(ctx, A);
+    await ctx.submit(WORKER, 'T1', A);
+    expect((await ctx.task()).column).toBe('dev');
+    const handed = await ctx.openTurn();
+    expect(handed).toMatchObject({ column: 'dev', role: 'worker' });
+    expect(JSON.parse(handed?.handed ?? '[]')).toEqual([
+      expect.objectContaining({
+        kind: 'review',
+        id: expect.stringMatching(/^r-reviewer-/) as unknown,
+      }),
+    ]);
+
+    await devRound(ctx, B);
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+    const before = await ctx.openTurn();
+    expect(before).not.toBeNull();
+    await devRound(ctx, C);
+
+    expect(await rounds(ctx)).toEqual(roundsOn(A, B, C));
+    expect(await openKeys(ctx)).toEqual(['course-check:1:external-review']);
+    expect(await courseBlock(ctx)).toMatchObject({
+      type: 'needs_input',
+      author: 'system',
+      addressee_role: 'curator',
+      state: 'open',
+    });
+    expect((await ctx.why()).holds).toContain('cycle_limit');
+    const held = (await ctx.turns()).find((turn) => `T${String(turn.id)}` === before?.id);
+    expect(held?.closed_at).toBeNull();
+
+    const count = (await ctx.turns()).length;
+    await ctx.tick();
+    expect(await ctx.turns()).toHaveLength(count);
+
+    await ctx.ack(WORKER, before?.id ?? '');
+    await ctx.submit(WORKER, before?.id ?? '', C);
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toBeNull();
+    expect(await openKeys(ctx)).toEqual(['course-check:1:external-review']);
+  });
+
+  it('an External Review return and Dev rounds add up to one counter', async () => {
+    const options = { externalReview: true, curator: true };
+    const ctx = await pastProductReview(options);
+    expect((await ctx.task()).column).toBe('external-review');
+    await ctx.pr({
+      reviews: [
+        { reviewer: EXTERNAL, state: 'changes_requested', commitSha: A, submittedAt: at(30) },
+      ],
+      feedback: [
+        {
+          kind: 'review',
+          id: `r-${EXTERNAL}`,
+          author: { login: EXTERNAL, type: 'user' },
+          postedAt: at(30),
+        },
+      ],
+    });
+    expect((await ctx.task()).column).toBe('dev');
+    // A pass in Dev with the request on A still current: its head counted with the return.
+    await ctx.ack(WORKER, (await ctx.openTurn())?.id ?? '');
+    await ctx.tick();
+    expect(await rounds(ctx)).toEqual([]);
+    await devRound(ctx, B);
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+    await devRound(ctx, C);
+
+    expect(await rounds(ctx)).toEqual(roundsOn(B, C));
+    expect(await returnCounts(ctx.store.db, 1, 'external-review', project(options))).toEqual({
+      cycle: 1,
+      course: 3,
+    });
+    expect(await openKeys(ctx)).toEqual(['course-check:1:external-review']);
+    const block = await courseBlock(ctx);
+    expect(block.addressee_role).toBe('curator');
+    expect(block.reason).toContain('3 external review rounds');
+    expect(block.reason).toContain(
+      '1 returns to Dev for external comments, 2 change requests on new heads',
+    );
+    expect(block.reason).toContain('- return to Dev from external-review on aaaaaaa');
+    expect(block.reason).toContain('- change request by reviewer on bbbbbbb');
+    expect(block.reason).toContain('- change request by reviewer on ccccccc (current head)');
+    const item = await ctx.store.db
+      .selectFrom('operator_item')
+      .select('text')
+      .where('kind', '=', 'course_check')
+      .executeTakeFirstOrThrow();
+    expect(item.text).toMatch(/course check after 3 external review rounds$/);
+  });
+
+  it('a threshold reached while another item is open raises on the first pass after it closes', async () => {
+    const ctx = await inReview({
+      externalReview: true,
+      curator: true,
+      cycleLimit: 1,
+      courseCheck: 0,
+    });
+    await cycle(ctx);
+    const [limit] = await itemsOf(ctx, 'cycle_limit');
+    expect(limit?.item_key).toBe('cycle-limit:1:review');
+    expect((await ctx.task()).column).toBe('dev');
+    await devRound(ctx, B);
+    await devRound(ctx, C);
+    await devRound(ctx, D);
+    expect(await rounds(ctx)).toEqual(roundsOn(B, C, D));
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+
+    await ctx.closeItem(`I${String(limit?.id)}`);
+    await ctx.tick();
+    expect(await openKeys(ctx)).toEqual(['course-check:1:external-review']);
+    expect(await ctx.openTurn()).toBeNull();
+  });
+
+  it('after the answer the count restarts and old heads never recount', async () => {
+    const ctx = await inDev({ externalReview: true, curator: true });
+    await devRound(ctx, A);
+    await devRound(ctx, B);
+    await devRound(ctx, C);
+    const block = await courseBlock(ctx);
+    await ctx.answer(CUR, `B${String(block.id)}`, NOTE);
+    await ctx.tick();
+    expect(await openKeys(ctx)).toEqual([]);
+
+    await devRound(ctx, D);
+    expect(await rounds(ctx)).toEqual(roundsOn(A, B, C, D));
+    expect(await openKeys(ctx)).toEqual([]);
+    for (const [index, head] of [A, B, C].entries())
+      await devRound(ctx, head, `again-${String(index)}`);
+    expect(await rounds(ctx)).toEqual(roundsOn(A, B, C, D));
+    expect(await openKeys(ctx)).toEqual([]);
+  });
+
+  it.each([
+    { name: 'no External Review', options: { curator: true } },
+    {
+      name: 'External Review courseCheck 0',
+      options: { externalReview: true, externalCourseCheck: 0, curator: true },
+    },
+  ])('no External Review or courseCheck 0 records nothing: $name', async ({ options }) => {
+    const ctx = await inDev(options);
+    for (const head of [A, B, C]) await devRound(ctx, head);
+    expect(await rounds(ctx)).toEqual([]);
+    expect(await openKeys(ctx)).toEqual([]);
+
+    const returned = await inReview(options);
+    await externalReturn(returned, A);
+    expect((await returned.task()).column).toBe('dev');
+    expect(await returnCounts(returned.store.db, 1, 'review', project(options))).toEqual(
+      options.externalReview === true ? { cycle: 1, course: 0 } : { cycle: 1, course: 1 },
+    );
+    expect(await itemsOf(returned, 'course_check')).toEqual([]);
+  });
+
+  it('a return from Review for external comments counts under External Review; an executor return stays on Review', async () => {
+    const options = { externalReview: true, curator: true };
+    const ctx = await inReview(options);
+    const counts = async (column: ColumnId) =>
+      returnCounts(ctx.store.db, 1, column, project(options));
+    await externalReturn(ctx, A);
+    expect((await ctx.moves()).at(-1)).toMatchObject({
+      from: 'review',
+      to: 'dev',
+      gate: expect.arrayContaining(['external_comments']) as unknown,
+    });
+    expect(await counts('external-review')).toEqual({ cycle: 0, course: 1 });
+    expect(await counts('review')).toEqual({ cycle: 1, course: 0 });
+    expect(await rounds(ctx)).toEqual([]);
+
+    await resubmit(ctx, B);
+    await cycle(ctx);
+    expect(await counts('review')).toEqual({ cycle: 2, course: 1 });
+    expect(await counts('external-review')).toEqual({ cycle: 0, course: 1 });
+  });
+
+  it("three external-comments returns from Review raise External Review's course check to its recipient", async () => {
+    const ctx = await inReview({ externalReview: true, curator: true, courseCheckTo: 'rev' });
+    await externalReturn(ctx, A);
+    await resubmit(ctx, B);
+    await externalReturn(ctx, B);
+    await resubmit(ctx, C);
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+    await externalReturn(ctx, C);
+
+    expect(await openKeys(ctx)).toEqual(['course-check:1:external-review']);
+    expect((await courseBlock(ctx)).addressee_role).toBe('curator');
+    expect((await ctx.why()).holds).toContain('cycle_limit');
+    expect(await ctx.openTurn()).toBeNull();
+  });
+
+  it("external-comments returns still reach the from column's cycle limit first", async () => {
+    const options = { externalReview: true, curator: true, cycleLimit: 2 };
+    const ctx = await inReview(options);
+    await externalReturn(ctx, A);
+    await resubmit(ctx, B);
+    await externalReturn(ctx, B);
+
+    expect(await openKeys(ctx)).toEqual(['cycle-limit:1:review']);
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+    expect((await returnCounts(ctx.store.db, 1, 'external-review', project(options))).course).toBe(
+      2,
+    );
   });
 });
 

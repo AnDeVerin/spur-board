@@ -76,6 +76,10 @@ it('describes only visible enabled column policies without changing board state'
     escalation: { chain: [], silent: null },
   });
   expect(external?.returns.join(' ')).not.toContain('executor can return');
+  expect(external?.returns.join(' ')).toContain('external change request on a new PR head');
+  const review = project?.columns.find((column) => column.id === 'review')?.returns.join(' ');
+  expect(review).toContain("count toward External Review's courseCheck");
+  expect(review).not.toContain('external change request on a new PR head');
   expect(external?.limits?.courseCheckTo).toMatchObject({
     role: 'operator',
     project: null,

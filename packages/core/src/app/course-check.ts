@@ -10,16 +10,19 @@ import {
 } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { returnCauses } from '../domain/dispatch.ts';
-import { countCycles, type CycleEvent } from '../domain/gates.ts';
+import { countCycles, type CycleEvent, type ReturnCause } from '../domain/gates.ts';
 import type { Row } from '../store/schema.ts';
 import { curatorProject } from './authorize.ts';
 import { openSystemBlock } from './blocks.ts';
-import { parsePr, taskPr, taskUrl, type Trx } from './board-utils.ts';
+import { emit, parsePr, taskPr, taskUrl, type Trx } from './board-utils.ts';
 import { capPoints, raiseItem } from './feed.ts';
+import { readStatusColumnEntries } from './status-views.ts';
 
-// The course check: after `columns[].courseCheck` counted returns to Dev from a column, the
-// board holds the task and asks `columns[].courseCheckTo` (by default the curator, or the operator
-// without one) to check its course.
+// The course check: after `columns[].courseCheck` counted rounds under a column, the board holds
+// the task and asks `columns[].courseCheckTo` (by default the curator, or the operator without
+// one) to check its course. A round is a counted return to Dev, or an external change request on
+// a new PR head while the task is in Dev (`external_round`); `courseCounter` names the column it
+// counts under.
 // Its count is replayed from the journal next to the cycle limit's, with its own resets.
 
 type Task = Row<'task'>;
@@ -56,15 +59,78 @@ function counted(
     : { kind: 'return', column: move.from, causes: [first, ...rest] };
 }
 
+/** The counter that takes every round caused by an external change request. */
+const EXTERNAL_COUNTER = 'external-review' satisfies ColumnId;
+
+/** Return causes that come from an external change request. */
+const EXTERNAL_CAUSES: readonly ReturnCause[] = ['external_comments', 'changes_requested'];
+
+/** The project's External Review column when it is enabled. */
+const externalColumn = (project: Pick<Project, 'columns'>) =>
+  project.columns.find((column) => column.id === EXTERNAL_COUNTER && column.enabled);
+
+/** One entry of a course count: a return to Dev with its causes, or an external round. */
+export type CourseEntry =
+  { kind: 'return'; column: ColumnId; causes: readonly ReturnCause[] } | { kind: 'external_round' };
+
 /**
- * The counted returns from `column`: `cycle` since the last close of its cycle-limit item, and
- * `course` since the last close of its course-check item.
+ * The column whose course count an entry adds to. An external round, and a return caused by
+ * external comments while External Review is enabled, count under External Review, whatever
+ * column the task left. An executor return, and every other return, stay on the column it left.
  */
-export async function returnCounts(
+export function courseCounter(entry: CourseEntry, project: Pick<Project, 'columns'>): ColumnId {
+  if (entry.kind === 'external_round') return EXTERNAL_COUNTER;
+  if (entry.causes.includes('executor')) return entry.column;
+  return entry.causes.some((cause) => EXTERNAL_CAUSES.includes(cause)) &&
+    externalColumn(project) !== undefined
+    ? EXTERNAL_COUNTER
+    : entry.column;
+}
+
+/** A return to Dev from `column` as a course entry. */
+export const returnEntry = (
+  column: ColumnId,
+  gate: readonly GateReason[] | undefined,
+  byExecutor: boolean,
+): CourseEntry => ({ kind: 'return', column, causes: returnCauses(gate ?? [], byExecutor) });
+
+/** The column help of External Review while its course check is on. */
+export const EXTERNAL_ROUNDS_RULE =
+  "Returns for external comments (a changes-requested review is one) from any column, and each external change request on a new PR head while the task is in Dev, count toward this column's courseCheck, once per head; cycleLimit stays with the column the task left.";
+
+/** The column help of every other returnable column while External Review's check is on. */
+export const EXTERNAL_RETURNS_ELSEWHERE =
+  "Returns for external comments count toward External Review's courseCheck, not this column's; this column's cycleLimit still counts them.";
+
+/**
+ * Where External Review's course check stands for a column's help: `own` for External Review
+ * itself, `other` for the other columns, null when External Review is off or its check is 0.
+ */
+export function externalCounter(
+  project: Pick<Project, 'columns'>,
+  column: ColumnId,
+): 'own' | 'other' | null {
+  const external = externalColumn(project);
+  if (external === undefined || external.courseCheck <= 0) return null;
+  return column === EXTERNAL_COUNTER ? 'own' : 'other';
+}
+
+/** A counted round of a course count, with the head it was counted on, or null when unknown. */
+type Round =
+  | { kind: 'return'; counter: ColumnId; from: ColumnId; head: string | null }
+  | { kind: 'external_round'; counter: ColumnId; reviewer: string; head: string };
+
+/**
+ * The task's journal replayed for its counts, in journal order: the cycle events, and the
+ * course rounds with the resets of each counter. A return's head is the head the active PR moved
+ * to last before it, else the one the next head change left, else the current head of `pr`.
+ */
+async function courseRounds(
   trx: Trx,
   taskId: number,
-  column: ColumnId,
-): Promise<{ cycle: number; course: number }> {
+  project: Pick<Project, 'columns'>,
+  pr: PrFacts | null,
+): Promise<{ cycle: CycleEvent[]; course: (Round | { kind: 'reset'; counter: ColumnId })[] }> {
   const prefixes = { cycle: cycleKeyPrefix(taskId), course: courseKeyPrefix(taskId) };
   const items = await trx
     .selectFrom('operator_item')
@@ -88,35 +154,228 @@ export async function returnCounts(
   // One `at` is shared by a whole transaction, so the journal order is the event id.
   const rows = await trx
     .selectFrom('event')
-    .select(['kind', 'payload'])
+    .select(['id', 'kind', 'payload'])
     .where('task_id', '=', taskId)
-    .where('kind', 'in', ['task_moved', 'from_you_cleared'])
+    .where('kind', 'in', ['task_moved', 'from_you_cleared', 'external_round', 'head_moved'])
     .orderBy('id')
     .execute();
-  const events = { cycle: [] as CycleEvent[], course: [] as CycleEvent[] };
+  const heads: { id: number; from: string | null; to: string }[] = [];
+  if (pr !== null)
+    for (const row of rows) {
+      if (row.kind !== 'head_moved') continue;
+      const moved = eventPayloadSchemas.head_moved.safeParse(JSON.parse(row.payload));
+      if (
+        moved.success &&
+        moved.data.repo.toLowerCase() === pr.repo.toLowerCase() &&
+        moved.data.pr === pr.number
+      )
+        heads.push({ id: row.id, from: moved.data.from, to: moved.data.to });
+    }
+  const headAt = (id: number) =>
+    (
+      heads.filter((head) => head.id < id).at(-1)?.to ??
+      heads.find((head) => head.id > id && head.from !== null)?.from ??
+      pr?.headSha
+    )?.toLowerCase() ?? null;
+  const cycle: CycleEvent[] = [];
+  const course: (Round | { kind: 'reset'; counter: ColumnId })[] = [];
   for (const row of rows) {
     if (row.kind === 'from_you_cleared') {
       const cleared = eventPayloadSchemas.from_you_cleared.safeParse(JSON.parse(row.payload));
       const reset = cleared.success ? resetOf.get(cleared.data.item) : undefined;
-      if (reset !== undefined && isColumn(reset.column))
-        events[reset.count].push({ kind: 'limit_reset', column: reset.column });
-      continue;
+      if (reset === undefined || !isColumn(reset.column)) continue;
+      if (reset.count === 'cycle') cycle.push({ kind: 'limit_reset', column: reset.column });
+      else course.push({ kind: 'reset', counter: reset.column });
+    } else if (row.kind === 'external_round') {
+      const round = eventPayloadSchemas.external_round.safeParse(JSON.parse(row.payload));
+      if (round.success)
+        course.push({
+          kind: 'external_round',
+          counter: courseCounter({ kind: 'external_round' }, project),
+          reviewer: round.data.reviewer,
+          head: round.data.head.toLowerCase(),
+        });
+    } else if (row.kind === 'task_moved') {
+      const moved = eventPayloadSchemas.task_moved.safeParse(JSON.parse(row.payload));
+      const event = moved.success ? counted(moved.data, moved.data.block !== undefined) : null;
+      if (event?.kind !== 'return') continue;
+      cycle.push(event);
+      if (countCycles([event], event.column, Infinity).count > 0)
+        course.push({
+          kind: 'return',
+          counter: courseCounter(event, project),
+          from: event.column,
+          head: headAt(row.id),
+        });
     }
-    const moved = eventPayloadSchemas.task_moved.safeParse(JSON.parse(row.payload));
-    const event = moved.success ? counted(moved.data, moved.data.block !== undefined) : null;
-    if (event === null) continue;
-    events.cycle.push(event);
-    events.course.push(event);
   }
+  return { cycle, course };
+}
+
+/** The rounds counted under `counter` since the last close of its course-check item. */
+function roundsSince(
+  course: Awaited<ReturnType<typeof courseRounds>>['course'],
+  counter: ColumnId,
+): Round[] {
+  const rounds: Round[] = [];
+  for (const entry of course) {
+    if (entry.counter !== counter) continue;
+    if (entry.kind === 'reset') rounds.length = 0;
+    else rounds.push(entry);
+  }
+  return rounds;
+}
+
+/**
+ * The counted returns from `column` since the last close of its cycle-limit item (`cycle`), and
+ * the rounds counted under `column` (`courseCounter`) since the last close of its course-check
+ * item (`course`).
+ */
+export async function returnCounts(
+  trx: Trx,
+  taskId: number,
+  column: ColumnId,
+  project: Pick<Project, 'columns'>,
+): Promise<{ cycle: number; course: number }> {
+  const { cycle, course } = await courseRounds(trx, taskId, project, null);
   return {
-    cycle: countCycles(events.cycle, column, Infinity).count,
-    course: countCycles(events.course, column, Infinity).count,
+    cycle: countCycles(cycle, column, Infinity).count,
+    course: roundsSince(course, column).length,
   };
 }
 
 /**
+ * Raises the course check of `counter` when its rounds since the last check reach the column's
+ * `courseCheck`; with `requireRound`, only when one of them is an external round. Returns the
+ * open item, or null when nothing is due.
+ */
+export async function raiseCourseDue(
+  trx: Trx,
+  input: {
+    task: Task;
+    project: Project;
+    config: Config;
+    at: Date;
+    counter: ColumnId;
+    requireRound: boolean;
+  },
+): Promise<Row<'operator_item'> | null> {
+  const { task, project, config, at, counter, requireRound } = input;
+  const threshold = project.columns.find((column) => column.id === counter)?.courseCheck ?? 0;
+  if (threshold <= 0) return null;
+  const rounds = roundsSince((await courseRounds(trx, task.id, project, null)).course, counter);
+  if (rounds.length < threshold) return null;
+  if (requireRound && !rounds.some((round) => round.kind === 'external_round')) return null;
+  return raiseCourseCheck(trx, { task, column: counter, count: rounds.length, at, config });
+}
+
+/** Whether a reviewer is external: not the agent login and not a bot that left feedback. */
+function externalReviewer(pr: PrFacts, agentLogin: string) {
+  return (login: string) =>
+    login.toLowerCase() !== agentLogin.toLowerCase() &&
+    !(pr.feedback ?? []).some(
+      (entry) =>
+        entry.author?.type === 'bot' && entry.author.login.toLowerCase() === login.toLowerCase(),
+    );
+}
+
+/**
+ * While the task is in Dev with the dispatcher on and External Review's course check on, records
+ * one `external_round` for each external change request on the open PR that came after the task
+ * entered Dev, on a head not yet counted under External Review: by an earlier round or by a
+ * return counted there, resets ignored. Then, with no cycle-limit or course-check item open,
+ * raises External Review's course check once its rounds since the last check, one external
+ * round among them, reach its `courseCheck`.
+ */
+export async function recordExternalRounds(
+  trx: Trx,
+  input: { task: Task; project: Project; config: Config; at: Date },
+): Promise<void> {
+  const { task, project, config, at } = input;
+  const external = externalColumn(project);
+  if (
+    project.dispatcher.mode !== 'on' ||
+    task.column !== 'dev' ||
+    external === undefined ||
+    external.courseCheck <= 0
+  )
+    return;
+  const pr = await prFacts(trx, task.id);
+  const isExternal = pr === null ? () => false : externalReviewer(pr, project.operatorGithubLogin);
+  const requests =
+    pr?.state === 'open'
+      ? pr.reviews.filter(
+          (review) => review.state === 'changes_requested' && isExternal(review.reviewer),
+        )
+      : [];
+  if (pr !== null && requests.length > 0) {
+    const { course } = await courseRounds(trx, task.id, project, pr);
+    const counted = new Set(
+      course.flatMap((entry) =>
+        entry.kind !== 'reset' && entry.counter === EXTERNAL_COUNTER && entry.head !== null
+          ? [entry.head]
+          : [],
+      ),
+    );
+    const fresh = requests.filter((review) => !counted.has(review.commitSha.toLowerCase()));
+    if (fresh.length > 0) {
+      const entries = await readStatusColumnEntries(trx, new Set([task.project]));
+      const entered = Date.parse(
+        entries.find((entry) => entry.task_id === task.id)?.at ?? task.created_at,
+      );
+      const after = fresh
+        .filter((review) => Date.parse(review.submittedAt) > entered)
+        .sort(
+          (left, right) =>
+            Date.parse(left.submittedAt) - Date.parse(right.submittedAt) ||
+            left.reviewer.localeCompare(right.reviewer),
+        );
+      for (const review of after) {
+        const head = review.commitSha.toLowerCase();
+        if (counted.has(head)) continue;
+        counted.add(head);
+        await emit(trx, 'external_round', task.project, task.id, at.toISOString(), {
+          repo: pr.repo,
+          pr: pr.number,
+          head,
+          reviewer: review.reviewer,
+        });
+      }
+    }
+  }
+  const round = await trx
+    .selectFrom('event')
+    .select('id')
+    .where('task_id', '=', task.id)
+    .where('kind', '=', 'external_round')
+    .executeTakeFirst();
+  if (round === undefined) return;
+  const open = await trx
+    .selectFrom('operator_item')
+    .select('id')
+    .where((eb) =>
+      eb.or([
+        eb('item_key', 'like', `${cycleKeyPrefix(task.id)}%`),
+        eb('item_key', 'like', `${courseKeyPrefix(task.id)}%`),
+      ]),
+    )
+    .where('cleared_at', 'is', null)
+    .executeTakeFirst();
+  if (open !== undefined) return;
+  await raiseCourseDue(trx, {
+    task,
+    project,
+    config,
+    at,
+    counter: courseCounter({ kind: 'external_round' }, project),
+    requireRound: true,
+  });
+}
+
+/**
  * Raises the course check of a task's column, once while it is open: a `system` question to the
- * column's `courseCheckTo` addressee (`courseAddressee`), with the open findings in its reason.
+ * column's `courseCheckTo` addressee (`courseAddressee`), with the counted rounds and the open
+ * findings in its reason.
  * The answer to the block resets the course count.
  */
 export async function raiseCourseCheck(
@@ -135,7 +394,7 @@ export async function raiseCourseCheck(
   const url = taskUrl(task, config);
   const block = await openSystemBlock(trx, {
     task,
-    reason: await courseSummary(trx, task, column, count, url),
+    reason: await courseSummary(trx, task, column, count, url, config),
     at: at.toISOString(),
     config,
     addressee: courseAddressee(config, task.project, column),
@@ -143,7 +402,10 @@ export async function raiseCourseCheck(
   return raiseItem(trx, {
     itemKey,
     kind: 'course_check',
-    text: `${task.key}: course check after ${String(count)} returns from ${column}`,
+    text:
+      column === EXTERNAL_COUNTER
+        ? `${task.key}: course check after ${String(count)} external review rounds`
+        : `${task.key}: course check after ${String(count)} returns from ${column}`,
     url,
     taskId: task.id,
     blockId: block.id,
@@ -172,21 +434,34 @@ export function courseAddressee(
   return orchestrated === undefined ? fallback : `orchestrator:${orchestrated.id}`;
 }
 
-/** The question of a course check: the count, the open findings and the links. */
+/** The question of a course check: the count, the counted rounds, the open findings and the links. */
 async function courseSummary(
   trx: Trx,
   task: Task,
   column: ColumnId,
   count: number,
   url: string,
+  config: Config,
 ): Promise<string> {
   const pr = await prFacts(trx, task.id);
   const current = pr?.headSha.toLowerCase();
   const short = (sha: string) =>
     sha.toLowerCase() === current ? `${sha.slice(0, 7)} (current head)` : sha.slice(0, 7);
+  const project = config.projects.find((entry) => entry.id === task.project) ?? { columns: [] };
+  const rounds = roundsSince((await courseRounds(trx, task.id, project, pr)).course, column);
+  const returns = rounds.filter((round) => round.kind === 'return').length;
   const findings = await openFindings(trx, task.id);
   const lines = [
-    `course check: ${String(count)} returns to Dev from ${column} since the last check`,
+    column === EXTERNAL_COUNTER
+      ? `course check: ${String(count)} external review rounds since the last check: ${String(returns)} returns to Dev for external comments, ${String(rounds.length - returns)} change requests on new heads`
+      : `course check: ${String(count)} returns to Dev from ${column} since the last check`,
+    rounds.length === 0 ? 'Counted rounds: none recorded' : 'Counted rounds:',
+    ...rounds.map((round) => {
+      const head = round.head === null ? 'unknown head' : short(round.head);
+      return round.kind === 'return'
+        ? `- return to Dev from ${round.from} on ${head}`
+        : `- change request by ${round.reviewer} on ${head}`;
+    }),
     findings.length === 0 ? 'Open findings: none on the board' : 'Open findings:',
     ...findings.map(
       (finding) =>

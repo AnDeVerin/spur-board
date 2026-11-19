@@ -40,10 +40,13 @@ import {
   type Trx,
 } from './board-utils.ts';
 import {
+  courseCounter,
   courseKeyPrefix,
   cycleKeyPrefix,
-  raiseCourseCheck,
+  raiseCourseDue,
+  recordExternalRounds,
   returnCounts,
+  returnEntry,
   shadowCourseCheck,
   uncounted,
 } from './course-check.ts';
@@ -193,8 +196,8 @@ async function voidSubmits(trx: Trx, taskId: number, to: ColumnId, at: Date): Pr
  * Moves a task left to `to` as a new visit: bumps `column_epoch` and `left_moves`, voids the
  * submits of `to` and right of it, closes its turns (`returned` for a `task.return` of `turn`,
  * else `moved`, named on `turn_closed` as `closedBy` when given) and journals `task_moved`. In `on` mode a counted return that reaches the
- * column's cycle limit raises its cycle-limit block; otherwise one that reaches its course check
- * raises the course check. Either holds the task, and
+ * column's cycle limit raises its cycle-limit block; otherwise one that reaches the course check
+ * of the column it counts under (`courseCounter`) raises that course check. Either holds the task, and
  * `limitReached` tells the dispatcher to stop the cascade.
  */
 export async function moveLeft(
@@ -254,22 +257,20 @@ export async function moveLeft(
   const column = project?.columns.find((entry) => entry.id === task.column);
   if (project?.dispatcher.mode !== 'on' || column === undefined || uncounted(reason))
     return { task: moved, limitReached: false };
-  const counts = await returnCounts(trx, task.id, task.column);
+  const counts = await returnCounts(trx, task.id, task.column, project);
   if (counts.cycle >= column.cycleLimit) {
     await raiseCycleLimit(trx, { task: moved, column: task.column, at, config });
     return { task: moved, limitReached: true };
   }
-  if (column.courseCheck > 0 && counts.course >= column.courseCheck) {
-    await raiseCourseCheck(trx, {
-      task: moved,
-      column: task.column,
-      count: counts.course,
-      at,
-      config,
-    });
-    return { task: moved, limitReached: true };
-  }
-  return { task: moved, limitReached: false };
+  const course = await raiseCourseDue(trx, {
+    task: moved,
+    project,
+    config,
+    at,
+    counter: courseCounter(returnEntry(task.column, gate, block !== undefined), project),
+    requireRound: false,
+  });
+  return { task: moved, limitReached: course !== null };
 }
 
 /**
@@ -1253,6 +1254,8 @@ export async function dispatchTasks(
     const project = ctx.config.projects.find((entry) => entry.id === task.project);
     if (project === undefined) continue;
     const mode = project.dispatcher.mode;
+    if (mode === 'on')
+      await recordExternalRounds(trx, { task, project, config: ctx.config, at: ctx.at });
     const read = await readInput(trx, task, project, mode, blind, ctx.config, ctx);
     if (read === null) continue;
     // Before the merged-ticket hold: a merge settles the submit whatever the ticket says.
