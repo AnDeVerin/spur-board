@@ -869,13 +869,14 @@ describe('comment shape', () => {
 });
 
 describe('snapshot', () => {
-  it('pins the catalog excluding columns.describe after adding manual moves', async () => {
+  it('pins the catalog excluding columns.describe after adding external rounds', async () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
-    // Manual moves extend task.move, move views, schema metadata and the error catalog.
+    // Manual moves extend task.move, move views, schema metadata and the error catalog; the
+    // external_round kind extends the task.history event kinds.
     expect(await catalogVersion(baseline)).toBe(
-      '9eccfebc2ab94a7f06e4420a34fa9d7307c7c9415ece807202798356b3519fd9',
+      '58422e1afcb3c235a1909765d034cc6e906f80b4906e70c7964f805bc3123e23',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

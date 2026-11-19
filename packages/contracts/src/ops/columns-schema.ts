@@ -103,7 +103,9 @@ export const columnsDescribeOutputSchema = z.strictObject({
                 ),
               returns: z
                 .array(z.string())
-                .describe('Applicable return triggers and completion/reopening qualifications.'),
+                .describe(
+                  'Applicable return triggers, course-check rounds and completion/reopening qualifications.',
+                ),
               limits: z
                 .strictObject({
                   cycleLimit: z
@@ -116,7 +118,7 @@ export const columnsDescribeOutputSchema = z.strictObject({
                     .int()
                     .min(0)
                     .describe(
-                      'Counted returns before a course check; zero disables it. Executor, feedback and thread returns count; draft, conflict and red CI do not.',
+                      'Counted returns before a course check; zero disables it. Executor, feedback and thread returns count; draft, conflict and red CI do not. With External Review enabled, returns for external comments count toward its courseCheck instead, as does each external change request on a new PR head while in Dev, once per head.',
                     ),
                   courseCheckTo: destination.describe(
                     'Resolved course-check destination; missing live recipient falls back to operator.',
