@@ -77,6 +77,11 @@ const board = async (withConfig: unknown, rows: unknown[] = ROWS, storage = {}) 
   await settle();
   return { d, stored };
 };
+const button = (label: string) => {
+  const found = all('button').find((item) => item.textContent.includes(label));
+  if (!(found instanceof HTMLButtonElement)) throw new Error(`no button ${label}`);
+  return found;
+};
 const group = () => one('main section[aria-labelledby]');
 const toggle = () => {
   const found = group().querySelector('h2 button');
@@ -235,14 +240,15 @@ describe('Backlog group', () => {
     expect(calls).toEqual([]);
     expect(stored.get('board-fold:a:todo')).toBe('folded');
     remount();
-    await board(TWO, ROWS, { 'board-fold:a:todo': 'folded' });
+    const reloaded = await board(TWO, ROWS, { 'board-fold:a:todo': 'folded' });
     expect(toggle().getAttribute('aria-expanded')).toBe('false');
-    press(one('button[aria-controls]'), 'click');
-    press(
-      all('button').find((item) => item.textContent.includes('b · dispatcher')) ?? toggle(),
-      'click',
-    );
+    const switcher = one('button[aria-controls]');
+    expect(switcher.textContent).toBe('a');
+    press(switcher, 'click');
+    press(button('b · dispatcher'), 'click');
     await settle();
+    expect(one('button[aria-controls]').textContent).toBe('b');
+    expect(reloaded.stored.get('board-project')).toBe('b');
     expect(toggle().getAttribute('aria-expanded')).toBe('true');
     remount();
     const again = await board(TWO, ROWS, { 'board-fold:a:todo': 'folded' });
