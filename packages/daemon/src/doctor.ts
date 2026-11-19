@@ -432,7 +432,8 @@ function ruleSegment({ project, repo, read }: RuleOutcome): LinkSegment {
   const sources = rule.sources.map((source) => RULE_SOURCE_TEXT[source]).join(' and ');
   const checks = rule.requiredChecks.length === 0 ? 'none' : rule.requiredChecks.join(', ');
   const summary = `${sources}: ${String(rule.approvals ?? 0)} approvals, code owners ${yesNo(rule.codeOwners)}, resolved conversations ${yesNo(rule.conversationResolution)}, checks ${checks}`;
-  if ((rule.approvals ?? 0) === 0 && !rule.codeOwners) return unfollowed(summary);
+  if ((rule.approvals ?? 0) === 0 && !rule.codeOwners && !rule.conversationResolution)
+    return unfollowed(summary);
   return { problem: false, unmatched: false, text: () => `${where}: ${summary}` };
 }
 

@@ -2185,6 +2185,15 @@ describe('daemon doctor github.review_rule', () => {
     });
   });
 
+  it('github.review_rule passes on a rule that requires only resolved conversations', async () => {
+    expect((await checkOf(ruleFetch('conversation-only'))).rule).toEqual({
+      id: 'github.review_rule',
+      status: 'pass',
+      blocking: false,
+      fix: 'board example/board@main: branch protection: 0 approvals, code owners no, resolved conversations yes, checks none.',
+    });
+  });
+
   it('github.review_rule warns when the repo has no review rule', async () => {
     const { rule } = await checkOf(ruleFetch('none'));
     expect(rule).toMatchObject({ status: 'warning', blocking: false });
