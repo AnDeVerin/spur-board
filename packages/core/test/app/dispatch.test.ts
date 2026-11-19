@@ -6555,6 +6555,10 @@ describe('approvalRule github-rules', () => {
     expect(rest).toEqual([]);
     expect(item?.item_key).toBe(`review-rule:${String((await ctx.task()).id)}:o/r#7:${A}`);
     expect(item?.cleared_at).toBeNull();
+    // The clock counts undecided time on the head, which can start before External Review.
+    expect(item?.text).toContain(
+      `${KEY}: GitHub has not decided the review rule of o/r#7 on ${A.slice(0, 7)}: undecided for 30 minutes on this head (`,
+    );
     for (const raw of [
       'mergeStateStatus=UNKNOWN',
       'mergeable=MERGEABLE',

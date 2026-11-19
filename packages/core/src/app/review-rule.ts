@@ -278,7 +278,7 @@ export async function reviewRuleItems(
     let raised = row.raised;
     // A changed cause re-freezes the text, so the open item names the current one.
     if (raised === null || !raised.startsWith(what)) {
-      raised = `${what} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;
+      raised = `${what} on ${row.headSha.slice(0, 7)}: undecided for 30 minutes on this head (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;
       const value = toJson(storedSchema, { ...row, raised });
       await trx
         .updateTable('meta')
