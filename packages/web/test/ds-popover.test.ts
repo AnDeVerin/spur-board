@@ -284,6 +284,39 @@ describe('Popover', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('follows a layout change each frame, writes only a change, and stops on close', () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let next = 0;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.set(++next, callback);
+      return next;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(id);
+    });
+    const frame = () => {
+      const queued = [...frames.entries()];
+      frames.clear();
+      act(() => {
+        for (const [, callback] of queued) callback(0);
+      });
+    };
+    anchorRect();
+    render(createElement(Harness, { initial: true }));
+    expect(frames.size).toBe(1);
+    // A column before it expands: the anchor moves with no scroll or resize.
+    stubAnchorRect({ left: 400, right: 720, top: 20, bottom: 40 });
+    frame();
+    expect(placement()).toEqual(box(400, 720, 20, 40, null));
+    const write = vi.spyOn(opened().style, 'setProperty');
+    frame();
+    expect(write).not.toHaveBeenCalled();
+    expect(frames.size).toBe(1);
+    press(button('Help'));
+    expect(popover()).toBeUndefined();
+    expect(frames.size).toBe(0);
+  });
+
   it('follows the anchor on nested scroll and resize', () => {
     anchorRect();
     render(createElement(Harness, { initial: true }));

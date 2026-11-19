@@ -18,13 +18,14 @@ import styles from './Popover.module.css';
  * `actions` (e.g. an underline `Tabs`), then Close; the body scrolls.
  *
  * Placement: it sits `--space-1` under the anchor's bottom edge, starting at its left edge, and
- * follows the anchor on any scroll (a nested scroller included) and on resize. While the anchor
- * is in view the panel keeps `--space-2` inside the window edges. In view means the anchor's box
- * meets the visible area: the window cut, per axis, by the padding box of every ancestor whose
- * overflow clips (up to `body`, or to a `position: fixed` ancestor). An anchor out of view, out
- * of the window or clipped away by a scroller such as a board strip, hides the panel
- * (`visibility: hidden`, so its controls leave the tab order too) and the panel still follows
- * it out, by the anchor's right edge on the left side. Near the bottom of the window its height
+ * follows the anchor on any scroll (a nested scroller included), on resize, and on any layout
+ * change: it measures the anchor every animation frame while open and writes only a change. While
+ * the anchor is in view the panel keeps `--space-2` inside the window edges. In view means the
+ * anchor's box meets the visible area: the window cut, per axis, by the padding box of every
+ * ancestor whose overflow clips (up to `body`, or to a `position: fixed` ancestor). An anchor out
+ * of view, out of the window or clipped away by a scroller such as a board strip, hides the panel
+ * (`visibility: hidden`, so its controls leave the tab order too) and the panel still follows it
+ * out, by the anchor's right edge on the left side. Near the bottom of the window its height
  * shrinks to the space under the anchor, down to `--space-2` above the window edge, and the body
  * scrolls. With less space than the header and the body padding need, the panel moves up just
  * enough to keep its header in view and may cover the bottom of the anchor; it never flips above
@@ -137,7 +138,9 @@ function OpenPopover({
   useLayoutEffect(() => {
     latest.current = onClose;
   });
-  // Writes the anchor's box on the panel, not in React state: one style write per scroll frame.
+  // The values last written, so an unchanged frame writes nothing.
+  const written = useRef('');
+  // Writes the anchor's box on the panel, not in React state, and only when it changed.
   // `data-away` names the side an anchor out of view left by.
   const place = () => {
     const element = panel.current;
@@ -150,6 +153,9 @@ function OpenPopover({
     else if (rect.left >= view.right) away = 'right';
     else if (rect.bottom <= view.top) away = 'top';
     else if (rect.top >= view.bottom) away = 'bottom';
+    const values = [rect.left, rect.right, rect.top, rect.bottom, away].join(' ');
+    if (values === written.current) return;
+    written.current = values;
     const px = (value: number) => `${String(value)}px`;
     element.style.setProperty('--popover-left', px(rect.left));
     element.style.setProperty('--popover-right', px(rect.right));
@@ -160,10 +166,20 @@ function OpenPopover({
   };
   useLayoutEffect(() => {
     place();
-    // Scroll does not bubble: capture it on window to hear every scroller.
+    // Every frame while open: the anchor also moves on a layout change with no scroll or resize,
+    // such as a column before it growing.
+    let frame = 0;
+    const tick = () => {
+      place();
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    // Scroll does not bubble: capture it on window to hear every scroller. These place the panel
+    // in the same task as the scroll; the frame loop then finds nothing changed.
     window.addEventListener('scroll', place, true);
     window.addEventListener('resize', place);
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
     };
