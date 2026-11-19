@@ -75,7 +75,7 @@ const CLOSING_FIELDS =
 // A base branch's review rule as `branchRuleWire` (branchRule.ts) parses it: its branch protection
 // and the rules of the rulesets that apply to it, 100 at most, the rest ignored.
 export const BRANCH_RULE_FIELDS =
-  'refUpdateRule { pattern requiredApprovingReviewCount requiresCodeOwnerReviews requiresConversationResolution requiredStatusCheckContexts } rules(first: 100) { nodes { type parameters { __typename ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview requiredReviewThreadResolution } ... on RequiredStatusChecksParameters { requiredStatusChecks { context integrationId } } } } }';
+  'refUpdateRule { pattern requiredApprovingReviewCount requiresCodeOwnerReviews requiresConversationResolution requiredStatusCheckContexts } rules(first: 100) { nodes { type parameters { __typename ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview requiredReviewThreadResolution } ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } } } }';
 // `closing` adds the issues a PR closes; only the tracker repo of a github-issues project
 // whose `link.sources` lists `closing` selects them. `reviewRule` adds GitHub's review decision
 // and the base branch's review rule; only a source of a project whose External Review sets

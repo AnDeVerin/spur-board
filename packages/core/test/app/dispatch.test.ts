@@ -6289,18 +6289,17 @@ describe('approvalRule github-rules', () => {
   });
   const listing = (
     requiredChecks: string[],
-    pinnedChecks: string[],
+    sources: NonNullable<PrReviewRule['rule']>['sources'] = ['ruleset'],
     reviewDecision?: 'changes_requested',
   ) =>
     rule({
       ...(reviewDecision === undefined ? {} : { reviewDecision }),
       rule: {
-        sources: ['ruleset'],
+        sources,
         approvals: 1,
         codeOwners: false,
         conversationResolution: true,
         requiredChecks,
-        ...(pinnedChecks.length === 0 ? {} : { pinnedChecks }),
       },
     });
   const BY_GITHUB = ', changes requested by GitHub';
@@ -6318,11 +6317,6 @@ describe('approvalRule github-rules', () => {
   };
   const CHECKS = {
     'required check completed': { state: 'done', rollup: [run('ci', 'success')], listed: ['ci'] },
-    'listed check absent': {
-      state: 'pending',
-      rollup: [run('ci', 'success')],
-      listed: ['ci', 'e2e'],
-    },
     // GitHub marks e2e required on the head; the rule read lists only ci.
     'required check rerunning': {
       state: 'pending',
@@ -6334,25 +6328,46 @@ describe('approvalRule github-rules', () => {
       rollup: [run('ci', 'pending')],
       listed: ['ci'],
     },
-    // A ruleset pins e2e to one integration; GitHub marks only that integration's run required.
-    'pinned check completed by its integration': {
+    // The branch requires e2e from one app, which the rule read does not carry; GitHub marks only
+    // that app's run required, so another app's e2e run fills no slot. Ruleset and branch
+    // protection alike.
+    'listed check completed by a required run, ruleset': {
       state: 'done',
       rollup: [run('ci', 'success'), run('e2e', 'success')],
       listed: ['ci', 'e2e'],
-      pinned: ['e2e'],
+      sources: ['ruleset'],
     },
-    'pinned check completed by another integration': {
+    'listed check completed only by a non-required run, ruleset': {
       state: 'pending',
       rollup: [run('ci', 'success'), run('e2e', 'success')],
       required: [run('ci', 'success')],
       listed: ['ci', 'e2e'],
-      pinned: ['e2e'],
+      sources: ['ruleset'],
     },
-    'pinned check absent': {
+    'listed check absent, ruleset': {
       state: 'pending',
       rollup: [run('ci', 'success')],
       listed: ['ci', 'e2e'],
-      pinned: ['e2e'],
+      sources: ['ruleset'],
+    },
+    'listed check completed by a required run, branch protection': {
+      state: 'done',
+      rollup: [run('ci', 'success'), run('e2e', 'success')],
+      listed: ['ci', 'e2e'],
+      sources: ['branch-protection'],
+    },
+    'listed check completed only by a non-required run, branch protection': {
+      state: 'pending',
+      rollup: [run('ci', 'success'), run('e2e', 'success')],
+      required: [run('ci', 'success')],
+      listed: ['ci', 'e2e'],
+      sources: ['branch-protection'],
+    },
+    'listed check absent, branch protection': {
+      state: 'pending',
+      rollup: [run('ci', 'success')],
+      listed: ['ci', 'e2e'],
+      sources: ['branch-protection'],
     },
     // Another opted-in project's newer read of the head lists a newly required e2e, still absent;
     // the project's own row lists only ci. Ready to Merge only: in External Review the project has
@@ -6370,7 +6385,7 @@ describe('approvalRule github-rules', () => {
       rollup: readonly ReturnType<typeof run>[];
       required?: readonly ReturnType<typeof run>[];
       listed: readonly string[];
-      pinned?: readonly string[];
+      sources?: readonly ('ruleset' | 'branch-protection')[];
       source?: string;
     }
   >;
@@ -6400,7 +6415,7 @@ describe('approvalRule github-rules', () => {
     async ({ checks, mergeState, column, checksGate, requested }) => {
       const variant: (typeof CHECKS)[keyof typeof CHECKS] & {
         required?: readonly ReturnType<typeof run>[];
-        pinned?: readonly string[];
+        sources?: readonly ('ruleset' | 'branch-protection')[];
         source?: string;
       } = CHECKS[checks];
       const { state, rollup, listed } = variant;
@@ -6418,7 +6433,7 @@ describe('approvalRule github-rules', () => {
           },
           listing(
             [...listed],
-            [...(variant.pinned ?? [])],
+            variant.sources === undefined ? undefined : [...variant.sources],
             rules && requested === BY_GITHUB ? 'changes_requested' : undefined,
           ),
           variant.source,
@@ -6589,7 +6604,7 @@ describe('approvalRule github-rules', () => {
           })
         : entry.listed === undefined
           ? undefined
-          : listing([...entry.listed], []),
+          : listing([...entry.listed]),
       source,
     );
     // A newer shared read never makes a decision the own source has not stored; its block

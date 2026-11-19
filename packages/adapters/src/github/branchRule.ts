@@ -13,9 +13,7 @@ const parametersWire = z
     requiredApprovingReviewCount: z.int().min(0).nullish(),
     requireCodeOwnerReview: z.boolean().nullish(),
     requiredReviewThreadResolution: z.boolean().nullish(),
-    requiredStatusChecks: z
-      .array(z.object({ context: z.string(), integrationId: z.int().nullish() }))
-      .nullish(),
+    requiredStatusChecks: z.array(z.object({ context: z.string() })).nullish(),
   })
   .nullish();
 export const branchRuleWire = z.object({
@@ -37,9 +35,8 @@ export type BranchRuleWire = z.output<typeof branchRuleWire>;
 
 /**
  * The merged rule: the largest approval count, a code owner review or resolved conversations
- * when any source requires one, and every required check once. A check any ruleset pins to an
- * integration is pinned, even when another source lists it without one. A ruleset counts as a
- * source only through a pull request or required status checks rule.
+ * when any source requires one, and every required check once. A ruleset counts as a source only
+ * through a pull request or required status checks rule.
  */
 export function branchRuleOf(wire: BranchRuleWire | null | undefined): ReviewRule {
   const protection = wire?.refUpdateRule ?? null;
@@ -60,12 +57,6 @@ export function branchRuleOf(wire: BranchRuleWire | null | undefined): ReviewRul
       (rule.requiredStatusChecks ?? []).map((check) => check.context),
     ),
   ].filter((name): name is string => typeof name === 'string' && name.length > 0);
-  // Branch protection's contexts name no integration; a ruleset entry may pin one.
-  const pinned = statusChecks.flatMap((rule) =>
-    (rule.requiredStatusChecks ?? []).flatMap((check) =>
-      typeof check.integrationId === 'number' && check.context.length > 0 ? [check.context] : [],
-    ),
-  );
   return {
     sources: [
       ...(protection === null ? [] : ['branch-protection' as const]),
@@ -79,7 +70,6 @@ export function branchRuleOf(wire: BranchRuleWire | null | undefined): ReviewRul
       protection?.requiresConversationResolution === true ||
       pullRequests.some((rule) => rule.requiredReviewThreadResolution === true),
     requiredChecks: [...new Set(checks)],
-    ...(pinned.length === 0 ? {} : { pinnedChecks: [...new Set(pinned)] }),
   };
 }
 

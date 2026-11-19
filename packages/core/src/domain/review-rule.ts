@@ -33,14 +33,16 @@ type RulePr = Pick<PrFacts, 'draft' | 'mergeable' | 'mergeState' | 'requiredChec
 /**
  * The required checks on the head, the one reading the verdict, the gate and the clock share. A
  * check is required when GitHub marks it required on the head or a source of the rule lists its
- * context.
+ * context. Only a run GitHub marks required completes a check: GitHub checks the app a branch
+ * protection or ruleset requires, which the rule read does not carry, so a run of a listed name
+ * GitHub does not mark required (another app's) counts as absent.
  * - `none`: no required check has completed. When none is required (none marked, and no source
  *   lists one or the rule is unreadable), the Board's rule for no required checks applies instead,
  *   as for `checks_green`: every check except skipped ones green and at least one, or no checks at
  *   all on the head, gives `done`, anything else `none`.
  * - `pending`: a check GitHub marks required has completed while another required check is
- *   expected, pending, or a listed context has no completed run on the head (absent included). A
- *   context a ruleset pins to one integration counts only a completed run GitHub marks required.
+ *   expected, pending, or a listed context has no completed run GitHub marks required (absent
+ *   included).
  * - `done`: every required check has completed.
  */
 export type RequiredCheckState = 'none' | 'pending' | 'done';
@@ -58,13 +60,8 @@ export function requiredCheckState(pr: RulePr, rule: ReviewRule | null): Require
   }
   // Only a check GitHub marks required completes the rule, as the issue asks.
   if (pr.requiredChecks.every(running)) return 'none';
-  // A context a ruleset pins to one integration completes only through the run GitHub marks
-  // required, which is that integration's; any other context completes by name.
-  const pinned = rule?.pinnedChecks ?? [];
   const completed = (context: string) =>
-    (pinned.includes(context) ? pr.requiredChecks : [...pr.requiredChecks, ...pr.checks]).some(
-      (check) => check.name === context && !running(check),
-    );
+    pr.requiredChecks.some((check) => check.name === context && !running(check));
   return pr.requiredChecks.some(running) || listed.some((context) => !completed(context))
     ? 'pending'
     : 'done';

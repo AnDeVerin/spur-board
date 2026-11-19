@@ -336,7 +336,7 @@ const CONDITION_DEFINITIONS: Record<GateCondition, ConditionDefinition> = {
           : ['not_approved'],
   },
   review_rule_satisfied: {
-    text: "GitHub's review rule for the base branch, from branch protection and rulesets, is satisfied on the current PR head: a required check completed, or, when none is required, every check except skipped ones green and at least one (no checks at all also counts); no changes requested, GitHub's review decision counting only once the merge state is computed; and the merge not blocked. A required check, one GitHub marks required or a context the rule lists, that is pending or missing holds the head on CI unless the merge state is clean, unstable or has hooks.",
+    text: "GitHub's review rule for the base branch, from branch protection and rulesets, is satisfied on the current PR head: a required check completed, or, when none is required, every check except skipped ones green and at least one (no checks at all also counts); no changes requested, GitHub's review decision counting only once the merge state is computed; and the merge not blocked. A required check, one GitHub marks required or a context the rule lists, that is pending or missing holds the head on CI unless the merge state is clean, unstable or has hooks; only a run GitHub marks required completes a listed context.",
     reasons: ({ reviewRule }) =>
       reviewRule === undefined || reviewRule.changesRequested
         ? []

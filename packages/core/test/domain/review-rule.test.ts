@@ -103,7 +103,8 @@ const CASES: Case[] = [
     clock: false,
   },
   {
-    name: 'a pinned check completed only by another integration',
+    // Another app's e2e run, which GitHub does not mark required, fills no slot.
+    name: 'a listed check completed only by a run GitHub does not mark required',
     pr: pr({
       mergeState: 'blocked',
       checks: [
@@ -111,7 +112,7 @@ const CASES: Case[] = [
         { name: 'e2e', state: 'success', completedAt: AT },
       ],
     }),
-    rule: { ...PROTECTION, requiredChecks: ['ci', 'e2e'], pinnedChecks: ['e2e'] },
+    rule: { ...PROTECTION, requiredChecks: ['ci', 'e2e'] },
     verdict: 'checks_pending',
     clock: false,
   },
@@ -327,8 +328,6 @@ describe('reviewRuleVerdict', () => {
 describe('requiredCheckState', () => {
   const none: ReviewRule = { ...PROTECTION, requiredChecks: [] };
   const two: ReviewRule = { ...PROTECTION, requiredChecks: ['ci', 'e2e'] };
-  // A ruleset pins e2e to one integration: only its run, which GitHub marks required, counts.
-  const pinned: ReviewRule = { ...two, pinnedChecks: ['e2e'] };
   const run = (name: string, state: 'success' | 'failure' | 'pending' | 'expected') => ({
     name,
     state,
@@ -361,33 +360,37 @@ describe('requiredCheckState', () => {
       state: 'pending',
     },
     { name: 'one completed, a listed one absent', pr: pr(), rule: two, state: 'pending' },
-    {
-      name: 'a pinned check completed by its integration',
-      pr: pr({
-        requiredChecks: [run('ci', 'success'), run('e2e', 'success')],
-        checks: [run('ci', 'success'), run('e2e', 'success')],
-      }),
-      rule: pinned,
-      state: 'done',
-    },
-    {
-      name: 'a pinned check completed by another integration',
-      pr: pr({ checks: [run('ci', 'success'), run('e2e', 'success')] }),
-      rule: pinned,
-      state: 'pending',
-    },
-    {
-      name: 'a pinned check absent',
-      pr: pr(),
-      rule: pinned,
-      state: 'pending',
-    },
-    {
-      name: 'the only listed check pinned, completed by another integration',
-      pr: pr({ requiredChecks: [], checks: [run('e2e', 'success')] }),
-      rule: { ...PROTECTION, requiredChecks: ['e2e'], pinnedChecks: ['e2e'] },
-      state: 'none',
-    },
+    // GitHub marks a run required only from the app the branch requires, which the rule read
+    // does not carry: a run of a listed name GitHub does not mark required counts as absent.
+    ...[two, { ...two, sources: RULESET.sources }].flatMap((listed) => [
+      {
+        name: `${listed.sources.join(', ')}: a listed check completed by a run GitHub marks required`,
+        pr: pr({
+          requiredChecks: [run('ci', 'success'), run('e2e', 'success')],
+          checks: [run('ci', 'success'), run('e2e', 'success')],
+        }),
+        rule: listed,
+        state: 'done',
+      },
+      {
+        name: `${listed.sources.join(', ')}: a listed check completed only by a run GitHub does not mark required`,
+        pr: pr({ checks: [run('ci', 'success'), run('e2e', 'success')] }),
+        rule: listed,
+        state: 'pending',
+      },
+      {
+        name: `${listed.sources.join(', ')}: a listed check absent`,
+        pr: pr(),
+        rule: listed,
+        state: 'pending',
+      },
+      {
+        name: `${listed.sources.join(', ')}: the only listed check completed by a run GitHub does not mark required`,
+        pr: pr({ requiredChecks: [], checks: [run('e2e', 'success')] }),
+        rule: { ...listed, requiredChecks: ['e2e'] },
+        state: 'none',
+      },
+    ]),
     {
       name: 'one completed, a listed one absent, rule unreadable',
       pr: pr(),
@@ -399,12 +402,6 @@ describe('requiredCheckState', () => {
       pr: pr({ checks: [run('ci', 'success'), run('e2e', 'pending')] }),
       rule: two,
       state: 'pending',
-    },
-    {
-      name: 'one completed, a listed one completed in the rollup only',
-      pr: pr({ checks: [run('ci', 'success'), run('e2e', 'success')] }),
-      rule: two,
-      state: 'done',
     },
     {
       name: 'none required, an optional check green',

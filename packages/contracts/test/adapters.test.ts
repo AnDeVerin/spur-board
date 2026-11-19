@@ -275,8 +275,6 @@ describe('batch', () => {
     expect(batchSchema.parse(withRule({ ...reviewRule, rule: null })).items[0]).toMatchObject({
       reviewRule: { rule: null },
     });
-    const pinned = { ...reviewRule, rule: { ...reviewRule.rule, pinnedChecks: ['ci-ok'] } };
-    expect(batchSchema.parse(withRule(pinned)).items[0]).toMatchObject({ reviewRule: pinned });
     expect(batchSchema.parse(batch({ items: [items.pr.valid] })).items[0]).not.toHaveProperty(
       'reviewRule',
     );

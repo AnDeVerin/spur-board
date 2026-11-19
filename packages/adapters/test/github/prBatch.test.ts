@@ -3612,18 +3612,7 @@ describe('approvalRule github-rules', () => {
               type: 'REQUIRED_STATUS_CHECKS',
               parameters: {
                 __typename: 'RequiredStatusChecksParameters',
-                requiredStatusChecks: [
-                  { context: 'ci', integrationId: 15368 },
-                  { context: 'e2e', integrationId: null },
-                ],
-              },
-            },
-            // Another ruleset lists ci with no integration: the pin still holds.
-            {
-              type: 'REQUIRED_STATUS_CHECKS',
-              parameters: {
-                __typename: 'RequiredStatusChecksParameters',
-                requiredStatusChecks: [{ context: 'ci' }],
+                requiredStatusChecks: [{ context: 'ci' }, { context: 'e2e' }],
               },
             },
           ],
@@ -3635,7 +3624,6 @@ describe('approvalRule github-rules', () => {
       codeOwners: true,
       conversationResolution: false,
       requiredChecks: ['ci', 'e2e'],
-      pinnedChecks: ['ci'],
     });
   });
 
@@ -3721,30 +3709,6 @@ describe('approvalRule github-rules', () => {
     const failed = await adapter(fetcher, ruled('github-rules')).poll(context());
     expect(failed.items).toEqual([]);
     expect(failed.complete).toBe(false);
-  });
-
-  it("approvalRule github-rules: a ruleset's integrationId reaches the rule as a pinned check", async () => {
-    const pr = fixtures('review-rule').find((entry) => entry.name === 'ruleset-only')?.value[
-      'response'
-    ];
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockImplementation((_input, init) =>
-        Promise.resolve(
-          operationOf(queryOf(init)) === 'PrDetails'
-            ? response({ pr0: { pullRequest: pr } })
-            : response({ repository: { pullRequests: conn([]) } }),
-        ),
-      );
-    const batch = await adapter(fetcher, ruled('github-rules')).poll(context());
-    expect(batchSchema.parse(batch)).toEqual(batch);
-    expect(sentQueries(fetcher, 'PrDetails')[0]).toContain(
-      'requiredStatusChecks { context integrationId }',
-    );
-    expect(batch.items[0]).toMatchObject({
-      kind: 'pr',
-      reviewRule: { rule: { requiredChecks: ['ci-ok'], pinnedChecks: ['ci-ok'] } },
-    });
   });
 
   it('approvalRule github-rules: a full read carries the review rule and a reuse sends it again', async () => {
