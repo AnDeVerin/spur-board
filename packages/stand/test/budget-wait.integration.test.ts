@@ -55,7 +55,7 @@ interface Row {
   /** A budget under the reserve that an earlier daemon run stored for alpha. */
   stored?: boolean;
   /** Each source's regular polls in order, a batch or the error it fails with; the last repeats. */
-  alpha: (Partial<Batch> | AdapterError)[];
+  alpha: (Partial<Batch> | Error)[];
   beta: Partial<Batch>[];
   /** The budget an on-demand refresh of an alpha PR reports after the first polls. */
   refresh?: Batch['budget'];
@@ -148,6 +148,22 @@ it.each<[string, Row]>([
     },
   ],
   [
+    'an on-demand refresh under the reserve, then a regular poll that fails unclassified',
+    {
+      // As a 403 with X-RateLimit-Remaining: 0 whose body read fails: the refresh's budget shows
+      // the rate limit the failure does not.
+      alpha: [high, new Error('connection reset'), {}],
+      beta: [high],
+      refresh: low.budget,
+      runMs: I,
+      waiting: [alpha],
+      alphaRemaining: reserve - 1,
+      reason: `${alpha} waits for its rate budget`,
+      // The backoff poll delivers no budget, so the wait ends.
+      later: { runMs: 2 * I, waiting: [], reason: null },
+    },
+  ],
+  [
     'an on-demand refresh under the reserve',
     {
       alpha: [high],
@@ -185,7 +201,7 @@ it.each<[string, Row]>([
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const adapter = (source: string, polls: (Partial<Batch> | AdapterError)[]) => {
+  const adapter = (source: string, polls: (Partial<Batch> | Error)[]) => {
     let n = 0;
     return createFakeAdapter({
       id: source,
@@ -194,7 +210,7 @@ it.each<[string, Row]>([
         const startedAt = observedAt();
         const next = polls[Math.min(n++, polls.length - 1)];
         await gate;
-        if (next instanceof AdapterError) throw next;
+        if (next instanceof Error) throw next;
         return { source, observedAt: startedAt, complete: true, items: [], entities: [], ...next };
       },
       pollPr: (pr) =>

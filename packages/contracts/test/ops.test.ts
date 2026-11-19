@@ -877,7 +877,7 @@ describe('snapshot', () => {
     // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
     // and board-wide project, sources and services texts to status.get.
     expect(await catalogVersion(baseline)).toBe(
-      '4e058b52fe174252918071798427fb967feeb3cefb21f19929aad2d5d1b9a587',
+      '7b8c9ec2532ef1eec882bd12b293cabed86d9393ecd1288b29b2296ca6f191f1',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

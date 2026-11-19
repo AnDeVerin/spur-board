@@ -44,8 +44,10 @@ down; github, spur and jira take their worst source among the `sources` you see,
 blind and degraded when never completed, stale, warming up or waiting for the rate budget.
 `sources[].waitsForBudget` marks each source whose next regular poll the daemon put off for a
 rate limit: its last poll in this daemon run, complete or not, left a GitHub budget under
-`github.reserveRemaining`, or failed as throttled. A stored budget or an on-demand refresh never
-marks one, and the service row names the wait before warm-up or staleness.
+`github.reserveRemaining`, failed as throttled, or failed in any other way while the last budget
+seen in this run, an on-demand refresh's included, is under the reserve before its reset. A stored
+budget or an on-demand refresh alone never marks one, and the service row names the wait before
+warm-up or staleness.
 `sources[].healthySince` is when a source became usable (not blind) in this daemon run, so it
 and a healthy `since` reset on restart: read them beside `daemon.startedAt`.
 `prSummary` is an array with one entry per observed effective PR, or null when none is observed.

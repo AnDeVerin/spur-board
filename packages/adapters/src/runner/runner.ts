@@ -72,11 +72,12 @@ interface RunnerEntry {
 export interface AdapterRunner {
   /**
    * Sources whose next regular poll this runner holds back for a rate limit. A source is added
-   * when a regular poll's delay is a rate-limit wait (a budget under its reserve or a throttled
-   * failure) and removed when that poll's timer fires or the runner stops. An on-demand poll never
-   * adds or removes one. `startRunner` owns the set and `startAdapters` passes the same set
-   * through (both return a `StartedRunner`, so the compiler rejects a wrapper that drops it);
-   * empty in one-shot mode. Optional only for test stand-ins.
+   * when a regular poll's delay is a rate-limit wait (a budget under its reserve, a throttled
+   * failure, or any other failure while the last budget this run saw is under the reserve before
+   * its reset) and removed when that poll's timer fires or the runner stops. An on-demand poll
+   * never adds or removes one. `startRunner` owns the set and `startAdapters` passes the same
+   * set through (both return a `StartedRunner`, so the compiler rejects a wrapper that drops
+   * it); empty in one-shot mode. Optional only for test stand-ins.
    */
   budgetWaits?: ReadonlySet<string> | undefined;
   /** Outcome of the first poll of each source, after its observation or failure report. */
@@ -203,6 +204,8 @@ function runSource(
   const pending = new Set<() => void>();
   /** Until when a regular throttled failure forbids calling the source. */
   let throttledUntilMs: number | undefined;
+  /** The last budget a regular or on-demand poll of this run reported. */
+  let lastBudget: Batch['budget'];
   /** Tail of the single-flight chain: regular polls and on-demand requests, one at a time. */
   let chain: Promise<void> = Promise.resolve();
   let pollTimer: Timer | undefined;
@@ -416,6 +419,7 @@ function runSource(
         await accepted;
         if (aborted()) return;
         outcome = { kind: 'delivered', budget: parsed.data.budget };
+        lastBudget = parsed.data.budget ?? lastBudget;
       }
     } catch (error) {
       if (aborted()) return;
@@ -441,7 +445,15 @@ function runSource(
     throttledUntilMs = outcome.kind === 'failed' ? throttledRetryAt(outcome.error) : undefined;
     if (!options.oneShot) armDeadline();
     await report(usage);
-    if (!options.oneShot) schedule(delay.delayMs, delay.budgetWait);
+    // A failed poll that names no rate limit still waits for one while the last reported budget,
+    // from an on-demand poll too, is under the reserve until a future reset.
+    const underReserve =
+      reserveRemaining !== undefined &&
+      lastBudget !== undefined &&
+      lastBudget.remaining < reserveRemaining &&
+      Date.parse(lastBudget.resetAt) > now();
+    if (!options.oneShot)
+      schedule(delay.delayMs, delay.budgetWait || (outcome.kind === 'failed' && underReserve));
     return outcome;
   }
 
@@ -565,6 +577,7 @@ function runSource(
         counts = recoveredCounts;
         gone = recoveredGone;
         lastReported = JSON.stringify(committed);
+        lastBudget = parsed.data.budget ?? lastBudget;
         return ok(value);
       });
       reports = accepted.then(noop, noop);
