@@ -369,6 +369,9 @@ const REVIEW_RULE_TOKEN_FIX =
   'Add GITHUB_TOKEN to secrets.env, then rerun board doctor to read the review rule of each approvalRule github-rules repo.';
 const REVIEW_RULE_TAIL =
   ' Require an approval or code owner review on the default branch, or remove approvalRule.';
+// A failed read leaves the rule in force, unread: the fix is access, not a weaker gate.
+const REVIEW_RULE_READ_TAIL =
+  " Give the token read access to the default branch's branch protection and rulesets, then rerun board doctor.";
 
 /** The repos of the projects whose External Review sets `approvalRule: github-rules`. */
 function ruledRepos(config: Config): { project: Project; repo: string }[] {
@@ -413,25 +416,31 @@ const RULE_SOURCE_TEXT = {
   ruleset: 'ruleset',
 } as const;
 
-function ruleSegment({ project, repo, read }: RuleOutcome): LinkSegment {
-  const problem = (text: string): LinkSegment => ({
+// One repo's review rule finding; `cause` picks the remediation of a problem.
+type RuleSegment = LinkSegment & { cause: 'unfollowed' | 'unread' | 'truncated' | null };
+
+function ruleSegment({ project, repo, read }: RuleOutcome): RuleSegment {
+  const problem = (text: string, cause: 'unfollowed' | 'unread'): RuleSegment => ({
     problem: true,
     unmatched: false,
+    cause,
     text: () => `${project.id} ${repo}: ${text}`,
   });
-  if (read === null) return problem('could not read the review rule');
-  if (read.found === null) return problem('no default branch');
+  if (read === null) return problem('could not read the review rule', 'unread');
+  if (read.found === null) return problem('no default branch', 'unfollowed');
   const { branch, rule } = read.found;
   const where = `${project.id} ${repo}@${branchText(branch)}`;
-  const unfollowed = (text: string): LinkSegment => ({
+  const unfollowed = (text: string): RuleSegment => ({
     problem: true,
     unmatched: false,
+    cause: 'unfollowed',
     text: () => `${where}: ${text}, no review rule to follow`,
   });
   if (rule === null)
     return {
       problem: true,
       unmatched: false,
+      cause: 'truncated',
       text: () => `${where}: more than 100 ruleset rules, more than the Board reads`,
     };
   if (rule.sources.length === 0) return unfollowed('no branch protection or ruleset');
@@ -440,7 +449,7 @@ function ruleSegment({ project, repo, read }: RuleOutcome): LinkSegment {
   const summary = `${sources}: ${String(rule.approvals ?? 0)} approvals, code owners ${yesNo(rule.codeOwners)}, resolved conversations ${yesNo(rule.conversationResolution)}, checks ${checks}`;
   if ((rule.approvals ?? 0) === 0 && !rule.codeOwners && !rule.conversationResolution)
     return unfollowed(summary);
-  return { problem: false, unmatched: false, text: () => `${where}: ${summary}` };
+  return { problem: false, unmatched: false, cause: null, text: () => `${where}: ${summary}` };
 }
 
 // Absent without a github-rules project; never blocking.
@@ -456,12 +465,14 @@ function reviewRuleCheck(outcomes: readonly RuleOutcome[] | null): Check {
       blocking: false,
       fix: fitFix(segments, '', `Read the review rule of ${String(segments.length)} repos.`),
     };
+  const has = (cause: RuleSegment['cause']) => problems.some((segment) => segment.cause === cause);
+  const tail = `${has('unfollowed') ? REVIEW_RULE_TAIL : ''}${has('unread') ? REVIEW_RULE_READ_TAIL : ''}`;
   return warning(
     id,
     fitFix(
       [...problems, ...segments.filter((segment) => !segment.problem)],
-      REVIEW_RULE_TAIL,
-      `${String(problems.length)} repos have no review rule to follow or could not be read.${REVIEW_RULE_TAIL}`,
+      tail,
+      `${String(problems.length)} repos have no review rule to follow or could not be read.${tail}`,
     ),
   );
 }

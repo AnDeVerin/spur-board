@@ -2197,15 +2197,15 @@ describe('daemon doctor github.review_rule', () => {
   it('github.review_rule warns when the repo has no review rule', async () => {
     const { rule } = await checkOf(ruleFetch('none'));
     expect(rule).toMatchObject({ status: 'warning', blocking: false });
-    expect(rule?.fix).toContain(
-      'board example/board@main: no branch protection or ruleset, no review rule to follow.',
+    expect(rule?.fix).toBe(
+      'board example/board@main: no branch protection or ruleset, no review rule to follow. Require an approval or code owner review on the default branch, or remove approvalRule.',
     );
   });
 
   it('github.review_rule warns when the branch has more ruleset rules than one read returns', async () => {
     const { rule } = await checkOf(ruleFetch('truncated'));
     expect(rule).toMatchObject({ status: 'warning', blocking: false });
-    expect(rule?.fix).toContain(
+    expect(rule?.fix).toBe(
       'board example/board@main: more than 100 ruleset rules, more than the Board reads.',
     );
   });
@@ -2213,7 +2213,10 @@ describe('daemon doctor github.review_rule', () => {
   it('github.review_rule warns on a failed read and leaves github.credentials passing', async () => {
     const { rule, credentials } = await checkOf(ruleFetch('error'));
     expect(rule).toMatchObject({ status: 'warning', blocking: false });
-    expect(rule?.fix).toContain('board example/board: could not read the review rule.');
+    // The rule is still in force, unread: the fix is access, never a weaker gate.
+    expect(rule?.fix).toBe(
+      "board example/board: could not read the review rule. Give the token read access to the default branch's branch protection and rulesets, then rerun board doctor.",
+    );
     expect(rule?.fix).not.toContain('secret-canary');
     expect(credentials).toMatchObject({ status: 'pass' });
   });

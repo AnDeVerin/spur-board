@@ -281,8 +281,10 @@ Board reads (it then treats the rule as unreadable), when the read fails, for ex
 token cannot read the rules, or when `GITHUB_TOKEN` is missing. The check reads only the default
 branch: a PR whose own base branch rule the token cannot read keeps its head undecided in
 External Review, and the task's `--why` shows it as `review_rule_unreadable`, even while this
-check passes. Add a required approval or code owner review to the default branch, give the token
-read access to the rules of every base branch, or remove `approvalRule` from the column.
+check passes. With no review rule to follow, add a required approval or code owner review to the
+default branch, or remove `approvalRule` from the column. When the read fails, give the token read
+access to the branch protection and rulesets of every base branch; the rule still applies, so
+removing `approvalRule` would only weaken the gate.
 
 ### spur.api
 
