@@ -371,8 +371,12 @@ export function reportFindings(files: FileChange[]): Finding[] {
     );
 }
 
-/** The text of every `## Changed checks` section, with HTML comments removed. */
-function changedChecksText(body: string): string {
+/**
+ * The text of every `## <heading>` section (heading matched case-insensitively), with HTML
+ * comments removed. A section ends at the next `#` or `##` heading outside a code fence.
+ */
+export function sectionText(body: string, heading: string): string {
+  const wanted = heading.toLowerCase();
   const text = body.replace(/\r\n?/g, '\n');
   let visible = '';
   let from = 0;
@@ -404,7 +408,7 @@ function changedChecksText(body: string): string {
     } else if (run !== undefined) {
       fence = { char: run[0] ?? '', length: run.length };
       if (inSection) kept.push(line);
-    } else if (/^##[ \t]+changed checks[ \t]*$/i.test(line)) inSection = true;
+    } else if (/^##[ \t]+(.*?)[ \t]*$/.exec(line)?.[1]?.toLowerCase() === wanted) inSection = true;
     else if (/^#{1,2}[ \t]/.test(line)) inSection = false;
     else if (inSection) kept.push(line);
   }
@@ -426,7 +430,7 @@ function names(text: string, path: string): boolean {
 
 /** The paths the body's `## Changed checks` section does not name. */
 export function missingFromSection(body: string | null, paths: string[]): string[] {
-  const section = changedChecksText(body ?? '');
+  const section = sectionText(body ?? '', 'changed checks');
   return paths.filter((path) => !names(section, path));
 }
 
@@ -441,7 +445,7 @@ const PATH_LIKE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|json|ya?ml|md|snap|sh|toml)$
  */
 export function staleInSection(body: string | null, changedPaths: string[]): string[] {
   const stale = new Set<string>();
-  for (const line of changedChecksText(body ?? '').split('\n')) {
+  for (const line of sectionText(body ?? '', 'changed checks').split('\n')) {
     const item = LIST_ITEM.exec(line)?.[1];
     if (item === undefined) continue;
     const close = item.startsWith('`') ? item.indexOf('`', 1) : -1;
@@ -533,12 +537,12 @@ function git(cwd: string, args: string[]): string {
 const DIFF = ['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames'];
 const OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
-interface PullRequest {
+export interface PullRequest {
   body: string | null;
   user: { login: string; type: string };
 }
 
-function readPullRequest(path: string | undefined): PullRequest {
+export function readPullRequest(path: string | undefined): PullRequest {
   if (path === undefined || path === '') throw new Error('GITHUB_EVENT_PATH is not set');
   let event: unknown;
   try {

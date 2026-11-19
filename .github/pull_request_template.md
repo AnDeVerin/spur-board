@@ -41,6 +41,13 @@
 | ------ | ------ | ---------- | ------------- | ------------------- |
 | <part> | <case> | <decision> | <reason code> | <state URL or file> |
 
+## Acceptance gates
+
+<!--- Required when this PR changes a UI file: a path under packages/web/ outside its top-level test/, gallery/ and kit/, or docs/design-system-decisions.md (prototype paths do not count). Each line takes the full head SHA the gate's last passed run checked, or n/a when the gate did not run. CI acceptance-gates fails while a UI file changed after a named head; a description edit re-runs it. A PR that changes no UI file passes whatever this says: delete the section then. -->
+
+tester: <sha | n/a>
+designer: <sha | n/a>
+
 ## Changed checks
 
 <!--- Required when this PR adds, changes or deletes a test file: one line per file; CI guardrails fails until each has one. Also required when it deletes, skips or weakens a test, a snapshot, or a lint, TypeScript or CI setting: one line each, what changed and why. Otherwise delete this section. -->

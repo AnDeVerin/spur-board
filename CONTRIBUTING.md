@@ -35,6 +35,10 @@ hooks.
   or deleted test file included. Each file it reports, and every deleted, skipped or weakened
   check, gets a line under `## Changed checks` in the PR body; the CI guardrails job fails
   otherwise and re-runs when the PR description is edited.
+- CI `acceptance-gates` - a PR that changes a UI file (under `packages/web/` outside `test/`,
+  `gallery/` and `kit/`, or `docs/design-system-decisions.md`) needs `## Acceptance gates` in
+  its body. Write `n/a` for a gate you did not run, or the head SHA it last passed on; the job
+  fails while a UI file changed after a named head and re-runs when the description is edited.
 
 A check passes only when its exit code is 0.
 
