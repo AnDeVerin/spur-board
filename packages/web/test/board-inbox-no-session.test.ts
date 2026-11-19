@@ -254,22 +254,20 @@ describe('inbox no-session item', () => {
 
   const unnamed =
     'start a session in its Spur project, or take over its turns with board inbox ack';
-  // `after` is a clause put directly after the stored name, before the known ones.
+  const next = '; future thing 3';
+  // The name boundary: stored name, action, the name read (undefined: generic row), and a
+  // clause put directly after the stored name, before the known ones.
   it.each([
-    ['a name holding "; "', 'QA; West', named('QA; West'), 'QA; West', ''],
-    ['a plain name', 'orbit-qa', named('orbit-qa'), 'orbit-qa', ''],
-    ['an action naming no project', 'orbit-qa', unnamed, 'orbit-qa', ''],
-    ['no action', 'orbit-qa', undefined, 'orbit-qa', ''],
+    ['a name holding "; " and a named action', 'QA; West', named('QA; West'), 'QA; West', ''],
+    ['a plain name and a named action', 'orbit-qa', named('orbit-qa'), 'orbit-qa', ''],
+    ['a plain name and an action naming no project', 'orbit-qa', unnamed, 'orbit-qa', ''],
+    ['a name holding "; " and an action naming no project', 'QA; West', unnamed, undefined, ''],
+    ['a name holding "; " and no action', 'QA; West', undefined, undefined, ''],
+    ['a plain name and no action', 'orbit-qa', undefined, 'orbit-qa', ''],
     ['an action naming another project', 'orbit-qa', named('other'), undefined, ''],
     ['an action naming a prefix of the stored name', 'QA; West', named('QA'), undefined, ''],
-    [
-      'a matching action and an unknown clause next',
-      'orbit-qa',
-      named('orbit-qa'),
-      undefined,
-      '; future thing 3',
-    ],
-    ['no action and an unknown clause next', 'orbit-qa', undefined, 'orbit-qa', '; future thing 3'],
+    ['a named action and an unknown clause next', 'orbit-qa', named('orbit-qa'), undefined, next],
+    ['no action and an unknown clause next', 'orbit-qa', undefined, undefined, next],
   ])('reads the Spur project with %s', async (_, spur, action, expects, after) => {
     const d = daemon();
     const head = `a qa: turns wait for a live session of Spur project ${spur}${after}`;

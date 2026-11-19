@@ -41,20 +41,18 @@ function noSession(entry: Entry, description: string): NoSession | undefined {
   if (entry.kind !== 'board_observation') return undefined;
   const match = NO_SESSION.exec(description);
   if (!match || match[1] !== entry.project) return undefined;
-  const rest = description.slice(match[0].length);
-  // A Spur project name may hold `; `: the action names it whole, so it is taken from there,
-  // and a known clause or the end must follow it, else the name could go on (a renamed project).
-  // Without a named action the name ends at the first `; `.
+  // The Spur project name runs to the first known clause, or to the end. It may hold `; `, so
+  // it must equal the name the action gives; with no name there, a `; ` makes it ambiguous.
+  const parts = description.slice(match[0].length).split('; ');
+  const end = parts.findIndex((part, i) => i > 0 && (OLDEST.test(part) || WAITING.test(part)));
+  const clauses = end === -1 ? [] : parts.splice(end);
+  const expects = parts.join('; ');
   const named = entry.action === undefined ? undefined : NAMED_ACTION.exec(entry.action)?.[1];
-  if (named !== undefined && rest !== named) {
-    const next = rest.startsWith(`${named}; `) ? rest.slice(named.length + 2).split('; ')[0] : '';
-    if (next === undefined || !(OLDEST.test(next) || WAITING.test(next))) return undefined;
-  }
-  const expects = named ?? rest.split('; ')[0] ?? '';
-  if (expects === '') return undefined;
+  if (expects === '' || (named === undefined ? parts.length > 1 : expects !== named))
+    return undefined;
   const found: NoSession = { column: match[2] ?? '', expects };
   // Clauses come in any order; one the web does not know is left out.
-  for (const clause of rest.slice(expects.length).split('; ').slice(1)) {
+  for (const clause of clauses) {
     const oldest = OLDEST.exec(clause)?.[1];
     if (oldest !== undefined && !Number.isNaN(Date.parse(oldest))) found.oldestAt = oldest;
     const waiting = WAITING.exec(clause);
