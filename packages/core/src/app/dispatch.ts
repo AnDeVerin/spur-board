@@ -45,11 +45,11 @@ import {
   courseKeyPrefix,
   cycleKeyPrefix,
   raiseCourseDue,
-  recordExternalRounds,
   returnCounts,
   shadowCourseCheck,
   uncounted,
 } from './course-check.ts';
+import { recordExternalRounds } from './external-rounds.ts';
 import { withUnconfirmedCancels } from './cancelled-checks.ts';
 import { linkedSession } from './doorbells.ts';
 import { CommandError } from './commands.ts';

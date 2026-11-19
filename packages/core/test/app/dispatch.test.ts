@@ -3913,7 +3913,7 @@ describe('external change-request rounds', () => {
       start: inReview,
       cycle: 2,
       heads: [C],
-      summary: '1 returns to Dev for external comments, 1 change requests on new heads',
+      summary: '1 returns for external comments, 1 change requests on new heads',
       listed: 1,
     },
     {
@@ -3929,7 +3929,7 @@ describe('external change-request rounds', () => {
       start: inDev,
       cycle: 1,
       heads: [B, C],
-      summary: '0 returns to Dev for external comments, 2 change requests on new heads',
+      summary: '2 change requests on new heads',
       listed: 0,
     },
   ])(
@@ -4142,17 +4142,24 @@ describe('external change-request rounds', () => {
       },
       returns: 1,
       course: 2,
+      summary: '1 executor returns, 1 change requests on new heads',
     },
     {
       name: 'repeated executor returns on one head',
       start: inReview,
       returns: 2,
       course: 2,
+      summary: '2 executor returns',
     },
   ])(
     'External Review executor returns count every time: $name',
-    async ({ start, returns, course }) => {
-      const options = { externalReview: true, curator: true, externalOrchestrator: 'coord' };
+    async ({ start, returns, course, summary }) => {
+      const options = {
+        externalReview: true,
+        curator: true,
+        externalOrchestrator: 'coord',
+        externalCourseCheck: 2,
+      };
       const ctx = await start(options);
       for (let index = 0; index < returns; index += 1) {
         if (index > 0) await resubmit(ctx, A);
@@ -4162,6 +4169,14 @@ describe('external change-request rounds', () => {
         cycle: returns,
         course,
       });
+      // The course question names executor returns as such, never as external comments.
+      const { reason } = await courseBlock(ctx);
+      expect(reason).toContain(`2 external review rounds since the last check: ${summary}\n`);
+      expect(
+        reason.split('\n').filter((line) => line.startsWith('- return to Dev by')),
+      ).toHaveLength(returns);
+      expect(reason).toContain('- return to Dev by the external-review executor on aaaaaaa');
+      expect(reason).not.toContain('external comments');
     },
   );
 
@@ -4315,9 +4330,11 @@ describe('external change-request rounds', () => {
     expect(block.addressee_role).toBe('curator');
     expect(block.reason).toContain('3 external review rounds');
     expect(block.reason).toContain(
-      '1 returns to Dev for external comments, 2 change requests on new heads',
+      '3 external review rounds since the last check: 1 returns for external comments, 2 change requests on new heads',
     );
-    expect(block.reason).toContain('- return to Dev from external-review on aaaaaaa');
+    expect(block.reason).toContain(
+      '- return to Dev from external-review for external comments on aaaaaaa',
+    );
     expect(block.reason).toContain('- change request by reviewer on bbbbbbb');
     expect(block.reason).toContain('- change request by reviewer on ccccccc (current head)');
     const item = await ctx.store.db
