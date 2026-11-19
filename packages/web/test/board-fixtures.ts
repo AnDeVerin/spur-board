@@ -391,10 +391,11 @@ export function daemon(tasks: unknown[] = ROWS) {
       Promise.resolve(
         envelope({ acked: (input['entries'] as { id: string }[]).map((entry) => entry.id) }),
       ),
+    // A submit from Review: the answer has the task still in Review until its gates move it.
     'task.submit': (input) =>
       Promise.resolve(
         envelope({
-          task: taskGet().task,
+          task: { ...taskGet().task, column: 'review' },
           turn: input['turn'],
           sha: input['sha'],
           status: 'confirmed',

@@ -88,10 +88,14 @@ the notice.
 ## Your own close
 
 After a close the section keeps a focused status line, `T<n> submitted.` or
-`T<n> returned to dev.`, then the task's column from the latest read, `The task is in <column>.`,
-even when the task then has no open turn. A turn the same write opened shows below. Reloading the
-page closes an open form and drops its text; an unchanged resend after a failure uses the same
-keys, so a write that landed is never applied twice.
+`T<n> returned to dev.`, then `The task is in <column>.`: the column in the write's answer until
+a read after the write succeeds, then the latest read's. It stays even when the task then has no
+open turn. A turn the same write opened shows below.
+
+Keys are reused only within the open form. A reload, one after a Board update included, closes the form and
+drops its text, and does not wait for a Turn send; one that lands after the ack leaves the operator
+holding the turn. The next form takes new keys. Sending from it is safe: the operator may take a
+turn it already holds again, and a second close of a closed turn answers `turn_closed`.
 
 ## Unavailable and archived
 

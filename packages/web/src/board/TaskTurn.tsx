@@ -44,8 +44,13 @@ type FieldErrors = Partial<Record<'sha' | 'from' | 'reason', string | undefined>
 /** The turn a form opened on; the section keeps it until a form opens on a newer turn. */
 interface Bound {
   turn: Turn;
-  /** This section closed it, by a submit or a return. */
-  own: 'submitted' | 'returned' | undefined;
+  /**
+   * This section closed it, by a submit or a return. `column` is the task's column in the write's
+   * answer; `before` is the read the write landed on. A later good read replaces it (a failed read
+   * keeps the old one), so the line then follows the reads and never shows a column from before
+   * the write.
+   */
+  own: { outcome: 'submitted' | 'returned'; column: string; before: BoardTask } | undefined;
   /** A write answered that the turn is closed, whatever the last read says. */
   refusedClosed: boolean;
 }
@@ -244,11 +249,13 @@ export function TaskTurn({
     const sent = intent.current.value;
     setRefusal(undefined);
     void sent.run(setPhase).then(
-      () => {
+      (closed) => {
         if (!mounted.current) return;
         setPhase('idle');
         setForm(undefined);
-        setBound({ turn, own: form === 'submit' ? 'submitted' : 'returned', refusedClosed: false });
+        const outcome = form === 'submit' ? 'submitted' : 'returned';
+        const own = { outcome, column: closed.column, before: value } as const;
+        setBound({ turn, own, refusedClosed: false });
         pendingFocus.current = 'status';
       },
       (cause: unknown) => {
@@ -436,7 +443,7 @@ export function TaskTurn({
             ref={statusRef}
             className={`${styles.status ?? ''} ${focusRing}`}
           >
-            {`${turn.id} ${own === 'submitted' ? 'submitted' : 'returned to dev'}. The task is in ${value.task.column}.`}
+            {`${turn.id} ${own.outcome === 'submitted' ? 'submitted' : 'returned to dev'}. The task is in ${value === own.before ? own.column : value.task.column}.`}
           </p>
         ) : (
           <div ref={noticeRef} tabIndex={-1} className={focusRing}>
@@ -454,7 +461,7 @@ export function TaskTurn({
     bound
       ? boundSummary(bound.turn.id, {
           inFlight,
-          own: bound.own,
+          own: bound.own?.outcome,
           open: boundOpen ? open : undefined,
           record,
           refused: refusal !== undefined,

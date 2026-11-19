@@ -2,8 +2,9 @@ import { createMutationIntent, ProblemError, type createApi } from '../lib/api.t
 
 /** The step a turn write is on: taking the turn through `inbox.ack`, then closing it. */
 export type TurnPhase = 'taking' | 'closing';
-/** A landed close: the re-read of the task it started. */
+/** A landed close: the task's column in the write's answer, and the re-read it started. */
 export interface TurnClosed {
+  column: string;
   refresh: Promise<boolean>;
 }
 type TurnWrite =
@@ -43,8 +44,8 @@ export function createTurnIntent(options: {
     }
     onPhase('closing');
     try {
-      await close.run();
-      confirmed = { refresh: options.refresh() };
+      const result = await close.run();
+      confirmed = { column: result.task.column, refresh: options.refresh() };
       return confirmed;
     } catch (error) {
       if (error instanceof ProblemError && error.code === 'not_turn_taker') {

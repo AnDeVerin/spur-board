@@ -46,7 +46,7 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
   down. A failed request on either read still shows daemon down.
 - **Updated**: a daemon on another version answered. The page reloads itself with the same
   address and brings back unsent answer, follow-up and comment text; it waits up to 15 seconds
-  for a send in progress first. When it cannot (it already reloaded once for that version and
+  for an answer, follow-up or comment send in progress first, not for a Turn send. When it cannot (it already reloaded once for that version and
   still runs the older page, a send is still in progress after 15 seconds, or session storage
   fails), an error banner with **Reload** names the version and the columns dim; without session
   storage it warns that unsent text is lost. A **Reload** or **Retry now** that cannot save unsent

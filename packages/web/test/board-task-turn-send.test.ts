@@ -210,6 +210,34 @@ describe('Turn section focus', () => {
     );
   });
 
+  it('names the column of the write answer until a re-read after it succeeds', async () => {
+    const { d } = await open();
+    const refresh = deferred();
+    await click('Return to dev…');
+    type(reason(), 'Handle the empty list.');
+    d.routes['task.get'] = () => refresh.promise;
+    await send();
+    const line = () => turnSection().querySelector('[role="status"]')?.textContent;
+    // The read from before the write still says Review; the return's answer says Dev.
+    expect(line()).toBe('T5 returned to dev. The task is in dev.');
+    refresh.resolve(await problem('unexpected', 500));
+    await settle();
+    expect(line()).toBe('T5 returned to dev. The task is in dev.');
+    // A read after the write that answers names the column from then on.
+    await reread(
+      d,
+      orchestratorTaskGet(
+        {},
+        {
+          task: { ...taskGet().task, column: 'todo' },
+          turn: null,
+          turns: [closedTurn('returned', 'operator')],
+        },
+      ),
+    );
+    expect(line()).toBe('T5 returned to dev. The task is in todo.');
+  });
+
   it('skips the success focus while folded', async () => {
     const { d } = await open();
     const held = deferred();
