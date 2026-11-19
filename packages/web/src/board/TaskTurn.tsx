@@ -46,10 +46,10 @@ interface Bound {
   turn: Turn;
   /**
    * This section closed it, by a submit or a return. `column` is the task's column in the write's
-   * answer and `at` the read shown at the close: the line names `column` until a newer task read
-   * arrives, then that read's column.
+   * answer: the line names it only while the current read still shows the turn open, and the
+   * read's column once the read shows the close.
    */
-  own: { outcome: 'submitted' | 'returned'; column: string; at: BoardTask } | undefined;
+  own: { outcome: 'submitted' | 'returned'; column: string } | undefined;
   /** A write answered that the turn is closed, whatever the last read says. */
   refusedClosed: boolean;
 }
@@ -96,9 +96,6 @@ export function TaskTurn({
   const [phase, setPhase] = useState<TurnPhase | 'idle'>('idle');
   const intent = useRef<{ signature: string; value: TurnIntent }>(undefined);
   const mounted = useRef(true);
-  // The read shown when a write resolves; a read that lands during the send is not newer than it.
-  const shown = useRef(value);
-  shown.current = value;
   const actions = useRef<HTMLSpanElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const cancelRow = useRef<HTMLDivElement>(null);
@@ -258,7 +255,7 @@ export function TaskTurn({
         const outcome = form === 'submit' ? 'submitted' : 'returned';
         setBound({
           turn,
-          own: { outcome, column: closed.column, at: shown.current },
+          own: { outcome, column: closed.column },
           refusedClosed: false,
         });
         pendingFocus.current = 'status';
@@ -448,7 +445,7 @@ export function TaskTurn({
             ref={statusRef}
             className={`${styles.status ?? ''} ${focusRing}`}
           >
-            {`${turn.id} ${own.outcome === 'submitted' ? 'submitted' : 'returned to dev'}. The task is in ${value === own.at ? own.column : value.task.column}.`}
+            {`${turn.id} ${own.outcome === 'submitted' ? 'submitted' : 'returned to dev'}. The task is in ${value.turn?.id === turn.id ? own.column : value.task.column}.`}
           </p>
         ) : (
           <div ref={noticeRef} tabIndex={-1} className={focusRing}>

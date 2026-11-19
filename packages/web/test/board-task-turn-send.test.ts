@@ -2,10 +2,19 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { focusRing } from '../src/ds/index.ts';
-import { deferred, envelope, orchestratorTaskGet, problem, taskGet } from './board-fixtures.ts';
+import {
+  deferred,
+  envelope,
+  failure,
+  never,
+  orchestratorTaskGet,
+  problem,
+  taskGet,
+} from './board-fixtures.ts';
 import { mountEachTest, press, settle } from './board-harness.ts';
 import {
   AT,
+  HEAD,
   closedTurn,
   open,
   setTask,
@@ -210,64 +219,44 @@ describe('Turn section focus', () => {
     );
   });
 
-  it('names the column of the write answer, then the next task read', async () => {
-    const { d } = await open();
-    const next = deferred();
-    await click('Return to dev…');
-    type(reason(), 'Handle the empty list.');
-    d.routes['task.get'] = () => next.promise;
-    await send();
-    const line = () => turnSection().querySelector('[role="status"]')?.textContent;
-    // The read from before the write still says Review; the return's answer says Dev.
-    expect(line()).toBe('T5 returned to dev. The task is in dev.');
-    // A failed read publishes no new task, so the write's column stays.
-    next.resolve(await problem('unexpected', 500));
-    await settle();
-    expect(line()).toBe('T5 returned to dev. The task is in dev.');
-    await reread(
-      d,
-      orchestratorTaskGet(
-        {},
-        {
-          task: { ...taskGet().task, column: 'todo' },
-          turn: null,
-          turns: [closedTurn('returned', 'operator')],
-        },
-      ),
+  // The submit's answer has the task in Review. A read that still shows T5 open is older than the
+  // close, so the line names the answer's column; a read that shows T5 closed names its own.
+  const openRead = (column: string) =>
+    orchestratorTaskGet({}, { task: { ...taskGet().task, column } });
+  const closedRead = (column: string) =>
+    orchestratorTaskGet(
+      {},
+      {
+        task: { ...taskGet().task, column },
+        turn: null,
+        turns: [closedTurn('submitted', 'operator')],
+      },
     );
-    expect(line()).toBe('T5 returned to dev. The task is in todo.');
-  });
-
-  it('keeps the write column over a read that lands during the send', async () => {
+  it.each([
+    ['no read follows the write', undefined, 'never', 'review'],
+    ['a read during the send still shows the turn open', openRead('dev'), 'never', 'review'],
+    ['a read during the send already shows the close in QA', closedRead('qa'), 'never', 'qa'],
+    ['the read after the write fails', undefined, 'fail', 'review'],
+    ['the read after the write shows the close in QA', undefined, closedRead('qa'), 'qa'],
+  ] as const)('names the column of the own submit when %s', async (_, during, after, column) => {
     const { d } = await open();
     const write = deferred();
-    const returned = d.routes['task.return'];
-    d.routes['task.return'] = () => write.promise;
-    await click('Return to dev…');
-    type(reason(), 'Handle the empty list.');
+    const submitted = d.routes['task.submit'];
+    d.routes['task.submit'] = () => write.promise;
+    await click('Submit…');
     await send();
-    // A Review read lands while the return still runs.
-    await reread(d, orchestratorTaskGet());
-    write.resolve(await returned({ turn: 'T5', reason: 'Handle the empty list.' }));
-    const next = deferred();
-    d.routes['task.get'] = () => next.promise;
+    if (during !== undefined) await reread(d, during);
+    d.routes['task.get'] =
+      after === 'never'
+        ? never
+        : after === 'fail'
+          ? failure
+          : () => Promise.resolve(envelope(after));
+    write.resolve(await submitted({ turn: 'T5', sha: HEAD }));
     await settle();
-    const line = () => turnSection().querySelector('[role="status"]')?.textContent;
-    expect(line()).toBe('T5 returned to dev. The task is in dev.');
-    next.resolve(
-      envelope(
-        orchestratorTaskGet(
-          {},
-          {
-            task: { ...taskGet().task, column: 'todo' },
-            turn: null,
-            turns: [closedTurn('returned', 'operator')],
-          },
-        ),
-      ),
+    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe(
+      `T5 submitted. The task is in ${column}.`,
     );
-    await settle();
-    expect(line()).toBe('T5 returned to dev. The task is in todo.');
   });
 
   it('re-reads no other task when a close lands after another task opened', async () => {
