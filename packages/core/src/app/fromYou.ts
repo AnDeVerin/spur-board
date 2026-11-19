@@ -543,7 +543,10 @@ export async function reconcileItems(
     if (current === undefined || pr.id > current.id)
       judged.set(pr.task_id, { id: pr.id, at, ref: `${pr.repo ?? ''}#${String(pr.number)}` });
   }
-  // Tasks whose merged PR stopped counting, with the clause their worker-end item names.
+  // A PR closed before the task's newest merge was superseded by it.
+  const superseded = (pr: (typeof prs)[number]) =>
+    closeTime(pr) < Date.parse(mergedAt.get(pr.task_id) ?? '');
+  // Tasks whose ticket reopened after the judged merge, with the clause their worker-end item names.
   const reopened = new Map<number, string>();
   for (const [taskId, { id, at, ref }] of judged) {
     const state = taskPrs[String(taskId)];
@@ -552,7 +555,7 @@ export async function reconcileItems(
     const project = config.projects.find((entry) => entry.id === task.project);
     // A merged PR counts as finished work unless the ticket changed after it and is not done: a
     // split task back in Dev is watched like any task without a PR. A newer eligible link closed
-    // unmerged after the merge also ends it while the ticket is not done, so its close is raised.
+    // unmerged after every merge also ends it while the ticket is not done, so its close is raised.
     const ticket = tickets.find((entry) => entry.task_id === taskId);
     const judgement =
       at === null || project === undefined
@@ -566,7 +569,7 @@ export async function reconcileItems(
           pr.pr_state === 'active' &&
           pr.state === 'closed' &&
           pr.id > id &&
-          !(closeTime(pr) < Date.parse(at)),
+          !superseded(pr),
       );
     state.hasMergedPr =
       at === null ||
@@ -574,14 +577,12 @@ export async function reconcileItems(
       (judgement !== 'reopened' && (judgement === 'done' || !followUpClosed));
     // No ticket status in the text: the item fingerprint hashes it, and a move between two
     // non-done statuses must not raise the item again.
-    if (!state.hasMergedPr) reopened.set(taskId, `; PR ${ref} merged, ticket reopened`);
+    if (judgement === 'reopened') reopened.set(taskId, `; PR ${ref} merged, ticket reopened`);
   }
   const heldKeys: string[] = [];
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
     if (state === undefined || state.hasOpenPr || state.hasMergedPr) continue;
-    // A PR closed before the task's newest merge was superseded by it.
-    const mergedSince = Date.parse(mergedAt.get(task.id) ?? '');
     const closed = prs
       .filter((pr) => pr.task_id === task.id && pr.state === 'closed')
       .map((pr) => ({
@@ -589,7 +590,7 @@ export async function reconcileItems(
         ref: `${pr.repo ?? ''}#${String(pr.number)}`,
         closedAt: closeTime(pr),
       }))
-      .filter((pr) => !(pr.closedAt < mergedSince))
+      .filter((pr) => !superseded(pr))
       .sort((left, right) => left.ref.localeCompare(right.ref));
     const first = closed[0];
     if (first === undefined) continue;

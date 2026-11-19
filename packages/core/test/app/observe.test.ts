@@ -3979,33 +3979,57 @@ describe('anomaly blocks', () => {
         await prs(b, [seven, eight]);
         return [seven, eight];
       },
+      /** #8 merged, follow-up #9 closed unmerged, then the first-linked #7 reopened and merged last. */
+      supersededClose: async (b: Board) => {
+        const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [closed7]);
+        now += 1_000;
+        await prs(b, [closed7, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [closed7, eight]);
+        now += 1_000;
+        await prs(b, [closed7, eight, pr(9, 'open')]);
+        now += 1_000;
+        const nine = { ...pr(9, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [closed7, eight, nine]);
+        now += 1_000;
+        await prs(b, [{ ...pr(7, 'open'), updatedAt: iso() }, eight, nine]);
+        now += 1_000;
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven, eight, nine]);
+        return [seven, eight, nine];
+      },
     };
+    const NO_PR = 'o/r#9: worker ended (completed), no PR (worker-1)';
     const UNCONFIRMED = { pr: 'merged', mergedOpen: null, unconfirmed: true };
+    const DONE = { pr: 'merged', mergedOpen: null, unconfirmed: false };
+    const ENDED = 'health:worker-1:worker_completed';
     it.each([
-      ['merged', 'untouched', [], UNCONFIRMED],
+      ['merged', 'untouched', [], null, UNCONFIRMED],
       [
         'merged',
         'changed',
-        ['health:worker-1:worker_completed'],
+        [ENDED],
+        'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)',
         { pr: null, mergedOpen: 7, unconfirmed: false },
       ],
-      ['merged', 'done', [], { pr: 'merged', mergedOpen: null, unconfirmed: false }],
-      [
-        'followUpClosed',
-        'untouched',
-        ['pr-closed', 'health:worker-1:worker_completed'],
-        UNCONFIRMED,
-      ],
-      ['followUpClosed', 'done', [], { pr: 'merged', mergedOpen: null, unconfirmed: false }],
+      ['merged', 'done', [], null, DONE],
+      ['followUpClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
+      ['followUpClosed', 'done', [], null, DONE],
       [
         'conflictMerged',
         'untouched',
-        ['pr-closed', 'health:worker-1:worker_completed'],
+        ['pr-closed', ENDED],
+        NO_PR,
         { pr: 'closed', mergedOpen: null, unconfirmed: false },
       ],
+      ['supersededClose', 'untouched', [], null, UNCONFIRMED],
     ] as const)(
       'agrees with the dispatcher on which merged PR counts: %s, ticket %s',
-      async (history, change, ledger, outcome) => {
+      async (history, change, ledger, ended, outcome) => {
         const { b, ticket } = await split();
         const before = iso();
         await spur(b, [session('worker-1', 'working')]);
@@ -4020,6 +4044,13 @@ describe('anomaly blocks', () => {
         now += 1_000;
         await prs(b, last);
         expect(await openLedger(b)).toEqual(ledger);
+        const shown = await b.store.db
+          .selectFrom('operator_item')
+          .select('text')
+          .where('item_key', 'like', 'health:%')
+          .where('cleared_at', 'is', null)
+          .execute();
+        expect(shown.map((item) => item.text)).toEqual(ended === null ? [] : [ended]);
         const project = b.config.projects[0];
         if (project === undefined) throw new Error('missing project');
         const read = await b.store.transaction(async (trx) => {
