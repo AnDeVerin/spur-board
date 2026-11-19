@@ -530,7 +530,7 @@ export async function reconcileItems(
     const newest = mergedAt.get(pr.task_id) ?? null;
     if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest))) {
       mergedAt.set(pr.task_id, at);
-      mergedRef.set(pr.task_id, `${pr.repo}#${String(pr.number)}`);
+      mergedRef.set(pr.task_id, `${pr.repo ?? ''}#${String(pr.number)}`);
     }
   }
   // Tasks whose merged PR stopped counting, with the clause their worker-end item names.
