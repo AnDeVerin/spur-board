@@ -483,7 +483,6 @@ export function TaskTurn({
           open: boundOpen ? open : undefined,
           record,
           refused: refusal !== undefined,
-          held: intent.current?.value.taken() === true,
         })
       : open && openSummary(open),
     newer && openSummary(newer),

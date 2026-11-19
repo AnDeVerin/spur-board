@@ -133,8 +133,6 @@ export function boundSummary(
     open: SummaryTurn | undefined;
     record: { taken: { by: string } | null; closed: { outcome: string } | null } | undefined;
     refused: boolean;
-    /** This section's ack landed. */
-    held: boolean;
   },
 ): string {
   if (state.inFlight) return `Closing ${id}…`;
@@ -148,7 +146,8 @@ export function boundSummary(
     return outcome === undefined ? `${id} closed` : `${id} closed: ${OUTCOME[outcome] ?? outcome}`;
   }
   if (state.refused)
-    return `${id} · refused${state.held || open.taken?.by === 'operator' ? ', you hold it' : ''}`;
+    // `open` carries the effective holder (`withOwnHold`): the ack's hold until a read shows otherwise.
+    return `${id} · refused${open.taken?.by === 'operator' ? ', you hold it' : ''}`;
   return openSummary(open);
 }
 
