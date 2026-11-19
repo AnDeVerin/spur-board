@@ -875,7 +875,7 @@ describe('snapshot', () => {
     );
     // Manual moves extend task.move, move views, schema metadata and the error catalog.
     expect(await catalogVersion(baseline)).toBe(
-      'b5ff5ad6219b524978207804be9c4b11f7a0b5187239d12af3f810e943806a07',
+      '21defcbbf381c376680567f8ca827bbfd951c3da224445f3763f1b354ec32b65',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

@@ -22,6 +22,7 @@ import { latestSubmissions } from './submissions.ts';
 import { readOutageEnds, services } from './status-services.ts';
 import {
   columnGroupViews,
+  orderTodoGroupRows,
   counts,
   readStatusBlocks,
   readStatusColumnEntries,
@@ -152,6 +153,7 @@ export async function getStatus(
   const returns = await readStatusReturns(store.db, projectIds);
   const entries = await readStatusColumnEntries(store.db, projectIds);
   const columnEntries = new Map(entries.map((entry) => [entry.task_id, entry.at]));
+  orderTodoGroupRows(rows, entries, projects);
   const tasks = [];
   const submissions = await latestSubmissions(store.db, rows);
   for (const task of rows) {

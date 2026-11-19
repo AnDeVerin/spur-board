@@ -488,6 +488,13 @@ function board(options: Options = {}) {
       return apply(registry['task.archive'], { task: KEY }, 'operator', `key-${String(++keys)}`);
     },
     /** The operator corrects the task's column. */
+    manual: (column: ColumnId, key = `manual-${String(++keys)}`) =>
+      apply(
+        registry['task.move'],
+        { mode: 'manual', task: KEY, column, reason: 'Ready for work.' },
+        'operator',
+        key,
+      ),
     move: (column: Exclude<ColumnId, 'done'>, reason = 'The board put it in the wrong column.') => {
       step();
       return apply(
@@ -1366,6 +1373,37 @@ async function pastProductReview(options: Options = {}): Promise<Board> {
 const at = (minute: number) => new Date(BASE + minute * 60_000).toISOString();
 
 describe('the Todo group', () => {
+  it.each(['on', 'shadow'] as const)(
+    'keeps manual placement and replay across idle ticks in %s',
+    async (mode) => {
+      const ctx = await started({ columns: 'todo-group', mode }, 'none');
+      const result = await ctx.manual('triage', 'manual-idle');
+      await ctx.tick();
+      await ctx.tick();
+      expect((await ctx.task()).column).toBe('triage');
+      const events = await ctx.store.db.selectFrom('event').selectAll().execute();
+      expect(await ctx.manual('triage', 'manual-idle')).toEqual(result);
+      expect(await ctx.store.db.selectFrom('event').selectAll().execute()).toEqual(events);
+      expect(await ctx.turns()).toEqual([]);
+      await ctx.pr();
+      await ctx.tick();
+      const task = await ctx.task();
+      expect(mode === 'on' ? task.column : task.shadow_column).toBe('dev');
+      expect(task.column).toBe(mode === 'on' ? 'dev' : 'triage');
+    },
+  );
+  it.each([
+    ['shadow', 'on'],
+    ['on', 'shadow'],
+  ] as const)('synchronizes %s to %s before manual placement', async (from, to) => {
+    const ctx = await started({ columns: 'todo-group', mode: from }, 'none');
+    await ctx.move('ready-for-dev');
+    ctx.restart({ columns: 'todo-group', mode: to });
+    expect(await ctx.manual('triage')).toMatchObject({ from: 'ready-for-dev', column: 'triage' });
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('triage');
+    expect((await ctx.task()).shadow_column).toBe(to === 'shadow' ? 'triage' : null);
+  });
   const corrected = (ctx: Board) =>
     ctx.store.db.selectFrom('event').select('id').where('kind', '=', 'task_corrected').execute();
 

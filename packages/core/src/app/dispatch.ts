@@ -1,6 +1,7 @@
 import {
   COLUMNS,
   COLUMN_IDS,
+  TODO_GROUP_COLUMN_IDS,
   DISPATCHER_MODES,
   isExternalAuthor,
   parseActorId,
@@ -47,6 +48,7 @@ import {
 } from './course-check.ts';
 import { withUnconfirmedCancels } from './cancelled-checks.ts';
 import { linkedSession } from './doorbells.ts';
+import { CommandError } from './commands.ts';
 import { raiseCycleLimit } from './fromYou.ts';
 import {
   carriedFeedback,
@@ -346,6 +348,65 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
       to: mode,
     });
   }
+}
+
+/** Place idle work in a fresh real-column visit after synchronizing dispatcher mode. */
+export async function manuallyMoveColumn(
+  trx: Trx,
+  input: { taskId: number; to: ColumnId; at: Date; actor: ActorId; reason: string; config: Config },
+): Promise<{ from: ColumnId; to: ColumnId; column: ColumnId }> {
+  const { taskId, to, at, actor, reason, config } = input;
+  await syncModes(trx, config, at);
+  const task = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('id', '=', taskId)
+    .executeTakeFirstOrThrow();
+  const project = config.projects.find((entry) => entry.id === task.project);
+  const enabledGroup = (id: ColumnId) =>
+    TODO_GROUP_COLUMN_IDS.some((column) => column === id) &&
+    project?.columns.some((column) => column.id === id && column.enabled);
+  if (!enabledGroup(task.column) || !enabledGroup(to))
+    throw new CommandError(
+      'move_outside_todo_group',
+      `Pick enabled Todo-group columns in project ${task.project}.`,
+    );
+  const openPr = await trx
+    .selectFrom('link')
+    .select('id')
+    .where('task_id', '=', taskId)
+    .where('entity', '=', 'pr')
+    .where('banned', '=', 0)
+    .where('pr_open', '=', 1)
+    .where(pastReopenFloor)
+    .executeTakeFirst();
+  if (openPr !== undefined || (await linkedSession(trx, taskId, 'worker')) !== undefined)
+    throw new CommandError(
+      'work_started',
+      'Resolve the open pull request or live worker before moving idle work.',
+    );
+  await trx
+    .updateTable('task')
+    .set({
+      column: to,
+      shadow_column:
+        task.shadow_column === null && project?.dispatcher.mode !== 'shadow' ? null : to,
+      column_epoch: task.column_epoch + 1,
+      last_change_at: taskChangeAt(at.toISOString()),
+    })
+    .where('id', '=', taskId)
+    .execute();
+  await closeTurns(trx, { taskId, reason: 'moved', at });
+  await emit(
+    trx,
+    'task_manually_moved',
+    task.project,
+    taskId,
+    at.toISOString(),
+    { from: task.column, to, reason },
+    actor,
+  );
+  return { from: task.column, to, column: to };
 }
 
 /**

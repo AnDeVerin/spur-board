@@ -3,6 +3,38 @@ import { describe, expect, it } from 'vitest';
 import { commandReply } from '../../src/app/command-replies.ts';
 
 describe('commandReply', () => {
+  it('quotes the literal reason of a manual move in why', () => {
+    const op = OPERATIONS.find((entry) => entry.id === 'task.get');
+    const example = op?.examples[1]?.output;
+    if (!example?.why) throw new Error('Missing why example');
+    const reason = '  <script> <!chan\u006eel> <@U123> *bold* `code` &\n  ';
+    const reply = commandReply(
+      'task.get',
+      {
+        ...example,
+        why: {
+          ...example.why,
+          moves: [
+            {
+              at: '2026-01-05T09:31:00.000Z',
+              kind: 'task_manually_moved',
+              actor: 'operator',
+              from: 'todo',
+              to: 'ready-for-dev',
+              reason: 'manual',
+              gate: [],
+              text: reason,
+            },
+          ],
+        },
+      },
+      { task: 'PROJ-123', why: true },
+    );
+    expect(reply.body).toContainEqual({
+      kind: 'quote',
+      children: [{ kind: 'text', text: reason }],
+    });
+  });
   it.each([false, true])('quotes submission reasons literally, including why=%s', (why) => {
     const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
     if (!operation) throw new Error('Missing task.get');

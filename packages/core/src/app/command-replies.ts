@@ -93,7 +93,7 @@ function whyLines(
       const gate = move.gate.length === 0 ? '' : `: ${move.gate.join(', ')}`;
       const text = move.reason === 'returned' && move.text !== null ? ` ${move.text}` : '';
       const moved = line(`${move.at}: ${move.from} to ${move.to} (${move.reason}${text}${gate})`);
-      return move.reason === 'corrected' && move.text !== null
+      return (move.reason === 'corrected' || move.reason === 'manual') && move.text !== null
         ? [moved, quote(move.text)]
         : [moved];
     }),

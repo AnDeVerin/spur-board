@@ -1,3 +1,4 @@
+import { taskMoveInputSchema, taskMoveOutputSchema } from './move-schemas.ts';
 import {
   statusInputSchema,
   statusOutputSchema,
@@ -19,7 +20,7 @@ import {
 import { z } from 'zod';
 import { configViewSchema } from './config-view-schema.ts';
 import { columnsDescribeOutputSchema } from './columns-schema.ts';
-import { BLOCK_TYPES, COLUMN_IDS, TOKEN_STATUSES, SUBMISSION_BASES } from '../enums.ts';
+import { BLOCK_TYPES, TOKEN_STATUSES, SUBMISSION_BASES } from '../enums.ts';
 import {
   blockIdSchema,
   commentIdSchema,
@@ -34,9 +35,6 @@ import {
   SCHEMA_ROLES,
   blockViewSchema,
   commentSchema,
-  moveViewSchema,
-  taskMoveInputSchema,
-  taskMoveOutputSchema,
   schemaGetOutputSchema,
   taskViewSchema,
   taskWhySchema,

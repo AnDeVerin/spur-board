@@ -1,3 +1,4 @@
+import { taskMoveInputSchema, taskMoveOutputSchema } from './ops/move-schemas.ts';
 /** Browser-safe operation schemas; never import the operation catalog here. */
 import { z } from 'zod';
 import {
@@ -28,8 +29,6 @@ import {
   statusUnlinkedSessionSchema,
   taskBlockViewSchema,
   taskViewSchema,
-  taskMoveInputSchema,
-  taskMoveOutputSchema,
   taskWhySchema,
 } from './ops/schemas.ts';
 import { taskTurnSchema, latestSubmissionSchema } from './ops/turn-schemas.ts';

@@ -1,40 +1,28 @@
 # Columns and executors
 
 `board columns describe [--project <project>]` (`columns_describe` in MCP) reads
-effective exit rules, return triggers and limits, executors, question escalation and
-silence timing for visible enabled columns. JSON keeps condition and column IDs;
-a terminal shows their readable text. Gates accumulate from columns to the left;
-each rule is listed once at its effective owner. This is policy, not task state:
-use `board task <KEY> --why` for current gates and turns. Named sessions are the
-project-selected live sessions used by doctor. Orchestrator recipients, including
-executor turns bound to a curator, may instead use a live author or task-linked
-orchestrator session. Questions and course checks addressed to the curator always
-use its current project-selected session. Executor turns bound to an orchestrator
-or curator and ordinary orchestrator questions wait for a live recipient. Questions
-addressed to the curator and course checks addressed to an agent fall back to the
-operator when no live recipient exists.
+visible enabled columns' exits, returns, executors and escalation timing.
+JSON: IDs; terminal: readable text. Cumulative rules appear once per owner.
+Task state: `board task <KEY> --why`.
+Named sessions: doctor's live project selection. Orchestrator recipients
+(curator turns too) may use live authors/task-linked sessions.
+Curator questions/course checks use its selected session. Executor turns/ordinary
+orchestrator questions await recipients; curator questions and agent course checks
+fall back to the operator. `escalation.silent` uses per-column `quietTurnAfterMs`
+for named turns, global idle timing for workers. `escalation.noRecipient` uses
+`noRecipientAfterMs` for untaken named turns; it raises an item without rerouting.
 
-`escalation.silent` uses per-column `quietTurnAfterMs` for named turns;
-worker turns keep the global idle threshold. `escalation.noRecipient` gives the
-`noRecipientAfterMs` operator-item policy for untaken named turns waiting for a
-session; it does not reroute them.
-
-`exit.to` describes normal gate progression: it is null at the last enabled stage
-before Done and at Done itself. Passing green checks and submitting an open PR
-does not complete a task. The project's separate `completion` route reaches Done
-from any other column: an eligible linked merged PR with a done ticket, or a done
-ticket with no open linked PR or live worker after fresh, complete, non-blind
-observations of every configured repository and Spur since the task changed.
-Done means GitHub `closed` or the project's Jira `doneStatuses`; the returned text
-names effective statuses and the tracker interval. After a merge, a missing or
-unconfirmed ticket holds dispatch. An open ticket resumes work without the merged
-PR only when observed at least one tracker interval after the merge, in the filter
-or for a manually included task; dropped-filter evidence alone stays unconfirmed.
-These alternatives bypass normal gates, including Ready to Merge's merged
-condition. Blind GitHub or a pending submit holds both routes. Archived tasks are
-excluded; links must be unbanned and past the reopen floor, and missing/unreadable
-chosen or fallback PR facts hold evaluation. Cycle holds allow completion;
-dispatcher `on` applies moves while `shadow` computes only a shadow position.
+`exit.to` is null at Done and the last enabled stage before it. Green checks and
+an open PR do not complete work. `completion` bypasses gates (Ready to Merge too): eligible merged PR + done ticket, or done ticket with
+no open PR/live worker after fresh, complete, non-blind observations of every
+repo and Spur since task change. Done means GitHub `closed` or Jira
+`doneStatuses`; text names statuses/tracker interval. After merge,
+missing/unconfirmed tickets hold dispatch. Open tickets resume without that PR after one tracker interval,
+observed in-filter or manually included;
+dropped-filter evidence stays unconfirmed. Blind GitHub/pending submits hold both
+routes. Exclude archived tasks; links: unbanned/past the reopen floor.
+Missing/unreadable PR facts (chosen/fallback) hold. Cycle holds allow
+completion. Dispatcher `on` applies moves; `shadow` computes shadow position.
 
 ## Columns and executors
 
@@ -43,14 +31,32 @@ dispatcher `on` applies moves while `shadow` computes only a shadow position.
 `projects[].columns[].enabled`: disabled/omitted columns skip gates;
 To Do, Dev, Done stay enabled. `triage` is off unless `columns` lists it.
 
-The Todo group is `todo`, `triage` and `ready-for-dev`: no exit condition, and
-the dispatcher never moves a task between them. Once work starts (an open PR or a
-live worker), a task moves from any of the three to the first enabled column right
-of the group in one move. New and reopened tasks enter `todo`; a reopened task whose
-PR is hidden returns to `todo` even from `triage` or `ready-for-dev`. A task rests in
-`triage` or `ready-for-dev` only through `board move <task> <column> --correct`.
-`board config get` marks group columns `group: todo`; `board status` lists the
-group in `columnGroups`.
+The Todo group is `todo`, `triage` and `ready-for-dev`: the dispatcher never moves a task between them.
+Open PR/live worker skips the group to Dev. New/reopened tasks enter `todo`,
+including reopen with a hidden PR from another group column.
+
+`board move <task> <column> --reason <text> --key <key>` defaults to manual;
+Explicit `--manual`. MCP: `task_move`, `mode: manual`; also operator web API.
+Operators only. Require enabled Todo-group source/target, else
+`move_outside_todo_group`. Eligible unbanned open PRs (including conflict links) or
+live linked workers give `work_started`.
+
+Manual moves change the real column in both modes: a fresh visit at target end,
+even same-column moves. Idle ticks keep placement; work/completion/reopen follow
+facts. Timestamp ties use journal order; saved reverse-time/key sorts win.
+Reason: non-blank, max 20,000 UTF-16 units, literal in events/move views; history
+normalizes whitespace to one line. Key: explicit, non-blank; retry identical input
+with the same key. `--correct` retains correction/settling behavior.
+
+| Placement             | Owner             |
+| --------------------- | ----------------- |
+| New/reopen to `todo`  | Dispatcher        |
+| Idle Todo-group move  | Operator: manual  |
+| Work/completion/gates | Dispatcher        |
+| Repair and settle     | Operator: correct |
+
+No mirroring config; reserved `column_mirrored` directs status to the named project.
+`board config get`: `group: todo`; `board status`: `columnGroups`.
 
 Each column has one executor: `projects[].columns[].orchestrator`:
 `none` (live worker, else operator), `operator`, or project with role
@@ -69,7 +75,7 @@ Facts (head, checks, reviews, comments, ticket, sessions) feed gates; two action
 per evaluation). Turns follow unmet entry gates, actionable post-submit failures,
 rerouting or Done wrap-up. Holds and existing turns can yield neither action.
 
-Moves, turns and course checks need `projects[].dispatcher.mode: on`;
+Dispatcher moves, executor turns and course checks need `projects[].dispatcher.mode: on`;
 default is `shadow`: no doorbells or blocks.
 
 Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, failed gates return to the leftmost failing

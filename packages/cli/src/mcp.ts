@@ -40,7 +40,10 @@ function toolInputSchema(op: Operation, agent: boolean): JsonSchemaType {
   const withKey = (schema: JsonObject) => ({
     ...schema,
     properties: { ...(schema['properties'] as JsonObject), idempotencyKey: key },
-    ...(agent
+    ...(agent ||
+    op.explicitKeyModes?.includes(
+      ((schema['properties'] as JsonObject)['mode'] as JsonObject | undefined)?.['const'] as string,
+    )
       ? { required: [...((schema['required'] as string[] | undefined) ?? []), 'idempotencyKey'] }
       : {}),
   });
@@ -85,7 +88,12 @@ function parseArguments(op: Operation, argumentsValue: unknown, agent: boolean) 
   const { idempotencyKey, ...input } = argumentsValue as JsonObject;
   let key: string | undefined;
   if (op.kind === 'mutation') {
-    if (idempotencyKey === undefined && !agent) key = randomUUID();
+    if (
+      idempotencyKey === undefined &&
+      !agent &&
+      !op.explicitKeyModes?.includes(input['mode'] as string)
+    )
+      key = randomUUID();
     else if (typeof idempotencyKey === 'string' && idempotencyKey.trim()) key = idempotencyKey;
     else throw keyError(MISSING_KEY_HINT);
   } else if (idempotencyKey !== undefined) {

@@ -1,6 +1,8 @@
+import type { Row } from '../store/schema.ts';
 import { sql } from 'kysely';
 import {
   COLUMN_GROUPS,
+  TODO_GROUP_COLUMN_IDS,
   COLUMNS,
   eventPayloadSchemas,
   type ActorId,
@@ -240,15 +242,21 @@ export async function readStatusColumnEntries(db: Store['db'], projectIds: Reado
           .select((eb) => eb.fn.max<number>('entry.id').as('id'))
           .where('task.membership', '!=', 'archived')
           .where('task.project', 'in', [...projectIds])
-          .where(sql<boolean>`json_extract(entry.payload, '$.to') = task.column`)
           .where(
-            sql<boolean>`(entry.kind = 'task_moved' or (entry.kind = 'task_corrected' and json_extract(entry.payload, '$.shadow') = 0))`,
+            sql<boolean>`(json_extract(entry.payload, '$.to') = task.column OR (
+            entry.kind = 'task_added' AND entry.at = task.created_at AND json_extract(entry.payload, '$.column') = task.column AND entry.id = (
+              SELECT MIN(original.id) FROM event original WHERE original.task_id = task.id AND original.kind = 'task_added'
+            )
+          ))`,
+          )
+          .where(
+            sql<boolean>`(entry.kind in ('task_added', 'task_moved', 'task_manually_moved') or (entry.kind = 'task_corrected' and json_extract(entry.payload, '$.shadow') = 0))`,
           )
           .groupBy('entry.task_id')
           .as('latest'),
       (join) => join.onRef('latest.id', '=', 'event.id'),
     )
-    .select(['event.task_id', 'event.at'])
+    .select(['event.task_id', 'event.at', 'event.id'])
     .execute();
 }
 
@@ -271,4 +279,36 @@ export function counts(values: readonly string[], order: readonly string[]): str
 /** Session facts rendered in status detail. */
 export function sessionView(fact: SessionFacts) {
   return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
+}
+
+/** Order group visits in their own slots, preserving non-group relative ordering. */
+export function orderTodoGroupRows(
+  rows: Row<'task'>[],
+  entries: Awaited<ReturnType<typeof readStatusColumnEntries>>,
+  projects: Config['projects'],
+) {
+  const columnEntries = new Map(entries.map((entry) => [entry.task_id, entry.at]));
+  const entryOrder = new Map(entries.map((entry) => [entry.task_id, entry.id]));
+  // Sort only each group's own slots, preserving the relative positions of all other rows.
+  for (const project of projects) {
+    for (const column of TODO_GROUP_COLUMN_IDS) {
+      const slots = rows.flatMap((row, index) =>
+        row.project === project.id && row.column === column ? [index] : [],
+      );
+      const ordered = slots
+        .map((index) => rows[index])
+        .filter((row) => row !== undefined)
+        .sort(
+          (left, right) =>
+            Date.parse(columnEntries.get(left.id) ?? left.created_at) -
+              Date.parse(columnEntries.get(right.id) ?? right.created_at) ||
+            (entryOrder.get(left.id) ?? 0) - (entryOrder.get(right.id) ?? 0) ||
+            left.id - right.id,
+        );
+      for (const [index, slot] of slots.entries()) {
+        const row = ordered[index];
+        if (row !== undefined) rows[slot] = row;
+      }
+    }
+  }
 }

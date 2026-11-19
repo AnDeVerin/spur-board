@@ -204,10 +204,10 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "task_return",
   },
   {
-    "description": "Correct the column of a task by hand; the gates then settle the task from that column at once.
-Use when: Put a task the board moved wrongly into the right column, Done excluded; the reply names the column it settled in.
+    "description": "Move an idle task inside the Todo group, or correct its column and settle the gates.
+Use when: Place idle work at the end of an enabled Todo-group column with a literal reason and explicit key, or correct a wrong column with mode correct.
 When not to use: Use task_get with why to read why the task is where it is.
-Example: {"mode":"correct","task":"PROJ-123","column":"dev","reason":"The linked pull request belongs to another ticket.","idempotencyKey":"task_move-example-001"}
+Example: {"mode":"manual","task":"PROJ-123","column":"ready-for-dev","reason":"Ready for the next worker.","idempotencyKey":"task_move-example-001"}
 Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "task_move",
   },

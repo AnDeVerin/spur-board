@@ -615,6 +615,8 @@ describe('catalog commands', () => {
       ['task', 'PROJ-123', '--why'],
       ['task', 'PROJ-123', '--detail'],
       ['move', 'PROJ-123', 'dev', '--correct', '--reason', 'Wrong PR', '--key', 'move-1'],
+      ['move', 'PROJ-123', 'ready-for-dev', '--reason', '  Ready\nnow  ', '--key', 'manual-1'],
+      ['move', 'PROJ-123', 'todo', '--manual', '--reason', 'Ready', '--key', 'manual-2'],
       ['project', 'ask', 'web', 'Restart?', '--to', 'operator', '--key', 'ask-1'],
     ];
     for (const command of commands) {
@@ -674,8 +676,40 @@ describe('catalog commands', () => {
         id: 'task.move',
         input: { mode: 'correct', task: 'PROJ-123', column: 'dev', reason: 'Wrong PR' },
       },
+      {
+        id: 'task.move',
+        input: {
+          mode: 'manual',
+          task: 'PROJ-123',
+          column: 'ready-for-dev',
+          reason: '  Ready\nnow  ',
+        },
+      },
+      {
+        id: 'task.move',
+        input: { mode: 'manual', task: 'PROJ-123', column: 'todo', reason: 'Ready' },
+      },
       { id: 'project.ask', input: { project: 'web', text: 'Restart?', to: 'operator' } },
     ]);
+  });
+
+  it.each(
+    [[], ['--key', ''], ['--key', '   '], ['--manual', '--correct', '--key', 'move-1']].map(
+      (extra) => ({ extra }),
+    ),
+  )('refuses manual key/mode misuse locally: $extra', async ({ extra }) => {
+    const output = capture();
+    let sent = false;
+    const code = await runCli(['move', 'PROJ-123', 'todo', '--reason', 'Ready.', ...extra], {
+      io: output.io,
+      env: {},
+      sendOperation: () => {
+        sent = true;
+        throw new Error('Unexpected send');
+      },
+    });
+    expect(code).toBe(2);
+    expect(sent).toBe(false);
   });
 
   it.each(['submit_basis_invalid', 'submit_source_not_tested'] as const)(
@@ -838,7 +872,7 @@ describe('catalog commands', () => {
     }
   });
 
-  it('sends every mutation from its first example with a generated key as agent and operator', async () => {
+  it('sends every mutation example with explicit keys where required and generated keys otherwise', async () => {
     const calls: { id: string; input: unknown; key: string | undefined }[] = [];
     const url = await fakeServer((id, input, key) => {
       calls.push({ id, input, key });
@@ -855,7 +889,13 @@ describe('catalog commands', () => {
       const words = (exampleCommand(op, example).match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map(
         (word) => (word.startsWith('"') ? (JSON.parse(word) as string) : word),
       );
-      const args = [...words.slice(1), '--json'];
+      const args = [
+        ...words.slice(1),
+        ...(op.explicitKeyModes?.includes(String(example['mode']))
+          ? ['--key', `${op.mcp.name}-example-001`]
+          : []),
+        '--json',
+      ];
       for (const identity of identities) {
         calls.length = 0;
         const output = capture();
@@ -866,7 +906,9 @@ describe('catalog commands', () => {
         if (!call) throw new Error(`Expected a request for ${label}.`);
         expect(call.id, label).toBe(op.id);
         expect(call.input, label).toEqual(example);
-        expect(call.key, label).toMatch(/^[0-9a-f-]{36}$/);
+        if (op.explicitKeyModes?.includes(String(example['mode'])))
+          expect(call.key, label).toBe(`${op.mcp.name}-example-001`);
+        else expect(call.key, label).toMatch(/^[0-9a-f-]{36}$/);
         expect(output.stderr, label).toContain(`key: ${call.key ?? ''}`);
       }
     }

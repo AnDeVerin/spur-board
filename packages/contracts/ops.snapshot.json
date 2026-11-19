@@ -1,5 +1,5 @@
 {
-  "version": "8446de572970d098f20fd8e853913cbd4621186182f7dd7e51ecb047d7b3326b",
+  "version": "ff484205644782343dfc9f68eb0d7d4a784ebf64295281557e6c904fa81f96e3",
   "grants": [
     "operator",
     "project-agent",
@@ -5763,7 +5763,7 @@
                         "task_corrected",
                         "task_manually_moved"
                       ],
-                      "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction."
+                      "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement."
                     },
                     "actor": {
                       "anyOf": [
@@ -5818,7 +5818,7 @@
                         "corrected",
                         "manual"
                       ],
-                      "description": "Why it moved: a dispatcher reason, returned (a column executor returned it to Dev) or corrected (the operator corrected the column)."
+                      "description": "Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), or manual (operator Todo-group placement)."
                     },
                     "gate": {
                       "type": "array",
@@ -5844,7 +5844,7 @@
                       "description": "The failing gate reasons of a gate_broken move; empty otherwise."
                     },
                     "text": {
-                      "description": "The block a return opened, or the reason the operator gave for a correction; null otherwise.",
+                      "description": "The block a return opened, or the literal reason for an operator correction or manual move; null otherwise.",
                       "type": ["string", "null"]
                     }
                   },
@@ -11272,7 +11272,7 @@
                     "task_corrected",
                     "task_manually_moved"
                   ],
-                  "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction."
+                  "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement."
                 },
                 "actor": {
                   "anyOf": [
@@ -11327,7 +11327,7 @@
                     "corrected",
                     "manual"
                   ],
-                  "description": "Why it moved: a dispatcher reason, returned (a column executor returned it to Dev) or corrected (the operator corrected the column)."
+                  "description": "Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), or manual (operator Todo-group placement)."
                 },
                 "gate": {
                   "type": "array",
@@ -11353,7 +11353,7 @@
                   "description": "The failing gate reasons of a gate_broken move; empty otherwise."
                 },
                 "text": {
-                  "description": "The block a return opened, or the reason the operator gave for a correction; null otherwise.",
+                  "description": "The block a return opened, or the literal reason for an operator correction or manual move; null otherwise.",
                   "type": ["string", "null"]
                 }
               },
