@@ -19,6 +19,7 @@ import {
   commentIdSchema,
   itemIdSchema,
   taskKeySchema,
+  taskKeyInputSchema,
 } from '../ids.ts';
 import {
   PR_STATES,
@@ -121,7 +122,7 @@ export const moveViewSchema = z
   .strictObject({
     at: z.iso.datetime().describe('When the task moved, ISO 8601 UTC.'),
     kind: z
-      .enum(['task_moved', 'task_shadow_moved', 'task_corrected'])
+      .enum(['task_moved', 'task_shadow_moved', 'task_corrected', 'task_manually_moved'])
       .describe(
         'task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction.',
       ),
@@ -129,7 +130,7 @@ export const moveViewSchema = z
     from: z.enum(COLUMN_IDS).describe('Column the task left.'),
     to: z.enum(COLUMN_IDS).describe('Column the task entered.'),
     reason: z
-      .enum([...MOVE_REASONS, 'returned', 'corrected'])
+      .enum([...MOVE_REASONS, 'returned', 'corrected', 'manual'])
       .describe(
         'Why it moved: a dispatcher reason, returned (a column executor returned it to Dev) or corrected (the operator corrected the column).',
       ),
@@ -144,6 +145,51 @@ export const moveViewSchema = z
       ),
   })
   .describe('A column move of a task.');
+
+export const taskMoveInputSchema = z.discriminatedUnion('mode', [
+  z.strictObject({
+    mode: z.literal('manual').describe('Place an idle task inside the Todo group.'),
+    task: taskKeyInputSchema,
+    column: z
+      .enum(COLUMN_IDS)
+      .describe('Enabled Todo-group destination; a new visit places the task at its end.'),
+    reason: z
+      .string()
+      .min(1)
+      .max(20_000)
+      .regex(/\S/)
+      .describe(
+        'Literal reason for the move, kept exactly in the journal; must contain non-whitespace text.',
+      ),
+  }),
+  z.strictObject({
+    mode: z.literal('correct').describe('Correct a wrong column by hand.'),
+    task: taskKeyInputSchema,
+    column: z
+      .enum(COLUMN_IDS)
+      .exclude(['done'])
+      .describe('Enabled column to put the task in; Done is reached only from the facts.'),
+    reason: z
+      .string()
+      .min(1)
+      .max(20_000)
+      .describe('Why the column is corrected, kept in the journal.'),
+  }),
+]);
+
+export const taskMoveOutputSchema = z.strictObject({
+  task: taskViewSchema,
+  from: z
+    .enum(COLUMN_IDS)
+    .describe('Column the task left; correction uses the dispatcher position.'),
+  to: z.enum(COLUMN_IDS).describe('Requested destination column.'),
+  column: z
+    .enum(COLUMN_IDS)
+    .describe('Resulting position; correction uses the shadow position in shadow mode.'),
+  settled: z
+    .array(moveViewSchema)
+    .describe('Dispatcher moves after a correction, oldest first; empty for manual placement.'),
+});
 
 const gateConditionSchema = z
   .strictObject({
@@ -466,9 +512,19 @@ export const schemaGetOutputSchema = z
               .union([z.literal('any'), z.array(grantRuleSchema).min(1)])
               .describe('Who may call it: any identified caller, or the listed rules.'),
             errors: z.array(z.string()).describe('Error codes the operation can return.'),
+            explicitKeyModes: z
+              .array(z.string())
+              .optional()
+              .describe(
+                'Modes requiring a caller-chosen idempotency key, including for operators.',
+              ),
             cli: z
               .strictObject({
                 command: z.string().describe('CLI command after `board`.'),
+                defaultMode: z
+                  .string()
+                  .optional()
+                  .describe('Input mode used when no mode flag is supplied.'),
                 args: z.array(z.string()).describe('Input fields given as positional arguments.'),
                 modes: z
                   .array(cliModeSchema)

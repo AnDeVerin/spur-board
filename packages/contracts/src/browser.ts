@@ -28,6 +28,8 @@ import {
   statusUnlinkedSessionSchema,
   taskBlockViewSchema,
   taskViewSchema,
+  taskMoveInputSchema,
+  taskMoveOutputSchema,
   taskWhySchema,
 } from './ops/schemas.ts';
 import { taskTurnSchema, latestSubmissionSchema } from './ops/turn-schemas.ts';
@@ -422,6 +424,12 @@ const taskHistoryReadSchema = taskHistoryOutputSchema.extend({
  * whole answer.
  */
 export const browserOperations = {
+  'task.move': {
+    id: 'task.move',
+    kind: 'mutation',
+    input: taskMoveInputSchema,
+    output: taskMoveOutputSchema,
+  },
   'columns.describe': {
     id: 'columns.describe',
     kind: 'query',

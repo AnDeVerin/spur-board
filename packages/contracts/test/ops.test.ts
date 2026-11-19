@@ -110,7 +110,7 @@ describe('catalog', () => {
     if (!isObject(property)) throw new Error('Missing column entry schema');
     expect(property['description']).toContain('original add');
   });
-  it('defaults web off and exposes exactly the screen reads and four operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and five operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
@@ -127,12 +127,13 @@ describe('catalog', () => {
       'status.get',
       'task.get',
       'task.history',
+      'task.move',
     ]);
     expect(
       OPERATIONS.filter((op) => op.kind === 'mutation' && op.web !== null)
         .map((op) => op.id)
         .sort(),
-    ).toEqual(['block.answer', 'block.followup', 'comment.add', 'item.close']);
+    ).toEqual(['block.answer', 'block.followup', 'comment.add', 'item.close', 'task.move']);
     expect(OPERATIONS.find((op) => op.id === 'schema.get')?.web).toBeNull();
     expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
       true,
@@ -217,7 +218,24 @@ describe('catalog', () => {
     expect(operation.input.safeParse(input).success).toBe(true);
     expect(operation.input.safeParse({ ...input, column: 'done' }).success).toBe(false);
     expect(operation.cli.args).toEqual(['task', 'column']);
-    expect(operation.cli.modes).toEqual([{ mode: 'correct', flag: '--correct', value: null }]);
+    expect(operation.cli.modes).toEqual([
+      { mode: 'manual', flag: '--manual', value: null },
+      { mode: 'correct', flag: '--correct', value: null },
+    ]);
+    expect(operation.cli.defaultMode).toBe('manual');
+    expect(operation.explicitKeyModes).toEqual(['manual']);
+    const reason = '  literal\r\n\t<script> & *text*  ';
+    expect(operation.input.parse({ ...input, mode: 'manual', column: 'done', reason })).toEqual({
+      ...input,
+      mode: 'manual',
+      column: 'done',
+      reason,
+    });
+    for (const reason of ['', ' \t\r\n', 'x'.repeat(20_001)])
+      expect(operation.input.safeParse({ ...input, mode: 'manual', reason }).success).toBe(false);
+    expect(
+      operation.input.safeParse({ ...input, mode: 'manual', reason: 'x'.repeat(20_000) }).success,
+    ).toBe(true);
   });
 
   it('shows a separate ticket link in task detail without changing the task view', () => {
@@ -691,7 +709,19 @@ describe('grants', () => {
       null,
       [...archived, 'turn_closed', 'not_turn_taker', 'return_not_allowed'],
     ],
-    ['task.move', 'mutation', [operator], null, [...archived, 'move_not_allowed']],
+    [
+      'task.move',
+      'mutation',
+      [operator],
+      null,
+      [
+        ...archived,
+        'move_not_allowed',
+        'move_outside_todo_group',
+        'work_started',
+        'column_mirrored',
+      ],
+    ],
     ['config.get', 'query', [operator, projectAgent], null, ['not_found']],
     ['columns.describe', 'query', [operator, projectAgent], null, ['not_found']],
   ];
@@ -839,14 +869,13 @@ describe('comment shape', () => {
 });
 
 describe('snapshot', () => {
-  it('adds columns.describe without changing any pre-existing operation, grant or error', async () => {
+  it('pins the catalog excluding columns.describe after adding manual moves', async () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
-    // Integration base 66092119: includes upstream config.get timing fields as well as every
-    // existing schema, example and transport binding. Original intake was efa72d3b.
+    // Manual moves extend task.move, move views, schema metadata and the error catalog.
     expect(await catalogVersion(baseline)).toBe(
-      '407cd042fac141647a7b3bdac05235bf76d95bdf665debc0f06a572e50c67eae',
+      'b5ff5ad6219b524978207804be9c4b11f7a0b5187239d12af3f810e943806a07',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

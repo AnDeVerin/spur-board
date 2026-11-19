@@ -26,6 +26,7 @@ export function catalogSnapshotBody(operations: readonly Operation[]) {
         grants: op.grants,
         preconditions: op.preconditions,
         errors: op.errors,
+        ...(op.explicitKeyModes === undefined ? {} : { explicitKeyModes: op.explicitKeyModes }),
         cli: op.cli,
         mcp: op.mcp,
         slack: op.slack,

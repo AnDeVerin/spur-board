@@ -546,6 +546,108 @@ Example:
 }
 ```
 
+## move_outside_todo_group
+
+Manual moves require an enabled Todo-group source and destination.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Pick an enabled Todo-group column; use `board move --correct` to correct a wrong column.  
+Recovery: Pick an enabled Todo-group column or correct a wrong column.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "move_outside_todo_group",
+    "requestId": "req-example-123",
+    "message": "Manual moves require an enabled Todo-group source and destination.",
+    "hint": "Pick an enabled Todo-group column; use `board move --correct` to correct a wrong column.",
+    "docs": "docs/errors.md#move_outside_todo_group",
+    "recovery": {
+      "action": "Pick an enabled Todo-group column or correct a wrong column.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
+## work_started
+
+Work has started on this task.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Read `board task <KEY> --why`; resolve the open pull request or live worker before moving idle work.  
+Recovery: Resolve the open pull request or live worker before moving idle work.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "work_started",
+    "requestId": "req-example-123",
+    "message": "Work has started on this task.",
+    "hint": "Read `board task <KEY> --why`; resolve the open pull request or live worker before moving idle work.",
+    "docs": "docs/errors.md#work_started",
+    "recovery": {
+      "action": "Resolve the open pull request or live worker before moving idle work.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
+## column_mirrored
+
+The column is mirrored from the project tracker.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Change the task status in the named project tracker instead.  
+Recovery: Change the task status in the named project tracker instead.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "column_mirrored",
+    "requestId": "req-example-123",
+    "message": "The column is mirrored from the project tracker.",
+    "hint": "Change the task status in the named project tracker instead.",
+    "docs": "docs/errors.md#column_mirrored",
+    "recovery": {
+      "action": "Change the task status in the named project tracker instead.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## task_archived
 
 The task is archived, so it cannot change.
