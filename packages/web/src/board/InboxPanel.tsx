@@ -212,7 +212,7 @@ export function InboxPanel({
             <StatusDot tone="warn" />
             <span>No session to ring for {known.column}</span>
           </span>
-          <span>
+          <span className={styles.description}>
             The {known.column} orchestrator is the Spur project{' '}
             <strong className={styles.expects}>{known.expects}</strong>, and it has no live session.
             {tail}

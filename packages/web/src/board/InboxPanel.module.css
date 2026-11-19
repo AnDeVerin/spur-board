@@ -54,6 +54,9 @@
   min-width: 0;
   font-weight: var(--weight-bold);
 }
+.description {
+  color: var(--color-text-secondary);
+}
 .expects {
   font-weight: var(--weight-medium);
   color: var(--color-text-primary);
