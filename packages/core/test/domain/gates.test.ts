@@ -1168,7 +1168,18 @@ describe('approvalRule github-rules', () => {
     const external = explainGates(facts, project('external-review')).gates.find(
       (entry) => entry.column === 'external-review',
     );
+    // The one pending check is a wait of both conditions it fails.
     expect(external?.conditions).toEqual([
+      { condition: 'checks_green', state: 'waiting', reason: 'checks_pending' },
+      { condition: 'approved', state: 'met', reason: null },
+      { condition: 'review_rule_satisfied', state: 'waiting', reason: 'checks_pending' },
+    ]);
+    // A pending check the review rule does not wait on leaves the rule met.
+    const satisfied = explainGates(
+      atExternal({ decision: 'satisfied' }, { requiredChecks: [], checks: [check('pending')] }),
+      project('external-review'),
+    ).gates.find((entry) => entry.column === 'external-review');
+    expect(satisfied?.conditions).toEqual([
       { condition: 'checks_green', state: 'waiting', reason: 'checks_pending' },
       { condition: 'approved', state: 'met', reason: null },
       { condition: 'review_rule_satisfied', state: 'met', reason: null },

@@ -533,8 +533,18 @@ export function explainGates(
     const blockedIn = gate.ok ? null : gate.column;
     const stopped = reasons.some((reason) => STOPS_DEV.has(reason));
     const own = isTodoGroupColumn(column) ? [] : columnConditions(column, project);
+    // A reason two conditions share, a pending check under github-rules, shows on both.
+    const rule =
+      own.includes('review_rule_satisfied') && !merged
+        ? CONDITION_DEFINITIONS.review_rule_satisfied.reasons(facts, project, column, waived)
+        : [];
     const conditions = own.map((condition): ConditionExplanation => {
-      const reason = reasons.find((r) => conditionOf(r, column, project) === condition) ?? null;
+      const reason =
+        reasons.find(
+          (r) =>
+            conditionOf(r, column, project) === condition ||
+            (condition === 'review_rule_satisfied' && rule.includes(r)),
+        ) ?? null;
       if (reason === null) return { condition, state: stopped ? 'unchecked' : 'met', reason: null };
       return { condition, state: HOLD_ONLY.has(reason) ? 'waiting' : 'failed', reason };
     });
