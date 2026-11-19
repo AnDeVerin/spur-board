@@ -255,17 +255,34 @@ describe('inbox no-session item', () => {
   const unnamed =
     'start a session in its Spur project, or take over its turns with board inbox ack';
   const next = '; future thing 3';
+  const withOldest = 'QA; oldest T9 since 2026-11-18T13:06:00.000Z';
+  const withWaiting = 'QA; 3 waiting, no live session for 5 min';
   // The name boundary: stored name, action, the name read (undefined: generic row), and a
   // clause put directly after the stored name, before the known ones.
   it.each([
-    ['a name holding "; " and a named action', 'QA; West', named('QA; West'), 'QA; West', ''],
     ['a plain name and a named action', 'orbit-qa', named('orbit-qa'), 'orbit-qa', ''],
     ['a plain name and an action naming no project', 'orbit-qa', unnamed, 'orbit-qa', ''],
+    ['a plain name and no action', 'orbit-qa', undefined, 'orbit-qa', ''],
+    ['a name holding "; " and a named action', 'QA; West', named('QA; West'), undefined, ''],
     ['a name holding "; " and an action naming no project', 'QA; West', unnamed, undefined, ''],
     ['a name holding "; " and no action', 'QA; West', undefined, undefined, ''],
-    ['a plain name and no action', 'orbit-qa', undefined, 'orbit-qa', ''],
-    ['an action naming another project', 'orbit-qa', named('other'), undefined, ''],
+    [
+      'a name holding an oldest clause and a named action',
+      withOldest,
+      named(withOldest),
+      undefined,
+      '',
+    ],
+    ['a name holding an oldest clause and no action', withOldest, undefined, undefined, ''],
+    [
+      'a name holding a waiting clause and a named action',
+      withWaiting,
+      named(withWaiting),
+      undefined,
+      '',
+    ],
     ['an action naming a prefix of the stored name', 'QA; West', named('QA'), undefined, ''],
+    ['an action naming another project', 'orbit-qa', named('other'), undefined, ''],
     ['a named action and an unknown clause next', 'orbit-qa', named('orbit-qa'), undefined, next],
     ['no action and an unknown clause next', 'orbit-qa', undefined, undefined, next],
   ])('reads the Spur project with %s', async (_, spur, action, expects, after) => {

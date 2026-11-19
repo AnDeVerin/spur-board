@@ -41,14 +41,19 @@ function noSession(entry: Entry, description: string): NoSession | undefined {
   if (entry.kind !== 'board_observation') return undefined;
   const match = NO_SESSION.exec(description);
   if (!match || match[1] !== entry.project) return undefined;
-  // The Spur project name runs to the first known clause, or to the end. It may hold `; `, so
-  // it must equal the name the action gives; with no name there, a `; ` makes it ambiguous.
-  const parts = description.slice(match[0].length).split('; ');
-  const end = parts.findIndex((part, i) => i > 0 && (OLDEST.test(part) || WAITING.test(part)));
-  const clauses = end === -1 ? [] : parts.splice(end);
-  const expects = parts.join('; ');
+  // Structured only when the reading is unambiguous: the name is the text up to the first `; `,
+  // equal to the name the action gives, if any; a known clause comes next; and each known kind
+  // appears once. Anything else, such as a Spur project name holding `; `, is the generic row.
+  const [expects = '', ...clauses] = description.slice(match[0].length).split('; ');
   const named = entry.action === undefined ? undefined : NAMED_ACTION.exec(entry.action)?.[1];
-  if (expects === '' || (named === undefined ? parts.length > 1 : expects !== named))
+  const [next] = clauses;
+  if (
+    expects === '' ||
+    (named !== undefined && named !== expects) ||
+    (next !== undefined && !OLDEST.test(next) && !WAITING.test(next)) ||
+    clauses.filter((clause) => OLDEST.test(clause)).length > 1 ||
+    clauses.filter((clause) => WAITING.test(clause)).length > 1
+  )
     return undefined;
   const found: NoSession = { column: match[2] ?? '', expects };
   // Clauses come in any order; one the web does not know is left out.
