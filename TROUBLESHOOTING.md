@@ -277,9 +277,11 @@ required checks. The Board reads each PR's own base branch the same way on every
 check never blocks and is separate from `github.credentials`. It warns when the branch has no
 branch protection or ruleset, when the rule requires neither an approval nor a code owner review
 (no review rule to follow), when the read fails, for example because the token cannot read the
-rules, or when `GITHUB_TOKEN` is missing. A PR whose base branch rule the token cannot read keeps
-its head undecided in External Review. Add a required approval or code owner review to the
-default branch, give the token read access, or remove `approvalRule` from the column.
+rules, or when `GITHUB_TOKEN` is missing. The check reads only the default branch: a PR whose
+own base branch rule the token cannot read keeps its head undecided in External Review, and the
+task's `--why` shows it as `review_rule_unreadable`, even while this check passes. Add a required
+approval or code owner review to the default branch, give the token read access to the rules of
+every base branch, or remove `approvalRule` from the column.
 
 ### spur.api
 

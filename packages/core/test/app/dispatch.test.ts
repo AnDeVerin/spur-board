@@ -6439,6 +6439,11 @@ describe('approvalRule github-rules', () => {
     },
     'newer shared blocked': { source: 'github:web:o/r', patch: { mergeState: 'blocked' } },
     'newer shared clean': { source: 'github:web:o/r', patch: { mergeState: 'clean' } },
+    'clean with a rule the token could not read': {
+      source: GITHUB,
+      patch: { mergeState: 'clean' },
+      denied: true,
+    },
     'newer shared blocked with a required check rerunning': {
       source: 'github:web:o/r',
       patch: {
@@ -6446,7 +6451,10 @@ describe('approvalRule github-rules', () => {
         requiredChecks: [run('ci', 'success'), run('e2e', 'pending')],
       },
     },
-  } as const satisfies Record<string, { source: string; patch: Partial<PrFacts> }>;
+  } as const satisfies Record<
+    string,
+    { source: string; patch: Partial<PrFacts>; denied?: boolean }
+  >;
   it.each(
     (Object.keys(STORED) as (keyof typeof STORED)[]).flatMap((stored) =>
       (Object.keys(LATEST) as (keyof typeof LATEST)[]).map((latest) => ({ stored, latest })),
@@ -6463,7 +6471,12 @@ describe('approvalRule github-rules', () => {
     expect(await open()).toBe(stored === 'none' ? 1 : 0);
     const { source, patch } = LATEST[latest];
     const own = source === GITHUB;
-    await ctx.rulePr({ ...approved, ...patch }, own ? rule() : undefined, source);
+    const denied = 'denied' in LATEST[latest];
+    await ctx.rulePr(
+      { ...approved, ...patch },
+      own ? rule(denied ? { rule: null } : {}) : undefined,
+      source,
+    );
     // A newer shared read never makes a decision the own source has not stored; its block
     // overrides a stored satisfied one, and a stored block outlasts its clean state.
     const sharedDecision =
@@ -6477,11 +6490,13 @@ describe('approvalRule github-rules', () => {
         ? 'checks_pending'
         : latest === 'blocked with an unresolved thread'
           ? 'unresolved_threads'
-          : sharedDecision === null || stored === 'none'
-            ? 'merge_state_unknown'
-            : sharedDecision === 'blocked' || stored === 'blocked'
-              ? 'review_rule_blocked'
-              : null;
+          : denied
+            ? 'review_rule_unreadable'
+            : sharedDecision === null || stored === 'none'
+              ? 'merge_state_unknown'
+              : sharedDecision === 'blocked' || stored === 'blocked'
+                ? 'review_rule_blocked'
+                : null;
     expect((await externalConditions(ctx))?.at(-1)).toEqual({
       condition: 'review_rule_satisfied',
       state:
@@ -6496,13 +6511,23 @@ describe('approvalRule github-rules', () => {
     // The item names a head with no decision whose gate waits on GitHub alone, while no read of
     // the head carries GitHub's decision; an item open before such a read clears.
     const raised =
-      (gate === 'merge_state_unknown' || gate === 'unresolved_threads') &&
+      (gate === 'merge_state_unknown' ||
+        gate === 'unresolved_threads' ||
+        gate === 'review_rule_unreadable') &&
       sharedDecision === null &&
       (stored === 'none' || (own && latest !== 'unknown'));
     ctx.wait(HALF_HOUR);
     await ctx.tick();
     expect(await open()).toBe(raised ? 1 : 0);
-    expect(await ruleItems(ctx)).toHaveLength(raised || stored === 'none' ? 1 : 0);
+    const items = await ruleItems(ctx);
+    expect(items).toHaveLength(raised || stored === 'none' ? 1 : 0);
+    // A head first raised as undecided keeps its text; a new stretch names the unreadable rule.
+    if (raised)
+      expect(items[0]?.text).toContain(
+        denied && stored !== 'none'
+          ? 'The GitHub review rule for the base branch of o/r#7 could not be read'
+          : 'GitHub has not decided the review rule of o/r#7',
+      );
   });
 
   it('waits on GitHub until the first full read of the head and drops the decision on a new head', async () => {
@@ -6538,9 +6563,9 @@ describe('approvalRule github-rules', () => {
     expect((await ctx.task()).column).toBe('external-review');
     expect((await ctx.why()).waiting).toEqual([
       {
-        reason: 'merge_state_unknown',
+        reason: 'review_rule_unreadable',
         head: A,
-        text: 'GitHub has not computed the merge state yet',
+        text: 'the GitHub review rule for the base branch could not be read',
       },
     ]);
     const [row] = await ruleRows(ctx);

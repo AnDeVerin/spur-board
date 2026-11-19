@@ -70,6 +70,7 @@ describe('generated public references', () => {
       '| `review_rule_blocked` | `merge blocked by the GitHub review rule` |',
       '| `changes_requested` | `changes requested` |',
       '| `merge_state_unknown` | `GitHub has not computed the merge state yet` |',
+      '| `review_rule_unreadable` | `the GitHub review rule for the base branch could not be read` |',
     ])
       expect(rows).toContain(row);
   });

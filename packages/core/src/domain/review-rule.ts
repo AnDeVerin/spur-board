@@ -13,8 +13,9 @@ import { VERDICT, type TaskGateFacts } from './gates.ts';
  * - `unresolved_threads`: the merge is blocked while review threads stay unresolved.
  * - `blocked`: the merge is blocked with every thread resolved and every required check
  *   completed, so the rule itself holds it.
- * - `undecided`: any other merge state, behind included, or a rule the token could not read
- *   (null), on which the read decides nothing.
+ * - `unreadable`: the token could not read the base branch's rule (null), so the read decides
+ *   nothing.
+ * - `undecided`: any other merge state, behind included, on which the read decides nothing.
  */
 export type ReviewRuleVerdict =
   | 'keep'
@@ -24,6 +25,7 @@ export type ReviewRuleVerdict =
   | 'satisfied'
   | 'unresolved_threads'
   | 'blocked'
+  | 'unreadable'
   | 'undecided';
 
 type RulePr = Pick<PrFacts, 'draft' | 'mergeable' | 'mergeState' | 'requiredChecks' | 'checks'>;
@@ -82,7 +84,8 @@ export function reviewRuleVerdict(
     return 'satisfied';
   // A required check still pending may be what holds the merge, so CI holds the head.
   if (checks === 'pending') return 'checks_pending';
-  if (rule === null || pr.mergeState !== 'blocked') return 'undecided';
+  if (rule === null) return 'unreadable';
+  if (pr.mergeState !== 'blocked') return 'undecided';
   return unresolvedThreads > 0 ? 'unresolved_threads' : 'blocked';
 }
 
@@ -101,7 +104,12 @@ export function ruleDecision(
   stored: 'satisfied' | 'blocked' | null,
 ): ReviewRuleDecision {
   if (verdict === 'keep') return checks === 'done' ? 'undecided' : 'checks_pending';
-  if (verdict === 'checks_pending' || verdict === 'unresolved_threads' || verdict === 'undecided')
+  if (
+    verdict === 'checks_pending' ||
+    verdict === 'unresolved_threads' ||
+    verdict === 'unreadable' ||
+    verdict === 'undecided'
+  )
     return verdict;
   if (verdict === 'dev' || verdict === 'changes_requested' || stored === null) return 'undecided';
   return verdict === 'blocked' ? 'blocked' : stored;
@@ -109,7 +117,8 @@ export function ruleDecision(
 
 /**
  * Whether the head waits on GitHub alone, which the 30-minute item reports: no changes requested
- * and the gate reads `undecided` or unresolved threads under a blocked merge.
+ * and the gate reads `undecided`, a rule the token could not read, or unresolved threads under a
+ * blocked merge.
  */
 export function waitsOnGitHub(gate: {
   changesRequested: boolean;
@@ -117,7 +126,9 @@ export function waitsOnGitHub(gate: {
 }): boolean {
   return (
     !gate.changesRequested &&
-    (gate.decision === 'undecided' || gate.decision === 'unresolved_threads')
+    (gate.decision === 'undecided' ||
+      gate.decision === 'unreadable' ||
+      gate.decision === 'unresolved_threads')
   );
 }
 

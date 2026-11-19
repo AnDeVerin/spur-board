@@ -285,15 +285,17 @@ describe('reviewRuleVerdict', () => {
     const verdict = (patch: Partial<PrFacts>, changes = false) =>
       reviewRuleVerdict(pr(patch), null, changes, 0);
     for (const mergeState of ['clean', 'blocked', 'behind'] as const)
-      expect(verdict({ mergeState })).toBe('undecided');
-    expect(verdict({ requiredChecks: [], checks: [] })).toBe('undecided');
+      expect(verdict({ mergeState })).toBe('unreadable');
+    expect(verdict({ requiredChecks: [], checks: [] })).toBe('unreadable');
     expect(verdict({ mergeState: 'unknown' })).toBe('keep');
     expect(verdict({ draft: true, mergeState: 'draft' })).toBe('dev');
     expect(verdict({ requiredChecks: [{ name: 'ci', state: 'pending', completedAt: null }] })).toBe(
       'checks_pending',
     );
     expect(verdict({ mergeState: 'blocked' }, true)).toBe('changes_requested');
-    expect(onClock('undecided', 'done', null, false)).toBe(true);
+    expect(onClock('unreadable', 'done', null, false)).toBe(true);
+    expect(ruleDecision('unreadable', 'done', null)).toBe('unreadable');
+    expect(storedDecision('unreadable', 'satisfied')).toBeNull();
   });
 
   it('a stored decision stops the clock; the gate reads a block over a stored satisfied one', () => {

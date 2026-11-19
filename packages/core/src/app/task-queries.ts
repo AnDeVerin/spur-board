@@ -38,6 +38,7 @@ const WAITING_FOR: Record<HoldOnlyReason, string> = {
   mergeable_unknown: 'waiting for GitHub to compute mergeability',
   comment_history_incomplete: 'waiting for the board to read the full PR comment history',
   merge_state_unknown: 'GitHub has not computed the merge state yet',
+  review_rule_unreadable: 'the GitHub review rule for the base branch could not be read',
 };
 
 /** The review rule waits of `approvalRule: github-rules` that are not hold-only, as `--why` names them. */
@@ -170,7 +171,7 @@ export function createTaskQueries(deps: {
     const waitText = (reason: HoldOnlyReason, sha: string) =>
       reason === 'checks_pending' && checksGate !== 'dev'
         ? `checks running, exit from ${checksGate} waits for green`
-        : reason === 'merge_state_unknown'
+        : reason === 'merge_state_unknown' || reason === 'review_rule_unreadable'
           ? WAITING_FOR[reason]
           : `${WAITING_FOR[reason]} on ${sha}`;
     const waiting =

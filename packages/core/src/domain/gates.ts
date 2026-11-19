@@ -40,7 +40,13 @@ export interface TaskGateFacts {
   reviewRule?: {
     approved: boolean;
     changesRequested: boolean;
-    decision: 'satisfied' | 'blocked' | 'checks_pending' | 'unresolved_threads' | 'undecided';
+    decision:
+      | 'satisfied'
+      | 'blocked'
+      | 'checks_pending'
+      | 'unresolved_threads'
+      | 'unreadable'
+      | 'undecided';
   };
   /** Whether the external comment history was read to the end. */
   commentHistory: 'complete' | 'incomplete';
@@ -80,6 +86,7 @@ const HOLD_ONLY_REASONS = [
   'checks_pending',
   'comment_history_incomplete',
   'merge_state_unknown',
+  'review_rule_unreadable',
 ] as const satisfies readonly GateReason[];
 
 /** A gate reason that holds dispatch without failing the gate. */
@@ -93,11 +100,11 @@ export const HOLD_ONLY: ReadonlySet<GateReason> = new Set(HOLD_ONLY_REASONS);
  *
  * The caller rule: when `column` is the column asked for, the task waits there. When `column` is
  * left of it, the task returns there only if `reasons` holds a reason other than
- * `mergeable_unknown`, `checks_pending`, `comment_history_incomplete` or `merge_state_unknown`;
- * with only those, it waits in its column. These four are hold-only: they mean a fact is not known
- * yet (GitHub has not computed mergeability, the checks on head have not finished, the comment
- * history was not read to the end, or GitHub has not decided its review rule on the head), and
- * waiting resolves them.
+ * `mergeable_unknown`, `checks_pending`, `comment_history_incomplete`, `merge_state_unknown` or
+ * `review_rule_unreadable`; with only those, it waits in its column. These five are hold-only: they
+ * mean a fact is not known yet (GitHub has not computed mergeability, the checks on head have not
+ * finished, the comment history was not read to the end, GitHub has not decided its review rule
+ * on the head, or the token could not read the base branch's rule), and waiting resolves them.
  *
  * `checksWaivedBy` names the config key that passed Dev's check condition: it is present exactly
  * when Dev was evaluated and its check condition passed only because the PR's repo is in
@@ -347,6 +354,7 @@ const RULE_REASONS = {
   blocked: ['review_rule_blocked'],
   checks_pending: ['checks_pending'],
   unresolved_threads: ['unresolved_threads'],
+  unreadable: ['review_rule_unreadable'],
   undecided: ['merge_state_unknown'],
 } as const satisfies Record<
   NonNullable<TaskGateFacts['reviewRule']>['decision'],
@@ -486,6 +494,7 @@ const CONDITION_OF = {
   changes_requested: 'approved',
   review_rule_blocked: 'review_rule_satisfied',
   merge_state_unknown: 'review_rule_satisfied',
+  review_rule_unreadable: 'review_rule_satisfied',
   not_merged: 'merged',
 } as const satisfies Record<GateReason, GateCondition>;
 

@@ -876,7 +876,7 @@ describe('snapshot', () => {
     // Manual moves extend task.move, move views, schema metadata and the error catalog. #733 adds
     // the review-rule gate reasons and condition to task.get --why.
     expect(await catalogVersion(baseline)).toBe(
-      'e9c3e21fdf6259976dac0b0bd4643c81dcb84c89420e1f64cc2d64a13f97becf',
+      '0a63c263b8e59ed3f2a8c47471da20fccf25554dbfe01544705bbdb47224cf70',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

@@ -214,7 +214,11 @@ export async function reviewRuleItems(
     const ref = `${pr.repo.toLowerCase()}#${String(pr.number)}`;
     let raised = row.raised;
     if (raised === null) {
-      raised = `GitHub has not decided the review rule of ${ref} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;
+      const what =
+        gate.decision === 'unreadable'
+          ? `The GitHub review rule for the base branch of ${ref} could not be read`
+          : `GitHub has not decided the review rule of ${ref}`;
+      raised = `${what} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;
       const value = toJson(storedSchema, { ...row, raised });
       await trx.updateTable('meta').set({ value }).where('key', '=', key).execute();
     }
