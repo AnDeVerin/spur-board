@@ -873,10 +873,12 @@ describe('snapshot', () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
-    // Manual moves extend task.move, move views, schema metadata and the error catalog; the
-    // external_round kind extends the task.history event kinds.
+    // Manual moves extend task.move, move views, schema metadata and the error catalog. #761
+    // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
+    // and board-wide project, sources and services texts to status.get; the external_round kind
+    // extends the task.history event kinds.
     expect(await catalogVersion(baseline)).toBe(
-      '58422e1afcb3c235a1909765d034cc6e906f80b4906e70c7964f805bc3123e23',
+      '5cdd45b9c04911a7c1afee0027fd27d0bf2939aa9f10e817b906c1852da8e86c',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

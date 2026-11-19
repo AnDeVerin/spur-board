@@ -164,7 +164,9 @@ describe('status bar', () => {
     expect(panel().getAttribute('aria-labelledby')).toBeTruthy();
     expect(
       [...panel().querySelectorAll('[data-box]')].map((item) => item.getAttribute('data-box')),
-    ).toEqual(['daemon', 'host', 'slack', PR, ISSUES, 'spur', 'jira:a']);
+    ).toEqual(['daemon', 'host', 'slack', 'spur', PR, ISSUES, 'jira:a']);
+    // A one-project board still heads its sources with the project id.
+    expect([...panel().querySelectorAll('h2')].map((item) => item.textContent)).toEqual(['a']);
     expect(rowsOf(box('daemon'))).toEqual([
       ['Version', '9.8.7-rc.1'],
       ['Started', T_TEXT],

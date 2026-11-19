@@ -8,6 +8,7 @@ import {
   hostRows,
   indicators,
   panelBoxes,
+  scrollTarget,
   sourceRows,
   type PanelRow,
 } from '../src/board/services.ts';
@@ -111,7 +112,7 @@ describe('status bar indicators', () => {
     });
     expect(boxes.find((item) => item.id === PR)?.health).toEqual({ tone: 'ok', word: 'polling' });
 
-    const budget = status(undefined, [polled(PR), polled(ISSUES)], {
+    const budget = status(undefined, [polled(PR, { waitsForBudget: true }), polled(ISSUES)], {
       services: [service('github', 'degraded', { reason: `${PR} waits for its rate budget` })],
     });
     const [, , waiting] = indicators(snap(budget), time);
@@ -212,6 +213,159 @@ describe('services panel rows', () => {
     ]);
     const noBudget = first(parse(status(undefined, [polled('jira:a')])).sources);
     expect(texts(sourceRows(noBudget, time)).at(-1)).toEqual(['Budget', '—']);
+  });
+
+  it('groups source boxes by project after the shared boxes', () => {
+    const boxes = panelBoxes(
+      snap(
+        status(
+          undefined,
+          [
+            polled('spur'),
+            polled('jira:a'),
+            polled('github:a:ex/repo'),
+            polled('github-issues:b:ex/other'),
+            polled('github:b:ex/other'),
+            polled('github:b:ex/third'),
+          ],
+          { services: [...HEALTHY, service('jira', 'healthy')], transport: [SLACK_UP] },
+        ),
+      ),
+      time,
+    );
+    expect(boxes.map((box) => box.id)).toEqual([
+      'daemon',
+      'host',
+      'slack',
+      'spur',
+      'github:a:ex/repo',
+      'jira:a',
+      'github:b:ex/other',
+      'github:b:ex/third',
+      'github-issues:b:ex/other',
+    ]);
+    expect(boxes.map((box) => box.project)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      'a',
+      'a',
+      'b',
+      'b',
+      'b',
+    ]);
+    expect(boxes.slice(4).map((box) => box.name)).toEqual([
+      'github pull requests',
+      'jira',
+      'github pull requests · ex/other',
+      'github pull requests · ex/third',
+      'github issues',
+    ]);
+  });
+
+  describe('scrolls a service button to its worst box', () => {
+    const ok = polled('github:a:ex/repo');
+    const stale = polled('github:b:ex/other', { stale: true });
+    const blind = polled('github:b:ex/third', { blindReason: 'auth' });
+    const budget = { remaining: 10, limit: 5000, resetAt: '2026-11-15T15:00:00.000Z' };
+    const waiting = (name: string) => polled(name, { budget, waitsForBudget: true });
+    const github = (state: 'healthy' | 'degraded' | 'failing', reason?: string) => [
+      ...HEALTHY.filter((row) => row.service !== 'github'),
+      service('github', state, reason === undefined ? {} : { reason }),
+    ];
+    const WAIT = 'waits for rate budget';
+    // `sources` in status.get order; `words` maps each source box to its head tone and word.
+    it.each([
+      {
+        when: 'a box is failing',
+        name: 'jira' as const,
+        sources: [polled('jira:a'), polled('jira:b', { blindReason: 'auth' })],
+        services: [...HEALTHY, service('jira', 'failing', { reason: 'jira:b blind (auth)' })],
+        expected: 'jira:b',
+        words: { 'jira:a': 'ok polling', 'jira:b': 'error blind: auth' },
+      },
+      {
+        when: 'a failing box beats an earlier degraded one',
+        name: 'github' as const,
+        sources: [ok, stale, blind],
+        services: github('failing', 'github:b:ex/third blind (auth)'),
+        expected: 'github:b:ex/third',
+        words: {
+          'github:a:ex/repo': 'ok polling',
+          'github:b:ex/other': 'warn stale',
+          'github:b:ex/third': 'error blind: auth',
+        },
+      },
+      {
+        when: 'one source of a later project waits for its rate budget',
+        name: 'github' as const,
+        sources: [ok, waiting('github:b:ex/other'), polled('github:b:ex/third')],
+        services: github('degraded', 'github:b:ex/other waits for its rate budget'),
+        expected: 'github:b:ex/other',
+        words: {
+          'github:a:ex/repo': 'ok polling',
+          'github:b:ex/other': `warn ${WAIT}`,
+          'github:b:ex/third': 'ok polling',
+        },
+      },
+      {
+        when: 'sources of two projects wait for their rate budget',
+        name: 'github' as const,
+        sources: [waiting('github:a:ex/repo'), waiting('github:b:ex/other')],
+        services: github('degraded', 'github:a:ex/repo waits for its rate budget'),
+        expected: 'github:a:ex/repo',
+        words: { 'github:a:ex/repo': `warn ${WAIT}`, 'github:b:ex/other': `warn ${WAIT}` },
+      },
+      {
+        // The first poll after a restart was incomplete and under the reserve.
+        when: 'a source waits for its rate budget before its first complete poll',
+        name: 'github' as const,
+        sources: [
+          polled('github:a:ex/repo', {
+            budget,
+            waitsForBudget: true,
+            warmingUp: true,
+            lastCompleteAt: null,
+          }),
+        ],
+        services: github('degraded', 'github:a:ex/repo waits for its rate budget'),
+        expected: 'github:a:ex/repo',
+        words: { 'github:a:ex/repo': `warn ${WAIT}` },
+      },
+      {
+        // Core lists the issues tracker before the repos and blames it; the panel shows PRs first.
+        when: 'the issues source waits for its rate budget and the PR source is stale',
+        name: 'github' as const,
+        sources: [waiting('github-issues:b:ex/other'), stale],
+        services: github('degraded', 'github-issues:b:ex/other waits for its rate budget'),
+        expected: 'github-issues:b:ex/other',
+        words: { 'github:b:ex/other': 'warn stale', 'github-issues:b:ex/other': `warn ${WAIT}` },
+      },
+      {
+        when: 'all boxes are healthy',
+        name: 'github' as const,
+        sources: [polled('github-issues:a:ex/repo'), ok, polled('github:b:ex/other')],
+        services: github('healthy'),
+        expected: 'github:a:ex/repo',
+        words: {
+          'github:a:ex/repo': 'ok polling',
+          'github-issues:a:ex/repo': 'ok polling',
+          'github:b:ex/other': 'ok polling',
+        },
+      },
+    ])('$when', ({ name, sources, services, expected, words }) => {
+      const snapshot = snap(status(undefined, [polled('spur'), ...sources], { services }));
+      const boxes = panelBoxes(snapshot, time);
+      const own = boxes.filter((box) => box.service === name);
+      expect(
+        Object.fromEntries(
+          own.map((box) => [box.id, [box.health?.tone, box.health?.word].join(' ')]),
+        ),
+      ).toEqual(words);
+      const order = snapshot.status?.sources.map((entry) => entry.source);
+      expect(scrollTarget(boxes, name, order)).toBe(expected);
+    });
   });
 
   it('maps gateway, daemon and host fields to rows', () => {
