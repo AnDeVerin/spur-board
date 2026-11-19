@@ -42,18 +42,20 @@ Step numbers are the Loop steps in `references/gates.md`.
   `ci-ok: FAIL`; otherwise wait for the next notification. `ci:status` neither counts ci-ok nor
   prints its log, `--log-failed` prints nothing for an unfinished run, and on a PR edit ci-ok also
   carries the reused code run's failures.
-  Otherwise, when `git diff --no-renames --name-only <verdict head>..HEAD` (as CI) has a path
-  under `packages/web/` outside `test/`, `gallery/` and `kit/`; `docs/design-system-decisions.md`;
-  or, for an issue naming `design/prototypes/<slice>/`, that folder or the step 11 pairs file ->
-  each runs in step order from a worktree at HEAD, once per gate per task, outside its cap:
+  Otherwise, per gate, `<passed head>` is the head of its last tester PASS or designer APPROVED,
+  never a FAIL or CHANGES_REQUESTED head. No passed head, or
+  `git diff --no-renames --name-only <passed head>..HEAD` (as CI) has a path under
+  `packages/web/` outside `test/`, `gallery/` and `kit/`; `docs/design-system-decisions.md`; or,
+  for an issue naming `design/prototypes/<slice>/`, that folder or the step 11 pairs file -> that
+  gate runs, in step order, from a worktree at HEAD, once per gate per task, outside its cap:
   `<verdict> on <sha> (final head)`.
   FAIL or CHANGES_REQUESTED -> `developer`; reruns count toward the cap, recorded after the
   `(final head)` record; at it, Testing: `Missing: <gate> - verdict older than <sha>`. No such
-  path -> Testing: `no UI change since <verdict head>`.
+  path -> Testing: `no UI change since <passed head>`; never without a passed head.
 - After a final-head run with tester PASS or designer APPROVED, and after each
   `no UI change since`, write that head into the PR body's `## Acceptance gates` (`gitflow`);
   after FAIL or CHANGES_REQUESTED keep the gate's last passed head. `n/a` only for a gate this
-  task does not use; an applicable gate that never passed keeps the template placeholder, not
+  task does not use; an applicable gate with no passed head keeps the template placeholder, not
   `n/a`: CI stays red, Testing names it under Missing, and a human decides. The cap never
   excuses the final-head run; CI acceptance-gates stays red until each gate's SHA has no UI diff
   to the PR head. CI counts only the base paths above (`isUiPath`, `scripts/acceptance-gates.ts`;
