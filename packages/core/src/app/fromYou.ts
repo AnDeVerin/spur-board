@@ -634,23 +634,6 @@ export async function reconcileItems(
     else if (!closure.held && taskPrs[String(task.id)]?.hasMergedPr === false)
       candidates.push(closure.item);
   }
-  if (liftHeld.size > 0) {
-    const shown = await trx
-      .selectFrom('operator_item')
-      .select('item_key')
-      .where('item_key', 'like', 'health:%')
-      .where('cleared_at', 'is', null)
-      .execute();
-    heldKeys.push(
-      ...shown
-        .map((item) => item.item_key)
-        .filter((key) => {
-          const parts = key.split(':');
-          const kind = parts.at(-1) as SessionHealthFlagKind;
-          return liftHeld.has(Number(parts[1])) && ENDED_WORKER_LABELS[kind] !== undefined;
-        }),
-    );
-  }
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
     const project = config.projects.find((entry) => entry.id === task.project);
@@ -892,6 +875,27 @@ export async function reconcileItems(
     now,
     episode: previousEpisode === undefined ? null : parseJson(episodeSchema, previousEpisode.value),
   });
+  // While a held pr-closed item keeps the merged PR suppressing, the ended-worker items the task
+  // would show without that suppression hold as they are; health decides the other conditions.
+  if (liftHeld.size > 0) {
+    const lifted = evaluateSessionHealth({
+      sessions: subjects,
+      tasks: Object.fromEntries(
+        Object.entries(taskPrs).map(([id, state]) => [
+          id,
+          liftHeld.has(Number(id)) ? { ...state, hasMergedPr: false } : state,
+        ]),
+      ),
+      spur: { blind: spurBlind, observationComplete: spurComplete },
+      config: config.health,
+      now,
+      episode:
+        previousEpisode === undefined ? null : parseJson(episodeSchema, previousEpisode.value),
+    });
+    for (const flag of [...lifted.flags, ...lifted.held])
+      if (liftHeld.has(Number(flag.taskId)) && ENDED_WORKER_LABELS[flag.kind] !== undefined)
+        heldKeys.push(healthKey(Number(flag.taskId), flag));
+  }
   await trx
     .insertInto('meta')
     .values({ key: 'host_load_episode', value: toJson(episodeSchema, health.episode) })

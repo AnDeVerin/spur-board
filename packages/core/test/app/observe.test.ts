@@ -4050,6 +4050,7 @@ describe('anomaly blocks', () => {
       closeHeld: followUpOpen,
       closeFresh: followUpOpen,
       blindAfterRaised: followUpOpen,
+      blindThenLiveWorker: followUpOpen,
       blindAfterDismissed: followUpOpen,
       /** #7 closed, #8 linked and merged, then #7 reopened as the only open PR and closed again. */
       reopenedClosed: async (b: Board) => {
@@ -4109,6 +4110,17 @@ describe('anomaly blocks', () => {
         now += 1_000;
         await blindGithub(b);
       },
+      // A new live worker during the outage ends the worker-end alert; the pr-closed one holds.
+      blindThenLiveWorker: async (b, last, ticket) => {
+        await finals.blindAfterRaised?.(b, last, ticket);
+        const { detail } = await b.store.db
+          .selectFrom('session_snapshot')
+          .select('detail')
+          .where('id', '=', 'worker-1')
+          .executeTakeFirstOrThrow();
+        now += 1_000;
+        await spur(b, [JSON.parse(detail) as SessionFacts, session('worker-2', 'working')]);
+      },
       blindAfterDismissed: async (b, last, ticket) => {
         await finals.closeFresh?.(b, last, ticket);
         const item = await b.store.db
@@ -4162,6 +4174,7 @@ describe('anomaly blocks', () => {
       ['closeHeld', 'untouched', [], null, UNCONFIRMED],
       ['closeFresh', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['blindAfterRaised', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      ['blindThenLiveWorker', 'untouched', ['pr-closed'], null, UNCONFIRMED],
       [
         'legacyMerged',
         'changed',
