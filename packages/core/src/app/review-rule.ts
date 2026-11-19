@@ -15,6 +15,7 @@ import {
   changesRequested,
   externalReviews,
   onClock,
+  requiredCheckCompleted,
   reviewRuleVerdict,
   type ReviewRuleVerdict,
 } from '../domain/review-rule.ts';
@@ -34,7 +35,10 @@ const storedSchema = z.strictObject({
   decision: z.enum(['satisfied', 'blocked']).nullable(),
   reviewDecision: prReviewRuleSchema.shape.reviewDecision,
   rule: prReviewRuleSchema.shape.rule,
-  /** When this head's undecided GitHub answer started; null while it has a decision or a reason. */
+  /**
+   * When this head's undecided GitHub answer started: no decision, or a merge state GitHub has
+   * not computed with a required check completed. Null while the read names someone to act.
+   */
   undecidedSince: z.iso.datetime().nullable(),
   /** The item summary, frozen at the first reconcile 30 minutes after `undecidedSince`. */
   raised: z.string().nullable(),
@@ -78,7 +82,8 @@ function verdictOf(pr: PrFacts, reviewRule: PrReviewRule, requested: boolean): R
  * Records one full read's review rule for a github-rules project's source. A PR that is not open
  * drops its row; an item without a review rule (facts reused from an earlier read) says nothing
  * new. A new head starts without a decision; `keep` (GitHub has not computed the merge state)
- * keeps the stored one. Returns true when the decision, GitHub's verdict or the rule changed.
+ * keeps the stored one and runs the 30-minute clock once a required check has completed, as the
+ * gate then waits on GitHub. Returns true when the decision, GitHub's verdict or the rule changed.
  */
 export async function recordReviewRule(
   trx: Trx,
@@ -106,7 +111,7 @@ export async function recordReviewRule(
       : verdict === 'satisfied' || verdict === 'blocked'
         ? verdict
         : null;
-  const clock = decision === null && onClock(verdict);
+  const clock = onClock(verdict) && requiredCheckCompleted(fact, reviewRule.rule);
   const next: Stored = {
     headSha: fact.headSha.toLowerCase(),
     decision,
@@ -132,6 +137,8 @@ export async function recordReviewRule(
 /**
  * What External Review reads under github-rules: the stored row of the project's own source on
  * the current head with the PR's facts. Without a row on the head GitHub's answer is undecided.
+ * While the merge state is unknown the stored decision does not count: the task waits on a
+ * running required check or on GitHub, which holds it without returning it.
  */
 export async function storedReviewRule(
   trx: Trx,
@@ -145,11 +152,15 @@ export async function storedReviewRule(
   if (row === null) return { approved, changesRequested: requested, decision: 'undecided' };
   const verdict = verdictOf(pr, row, requested);
   const decision =
-    verdict === 'checks_pending' || verdict === 'unresolved_threads' || verdict === 'undecided'
-      ? verdict
-      : verdict === 'dev' || verdict === 'changes_requested'
+    verdict === 'keep'
+      ? requiredCheckCompleted(pr, row.rule)
         ? 'undecided'
-        : (row.decision ?? 'undecided');
+        : 'checks_pending'
+      : verdict === 'checks_pending' || verdict === 'unresolved_threads' || verdict === 'undecided'
+        ? verdict
+        : verdict === 'dev' || verdict === 'changes_requested'
+          ? 'undecided'
+          : (row.decision ?? 'undecided');
   return { approved, changesRequested: requested, decision };
 }
 
