@@ -24,17 +24,21 @@ export function classifyHttpFailure(failure: HttpFailure, now: number): AdapterE
 
 /**
  * Classifies a failed response with its body. When the body read fails, a rate limit that the
- * status and headers show is still `throttled`; any other failure rethrows the read error.
+ * status and headers show is still `throttled`; any other failure, and any read failure after
+ * `signal` (the caller's) aborted, rethrows the read error.
  */
 export async function classifyResponseFailure(
   response: Response,
   now: number,
+  signal?: AbortSignal,
 ): Promise<AdapterError> {
   const { status, headers } = response;
   let body: string;
   try {
     body = await response.text();
   } catch (error) {
+    // A caller abort keeps its own reason, so withTimeout passes it through.
+    if (signal?.aborted) throw error;
     const failure = classifyHttpFailure({ status, headers }, now);
     // GitHub can name a secondary rate limit only in the body, so only a rate limit the headers
     // show is classified without it.

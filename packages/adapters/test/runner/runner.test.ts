@@ -605,7 +605,8 @@ describe('http failure classification', () => {
   ] as const)(
     'keeps a 429 %s throttled when the request timer ends its body read',
     async (_, headers, retryAt) => {
-      const result = withTimeout(new AbortController().signal, 'timed out', async (signal) => {
+      const caller = new AbortController();
+      const result = withTimeout(caller.signal, 'timed out', async (signal) => {
         const response = new Response(
           new ReadableStream({
             start(controller) {
@@ -616,7 +617,7 @@ describe('http failure classification', () => {
           }),
           { status: 429, headers },
         );
-        throw await classifyResponseFailure(response, now);
+        throw await classifyResponseFailure(response, now, caller.signal);
       });
       const settled = result.then(
         () => undefined,
@@ -629,6 +630,30 @@ describe('http failure classification', () => {
       expect(error instanceof AdapterError ? error.retryAt?.getTime() : undefined).toBe(retryAt);
     },
   );
+
+  it('rethrows a caller abort during a 429 body read with its reason, not a throttle', async () => {
+    const caller = new AbortController();
+    const reason = new Error('stop');
+    const result = withTimeout(caller.signal, 'timed out', async (signal) => {
+      const response = new Response(
+        new ReadableStream({
+          start(controller) {
+            signal.addEventListener('abort', () => {
+              controller.error(signal.reason);
+            });
+          },
+        }),
+        { status: 429, headers: { 'retry-after': '60' } },
+      );
+      throw await classifyResponseFailure(response, now, caller.signal);
+    });
+    const settled = result.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    caller.abort(reason);
+    expect(await settled).toBe(reason);
+  });
 
   it('reads the body of a failed response that reads fine', async () => {
     const error = await classifyResponseFailure(

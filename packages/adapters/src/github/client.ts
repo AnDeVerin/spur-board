@@ -226,7 +226,7 @@ export class GithubClient {
           if (timed.aborted) throw cause;
           throw new AdapterError('transient', 'GitHub request failed', { cause });
         }
-        if (!response.ok) throw await classifyResponseFailure(response, this.now());
+        if (!response.ok) throw await classifyResponseFailure(response, this.now(), signal);
         let body: unknown;
         try {
           body = await response.json();

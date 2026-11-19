@@ -138,7 +138,7 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
       }
       budget = restBudget(response.headers) ?? budget;
       if (!response.ok) {
-        const failure = await classifyResponseFailure(response, options.now());
+        const failure = await classifyResponseFailure(response, options.now(), signal);
         throw new GithubIssuesHttpError(response.status, failure);
       }
       let value: unknown;
