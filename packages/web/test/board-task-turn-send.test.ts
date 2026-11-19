@@ -287,35 +287,97 @@ describe('Turn section focus', () => {
 
   const HOLD =
     'You hold T5; the orchestrator cannot submit or return it until you finish or it takes the turn back.';
+  const STALE = 'Could not refresh the turn. Reload to see who holds it.';
+  const held = orchestratorTaskGet({ taken: { by: 'operator', at: AT } });
+  const closedBy = (column: string) =>
+    orchestratorTaskGet(
+      {},
+      {
+        task: { ...taskGet().task, column },
+        turn: null,
+        turns: [closedTurn('submitted')],
+      },
+    );
+  // Write outcome x the read after it. A failed read stops every claim of who holds the turn and
+  // disables the sends; a refused take writes nothing, so no read follows it.
   it.each([
-    ['the read after a landed ack and a refused close fails', 'none', 'T5 · you hold it'],
-    ['a resend after that answers not_turn_taker', 'resend', 'T5 · not taken'],
-    ['a read after that shows the orchestrator took it back', 'read', 'T5 · taken by rev-1'],
+    // [write, read, read after, shows, header, holder shown, hold line, plain line, send disabled]
+    [
+      'take ok, close refused',
+      'answers',
+      held,
+      'taken by you',
+      'T5 · refused, you hold it',
+      true,
+      true,
+      false,
+      false,
+    ],
+    [
+      'take ok, close refused',
+      'fails',
+      'fail',
+      undefined,
+      'T5 · could not refresh',
+      false,
+      false,
+      true,
+      true,
+    ],
+    ['take refused', 'answers', held, 'not taken', 'T5 · refused', false, false, false, false],
+    ['take refused', 'fails', 'fail', 'not taken', 'T5 · refused', false, false, false, false],
+    [
+      'close ok',
+      'answers',
+      closedBy('qa'),
+      'T5 submitted. The task is in qa.',
+      'T5 submitted',
+      false,
+      false,
+      false,
+      null,
+    ],
+    [
+      'close ok',
+      'fails',
+      'fail',
+      'T5 submitted. The task is in review.',
+      'T5 submitted',
+      false,
+      false,
+      false,
+      null,
+    ],
+    [
+      'turn_closed',
+      'answers',
+      closedBy('qa'),
+      'T5 was closed by qa / qa-1',
+      'T5 closed by qa-1',
+      false,
+      false,
+      false,
+      true,
+    ],
+    ['turn_closed', 'fails', 'fail', 'T5 was closed', 'T5 closed', false, false, false, true],
   ] as const)(
-    'shows the holder from the ack when %s, also after Cancel',
-    async (_, then, folded) => {
+    'after %s and a read that %s, claims the holder only from a read',
+    async (write, _, after, shows, header, holder, hold, plain, sendOff) => {
       const { d } = await open();
-      d.routes['task.submit'] = () => problem('head_mismatch', 409);
-      d.routes['task.get'] = failure;
+      if (write === 'take refused') d.routes['inbox.ack'] = () => problem('forbidden', 403);
+      if (write === 'take ok, close refused')
+        d.routes['task.submit'] = () => problem('head_mismatch', 409);
+      if (write === 'turn_closed') d.routes['task.submit'] = () => problem('turn_closed', 409);
+      d.routes['task.get'] = after === 'fail' ? failure : () => Promise.resolve(envelope(after));
       await click('Submit…');
       await send();
-      if (then === 'resend') {
-        // Someone took the turn back: the unchanged resend is refused, and the hold goes.
-        d.routes['task.submit'] = () => problem('not_turn_taker', 403);
-        await send();
-      }
-      if (then === 'read')
-        await reread(
-          d,
-          orchestratorTaskGet({ taken: { by: 'agent:rev/rev-1', at: '2026-11-15T13:30:00.000Z' } }),
-        );
-      const held = then === 'none';
-      const holds = () => [text().includes('taken by you'), text().includes(HOLD)];
-      expect(holds()).toEqual([held, held]);
-      expect(summary()).toBe(held ? 'T5 · refused, you hold it' : 'T5 · refused');
-      await click('Cancel');
-      expect(holds()).toEqual([held, held]);
-      expect(summary()).toBe(folded);
+      if (shows !== undefined) expect(text()).toContain(shows);
+      expect(summary()).toBe(header);
+      expect(text().includes('taken by you')).toBe(holder);
+      expect(text().includes(HOLD)).toBe(hold);
+      expect(text().includes(STALE)).toBe(plain);
+      const primary = turnSection().querySelector<HTMLButtonElement>('form button[type="submit"]');
+      expect(primary === null ? null : primary.disabled).toBe(sendOff);
     },
   );
 

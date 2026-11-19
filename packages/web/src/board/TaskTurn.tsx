@@ -34,9 +34,8 @@ import {
   shaError,
   submitConfirmation,
   UNAVAILABLE,
+  STALE,
   type Basis,
-  type OwnHold,
-  withOwnHold,
 } from './turn-model.ts';
 import styles from './TaskTurn.module.css';
 
@@ -72,7 +71,6 @@ export function TaskTurn({
   unavailable,
   submitTurnIntent,
   returnTurnIntent,
-  refreshTask,
 }: {
   value: BoardTask;
   /** The key the task view opened, which its writes are bound to. */
@@ -85,7 +83,6 @@ export function TaskTurn({
   unavailable: string | undefined;
   submitTurnIntent: BoardData['submitTurnIntent'];
   returnTurnIntent: BoardData['returnTurnIntent'];
-  refreshTask: BoardData['refreshTask'];
 }) {
   const [bound, setBound] = useState<Bound>();
   const [form, setForm] = useState<Form>();
@@ -96,7 +93,11 @@ export function TaskTurn({
   const [errors, setErrors] = useState<FieldErrors>({});
   const [refusal, setRefusal] = useState<string>();
   const [phase, setPhase] = useState<TurnPhase | 'idle'>('idle');
-  const [hold, setHold] = useState<OwnHold>();
+  // The re-read after a take or a close failed: the section claims no holder until a read answers.
+  const [stale, setStale] = useState(false);
+  useEffect(() => {
+    setStale(false);
+  }, [value]);
   const intent = useRef<{ signature: string; value: TurnIntent }>(undefined);
   const mounted = useRef(true);
   const actions = useRef<HTMLSpanElement>(null);
@@ -134,7 +135,7 @@ export function TaskTurn({
     };
   }, []);
 
-  const open = withOwnHold(orchestrated(value.turn), hold);
+  const open = orchestrated(value.turn);
   const inFlight = phase !== 'idle';
   const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
   const closed = bound !== undefined && !boundOpen && !inFlight;
@@ -144,7 +145,7 @@ export function TaskTurn({
       : unavailable === undefined
         ? undefined
         : UNAVAILABLE;
-  const sendOff = closed || blocked !== undefined;
+  const sendOff = closed || blocked !== undefined || stale;
   const fieldsOff = inFlight || sendOff;
   /** An open turn other than the bound one: the next turn a close opened. */
   const newer =
@@ -250,50 +251,48 @@ export function TaskTurn({
       };
     const sent = intent.current.value;
     setRefusal(undefined);
-    void sent.run(setPhase).then(
-      (closed) => {
-        if (!mounted.current) return;
-        setPhase('idle');
-        setForm(undefined);
-        const outcome = form === 'submit' ? 'submitted' : 'returned';
-        setBound({
-          turn,
-          own: { outcome, column: closed.column },
-          refusedClosed: false,
-        });
-        pendingFocus.current = 'status';
-      },
-      (cause: unknown) => {
-        if (!mounted.current) return;
-        setPhase('idle');
-        if (
-          cause instanceof ProblemError &&
-          (cause.code === 'turn_closed' || cause.code === 'not_found')
-        ) {
-          setBound((current) =>
-            current?.turn.id === turn.id ? { ...current, refusedClosed: true } : current,
+    const watch = (refresh: Promise<boolean>) => {
+      void refresh.then((read) => {
+        if (!read && mounted.current) setStale(true);
+      });
+    };
+    let closing = false;
+    void sent
+      .run((next) => {
+        closing ||= next === 'closing';
+        setPhase(next);
+      })
+      .then(
+        (done) => {
+          if (!mounted.current) return;
+          setPhase('idle');
+          setForm(undefined);
+          const outcome = form === 'submit' ? 'submitted' : 'returned';
+          setBound({ turn, own: { outcome, column: done.column }, refusedClosed: false });
+          pendingFocus.current = 'status';
+          watch(done.refresh);
+        },
+        (cause: unknown) => {
+          if (!mounted.current) return;
+          setPhase('idle');
+          if (
+            cause instanceof ProblemError &&
+            (cause.code === 'turn_closed' || cause.code === 'not_found')
+          ) {
+            setBound((current) =>
+              current?.turn.id === turn.id ? { ...current, refusedClosed: true } : current,
+            );
+            watch(sent.refresh());
+            return;
+          }
+          setRefusal(
+            cause instanceof Error ? cause.message : 'Could not close the turn. Try again.',
           );
-          void refreshTask();
-          return;
-        }
-        setRefusal(cause instanceof Error ? cause.message : 'Could not close the turn. Try again.');
-        // The read then shows who holds the turn after the ack.
-        if (sent.taken()) {
-          // This view's ack landed: it holds the turn even if the read that follows fails.
-          const at = new Date(now).toISOString();
-          setHold({
-            turn: turn.id,
-            prior: value.turn?.id === turn.id ? value.turn.taken : null,
-            at,
-          });
-          void refreshTask();
-        } else if (cause instanceof ProblemError && cause.code === 'not_turn_taker') {
-          // Someone took the turn back: this view no longer holds it.
-          setHold((current) => (current?.turn === turn.id ? undefined : current));
-          void refreshTask();
-        }
-      },
-    );
+          // The take landed (or was already held) before the close was refused: the read then
+          // says who holds the turn.
+          if (closing) watch(sent.refresh());
+        },
+      );
   };
   const edit = (set: (text: string) => void, field: keyof FieldErrors) => (text: string) => {
     set(text);
@@ -302,7 +301,10 @@ export function TaskTurn({
 
   const line = (turn: Turn, state: string, buttons: ReactNode) => (
     <div className={styles.line}>
-      <StatusDot tone={turn.taken ? 'working' : 'warn'} hollow={!turn.taken} />
+      <StatusDot
+        tone={stale ? 'unknown' : turn.taken ? 'working' : 'warn'}
+        hollow={stale || !turn.taken}
+      />
       <span className={styles.id}>{turn.id}</span>
       <span>{[turn.column, executor(turn.column), state].filter(Boolean).join(' · ')}</span>
       {buttons}
@@ -337,18 +339,22 @@ export function TaskTurn({
       <div className={styles.turn} key={turn.id}>
         {line(
           turn,
-          turn.taken === null
-            ? `not taken · ${age(turn.at, now)}`
-            : `taken by ${name(turn.taken.by)} · ${age(turn.taken.at, now)}`,
-          !formOpen && triggers(turn, blocked !== undefined || inFlight || earlierForm, primary),
+          stale
+            ? ''
+            : turn.taken === null
+              ? `not taken · ${age(turn.at, now)}`
+              : `taken by ${name(turn.taken.by)} · ${age(turn.taken.at, now)}`,
+          !formOpen &&
+            triggers(turn, blocked !== undefined || inFlight || earlierForm || stale, primary),
         )}
-        {turn.taken?.by === 'operator' && (
+        {stale && <p className={styles.note}>{STALE}</p>}
+        {!stale && turn.taken?.by === 'operator' && (
           <p className={styles.note}>
             You hold {turn.id}; the orchestrator cannot submit or return it until you finish or it
             takes the turn back.
           </p>
         )}
-        {!formOpen && <p className={styles.note}>{NOTE}</p>}
+        {!formOpen && !stale && <p className={styles.note}>{NOTE}</p>}
         {blocked !== undefined && <p className={styles.note}>{blocked}</p>}
         {formOpen && formElement(turn)}
       </div>
@@ -475,17 +481,21 @@ export function TaskTurn({
     );
   };
 
+  // While the re-read failed, an open turn's summary names no holder either.
+  const openText = (turn: Turn) => (stale ? `${turn.id} · could not refresh` : openSummary(turn));
   const summary = [
     bound
-      ? boundSummary(bound.turn.id, {
-          inFlight,
-          own: bound.own?.outcome,
-          open: boundOpen ? open : undefined,
-          record,
-          refused: refusal !== undefined,
-        })
-      : open && openSummary(open),
-    newer && openSummary(newer),
+      ? stale && boundOpen && !inFlight && bound.own === undefined
+        ? openText(bound.turn)
+        : boundSummary(bound.turn.id, {
+            inFlight,
+            own: bound.own?.outcome,
+            open: boundOpen ? open : undefined,
+            record,
+            refused: refusal !== undefined,
+          })
+      : open && openText(open),
+    newer && openText(newer),
   ]
     .filter(Boolean)
     .join('; ');

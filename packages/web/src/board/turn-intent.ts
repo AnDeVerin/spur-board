@@ -2,9 +2,11 @@ import { createMutationIntent, ProblemError, type createApi } from '../lib/api.t
 
 /** The step a turn write is on: taking the turn through `inbox.ack`, then closing it. */
 export type TurnPhase = 'taking' | 'closing';
-/** A landed close: the task's column in the write's answer. */
+/** A landed close: the task's column in the write's answer, and the re-read it started. */
 export interface TurnClosed {
   column: string;
+  /** True once a read of the task issued after the close answered; false when it failed. */
+  refresh: Promise<boolean>;
 }
 type TurnWrite =
   | { id: 'task.submit'; input: Parameters<typeof createMutationIntent<'task.submit'>>[2] }
@@ -15,8 +17,8 @@ type TurnWrite =
  * intent, so an unchanged resend reuses both keys. A confirmed ack is not sent again, nor one for a
  * turn `held` says the operator already holds, except after `not_turn_taker`: someone took the
  * turn back, so the next run takes it again with a new key.
- * `refused` names why the board cannot send now; `refresh` starts a re-read of the task after the
- * close.
+ * `refused` names why the board cannot send now; `refresh` re-reads the task the write was for and
+ * answers whether that read succeeded.
  */
 export function createTurnIntent(options: {
   api: ReturnType<typeof createApi>;
@@ -24,7 +26,7 @@ export function createTurnIntent(options: {
   write: TurnWrite;
   held: boolean;
   refused: () => string | undefined;
-  refresh: () => void;
+  refresh: () => Promise<boolean>;
 }) {
   const { api, turn, write } = options;
   const takeIntent = () => createMutationIntent(api, 'inbox.ack', { entries: [{ id: turn }] });
@@ -45,8 +47,7 @@ export function createTurnIntent(options: {
     onPhase('closing');
     try {
       const result = await close.run();
-      options.refresh();
-      confirmed = { column: result.task.column };
+      confirmed = { column: result.task.column, refresh: options.refresh() };
       return confirmed;
     } catch (error) {
       if (error instanceof ProblemError && error.code === 'not_turn_taker') {
@@ -70,6 +71,8 @@ export function createTurnIntent(options: {
     },
     /** The ack landed and no `not_turn_taker` undid it since. */
     taken: () => taken,
+    /** Re-read the task the write was for; true when that read answered. */
+    refresh: () => options.refresh(),
   };
 }
 export type TurnIntent = ReturnType<typeof createTurnIntent>;

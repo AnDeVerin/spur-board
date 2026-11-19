@@ -32,6 +32,8 @@ const OUTCOME: Record<string, string> = {
 };
 const BRIEF_MAX = 16;
 export const UNAVAILABLE = 'The turn cannot be closed while the board is unavailable.';
+/** Shown in place of the holder when the re-read after a take or a close failed. */
+export const STALE = 'Could not refresh the turn. Reload to see who holds it.';
 export const ARCHIVED = 'This task is archived. The turn cannot be closed.';
 export const NOTE =
   'You can close this turn yourself when the orchestrator is down or you have the verdict from elsewhere.';
@@ -149,31 +151,4 @@ export function boundSummary(
     // `open` carries the effective holder (`withOwnHold`): the ack's hold until a read shows otherwise.
     return `${id} · refused${open.taken?.by === 'operator' ? ', you hold it' : ''}`;
   return openSummary(open);
-}
-
-type Taken = NonNullable<BoardTask['turn']>['taken'];
-/**
- * This view's ack of turn `turn` landed: `prior` is the taker the read showed then, `at` the
- * client time, for the line's age only. `inbox.ack` answers no time.
- */
-export interface OwnHold {
-  turn: string;
-  prior: Taken;
-  at: string;
-}
-/**
- * `turn` as the operator holds it after this view's ack, until a read shows someone took it
- * since: a taker other than the operator and other than the one shown when the ack landed. A
- * read that shows the turn closed has no open turn to keep.
- */
-export function withOwnHold<T extends { id: string; taken: Taken }>(
-  turn: T | undefined,
-  hold: OwnHold | undefined,
-): T | undefined {
-  if (turn === undefined || hold?.turn !== turn.id || turn.taken?.by === 'operator') return turn;
-  const { taken } = turn;
-  const prior = hold.prior;
-  const retaken =
-    taken !== null && (prior === null || taken.by !== prior.by || taken.at !== prior.at);
-  return retaken ? turn : { ...turn, taken: { by: 'operator', at: hold.at } };
 }

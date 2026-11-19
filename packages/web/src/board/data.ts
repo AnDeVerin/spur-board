@@ -390,10 +390,8 @@ export function createBoardData(options: BoardDataOptions) {
           : unavailableFor(key, epoch)
             ? 'The turn cannot be closed while the board is unavailable.'
             : undefined,
-      // Re-read only the task the write was for, while its view is still the open one.
-      refresh: () => {
-        if (key === taskKey && epoch === taskEpoch) refreshTask();
-      },
+      // Re-reads only the task the write was for, while its view is still the open one.
+      refresh: () => refreshWrittenTask(key, epoch),
     });
   };
 
