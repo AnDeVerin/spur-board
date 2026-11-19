@@ -133,6 +133,13 @@ describe('Turn section sends', () => {
   });
 });
 
+/** `why.pendingSubmit` while the dispatcher waits to confirm the own submit at `HEAD`. */
+const PENDING = {
+  sha: 'a'.repeat(40),
+  until: '2026-11-15T13:03:00.000Z',
+  text: 'submit pending confirmation of aaaaaaa',
+};
+
 /** The latest submission of the own Review submit at `HEAD` that closed T5 at `AT`. */
 const submittedRow = {
   column: 'review',
@@ -203,15 +210,15 @@ describe('Turn section focus', () => {
         }),
       );
     await click('Submit…');
-    setTask(
-      d,
-      orchestratorTaskGet({}, { turn: null, turns: [closedTurn('submitted', 'operator')] }),
+    // The dispatcher tracks the submit as the current visit's pending one.
+    const waiting = { ...taskGet().why, column: 'review', pendingSubmit: PENDING };
+    const afterSubmit = orchestratorTaskGet(
+      {},
+      { turn: null, turns: [closedTurn('submitted', 'operator')], why: waiting },
     );
+    setTask(d, afterSubmit);
     await send();
-    await reread(
-      d,
-      orchestratorTaskGet({}, { turn: null, turns: [closedTurn('submitted', 'operator')] }),
-    );
+    await reread(d, afterSubmit);
     const status = turnSection().querySelector('[role="status"]');
     expect(status?.textContent).toBe(
       'T5 submitted. The board confirms the head on its next polls.',
@@ -282,10 +289,25 @@ describe('Turn section focus', () => {
     [
       'the Board handed the work back to Dev',
       'dev',
+      null,
       ' The work went back to Dev and needs another submit.',
     ],
-    ['a merge at another head moved the task to Done', 'done', ''],
-  ])('asks for another submit after a void only when %s', async (_, column, handback) => {
+    ['a merge at another head moved the task to Done', 'done', null, ''],
+    [
+      'a Done wrap-up turn is open for the worker',
+      'done',
+      {
+        id: 'T7',
+        column: 'done',
+        addressee: 'worker',
+        at: AT,
+        taken: null,
+        handed: [],
+        closed: null,
+      },
+      '',
+    ],
+  ])('asks for another submit after a void only when %s', async (_, column, turn, handback) => {
     const { d } = await open();
     d.routes['task.submit'] = (input) =>
       Promise.resolve(
@@ -305,7 +327,7 @@ describe('Turn section focus', () => {
         {},
         {
           task: { ...taskGet().task, column },
-          turn: null,
+          turn,
           turns: [closedTurn('submitted', 'operator')],
           submission: voided,
         },
@@ -314,6 +336,39 @@ describe('Turn section focus', () => {
     expect(turnSection().querySelector('[role="status"]')?.textContent).toBe(
       `T5 submitted. The board voided this submission: it no longer counts for the gates.${handback}`,
     );
+  });
+
+  it('waits only while the dispatcher tracks the submit as its pending one', async () => {
+    const { d } = await open();
+    d.routes['task.submit'] = (input) =>
+      Promise.resolve(
+        envelope({
+          task: taskGet().task,
+          turn: input['turn'],
+          sha: input['sha'],
+          status: 'pending',
+        }),
+      );
+    await click('Submit…');
+    await send();
+    const line = () => turnSection().querySelector('[role="status"]')?.textContent;
+    const ownPending = { ...submittedRow, pending: true };
+    // A correction opened a new Review visit: the old pending row is still the latest submission,
+    // but the dispatcher confirms only the current visit's submits, so nothing waits.
+    await reread(
+      d,
+      orchestratorTaskGet(
+        { id: 'T6', at: AT },
+        { turns: [closedTurn('submitted', 'operator')], submission: ownPending },
+      ),
+    );
+    expect(line()).toBe('T5 submitted.');
+    // Five newer closes later T5 left the detail: the wait stays cleared.
+    await reread(
+      d,
+      orchestratorTaskGet({ id: 'T6', at: AT }, { turns: [], submission: ownPending }),
+    );
+    expect(line()).toBe('T5 submitted.');
   });
 
   it('stops promising a confirmation once another submission replaced the own one', async () => {

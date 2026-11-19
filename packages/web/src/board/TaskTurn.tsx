@@ -36,7 +36,7 @@ import {
   reasonError,
   restoreDraft,
   RETURNABLE,
-  settledSubmit,
+  ownSubmitSeen,
   shaError,
   type OwnClose,
   submitConfirmation,
@@ -189,11 +189,15 @@ export function TaskTurn({
   }, [sendOff, inFlight]);
 
   const record = bound && value.turns?.find((turn) => turn.id === bound.turn.id);
-  const settled =
-    bound?.own?.outcome === 'submitted' ? settledSubmit(value.submission, record) : undefined;
+  const seenNow =
+    bound?.own?.outcome === 'submitted'
+      ? ownSubmitSeen(value, bound.turn, record, bound.own)
+      : undefined;
+  const settled = seenNow === 'pending' ? undefined : seenNow;
   useEffect(() => {
-    if (settled !== undefined && bound?.own !== undefined && bound.own.seen !== settled)
-      setBound({ ...bound, own: { ...bound.own, seen: settled } });
+    // A voided submit stays voided; a settled or no longer waiting one never waits again.
+    if (settled === undefined || bound?.own === undefined || bound.own.seen === 'voided') return;
+    if (bound.own.seen !== settled) setBound({ ...bound, own: { ...bound.own, seen: settled } });
   });
   if (open === undefined && bound === undefined) return null;
   const name = (actor: string) => actorDisplayName(actor, config);

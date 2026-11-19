@@ -164,7 +164,7 @@ export interface OwnClose {
 /** A settled own submit: the Board confirmed it, or voided it. */
 export type SettledSubmit = 'counted' | 'voided';
 /** How the submission that closed `turn` settled, once a read shows it; none while it waits. */
-export function settledSubmit(
+function settledSubmit(
   submission: Submission | null | undefined,
   turn: ClosedTurn | undefined,
 ): SettledSubmit | undefined {
@@ -174,28 +174,49 @@ export function settledSubmit(
 }
 
 /**
- * What follows `T<n> submitted.` on the own-close line. The submission that closed the turn tells
- * how it went once a read shows it; `seen` keeps how it settled after a later submission replaces
- * it. A replaced submission, or a task that left the column, waits for nothing, so only the
- * write's own answer, before any of that, says the Board still confirms the head. A voided one
- * asks for another submit only when the Board handed the work back: the task is in Dev or a
- * worker turn is open; a pull request merged at another head can void it and still end in Done.
+ * How an own submit of turn `turn.id` stands in the latest read, or none while that read is from
+ * before the submit (the turn still open there). The submission that closed the turn settles it;
+ * else it waits only while it is the pending submit the dispatcher tracks, `why.pendingSubmit` of
+ * the current visit (`readPendingSubmit` in `packages/core/src/app/dispatch.ts`); anything else,
+ * a replacement, a new visit or a task gone from the column, waits for nothing.
+ */
+export function ownSubmitSeen(
+  value: BoardTask,
+  turn: { id: string },
+  record: ClosedTurn | undefined,
+  own: { sha: string },
+): SettledSubmit | 'pending' | undefined {
+  if (value.turn?.id === turn.id) return undefined;
+  const settled = settledSubmit(value.submission, record);
+  if (settled !== undefined) return settled;
+  return value.why?.pendingSubmit?.sha === own.sha ? 'pending' : 'counted';
+}
+
+/**
+ * What follows `T<n> submitted.` on the own-close line. Once an own submit was seen settled or no
+ * longer waiting, `seen` keeps it so, even after its turn leaves `task.get` detail; a voided one
+ * stays voided. A voided one asks for another submit only when the Board handed the work back to
+ * Dev: a Done wrap-up turn is a worker turn too, but in Done (`dispatch` in
+ * `packages/core/src/domain/dispatch.ts`), where a merge at another head can void it.
  */
 export function ownSubmitNote(
   value: BoardTask,
-  turn: { column: string },
+  turn: { id: string },
   record: ClosedTurn | undefined,
-  own: { pending: boolean; seen: SettledSubmit | undefined },
+  own: { sha: string; pending: boolean; seen: SettledSubmit | undefined },
 ): string {
-  const matched = closingSubmission(value.submission, record);
-  const replaced = record?.closed != null && value.submission != null && matched === undefined;
+  const now = ownSubmitSeen(value, turn, record, own);
   const state =
-    settledSubmit(value.submission, record) ??
-    (matched !== undefined ? 'pending' : own.seen) ??
-    (replaced || value.task.column !== turn.column || !own.pending ? 'counted' : 'pending');
+    now === 'voided' || own.seen === 'voided'
+      ? 'voided'
+      : own.seen === 'counted'
+        ? 'counted'
+        : (now ?? (own.pending ? 'pending' : 'counted'));
   if (state === 'pending') return ' The board confirms the head on its next polls.';
   if (state === 'counted') return '';
-  const handedBack = value.task.column === 'dev' || value.turn?.addressee === 'worker';
+  const handedBack =
+    value.task.column === 'dev' ||
+    (value.turn?.addressee === 'worker' && value.turn.column === 'dev');
   return ` The board voided this submission: it no longer counts for the gates.${handedBack ? ' The work went back to Dev and needs another submit.' : ''}`;
 }
 

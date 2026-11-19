@@ -98,12 +98,11 @@ the notice.
 
 After a close the section keeps a focused status line, `T<n> submitted.` or `T<n> returned to
 dev.`, even when the task then has no open turn. A submit the Board still has to confirm adds
-`The board confirms the head on its next polls.`, until a read shows that submission confirmed or
-voided; once settled it stays so, and a later submission or the task leaving the column ends the
-wait. A voided one says the Board voided it and it no longer counts for the gates. Only when the
-Board handed the work back, the task is in Dev or a worker turn is open, does it add that the work
-needs another submit: a pull request merged at another head can void it and still end in Done. A
-turn the same write opened shows below.
+`The board confirms the head on its next polls.` only while the Board tracks it as the pending
+submit of the current visit; once it settled, was replaced or left the visit, it never waits
+again. A voided one says it no longer counts for the gates, and asks for another submit only when
+the work went back to Dev; a Done wrap-up turn does not count. A turn the same write opened shows
+below.
 
 A Board update waits to reload the page while the ack and the close run, even when the task view
 closes first, so it never leaves the operator holding a turn mid-close. A view reopened while
