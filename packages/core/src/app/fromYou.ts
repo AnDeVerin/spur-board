@@ -488,9 +488,11 @@ export async function reconcileItems(
         .onRef('pr_snapshot.number', '=', 'link.number'),
     )
     .select([
+      'link.id',
       'link.task_id',
       'link.repo',
       'link.number',
+      'link.pr_state',
       'pr_snapshot.state',
       'pr_snapshot.source',
       'pr_snapshot.observed_at',
@@ -516,10 +518,11 @@ export async function reconcileItems(
         project !== undefined && ticket !== undefined && ticketDone(project, ticket.status),
     };
   }
-  // Each task's newest merge time and its PR; the time is null when no merged PR's detail is
-  // readable.
+  // Each task's newest merge time; null when no merged PR's detail is readable.
   const mergedAt = new Map<number, string | null>();
-  const mergedRef = new Map<number, string>();
+  // Each task's merged PR as the dispatcher judges it (`taskMergedPr`): the newest active link,
+  // else the newest link; `at` is null when its detail is unreadable.
+  const judged = new Map<number, { active: boolean; id: number; at: string | null; ref: string }>();
   for (const pr of prs) {
     const state = taskPrs[String(pr.task_id)];
     if (state === undefined) continue;
@@ -528,14 +531,25 @@ export async function reconcileItems(
     const facts = parsePr(pr.detail ?? undefined);
     const at = facts === null ? null : (facts.mergedAt ?? facts.updatedAt);
     const newest = mergedAt.get(pr.task_id) ?? null;
-    if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest))) {
+    if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest)))
       mergedAt.set(pr.task_id, at);
-      mergedRef.set(pr.task_id, `${pr.repo ?? ''}#${String(pr.number)}`);
-    }
+    const active = pr.pr_state === 'active';
+    const current = judged.get(pr.task_id);
+    if (
+      current === undefined ||
+      (active && !current.active) ||
+      (active === current.active && pr.id > current.id)
+    )
+      judged.set(pr.task_id, {
+        active,
+        id: pr.id,
+        at,
+        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
+      });
   }
   // Tasks whose merged PR stopped counting, with the clause their worker-end item names.
   const reopened = new Map<number, string>();
-  for (const [taskId, at] of mergedAt) {
+  for (const [taskId, { at, ref }] of judged) {
     const state = taskPrs[String(taskId)];
     const task = taskById.get(taskId);
     if (state === undefined || task === undefined) continue;
@@ -548,10 +562,7 @@ export async function reconcileItems(
       project === undefined ||
       mergedTicket(project, ticket, task.manual_include === 1, at) !== 'reopened';
     if (!state.hasMergedPr && ticket !== undefined)
-      reopened.set(
-        taskId,
-        `; PR ${mergedRef.get(taskId) ?? ''} merged, ticket reopened (${ticket.status})`,
-      );
+      reopened.set(taskId, `; PR ${ref} merged, ticket reopened (${ticket.status})`);
   }
   const heldKeys: string[] = [];
   for (const task of tasks) {

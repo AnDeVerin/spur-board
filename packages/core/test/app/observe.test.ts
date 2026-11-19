@@ -28,6 +28,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { taskPr } from '../../src/app/board-utils.ts';
+import { readInput } from '../../src/app/dispatch.ts';
 import { createLinkMutations } from '../../src/app/links.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { createBlockMutations, openSystemBlock } from '../../src/app/blocks.ts';
@@ -3777,6 +3778,49 @@ describe('anomaly blocks', () => {
       await ticket('closed');
       await prs(b, [merged]);
       expect(await healthItems()).toEqual([]);
+    });
+
+    it('judges the same merged PR as the dispatcher when the first-linked PR merges last', async () => {
+      const { b, ticket, healthItems } = await split();
+      await spur(b, [session('worker-1', 'working')]);
+      await prs(b, [pr(7, 'open')]);
+      now += 1_000;
+      // #7 closes, follow-up #8 is linked after it and merges, then #7 reopens and merges last.
+      await prs(b, [pr(7, 'closed')]);
+      now += 1_000;
+      await prs(b, [pr(7, 'closed'), pr(8, 'open')]);
+      now += 1_000;
+      const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [pr(7, 'closed'), eight]);
+      now += 1_000;
+      await ticket('open');
+      now += 1_000;
+      await prs(b, [pr(7, 'open'), eight]);
+      now += 1_000;
+      const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [seven, eight]);
+      now += 1_000;
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+      now += 1_000;
+      await prs(b, [seven, eight]);
+      // The ticket changed after #8 merged, before #7: both judge #8, the newest link.
+      const project = b.config.projects[0];
+      if (project === undefined) throw new Error('missing project');
+      const read = await b.store.transaction(async (trx) => {
+        const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+        return readInput(trx, task, project, 'on', () => false, b.config, {
+          at: new Date(now),
+          complete: new Map(),
+        });
+      });
+      expect(read?.mergedOpen).toEqual({ repo: 'o/r', number: 8 });
+      expect(await healthItems()).toEqual([
+        [
+          'worker_completed',
+          'o/r#9: worker ended (completed); PR o/r#8 merged, ticket reopened (open) (worker-1)',
+          null,
+        ],
+      ]);
     });
 
     it('opens the PR-closed block for an unmerged follow-up beside a merged PR while the ticket is seen open', async () => {
