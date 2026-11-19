@@ -287,23 +287,27 @@ describe('Turn section focus', () => {
 
   const HOLD =
     'You hold T5; the orchestrator cannot submit or return it until you finish or it takes the turn back.';
-  it.each([['the read after a landed ack and a refused close fails']])(
-    'shows the operator as holder from the ack when %s, also after Cancel',
-    async () => {
-      const { d } = await open();
-      d.routes['task.submit'] = () => problem('head_mismatch', 409);
-      d.routes['task.get'] = failure;
-      await click('Submit…');
+  it.each([
+    ['the read after a landed ack and a refused close fails', false],
+    ['a resend after that answers not_turn_taker', true],
+  ])('shows the holder from the ack when %s, also after Cancel', async (_, retaken) => {
+    const { d } = await open();
+    d.routes['task.submit'] = () => problem('head_mismatch', 409);
+    d.routes['task.get'] = failure;
+    await click('Submit…');
+    await send();
+    if (retaken) {
+      // Someone took the turn back: the unchanged resend is refused, and the hold goes.
+      d.routes['task.submit'] = () => problem('not_turn_taker', 403);
       await send();
-      expect(text()).toContain('taken by you');
-      expect(text()).toContain(HOLD);
-      expect(summary()).toBe('T5 · refused, you hold it');
-      await click('Cancel');
-      expect(text()).toContain('taken by you');
-      expect(text()).toContain(HOLD);
-      expect(summary()).toBe('T5 · you hold it');
-    },
-  );
+    }
+    const holds = () => [text().includes('taken by you'), text().includes(HOLD)];
+    expect(holds()).toEqual([!retaken, !retaken]);
+    expect(summary()).toBe(retaken ? 'T5 · refused' : 'T5 · refused, you hold it');
+    await click('Cancel');
+    expect(holds()).toEqual([!retaken, !retaken]);
+    expect(summary()).toBe(retaken ? 'T5 · not taken' : 'T5 · you hold it');
+  });
 
   it('re-reads no other task when a close lands after another task opened', async () => {
     const { d } = await open();

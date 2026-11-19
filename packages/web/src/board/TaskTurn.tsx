@@ -287,6 +287,10 @@ export function TaskTurn({
             at,
           });
           void refreshTask();
+        } else if (cause instanceof ProblemError && cause.code === 'not_turn_taker') {
+          // Someone took the turn back: this view no longer holds it.
+          setHold((current) => (current?.turn === turn.id ? undefined : current));
+          void refreshTask();
         }
       },
     );
