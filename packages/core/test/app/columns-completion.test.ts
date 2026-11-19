@@ -359,7 +359,7 @@ it.each(
     const mergedAt = '2026-11-04T08:00:00.000Z';
     const now = Date.parse(mergedAt) + 2 * interval;
     const at = new Date(now);
-    // Observed past the tracker interval either way: only a change after the merge counts.
+    // Observed past the tracker interval either way: only a change at or after the merge counts.
     const observedAt = new Date(Date.parse(mergedAt) + interval).toISOString();
     const updatedAt = new Date(
       Date.parse(mergedAt) + { before: -1, at: 0, after: 1 }[changed],
@@ -501,7 +501,7 @@ it.each(
       'manually included',
       'resumes work',
       doneStatus,
-      'changed after the merge',
+      'changed at or after the merge',
     ])
       expect(policy?.completion.text).toContain(qualification);
   },

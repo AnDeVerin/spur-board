@@ -93,7 +93,7 @@ export function describeCompletion(project: Project) {
       : 'GitHub status "closed"';
   return {
     ...route,
-    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once it changed after the merge, in the tracker filter or for a manually included task; a ticket untouched since the merge stays unconfirmed, and dropped-filter evidence alone stays unconfirmed. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
+    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once it changed at or after the merge, in the tracker filter or for a manually included task; a ticket untouched since the merge stays unconfirmed, and dropped-filter evidence alone stays unconfirmed. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
   };
 }
 
@@ -873,7 +873,7 @@ export async function readInput(
   input: DispatchInput;
   handed: Handed[];
   unclosed: Row<'turn'> | undefined;
-  /** The merged PR whose ticket changed after the merge, not done: the task has no PR for the gates. */
+  /** The merged PR whose ticket changed at or after the merge, not done: the task has no PR for the gates. */
   mergedOpen: { repo: string; number: number } | undefined;
   /** The task's PR merged and its ticket is neither done nor confirmed open: hold the task. */
   ticketUnconfirmed: boolean;
@@ -918,7 +918,7 @@ export async function readInput(
       }
     }
   }
-  // A merged PR finishes the task only with its ticket done. A ticket changed after the merge and
+  // A merged PR finishes the task only with its ticket done. A ticket changed at or after the merge and
   // still not done sends it back to work without a PR; an untouched one waits.
   let mergedOpen: { repo: string; number: number } | undefined;
   let ticketUnconfirmed = false;
