@@ -235,13 +235,13 @@ export const taskWhySchema = z
             reason: z
               .enum(GATE_REASONS)
               .describe(
-                'The gate reason that waits on the fact; checks_red only when the project checksGate is not dev.',
+                'The gate reason that waits on the fact; checks_red only when the project checksGate is not dev, and review_rule_blocked and changes_requested only when External Review sets approvalRule github-rules.',
               ),
             head: commitShaSchema.describe('Head commit of the pull request the fact is about.'),
             text: z
               .string()
               .describe(
-                'The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red.',
+                'The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red. Under approvalRule github-rules, review_rule_blocked reads merge blocked by the GitHub review rule, changes_requested reads changes requested, and merge_state_unknown reads GitHub has not computed the merge state yet, none with the sha.',
               ),
           })
           .describe('One fact the task waits for.'),
@@ -249,7 +249,7 @@ export const taskWhySchema = z
       .min(1)
       .optional()
       .describe(
-        'Facts the task waits for that GitHub has not settled yet, plus red checks the task returns to Dev on when the project checksGate is not dev; absent when none.',
+        'Facts the task waits for that GitHub has not settled yet, plus red checks the task returns to Dev on when the project checksGate is not dev, and the GitHub review rule waits under approvalRule github-rules; absent when none.',
       ),
   })
   .describe('Why the task is in its column and what the dispatcher waits for.');

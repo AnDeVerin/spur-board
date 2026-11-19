@@ -2,6 +2,7 @@ import {
   COLUMNS,
   COLUMN_IDS,
   DISPATCHER_MODES,
+  approvalRuleOf,
   isExternalAuthor,
   parseActorId,
   prSourceId,
@@ -46,6 +47,8 @@ import {
   uncounted,
 } from './course-check.ts';
 import { withUnconfirmedCancels } from './cancelled-checks.ts';
+import { externalReviews } from '../domain/review-rule.ts';
+import { storedReviewRule } from './review-rule.ts';
 import { linkedSession } from './doorbells.ts';
 import { raiseCycleLimit } from './fromYou.ts';
 import {
@@ -428,13 +431,7 @@ export async function blindSources(trx: Trx, complete: ReadonlyMap<string, strin
 
 /** Whether the external reviewers approved: one approval, and no changes requested by one. */
 function externalApproval(pr: PrFacts, agentLogin: string): boolean {
-  const external = (login: string) =>
-    login.toLowerCase() !== agentLogin.toLowerCase() &&
-    !(pr.feedback ?? []).some(
-      (entry) =>
-        entry.author?.type === 'bot' && entry.author.login.toLowerCase() === login.toLowerCase(),
-    );
-  const reviews = pr.reviews.filter((review) => external(review.reviewer));
+  const reviews = externalReviews(pr, agentLogin);
   return (
     reviews.some((review) => review.state === 'approved') &&
     !reviews.some((review) => review.state === 'changes_requested')
@@ -923,6 +920,20 @@ export async function readInput(
   const handed = pr?.feedbackComplete === true ? unhandled : [];
   const column = mode === 'shadow' ? (task.shadow_column ?? task.column) : task.column;
   const unclosed = last?.closed_at === null ? last : undefined;
+  const gatePr =
+    pr !== null && pr.state === 'open' && project.checksGate !== 'dev'
+      ? await withUnconfirmedCancels(trx, prSourceId(project.id, pr.repo), pr)
+      : pr;
+  // Under github-rules the review rule comes only from the project's own source row on the head.
+  const reviewRule =
+    gatePr !== null && approvalRuleOf(project) === 'github-rules'
+      ? await storedReviewRule(
+          trx,
+          prSourceId(project.id, gatePr.repo),
+          gatePr,
+          project.operatorGithubLogin,
+        )
+      : undefined;
   const held =
     mode === 'on' &&
     (await trx
@@ -945,11 +956,9 @@ export async function readInput(
         checksGate: project.checksGate,
       },
       facts: {
-        pr:
-          pr !== null && pr.state === 'open' && project.checksGate !== 'dev'
-            ? await withUnconfirmedCancels(trx, prSourceId(project.id, pr.repo), pr)
-            : pr,
+        pr: gatePr,
         externalReviewApproved: pr !== null && externalApproval(pr, project.operatorGithubLogin),
+        ...(reviewRule === undefined ? {} : { reviewRule }),
         commentHistory: pr?.feedbackComplete === true ? 'complete' : 'incomplete',
         unhandledExternalComments: unhandled.length,
         unresolvedThreads:

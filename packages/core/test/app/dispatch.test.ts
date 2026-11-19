@@ -10,6 +10,7 @@ import {
   type EventKind,
   type PrFacts,
   type PrPoller,
+  type PrReviewRule,
   type SessionFacts,
   type TicketFacts,
 } from '@spur-board/contracts';
@@ -90,6 +91,10 @@ type Options = {
   columns?: 'omitted' | 'todo-group';
   /** The project's `checksGate`; unset by default. */
   checksGate?: CheckGateColumn;
+  /** External Review's `approvalRule`; unset by default. */
+  approvalRule?: 'any-approval' | 'github-rules';
+  /** Adds the project `web` that also polls `o/r`, without `approvalRule`. */
+  sharedRepo?: boolean;
 };
 
 function boardConfig(options: Options = {}) {
@@ -159,6 +164,18 @@ function boardConfig(options: Options = {}) {
             },
           ]
         : []),
+      ...(options.sharedRepo === true
+        ? [
+            {
+              id: 'web',
+              tracker: { type: 'github-issues', repo: 'o/web', label: 'board' },
+              repos: ['o/r'],
+              operatorGithubLogin: 'agent-bot',
+              spurProjects: [{ name: 'web-worker', role: 'worker' }],
+              dispatcher: { mode: options.mode ?? 'on' },
+            },
+          ]
+        : []),
     ],
     operator: { slack: 'operator' },
     digest: { tz: 'UTC' },
@@ -182,7 +199,14 @@ function columnsOf(options: Options) {
       ...(options.courseCheckTo === undefined ? {} : { courseCheckTo: options.courseCheckTo }),
     },
     { id: 'product-review', orchestrator: 'coord' },
-    ...(options.externalReview === true ? [{ id: 'external-review' }] : []),
+    ...(options.externalReview === true
+      ? [
+          {
+            id: 'external-review',
+            ...(options.approvalRule === undefined ? {} : { approvalRule: options.approvalRule }),
+          },
+        ]
+      : []),
     ...(options.qa === true ? [{ id: 'qa', orchestrator: options.qaOrchestrator ?? 'coord' }] : []),
     {
       id: 'ready-to-merge',
@@ -371,6 +395,23 @@ function board(options: Options = {}) {
         [...prs.values()].map((facts) => ({ kind: 'pr' as const, facts })),
         complete,
         startedAt,
+      );
+    },
+    /**
+     * A complete poll of `source` as `pr` makes it, with `reviewRule` beside the current PR's
+     * facts, as a github-rules source's full read sends it.
+     */
+    async rulePr(patch: Partial<PrFacts>, reviewRule?: PrReviewRule, source = GITHUB) {
+      const number = patch.number ?? current?.number ?? 7;
+      current = prFacts({ ...prs.get(number), ...patch });
+      prs.set(number, current);
+      await observe(
+        source,
+        [...prs.values()].map((facts) => ({
+          kind: 'pr' as const,
+          facts,
+          ...(facts.number === number && reviewRule !== undefined ? { reviewRule } : {}),
+        })),
       );
     },
     /** The on-demand poll of a submit answers `result` from now on. */
@@ -6062,5 +6103,270 @@ describe('checksGate', () => {
     expect((await ctx.task()).column).toBe('dev');
     expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['checks_red'] });
     expect(await cancelRows(ctx)).toEqual([]);
+  });
+});
+
+describe('approvalRule github-rules', () => {
+  const RULED = { externalReview: true, approvalRule: 'github-rules' } as const;
+  const HALF_HOUR = 30 * 60_000;
+  const rule = (patch: Partial<PrReviewRule> = {}): PrReviewRule => ({
+    reviewDecision: 'review_required',
+    rule: {
+      sources: ['ruleset'],
+      approvals: 1,
+      codeOwners: false,
+      conversationResolution: true,
+      requiredChecks: ['ci'],
+    },
+    ...patch,
+  });
+  const approved = {
+    reviews: [
+      { reviewer: EXTERNAL, state: 'approved' as const, commitSha: A, submittedAt: at(30) },
+    ],
+  };
+  const ruleRows = (ctx: Board) =>
+    ctx.store.db
+      .selectFrom('meta')
+      .select(['key', 'value'])
+      .where('key', 'like', 'review-rule:%')
+      .orderBy('key')
+      .execute();
+  const ruleItems = (ctx: Board) =>
+    ctx.store.db
+      .selectFrom('operator_item')
+      .select(['id', 'item_key', 'text', 'cleared_at'])
+      .where('item_key', 'like', 'review-rule:%')
+      .orderBy('id')
+      .execute();
+  const externalConditions = async (ctx: Board) =>
+    (await ctx.why()).gates.find((gate) => gate.column === 'external-review')?.conditions;
+
+  it('a blocked rule survives an unknown merge state; a clean one releases the task and stays', async () => {
+    const ctx = await pastProductReview(RULED);
+    expect((await ctx.task()).column).toBe('external-review');
+    await ctx.rulePr({ ...approved, mergeState: 'blocked' }, rule());
+    const blocked = [
+      { reason: 'review_rule_blocked', head: A, text: 'merge blocked by the GitHub review rule' },
+    ];
+    expect((await ctx.why()).waiting).toEqual(blocked);
+    const moves = (await ctx.moves()).length;
+    await ctx.rulePr({ mergeState: 'unknown' }, rule());
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await ctx.why()).waiting).toEqual(blocked);
+    await ctx.rulePr({ mergeState: 'blocked' }, rule());
+    expect((await ctx.why()).waiting).toEqual(blocked);
+    expect(await ctx.moves()).toHaveLength(moves);
+    expect(await ctx.openTurn()).toBeNull();
+
+    await ctx.rulePr({ mergeState: 'clean' }, rule({ reviewDecision: 'approved' }));
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    await ctx.rulePr({ mergeState: 'unknown' }, rule({ reviewDecision: 'approved' }));
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect(await ctx.moves()).toHaveLength(moves + 1);
+  });
+
+  it('waits on GitHub until the first full read of the head and drops the decision on a new head', async () => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.pr(approved);
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await ctx.why()).waiting).toEqual([
+      {
+        reason: 'merge_state_unknown',
+        head: A,
+        text: 'GitHub has not computed the merge state yet',
+      },
+    ]);
+    await ctx.rulePr({ mergeState: 'blocked' }, rule());
+    expect((await externalConditions(ctx))?.at(-1)).toEqual({
+      condition: 'review_rule_satisfied',
+      state: 'failed',
+      reason: 'review_rule_blocked',
+    });
+    await ctx.rulePr({ headSha: B, mergeState: 'unknown' }, rule());
+    const [row] = await ruleRows(ctx);
+    expect(JSON.parse(row?.value ?? '{}')).toMatchObject({ headSha: B, decision: null });
+    expect((await externalConditions(ctx))?.at(-1)).toEqual({
+      condition: 'review_rule_satisfied',
+      state: 'waiting',
+      reason: 'merge_state_unknown',
+    });
+  });
+
+  it('names changes requested by GitHub after the external comment is handled', async () => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr(
+      { ...approved, mergeState: 'blocked' },
+      rule({ reviewDecision: 'changes_requested' }),
+    );
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await ctx.why()).waiting).toEqual([
+      { reason: 'changes_requested', head: A, text: 'changes requested' },
+    ]);
+    expect((await externalConditions(ctx))?.[0]).toEqual({
+      condition: 'approved',
+      state: 'failed',
+      reason: 'changes_requested',
+    });
+  });
+
+  it('raises one item for a head left undecided for 30 minutes, keeps it raised and clears it on a decision', async () => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr({ ...approved, mergeState: 'unknown' }, rule());
+    ctx.wait(HALF_HOUR - 2 * 60_000);
+    await ctx.tick();
+    expect(await ruleItems(ctx)).toEqual([]);
+    ctx.wait(60_000);
+    await ctx.tick();
+    const [item, ...rest] = await ruleItems(ctx);
+    expect(rest).toEqual([]);
+    expect(item?.item_key).toBe(`review-rule:${String((await ctx.task()).id)}:o/r#7:${A}`);
+    expect(item?.cleared_at).toBeNull();
+    for (const raw of [
+      'mergeStateStatus=UNKNOWN',
+      'mergeable=MERGEABLE',
+      'reviewDecision=REVIEW_REQUIRED',
+    ])
+      expect(item?.text).toContain(raw);
+    await ctx.rulePr({ mergeState: 'unknown' }, rule({ reviewDecision: 'approved' }));
+    ctx.restart();
+    await ctx.tick();
+    expect(await ruleItems(ctx)).toEqual([item]);
+    expect((await ctx.task()).column).toBe('external-review');
+
+    await ctx.rulePr({ mergeState: 'clean' }, rule({ reviewDecision: 'approved' }));
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+  });
+
+  it.each([
+    {
+      name: 'blocked with an unresolved thread',
+      patch: { mergeState: 'blocked', reviewThreads: [{ resolved: false, id: 'PRRT_1' }] },
+    },
+    { name: 'behind the base branch', patch: { mergeState: 'behind' } },
+  ] as const)('$name for 30 minutes raises one item', async ({ patch }) => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr({ ...approved, ...patch }, rule());
+    expect((await ctx.task()).column).toBe('external-review');
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    await ctx.rulePr({ ...patch }, rule());
+    const items = await ruleItems(ctx);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.text).toContain(`mergeStateStatus=${patch.mergeState.toUpperCase()}`);
+    expect(items[0]?.cleared_at).toBeNull();
+  });
+
+  it.each([
+    {
+      name: 'a draft',
+      patch: { draft: true, mergeState: 'draft' },
+      review: rule(),
+      column: 'dev',
+      gate: ['pr_draft'],
+    },
+    {
+      name: 'a conflict',
+      patch: { mergeable: 'conflicting', mergeState: 'dirty' },
+      review: rule(),
+      column: 'dev',
+      gate: ['conflict'],
+    },
+    {
+      name: 'changes requested',
+      patch: { mergeState: 'blocked' },
+      review: rule({ reviewDecision: 'changes_requested' }),
+      column: 'external-review',
+      gate: null,
+    },
+    {
+      name: 'a pending required check',
+      patch: {
+        mergeState: 'blocked',
+        requiredChecks: [{ name: 'ci', state: 'pending', completedAt: null }],
+      },
+      review: rule(),
+      column: 'external-review',
+      gate: null,
+    },
+  ] as const)('$name raises no item after 30 minutes', async ({ patch, review, column, gate }) => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr({ ...approved, ...patch }, review);
+    expect((await ctx.task()).column).toBe(column);
+    if (gate !== null) expect((await ctx.moves()).at(-1)).toMatchObject({ to: 'dev', gate });
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    await ctx.rulePr({ ...patch }, review);
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    expect(await ruleItems(ctx)).toEqual([]);
+    const [row] = await ruleRows(ctx);
+    expect(JSON.parse(row?.value ?? '{}')).toMatchObject({ undecidedSince: null, raised: null });
+  });
+
+  it('an external review comment still returns the task to Dev', async () => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr(
+      {
+        ...approved,
+        mergeState: 'blocked',
+        feedback: [
+          {
+            kind: 'comment',
+            id: 'c-1',
+            author: { login: EXTERNAL, type: 'user' },
+            postedAt: at(31),
+          },
+        ],
+      },
+      rule(),
+    );
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['external_comments'] });
+  });
+
+  it('a reused read without the review rule leaves the row as it is', async () => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr({ ...approved, mergeState: 'blocked' }, rule());
+    const before = await ruleRows(ctx);
+    expect(before).toHaveLength(1);
+    await ctx.github();
+    await ctx.pr({ mergeState: 'clean' });
+    expect(await ruleRows(ctx)).toEqual(before);
+    expect((await ctx.why()).waiting).toEqual([
+      { reason: 'review_rule_blocked', head: A, text: 'merge blocked by the GitHub review rule' },
+    ]);
+  });
+
+  it("another project's poll of the shared repo does not change the decision", async () => {
+    const ctx = await pastProductReview({ ...RULED, sharedRepo: true });
+    await ctx.rulePr({ ...approved, mergeState: 'blocked' }, rule());
+    const before = await ruleRows(ctx);
+    expect(before.map((row) => row.key)).toEqual([`review-rule:${GITHUB}:pr:o/r#7`]);
+    await ctx.rulePr({ mergeState: 'blocked' }, undefined, 'github:web:o/r');
+    await ctx.rulePr(
+      { mergeState: 'blocked' },
+      rule({ reviewDecision: 'approved' }),
+      'github:web:o/r',
+    );
+    expect(await ruleRows(ctx)).toEqual(before);
+    expect((await ctx.why()).waiting).toEqual([
+      { reason: 'review_rule_blocked', head: A, text: 'merge blocked by the GitHub review rule' },
+    ]);
+  });
+
+  it('without the key a review rule beside the facts writes nothing and changes no wait', async () => {
+    const ctx = await pastProductReview({ externalReview: true });
+    await ctx.rulePr({ mergeState: 'blocked' }, rule({ reviewDecision: 'changes_requested' }));
+    expect(await ruleRows(ctx)).toEqual([]);
+    expect(await externalConditions(ctx)).toEqual([
+      { condition: 'approved', state: 'failed', reason: 'not_approved' },
+    ]);
+    await ctx.rulePr({ ...approved, mergeState: 'blocked' }, rule());
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    expect(await ruleItems(ctx)).toEqual([]);
   });
 });

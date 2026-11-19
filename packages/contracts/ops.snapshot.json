@@ -1,5 +1,5 @@
 {
-  "version": "f90ec13088316ec9faf294c1bcde732010acf649088af3f1160a8627e2f1abfb",
+  "version": "54b60e9065fb92a9430f31c5ee7dbcc653a1b20b3bfe199cc3c2493547978201",
   "grants": [
     "operator",
     "project-agent",
@@ -5328,6 +5328,7 @@
                               "submit_on_head",
                               "review_on_head",
                               "approved",
+                              "review_rule_satisfied",
                               "merged"
                             ],
                             "description": "Exit condition of the column."
@@ -5355,6 +5356,9 @@
                                   "no_submit_on_head",
                                   "no_review_on_head",
                                   "not_approved",
+                                  "changes_requested",
+                                  "review_rule_blocked",
+                                  "merge_state_unknown",
                                   "not_merged"
                                 ]
                               },
@@ -5745,6 +5749,9 @@
                           "no_submit_on_head",
                           "no_review_on_head",
                           "not_approved",
+                          "changes_requested",
+                          "review_rule_blocked",
+                          "merge_state_unknown",
                           "not_merged"
                         ]
                       },
@@ -5762,7 +5769,7 @@
                 "description": "The last 5 column moves, oldest first."
               },
               "waiting": {
-                "description": "Facts the task waits for that GitHub has not settled yet, plus red checks the task returns to Dev on when the project checksGate is not dev; absent when none.",
+                "description": "Facts the task waits for that GitHub has not settled yet, plus red checks the task returns to Dev on when the project checksGate is not dev, and the GitHub review rule waits under approvalRule github-rules; absent when none.",
                 "minItems": 1,
                 "type": "array",
                 "items": {
@@ -5784,9 +5791,12 @@
                         "no_submit_on_head",
                         "no_review_on_head",
                         "not_approved",
+                        "changes_requested",
+                        "review_rule_blocked",
+                        "merge_state_unknown",
                         "not_merged"
                       ],
-                      "description": "The gate reason that waits on the fact; checks_red only when the project checksGate is not dev."
+                      "description": "The gate reason that waits on the fact; checks_red only when the project checksGate is not dev, and review_rule_blocked and changes_requested only when External Review sets approvalRule github-rules."
                     },
                     "head": {
                       "type": "string",
@@ -5795,7 +5805,7 @@
                     },
                     "text": {
                       "type": "string",
-                      "description": "The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red."
+                      "description": "The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red. Under approvalRule github-rules, review_rule_blocked reads merge blocked by the GitHub review rule, changes_requested reads changes requested, and merge_state_unknown reads GitHub has not computed the merge state yet, none with the sha."
                     }
                   },
                   "required": ["reason", "head", "text"],
@@ -11168,6 +11178,9 @@
                       "no_submit_on_head",
                       "no_review_on_head",
                       "not_approved",
+                      "changes_requested",
+                      "review_rule_blocked",
+                      "merge_state_unknown",
                       "not_merged"
                     ]
                   },
@@ -11633,6 +11646,7 @@
                                     "submit_on_head",
                                     "review_on_head",
                                     "approved",
+                                    "review_rule_satisfied",
                                     "merged",
                                     "work_started"
                                   ],

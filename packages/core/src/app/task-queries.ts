@@ -37,7 +37,14 @@ const WAITING_FOR: Record<HoldOnlyReason, string> = {
   checks_pending: 'waiting for CI',
   mergeable_unknown: 'waiting for GitHub to compute mergeability',
   comment_history_incomplete: 'waiting for the board to read the full PR comment history',
+  merge_state_unknown: 'GitHub has not computed the merge state yet',
 };
+
+/** The review rule waits of `approvalRule: github-rules` that are not hold-only, as `--why` names them. */
+const RULE_WAITS = {
+  review_rule_blocked: 'merge blocked by the GitHub review rule',
+  changes_requested: 'changes requested',
+} as const;
 
 export function visibleProjects(config: Config, actor: ActorId): ReadonlySet<string> {
   return new Set(
@@ -159,10 +166,13 @@ export function createTaskQueries(deps: {
     const head = facts.pr?.headSha.toLowerCase();
     const { checksGate } = project;
     // Under a checksGate right of Dev, running checks name the gate and red checks are listed too.
+    // The review rule waits name no head: GitHub's answer is about the PR as a whole.
     const waitText = (reason: HoldOnlyReason, sha: string) =>
       reason === 'checks_pending' && checksGate !== 'dev'
         ? `checks running, exit from ${checksGate} waits for green`
-        : `${WAITING_FOR[reason]} on ${sha}`;
+        : reason === 'merge_state_unknown'
+          ? WAITING_FOR[reason]
+          : `${WAITING_FOR[reason]} on ${sha}`;
     const waiting =
       gate.ok || head === undefined
         ? []
@@ -171,7 +181,9 @@ export function createTaskQueries(deps: {
               ? [{ reason, head, text: waitText(reason as HoldOnlyReason, head) }]
               : reason === 'checks_red' && checksGate !== 'dev'
                 ? [{ reason, head, text: 'checks red' }]
-                : [],
+                : Object.hasOwn(RULE_WAITS, reason)
+                  ? [{ reason, head, text: RULE_WAITS[reason as keyof typeof RULE_WAITS] }]
+                  : [],
           );
     const holds = [
       ...dispatchHolds(read.input),

@@ -56,7 +56,7 @@ describe('how the Board works guide', () => {
         /Retained QA cannot supply Dev's submit\s*requirement/,
         /Taken turns hold until submit, return or a new head/,
         /Fixed gate rules have no configuration switch/,
-        /Fixed gate rules have no configuration switch\s*except enabled columns, no-CI, checks gate and resolved threads/,
+        /Fixed gate rules have no configuration switch\s*except enabled columns, no-CI, checks gate, resolved threads and review rule/,
         /`projects\[\]\.checksGate` \(default `dev`/,
         /Red\s*checks return the task to Dev from any column, after the submit of a taken turn/,
         /Only right of `dev` a cancelled check counts as running\s*for about two GitHub poll intervals/,
@@ -342,6 +342,7 @@ describe('how the Board works guide', () => {
       'filter:',
       'health:',
       'no-session:',
+      'review-rule:',
     ];
     expect([...new Set(rows.map((row) => row.kind))].sort()).toEqual([...ITEM_KINDS].sort());
     for (const kind of ITEM_KINDS) {

@@ -82,6 +82,9 @@ export const GATE_REASONS = [
   'no_submit_on_head',
   'no_review_on_head',
   'not_approved',
+  'changes_requested',
+  'review_rule_blocked',
+  'merge_state_unknown',
   'not_merged',
 ] as const;
 export type GateReason = (typeof GATE_REASONS)[number];

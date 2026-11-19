@@ -170,9 +170,19 @@ describe('CLI exit classes and mutation keys', () => {
     expect(JSON.parse(output.stdout)).toEqual(OPERATIONS[0].examples[0].output);
   });
 
-  it('a config with checksGate external-review reaches the configured daemon', async () => {
+  it.each([
+    ['checksGate external-review', (port: number) => gatedConfig('external-review', port)],
+    [
+      'approvalRule github-rules on external-review',
+      (port: number) =>
+        gatedConfig('dev', port).replace(
+          '{ id: external-review }',
+          '{ id: external-review, approvalRule: github-rules }',
+        ),
+    ],
+  ])('a config with %s reaches the configured daemon', async (_name, configOf) => {
     const { url } = await fakeServer(statusResponse);
-    const config = gatedConfig('external-review', Number(new URL(url).port));
+    const config = configOf(Number(new URL(url).port));
     expect(configSchema.safeParse(YAML.parse(config)).success).toBe(true);
     const home = boardHome(config);
     const output = capture();
@@ -191,6 +201,7 @@ describe('CLI exit classes and mutation keys', () => {
     'http: { port: -1 }',
     gatedConfig('qa', 9),
     gatedConfig('dev', 9).replace('{ id: review }', '{ id: review, quietTurnAfterMs: 60000 }'),
+    gatedConfig('dev', 9).replace('{ id: review }', '{ id: review, approvalRule: github-rules }'),
   ])('refuses to send without BOARD_DAEMON_URL or a valid config (%s)', async (text) => {
     const home = boardHome(text);
     const sent: string[] = [];

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  APPROVAL_RULES,
   CHECKS_GATE_COLUMNS,
   COLUMNS,
   COLUMN_IDS,
@@ -7,6 +8,7 @@ import {
   REQUIRED_COLUMN_IDS,
   TODO_GROUP_COLUMN_IDS,
   type AddresseeSource,
+  type ApprovalRule,
   type ColumnBindingSource,
   type ColumnId,
   type OperatorBindingSource,
@@ -300,6 +302,12 @@ const columnConfig = z.strictObject({
     .describe(
       "true: a task leaves this column, and every column right of it, only when its PR has no unresolved review thread; an unresolved one sends it back to Dev, and the worker's Dev turn lists each thread. Outdated threads count; a thread counts until someone resolves it, whoever wrote it. Defaults to true on ready-to-merge and false elsewhere; allowed on dev through ready-to-merge.",
     ),
+  approvalRule: z
+    .enum(APPROVAL_RULES)
+    .optional()
+    .describe(
+      "What lets a task leave External Review. any-approval, the default: an approval by someone other than operatorGithubLogin and no changes requested by one. github-rules: that, and GitHub's review rule for the PR's base branch, read from branch protection and rulesets, satisfied on the PR head: no changes requested, a required check completed and the merge not blocked. Allowed only on the external-review column; a disabled column ignores it.",
+    ),
   quietTurnAfterMs: z
     .int()
     .min(1)
@@ -322,6 +330,19 @@ export const DEFAULT_NO_RECIPIENT_AFTER_MS = 600_000;
 const TURN_TIMING_KEYS = ['quietTurnAfterMs', 'noRecipientAfterMs'] as const;
 
 type ColumnConfig = z.output<typeof columnConfig>;
+
+/**
+ * The approval rule of a project's External Review: github-rules only when its enabled
+ * external-review column sets it, else any-approval.
+ */
+export function approvalRuleOf(project: {
+  columns: readonly Pick<ColumnConfig, 'id' | 'enabled' | 'approvalRule'>[];
+}): ApprovalRule {
+  const column = project.columns.find((entry) => entry.id === 'external-review');
+  return column?.enabled === true && column.approvalRule === 'github-rules'
+    ? 'github-rules'
+    : 'any-approval';
+}
 
 /** Columns a task never leaves through the Dev gate, so they cannot require resolved threads. */
 const NO_THREAD_GATE: ReadonlySet<ColumnConfig['id']> = new Set([...TODO_GROUP_COLUMN_IDS, 'done']);
@@ -349,6 +370,13 @@ function checkBoard(items: readonly ColumnConfig[], ctx: z.RefinementCtx): void 
     }
   }
   items.forEach((item, i) => {
+    if (item.approvalRule !== undefined && item.id !== 'external-review') {
+      ctx.addIssue({
+        code: 'custom',
+        path: [i, 'approvalRule'],
+        message: `Column ${JSON.stringify(item.id)} cannot set approvalRule: approvalRule is allowed only on the external-review column`,
+      });
+    }
     if (item.requireResolvedThreads === true && NO_THREAD_GATE.has(item.id)) {
       ctx.addIssue({
         code: 'custom',

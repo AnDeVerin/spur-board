@@ -36,6 +36,14 @@ Inside a Spur session the session wins over a token: `SPUR_SESSION` is sent and 
 
 Under a `checksGate` other than `dev`, Dev's gate lists `checks_not_red` instead of `checks_green`, and the `checksGate` column lists `checks_green` first. A cancelled check there reads `checks_pending` until two complete GitHub polls after the one that saw it, then `checks_red`.
 
+With `approvalRule: github-rules` on External Review only, its gate also lists `review_rule_satisfied`, and `waiting` can carry three more reasons, none with the sha:
+
+| Reason                | Text                                          |
+| --------------------- | --------------------------------------------- |
+| `review_rule_blocked` | `merge blocked by the GitHub review rule`     |
+| `changes_requested`   | `changes requested`                           |
+| `merge_state_unknown` | `GitHub has not computed the merge state yet` |
+
 ## Commands
 
 ### `board doctor`

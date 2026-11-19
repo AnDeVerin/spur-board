@@ -33,8 +33,7 @@ or for a manually included task; dropped-filter evidence alone stays unconfirmed
 These alternatives bypass normal gates, including Ready to Merge's merged
 condition. Blind GitHub or a pending submit holds both routes. Archived tasks are
 excluded; links must be unbanned and past the reopen floor, and missing/unreadable
-chosen or fallback PR facts hold evaluation. Cycle holds allow completion;
-dispatcher `on` applies moves while `shadow` computes only a shadow position.
+chosen or fallback PR facts hold evaluation. Cycle holds allow completion.
 
 ## Columns and executors
 
@@ -94,8 +93,9 @@ A status comment whose last line is a hidden `board-reviewer-progress` or
 for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
-External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits of other worker columns. Fixed gate rules have no configuration switch
-except enabled columns, no-CI, checks gate and resolved threads.
+External Review's external approval; its `approvalRule: github-rules` also needs
+GitHub's review rule (`docs/configuration.md`). QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits of other worker columns. Fixed gate rules have no configuration switch
+except enabled columns, no-CI, checks gate, resolved threads and review rule.
 
 `projects[].checksGate` (default `dev`; `review`, `product-review` or
 `external-review`, enabled) moves the pending-CI wait to that column's exit. Red

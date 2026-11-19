@@ -18,6 +18,11 @@ export const checksGateExample = readFileSync(
   new URL('../packages/contracts/test/fixtures/checks-gate-project.yaml', import.meta.url),
   'utf8',
 );
+/** The example config of `## Example: follow the GitHub review rule at External Review`. */
+export const approvalRuleExample = readFileSync(
+  new URL('../packages/contracts/test/fixtures/approval-rule-project.yaml', import.meta.url),
+  'utf8',
+);
 const program = createProgram({ io: { isTTY: false, stdout: () => {}, stderr: () => {} } });
 type CliCommand = ReturnType<typeof createProgram>;
 const operationByCommand = new Map(
@@ -122,6 +127,14 @@ export function renderCliDocs(): string {
     '| `comment_history_incomplete` | `waiting for the board to read the full PR comment history on <sha>` | the same |',
     '',
     "Under a `checksGate` other than `dev`, Dev's gate lists `checks_not_red` instead of `checks_green`, and the `checksGate` column lists `checks_green` first. A cancelled check there reads `checks_pending` until two complete GitHub polls after the one that saw it, then `checks_red`.",
+    '',
+    'With `approvalRule: github-rules` on External Review only, its gate also lists `review_rule_satisfied`, and `waiting` can carry three more reasons, none with the sha:',
+    '',
+    '| Reason | Text |',
+    '| --- | --- |',
+    '| `review_rule_blocked` | `merge blocked by the GitHub review rule` |',
+    '| `changes_requested` | `changes requested` |',
+    '| `merge_state_unknown` | `GitHub has not computed the merge state yet` |',
     '',
     '## Commands',
     '',
@@ -282,6 +295,14 @@ export function renderConfigurationDocs(): string {
     '',
     '```yaml',
     checksGateExample.trimEnd(),
+    '```',
+    '',
+    '## Example: follow the GitHub review rule at External Review',
+    '',
+    "`approvalRule: github-rules` on the `external-review` column makes a task leave External Review only when a reviewer other than `operatorGithubLogin` approved, nobody requested changes (GitHub's review decision or a reviewer's latest review), and the board stored a decision for the PR head that GitHub's review rule is satisfied: a required check completed and the merge state clean, unstable or with hooks. The rule is read from the base branch's branch protection and rulesets on each full PR read. A merge state GitHub has not computed keeps the stored decision; a new head starts without one. Blocked with every thread resolved reads `review_rule_blocked`; blocked with unresolved threads, behind, or a head with no decision waits as `merge_state_unknown` or `unresolved_threads`, and after 30 minutes in External Review the operator gets one item. A draft and a conflict still return the task to Dev. Without the key, or with `any-approval`, any external approval is enough. Remove the key before `board rollback` to a version without it.",
+    '',
+    '```yaml',
+    approvalRuleExample.trimEnd(),
     '```',
     '',
     ...SESSION_LINKS,

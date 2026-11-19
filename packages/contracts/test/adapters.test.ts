@@ -254,6 +254,40 @@ describe('batch', () => {
     ).toBe(false);
   });
 
+  it('keeps an optional review rule on a PR item and rejects an unknown key', () => {
+    const reviewRule = {
+      reviewDecision: 'review_required',
+      rule: {
+        sources: ['ruleset'],
+        approvals: 1,
+        codeOwners: false,
+        conversationResolution: true,
+        requiredChecks: ['ci-ok'],
+      },
+    };
+    const withRule = (value: unknown): Record<string, unknown> =>
+      batch({ items: [{ kind: 'pr', facts: prFacts, reviewRule: value }] });
+    expect(batchSchema.parse(withRule(reviewRule)).items[0]).toMatchObject({ reviewRule });
+    expect(
+      batchSchema.parse(withRule({ ...reviewRule, reviewDecision: null })).items[0],
+    ).toMatchObject({ reviewRule: { reviewDecision: null } });
+    expect(batchSchema.parse(batch({ items: [items.pr.valid] })).items[0]).not.toHaveProperty(
+      'reviewRule',
+    );
+    expect(batchSchema.safeParse(withRule({ ...reviewRule, extra: true })).success).toBe(false);
+    expect(
+      batchSchema.safeParse(withRule({ ...reviewRule, rule: { ...reviewRule.rule, admins: true } }))
+        .success,
+    ).toBe(false);
+    expect(
+      batchSchema.safeParse(withRule({ ...reviewRule, reviewDecision: 'APPROVED' })).success,
+    ).toBe(false);
+    expect(
+      batchSchema.safeParse(batch({ items: [{ kind: 'ticket', facts: ticketFacts, reviewRule }] }))
+        .success,
+    ).toBe(false);
+  });
+
   it('keeps an optional default-branch fact and rejects a malformed one', () => {
     const green = { state: 'green', branch: 'main', sha };
     const red = { ...green, state: 'red', check: 'build', url: 'https://github.com/o/r/runs/1' };

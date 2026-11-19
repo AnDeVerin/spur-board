@@ -14,6 +14,7 @@ import {
   RESERVED_PROJECT,
   defaultBranchViewSchema,
   entityRefSchema,
+  approvalRuleOf,
   prFactsSchema,
   prSourceId,
   sessionFactsSchema,
@@ -27,6 +28,7 @@ import {
   type PollContext,
   type PrEntityRef,
   type PrFacts,
+  type PrReviewRule,
   type SourceCursor,
   type SessionFacts,
   type SessionTransition,
@@ -69,6 +71,7 @@ import {
 } from './dispatch.ts';
 import { closeTurns, rerouteDemotedWorkerTurn } from './turns.ts';
 import { countCancelledChecks } from './cancelled-checks.ts';
+import { recordReviewRule } from './review-rule.ts';
 
 function refKey(ref: EntityRef): string {
   switch (ref.kind) {
@@ -551,7 +554,9 @@ function comparableFacts(
 
 /**
  * Applies one PR fact. `scheduled` is a complete scheduled poll, the only kind that advances the
- * cancelled-check count. Returns true when this poll confirmed a cancelled check as red.
+ * cancelled-check count; `reviewRule` is the full read's review rule of a github-rules source.
+ * Returns true when this poll confirmed a cancelled check as red, or changed the review rule with
+ * the facts unchanged: no fact event dispatches the PR's tasks then.
  */
 async function pr(
   trx: Trx,
@@ -560,6 +565,7 @@ async function pr(
   at: string,
   source: string,
   scheduled: boolean,
+  reviewRule?: PrReviewRule,
 ): Promise<boolean> {
   // Positive full facts supersede this source's stale absence, including demand reads.
   await trx
@@ -627,6 +633,10 @@ async function pr(
   if (project === undefined) return false;
   const confirmed =
     project.checksGate !== 'dev' && (await countCancelledChecks(trx, source, fact, scheduled));
+  // Only a github-rules project's source keeps a review rule row; others make no call.
+  const ruled =
+    approvalRuleOf(project) === 'github-rules' &&
+    (await recordReviewRule(trx, source, fact, reviewRule, at, project.operatorGithubLogin));
   for (const key of fact.ticketKeys) {
     const task = await trx
       .selectFrom('task')
@@ -698,7 +708,7 @@ async function pr(
     }
   }
   await applyPendingReopen(trx, fact, at);
-  if (!changed) return confirmed;
+  if (!changed) return confirmed || ruled;
   const links = await trx
     .selectFrom('link')
     .select(['task_id'])
@@ -1505,8 +1515,8 @@ export function createObservationCore(deps: {
                   : 2;
           return rank(left) - rank(right);
         });
-        // PRs whose cancelled check this poll confirmed red: no fact changed, so no event
-        // dispatches their tasks.
+        // PRs whose cancelled check this poll confirmed red, or whose review rule changed: no fact
+        // changed, so no event dispatches their tasks.
         const confirmedCancels: PrFacts[] = [];
         for (const item of orderedItems) {
           if (item.kind === 'ticket')
@@ -1520,6 +1530,7 @@ export function createObservationCore(deps: {
                 batch.observedAt,
                 source,
                 observation.effectiveComplete,
+                item.reviewRule,
               )
             )
               confirmedCancels.push(item.facts);
