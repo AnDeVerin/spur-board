@@ -402,6 +402,14 @@ describe('changesRequested', () => {
     expect(changesRequested(pr(), null, 'agent-bot')).toBe(false);
   });
 
+  it("does not count GitHub's verdict while the merge state is unknown; a reviewer's review counts", () => {
+    for (const patch of [{ mergeState: 'unknown' }, { mergeable: 'unknown' }] as const) {
+      expect(changesRequested(pr(patch), 'changes_requested', 'agent-bot')).toBe(false);
+      const reviewed = pr({ ...patch, reviews: [review('reviewer', 'changes_requested')] });
+      expect(changesRequested(reviewed, 'review_required', 'agent-bot')).toBe(true);
+    }
+  });
+
   it('keeps a changes request after the reviewer is asked again', () => {
     const rerequested = pr({
       reviews: [review('reviewer', 'changes_requested')],
