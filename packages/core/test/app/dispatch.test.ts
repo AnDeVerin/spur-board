@@ -1070,7 +1070,11 @@ describe('flow tables', () => {
       await ctx.store.db.selectFrom('operator_item').select(['kind', 'cleared_at']).execute(),
     ).toEqual([{ kind: 'turn', cleared_at: null }]);
 
-    await ctx.pr({ state: 'merged' });
+    // Merged after the ticket's last change, so the open ticket is only not moved yet.
+    await ctx.pr({
+      state: 'merged',
+      mergedAt: new Date(Date.parse(ctx.at()) + 60_000).toISOString(),
+    });
     await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
     expect(await ctx.openTurn()).toEqual(turnOf('done', 'worker', 'done: wrap up'));
@@ -2700,7 +2704,11 @@ describe('shadow mode', () => {
     expect((await ctx.task()).shadow_column).toBe('product-review');
     await ctx.submit(COORD, KEY, A);
     expect((await ctx.task()).shadow_column).toBe('ready-to-merge');
-    await ctx.pr({ state: 'merged' });
+    // Merged after the ticket's last change, so the open ticket is only not moved yet.
+    await ctx.pr({
+      state: 'merged',
+      mergedAt: new Date(Date.parse(ctx.at()) + 60_000).toISOString(),
+    });
     await ctx.ticket('closed');
 
     expect(await ctx.task()).toMatchObject({ shadow_column: 'done' });

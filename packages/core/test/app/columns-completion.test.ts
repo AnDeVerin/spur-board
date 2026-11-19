@@ -229,7 +229,7 @@ const ticketEvidence = [
   {
     name: 'done ticket',
     status: 'done',
-    changedAfterMerge: false,
+    changed: 'before',
     inFilter: true,
     manual: false,
     column: 'done',
@@ -238,7 +238,7 @@ const ticketEvidence = [
   {
     name: 'missing ticket',
     status: 'missing',
-    changedAfterMerge: false,
+    changed: 'before',
     inFilter: true,
     manual: false,
     column: 'ready-to-merge',
@@ -247,7 +247,7 @@ const ticketEvidence = [
   {
     name: 'open, untouched since merge, observed past interval',
     status: 'open',
-    changedAfterMerge: false,
+    changed: 'before',
     inFilter: true,
     manual: false,
     column: 'ready-to-merge',
@@ -256,7 +256,17 @@ const ticketEvidence = [
   {
     name: 'open, changed after merge in filter',
     status: 'open',
-    changedAfterMerge: true,
+    changed: 'after',
+    inFilter: true,
+    manual: false,
+    column: 'dev',
+    unconfirmed: false,
+  },
+  {
+    // GitHub times have one-second precision: an edit in the merge's second shows the merge time.
+    name: 'open, changed at the merge time in filter',
+    status: 'open',
+    changed: 'at',
     inFilter: true,
     manual: false,
     column: 'dev',
@@ -265,7 +275,7 @@ const ticketEvidence = [
   {
     name: 'dropped filter keeps stale status',
     status: 'open',
-    changedAfterMerge: true,
+    changed: 'after',
     inFilter: false,
     manual: false,
     column: 'ready-to-merge',
@@ -274,7 +284,7 @@ const ticketEvidence = [
   {
     name: 'manual inclusion, changed after merge outside filter',
     status: 'open',
-    changedAfterMerge: true,
+    changed: 'after',
     inFilter: false,
     manual: true,
     column: 'dev',
@@ -283,7 +293,7 @@ const ticketEvidence = [
   {
     name: 'manual inclusion still waits while untouched since merge',
     status: 'open',
-    changedAfterMerge: false,
+    changed: 'before',
     inFilter: false,
     manual: true,
     column: 'ready-to-merge',
@@ -315,7 +325,7 @@ it.each(
   ),
 )(
   'qualifies completion against app ticket evidence in $name',
-  async ({ tracker, status, changedAfterMerge, inFilter, manual, column, unconfirmed }) => {
+  async ({ tracker, status, changed, inFilter, manual, column, unconfirmed }) => {
     const store = openTempStore('board-app-completion-').store;
     stores.push(store);
     const config = configSchema.parse({
@@ -351,7 +361,9 @@ it.each(
     const at = new Date(now);
     // Observed past the tracker interval either way: only a change after the merge counts.
     const observedAt = new Date(Date.parse(mergedAt) + interval).toISOString();
-    const updatedAt = new Date(Date.parse(mergedAt) + (changedAfterMerge ? 1 : -1)).toISOString();
+    const updatedAt = new Date(
+      Date.parse(mergedAt) + { before: -1, at: 0, after: 1 }[changed],
+    ).toISOString();
     const key = jira ? 'POL-1' : 'o/r#1';
     const pr: PrFacts = {
       repo: 'o/r',

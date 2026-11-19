@@ -64,9 +64,11 @@ export function ticketDone(project: Config['projects'][number], status: string):
 
 /**
  * How the ticket of a task stands after its PR merged at `mergedAt`: `done`; `reopened` once the
- * ticket changed after the merge and is still not done, in the filter or fetched by key for a
- * hand-added task; else `unconfirmed`, since a ticket untouched since the merge only waits to be
- * moved to done, and a ticket dropped from the filter keeps a stale status.
+ * ticket changed at or after the merge and is still not done, in the filter or fetched by key for
+ * a hand-added task; else `unconfirmed`, since a ticket untouched since the merge only waits to be
+ * moved to done, and a ticket dropped from the filter keeps a stale status. An equal time counts as
+ * a change: GitHub times have one-second precision, and a merge-triggered edit of the issue in the
+ * same second shows the merge time.
  */
 export function mergedTicket(
   project: Config['projects'][number],
@@ -84,7 +86,7 @@ export function mergedTicket(
   } catch {
     return 'unconfirmed';
   }
-  return (facts.inFilter || manualInclude) && Date.parse(facts.updatedAt) > Date.parse(mergedAt)
+  return (facts.inFilter || manualInclude) && Date.parse(facts.updatedAt) >= Date.parse(mergedAt)
     ? 'reopened'
     : 'unconfirmed';
 }

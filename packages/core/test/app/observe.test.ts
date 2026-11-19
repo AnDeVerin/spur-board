@@ -3735,13 +3735,16 @@ describe('anomaly blocks', () => {
 
     it('raises the worker-end item naming the merged PR once the ticket changed after the merge', async () => {
       const { b, ticket, healthItems } = await split();
+      const before = iso();
       await spur(b, [session('worker-1', 'working')]);
-      await prs(b, [pr(7, 'merged')]);
-      await ticket('open');
+      now += 1_000;
+      const merged = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [merged]);
+      await ticket('open', before);
       now += 1_000;
       await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
       now += 1_000;
-      await prs(b, [pr(7, 'merged')]);
+      await prs(b, [merged]);
       expect(await healthItems()).toEqual([]);
 
       now += interval;
@@ -5084,7 +5087,9 @@ describe('anomaly blocks', () => {
 
       const merged = await board();
       await ticket(merged, 'open');
-      await prs(merged, [pr(7, 'merged')]);
+      // Merged after the ticket's last change: the open ticket is only not moved yet.
+      const later = new Date(Date.parse(at) + 1_000).toISOString();
+      await prs(merged, [{ ...pr(7, 'merged'), updatedAt: later, mergedAt: later }]);
       await spur(merged, [sessionFact('worker-1', link, true)]);
       expect(await openLedger(merged)).toEqual([]);
     });
