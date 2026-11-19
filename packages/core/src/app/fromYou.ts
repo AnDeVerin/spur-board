@@ -901,6 +901,10 @@ export async function reconcileItems(
           ? flag.kind.replaceAll('_', ' ')
           : `${endedLabel}${reopened.get(task.id) ?? ', no PR'}`
       } (${flag.sessionId})`,
+      // The text an earlier version showed, so a dismissal holds when the PR clause changes.
+      ...(endedLabel === undefined
+        ? {}
+        : { hashedSummary: `${task.key}: ${endedLabel}, no PR (${flag.sessionId})` }),
       // An ended worker's "no PR" holds while Spur keeps completing polls.
       factAt:
         endedLabel === undefined
@@ -1034,10 +1038,15 @@ export async function reconcileItems(
       await clearReconciled(trx, old, new Date(now));
     if (dismissal?.fingerprint === hash) continue;
     if (kept) {
-      if (old.fact_at !== candidate.factAt || old.source !== candidate.source)
+      // A hashed summary keeps the item while its shown text changes: show the current text.
+      if (
+        old.fact_at !== candidate.factAt ||
+        old.source !== candidate.source ||
+        old.text !== candidate.summary
+      )
         await trx
           .updateTable('operator_item')
-          .set({ fact_at: candidate.factAt, source: candidate.source })
+          .set({ fact_at: candidate.factAt, source: candidate.source, text: candidate.summary })
           .where('id', '=', old.id)
           .execute();
       continue;

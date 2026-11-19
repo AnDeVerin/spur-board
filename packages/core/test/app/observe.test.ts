@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -3791,6 +3792,91 @@ describe('anomaly blocks', () => {
       expect(after.map((item) => [item.id, item.fingerprint, item.cleared_at === null])).toEqual([
         [raised.id, raised.fingerprint, false],
       ]);
+    });
+
+    it.each([
+      'unlinked after dismissal',
+      'dismissed before the upgrade',
+      'ended again after dismissal',
+    ] as const)('keeps the dismissal of a worker-end item off its shown text: %s', async (row) => {
+      const { b, ticket } = await split();
+      /** The worker-end items not cleared or dismissed, by text. */
+      const shown = async () =>
+        (
+          await b.store.db
+            .selectFrom('operator_item')
+            .select('text')
+            .where('item_key', 'like', 'health:%')
+            .where('cleared_at', 'is', null)
+            .execute()
+        ).map((item) => item.text);
+      await spur(b, [session('worker-1', 'working')]);
+      await ticket('open', iso());
+      now += 1_000;
+      const merged = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [merged]);
+      now += 1_000;
+      await ticket('open');
+      now += 1_000;
+      const endedAt = iso();
+      if (row === 'dismissed before the upgrade') {
+        // The dismissal an earlier version stored for the same exit, hashed from its text.
+        const key = `health:${String(b.task.id)}:worker-1:worker_completed`;
+        const text = 'o/r#9: worker ended (completed), no PR (worker-1)';
+        await b.store.db
+          .insertInto('dismissal')
+          .values({
+            item_key: key,
+            fingerprint: createHash('sha256')
+              .update(JSON.stringify([key, text, 'spur', endedAt]))
+              .digest('hex'),
+            dismissed_by: 'operator',
+            dismissed_at: endedAt,
+          })
+          .execute();
+      }
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt }]);
+      now += 1_000;
+      await prs(b, [merged]);
+      if (row === 'dismissed before the upgrade') {
+        expect(await shown()).toEqual([]);
+        expect(await openLedger(b)).toEqual([]);
+        return;
+      }
+      expect(await openLedger(b)).toEqual(['health:worker-1:worker_completed']);
+      const item = await b.store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('item_key', 'like', 'health:%')
+        .executeTakeFirstOrThrow();
+      expect(item.text).toBe(
+        'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)',
+      );
+      await b.store.transaction((trx) => dismissItem(trx, item, 'operator', new Date(now)));
+      expect(await shown()).toEqual([]);
+      now += 1_000;
+      if (row === 'unlinked after dismissal') {
+        await b.apply(
+          createLinkMutations(b.config).remove,
+          {
+            mode: 'pr',
+            task: b.task.key,
+            pr: 'https://github.com/o/r/pull/7',
+            reason: 'Other ticket.',
+          },
+          'operator',
+        );
+        now += 1_000;
+        await prs(b, [merged]);
+        expect(await shown()).toEqual([]);
+      } else {
+        await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+        now += 1_000;
+        await prs(b, [merged]);
+        expect(await shown()).toEqual([
+          'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)',
+        ]);
+      }
     });
 
     it('raises no worker-end item while the ticket is untouched since the merge, up to done', async () => {
