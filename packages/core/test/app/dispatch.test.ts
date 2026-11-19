@@ -75,6 +75,8 @@ type Options = {
   externalCourseCheck?: number;
   devOrchestrator?: string;
   doneOrchestrator?: string;
+  /** External Review's orchestrator, so it has an executor that can return the task. */
+  externalOrchestrator?: string;
   /** The task's project left the config: the only project tracks another repo. */
   projectRemoved?: boolean;
   /** The project also tracks the repo `o/b`. */
@@ -190,6 +192,9 @@ function columnsOf(options: Options) {
       ? [
           {
             id: 'external-review',
+            ...(options.externalOrchestrator === undefined
+              ? {}
+              : { orchestrator: options.externalOrchestrator }),
             ...(options.externalCourseCheck === undefined
               ? {}
               : { courseCheck: options.externalCourseCheck }),
@@ -4103,6 +4108,60 @@ describe('external change-request rounds', () => {
 
       await devRound(ctx, next);
       expect(await rounds(ctx)).toEqual(roundsOn(...heads).map((round) => ({ ...round, ...repr })));
+    },
+  );
+
+  /**
+   * The reviewers mark head A unless their marks still stand, and External Review's orchestrator
+   * returns the task.
+   */
+  async function externalExecutorReturn(ctx: Board) {
+    for (const actor of [REV, COORD]) {
+      if ((await ctx.task()).column === 'external-review') break;
+      const turn = await ctx.openTurn();
+      await ctx.ack(actor, turn?.id ?? '');
+      await ctx.submit(actor, turn?.id ?? '', A);
+    }
+    expect((await ctx.task()).column).toBe('external-review');
+    const turn = await ctx.openTurn();
+    await ctx.ack(COORD, turn?.id ?? '');
+    await ctx.ret(COORD, turn?.id ?? '');
+    expect((await ctx.moves()).at(-1)).toMatchObject({ from: 'external-review', to: 'dev' });
+  }
+
+  it.each([
+    {
+      name: 'an executor return on a head a Dev round counted',
+      start: async (options: Options) => {
+        const ctx = await inDev(options);
+        await devRound(ctx, A);
+        // The first submit hands the change request over; the second reaches Review.
+        await resubmit(ctx, A);
+        await resubmit(ctx, A);
+        return ctx;
+      },
+      returns: 1,
+      course: 2,
+    },
+    {
+      name: 'repeated executor returns on one head',
+      start: inReview,
+      returns: 2,
+      course: 2,
+    },
+  ])(
+    'External Review executor returns count every time: $name',
+    async ({ start, returns, course }) => {
+      const options = { externalReview: true, curator: true, externalOrchestrator: 'coord' };
+      const ctx = await start(options);
+      for (let index = 0; index < returns; index += 1) {
+        if (index > 0) await resubmit(ctx, A);
+        await externalExecutorReturn(ctx);
+      }
+      expect(await returnCounts(ctx.store.db, 1, 'external-review', project(options))).toEqual({
+        cycle: returns,
+        course,
+      });
     },
   );
 

@@ -228,7 +228,7 @@ async function courseRounds(
       cycle.push(event);
       if (countCycles([event], event.column, Infinity).count === 0) continue;
       const counter = courseCounter(event, project);
-      const external = counter === EXTERNAL_COUNTER;
+      const external = counter === EXTERNAL_COUNTER && externalCause(event.causes);
       const pr = prAt(row.id);
       const head =
         pr === undefined
