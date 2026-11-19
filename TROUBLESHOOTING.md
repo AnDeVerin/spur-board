@@ -267,6 +267,19 @@ the repository's branch and PR title rules, which the repository's CI title chec
 skills enforce. Other warnings say the operator has no PRs there, the PRs could not be read,
 `tracker.repo` is missing from `projects[].repos`, or `GITHUB_TOKEN` is missing.
 
+### github.review_rule
+
+Listed only when a project's `external-review` column sets `approvalRule: github-rules`. For each
+of that project's `projects[].repos`, the daemon reads the default branch's review rule from its
+branch protection and the rulesets that apply to it, and prints what it read: the source (branch
+protection, ruleset or both), the required approvals, code owner review, resolved conversations and
+required checks. The board reads each PR's own base branch the same way on every full PR read. The
+check never blocks and is separate from `github.credentials`. It warns when the branch has no
+branch protection or ruleset, when the rule requires neither an approval nor a code owner review
+(no review rule to follow), when the read fails, for example because the token cannot read the
+rules, or when `GITHUB_TOKEN` is missing. Add a required approval or code owner review to the
+default branch, give the token read access, or remove `approvalRule` from the column.
+
 ### spur.api
 
 Start the Spur API or correct `adapters.spur.baseUrl` in `config.yaml`.
