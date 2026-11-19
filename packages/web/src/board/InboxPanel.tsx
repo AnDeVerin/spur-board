@@ -1,6 +1,6 @@
 import { browserOperations } from '@spur-board/contracts/browser';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { focusRing, quiet, SidePanel, TabPanel, Tabs, TextToggle } from '../ds/index.ts';
+import { focusRing, quiet, SidePanel, StatusDot, TabPanel, Tabs, TextToggle } from '../ds/index.ts';
 import { safeExternalUrl } from '../lib/links.ts';
 import { ProblemError } from '../lib/api.ts';
 import { BoardUnavailableError, type BoardData, type BoardSnapshot } from './data.ts';
@@ -20,6 +20,37 @@ interface CloseState {
 
 const closable = (entry: Entry) =>
   browserOperations['item.close'].input.safeParse({ item: entry.id }).success;
+/** A column orchestrator with no live session to ring, read from its board observation text. */
+interface NoSession {
+  column: string;
+  expects: string;
+  waiting?: number;
+  oldestAt?: string;
+}
+// The wording of core `turnsWithoutSession` (app/fromYou.ts) and `noSessionText`
+// (app/operator-inbox.ts). Text that no longer matches falls back to the generic row.
+const NO_SESSION = /^(\S+) (\S+): turns wait for a live session of Spur project (.+)$/;
+const OLDEST = /^oldest T\d+ since (\S+)$/;
+const WAITING = /^(\d+) waiting, no live session for \d+ min$/;
+
+/** The no-session reading of an entry's description (action removed), or undefined. */
+function noSession(entry: Entry, description: string): NoSession | undefined {
+  if (entry.kind !== 'board_observation') return undefined;
+  const [head = '', ...clauses] = description.split('; ');
+  const match = NO_SESSION.exec(head);
+  if (!match || match[1] !== entry.project) return undefined;
+  const found: NoSession = { column: match[2] ?? '', expects: match[3] ?? '' };
+  // Clauses come in any order; one the web does not know is left out.
+  for (const clause of clauses) {
+    const oldest = OLDEST.exec(clause)?.[1];
+    if (oldest !== undefined && !Number.isNaN(Date.parse(oldest))) found.oldestAt = oldest;
+    const waiting = WAITING.exec(clause)?.[1];
+    if (waiting !== undefined) found.waiting = Number(waiting);
+  }
+  return found;
+}
+const turns = (count: number) => (count === 1 ? '1 turn waits' : `${String(count)} turns wait`);
+
 const rowOf = (box: HTMLElement | null, id: string) =>
   [...(box?.querySelectorAll<HTMLElement>('[data-inbox-id]') ?? [])].find(
     (element) => element.dataset['inboxId'] === id,
@@ -157,6 +188,43 @@ export function InboxPanel({
       suffix !== undefined && entry.text.endsWith(suffix)
         ? entry.text.slice(0, -suffix.length)
         : entry.text;
+    const known = noSession(entry, description);
+    // A handled one keeps only its title and first sentence: the waiting turns are gone.
+    const oldestAt = handled ? undefined : known?.oldestAt;
+    const waiting = handled ? undefined : known?.waiting;
+    const tail =
+      waiting !== undefined && oldestAt !== undefined
+        ? ` ${turns(waiting)}; the oldest for ${age(oldestAt, now)}.`
+        : waiting !== undefined
+          ? ` ${turns(waiting)}.`
+          : oldestAt !== undefined
+            ? ` The oldest turn waits for ${age(oldestAt, now)}.`
+            : '';
+    const body =
+      known === undefined ? (
+        <>
+          <span>{description}</span>
+          {entry.action !== undefined && <span className={styles.action}>{entry.action}</span>}
+        </>
+      ) : (
+        <>
+          <span className={styles.title}>
+            <StatusDot tone="warn" />
+            <span>No session to ring for {known.column}</span>
+          </span>
+          <span>
+            The {known.column} orchestrator is the Spur project{' '}
+            <strong className={styles.expects}>{known.expects}</strong>, and it has no live session.
+            {tail}
+          </span>
+          {!handled && entry.action !== undefined && (
+            <span className={styles.action}>{entry.action}</span>
+          )}
+          {!handled && (
+            <span className={styles.action}>It clears itself when a session appears.</span>
+          )}
+        </>
+      );
     const content = (
       <>
         <span className={styles.meta}>
@@ -176,10 +244,9 @@ export function InboxPanel({
           {handled && (
             <span>Handled{entry.answeredVia ? ` · answered via ${entry.answeredVia}` : ''}</span>
           )}
-          <span className={styles.age}>{age(entry.at, now)}</span>
+          <span className={styles.age}>{age(oldestAt ?? entry.at, now)}</span>
         </span>
-        <span>{description}</span>
-        {entry.action !== undefined && <span className={styles.action}>{entry.action}</span>}
+        {body}
       </>
     );
     const className = `${styles.row ?? ''} ${quiet} ${focusRing}`;

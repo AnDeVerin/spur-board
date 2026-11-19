@@ -21,7 +21,11 @@ Header, left to right:
   apply to active and handled entries; counts include only active entries. Failures precede
   attention, newest first within severity. Handled entries retain query order, marked handled
   with their answer channel when supplied. Supplied actions appear separately; an exact terminal
-  `: <action>` is removed from the description. Before the first success, the panel says inbox data
+  `: <action>` is removed from the description. A column orchestrator with no live session reads
+  `No session to ring for <column>`, its Spur project, the turns waiting and the oldest one's age,
+  then its action and `It clears itself when a session appears.`; it opens the oldest waiting
+  turn's task and leaves the list once it is cleared. Text it cannot read keeps the plain
+  row. Before the first success, the panel says inbox data
   is unavailable; later failures retain data. Task rows open above the retained panel and select
   their project when config arrives. Task close focuses its row or panel Close if removed; panel close focuses the
   header inbox button. Back/Forward follow these layers. Task-less rows with a known HTTP(S)

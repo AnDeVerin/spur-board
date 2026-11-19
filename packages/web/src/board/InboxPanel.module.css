@@ -47,6 +47,17 @@
   margin-top: var(--space-1);
   color: var(--color-text-tertiary);
 }
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  font-weight: var(--weight-bold);
+}
+.expects {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
 .meta {
   display: flex;
   flex-wrap: wrap;
