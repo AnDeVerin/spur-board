@@ -181,6 +181,21 @@ describe('reviewRuleVerdict', () => {
     }
   });
 
+  it('decides nothing on a rule the token could not read', () => {
+    const verdict = (patch: Partial<PrFacts>, changes = false) =>
+      reviewRuleVerdict(pr(patch), null, changes, 0);
+    for (const mergeState of ['clean', 'blocked', 'behind'] as const)
+      expect(verdict({ mergeState })).toBe('undecided');
+    expect(verdict({ requiredChecks: [], checks: [] })).toBe('undecided');
+    expect(verdict({ mergeState: 'unknown' })).toBe('keep');
+    expect(verdict({ draft: true, mergeState: 'draft' })).toBe('dev');
+    expect(verdict({ requiredChecks: [{ name: 'ci', state: 'pending', completedAt: null }] })).toBe(
+      'checks_pending',
+    );
+    expect(verdict({ mergeState: 'blocked' }, true)).toBe('changes_requested');
+    expect(onClock('undecided')).toBe(true);
+  });
+
   it('keep runs the clock, a verdict with its own owner does not', () => {
     expect(onClock('keep')).toBe(true);
     for (const verdict of [

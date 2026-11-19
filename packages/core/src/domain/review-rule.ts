@@ -9,7 +9,8 @@ import type { PrFacts, PrReviewRule, ReviewRule } from '@spur-board/contracts';
  * - `satisfied`: the merge is not blocked (clean, unstable or has hooks).
  * - `unresolved_threads`: the merge is blocked while review threads stay unresolved.
  * - `blocked`: the merge is blocked with every thread resolved, so the rule itself holds it.
- * - `undecided`: any other merge state, behind included.
+ * - `undecided`: any other merge state, behind included, or a rule the token could not read
+ *   (null), on which the read decides nothing.
  */
 export type ReviewRuleVerdict =
   | 'keep'
@@ -25,18 +26,19 @@ type RulePr = Pick<PrFacts, 'draft' | 'mergeable' | 'mergeState' | 'requiredChec
 
 /**
  * Whether a required check has completed on the head: a check GitHub marks required that is not
- * expected or pending. With none on the head, met only when no source of the rule lists one.
+ * expected or pending. With none on the head, met only when no source of the rule lists one, or
+ * when the rule is unreadable: then only GitHub's required checks can hold the head.
  */
-export function requiredCheckCompleted(pr: RulePr, rule: ReviewRule): boolean {
+export function requiredCheckCompleted(pr: RulePr, rule: ReviewRule | null): boolean {
   if (pr.requiredChecks.some((check) => check.state !== 'expected' && check.state !== 'pending'))
     return true;
-  return pr.requiredChecks.length === 0 && rule.requiredChecks.length === 0;
+  return pr.requiredChecks.length === 0 && (rule === null || rule.requiredChecks.length === 0);
 }
 
 /** The verdict of one read; see `ReviewRuleVerdict` for the order. */
 export function reviewRuleVerdict(
   pr: RulePr,
-  rule: ReviewRule,
+  rule: ReviewRule | null,
   changesRequested: boolean,
   unresolvedThreads: number,
 ): ReviewRuleVerdict {
@@ -44,6 +46,7 @@ export function reviewRuleVerdict(
   if (pr.draft || pr.mergeable === 'conflicting') return 'dev';
   if (!requiredCheckCompleted(pr, rule)) return 'checks_pending';
   if (changesRequested) return 'changes_requested';
+  if (rule === null) return 'undecided';
   if (pr.mergeState === 'clean' || pr.mergeState === 'unstable' || pr.mergeState === 'has_hooks')
     return 'satisfied';
   if (pr.mergeState === 'blocked') return unresolvedThreads > 0 ? 'unresolved_threads' : 'blocked';
@@ -51,8 +54,8 @@ export function reviewRuleVerdict(
 }
 
 /**
- * Whether the verdict runs the 30-minute clock while the head has no decision: GitHub's answer
- * names nobody to act.
+ * Whether the verdict runs the 30-minute clock: GitHub's answer names nobody to act. For `keep`
+ * the caller also requires a completed required check.
  */
 export function onClock(verdict: ReviewRuleVerdict): boolean {
   return verdict === 'keep' || verdict === 'unresolved_threads' || verdict === 'undecided';

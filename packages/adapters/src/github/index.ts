@@ -18,6 +18,7 @@ import {
   GithubClient,
   checkAccessDenied,
   connectionWire,
+  deniedBranchRule,
   deniedReference,
   detailQuery,
   discoveryQuery,
@@ -440,7 +441,9 @@ async function processPr(
   scopedErrors: GraphError[],
   ref?: PrEntityRef,
 ): Promise<PrFacts | undefined> {
-  const errors = withoutDeniedReferences(scopedErrors);
+  // A denied base branch rule keeps the PR's facts; its review rule goes out unreadable.
+  const ruleDenied = scopedErrors.some(deniedBranchRule);
+  const errors = withoutDeniedReferences(scopedErrors).filter((entry) => !deniedBranchRule(entry));
   requireCheckAccess(errors);
   const error = errors[0];
   if (error !== undefined) {
@@ -498,7 +501,9 @@ async function processPr(
     malformed(acc, facts, ref);
     return undefined;
   }
-  const reviewRule = scope.reviewRule ? content(() => normalizeReviewRule(pr)) : undefined;
+  const reviewRule = scope.reviewRule
+    ? content(() => normalizeReviewRule(pr, ruleDenied))
+    : undefined;
   if (reviewRule instanceof AdapterError) {
     malformed(acc, reviewRule, ref);
     return undefined;

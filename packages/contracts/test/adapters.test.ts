@@ -271,6 +271,10 @@ describe('batch', () => {
     expect(
       batchSchema.parse(withRule({ ...reviewRule, reviewDecision: null })).items[0],
     ).toMatchObject({ reviewRule: { reviewDecision: null } });
+    // A rule the token could not read.
+    expect(batchSchema.parse(withRule({ ...reviewRule, rule: null })).items[0]).toMatchObject({
+      reviewRule: { rule: null },
+    });
     expect(batchSchema.parse(batch({ items: [items.pr.valid] })).items[0]).not.toHaveProperty(
       'reviewRule',
     );

@@ -3671,6 +3671,46 @@ describe('approvalRule github-rules', () => {
     },
   );
 
+  it('approvalRule github-rules: a denied branch rule keeps the PR facts and sends the rule unreadable', async () => {
+    const detail = readFileSync(
+      new URL('fixtures/branch-rule/denied-pr-detail.json', import.meta.url),
+      'utf8',
+    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation((_input, init) =>
+        Promise.resolve(
+          operationOf(queryOf(init)) === 'PrDetails'
+            ? new Response(detail, { status: 200 })
+            : response({ repository: { pullRequests: conn([]) } }),
+        ),
+      );
+    const batch = await adapter(fetcher, ruled('github-rules')).poll(context());
+    expect(batchSchema.parse(batch)).toEqual(batch);
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+    expect(batch.items).toEqual([
+      {
+        kind: 'pr',
+        facts: expect.objectContaining({ number: 7, mergeState: 'clean' }) as unknown,
+        reviewRule: { reviewDecision: 'approved', rule: null },
+      },
+    ]);
+    // Any other error under the PR still drops it.
+    const other = JSON.parse(detail) as { errors: { type: string }[] };
+    for (const entry of other.errors) entry.type = 'INTERNAL';
+    fetcher.mockImplementation((_input, init) =>
+      Promise.resolve(
+        operationOf(queryOf(init)) === 'PrDetails'
+          ? new Response(JSON.stringify(other), { status: 200 })
+          : response({ repository: { pullRequests: conn([]) } }),
+      ),
+    );
+    const failed = await adapter(fetcher, ruled('github-rules')).poll(context());
+    expect(failed.items).toEqual([]);
+    expect(failed.complete).toBe(false);
+  });
+
   it('approvalRule github-rules: a full read carries the review rule, a reused one none', async () => {
     let t = Date.parse('2026-01-02T00:00:00.000Z');
     const pr = {

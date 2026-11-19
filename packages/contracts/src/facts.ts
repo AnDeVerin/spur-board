@@ -318,7 +318,11 @@ export const prReviewRuleSchema = z
       .enum(REVIEW_DECISIONS)
       .nullable()
       .describe("GitHub's review verdict on the head; null when GitHub gives none or a new one."),
-    rule: reviewRuleSchema,
+    rule: reviewRuleSchema
+      .nullable()
+      .describe(
+        'Null when the token could not read the rule; the head then has no decision from the read.',
+      ),
   })
   .describe("The pull request's review verdict and its base branch's review rule.");
 export type PrReviewRule = z.output<typeof prReviewRuleSchema>;

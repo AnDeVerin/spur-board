@@ -18,6 +18,12 @@ export function deniedReference(error: GraphError): boolean {
     error.path?.includes('closingIssuesReferences') === true
   );
 }
+// A denied base branch rule of a PR (`baseRef` and below) leaves the PR's other fields readable.
+export function deniedBranchRule(error: GraphError): boolean {
+  return (
+    (error.type === 'FORBIDDEN' || error.type === 'NOT_FOUND') && error.path?.[2] === 'baseRef'
+  );
+}
 // GraphQL errors are classified before `data` is read: a denied root arrives as null.
 export const graphEnvelopeWire = z.object({
   errors: z.array(graphErrorWire).optional(),

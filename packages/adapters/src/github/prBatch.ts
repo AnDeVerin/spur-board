@@ -489,14 +489,15 @@ export function normalizePr(
 
 /**
  * GitHub's review decision and the base branch's review rule of a PR read with them selected;
- * undefined when the read did not select them. An unknown decision reads as null.
+ * undefined when the read did not select them. An unknown decision reads as null; a rule the token
+ * was denied (`ruleDenied`) reads as null, not as a branch without one.
  */
-export function normalizeReviewRule(value: unknown): PrReviewRule | undefined {
+export function normalizeReviewRule(value: unknown, ruleDenied = false): PrReviewRule | undefined {
   const wire = parseWire(prWire, value, 'Malformed GitHub PR response');
   if (wire.reviewDecision === undefined && wire.baseRef === undefined) return undefined;
   const decision = wire.reviewDecision?.toLowerCase();
   return prReviewRuleSchema.parse({
     reviewDecision: REVIEW_DECISIONS.find((known) => known === decision) ?? null,
-    rule: branchRuleOf(wire.baseRef),
+    rule: ruleDenied ? null : branchRuleOf(wire.baseRef),
   });
 }

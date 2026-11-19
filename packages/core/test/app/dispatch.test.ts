@@ -6347,6 +6347,23 @@ describe('approvalRule github-rules', () => {
     });
   });
 
+  it('a rule the token could not read leaves the head undecided on a clean merge state', async () => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr({ ...approved, mergeState: 'clean' }, rule({ rule: null }));
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await ctx.why()).waiting).toEqual([
+      {
+        reason: 'merge_state_unknown',
+        head: A,
+        text: 'GitHub has not computed the merge state yet',
+      },
+    ]);
+    const [row] = await ruleRows(ctx);
+    expect(JSON.parse(row?.value ?? '{}')).toMatchObject({ decision: null, rule: null });
+    await ctx.rulePr({ mergeState: 'clean' }, rule());
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+  });
+
   it('names changes requested by GitHub after the external comment is handled', async () => {
     const ctx = await pastProductReview(RULED);
     await ctx.rulePr(
