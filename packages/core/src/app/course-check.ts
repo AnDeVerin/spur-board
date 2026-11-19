@@ -67,7 +67,7 @@ const EXTERNAL_COUNTER = 'external-review' satisfies ColumnId;
 const EXTERNAL_CAUSES: readonly ReturnCause[] = ['external_comments', 'changes_requested'];
 
 /** The project's External Review column when it is enabled. */
-const externalColumn = (project: Pick<Project, 'columns'>) =>
+export const externalColumn = (project: Pick<Project, 'columns'>) =>
   project.columns.find((column) => column.id === EXTERNAL_COUNTER && column.enabled);
 
 /** One entry of a course count: a return to Dev with its causes, or an external round. */
@@ -88,29 +88,6 @@ export function courseCounter(entry: CourseEntry, project: Pick<Project, 'column
     : entry.column;
 }
 
-/** The column help of External Review while its course check is on. */
-const EXTERNAL_ROUNDS_RULE =
-  "Returns for external comments (a changes-requested review is one) from any column, and each external change request on a new PR head while the task is in Dev, count toward this column's courseCheck, once per head; cycleLimit stays with the column the task left.";
-
-/** The column help of External Review while its course check is 0. */
-const EXTERNAL_ROUNDS_OFF =
-  "Returns for external comments from any column count toward this column's courseCheck, which is 0: they raise no course check, and change requests on new PR heads in Dev are not counted; cycleLimit stays with the column the task left.";
-
-/** The column help of every other returnable column while External Review is enabled. */
-const EXTERNAL_RETURNS_ELSEWHERE =
-  "Returns for external comments count toward External Review's courseCheck, not this column's; this column's cycleLimit still counts them.";
-
-/**
- * The column help line on where returns for external comments count (`courseCounter`), or null
- * when External Review is not enabled and every return counts on the column it left.
- */
-export function externalRule(project: Pick<Project, 'columns'>, column: ColumnId): string | null {
-  const external = externalColumn(project);
-  if (external === undefined) return null;
-  if (column !== EXTERNAL_COUNTER) return EXTERNAL_RETURNS_ELSEWHERE;
-  return external.courseCheck > 0 ? EXTERNAL_ROUNDS_RULE : EXTERNAL_ROUNDS_OFF;
-}
-
 /** A counted round of a course count, with the head it was counted on, or null when unknown. */
 type Round =
   | { kind: 'return'; counter: ColumnId; from: ColumnId; head: string | null }
@@ -122,15 +99,18 @@ type CourseLog = (Round | { kind: 'reset'; counter: ColumnId })[];
 /**
  * The task's journal replayed for its counts, in journal order: the cycle events, and the
  * course rounds with the resets of each counter. A return's head is the head the active PR moved
- * to last before it, else the one the next head change left, else the PR's current head.
- * External Review counts each head once, resets ignored: a later return or round on a head it
- * already counted adds to the cycle events only.
+ * to last before it, else the one the next head change left, else the PR's current head; a
+ * return counted under External Review takes the head of the latest external change request
+ * made since the task entered the column it left, as the PR facts journaled before the return
+ * show it, so a push seen in the same poll does not take its place. External Review counts each
+ * head once, resets ignored: a later return or round on a head it already counted adds to the
+ * cycle events only. `externalHeads` are the heads External Review counted.
  */
 async function courseRounds(
   trx: Trx,
   taskId: number,
-  project: Pick<Project, 'columns'>,
-): Promise<{ cycle: CycleEvent[]; course: CourseLog }> {
+  project: Pick<Project, 'columns' | 'operatorGithubLogin'>,
+): Promise<{ cycle: CycleEvent[]; course: CourseLog; externalHeads: Set<string> }> {
   const pr = await prFacts(trx, taskId);
   const prefixes = { cycle: cycleKeyPrefix(taskId), course: courseKeyPrefix(taskId) };
   const items = await trx
@@ -155,7 +135,7 @@ async function courseRounds(
   // One `at` is shared by a whole transaction, so the journal order is the event id.
   const rows = await trx
     .selectFrom('event')
-    .select(['id', 'kind', 'payload'])
+    .select(['id', 'at', 'kind', 'payload'])
     .where('task_id', '=', taskId)
     .where('kind', 'in', ['task_moved', 'from_you_cleared', 'external_round', 'head_moved'])
     .orderBy('id')
@@ -178,9 +158,36 @@ async function courseRounds(
       heads.find((head) => head.id > id && head.from !== null)?.from ??
       pr?.headSha
     )?.toLowerCase() ?? null;
+  const reviewedHead = async (id: number, since: number) => {
+    if (pr === null) return null;
+    const row = await trx
+      .selectFrom('event')
+      .select('payload')
+      .where('task_id', '=', taskId)
+      .where('kind', '=', 'pr_facts_changed')
+      .where('id', '<', id)
+      .orderBy('id', 'desc')
+      .executeTakeFirst();
+    const changed = eventPayloadSchemas.pr_facts_changed.safeParse(
+      JSON.parse(row?.payload ?? 'null'),
+    );
+    const facts = changed.success ? changed.data.facts : null;
+    if (facts?.repo.toLowerCase() !== pr.repo.toLowerCase() || facts.number !== pr.number)
+      return null;
+    const latest = facts.reviews
+      .filter(
+        (review) =>
+          review.state === 'changes_requested' &&
+          Date.parse(review.submittedAt) > since &&
+          externalReviewer(facts, project.operatorGithubLogin, review.reviewer),
+      )
+      .sort((left, right) => Date.parse(right.submittedAt) - Date.parse(left.submittedAt))[0];
+    return latest?.commitSha.toLowerCase() ?? null;
+  };
   const cycle: CycleEvent[] = [];
   const course: CourseLog = [];
   const externalHeads = new Set<string>();
+  let enteredAt = Number.NEGATIVE_INFINITY;
   const count = (round: Round) => {
     if (round.counter === EXTERNAL_COUNTER && round.head !== null) {
       if (externalHeads.has(round.head)) return;
@@ -205,20 +212,25 @@ async function courseRounds(
           head: round.data.head.toLowerCase(),
         });
     } else if (row.kind === 'task_moved') {
+      const since = enteredAt;
+      enteredAt = Date.parse(row.at);
       const moved = eventPayloadSchemas.task_moved.safeParse(JSON.parse(row.payload));
       const event = moved.success ? counted(moved.data, moved.data.block !== undefined) : null;
       if (event?.kind !== 'return') continue;
       cycle.push(event);
-      if (countCycles([event], event.column, Infinity).count > 0)
-        count({
-          kind: 'return',
-          counter: courseCounter(event, project),
-          from: event.column,
-          head: headAt(row.id),
-        });
+      if (countCycles([event], event.column, Infinity).count === 0) continue;
+      const counter = courseCounter(event, project);
+      count({
+        kind: 'return',
+        counter,
+        from: event.column,
+        head:
+          (counter === EXTERNAL_COUNTER ? await reviewedHead(row.id, since) : null) ??
+          headAt(row.id),
+      });
     }
   }
-  return { cycle, course };
+  return { cycle, course, externalHeads };
 }
 
 /** The rounds counted under `counter` since the last close of its course-check item. */
@@ -241,7 +253,7 @@ export async function returnCounts(
   trx: Trx,
   taskId: number,
   column: ColumnId,
-  project: Pick<Project, 'columns'>,
+  project: Pick<Project, 'columns' | 'operatorGithubLogin'>,
 ): Promise<{ cycle: number; course: number }> {
   const { cycle, course } = await courseRounds(trx, taskId, project);
   return {
@@ -322,14 +334,7 @@ export async function recordExternalRounds(
         )
       : [];
   if (pr !== null && requests.length > 0 && !blind(prSourceId(project.id, pr.repo))) {
-    const { course } = await courseRounds(trx, task.id, project);
-    const counted = new Set(
-      course.flatMap((entry) =>
-        entry.kind !== 'reset' && entry.counter === EXTERNAL_COUNTER && entry.head !== null
-          ? [entry.head]
-          : [],
-      ),
-    );
+    const { externalHeads: counted } = await courseRounds(trx, task.id, project);
     const fresh = requests.filter((review) => !counted.has(review.commitSha.toLowerCase()));
     if (fresh.length > 0) {
       const entries = await readStatusColumnEntries(trx, new Set([task.project]));
@@ -452,7 +457,10 @@ async function courseSummary(
   const current = pr?.headSha.toLowerCase();
   const short = (sha: string) =>
     sha.toLowerCase() === current ? `${sha.slice(0, 7)} (current head)` : sha.slice(0, 7);
-  const project = config.projects.find((entry) => entry.id === task.project) ?? { columns: [] };
+  const project = config.projects.find((entry) => entry.id === task.project) ?? {
+    columns: [],
+    operatorGithubLogin: '',
+  };
   const rounds = roundsSince((await courseRounds(trx, task.id, project)).course, column);
   const returns = rounds.filter((round) => round.kind === 'return').length;
   const findings = await openFindings(trx, task.id);

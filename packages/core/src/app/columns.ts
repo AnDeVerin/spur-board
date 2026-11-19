@@ -12,7 +12,7 @@ import { nextColumn } from '../domain/dispatch.ts';
 import { describeConditions, threadsFrom } from '../domain/gates.ts';
 import { curatorProject } from './authorize.ts';
 import type { Trx } from './board-utils.ts';
-import { courseAddressee, externalRule } from './course-check.ts';
+import { courseAddressee, externalColumn } from './course-check.ts';
 import { bestProjectSession, observedFacts } from './doorbells.ts';
 import { describeCompletion } from './dispatch.ts';
 import type { Query } from './queries.ts';
@@ -245,6 +245,29 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
     completion: describeCompletion(project, config),
     columns,
   };
+}
+
+/** The column help of External Review while its course check is on. */
+const EXTERNAL_ROUNDS_RULE =
+  "Returns for external comments (a changes-requested review is one) from any column, and each external change request on a new PR head while the task is in Dev, count toward this column's courseCheck, once per head; cycleLimit stays with the column the task left.";
+
+/** The column help of External Review while its course check is 0. */
+const EXTERNAL_ROUNDS_OFF =
+  "Returns for external comments from any column count toward this column's courseCheck, which is 0: they raise no course check, and change requests on new PR heads in Dev are not counted; cycleLimit stays with the column the task left.";
+
+/** The column help of every other returnable column while External Review is enabled. */
+const EXTERNAL_RETURNS_ELSEWHERE =
+  "Returns for external comments count toward External Review's courseCheck, not this column's; this column's cycleLimit still counts them.";
+
+/**
+ * The column help line on where returns for external comments count (`courseCounter`), or null
+ * when External Review is not enabled and every return counts on the column it left.
+ */
+function externalRule(project: Pick<Project, 'columns'>, column: ColumnId): string | null {
+  const external = externalColumn(project);
+  if (external === undefined) return null;
+  if (column !== 'external-review') return EXTERNAL_RETURNS_ELSEWHERE;
+  return external.courseCheck > 0 ? EXTERNAL_ROUNDS_RULE : EXTERNAL_ROUNDS_OFF;
 }
 
 function returnRules(

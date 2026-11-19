@@ -3968,6 +3968,62 @@ describe('external change-request rounds', () => {
     expect(await rounds(ctx)).toEqual(roundsOn(B));
   });
 
+  it.each([
+    {
+      name: 'a push in the same poll does not take the reviewed head',
+      act: async (ctx: Board) => {
+        ctx.wait(1_000);
+        const submittedAt = ctx.at();
+        await ctx.pr({
+          headSha: B,
+          reviews: [{ reviewer: EXTERNAL, state: 'changes_requested', commitSha: A, submittedAt }],
+          feedback: [
+            {
+              kind: 'review',
+              id: 'r-on-a',
+              author: { login: EXTERNAL, type: 'user' },
+              postedAt: submittedAt,
+            },
+          ],
+        });
+        expect((await ctx.events('head_moved')).at(-1)?.payload).toMatchObject({ from: A, to: B });
+      },
+      course: 1,
+      heads: [B],
+    },
+    {
+      name: 'a request from an earlier visit does not name a later return',
+      act: async (ctx: Board) => {
+        await externalReturn(ctx, A);
+        await resubmit(ctx, B);
+        ctx.wait(1_000);
+        const postedAt = ctx.at();
+        await ctx.pr({
+          feedback: [
+            ...(ctx.facts()?.feedback ?? []),
+            { kind: 'comment', id: 'c-on-b', author: { login: EXTERNAL, type: 'user' }, postedAt },
+          ],
+        });
+      },
+      course: 2,
+      heads: [],
+    },
+  ])(
+    'a return under External Review counts the head the change request was on: $name',
+    async ({ act, course, heads }) => {
+      const options = { externalReview: true, curator: true };
+      const ctx = await inReview(options);
+      await act(ctx);
+      expect((await ctx.moves()).at(-1)).toMatchObject({ from: 'review', to: 'dev' });
+      expect(
+        (await returnCounts(ctx.store.db, 1, 'external-review', project(options))).course,
+      ).toBe(course);
+
+      await devRound(ctx, B);
+      expect(await rounds(ctx)).toEqual(roundsOn(...heads));
+    },
+  );
+
   it('repeated change requests on one head count once', async () => {
     const ctx = await inDev({ externalReview: true, curator: true });
     await devRound(ctx, B);
