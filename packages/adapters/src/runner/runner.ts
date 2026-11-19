@@ -74,7 +74,8 @@ export interface AdapterRunner {
    * Sources whose next regular poll this runner holds back for a rate limit. A source is added
    * when a regular poll's delay is a rate-limit wait (a budget under its reserve, a throttled
    * failure, or any other failure while the last budget this run saw is under the reserve before
-   * its reset) and removed when that poll's timer fires or the runner stops. An on-demand poll
+   * its reset) and removed when that poll's timer fires or the runner stops; the last kind is also
+   * removed when that budget's reset passes. An on-demand poll
    * never adds or removes one. `startRunner` owns the set and `startAdapters` passes the same
    * set through (both return a `StartedRunner`, so the compiler rejects a wrapper that drops
    * it); empty in one-shot mode. Optional only for test stand-ins.
@@ -211,6 +212,8 @@ function runSource(
   let pollTimer: Timer | undefined;
   let deadlineTimer: Timer | undefined;
   let hardBoundTimer: Timer | undefined;
+  /** Ends a remembered-budget wait at the budget's reset. */
+  let waitTimer: Timer | undefined;
   let reports: Promise<void> = Promise.resolve();
   let lastReported: string | undefined;
 
@@ -300,13 +303,28 @@ function runSource(
     return result;
   }
 
-  /** Arms the next regular poll; `budgetWait` marks it as put off for the rate budget. */
-  function schedule(delayMs: number, budgetWait: boolean): void {
+  /**
+   * Arms the next regular poll; `budgetWait` marks it as put off for the rate budget. With
+   * `waitEndsAt`, the mark ends at that time even if the poll is due later.
+   */
+  function schedule(delayMs: number, budgetWait: boolean, waitEndsAt?: number): void {
     if (stopping) return;
+    clearTimeout(waitTimer);
+    waitTimer = undefined;
     if (budgetWait) budgetWaits.add(source);
+    if (budgetWait && waitEndsAt !== undefined)
+      waitTimer = setTimeout(
+        () => {
+          waitTimer = undefined;
+          budgetWaits.delete(source);
+        },
+        Math.min(Math.max(waitEndsAt - now(), 0), MAX_TIMER_MS),
+      );
     pollTimer = setTimeout(
       () => {
         pollTimer = undefined;
+        clearTimeout(waitTimer);
+        waitTimer = undefined;
         budgetWaits.delete(source);
         void run(poll);
       },
@@ -452,8 +470,15 @@ function runSource(
       lastBudget !== undefined &&
       lastBudget.remaining < reserveRemaining &&
       Date.parse(lastBudget.resetAt) > now();
+    // That fallback ends at the budget's reset, as a stored budget's check did, while the retry
+    // keeps its own time.
+    const fallback = !delay.budgetWait && outcome.kind === 'failed' && underReserve;
     if (!options.oneShot)
-      schedule(delay.delayMs, delay.budgetWait || (outcome.kind === 'failed' && underReserve));
+      schedule(
+        delay.delayMs,
+        delay.budgetWait || fallback,
+        fallback && lastBudget !== undefined ? Date.parse(lastBudget.resetAt) : undefined,
+      );
     return outcome;
   }
 
@@ -687,7 +712,8 @@ function runSource(
       clearTimeout(pollTimer);
       clearTimeout(deadlineTimer);
       clearTimeout(hardBoundTimer);
-      pollTimer = deadlineTimer = hardBoundTimer = undefined;
+      clearTimeout(waitTimer);
+      pollTimer = deadlineTimer = hardBoundTimer = waitTimer = undefined;
       budgetWaits.delete(source);
       controller?.abort();
       for (const cancel of [...pending]) cancel();

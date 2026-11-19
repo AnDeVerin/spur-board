@@ -164,6 +164,20 @@ it.each<[string, Row]>([
     },
   ],
   [
+    'an unclassified failure after a refresh whose budget resets before the backoff ends',
+    {
+      alpha: [high, new Error('connection reset'), {}],
+      beta: [high],
+      refresh: { ...low.budget, resetAt: new Date(T0 + I + 1000).toISOString() },
+      runMs: I,
+      waiting: [alpha],
+      alphaRemaining: reserve - 1,
+      reason: `${alpha} waits for its rate budget`,
+      // Past the reset and before the backoff poll at three intervals, the wait has ended.
+      later: { runMs: 2000, waiting: [], reason: null },
+    },
+  ],
+  [
     'an on-demand refresh under the reserve',
     {
       alpha: [high],

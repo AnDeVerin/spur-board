@@ -64,7 +64,7 @@ export const sourceViewSchema = z
     waitsForBudget: z
       .boolean()
       .describe(
-        "Whether the daemon's adapter runner has put off this source's next regular poll for a rate limit: the last regular poll in this daemon run either reported a budget under github.reserveRemaining (GitHub sources, complete or not) or failed as throttled, with or without a retry time (any source), or failed in any other way while the last budget a poll of this run reported, an on-demand refresh included, is under github.reserveRemaining with a future reset, and the paused poll has not started yet. Held in memory, so false after a restart until a poll pauses again; a stored budget or an on-demand refresh never sets it.",
+        "Whether the daemon's adapter runner has put off this source's next regular poll for a rate limit: the last regular poll in this daemon run either reported a budget under github.reserveRemaining (GitHub sources, complete or not) or failed as throttled, with or without a retry time (any source), or failed in any other way while the last budget a poll of this run reported, an on-demand refresh included, is under github.reserveRemaining with a future reset (this case also ends at that reset), and the paused poll has not started yet. Held in memory, so false after a restart until a poll pauses again; a stored budget or an on-demand refresh never sets it.",
       ),
     healthySince: z.iso
       .datetime()
