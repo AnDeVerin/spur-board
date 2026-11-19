@@ -4131,28 +4131,43 @@ describe('external change-request rounds', () => {
     expect(item.text).toMatch(/course check after 3 external review rounds$/);
   });
 
-  it('a threshold reached while another item is open raises on the first pass after it closes', async () => {
-    const ctx = await inReview({
-      externalReview: true,
-      curator: true,
-      cycleLimit: 1,
-      courseCheck: 0,
-    });
-    await cycle(ctx);
-    const [limit] = await itemsOf(ctx, 'cycle_limit');
-    expect(limit?.item_key).toBe('cycle-limit:1:review');
-    expect((await ctx.task()).column).toBe('dev');
-    await devRound(ctx, B);
-    await devRound(ctx, C);
-    await devRound(ctx, D);
-    expect(await rounds(ctx)).toEqual(roundsOn(B, C, D));
-    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+  it.each([
+    {
+      name: 'Dev rounds',
+      options: { externalReview: true, curator: true, cycleLimit: 1, courseCheck: 0 },
+      act: async (ctx: Board) => {
+        await cycle(ctx);
+        expect((await ctx.task()).column).toBe('dev');
+        await devRound(ctx, B);
+        await devRound(ctx, C);
+        await devRound(ctx, D);
+        expect(await rounds(ctx)).toEqual(roundsOn(B, C, D));
+      },
+    },
+    {
+      name: 'returns only',
+      options: { externalReview: true, curator: true, cycleLimit: 1, externalCourseCheck: 1 },
+      act: async (ctx: Board) => {
+        await externalReturn(ctx, A);
+        expect((await ctx.task()).column).toBe('dev');
+        expect(await rounds(ctx)).toEqual([]);
+      },
+    },
+  ])(
+    'a threshold reached while another item is open raises on the first pass after it closes: $name',
+    async ({ options, act }) => {
+      const ctx = await inReview(options);
+      await act(ctx);
+      const [limit] = await itemsOf(ctx, 'cycle_limit');
+      expect(limit?.item_key).toBe('cycle-limit:1:review');
+      expect(await itemsOf(ctx, 'course_check')).toEqual([]);
 
-    await ctx.closeItem(`I${String(limit?.id)}`);
-    await ctx.tick();
-    expect(await openKeys(ctx)).toEqual(['course-check:1:external-review']);
-    expect(await ctx.openTurn()).toBeNull();
-  });
+      await ctx.closeItem(`I${String(limit?.id)}`);
+      await ctx.tick();
+      expect(await openKeys(ctx)).toEqual(['course-check:1:external-review']);
+      expect(await ctx.openTurn()).toBeNull();
+    },
+  );
 
   it('after the answer the count restarts and old heads never recount', async () => {
     const ctx = await inDev({ externalReview: true, curator: true });

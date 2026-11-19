@@ -275,7 +275,6 @@ export async function moveLeft(
       },
       project,
     ),
-    requireRound: false,
   });
   return { task: moved, limitReached: course !== null };
 }

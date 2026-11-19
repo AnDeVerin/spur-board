@@ -252,7 +252,7 @@ export async function returnCounts(
 
 /**
  * Raises the course check of `counter` when its rounds since the last check reach the column's
- * `courseCheck`; with `requireRound`, only when one of them is an external round. Returns the
+ * `courseCheck`. Returns the
  * open item, or null when nothing is due.
  */
 export async function raiseCourseDue(
@@ -263,15 +263,13 @@ export async function raiseCourseDue(
     config: Config;
     at: Date;
     counter: ColumnId;
-    requireRound: boolean;
   },
 ): Promise<Row<'operator_item'> | null> {
-  const { task, project, config, at, counter, requireRound } = input;
+  const { task, project, config, at, counter } = input;
   const threshold = project.columns.find((column) => column.id === counter)?.courseCheck ?? 0;
   if (threshold <= 0) return null;
   const rounds = roundsSince((await courseRounds(trx, task.id, project)).course, counter);
   if (rounds.length < threshold) return null;
-  if (requireRound && !rounds.some((round) => round.kind === 'external_round')) return null;
   return raiseCourseCheck(trx, { task, column: counter, count: rounds.length, at, config });
 }
 
@@ -292,8 +290,8 @@ function externalReviewer(pr: PrFacts, agentLogin: string, login: string): boole
  * entered Dev, on a head not yet counted under External Review: by an earlier round or by a
  * return counted there, resets ignored, and not while the PR's GitHub source is `blind` (no
  * complete poll since the start, or blind). Then, with no cycle-limit or course-check item open,
- * raises External Review's course check once its rounds since the last check, one external
- * round among them, reach its `courseCheck`.
+ * raises External Review's course check once its rounds since the last check reach its
+ * `courseCheck`, returns alone included: a return that reached it while another item was open.
  */
 export async function recordExternalRounds(
   trx: Trx,
@@ -358,13 +356,6 @@ export async function recordExternalRounds(
       }
     }
   }
-  const round = await trx
-    .selectFrom('event')
-    .select('id')
-    .where('task_id', '=', task.id)
-    .where('kind', '=', 'external_round')
-    .executeTakeFirst();
-  if (round === undefined) return;
   const open = await trx
     .selectFrom('operator_item')
     .select('id')
@@ -383,7 +374,6 @@ export async function recordExternalRounds(
     config,
     at,
     counter: courseCounter({ kind: 'external_round' }, project),
-    requireRound: true,
   });
 }
 
