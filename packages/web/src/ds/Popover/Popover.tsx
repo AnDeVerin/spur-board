@@ -28,13 +28,15 @@ import styles from './Popover.module.css';
  * none. An empty visible area (a scroller wholly outside the window) is not in view. An anchor out
  * of view, out of the window or clipped away by a scroller such as a board strip, hides the panel
  * (`visibility: hidden`, so its controls leave the tab order too) and the panel still follows it
- * out, by the anchor's right edge on the left side. Near the bottom of the window its height
- * shrinks to the space under the anchor, down to `--space-2` above the window edge, and the body
- * scrolls. With less space than the header and the body padding need, the panel moves up just
- * enough to keep its header in view and may cover the bottom of the anchor; it never flips above
- * the anchor. It is never shorter than that least height, so it slides out whole with an anchor
- * whose top is below the window. At 375px it fills the window width less `--space-2` on each
- * side, still under its anchor: not a bottom sheet.
+ * out, by the anchor's right edge on the left side. With no anchor (its element unmounted while
+ * the panel stays open) the panel hides the same way until the ref attaches again.
+ *
+ * Near the bottom of the window its height shrinks to the space under the anchor, down to
+ * `--space-2` above the window edge, and the body scrolls. With less space than the header and
+ * the body padding need, the panel moves up just enough to keep its header in view and may cover
+ * the bottom of the anchor; it never flips above the anchor. It is never shorter than that least
+ * height, so it slides out whole with an anchor whose top is below the window. At 375px it fills
+ * the window width less `--space-2` on each side, still under its anchor: not a bottom sheet.
  *
  * Focus: `trigger` is the element that opens the panel (the caller's control with
  * `aria-expanded`); the opener is the element focused at the first render. With an opener, focus
@@ -42,8 +44,10 @@ import styles from './Popover.module.css';
  * the URL), focus stays put. Escape and Close call `onClose` and return focus to `trigger`, else,
  * while it is not attached, to the opener: in Safari a click does not focus the trigger, so the
  * opener may be an unrelated control. Close always returns it; Escape only when focus was inside
- * the panel or on `body`. Every focus move, the one to Close on open included, uses
- * `preventScroll`: returning to a trigger scrolled out of its strip leaves the strip where it is.
+ * the panel or on `body`. Every handler (placement, the press outside, Escape and Close) reads the
+ * current `anchor` and `trigger`, so a caller may swap either ref while the panel is open. Every
+ * focus move, the one to Close on open included, uses `preventScroll`: returning to a trigger
+ * scrolled out of its strip leaves the strip where it is.
  *
  * A `mousedown` outside the panel and the anchor calls `onClose` and moves no focus; the anchor
  * is not outside, so its own click toggles. Under a layer (inside an `inert` element), as when a
@@ -146,7 +150,9 @@ function OpenPopover({
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
   const close = useRef<HTMLSpanElement>(null);
-  const latest = useRef(onClose);
+  // The latest props every handler reads, so none holds a ref object from an earlier render: a
+  // caller may swap `anchor` or `trigger` while the panel stays open.
+  const latest = useRef({ onClose, anchor, trigger });
   // Read in the first render, before the commit, as a layer reads its opener. A server render
   // (the examples test renders each example to a string) has no document and no opener.
   const [opener] = useState(() => {
@@ -155,20 +161,27 @@ function OpenPopover({
     return active instanceof HTMLElement && active !== document.body ? active : null;
   });
   useLayoutEffect(() => {
-    latest.current = onClose;
+    latest.current = { onClose, anchor, trigger };
   });
   // Where Escape and Close send focus: the trigger, else the opener. The trigger comes first: in
   // Safari a click does not focus it, so the opener may be an unrelated control.
-  const returnTarget = (): HTMLElement | null => trigger.current ?? opener;
+  const returnTarget = (): HTMLElement | null => latest.current.trigger.current ?? opener;
   // The values last written, so an unchanged frame writes nothing.
   const written = useRef('');
   // Writes the anchor's box on the panel, not in React state, and only when it changed.
-  // `data-away` names the side an anchor out of view left by, or `empty` when nothing of the
-  // window is visible to it (a scroller wholly outside the window).
+  // `data-away` names the side an anchor out of view left by, `empty` when nothing of the window
+  // is visible to it (a scroller wholly outside the window), or `detached` with no anchor (its
+  // element unmounted); the frame loop places the panel again once the ref attaches.
   const place = () => {
     const element = panel.current;
-    const target = anchor.current;
-    if (!element || !target) return;
+    if (!element) return;
+    const target = latest.current.anchor.current;
+    if (!target) {
+      if (written.current === 'detached') return;
+      written.current = 'detached';
+      element.setAttribute('data-away', 'detached');
+      return;
+    }
     const rect = target.getBoundingClientRect();
     const view = visibleArea(target);
     let away: 'left' | 'right' | 'top' | 'bottom' | 'empty' | null = null;
@@ -207,12 +220,12 @@ function OpenPopover({
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
     };
-  }, [anchor]);
+  }, []);
   // Again after the whole commit: a popover rendered inside its anchor runs its layout effects
   // before React attaches the anchor's ref, so the first measure finds no anchor.
   useEffect(() => {
     place();
-  }, [anchor]);
+  }, []);
   // A layout effect, as a layer's: inside a layer opening in the same commit it runs first.
   useLayoutEffect(() => {
     const element = panel.current;
@@ -223,7 +236,7 @@ function OpenPopover({
       escape: () => {
         const active = document.activeElement;
         const inside = !active || active === document.body || element.contains(active);
-        latest.current();
+        latest.current.onClose();
         if (inside) returnTarget()?.focus({ preventScroll: true });
       },
     };
@@ -231,8 +244,8 @@ function OpenPopover({
       const target = event.target;
       // Under a layer, such as a Modal opened from the panel, a press on the layer is not outside.
       if (!(target instanceof Node) || element.closest('[inert]')) return;
-      if (element.contains(target) || anchor.current?.contains(target)) return;
-      latest.current();
+      if (element.contains(target) || latest.current.anchor.current?.contains(target)) return;
+      latest.current.onClose();
     };
     document.addEventListener('mousedown', outside);
     addOpenMenu(entry);
@@ -253,7 +266,7 @@ function OpenPopover({
             icon="x"
             label="Close"
             onClick={() => {
-              latest.current();
+              latest.current.onClose();
               returnTarget()?.focus({ preventScroll: true });
             }}
           />

@@ -1,15 +1,7 @@
 // @vitest-environment happy-dom
-import {
-  act,
-  createElement,
-  Fragment,
-  useRef,
-  useState,
-  type ComponentType,
-  type ReactNode,
-} from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HoverMenu, Modal, Popover, type HoverMenuItem } from '../src/ds/index.ts';
+import { act, createElement, Fragment, useRef, type ComponentType } from 'react';
+import { describe, expect, it, vi } from 'vitest';
+import { Popover } from '../src/ds/index.ts';
 import {
   button,
   dialogs,
@@ -19,6 +11,21 @@ import {
   press,
   render,
 } from './ds-layers-helpers.ts';
+import {
+  Harness,
+  ModalHost,
+  type Rect,
+  anchorRect,
+  box,
+  clip,
+  menu,
+  mouse,
+  opened,
+  placement,
+  popover,
+  stubAnchorRect,
+  stubEachTest,
+} from './ds-popover-helpers.ts';
 
 mountEachTest();
 emulateFocusFixup();
@@ -28,185 +35,7 @@ const popoverExamples: Record<string, Record<string, ComponentType>> = import.me
   { eager: true },
 );
 
-const items: readonly HoverMenuItem<'a' | 'b'>[] = [
-  { value: 'a', label: 'First' },
-  { value: 'b', label: 'Second' },
-];
-const menu = (label: string) =>
-  createElement(HoverMenu<'a' | 'b'>, {
-    label,
-    icon: 'sun',
-    items,
-    value: 'a',
-    onSelect: () => undefined,
-  });
-
-/**
- * A Help trigger inside an anchor inside a scroller, and the Popover it opens. `shared` puts a
- * collapsed menu trigger (`aria-expanded`) before Help in the anchor, as a column head holds.
- */
-function Harness({
-  initial = false,
-  onClose = () => undefined,
-  children,
-  after,
-  shared = false,
-}: {
-  initial?: boolean;
-  onClose?: () => void;
-  children?: ReactNode;
-  after?: ReactNode;
-  shared?: boolean;
-}) {
-  const anchor = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(initial);
-  return createElement(
-    Fragment,
-    null,
-    createElement(
-      'div',
-      { id: 'scroller' },
-      createElement(
-        'div',
-        { id: 'anchor', ref: anchor },
-        shared && createElement('button', { type: 'button', 'aria-expanded': false }, 'Order'),
-        createElement(
-          'button',
-          {
-            type: 'button',
-            ref: trigger,
-            'aria-expanded': open,
-            onClick: () => {
-              setOpen(!open);
-            },
-          },
-          'Help',
-        ),
-      ),
-    ),
-    createElement(Popover, {
-      open,
-      onClose: () => {
-        onClose();
-        setOpen(false);
-      },
-      anchor,
-      trigger,
-      title: 'Review',
-      actions: createElement('span', { id: 'actions' }, 'Tabs'),
-      children: children ?? createElement('p', null, 'Body'),
-    }),
-    after,
-  );
-}
-
-/** A Modal opened by a button, rendered after the popover harness. */
-function ModalHost({ children }: { children?: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return createElement(
-    Fragment,
-    null,
-    createElement(
-      'button',
-      {
-        type: 'button',
-        onClick: () => {
-          setOpen(true);
-        },
-      },
-      'Open modal',
-    ),
-    createElement(Modal, {
-      open,
-      onClose: () => {
-        setOpen(false);
-      },
-      title: 'Task',
-      children: children ?? 'Modal body',
-    }),
-  );
-}
-
-const popover = () => dialogs().find((dialog) => !dialog.hasAttribute('aria-modal'));
-const opened = () => {
-  const found = popover();
-  if (!found) throw new Error('no popover');
-  return found;
-};
-const mouse = (type: 'mousedown', target: Element) => {
-  act(() => {
-    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
-  });
-};
-
-type Rect = { left: number; right: number; top: number; bottom: number };
-let rect: Rect = { left: 100, right: 420, top: 20, bottom: 40 };
-// The box of `#scroller` when a test makes it clip, else none.
-let scrollerRect: Rect | undefined;
-const stubAnchorRect = (next: Rect) => {
-  rect = next;
-};
-const domRect = ({ left, right, top, bottom }: Rect) => {
-  const box = { left, right, top, bottom, x: left, y: top, width: right - left };
-  return { ...box, height: bottom - top, toJSON: () => box };
-};
-/**
- * Stubs the anchor's box and a 1024x768 window: happy-dom reports `clientWidth` and
- * `clientHeight` 0. The popover reads only the anchor's box and those of its clipping ancestors.
- */
-const anchorRect = () => {
-  for (const [name, value] of [
-    ['clientWidth', 1024],
-    ['clientHeight', 768],
-  ] as const)
-    Object.defineProperty(document.documentElement, name, { configurable: true, get: () => value });
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-    return domRect(this.id === 'scroller' && scrollerRect ? scrollerRect : rect);
-  });
-};
-/**
- * Makes `#scroller` clip both axes to `area` (its padding box: no border here), or stop, and
- * gives it `position`.
- */
-const clip = (area: Rect | undefined, position = '') => {
-  scrollerRect = area;
-  const scroller = document.getElementById('scroller');
-  if (!scroller) throw new Error('no scroller');
-  scroller.style.position = position;
-  scroller.style.overflowX = area ? 'auto' : '';
-  scroller.style.overflowY = area ? 'auto' : '';
-  for (const [name, value] of [
-    ['clientWidth', area ? area.right - area.left : 0],
-    ['clientHeight', area ? area.bottom - area.top : 0],
-  ] as const)
-    Object.defineProperty(scroller, name, { configurable: true, get: () => value });
-};
-/** The anchor box the popover wrote: its four edges, and the side it left the view by. */
-const placement = () => {
-  const style = opened().style;
-  return {
-    left: style.getPropertyValue('--popover-left'),
-    right: style.getPropertyValue('--popover-right'),
-    top: style.getPropertyValue('--popover-anchor-top'),
-    bottom: style.getPropertyValue('--popover-top'),
-    away: opened().getAttribute('data-away'),
-  };
-};
-const box = (left: number, right: number, top: number, bottom: number, away: string | null) => ({
-  left: `${String(left)}px`,
-  right: `${String(right)}px`,
-  top: `${String(top)}px`,
-  bottom: `${String(bottom)}px`,
-  away,
-});
-
-afterEach(() => {
-  Reflect.deleteProperty(document.documentElement, 'clientWidth');
-  Reflect.deleteProperty(document.documentElement, 'clientHeight');
-  rect = { left: 100, right: 420, top: 20, bottom: 40 };
-  scrollerRect = undefined;
-});
+stubEachTest();
 
 describe('Popover', () => {
   it('opens labelled, header in order, focus to Close from a focused trigger, none from body', () => {
@@ -390,6 +219,7 @@ describe('Popover', () => {
       fixed: ['fixed', ''],
       absolute: ['absolute', ''],
       positioned: ['absolute', 'relative'],
+      detached: ['', ''],
     } as const;
     for (const [left, right, top, bottom, area, away, layout] of [
       [-400, -20, 20, 40, undefined, 'left', 'flow'],
@@ -404,6 +234,8 @@ describe('Popover', () => {
       [800, 1000, 20, 40, scroller, 'right', 'flow'],
       [300, 620, -40, 0, scroller, 'top', 'flow'],
       [300, 620, 600, 620, scroller, 'bottom', 'flow'],
+      // The anchor unmounted: hidden where it was; the next row mounts it again, placed and shown.
+      [300, 620, 600, 620, scroller, 'detached', 'detached'],
       [100, 420, 20, 40, undefined, null, 'flow'],
       [1000, 1320, 20, 40, undefined, null, 'flow'],
       [-300, 20, 20, 40, undefined, null, 'flow'],
@@ -418,6 +250,7 @@ describe('Popover', () => {
       [-100, 180, 20, 40, scroller, 'left', 'positioned'],
     ] as const) {
       const [anchorPosition, scrollerPosition] = positions[layout];
+      render(createElement(Harness, { initial: true, attached: layout !== 'detached' }));
       clip(area, scrollerPosition);
       document.getElementById('anchor')?.style.setProperty('position', anchorPosition);
       stubAnchorRect({ left, right, top, bottom });
@@ -428,6 +261,41 @@ describe('Popover', () => {
         box(left, right, top, bottom, away),
       );
     }
+  });
+
+  it('reads the current anchor and trigger after the caller swaps their refs', () => {
+    const onClose = vi.fn();
+    function Swap({ second }: { second: boolean }) {
+      const refs = [useRef<HTMLButtonElement>(null), useRef<HTMLButtonElement>(null)] as const;
+      const current = refs[second ? 1 : 0];
+      return createElement(
+        Fragment,
+        null,
+        ['One', 'Two'].map((name, index) =>
+          createElement('button', { key: name, type: 'button', ref: refs[index] }, name),
+        ),
+        createElement(Popover, {
+          open: true,
+          onClose,
+          anchor: current,
+          trigger: current,
+          title: 'T',
+          children: 'Body',
+        }),
+      );
+    }
+    render(createElement(Swap, { second: false }));
+    render(createElement(Swap, { second: true }));
+    mouse('mousedown', button('Two'));
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => {
+      button('Close', opened()).focus();
+    });
+    key('Escape');
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(button('Two'));
+    mouse('mousedown', button('One'));
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it('measures on open as a child of its anchor, whose ref attaches after its layout effect', () => {
