@@ -93,7 +93,7 @@ export function describeCompletion(project: Project) {
       : 'GitHub status "closed"';
   return {
     ...route,
-    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once it changed at or after the merge, in the tracker filter or for a manually included task; a ticket untouched since the merge stays unconfirmed, and dropped-filter evidence alone stays unconfirmed. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
+    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once it changed at or after the merge, in the tracker filter or for a manually included task; a ticket untouched since the merge stays unconfirmed, and dropped-filter evidence alone stays unconfirmed; a merged PR with no stored merge time (facts from before the dispatcher) resumes work once the ticket, in filter or manually included, is observed open at or past the PR's last update plus the tracker interval. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
   };
 }
 
