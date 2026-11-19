@@ -234,6 +234,19 @@ describe('Turn section after a reload', () => {
   });
 });
 
+/** The latest submission of the own Review submit at `HEAD` that closed T5 at `AT`. */
+const submittedRow = {
+  column: 'review',
+  sha: 'a'.repeat(40),
+  at: AT,
+  basis: 'tested',
+  from: null,
+  testedOrigin: null,
+  reason: null,
+  pending: false,
+  voided: false,
+};
+
 describe('Turn section focus', () => {
   it.each([
     ['the browser blurs the disabled field', true],
@@ -327,8 +340,8 @@ describe('Turn section focus', () => {
       ),
     );
     expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
-    // An older voided row with the same SHA in the same column is another submit, so the write's
-    // own pending answer still stands.
+    // An older voided row with the same SHA in the same column is another submit: it neither
+    // voids this one nor brings back the wait, and the confirmation already seen stays.
     await reread(
       d,
       orchestratorTaskGet(
@@ -340,24 +353,95 @@ describe('Turn section focus', () => {
         },
       ),
     );
-    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe(
-      'T5 submitted. The board confirms the head on its next polls.',
+    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
+    // A voided submission no longer counts; nothing here says the work came back to Dev.
+    const voided = { ...confirmed, voided: true };
+    const line = () => turnSection().querySelector('[role="status"]')?.textContent;
+    const VOIDED =
+      'T5 submitted. The board voided this submission: it no longer counts for the gates.';
+    await reread(
+      d,
+      orchestratorTaskGet(
+        {},
+        { turn: null, turns: [closedTurn('submitted', 'operator')], submission: voided },
+      ),
     );
-    // A voided submission no longer counts: the line says the work needs another submit.
+    expect(line()).toBe(VOIDED);
+    // T6 then submits a replacement: T5's line keeps its settled state, it never waits again.
+    const replacement = { ...confirmed, sha: 'c'.repeat(40), at: '2026-11-15T13:40:00.000Z' };
+    await reread(
+      d,
+      orchestratorTaskGet(
+        { id: 'T6', at: AT },
+        { turns: [closedTurn('submitted', 'operator')], submission: replacement },
+      ),
+    );
+    expect(line()).toBe(VOIDED);
+  });
+
+  it.each([
+    [
+      'the Board handed the work back to Dev',
+      'dev',
+      ' The work went back to Dev and needs another submit.',
+    ],
+    ['a merge at another head moved the task to Done', 'done', ''],
+  ])('asks for another submit after a void only when %s', async (_, column, handback) => {
+    const { d } = await open();
+    d.routes['task.submit'] = (input) =>
+      Promise.resolve(
+        envelope({
+          task: taskGet().task,
+          turn: input['turn'],
+          sha: input['sha'],
+          status: 'pending',
+        }),
+      );
+    await click('Submit…');
+    await send();
+    const voided = { ...submittedRow, voided: true };
     await reread(
       d,
       orchestratorTaskGet(
         {},
         {
+          task: { ...taskGet().task, column },
           turn: null,
           turns: [closedTurn('submitted', 'operator')],
-          submission: { ...confirmed, voided: true },
+          submission: voided,
         },
       ),
     );
     expect(turnSection().querySelector('[role="status"]')?.textContent).toBe(
-      'T5 submitted. The board voided this submission: it no longer counts for the gates, so the work needs another submit.',
+      `T5 submitted. The board voided this submission: it no longer counts for the gates.${handback}`,
     );
+  });
+
+  it('stops promising a confirmation once another submission replaced the own one', async () => {
+    const { d } = await open();
+    d.routes['task.submit'] = (input) =>
+      Promise.resolve(
+        envelope({
+          task: taskGet().task,
+          turn: input['turn'],
+          sha: input['sha'],
+          status: 'pending',
+        }),
+      );
+    await click('Submit…');
+    await send();
+    expect(turnSection().querySelector('[role="status"]')?.textContent).toContain(
+      'confirms the head',
+    );
+    const replacement = { ...submittedRow, sha: 'c'.repeat(40), at: '2026-11-15T13:40:00.000Z' };
+    await reread(
+      d,
+      orchestratorTaskGet(
+        { id: 'T6', at: AT },
+        { turns: [closedTurn('submitted', 'operator')], submission: replacement },
+      ),
+    );
+    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
   });
 
   it('skips the success focus while folded', async () => {

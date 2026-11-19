@@ -22,19 +22,21 @@ import {
   BASES,
   BASIS_ID,
   brief,
-  closedSubmitDetail,
+  closedDetail,
+  closedNotice,
   commitDefault,
   isBasis,
   NOTE,
   orchestrated,
-  OWN_SUBMIT,
   otherConditionsUnmet,
   OUTCOME,
-  ownSubmitState,
+  ownSubmitNote,
   PHASE,
   reasonError,
   RETURNABLE,
+  settledSubmit,
   shaError,
+  type OwnClose,
   submitConfirmation,
   submitMove,
   UNAVAILABLE,
@@ -49,7 +51,7 @@ type FieldErrors = Partial<Record<'sha' | 'from' | 'reason', string | undefined>
 interface Bound {
   turn: Turn;
   /** This section closed it. */
-  own: { outcome: 'submitted' | 'returned'; pending: boolean; sha: string } | undefined;
+  own: OwnClose | undefined;
   /** A write answered that the turn is closed, whatever the last read says. */
   refusedClosed: boolean;
 }
@@ -181,6 +183,13 @@ export function TaskTurn({
       cancelRow.current?.querySelectorAll('button')[sendOff ? 1 : 0]?.focus();
   }, [sendOff, inFlight]);
 
+  const record = bound && value.turns?.find((turn) => turn.id === bound.turn.id);
+  const settled =
+    bound?.own?.outcome === 'submitted' ? settledSubmit(value.submission, record) : undefined;
+  useEffect(() => {
+    if (settled !== undefined && bound?.own !== undefined && bound.own.seen !== settled)
+      setBound({ ...bound, own: { ...bound.own, seen: settled } });
+  });
   if (open === undefined && bound === undefined) return null;
   const name = (actor: string) => actorDisplayName(actor, config);
   const executor = (column: string) => {
@@ -194,7 +203,6 @@ export function TaskTurn({
       : turn.taken.by === 'operator'
         ? `${turn.id} · you hold it`
         : `${turn.id} · taken by ${brief(turn.taken.by)}`;
-  const record = bound && value.turns?.find((turn) => turn.id === bound.turn.id);
   const outcome = record?.closed?.outcome;
   const closer =
     outcome === 'submitted' || outcome === 'returned'
@@ -271,6 +279,7 @@ export function TaskTurn({
             outcome: form === 'submit' ? 'submitted' : 'returned',
             pending: result.status === 'pending',
             sha: commit,
+            seen: undefined,
           },
           refusedClosed: false,
         });
@@ -464,7 +473,7 @@ export function TaskTurn({
             className={`${styles.status ?? ''} ${focusRing}`}
           >
             {own.outcome === 'submitted'
-              ? `${turn.id} submitted.${OWN_SUBMIT[ownSubmitState(value.submission, record, own.pending)]}`
+              ? `${turn.id} submitted.${ownSubmitNote(value, turn, record, own)}`
               : `${turn.id} returned to dev.`}
           </p>
         ) : (
@@ -472,19 +481,9 @@ export function TaskTurn({
             <Banner
               variant="info"
               icon="check"
-              detail={
-                outcome === 'submitted'
-                  ? record && closedSubmitDetail(value.submission, record, now)
-                  : outcome === 'returned' && record?.closed
-                    ? `Returned to dev ${age(record.closed.at, now)} ago.`
-                    : undefined
-              }
+              detail={closedDetail(value.submission, record, now)}
             >
-              {closer !== undefined
-                ? `${turn.id} was closed by ${closer}`
-                : outcome !== undefined
-                  ? `${turn.id} was closed: ${OUTCOME[outcome] ?? outcome}`
-                  : `${turn.id} was closed`}
+              {closedNotice(turn.id, closer, outcome)}
             </Banner>
           </div>
         )}

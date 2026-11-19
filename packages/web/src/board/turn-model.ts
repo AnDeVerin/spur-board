@@ -31,13 +31,6 @@ export const OUTCOME: Record<string, string> = {
   archived: 'the task was archived',
 };
 const BRIEF_MAX = 16;
-/** What follows `T<n> submitted.` on the own-close line, by `ownSubmitState`. */
-export const OWN_SUBMIT = {
-  pending: ' The board confirms the head on its next polls.',
-  voided:
-    ' The board voided this submission: it no longer counts for the gates, so the work needs another submit.',
-  counted: '',
-} as const;
 export const UNAVAILABLE = 'The turn cannot be closed while the board is unavailable.';
 export const ARCHIVED = 'This task is archived. The turn cannot be closed.';
 export const NOTE =
@@ -96,7 +89,7 @@ export function submitConfirmation(
     return `This closes ${turn.id} in your name; the task stays in done. It cannot be undone.`;
   const outcome =
     next === undefined
-      ? `the task stays in ${turn.column} until it completes: a merged pull request or a done ticket`
+      ? `the task stays in ${turn.column} until it completes: its pull request merges, or its ticket is done with no open pull request and no live worker`
       : `the task moves to ${next}`;
   return `This closes ${turn.id} in your name and the board re-evaluates the task's gates. If they hold, ${outcome}.${unmet ? ' Some exit conditions do not hold now, so the task may wait, or move back to a column whose gate fails.' : ''} It cannot be undone.`;
 }
@@ -121,7 +114,7 @@ function closingSubmission(
 }
 
 /** The detail of a submit that closed `closed` elsewhere: its basis and SHA when the read ties them. */
-export function closedSubmitDetail(
+function closedSubmitDetail(
   submission: Submission | null | undefined,
   closed: ClosedTurn,
   now: number,
@@ -134,19 +127,76 @@ export function closedSubmitDetail(
     : `Submitted ${age(at, now)} ago.`;
 }
 
-/**
- * What became of an own submit that closed `turn`: the submission that closed it tells once a
- * read shows it, `voided` when it no longer counts for the gates; before that, `pending` from the
- * write's answer does.
- */
-export function ownSubmitState(
+/** The closed notice's main line: who closed the turn for a submit or a return, else how. */
+export function closedNotice(
+  id: string,
+  closer: string | undefined,
+  outcome: string | undefined,
+): string {
+  if (closer !== undefined) return `${id} was closed by ${closer}`;
+  return outcome === undefined
+    ? `${id} was closed`
+    : `${id} was closed: ${OUTCOME[outcome] ?? outcome}`;
+}
+
+/** The closed notice's detail: the submit that closed the turn, or how long ago it returned. */
+export function closedDetail(
+  submission: Submission | null | undefined,
+  record: (ClosedTurn & { closed: { at: string; outcome: string } | null }) | undefined,
+  now: number,
+): string | undefined {
+  if (!record?.closed) return undefined;
+  if (record.closed.outcome === 'submitted') return closedSubmitDetail(submission, record, now);
+  return record.closed.outcome === 'returned'
+    ? `Returned to dev ${age(record.closed.at, now)} ago.`
+    : undefined;
+}
+
+/** The section's own close of a turn, by submit or return. */
+export interface OwnClose {
+  outcome: 'submitted' | 'returned';
+  pending: boolean;
+  sha: string;
+  /** How the submit settled once a read showed it, kept after a later one replaces it. */
+  seen: SettledSubmit | undefined;
+}
+
+/** A settled own submit: the Board confirmed it, or voided it. */
+export type SettledSubmit = 'counted' | 'voided';
+/** How the submission that closed `turn` settled, once a read shows it; none while it waits. */
+export function settledSubmit(
   submission: Submission | null | undefined,
   turn: ClosedTurn | undefined,
-  pending: boolean,
-): 'pending' | 'voided' | 'counted' {
+): SettledSubmit | undefined {
   const matched = closingSubmission(submission, turn);
-  if (matched?.voided === true) return 'voided';
-  return (matched?.pending ?? pending) ? 'pending' : 'counted';
+  if (matched === undefined || (matched.pending && !matched.voided)) return undefined;
+  return matched.voided ? 'voided' : 'counted';
+}
+
+/**
+ * What follows `T<n> submitted.` on the own-close line. The submission that closed the turn tells
+ * how it went once a read shows it; `seen` keeps how it settled after a later submission replaces
+ * it. A replaced submission, or a task that left the column, waits for nothing, so only the
+ * write's own answer, before any of that, says the Board still confirms the head. A voided one
+ * asks for another submit only when the Board handed the work back: the task is in Dev or a
+ * worker turn is open; a pull request merged at another head can void it and still end in Done.
+ */
+export function ownSubmitNote(
+  value: BoardTask,
+  turn: { column: string },
+  record: ClosedTurn | undefined,
+  own: { pending: boolean; seen: SettledSubmit | undefined },
+): string {
+  const matched = closingSubmission(value.submission, record);
+  const replaced = record?.closed != null && value.submission != null && matched === undefined;
+  const state =
+    settledSubmit(value.submission, record) ??
+    (matched !== undefined ? 'pending' : own.seen) ??
+    (replaced || value.task.column !== turn.column || !own.pending ? 'counted' : 'pending');
+  if (state === 'pending') return ' The board confirms the head on its next polls.';
+  if (state === 'counted') return '';
+  const handedBack = value.task.column === 'dev' || value.turn?.addressee === 'worker';
+  return ` The board voided this submission: it no longer counts for the gates.${handedBack ? ' The work went back to Dev and needs another submit.' : ''}`;
 }
 
 /**

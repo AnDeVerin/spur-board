@@ -38,9 +38,10 @@ The button reads **Submit**; there is no confirm dialog. A submit closes the tur
 re-evaluates every gate of the task. The line above the button starts
 `This closes T<n> in your name and the board re-evaluates the task's gates.`, then says where
 the task goes if they hold: `the task moves to <next>`, the enabled column after the turn's
-column. A passing gate never moves a task into Done, only a merged pull request or a done ticket
-completes it, so when the next column is Done or there is none it says the task stays in its
-column until it completes. When any gate has an unmet exit condition other than the submit or
+column. A passing gate never moves a task into Done; completion does: its pull request merges, or
+its ticket is done with no open pull request and no live worker, once GitHub and Spur have a
+fresh complete poll (see [Columns](how-board-works-columns.md)). So when the next column is Done
+or there is none, the line says the task stays in its column until it completes. When any gate has an unmet exit condition other than the submit or
 review on the head, it adds that the task may wait, or move back to a column whose gate fails. A
 Done wrap-up turn says the task stays in done. The line ends `It cannot be undone.`
 
@@ -95,9 +96,12 @@ the notice.
 
 After a close the section keeps a focused status line, `T<n> submitted.` or `T<n> returned to
 dev.`, even when the task then has no open turn. A submit the Board still has to confirm adds
-`The board confirms the head on its next polls.`, until a read shows that submission confirmed.
-A voided one says the Board voided it: it no longer counts for the gates, so the work needs
-another submit. A turn the same write opened shows below.
+`The board confirms the head on its next polls.`, until a read shows that submission confirmed or
+voided; once settled it stays so, and a later submission or the task leaving the column ends the
+wait. A voided one says the Board voided it and it no longer counts for the gates. Only when the
+Board handed the work back, the task is in Dev or a worker turn is open, does it add that the work
+needs another submit: a pull request merged at another head can void it and still end in Done. A
+turn the same write opened shows below.
 
 A Board update waits to reload the page while the ack and the close run, even when the task view
 closes first, so it never leaves the operator holding a turn mid-close. An unsent reason survives
