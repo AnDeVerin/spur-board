@@ -6273,8 +6273,9 @@ describe('approvalRule github-rules', () => {
     state,
     completedAt: state === 'pending' ? null : at(29),
   });
-  const listing = (requiredChecks: string[]) =>
+  const listing = (requiredChecks: string[], reviewDecision?: 'changes_requested') =>
     rule({
+      ...(reviewDecision === undefined ? {} : { reviewDecision }),
       rule: {
         sources: ['ruleset'],
         approvals: 1,
@@ -6283,6 +6284,19 @@ describe('approvalRule github-rules', () => {
         requiredChecks,
       },
     });
+  const BY_GITHUB = ', changes requested by GitHub';
+  const BY_REVIEWER = ', changes requested by a reviewer';
+  const REQUESTED = ['', BY_GITHUB, BY_REVIEWER] as const;
+  const changesByReviewer = {
+    reviews: [
+      {
+        reviewer: EXTERNAL,
+        state: 'changes_requested' as const,
+        commitSha: A,
+        submittedAt: at(31),
+      },
+    ],
+  };
   const CHECKS = {
     'required check completed': { state: 'done', rollup: [run('ci', 'success')], listed: ['ci'] },
     'listed check absent': {
@@ -6306,28 +6320,58 @@ describe('approvalRule github-rules', () => {
     (Object.keys(CHECKS) as (keyof typeof CHECKS)[]).flatMap((checks) =>
       (['blocked', 'unknown', 'behind', 'clean'] as const).flatMap((mergeState) =>
         (['external-review', 'ready-to-merge'] as const).flatMap((column) =>
-          (['dev', 'external-review'] as const).map((checksGate) => ({
-            checks,
-            mergeState,
-            column,
-            checksGate,
-          })),
+          (['dev', 'external-review'] as const).flatMap((checksGate) =>
+            // On an unknown merge state, changes requested by GitHub's verdict or by a reviewer.
+            (mergeState === 'unknown' ? REQUESTED : ['' as const]).map((requested) => ({
+              checks,
+              mergeState,
+              column,
+              checksGate,
+              requested,
+              label: `${checksGate}${requested}`,
+            })),
+          ),
         ),
       ),
     ),
   )(
-    '$checks, merge state $mergeState, in $column, checksGate $checksGate',
-    async ({ checks, mergeState, column, checksGate }) => {
+    '$checks, merge state $mergeState, in $column, checksGate $label',
+    async ({ checks, mergeState, column, checksGate, requested }) => {
       const { state, rollup, listed } = CHECKS[checks];
+      const read = async (board: Board, rules: boolean) => {
+        if (column === 'ready-to-merge')
+          await board.rulePr({ ...approved, mergeState: 'clean' }, rule());
+        expect((await board.task()).column).toBe(column);
+        const moves = (await board.moves()).length;
+        await board.rulePr(
+          {
+            ...(requested === BY_REVIEWER ? changesByReviewer : approved),
+            mergeState,
+            requiredChecks: [...rollup],
+            checks: [...rollup],
+          },
+          listing([...listed], rules && requested === BY_GITHUB ? 'changes_requested' : undefined),
+        );
+        return moves;
+      };
       const ctx = await pastProductReview({ ...RULED, checksGate });
-      if (column === 'ready-to-merge')
-        await ctx.rulePr({ ...approved, mergeState: 'clean' }, rule());
-      expect((await ctx.task()).column).toBe(column);
-      const moves = (await ctx.moves()).length;
-      await ctx.rulePr(
-        { ...approved, mergeState, requiredChecks: [...rollup], checks: [...rollup] },
-        listing([...listed]),
-      );
+      const moves = await read(ctx, true);
+      if (requested === BY_REVIEWER) {
+        // A reviewer's changes request moves the task as under any-approval.
+        const plain = await pastProductReview({ externalReview: true, checksGate });
+        const plainMoves = await read(plain, false);
+        expect((await ctx.task()).column).toBe((await plain.task()).column);
+        expect((await ctx.moves()).length - moves).toBe((await plain.moves()).length - plainMoves);
+        expect(await externalConditions(ctx)).toContainEqual({
+          condition: 'approved',
+          state: 'failed',
+          reason: 'changes_requested',
+        });
+        ctx.wait(HALF_HOUR);
+        await ctx.tick();
+        expect(await ruleItems(ctx)).toEqual([]);
+        return;
+      }
       // The rollup's own verdict, which checks green reads at the checksGate column.
       const rollupPending = rollup.some((check) => check.state === 'pending');
       // A pending or missing required check holds the head on CI, unless GitHub reports the merge

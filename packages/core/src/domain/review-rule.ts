@@ -161,14 +161,20 @@ export function externalReviews(pr: PrFacts, agentLogin: string): PrFacts['revie
   return pr.reviews.filter((review) => external(review.reviewer));
 }
 
-/** Changes requested by GitHub's review verdict, or by an external reviewer's latest review. */
+/**
+ * Changes requested by GitHub's review verdict, or by an external reviewer's latest review. While
+ * GitHub has not computed mergeability or the merge state, its verdict does not count, so it holds
+ * the head as `keep` does instead of moving the task; a reviewer's latest review always counts, as
+ * under any-approval.
+ */
 export function changesRequested(
   pr: PrFacts,
   reviewDecision: PrReviewRule['reviewDecision'],
   agentLogin: string,
 ): boolean {
+  const unknown = pr.mergeable === 'unknown' || pr.mergeState === 'unknown';
   return (
-    reviewDecision === 'changes_requested' ||
+    (reviewDecision === 'changes_requested' && !unknown) ||
     externalReviews(pr, agentLogin).some((review) => review.state === 'changes_requested')
   );
 }
