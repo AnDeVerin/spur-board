@@ -45,10 +45,12 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
 - spur, then one group per project, headed by the project id, with one box per GitHub source and
   one per Jira source of that project. Each box is headed by its own state, so every source the
   daemon pauses for a rate limit reads `waits for rate budget`, even before its first complete
-  poll after a restart: Last complete poll, Last observation, Blind (when blind),
-  Freshness, Warming up, Points last hour (pull request sources) and Budget: a bar of requests
-  left over the limit with its reset time, amber at 20% and red at 5%; `<n> left` without a
-  limit; `—` without a budget. The spur box adds an availability line while Spur is unavailable.
+  poll after a restart; a wait that lasts past the source's freshness deadline reads
+  `blind: stale` instead, because blind outranks the wait. Each box shows Last complete poll,
+  Last observation, Blind (when blind), Freshness, Warming up, Points last hour (pull request
+  sources) and Budget: a bar of requests left over the limit with its reset time, amber at 20%
+  and red at 5%; `<n> left` without a limit; `—` without a budget. The spur box adds an
+  availability line while Spur is unavailable.
 
 A box name adds `· <repo>` only when its group has two sources of that kind. A service button
 scrolls the panel to its service's failing box, else its degraded box, else its first box; among
