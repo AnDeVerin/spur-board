@@ -1,11 +1,13 @@
 import type { PrFacts, PrReviewRule, ReviewRule } from '@spur-board/contracts';
+import { VERDICT } from './gates.ts';
 
 /**
  * What one read of a PR head says about its base branch's review rule, in rule order:
  * - `keep`: GitHub has not computed mergeability or the merge state; the stored decision stands.
  * - `dev`: a draft or a conflict, which Dev's own conditions handle.
- * - `checks_pending`: no required check has completed on the head, or the merge is blocked while
- *   a required check is still running.
+ * - `checks_pending`: no required check has completed on the head (with none required, a
+ *   non-skipped check pending or red, or only skipped ones), or the merge is blocked while a
+ *   required check is still running.
  * - `changes_requested`: a reviewer asked for changes.
  * - `satisfied`: the merge is not blocked (clean, unstable or has hooks).
  * - `unresolved_threads`: the merge is blocked while review threads stay unresolved.
@@ -24,17 +26,24 @@ export type ReviewRuleVerdict =
   | 'blocked'
   | 'undecided';
 
-type RulePr = Pick<PrFacts, 'draft' | 'mergeable' | 'mergeState' | 'requiredChecks'>;
+type RulePr = Pick<PrFacts, 'draft' | 'mergeable' | 'mergeState' | 'requiredChecks' | 'checks'>;
 
 /**
  * Whether a required check has completed on the head: a check GitHub marks required that is not
- * expected or pending. With none on the head, met only when no source of the rule lists one, or
- * when the rule is unreadable: then only GitHub's required checks can hold the head.
+ * expected or pending. When none is required (none on the head, and no source of the rule lists
+ * one or the rule is unreadable), the Board's rule for no required checks applies, as for
+ * `checks_green`: every check except skipped ones is green and there is at least one, or the
+ * head has no checks at all.
  */
 export function requiredCheckCompleted(pr: RulePr, rule: ReviewRule | null): boolean {
-  if (pr.requiredChecks.some((check) => check.state !== 'expected' && check.state !== 'pending'))
-    return true;
-  return pr.requiredChecks.length === 0 && (rule === null || rule.requiredChecks.length === 0);
+  if (pr.requiredChecks.length > 0)
+    return pr.requiredChecks.some(
+      (check) => check.state !== 'expected' && check.state !== 'pending',
+    );
+  if (rule !== null && rule.requiredChecks.length > 0) return false;
+  if (pr.checks.length === 0) return true;
+  const optional = pr.checks.filter((check) => check.state !== 'skipped');
+  return optional.length > 0 && optional.every((check) => VERDICT[check.state] === 'green');
 }
 
 /** The verdict of one read; see `ReviewRuleVerdict` for the order. */

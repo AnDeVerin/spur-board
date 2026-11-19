@@ -306,7 +306,7 @@ const columnConfig = z.strictObject({
     .enum(APPROVAL_RULES)
     .optional()
     .describe(
-      "What lets a task leave External Review. any-approval, the default: an approval by someone other than operatorGithubLogin and no changes requested by one. github-rules: that, and GitHub's review rule for the PR's base branch, read from branch protection and rulesets, satisfied on the PR head: no changes requested, a required check completed (met when none is required) and the merge not blocked. Allowed only on the external-review column; a disabled column ignores it.",
+      "What lets a task leave External Review. any-approval, the default: an approval by someone other than operatorGithubLogin and no changes requested by one. github-rules: that, and GitHub's review rule for the PR's base branch, read from branch protection and rulesets, satisfied on the PR head: no changes requested, a required check completed, or, when none is required, every check except skipped ones green and at least one (no checks at all also counts); and the merge not blocked. Allowed only on the external-review column; a disabled column ignores it.",
     ),
   quietTurnAfterMs: z
     .int()

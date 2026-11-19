@@ -121,10 +121,59 @@ const CASES: Case[] = [
     clock: false,
   },
   {
-    name: 'no required checks on the head or in the rule',
+    name: 'no required checks and no checks at all on the head',
     pr: pr({ requiredChecks: [], checks: [] }),
     rule: { ...PROTECTION, requiredChecks: [] },
     verdict: 'satisfied',
+    clock: false,
+  },
+  {
+    name: 'no required checks and an optional check completed',
+    pr: pr({
+      requiredChecks: [],
+      checks: [
+        { name: 'lint', state: 'success', completedAt: AT },
+        { name: 'docs', state: 'skipped', completedAt: AT },
+      ],
+    }),
+    rule: { ...PROTECTION, requiredChecks: [] },
+    verdict: 'satisfied',
+    clock: false,
+  },
+  {
+    name: 'no required checks and an optional check pending',
+    pr: pr({
+      requiredChecks: [],
+      checks: [
+        { name: 'lint', state: 'success', completedAt: AT },
+        { name: 'e2e', state: 'pending', completedAt: null },
+      ],
+    }),
+    rule: { ...PROTECTION, requiredChecks: [] },
+    verdict: 'checks_pending',
+    clock: false,
+  },
+  {
+    name: 'no required checks and an optional check failed',
+    pr: pr({
+      requiredChecks: [],
+      checks: [
+        { name: 'lint', state: 'success', completedAt: AT },
+        { name: 'e2e', state: 'failure', completedAt: AT },
+      ],
+    }),
+    rule: { ...PROTECTION, requiredChecks: [] },
+    verdict: 'checks_pending',
+    clock: false,
+  },
+  {
+    name: 'no required checks and only skipped checks on the head',
+    pr: pr({
+      requiredChecks: [],
+      checks: [{ name: 'docs', state: 'skipped', completedAt: AT }],
+    }),
+    rule: { ...PROTECTION, requiredChecks: [] },
+    verdict: 'checks_pending',
     clock: false,
   },
   {
@@ -223,7 +272,7 @@ describe('reviewRuleVerdict', () => {
 });
 
 describe('requiredCheckCompleted', () => {
-  it('counts only checks GitHub marks required, and is met without any only when no source lists one', () => {
+  it('counts only checks GitHub marks required; without any listed, the non-skipped checks all green or no checks at all', () => {
     const none: ReviewRule = { ...PROTECTION, requiredChecks: [] };
     expect(requiredCheckCompleted(pr(), PROTECTION)).toBe(true);
     expect(
@@ -240,6 +289,13 @@ describe('requiredCheckCompleted', () => {
     ).toBe(false);
     expect(requiredCheckCompleted(pr({ requiredChecks: [] }), PROTECTION)).toBe(false);
     expect(requiredCheckCompleted(pr({ requiredChecks: [] }), none)).toBe(true);
+    expect(requiredCheckCompleted(pr({ requiredChecks: [], checks: [] }), none)).toBe(true);
+    expect(
+      requiredCheckCompleted(
+        pr({ requiredChecks: [], checks: [{ name: 'ci', state: 'pending', completedAt: null }] }),
+        none,
+      ),
+    ).toBe(false);
   });
 });
 
