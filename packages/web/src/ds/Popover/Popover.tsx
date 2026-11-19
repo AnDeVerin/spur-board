@@ -28,19 +28,21 @@ import styles from './Popover.module.css';
  * none. An empty visible area (a scroller wholly outside the window) is not in view. An anchor out
  * of view, out of the window or clipped away by a scroller such as a board strip, hides the panel
  * (`display: none`, so nothing inside can show itself and its controls leave the tab order). A
- * hide that would take focus with it moves focus to the trigger first (to body when the trigger
- * unmounted too), and the panel showing again gives it back, unless the element left the panel or
- * focus moved on from the trigger or body. With
- * no anchor (its element unmounted while the panel stays open, or not attached yet when both mount
- * in one commit) the panel hides the same way until the ref attaches.
+ * hide that would take focus with it moves focus to the trigger first, and the panel showing again
+ * gives it back, unless the element left the panel or focus moved on from the trigger.
+ *
+ * An open panel closes (calls `onClose` once, moving no focus) when its anchor element unmounts,
+ * or when the column re-renders a different element under the same ref: the panel belongs to an
+ * element that is gone. An anchor not attached yet, as when both mount in one commit, is waited
+ * for. A caller that passes a new ref object retargets the panel to it instead.
  *
  * Near the bottom of the window its height shrinks to the space under the anchor, down to
  * `--space-2` above the window edge, and the body scrolls. With less space than the header as
  * rendered (measured each frame, so tabs that wrap to two rows count) and one standard control
  * (`--size-control`) in the padded body need, the panel moves up just enough to keep them in view
- * and may cover the bottom of the anchor; it never flips above the anchor.
- * It is never shorter than that least height, so it slides out whole with an anchor whose top is
- * below the window. At 375px it fills the window width less `--space-2` on each side, still under
+ * and may cover the bottom of the anchor; it never flips above the anchor. It is never shorter
+ * than that least height; an anchor whose top is below the window hides it (`data-away="bottom"`).
+ * At 375px it fills the window width less `--space-2` on each side, still under
  * its anchor: not a bottom sheet.
  *
  * Focus: `trigger` is the element that opens the panel (the caller's control with
@@ -160,7 +162,7 @@ function OpenPopover({
   const panel = useRef<HTMLDivElement>(null);
   const header = useRef<HTMLDivElement>(null);
   const close = useRef<HTMLSpanElement>(null);
-  // The move to Close on open, held while the panel is hidden (an anchor not attached yet).
+  // The move to Close on open, held while the panel is hidden (its anchor out of view).
   const pendingFocus = useRef(false);
   const focusClose = () => {
     close.current?.querySelector('button')?.focus({ preventScroll: true });
@@ -192,38 +194,43 @@ function OpenPopover({
       element.contains(active)
     ) {
       parked.current = active;
-      // With no trigger in the document (it unmounted with the anchor) focus falls to body.
-      const target = returnTarget();
-      if (target?.isConnected) target.focus({ preventScroll: true });
+      returnTarget()?.focus({ preventScroll: true });
     }
     element.setAttribute('data-away', away);
   };
   // Shown again: focus goes back where it was, unless the element left the panel or focus moved
-  // on meanwhile from where the hide left it, the trigger or body.
+  // on from the trigger meanwhile.
   const show = (element: HTMLElement) => {
     element.removeAttribute('data-away');
     const held = parked.current;
     parked.current = null;
-    const active = document.activeElement;
-    const waiting = !active || active === document.body || active === returnTarget();
-    if (held?.isConnected && element.contains(held) && waiting) held.focus({ preventScroll: true });
+    if (held?.isConnected && element.contains(held) && document.activeElement === returnTarget())
+      held.focus({ preventScroll: true });
   };
   // The values last written, so an unchanged frame writes nothing.
   const written = useRef('');
   const headerWritten = useRef(0);
+  // The anchor element the first placement saw, under the ref object that held it.
+  const seen = useRef<{ ref: RefObject<HTMLElement | null>; element: HTMLElement } | null>(null);
+  const closed = useRef(false);
   // Writes the anchor's box on the panel, not in React state, and only when it changed.
-  // `data-away` names the side an anchor out of view left by, `empty` when nothing of the window
-  // is visible to it (a scroller wholly outside the window), or `detached` with no anchor (its
-  // element unmounted); the frame loop places the panel again once the ref attaches.
+  // `data-away` names the side an anchor out of view left by, or `empty` when nothing of the
+  // window is visible to it (a scroller wholly outside the window).
   const place = () => {
     const element = panel.current;
-    if (!element) return;
-    const target = latest.current.anchor.current;
-    if (!target) {
-      if (written.current !== 'detached') hide(element, 'detached');
-      written.current = 'detached';
+    if (!element || closed.current) return;
+    const ref = latest.current.anchor;
+    const target = ref.current;
+    // The anchor unmounted, or the column re-rendered a new element under the same ref: the
+    // panel belongs to an element that is gone, so it closes once. A new ref object retargets.
+    if (seen.current?.ref === ref && seen.current.element !== target) {
+      closed.current = true;
+      latest.current.onClose();
       return;
     }
+    // Not attached yet (it mounts in the same commit as the panel): the next placement sees it.
+    if (!target) return;
+    seen.current = { ref, element: target };
     const rect = target.getBoundingClientRect();
     const view = visibleArea(target);
     let away: 'left' | 'right' | 'top' | 'bottom' | 'empty' | null = null;

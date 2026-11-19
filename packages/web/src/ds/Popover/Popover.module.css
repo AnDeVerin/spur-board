@@ -14,7 +14,8 @@
       var(--size-hairline)
   );
   /* Under the anchor; near the bottom, up just enough for the least height. The lower bound
-     only acts once the anchor's top is below the window: the panel then follows it out. */
+     only acts once the anchor's top is below the window, where the panel is hidden
+     (data-away="bottom"). */
   --popover-y: max(
     min(var(--popover-top) + var(--space-1), 100% - var(--space-2) - var(--popover-least)),
     var(--popover-anchor-top) - var(--popover-least) - var(--space-2)
@@ -27,8 +28,7 @@
   display: flex;
   flex-direction: column;
   width: var(--popover-width);
-  /* Never below the least height: a panel following its anchor out of the window slides out
-     whole instead of shrinking under its header. */
+  /* Never below the least height, so the header and one control always fit. */
   max-height: max(
     var(--popover-least),
     min(var(--size-popover-height), 100% - var(--popover-y) - var(--space-2))
@@ -37,8 +37,8 @@
   border: var(--size-hairline) solid var(--color-border-strong);
   box-shadow: var(--shadow-popover);
 }
-/* The anchor out of view or not attached: the panel is not rendered, so no descendant can show
-   itself and its controls leave the tab order. Placement reads only the anchor. */
+/* The anchor out of view: the panel is not rendered, so no descendant can show itself and its
+   controls leave the tab order. Placement reads only the anchor. */
 .root[data-away] {
   display: none;
 }

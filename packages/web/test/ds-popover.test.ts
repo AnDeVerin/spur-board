@@ -126,33 +126,18 @@ describe('Popover', () => {
         document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
       });
     };
-    // stay: the anchor scrolls out and back; movedOn: the user focuses Other meanwhile; detached:
-    // the column head (anchor and trigger together) unmounts and mounts again.
-    for (const how of ['stay', 'movedOn', 'detached'] as const) {
-      const harness = (attached: boolean) =>
-        createElement(Harness, { children: control, after: other, attached });
+    // stay: the anchor scrolls out and back; movedOn: the user focuses Other meanwhile.
+    for (const how of ['stay', 'movedOn'] as const) {
       render(createElement(Fragment, null));
-      render(harness(true));
+      render(createElement(Harness, { children: control, after: other }));
       press(button('Help'));
       act(() => {
         button('Body control', opened()).focus();
       });
-      if (how === 'detached') {
-        render(harness(false));
-        scroll(100);
-        expect(opened().getAttribute('data-away')).toBe('detached');
-        // No trigger to move to: the browser drops focus from the hidden panel to body.
-        expect(document.activeElement).toBe(button('Body control', opened()));
-        act(() => {
-          (document.activeElement as HTMLElement).blur();
-        });
-        render(harness(true));
-      } else {
-        // The anchor scrolls wholly out: the panel hides, and focus goes to the trigger first.
-        scroll(-400);
-        expect(opened().getAttribute('data-away')).toBe('left');
-        expect(document.activeElement).toBe(button('Help'));
-      }
+      // The anchor scrolls wholly out: the panel hides, and focus goes to the trigger first.
+      scroll(-400);
+      expect(opened().getAttribute('data-away')).toBe('left');
+      expect(document.activeElement).toBe(button('Help'));
       if (how === 'movedOn')
         act(() => {
           button('Other').focus();
@@ -162,6 +147,35 @@ describe('Popover', () => {
       expect(document.activeElement, how).toBe(
         how === 'movedOn' ? button('Other') : button('Body control', opened()),
       );
+    }
+  });
+
+  it('closes once when its anchor unmounts or is replaced under the same ref', () => {
+    const control = createElement('button', { type: 'button' }, 'Body control');
+    for (const how of ['unmounts', 'replaced'] as const) {
+      const onClose = vi.fn();
+      const harness = (change: boolean) =>
+        createElement(Harness, {
+          initial: true,
+          onClose,
+          children: control,
+          ...(change ? (how === 'unmounts' ? { attached: false } : { generation: 1 }) : {}),
+        });
+      render(createElement(Fragment, null));
+      render(harness(false));
+      act(() => {
+        button('Body control', opened()).focus();
+      });
+      // The column re-renders under the panel; the next placements find it gone.
+      render(harness(true));
+      for (let index = 0; index < 2; index++)
+        act(() => {
+          document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
+        });
+      expect(onClose, how).toHaveBeenCalledTimes(1);
+      expect(popover(), how).toBeUndefined();
+      // The popover moved no focus: the removed control's focus fell to body.
+      expect(document.activeElement, how).toBe(document.body);
     }
   });
 
@@ -274,7 +288,6 @@ describe('Popover', () => {
       fixed: ['fixed', ''],
       absolute: ['absolute', ''],
       positioned: ['absolute', 'relative'],
-      detached: ['', ''],
     } as const;
     for (const [left, right, top, bottom, area, away, layout] of [
       [-400, -20, 20, 40, undefined, 'left', 'flow'],
@@ -289,8 +302,6 @@ describe('Popover', () => {
       [800, 1000, 20, 40, scroller, 'right', 'flow'],
       [300, 620, -40, 0, scroller, 'top', 'flow'],
       [300, 620, 600, 620, scroller, 'bottom', 'flow'],
-      // The anchor unmounted: hidden where it was; the next row mounts it again, placed and shown.
-      [300, 620, 600, 620, scroller, 'detached', 'detached'],
       [100, 420, 20, 40, undefined, null, 'flow'],
       [1000, 1320, 20, 40, undefined, null, 'flow'],
       [-300, 20, 20, 40, undefined, null, 'flow'],
@@ -305,7 +316,6 @@ describe('Popover', () => {
       [-100, 180, 20, 40, scroller, 'left', 'positioned'],
     ] as const) {
       const [anchorPosition, scrollerPosition] = positions[layout];
-      render(createElement(Harness, { initial: true, attached: layout !== 'detached' }));
       clip(area, scrollerPosition);
       document.getElementById('anchor')?.style.setProperty('position', anchorPosition);
       stubAnchorRect({ left, right, top, bottom });
@@ -409,9 +419,15 @@ describe('Popover', () => {
 
   it('with focus on body, Escape closes the most recent shown surface, else a hidden one', () => {
     anchorRect();
-    // The hidden popover opens last: its anchor is not mounted.
+    // The hidden popover opens last: an ancestor clips its anchor away (happy-dom gives the clip
+    // no width, so the visible area is empty).
+    const clipped = { overflowX: 'hidden', overflowY: 'hidden' } as const;
     for (const shown of [true, false]) {
-      const hidden = createElement(Harness, { key: 'hidden', initial: true, attached: false });
+      const hidden = createElement(
+        'div',
+        { key: 'hidden', style: clipped },
+        createElement(Harness, { initial: true }),
+      );
       render(createElement(Fragment, null));
       render([shown && createElement(Harness, { key: 'shown', initial: true }), hidden]);
       const away = () => dialogs().map((dialog) => dialog.hasAttribute('data-away'));

@@ -22,7 +22,8 @@ export const menu = (label: string) =>
 /**
  * A Help trigger inside an anchor inside a scroller, and the Popover it opens. `shared` puts a
  * collapsed menu trigger (`aria-expanded`) before Help in the anchor, as a column head holds;
- * `attached={false}` unmounts the anchor, as a column head leaving the board.
+ * `attached={false}` unmounts the anchor, as a column head leaving the board; a new
+ * `generation` replaces the anchor element under the same ref, as a column head re-rendered.
  */
 export function Harness({
   initial = false,
@@ -31,6 +32,7 @@ export function Harness({
   after,
   shared = false,
   attached = true,
+  generation = 0,
 }: {
   initial?: boolean;
   onClose?: () => void;
@@ -38,6 +40,7 @@ export function Harness({
   after?: ReactNode;
   shared?: boolean;
   attached?: boolean;
+  generation?: number;
 }) {
   const anchor = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -51,7 +54,7 @@ export function Harness({
       attached &&
         createElement(
           'div',
-          { id: 'anchor', ref: anchor },
+          { id: 'anchor', ref: anchor, key: generation },
           shared && createElement('button', { type: 'button', 'aria-expanded': false }, 'Order'),
           createElement(
             'button',
