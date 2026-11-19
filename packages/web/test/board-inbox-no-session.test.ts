@@ -134,14 +134,11 @@ describe('inbox no-session item', () => {
     await settle();
     expect(activeIds()).toEqual(['I7']);
     const later = 'oldest T530 since 2026-11-18T14:12:00.000Z';
-    serveInbox(
-      d,
-      [open('I9', 1, later)],
-      [{ ...entry('I7', `${HEAD}; ${OLDEST}`), handledAt: '2026-11-18T14:41:00.000Z' }],
-    );
+    // Core keeps one row per key: the open I9 hides the cleared I7 from handled.
+    serveInbox(d, [open('I9', 1, later)], []);
     await invalidate(d);
     expect(activeIds()).toEqual(['I9']);
-    expect(handledIds()).toEqual(['I7']);
+    expect(handledIds()).toEqual([]);
     expect(lines('I9')[1]).toBe(`${FIRST} 1 turn waits; the oldest for 30m.`);
     expect(meta('I9').at(-1)).toBe('30m');
   });

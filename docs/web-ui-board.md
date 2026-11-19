@@ -23,13 +23,13 @@ Header, left to right:
   with their answer channel when supplied. Supplied actions appear separately; an exact terminal
   `: <action>` is removed from the description. A column orchestrator with no live session reads
   `No session to ring for <column>`, its Spur project, the turns waiting and the oldest one's age,
-  then its action and `It clears itself when a session appears.`; it opens the oldest waiting
-  turn's task and moves to handled once it is cleared, keeping only its title and first
-  sentence. Text it cannot read keeps the plain
-  row. Before the first success, the panel says inbox data
-  is unavailable; later failures retain data. Task rows open above the retained panel and select
-  their project when config arrives. Task close focuses its row or panel Close if removed; panel close focuses the
-  header inbox button. Back/Forward follow these layers. Task-less rows with a known HTTP(S)
+  then its action and `It clears itself when a session appears.`; it opens the oldest waiting turn's
+  task and moves to handled once it is cleared, keeping only its title and first sentence. A
+  re-raise for the same column replaces it, and the earlier item is not listed. Text it cannot read
+  keeps the plain row. Before the first success, the panel says inbox data is unavailable; later
+  failures retain data. Task rows open above the retained panel and select their project when config
+  arrives. Task close focuses its row or panel Close if removed; panel close focuses the header
+  inbox button. Back/Forward follow these layers. Task-less rows with a known HTTP(S)
   destination open it in a new tab on click or Enter, retaining the inbox. This applies to active
   and handled entries. Task navigation takes precedence even when a URL is supplied. Rows without
   a safe destination remain focusable. Each active item entry (`I<n>`) has a quiet `Close I<n>`
