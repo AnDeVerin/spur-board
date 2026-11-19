@@ -291,7 +291,8 @@ function returnFocus(entry: Entry): void {
  * The shell `Modal` and `SidePanel` share; internal to the design system, not exported from
  * `index.ts`. It portals into `body` a root holding a `Scrim` and a `role="dialog"` surface:
  * a header with the optional icon, the title (the dialog's label), the optional detail and
- * actions, and Close, then a scrolling body that is a tab stop.
+ * actions, and Close, then a scrolling body that is a tab stop. Actions sit at the right of the
+ * header, right before Close, for any layer that passes them.
  *
  * The stack follows visual order, not effect order: a `modal` layer sits above every `panel`
  * layer (`--z-modal` over `--z-panel`, with menus at `--z-menu` between them); within one level
