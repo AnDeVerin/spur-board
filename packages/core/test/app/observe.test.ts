@@ -4020,6 +4020,24 @@ describe('anomaly blocks', () => {
         await prs(b, [seven, eight, nine]);
         return [seven, eight, nine];
       },
+      /** #7 closed, #8 linked and merged, then #7 reopened as the only open PR and closed again. */
+      reopenedClosed: async (b: Board) => {
+        const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [closed7]);
+        now += 1_000;
+        await prs(b, [closed7, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [closed7, eight]);
+        now += 1_000;
+        await prs(b, [{ ...pr(7, 'open'), updatedAt: iso() }, eight]);
+        now += 1_000;
+        const seven = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [seven, eight]);
+        return [seven, eight];
+      },
     };
     const NO_PR = 'o/r#9: worker ended (completed), no PR (worker-1)';
     const UNCONFIRMED = { pr: 'merged', mergedOpen: null, unconfirmed: true };
@@ -4045,6 +4063,8 @@ describe('anomaly blocks', () => {
         { pr: 'closed', mergedOpen: null, unconfirmed: false },
       ],
       ['supersededClose', 'untouched', [], null, UNCONFIRMED],
+      ['reopenedClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
+      ['reopenedClosed', 'done', [], null, DONE],
     ] as const)(
       'agrees with the dispatcher on which merged PR counts: %s, ticket %s',
       async (history, change, ledger, ended, outcome) => {
