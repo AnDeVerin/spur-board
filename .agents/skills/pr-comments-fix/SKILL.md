@@ -63,9 +63,10 @@ Fix or answer every open PR point once, with a reason for each rejection.
 
 - A later review or comment notification -> run the collection again from step 1; the head and
   the set of open threads have changed.
-- No open point, a `tester` or `designer` (code) verdict recorded `on <sha>` in the PR's Testing,
-  and either an APPROVED review on `headRefOid` or an acceptance-gates-only failure -> apply
-  `Final head` in `.agents/skills/manager/references/verdicts.md`, with the handoffs of
+- No open point, a `tester` or `designer` (code) gate that applies to the task (its line in
+  `## Acceptance gates` is not `n/a`), recorded verdict or not, and either an APPROVED review on
+  `headRefOid` or an acceptance-gates-only failure -> apply `Final head` in
+  `.agents/skills/manager/references/verdicts.md`, with the handoffs of
   `.agents/skills/manager/references/runtime.md`. Acceptance-gates-only failure:
   `pnpm ci:status <N>` lists `acceptance-gates` as the only counted failed job, the ci run is
   completed, and `gh run view <its ci run id> --log-failed` once shows

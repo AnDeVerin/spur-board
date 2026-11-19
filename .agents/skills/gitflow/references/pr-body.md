@@ -18,12 +18,12 @@
   `test/`, `gallery/` and `kit/`, or `docs/design-system-decisions.md`. `tester:` and `designer:`
   each take the full head SHA of the gate's last passing run (tester PASS, designer APPROVED, or
   a `no UI change since` line, which counts from a passed head only); a FAIL or
-  CHANGES_REQUESTED head never goes there. `n/a` only for
-  a gate the task does not use (its modifier does not apply); an applicable gate that never
-  passed keeps the placeholder, CI stays red, Testing names it under Missing and a human decides.
-  CI `acceptance-gates` fails while a UI file changed after a named head; a description edit
-  re-runs it. The cap never excuses the final-head run (Final head in
-  `.agents/skills/manager/references/verdicts.md`).
+  CHANGES_REQUESTED head never goes there. `n/a` only for a gate the task does not use (its
+  modifier does not apply); an applicable gate that never passed keeps the placeholder, CI stays
+  red, Testing names it under Missing and a human decides. The section holds only these two
+  lines; any other line, a fence or a bullet included, fails. CI `acceptance-gates` fails while a
+  UI file changed after a named head; a description edit re-runs it. The cap never excuses the
+  final-head run (Final head in `.agents/skills/manager/references/verdicts.md`).
 - Changed checks - one line per entry below, from the developer's `Changed checks` output.
 
 ## Changed checks
