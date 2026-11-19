@@ -373,9 +373,10 @@ function board(options: Options = {}) {
       ]),
     /**
      * A complete GitHub poll with the given PR facts merged over the current ones; `startedAt`
-     * backdates the poll's start, as for a poll that began before an earlier step.
+     * backdates the poll's start, as for a poll that began before an earlier step; `blind`
+     * reports the source blind with the poll.
      */
-    async pr(patch: Partial<PrFacts> = {}, complete = true, startedAt?: string) {
+    async pr(patch: Partial<PrFacts> = {}, complete = true, startedAt?: string, blind = false) {
       const number = patch.number ?? current?.number ?? 7;
       current = prFacts({ ...prs.get(number), ...patch });
       prs.set(number, current);
@@ -384,6 +385,7 @@ function board(options: Options = {}) {
         [...prs.values()].map((facts) => ({ kind: 'pr' as const, facts })),
         complete,
         startedAt,
+        blind,
       );
     },
     /** The on-demand poll of a submit answers `result` from now on. */
@@ -3878,48 +3880,69 @@ describe('external change-request rounds', () => {
     },
   );
 
-  it('a return on a head External Review already counted adds no round', async () => {
-    const options = { externalReview: true, curator: true };
-    const ctx = await inReview(options);
-    const counts = async (column: ColumnId) =>
-      returnCounts(ctx.store.db, 1, column, project(options));
-    await externalReturn(ctx, A);
-    await resubmit(ctx, A);
-    await externalReturn(ctx, A);
-    expect((await ctx.moves()).filter((move) => move.from === 'review')).toHaveLength(2);
-    expect(await counts('external-review')).toEqual({ cycle: 0, course: 1 });
-    expect(await counts('review')).toEqual({ cycle: 2, course: 0 });
-  });
-
-  it('a return on the head of a Dev round adds no round and is not listed', async () => {
-    const options = { externalReview: true, curator: true, externalCourseCheck: 2 };
-    const ctx = await inDev(options);
-    await devRound(ctx, B);
-    // The first submit hands the change request over; the second reaches Review.
-    await resubmit(ctx, B);
-    await resubmit(ctx, B);
-    expect((await ctx.task()).column).toBe('review');
-    await externalReturn(ctx, B);
-    expect((await ctx.task()).column).toBe('dev');
-    expect(await returnCounts(ctx.store.db, 1, 'review', project(options))).toEqual({
+  it.each([
+    {
+      name: 'a second return on one head',
+      setup: async (ctx: Board) => {
+        await externalReturn(ctx, A);
+        await resubmit(ctx, A);
+        await externalReturn(ctx, A);
+      },
+      start: inReview,
+      cycle: 2,
+      heads: [C],
+      summary: '1 returns to Dev for external comments, 1 change requests on new heads',
+      listed: 1,
+    },
+    {
+      name: 'a return on the head of a Dev round',
+      setup: async (ctx: Board) => {
+        await devRound(ctx, B);
+        // The first submit hands the change request over; the second reaches Review.
+        await resubmit(ctx, B);
+        await resubmit(ctx, B);
+        expect((await ctx.task()).column).toBe('review');
+        await externalReturn(ctx, B);
+      },
+      start: inDev,
       cycle: 1,
-      course: 0,
-    });
-    expect(await openKeys(ctx)).toEqual([]);
+      heads: [B, C],
+      summary: '0 returns to Dev for external comments, 2 change requests on new heads',
+      listed: 0,
+    },
+  ])(
+    'a head External Review already counted counts once: $name',
+    async ({ setup, start, cycle: returns, heads, summary, listed }) => {
+      const options = { externalReview: true, curator: true, externalCourseCheck: 2 };
+      const ctx = await start(options);
+      await setup(ctx);
+      expect((await ctx.task()).column).toBe('dev');
+      expect(await returnCounts(ctx.store.db, 1, 'review', project(options))).toEqual({
+        cycle: returns,
+        course: 0,
+      });
+      expect(
+        (await returnCounts(ctx.store.db, 1, 'external-review', project(options))).course,
+      ).toBe(1);
+      expect(await openKeys(ctx)).toEqual([]);
 
-    await devRound(ctx, C);
-    expect(await rounds(ctx)).toEqual(roundsOn(B, C));
-    const block = await courseBlock(ctx);
-    expect(block.reason).toContain(
-      '2 external review rounds since the last check: 0 returns to Dev for external comments, 2 change requests on new heads',
-    );
-    expect(block.reason).not.toContain('- return to Dev');
-  });
+      await devRound(ctx, C);
+      expect(await rounds(ctx)).toEqual(roundsOn(...heads));
+      const { reason } = await courseBlock(ctx);
+      expect(reason).toContain(`2 external review rounds since the last check: ${summary}`);
+      expect(reason.split('\n').filter((line) => line.startsWith('- return to Dev'))).toHaveLength(
+        listed,
+      );
+    },
+  );
 
-  it('a partial poll before the first complete one after a restart records no round', async () => {
+  it.each([
+    { name: 'after a restart, before the first complete poll', restart: true, blind: false },
+    { name: 'while the poll reports the source blind', restart: false, blind: true },
+  ])('a GitHub poll seen blind records no round: $name', async ({ restart, blind }) => {
     const options = { externalReview: true };
     const ctx = await inDev(options);
-    ctx.restart(options);
+    if (restart) ctx.restart(options);
     ctx.wait(1_000);
     const submittedAt = ctx.at();
     await ctx.pr(
@@ -3936,6 +3959,8 @@ describe('external change-request rounds', () => {
         ],
       },
       false,
+      undefined,
+      blind,
     );
     expect(await rounds(ctx)).toEqual([]);
 
