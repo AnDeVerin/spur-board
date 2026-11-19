@@ -36,10 +36,12 @@ Step numbers are the Loop steps in `references/gates.md`.
   `headRefOid` or an acceptance-gates-only failure -> fetch, check out `headRefOid`,
   `pnpm ci:status <N>` once. Exit not 0 with another failed job -> mark the verdict
   `older than <HEAD>`; an acceptance-gates-only failure never does. Acceptance-gates-only
-  failure: `ci:status` lists the acceptance-gates job as the only counted failed job, and
-  `gh run view <its ci run id> --log-failed` once shows no `ci-ok: ... FAIL` line other than
-  `ci-ok: acceptance-gates failure FAIL` and `ci-ok: FAIL`; `ci:status` neither counts ci-ok nor
-  prints its log, and on a PR edit ci-ok also carries the reused code run's failures.
+  failure: `ci:status` lists the acceptance-gates job as the only counted failed job, the ci run
+  is completed, and `gh run view <its ci run id> --log-failed` once shows
+  `ci-ok: acceptance-gates failure FAIL` and no other `ci-ok: ... FAIL` line except
+  `ci-ok: FAIL`; otherwise wait for the next notification. `ci:status` neither counts ci-ok nor
+  prints its log, `--log-failed` prints nothing for an unfinished run, and on a PR edit ci-ok also
+  carries the reused code run's failures.
   Otherwise, when `git diff --no-renames --name-only <verdict head>..HEAD` (as CI) has a path
   under `packages/web/` outside `test/`, `gallery/` and `kit/`; `docs/design-system-decisions.md`;
   or, for an issue naming `design/prototypes/<slice>/`, that folder or the step 11 pairs file ->

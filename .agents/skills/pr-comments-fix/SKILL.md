@@ -67,12 +67,14 @@ Fix or answer every open PR point once, with a reason for each rejection.
   and either an APPROVED review on `headRefOid` or an acceptance-gates-only failure -> apply
   `Final head` in `.agents/skills/manager/references/verdicts.md`, with the handoffs of
   `.agents/skills/manager/references/runtime.md`. Acceptance-gates-only failure:
-  `pnpm ci:status <N>` lists `acceptance-gates` as the only counted failed job, and
-  `gh run view <its ci run id> --log-failed` once shows no `ci-ok: ... FAIL` line other than
-  `ci-ok: acceptance-gates failure FAIL` and `ci-ok: FAIL` (on a PR edit `ci-ok` also carries
-  the reused code run's failures). Write each verdict and line it gives into Testing, and into
-  `## Acceptance gates` only the head of a tester PASS, a designer APPROVED or a
-  `no UI change since` line (else keep the last passed head), with `gh pr edit <N> --body-file`.
+  `pnpm ci:status <N>` lists `acceptance-gates` as the only counted failed job, the ci run is
+  completed, and `gh run view <its ci run id> --log-failed` once shows
+  `ci-ok: acceptance-gates failure FAIL` and no other `ci-ok: ... FAIL` line except
+  `ci-ok: FAIL`; otherwise wait for the next notification. `--log-failed` prints nothing for an
+  unfinished run, and on a PR edit `ci-ok` also carries the reused code run's failures. Write
+  each verdict and line it gives into Testing, and into `## Acceptance gates` only the head of a
+  tester PASS, a designer APPROVED or a `no UI change since` line (else keep the last passed
+  head), with `gh pr edit <N> --body-file`.
 - Report in the session, not on the PR: `Fixed: <thread or comment> - <sha>` and
   `Rejected: <thread or comment> - <reason>`, one line each, plus the checks run and their exit
   codes.
