@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { focusRing } from '../src/ds/index.ts';
-import { orchestratorTaskGet, problem, taskGet, deferred } from './board-fixtures.ts';
+import { deferred, envelope, orchestratorTaskGet, problem, taskGet } from './board-fixtures.ts';
 import { mountEachTest, press, settle } from './board-harness.ts';
 import {
   AT,
@@ -235,6 +235,46 @@ describe('Turn section focus', () => {
         },
       ),
     );
+    expect(line()).toBe('T5 returned to dev. The task is in todo.');
+  });
+
+  it('ignores a read issued before the close that answers during the send', async () => {
+    const { d } = await open();
+    const write = deferred();
+    const early = deferred();
+    const returned = d.routes['task.return'];
+    d.routes['task.return'] = () => write.promise;
+    await click('Return to dev…');
+    type(reason(), 'Handle the empty list.');
+    await send();
+    // A stream change issues a task.get while the return still runs; it answers after the close.
+    d.routes['task.get'] = () => early.promise;
+    d.send('event: reset\ndata: {}\n\n');
+    await settle();
+    write.resolve(await returned({ turn: 'T5', reason: 'Handle the empty list.' }));
+    await settle();
+    const line = () => turnSection().querySelector('[role="status"]')?.textContent;
+    expect(line()).toBe('T5 returned to dev. The task is in dev.');
+    // The write's own re-read waits behind the early one; that early answer still says Review.
+    const late = deferred();
+    d.routes['task.get'] = () => late.promise;
+    early.resolve(envelope(orchestratorTaskGet()));
+    await settle();
+    expect(line()).toBe('T5 returned to dev. The task is in dev.');
+    // Once the read the write started answers, the line follows it.
+    late.resolve(
+      envelope(
+        orchestratorTaskGet(
+          {},
+          {
+            task: { ...taskGet().task, column: 'todo' },
+            turn: null,
+            turns: [closedTurn('returned', 'operator')],
+          },
+        ),
+      ),
+    );
+    await settle();
     expect(line()).toBe('T5 returned to dev. The task is in todo.');
   });
 
