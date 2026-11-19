@@ -3,7 +3,8 @@ import { VERDICT, type TaskGateFacts } from './gates.ts';
 
 /**
  * What one read of a PR head says about its base branch's review rule, in rule order:
- * - `keep`: GitHub has not computed mergeability or the merge state; the stored decision stands.
+ * - `keep`: GitHub has not computed mergeability or the merge state; the stored decision stands,
+ *   even under a rule the token could not read, which the gate still reports (`ruleDecision`).
  * - `dev`: a draft or a conflict, which Dev's own conditions handle.
  * - `checks_pending`: no required check has completed on the head (with none required, a
  *   non-skipped check pending or red, or only skipped ones), or, unless GitHub reports the merge
@@ -96,17 +97,19 @@ type ReviewRuleDecision = NonNullable<TaskGateFacts['reviewRule']>['decision'];
 
 /**
  * What the gate reads from one read's verdict and the head's stored decision. While the merge
- * state is unknown the stored decision does not count: the head waits on a pending required check
- * or on GitHub. A read's block overrides a stored satisfied decision; a read's satisfied state or
- * block never replaces a missing one. Dev's own conditions and `approved` own `dev` and
- * `changes_requested`.
+ * state is unknown the stored decision does not count: the head waits on a pending required check,
+ * on a base branch rule the token could not read (`readable` false), or on GitHub. A read's block
+ * overrides a stored satisfied decision; a read's satisfied state or block never replaces a
+ * missing one. Dev's own conditions and `approved` own `dev` and `changes_requested`.
  */
 export function ruleDecision(
   verdict: ReviewRuleVerdict,
   checks: RequiredCheckState,
   stored: 'satisfied' | 'blocked' | null,
+  readable: boolean,
 ): ReviewRuleDecision {
-  if (verdict === 'keep') return checks === 'done' ? 'undecided' : 'checks_pending';
+  if (verdict === 'keep')
+    return checks !== 'done' ? 'checks_pending' : readable ? 'undecided' : 'unreadable';
   if (
     verdict === 'checks_pending' ||
     verdict === 'unresolved_threads' ||
@@ -146,7 +149,8 @@ export function storedDecision(
 
 /**
  * Whether one read of a head runs the 30-minute clock: the head has no stored decision, the read
- * is not Dev's, and the gate reads it as waiting on GitHub alone.
+ * is not Dev's, and the gate reads it as waiting on GitHub alone. A rule the token could not read
+ * and an undecided answer both wait on GitHub, so the rule's readability does not change it.
  */
 export function onClock(
   verdict: ReviewRuleVerdict,
@@ -157,7 +161,7 @@ export function onClock(
   return (
     stored === null &&
     verdict !== 'dev' &&
-    waitsOnGitHub({ changesRequested, decision: ruleDecision(verdict, checks, stored) })
+    waitsOnGitHub({ changesRequested, decision: ruleDecision(verdict, checks, stored, true) })
   );
 }
 

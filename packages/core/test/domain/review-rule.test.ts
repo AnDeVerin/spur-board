@@ -308,20 +308,31 @@ describe('reviewRuleVerdict', () => {
     );
     expect(verdict({ mergeState: 'blocked' }, true)).toBe('changes_requested');
     expect(onClock('unreadable', 'done', null, false)).toBe(true);
-    expect(ruleDecision('unreadable', 'done', null)).toBe('unreadable');
+    expect(ruleDecision('unreadable', 'done', null, false)).toBe('unreadable');
     expect(storedDecision('unreadable', 'satisfied')).toBeNull();
+  });
+
+  it('reports a rule the token could not read on an unknown merge state and keeps the stored decision', () => {
+    expect(reviewRuleVerdict(pr({ mergeState: 'unknown' }), null, false, 0)).toBe('keep');
+    for (const stored of [null, 'satisfied', 'blocked'] as const) {
+      expect(storedDecision('keep', stored)).toBe(stored);
+      expect(ruleDecision('keep', 'done', stored, false)).toBe('unreadable');
+      // A running required check still holds the head on CI first.
+      expect(ruleDecision('keep', 'pending', stored, false)).toBe('checks_pending');
+      expect(onClock('keep', 'done', stored, false)).toBe(stored === null);
+    }
   });
 
   it('a stored decision stops the clock; the gate reads a block over a stored satisfied one', () => {
     for (const stored of ['satisfied', 'blocked'] as const) {
       expect(onClock('keep', 'done', stored, false)).toBe(false);
-      expect(ruleDecision('keep', 'done', stored)).toBe('undecided');
-      expect(ruleDecision('keep', 'pending', stored)).toBe('checks_pending');
-      expect(ruleDecision('blocked', 'done', stored)).toBe('blocked');
-      expect(ruleDecision('satisfied', 'done', stored)).toBe(stored);
+      expect(ruleDecision('keep', 'done', stored, true)).toBe('undecided');
+      expect(ruleDecision('keep', 'pending', stored, true)).toBe('checks_pending');
+      expect(ruleDecision('blocked', 'done', stored, true)).toBe('blocked');
+      expect(ruleDecision('satisfied', 'done', stored, true)).toBe(stored);
     }
-    expect(ruleDecision('blocked', 'done', null)).toBe('undecided');
-    expect(ruleDecision('dev', 'done', 'satisfied')).toBe('undecided');
+    expect(ruleDecision('blocked', 'done', null, true)).toBe('undecided');
+    expect(ruleDecision('dev', 'done', 'satisfied', true)).toBe('undecided');
   });
 });
 

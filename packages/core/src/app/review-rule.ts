@@ -193,7 +193,8 @@ export async function recordReviewRule(
  * the current head with the PR's facts, under the newest base branch rule any source read for the
  * head (`newestRule`). Without a row on the head GitHub's answer is undecided.
  * While the merge state is unknown the stored decision does not count: the task waits on a
- * running required check or on GitHub, which holds it without returning it. The facts may come
+ * running required check, on a rule the token could not read, or on GitHub, which holds it
+ * without returning it. The facts may come
  * from another project's newer read of the same head: its block overrides a stored satisfied
  * decision, its satisfied state never overrides a stored block, and neither changes the row.
  */
@@ -212,6 +213,7 @@ export async function storedReviewRule(
     verdictOf(pr, { ...row, rule }, requested),
     requiredCheckState(pr, rule),
     row.decision,
+    rule !== null,
   );
   return { approved, changesRequested: requested, decision };
 }

@@ -6545,6 +6545,12 @@ describe('approvalRule github-rules', () => {
       patch: { mergeState: 'clean' },
       denied: true,
     },
+    // The denial shows though GitHub has not computed the merge state; the row keeps its decision.
+    'unknown with a rule the token could not read': {
+      source: GITHUB,
+      patch: { mergeState: 'unknown' },
+      denied: true,
+    },
     'newer shared blocked with a required check rerunning': {
       source: 'github:web:o/r',
       patch: {
@@ -6640,6 +6646,13 @@ describe('approvalRule github-rules', () => {
       reason: gate,
     });
     expect((await ctx.task()).column).toBe(gate === null ? 'ready-to-merge' : 'external-review');
+    // An unknown merge state keeps the stored decision in the row, a denied rule included.
+    if (own && patch.mergeState === 'unknown') {
+      const [row] = await ruleRows(ctx);
+      expect(JSON.parse(row?.value ?? '{}')).toMatchObject({
+        decision: stored === 'satisfied' || stored === 'blocked' ? stored : null,
+      });
+    }
     // The item names a head with no decision whose gate waits on GitHub alone, while no read of
     // the head carries GitHub's decision (a rule the token could not read decides nothing); an
     // item open before such a read clears.
@@ -6649,7 +6662,7 @@ describe('approvalRule github-rules', () => {
         gate === 'review_rule_unreadable') &&
       (sharedDecision === null || gate === 'review_rule_unreadable') &&
       !requested &&
-      (undecided || (own && latest !== 'unknown'));
+      (undecided || (own && patch.mergeState !== 'unknown'));
     ctx.wait(HALF_HOUR);
     await ctx.tick();
     expect(await open()).toBe(raised ? 1 : 0);
@@ -6696,22 +6709,25 @@ describe('approvalRule github-rules', () => {
     });
   });
 
-  it('a rule the token could not read leaves the head undecided on a clean merge state', async () => {
-    const ctx = await pastProductReview(RULED);
-    await ctx.rulePr({ ...approved, mergeState: 'clean' }, rule({ rule: null }));
-    expect((await ctx.task()).column).toBe('external-review');
-    expect((await ctx.why()).waiting).toEqual([
-      {
-        reason: 'review_rule_unreadable',
-        head: A,
-        text: 'the GitHub review rule for the base branch could not be read',
-      },
-    ]);
-    const [row] = await ruleRows(ctx);
-    expect(JSON.parse(row?.value ?? '{}')).toMatchObject({ decision: null, rule: null });
-    await ctx.rulePr({ mergeState: 'clean' }, rule());
-    expect((await ctx.task()).column).toBe('ready-to-merge');
-  });
+  it.each(['clean', 'unknown'] as const)(
+    'a rule the token could not read leaves the head undecided on a merge state %s',
+    async (mergeState) => {
+      const ctx = await pastProductReview(RULED);
+      await ctx.rulePr({ ...approved, mergeState }, rule({ rule: null }));
+      expect((await ctx.task()).column).toBe('external-review');
+      expect((await ctx.why()).waiting).toEqual([
+        {
+          reason: 'review_rule_unreadable',
+          head: A,
+          text: 'the GitHub review rule for the base branch could not be read',
+        },
+      ]);
+      const [row] = await ruleRows(ctx);
+      expect(JSON.parse(row?.value ?? '{}')).toMatchObject({ decision: null, rule: null });
+      await ctx.rulePr({ mergeState: 'clean' }, rule());
+      expect((await ctx.task()).column).toBe('ready-to-merge');
+    },
+  );
 
   it('names changes requested by GitHub after the external comment is handled', async () => {
     const ctx = await pastProductReview(RULED);
