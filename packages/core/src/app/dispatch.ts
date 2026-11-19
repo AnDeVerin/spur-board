@@ -29,7 +29,9 @@ import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import {
   emit,
+  latest,
   mergedTicket,
+  newestMergeAt,
   parsePr,
   pastReopenFloor,
   projectForSource,
@@ -93,7 +95,7 @@ export function describeCompletion(project: Project) {
       : 'GitHub status "closed"';
   return {
     ...route,
-    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once it changed at or after the merge, in the tracker filter or for a manually included task; a ticket untouched since the merge stays unconfirmed, and dropped-filter evidence alone stays unconfirmed; a merged PR with no stored merge time (facts from before the dispatcher) resumes work once the ticket, in filter or manually included, is observed open at or past the PR's last update plus the tracker interval. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
+    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once it changed at or after the newest merge, in the tracker filter or for a manually included task; a ticket untouched since the merge stays unconfirmed, and dropped-filter evidence alone stays unconfirmed; a merged PR with no stored merge time (facts from before the dispatcher) resumes work once the ticket, in filter or manually included, is observed open at or past the PR's last update plus the tracker interval. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
   };
 }
 
@@ -924,7 +926,15 @@ export async function readInput(
   let ticketUnconfirmed = false;
   if (pr?.state === 'merged') {
     const ticket = await readTicket();
-    const judged = mergedTicket(project, config, ticket, task.manual_include === 1, pr);
+    // A ticket edited before a later merge of another PR waits for that merge's close too.
+    const mergedAt =
+      pr.mergedAt === undefined
+        ? undefined
+        : latest([pr.mergedAt, await newestMergeAt(trx, task.id)]);
+    const judged = mergedTicket(project, config, ticket, task.manual_include === 1, {
+      ...pr,
+      ...(mergedAt === null || mergedAt === undefined ? {} : { mergedAt }),
+    });
     if (judged === 'reopened' || judged === 'open')
       mergedOpen = { repo: pr.repo, number: pr.number };
     ticketUnconfirmed = judged === 'unconfirmed';

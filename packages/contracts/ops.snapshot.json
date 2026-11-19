@@ -1,5 +1,5 @@
 {
-  "version": "986c2c8d9ac1dcaaf8b140575491e22ae20e243d91b623a04a72c0fc4c19a3ad",
+  "version": "e129086a0efde2ec6694d28994a5ca3efa042aa93538c50baa22a1ae8bed29a7",
   "grants": [
     "operator",
     "project-agent",
@@ -11620,7 +11620,7 @@
                 "resolvedThreadsFrom": null,
                 "completion": {
                   "to": "done",
-                  "text": "Completion bypasses normal gates: an eligible linked merged PR with a done ticket (GitHub closed or configured Jira doneStatuses), or a done ticket without open linked PRs/live workers and with fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch. An open ticket resumes work only once it changed at or after the merge, with in-filter or manual-inclusion evidence; a merged PR with no stored merge time (facts from before the dispatcher) resumes work once the ticket, in filter or manually included, is observed open at or past the PR last update plus the tracker interval. Blind GitHub or a pending submit holds both routes."
+                  "text": "Completion bypasses normal gates: an eligible linked merged PR with a done ticket (GitHub closed or configured Jira doneStatuses), or a done ticket without open linked PRs/live workers and with fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch. An open ticket resumes work only once it changed at or after the newest merge, with in-filter or manual-inclusion evidence; a merged PR with no stored merge time (facts from before the dispatcher) resumes work once the ticket, in filter or manually included, is observed open at or past the PR last update plus the tracker interval. Blind GitHub or a pending submit holds both routes."
                 },
                 "columns": [
                   {
@@ -11735,7 +11735,7 @@
                     },
                     "text": {
                       "type": "string",
-                      "description": "Alternative completion routes: eligible linked merged PR with a tracker-done ticket (GitHub closed or effective Jira doneStatuses), or a done ticket without open linked PRs/live workers after fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch; a ticket that stays non-done and changed in any way at or after the merge, in filter or manually included, resumes work; a ticket untouched since the merge stays unconfirmed; a merged PR with no stored merge time (facts from before the dispatcher) resumes work once the ticket, in filter or manually included, is observed open at or past the PR last update plus the tracker interval. Blind GitHub and pending submits hold both routes. Includes eligibility/readability, non-archived scope and dispatcher-mode qualifications."
+                      "description": "Alternative completion routes: eligible linked merged PR with a tracker-done ticket (GitHub closed or effective Jira doneStatuses), or a done ticket without open linked PRs/live workers after fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch; a ticket that stays non-done and changed in any way at or after the newest merge, in filter or manually included, resumes work; a ticket untouched since the merge stays unconfirmed; a merged PR with no stored merge time (facts from before the dispatcher) resumes work once the ticket, in filter or manually included, is observed open at or past the PR last update plus the tracker interval. Blind GitHub and pending submits hold both routes. Includes eligibility/readability, non-archived scope and dispatcher-mode qualifications."
                     }
                   },
                   "required": ["to", "text"],

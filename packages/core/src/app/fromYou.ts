@@ -37,6 +37,7 @@ import { parseJson, toJson, type WarnSkipped } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import { closeBlockIfOpen, openSystemBlock } from './blocks.ts';
 import {
+  latest,
   mergedTicket,
   seenOpenSince,
   parseDefaultBranch,
@@ -527,6 +528,8 @@ export async function reconcileItems(
   };
   // Each task's newest merge time; null when no merged PR's detail is readable.
   const mergedAt = new Map<number, string | null>();
+  // Each task's newest stored merge time (`newestMergeAt`): a ticket edited before it waits.
+  const newestMerge = new Map<number, string | null>();
   // Each task's merged PR as the dispatcher judges it (`taskMergedPr`): the newest eligible link;
   // `at` is null when its detail is unreadable. A conflict link never counts as the task's PR.
   const judged = new Map<
@@ -543,6 +546,7 @@ export async function reconcileItems(
     const newest = mergedAt.get(pr.task_id) ?? null;
     if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest)))
       mergedAt.set(pr.task_id, at);
+    newestMerge.set(pr.task_id, latest([newestMerge.get(pr.task_id), facts?.mergedAt]));
     const current = judged.get(pr.task_id);
     if (current === undefined || pr.id > current.id)
       judged.set(pr.task_id, {
@@ -617,7 +621,12 @@ export async function reconcileItems(
     const judgement =
       facts === null || project === undefined
         ? 'unconfirmed'
-        : mergedTicket(project, config, ticket, task.manual_include === 1, facts);
+        : mergedTicket(project, config, ticket, task.manual_include === 1, {
+            ...facts,
+            ...(facts.mergedAt === undefined
+              ? {}
+              : { mergedAt: latest([facts.mergedAt, newestMerge.get(taskId)]) ?? facts.mergedAt }),
+          });
     const closure = prClosed.get(taskId);
     const followUpClosed =
       closure?.held === false &&

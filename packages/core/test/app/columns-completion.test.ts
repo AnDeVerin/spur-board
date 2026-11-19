@@ -501,7 +501,7 @@ it.each(
       'manually included',
       'resumes work',
       doneStatus,
-      'changed at or after the merge',
+      'changed at or after the newest merge',
     ])
       expect(policy?.completion.text).toContain(qualification);
   },

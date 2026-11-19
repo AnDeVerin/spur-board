@@ -185,6 +185,37 @@ export async function taskMergedPr(
     : { repo: link.repo, number: link.number };
 }
 
+/**
+ * The newest merge time among the task's eligible merged PRs (those `taskMergedPr` picks from), or
+ * null when none is readable. A merge after the judged PR's still holds a ticket edited before it.
+ */
+export async function newestMergeAt(db: Trx, taskId: number): Promise<string | null> {
+  const rows = await db
+    .selectFrom('link')
+    .innerJoin('pr_snapshot', (join) =>
+      join
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+        .onRef('pr_snapshot.number', '=', 'link.number'),
+    )
+    .select('pr_snapshot.detail')
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'pr')
+    .where('link.pr_state', '=', 'active')
+    .where('link.banned', '=', 0)
+    .where('pr_snapshot.state', '=', 'merged')
+    .where(pastReopenFloor)
+    .execute();
+  return latest(rows.map((row) => parsePr(row.detail)?.mergedAt ?? null));
+}
+
+/** The latest of some times, or null when none is given. */
+export function latest(times: readonly (string | null | undefined)[]): string | null {
+  let newest: string | null = null;
+  for (const time of times)
+    if (time != null && (newest === null || Date.parse(time) > Date.parse(newest))) newest = time;
+  return newest;
+}
+
 /** A PR snapshot's facts, or null when the detail is missing or unreadable. */
 export function parsePr(detail: string | undefined): PrFacts | null {
   if (detail === undefined) return null;

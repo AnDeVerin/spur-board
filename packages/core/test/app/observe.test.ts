@@ -3935,17 +3935,17 @@ describe('anomaly blocks', () => {
       const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
       await prs(b, [pr(7, 'closed'), eight]);
       now += 1_000;
-      await ticket('open');
-      now += 1_000;
       await prs(b, [pr(7, 'open'), eight]);
       now += 1_000;
       const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
       await prs(b, [seven, eight]);
       now += 1_000;
+      await ticket('open');
+      now += 1_000;
       await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
       now += 1_000;
       await prs(b, [seven, eight]);
-      // The ticket changed after #8 merged, before #7: both judge #8, the newest link.
+      // The ticket changed after both merges: both judge #8, the newest link, and name it.
       const project = b.config.projects[0];
       if (project === undefined) throw new Error('missing project');
       const read = await b.store.transaction(async (trx) => {
@@ -4049,6 +4049,19 @@ describe('anomaly blocks', () => {
       },
       closedDoneInGrace: async (b: Board) => histories.followUpClosed(b),
       secondClosure: async (b: Board) => histories.followUpClosed(b),
+      /** #7 closed, then #8 linked and merged; the final steps reopen and merge #7 last. */
+      laterMergeAfterEdit: async (b: Board) => {
+        const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [closed7]);
+        now += 1_000;
+        await prs(b, [closed7, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [closed7, eight]);
+        return [closed7, eight];
+      },
       closeHeld: followUpOpen,
       closeFresh: followUpOpen,
       blindAfterRaised: followUpOpen,
@@ -4107,6 +4120,15 @@ describe('anomaly blocks', () => {
         await seeAgain(b, ticket);
         now += 1_000;
         await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
+      },
+      // The ticket is edited between #8's merge and #7's later one: it waits for #7's close too.
+      laterMergeAfterEdit: async (b, [, eight], ticket) => {
+        await ticket('open');
+        now += 1_000;
+        await prs(b, [{ ...pr(7, 'open'), updatedAt: iso() }, eight ?? pr(8, 'merged')]);
+        now += 1_000;
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven, eight ?? pr(8, 'merged')]);
       },
       // A recently closed #9 is linked after both alerts opened: they hold through its grace.
       secondClosure: async (b, last, ticket) => {
@@ -4196,6 +4218,7 @@ describe('anomaly blocks', () => {
       ['followUpClosed', 'done', [], null, DONE],
       ['closedDoneInGrace', 'untouched', [], null, DONE],
       ['secondClosure', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
+      ['laterMergeAfterEdit', 'untouched', [], null, UNCONFIRMED],
       [
         'conflictMerged',
         'untouched',
