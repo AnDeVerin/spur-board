@@ -35,6 +35,8 @@ import {
   submitConfirmation,
   UNAVAILABLE,
   type Basis,
+  type OwnHold,
+  withOwnHold,
 } from './turn-model.ts';
 import styles from './TaskTurn.module.css';
 
@@ -94,6 +96,7 @@ export function TaskTurn({
   const [errors, setErrors] = useState<FieldErrors>({});
   const [refusal, setRefusal] = useState<string>();
   const [phase, setPhase] = useState<TurnPhase | 'idle'>('idle');
+  const [hold, setHold] = useState<OwnHold>();
   const intent = useRef<{ signature: string; value: TurnIntent }>(undefined);
   const mounted = useRef(true);
   const actions = useRef<HTMLSpanElement>(null);
@@ -131,7 +134,7 @@ export function TaskTurn({
     };
   }, []);
 
-  const open = orchestrated(value.turn);
+  const open = withOwnHold(orchestrated(value.turn), hold);
   const inFlight = phase !== 'idle';
   const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
   const closed = bound !== undefined && !boundOpen && !inFlight;
@@ -275,7 +278,16 @@ export function TaskTurn({
         }
         setRefusal(cause instanceof Error ? cause.message : 'Could not close the turn. Try again.');
         // The read then shows who holds the turn after the ack.
-        if (sent.taken()) void refreshTask();
+        if (sent.taken()) {
+          // This view's ack landed: it holds the turn even if the read that follows fails.
+          const at = new Date(now).toISOString();
+          setHold({
+            turn: turn.id,
+            prior: value.turn?.id === turn.id ? value.turn.taken : null,
+            at,
+          });
+          void refreshTask();
+        }
       },
     );
   };

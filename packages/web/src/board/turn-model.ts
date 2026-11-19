@@ -151,3 +151,30 @@ export function boundSummary(
     return `${id} · refused${state.held || open.taken?.by === 'operator' ? ', you hold it' : ''}`;
   return openSummary(open);
 }
+
+type Taken = NonNullable<BoardTask['turn']>['taken'];
+/**
+ * This view's ack of turn `turn` landed: `prior` is the taker the read showed then, `at` the
+ * client time, for the line's age only. `inbox.ack` answers no time.
+ */
+export interface OwnHold {
+  turn: string;
+  prior: Taken;
+  at: string;
+}
+/**
+ * `turn` as the operator holds it after this view's ack, until a read shows someone took it
+ * since: a taker other than the operator and other than the one shown when the ack landed. A
+ * read that shows the turn closed has no open turn to keep.
+ */
+export function withOwnHold<T extends { id: string; taken: Taken }>(
+  turn: T | undefined,
+  hold: OwnHold | undefined,
+): T | undefined {
+  if (turn === undefined || hold?.turn !== turn.id || turn.taken?.by === 'operator') return turn;
+  const { taken } = turn;
+  const prior = hold.prior;
+  const retaken =
+    taken !== null && (prior === null || taken.by !== prior.by || taken.at !== prior.at);
+  return retaken ? turn : { ...turn, taken: { by: 'operator', at: hold.at } };
+}

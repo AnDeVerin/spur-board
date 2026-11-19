@@ -68,7 +68,8 @@ above the button; the fields keep their text. The banner stays while you edit an
 next send and on Cancel. An unchanged resend uses the same keys, so a write that landed is never
 applied twice; an edited one is a new write with a new key. After `not_turn_taker` the next send
 takes the turn again with a new key. A refusal after the ack leaves the operator holding the turn,
-and the hold line says so.
+and the hold line and the header say so, also when the read that follows fails and after Cancel,
+until a read shows the turn closed or taken by someone else since.
 
 ## Closed elsewhere
 
