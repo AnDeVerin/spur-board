@@ -32,14 +32,23 @@ function pickTime(values: readonly (string | null)[], pick: 'latest' | 'oldest')
   return chosen;
 }
 
-/** One source's health: failing when blind, degraded while not fully usable, else healthy. */
-// The web reads the `<source id> ` prefix of these reasons (sourceHealth in panelBoxes,
-// packages/web/src/board/services.ts): a format change here must update the web.
-function sourceHealth(
-  source: SourceView,
+/** Whether a GitHub source's last budget is under the configured reserve until its reset. */
+export function waitsForBudget(
+  source: string,
+  budget: SourceView['budget'],
   config: Config,
   now: number,
-): Pick<ServiceRow, 'state' | 'reason'> {
+): boolean {
+  return (
+    source.startsWith('github') &&
+    budget !== null &&
+    budget.remaining < config.github.reserveRemaining &&
+    Date.parse(budget.resetAt) > now
+  );
+}
+
+/** One source's health: failing when blind, degraded while not fully usable, else healthy. */
+function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 'reason'> {
   if (source.blindReason !== null) {
     const message = source.message === null ? '' : `: ${source.message}`;
     return {
@@ -54,14 +63,8 @@ function sourceHealth(
     return degraded(`${source.source} ${source.warmingUp ? 'warming up' : 'never completed'}`);
   if (source.stale) return degraded(`${source.source} stale`);
   if (source.warmingUp) return degraded(`${source.source} warming up`);
-  const { budget } = source;
-  if (
-    source.source.startsWith('github') &&
-    budget !== null &&
-    budget.remaining < config.github.reserveRemaining &&
-    Date.parse(budget.resetAt) > now
-  )
-    return degraded(`${source.source} waits for its rate budget until ${budget.resetAt}`);
+  if (source.waitsForBudget && source.budget !== null)
+    return degraded(`${source.source} waits for its rate budget until ${source.budget.resetAt}`);
   return { state: 'healthy', reason: null };
 }
 
@@ -70,7 +73,6 @@ function sourceHealth(
  * rolled up from the given sources only.
  */
 export function services(input: {
-  config: Config;
   now: number;
   daemon: StatusOutput['daemon'];
   transport: StatusOutput['transport'];
@@ -78,7 +80,7 @@ export function services(input: {
   outageEnds: ReadonlyMap<string, string>;
   sources: readonly SourceView[];
 }): ServiceRow[] {
-  const { config, now, daemon } = input;
+  const { now, daemon } = input;
   const lastTick = daemon.lastDispatchAt ?? daemon.startedAt;
   const stalled = now - Date.parse(lastTick) > DAEMON_STALL_MS;
   const rows: ServiceRow[] = [
@@ -118,7 +120,7 @@ export function services(input: {
       (source) => SOURCE_SERVICES[source.source.split(':')[0] ?? ''] === service,
     );
     if (members.length === 0) continue;
-    const health = members.map((source) => sourceHealth(source, config, now));
+    const health = members.map(sourceHealth);
     const worst = health.reduce((a, b) => (STATE_RANK[b.state] > STATE_RANK[a.state] ? b : a));
     rows.push({
       service,

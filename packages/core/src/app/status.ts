@@ -19,7 +19,7 @@ import { parseDefaultBranch, projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
 import { latestSubmissions } from './submissions.ts';
-import { readOutageEnds, services } from './status-services.ts';
+import { readOutageEnds, services, waitsForBudget } from './status-services.ts';
 import {
   columnGroupViews,
   orderTodoGroupRows,
@@ -386,6 +386,14 @@ export async function getStatus(
       row?.blind_reason === 'stale'
         ? row.blind_reason
         : null;
+    const budget =
+      row?.budget_remaining != null && row.budget_reset_at != null
+        ? {
+            remaining: row.budget_remaining,
+            limit: row.budget_limit,
+            resetAt: row.budget_reset_at,
+          }
+        : null;
     return {
       source,
       project: projectForSource(config, source)?.id ?? null,
@@ -397,14 +405,8 @@ export async function getStatus(
       lastCompleteAt: last,
       blindReason,
       message: row?.blind_message ?? null,
-      budget:
-        row?.budget_remaining != null && row.budget_reset_at != null
-          ? {
-              remaining: row.budget_remaining,
-              limit: row.budget_limit,
-              resetAt: row.budget_reset_at,
-            }
-          : null,
+      budget,
+      waitsForBudget: waitsForBudget(source, budget, config, clock.now()),
       stale:
         last === null ||
         clock.now() - Date.parse(last) >
@@ -508,7 +510,6 @@ export async function getStatus(
     hostLoad: host?.value !== undefined && host.value !== 'null' ? 'Host under load' : null,
     host: deps.host ?? null,
     services: services({
-      config,
       now: clock.now(),
       daemon,
       transport,

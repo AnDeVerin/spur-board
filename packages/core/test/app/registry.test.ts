@@ -989,6 +989,20 @@ it('rolls sources and the daemon into one health row per service', async () => {
   expect(await row('github')).toEqual(healthy('github', later, startedAt));
   await observe(issuesBeta, { budget: { remaining: 5000, limit: 5000, resetAt } });
   expect(await row('github')).toEqual(healthy('github', later, startedAt));
+  // Each source carries its own budget wait, so a second waiting source shows though the row
+  // names only the first.
+  const waiting = async () =>
+    (await status()).sources.filter((entry) => entry.waitsForBudget).map((entry) => entry.source);
+  expect(await waiting()).toEqual([]);
+  await observe(githubBeta, { budget: { remaining: 10, limit: 5000, resetAt } });
+  await observe(issuesBeta, { budget: { remaining: 999, limit: 5000, resetAt } });
+  expect(await waiting()).toEqual([issuesBeta, githubBeta]);
+  expect((await row('github'))?.reason).toBe(
+    `${issuesBeta} waits for its rate budget until ${resetAt}`,
+  );
+  await observe(githubBeta, { budget: { remaining: 5000, limit: 5000, resetAt } });
+  await observe(issuesBeta, { budget: { remaining: 5000, limit: 5000, resetAt } });
+  expect(await waiting()).toEqual([]);
 
   await core.reportSourceState('jira:alpha', {
     lastCompleteAt: iso(),
@@ -1029,7 +1043,9 @@ it('rolls sources and the daemon into one health row per service', async () => {
     lastGoodAt: iso(),
     reason: 'jira:alpha stale',
   });
-  await observe('jira:alpha');
+  // A jira source under the GitHub reserve does not wait for it.
+  await observe('jira:alpha', { budget: { remaining: 1, limit: 5000, resetAt } });
+  expect(await waiting()).toEqual([]);
   expect(await row('jira')).toEqual(healthy('jira', iso()));
 
   await observe('spur', { blind: { reason: 'stale', message: 'Spur polls keep failing' } });

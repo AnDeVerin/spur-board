@@ -42,6 +42,7 @@ and jira) with `state` (healthy, degraded or failing), `since`, `lastGoodAt` and
 daemon row turns degraded after 120 s without a completed tick; a gateway fails while it is
 down; github, spur and jira take their worst source among the `sources` you see, failing when
 blind and degraded when never completed, stale, warming up or waiting for the rate budget.
+`sources[].waitsForBudget` marks each GitHub source under `github.reserveRemaining` until reset.
 `sources[].healthySince` is when a source became usable (not blind) in this daemon run, so it
 and a healthy `since` reset on restart: read them beside `daemon.startedAt`.
 `prSummary` is an array with one entry per observed effective PR, or null when none is observed.

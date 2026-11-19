@@ -42,6 +42,7 @@ export function shellFixture(scenario: Scenario) {
             blindReason: scenario === 'mixed' && i % 3 === 0 ? 'auth' : null,
             message: null,
             budget: null,
+            waitsForBudget: false,
             stale: scenario === 'mixed' && i % 2 === 0,
             healthySince: scenario === 'mixed' && i % 3 === 0 ? null : at,
             warmingUp: false,

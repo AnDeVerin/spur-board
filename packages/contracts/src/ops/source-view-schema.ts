@@ -61,6 +61,11 @@ export const sourceViewSchema = z
         'Request budget from the last poll of this source that reported one, or null when none did.',
       ),
     stale: z.boolean().describe('Whether facts from this source exceed their freshness threshold.'),
+    waitsForBudget: z
+      .boolean()
+      .describe(
+        'Whether this GitHub source waits for its rate budget: its budget is under github.reserveRemaining and its resetAt has not passed. Always false for other sources.',
+      ),
     healthySince: z.iso
       .datetime()
       .nullable()

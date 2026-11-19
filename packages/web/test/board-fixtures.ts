@@ -158,6 +158,7 @@ export const source = (name: string, extra: Record<string, unknown> = {}) => ({
   blindReason: null,
   message: null,
   budget: null,
+  waitsForBudget: false,
   stale: false,
   healthySince: null,
   warmingUp: false,

@@ -874,10 +874,10 @@ describe('snapshot', () => {
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
     // Manual moves extend task.move, move views, schema metadata and the error catalog. #761
-    // then added sources[].project and board-wide project, sources and services texts to
-    // status.get.
+    // then added sources[].project, sources[].waitsForBudget and board-wide project, sources and
+    // services texts to status.get.
     expect(await catalogVersion(baseline)).toBe(
-      '75ece6d10fcc539b93b314ef99d8716942226bd6f68063fd0080599b90e95907',
+      'c6c7eb68b46c2a0bd7bdb096b3c306d39285da439e5a49d99cadcd017acb8f45',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

@@ -1,5 +1,5 @@
 {
-  "version": "cb05a2698e1f978f5ba33666fcaa76d6f843f859f4f96f61c24f6be39857b1cd",
+  "version": "8b9afc85a76f46e2411adf7b4bb5d33c4f93e089197ca5f2dc7bbdeedf654671",
   "grants": [
     "operator",
     "project-agent",
@@ -1650,6 +1650,10 @@
                   "type": "boolean",
                   "description": "Whether facts from this source exceed their freshness threshold."
                 },
+                "waitsForBudget": {
+                  "type": "boolean",
+                  "description": "Whether this GitHub source waits for its rate budget: its budget is under github.reserveRemaining and its resetAt has not passed. Always false for other sources."
+                },
                 "healthySince": {
                   "anyOf": [
                     {
@@ -1732,6 +1736,7 @@
                 "message",
                 "budget",
                 "stale",
+                "waitsForBudget",
                 "healthySince",
                 "warmingUp"
               ],
