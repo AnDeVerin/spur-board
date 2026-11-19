@@ -35,15 +35,18 @@ import styles from './Popover.module.css';
  *
  * Focus: the opener is the element focused at the first render. With one, focus moves to Close
  * on open; with none (focus on `body`, as after a click in Safari or an open from the URL), focus
- * stays put. Escape and Close call `onClose` and return focus: to the opener, else to the
- * anchor's trigger (the anchor or its first descendant with `aria-expanded`, else the anchor when
- * it is focusable). Close always returns it; Escape only when focus was inside the panel or on
- * `body`. A `mousedown` outside the panel and the anchor calls `onClose` and moves no focus; the
- * anchor is not outside, so its own click toggles. Under a layer (inside an `inert` element), as
- * when a `Modal` opened from the panel portals to `body`, no press is outside: the popover stays
- * open under the layer. A `pointerdown` alone never closes it, so a touch scroll of the board
- * keeps it open, while a tap still closes it through the compatibility `mousedown`. Leaving the
- * panel by Tab does not close it.
+ * stays put. Escape and Close call `onClose` and return focus to the anchor's trigger (the anchor
+ * or its first descendant with `aria-expanded`, else the anchor when it is focusable), else, for
+ * an anchor with no trigger, to the opener: in Safari a click does not focus the trigger, so the
+ * opener may be an unrelated control. Close always returns it; Escape only when focus was inside
+ * the panel or on `body`.
+ *
+ * A `mousedown` outside the panel and the anchor calls `onClose` and moves no focus; the anchor
+ * is not outside, so its own click toggles. Under a layer (inside an `inert` element), as when a
+ * `Modal` opened from the panel portals to `body`, no press is outside: the popover stays open
+ * under the layer. A `pointerdown` alone never closes it, so a touch scroll of the board keeps it
+ * open, while a tap still closes it through the compatibility `mousedown`. Leaving the panel by
+ * Tab does not close it.
  *
  * Escape is shared with `HoverMenu`: one Escape closes one surface, the innermost open menu or
  * popover holding focus (a menu inside the panel before the panel), else the most recently
@@ -143,15 +146,15 @@ function OpenPopover({
   useLayoutEffect(() => {
     latest.current = onClose;
   });
-  // Where Escape and Close send focus: the opener, else the anchor's trigger.
+  // Where Escape and Close send focus: the anchor's trigger, else the opener. The trigger comes
+  // first: in Safari a click does not focus it, so the opener may be an unrelated control.
   const returnTarget = (): HTMLElement | null => {
-    if (opener) return opener;
     const element = anchor.current;
-    if (!element) return null;
-    if (element.matches('[aria-expanded]')) return element;
+    if (element?.matches('[aria-expanded]')) return element;
     return (
-      element.querySelector<HTMLElement>('[aria-expanded]') ??
-      (element.matches(focusable) ? element : null)
+      element?.querySelector<HTMLElement>('[aria-expanded]') ??
+      (element?.matches(focusable) ? element : null) ??
+      opener
     );
   };
   // The values last written, so an unchanged frame writes nothing.

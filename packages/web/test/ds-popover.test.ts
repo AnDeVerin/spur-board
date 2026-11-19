@@ -251,6 +251,28 @@ describe('Popover', () => {
     }
   });
 
+  it('returns focus to the anchor trigger before an unrelated opener', () => {
+    // Safari: a control elsewhere holds focus and the click on Help does not move it.
+    const other = createElement('button', { type: 'button' }, 'Other');
+    for (const how of ['Escape', 'Close'] as const) {
+      render(createElement(Fragment, null));
+      render(createElement(Harness, { after: other }));
+      act(() => {
+        button('Other').focus();
+        button('Help').click();
+      });
+      // Something held focus at open: focus moves to Close.
+      expect(document.activeElement, how).toBe(button('Close', opened()));
+      if (how === 'Escape') key('Escape');
+      else
+        act(() => {
+          button('Close', opened()).click();
+        });
+      expect(popover(), how).toBeUndefined();
+      expect(document.activeElement, how).toBe(button('Help'));
+    }
+  });
+
   it('Close returns focus to the opener', () => {
     const onClose = vi.fn();
     render(createElement(Harness, { onClose }));
