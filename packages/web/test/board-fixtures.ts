@@ -10,7 +10,10 @@ type OpId =
   | 'block.answer'
   | 'block.followup'
   | 'comment.add'
-  | 'item.close';
+  | 'item.close'
+  | 'inbox.ack'
+  | 'task.submit'
+  | 'task.return';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
@@ -273,6 +276,27 @@ export const taskGet = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+/**
+ * `taskGet` in Review with the orchestrator turn T5, not taken, and the closed `turns` of detail;
+ * `turn` fields override T5.
+ */
+export const orchestratorTaskGet = (
+  turn: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {},
+) =>
+  taskGet({
+    task: { ...taskGet().task, column: 'review' },
+    turn: {
+      ...taskGet().turn,
+      id: 'T5',
+      column: 'review',
+      addressee: 'orchestrator:review',
+      ...turn,
+    },
+    turns: [],
+    ...extra,
+  });
+
 /** One exit condition of a `task.get` gate. */
 export const condition = (name: string, state: string, reason: string | null = null) => ({
   condition: name,
@@ -347,7 +371,7 @@ export const taskHistory = (
   ],
 ) => ({ task: taskGet().task, events });
 
-/** Fake daemon: the five reads by route and an event stream the test writes to. */
+/** Fake daemon: the reads and writes by route and an event stream the test writes to. */
 export function daemon(tasks: unknown[] = ROWS) {
   const routes: Record<OpId, Route> = {
     'config.get': () => Promise.resolve(envelope(config)),
@@ -363,6 +387,24 @@ export function daemon(tasks: unknown[] = ROWS) {
     'block.followup': () =>
       Promise.resolve(envelope({ comment: comment({ id: 'C9', block: 'B12' }) })),
     'task.history': () => Promise.resolve(envelope(taskHistory())),
+    'inbox.ack': (input) =>
+      Promise.resolve(
+        envelope({ acked: (input['entries'] as { id: string }[]).map((entry) => entry.id) }),
+      ),
+    'task.submit': (input) =>
+      Promise.resolve(
+        envelope({
+          task: taskGet().task,
+          turn: input['turn'],
+          sha: input['sha'],
+          status: 'confirmed',
+        }),
+      ),
+    'task.return': () => {
+      const opened: Record<string, unknown> = block({ type: 'code', addressee: 'worker' });
+      delete opened.answeredVia;
+      return Promise.resolve(envelope({ task: taskGet().task, block: opened }));
+    },
     'item.close': (input) =>
       Promise.resolve(
         envelope({

@@ -1,0 +1,501 @@
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { COLUMNS } from '@spur-board/contracts/browser';
+import {
+  Banner,
+  Button,
+  CollapsibleSection,
+  FormRow,
+  StatusDot,
+  TabPanel,
+  Tabs,
+  TextArea,
+  TextInput,
+} from '../ds/index.ts';
+import { ProblemError } from '../lib/api.ts';
+import type { BoardConfig, BoardData, BoardTask } from './data.ts';
+import type { BoardColumnConfig, BoardRow } from './model.ts';
+import { actorDisplayName, age, columnAfter } from './task-model.ts';
+import type { TurnIntent, TurnPhase } from './turn-intent.ts';
+import styles from './TaskTurn.module.css';
+
+type Turn = NonNullable<BoardTask['turn']>;
+type Basis = 'tested' | 'carried' | 'skipped';
+type Form = 'submit' | 'return';
+type FieldErrors = Partial<Record<'sha' | 'from' | 'reason', string | undefined>>;
+/** The turn a form opened on; the section keeps it until a form opens on a newer turn. */
+interface Bound {
+  turn: Turn;
+  /** This section closed it. */
+  own: { outcome: 'submitted' | 'returned'; pending: boolean } | undefined;
+  /** A write answered that the turn is closed, whatever the last read says. */
+  refusedClosed: boolean;
+}
+
+const BASIS_ID = 'turn-basis';
+const BASES = [
+  { value: 'tested', label: 'Tested' },
+  { value: 'carried', label: 'Carried' },
+  { value: 'skipped', label: 'Skipped' },
+];
+const isBasis = (value: string): value is Basis => BASES.some((basis) => basis.value === value);
+const SHA = /^[0-9a-f]{40,64}$/;
+const RETURNABLE = new Set<string>(
+  COLUMNS.filter((column) => column.returnable).map((column) => column.id),
+);
+const PHASE: Record<TurnPhase, string> = {
+  taking: 'Taking the turn',
+  closing: 'Closing the turn',
+};
+/** A close by anything but a submit or a return names no closer: the read does not know one. */
+const OUTCOME: Record<string, string> = {
+  moved: 'the task was moved',
+  corrected: 'the column was corrected',
+  rerouted: 'the turn went to another executor',
+  mode_changed: 'the dispatcher mode changed',
+  archived: 'the task was archived',
+};
+const UNAVAILABLE = 'The turn cannot be closed while the board is unavailable.';
+const ARCHIVED = 'This task is archived. The turn cannot be closed.';
+const NOTE =
+  'You can close this turn yourself when the orchestrator is down or you have the verdict from elsewhere.';
+
+const orchestrated = (turn: BoardTask['turn']) =>
+  turn?.addressee.startsWith('orchestrator:') ? turn : undefined;
+function shaError(value: string, what: string): string | undefined {
+  if (value === '') return `Enter ${what}.`;
+  return SHA.test(value)
+    ? undefined
+    : 'Enter the full lowercase commit SHA: 40 to 64 characters, 0-9 and a-f.';
+}
+function reasonError(value: string, max: number): string | undefined {
+  if (value.trim() === '') return 'Enter a reason.';
+  return value.length > max
+    ? `The reason must be ${max.toLocaleString('en-US')} characters or fewer.`
+    : undefined;
+}
+
+/**
+ * The Turn section of the task view: the open orchestrator turn, which the operator can take and
+ * submit or return to Dev. A form binds to the turn it opened on; when that turn closes elsewhere
+ * the section says how, and who closed it for a submit or a return. Renders nothing without an
+ * orchestrator turn or a bound one.
+ */
+export function TaskTurn({
+  value,
+  taskKey,
+  row,
+  columns,
+  config,
+  now,
+  unavailable,
+  submitTurnIntent,
+  returnTurnIntent,
+  refreshTask,
+}: {
+  value: BoardTask;
+  /** The key the task view opened, which its writes are bound to. */
+  taskKey: string;
+  row: BoardRow | undefined;
+  columns: readonly BoardColumnConfig[];
+  config: BoardConfig | undefined;
+  now: number;
+  /** Why the board cannot send now; undefined while it can. */
+  unavailable: string | undefined;
+  submitTurnIntent: BoardData['submitTurnIntent'];
+  returnTurnIntent: BoardData['returnTurnIntent'];
+  refreshTask: BoardData['refreshTask'];
+}) {
+  const [bound, setBound] = useState<Bound>();
+  const [form, setForm] = useState<Form>();
+  const [sha, setSha] = useState('');
+  const [basis, setBasis] = useState<Basis>('tested');
+  const [from, setFrom] = useState('');
+  const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const [refusal, setRefusal] = useState<string>();
+  const [phase, setPhase] = useState<TurnPhase | 'idle'>('idle');
+  const intent = useRef<{ signature: string; value: TurnIntent }>(undefined);
+  const mounted = useRef(true);
+  const actions = useRef<HTMLSpanElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const cancelRow = useRef<HTMLDivElement>(null);
+  const statusRef = useRef<HTMLParagraphElement>(null);
+  const pendingFocus = useRef<'field' | Form | 'status'>(undefined);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const open = orchestrated(value.turn);
+  const inFlight = phase !== 'idle';
+  const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
+  const closed = bound !== undefined && !boundOpen && !inFlight;
+  const blocked =
+    value.task.membership === 'archived'
+      ? ARCHIVED
+      : unavailable === undefined
+        ? undefined
+        : UNAVAILABLE;
+  const sendOff = closed || blocked !== undefined;
+  const fieldsOff = inFlight || sendOff;
+  /** An open turn other than the bound one: the next turn a close opened. */
+  const newer =
+    bound !== undefined && open !== undefined && open.id !== bound.turn.id ? open : undefined;
+
+  useLayoutEffect(() => {
+    const target = pendingFocus.current;
+    if (target === undefined) return;
+    pendingFocus.current = undefined;
+    if (target === 'field') formRef.current?.querySelector<HTMLElement>('input, textarea')?.focus();
+    else if (target === 'status') {
+      if (statusRef.current?.closest('[hidden]') === null) statusRef.current.focus();
+    } else actions.current?.querySelectorAll('button')[target === 'submit' ? 0 : 1]?.focus();
+  });
+  useLayoutEffect(() => {
+    if (sendOff && formRef.current?.contains(document.activeElement))
+      cancelRow.current?.querySelectorAll('button')[1]?.focus();
+  }, [sendOff]);
+
+  if (open === undefined && bound === undefined) return null;
+  const name = (actor: string) => actorDisplayName(actor, config);
+  const executor = (column: string) => {
+    const entry = columns.find((candidate) => candidate.id === column)?.executor;
+    if (entry === undefined) return undefined;
+    return entry.name === null ? entry.kind : `${entry.kind} ${entry.name}`;
+  };
+  const openSummary = (turn: Turn) =>
+    turn.taken === null
+      ? `${turn.id} · not taken`
+      : turn.taken.by === 'operator'
+        ? `${turn.id} · you hold it`
+        : `${turn.id} · taken by ${name(turn.taken.by)}`;
+  const record = bound && value.turns?.find((turn) => turn.id === bound.turn.id);
+  const outcome = record?.closed?.outcome;
+  const closer =
+    outcome === 'submitted' || outcome === 'returned'
+      ? record?.taken
+        ? name(record.taken.by)
+        : 'the board'
+      : undefined;
+
+  const start = (next: Form, turn: Turn) => {
+    setBound({ turn, own: undefined, refusedClosed: false });
+    const prs = row?.prs?.filter((pr) => pr.state === 'open') ?? [];
+    setSha(prs.length === 1 ? (prs[0]?.headSha ?? '') : '');
+    setBasis('tested');
+    setFrom('');
+    setReason('');
+    setErrors({});
+    setRefusal(undefined);
+    intent.current = undefined;
+    setForm(next);
+    pendingFocus.current = 'field';
+  };
+  const cancel = () => {
+    if (form !== undefined) pendingFocus.current = form;
+    setForm(undefined);
+    setErrors({});
+    setRefusal(undefined);
+    intent.current = undefined;
+  };
+  const send = (event: { preventDefault: () => void }) => {
+    event.preventDefault();
+    if (inFlight || !bound || !boundOpen || blocked !== undefined || form === undefined) return;
+    const commit = sha.trim();
+    const source = from.trim();
+    const found: FieldErrors =
+      form === 'submit'
+        ? {
+            sha: shaError(commit, 'the commit you tested'),
+            from:
+              basis === 'carried'
+                ? shaError(source, 'the commit the tested work comes from')
+                : undefined,
+            reason: basis === 'tested' ? undefined : reasonError(reason, 2000),
+          }
+        : { reason: reasonError(reason, 20_000) };
+    setErrors(found);
+    if (Object.values(found).some((error) => error !== undefined)) return;
+    const input = {
+      sha: commit,
+      basis,
+      ...(basis === 'carried' ? { from: source } : {}),
+      ...(basis === 'tested' ? {} : { reason }),
+    };
+    const turn = bound.turn;
+    const signature = JSON.stringify(form === 'submit' ? [form, input] : [form, reason]);
+    if (intent.current?.signature !== signature)
+      intent.current = {
+        signature,
+        value:
+          form === 'submit'
+            ? submitTurnIntent(taskKey, turn.id, input)
+            : returnTurnIntent(taskKey, turn.id, reason),
+      };
+    const sent = intent.current.value;
+    setRefusal(undefined);
+    void sent.run(setPhase).then(
+      (result) => {
+        if (!mounted.current) return;
+        setPhase('idle');
+        setForm(undefined);
+        setBound({
+          turn,
+          own: {
+            outcome: form === 'submit' ? 'submitted' : 'returned',
+            pending: result.status === 'pending',
+          },
+          refusedClosed: false,
+        });
+        pendingFocus.current = 'status';
+      },
+      (cause: unknown) => {
+        if (!mounted.current) return;
+        setPhase('idle');
+        if (
+          cause instanceof ProblemError &&
+          (cause.code === 'turn_closed' || cause.code === 'not_found')
+        ) {
+          setBound((current) =>
+            current?.turn.id === turn.id ? { ...current, refusedClosed: true } : current,
+          );
+          void refreshTask();
+          return;
+        }
+        setRefusal(cause instanceof Error ? cause.message : 'Could not close the turn. Try again.');
+        // The read then shows who holds the turn after the ack.
+        if (sent.taken()) void refreshTask();
+      },
+    );
+  };
+  const edit = (set: (text: string) => void, field: keyof FieldErrors) => (text: string) => {
+    set(text);
+    setErrors((current) => ({ ...current, [field]: undefined }));
+  };
+
+  const line = (turn: Turn, state: string, buttons: ReactNode) => (
+    <div className={styles.line}>
+      <StatusDot tone={turn.taken ? 'working' : 'warn'} hollow={!turn.taken} />
+      <span className={styles.id}>{turn.id}</span>
+      <span>{[turn.column, executor(turn.column), state].filter(Boolean).join(' · ')}</span>
+      {buttons}
+    </div>
+  );
+  const triggers = (turn: Turn, disabled: boolean, primary: boolean) => (
+    <span className={styles.actions} ref={primary ? actions : undefined}>
+      <Button
+        disabled={disabled}
+        onClick={() => {
+          start('submit', turn);
+        }}
+      >
+        Submit…
+      </Button>
+      {RETURNABLE.has(turn.column) && (
+        <Button
+          disabled={disabled}
+          onClick={() => {
+            start('return', turn);
+          }}
+        >
+          Return to dev…
+        </Button>
+      )}
+    </span>
+  );
+  const openBox = (turn: Turn, primary: boolean) => {
+    const formOpen = primary && form !== undefined;
+    const earlierForm = !primary && form !== undefined;
+    return (
+      <div className={styles.turn} key={turn.id}>
+        {line(
+          turn,
+          turn.taken === null
+            ? `not taken · ${age(turn.at, now)}`
+            : `taken by ${name(turn.taken.by)} · ${age(turn.taken.at, now)}`,
+          !formOpen && triggers(turn, blocked !== undefined || inFlight || earlierForm, primary),
+        )}
+        {turn.taken?.by === 'operator' && (
+          <p className={styles.note}>
+            You hold {turn.id}; the orchestrator cannot submit or return it until you finish or it
+            takes the turn back.
+          </p>
+        )}
+        {!formOpen && <p className={styles.note}>{NOTE}</p>}
+        {blocked !== undefined && <p className={styles.note}>{blocked}</p>}
+        {formOpen && formElement(turn)}
+      </div>
+    );
+  };
+  const formElement = (turn: Turn) => {
+    const next = columnAfter(turn.column, columns) ?? 'the next column';
+    const gate = value.why?.gates.find((entry) => entry.column === turn.column);
+    const later = gate?.conditions.some(
+      (condition) =>
+        condition.state !== 'met' &&
+        condition.condition !== 'submit_on_head' &&
+        condition.condition !== 'review_on_head',
+    );
+    const reasonRow = (hint: string) => (
+      <FormRow label="Reason" hint={hint} error={errors.reason}>
+        <TextArea value={reason} onChange={edit(setReason, 'reason')} disabled={fieldsOff} />
+      </FormRow>
+    );
+    return (
+      <form ref={formRef} className={styles.form} aria-busy={inFlight || undefined} onSubmit={send}>
+        {form === 'submit' ? (
+          <>
+            <FormRow
+              label="Commit"
+              hint="The head of the PR unless you tested another commit."
+              error={errors.sha}
+            >
+              <TextInput
+                value={sha}
+                onChange={edit(setSha, 'sha')}
+                label="Commit"
+                disabled={fieldsOff}
+              />
+            </FormRow>
+            <Tabs
+              id={BASIS_ID}
+              label="Basis"
+              tabs={BASES}
+              value={basis}
+              onChange={(chosen) => {
+                if (fieldsOff || !isBasis(chosen)) return;
+                setBasis(chosen);
+                setErrors({});
+              }}
+            />
+            <TabPanel tabsId={BASIS_ID} value={basis}>
+              {basis === 'tested' ? (
+                <p className={styles.note}>
+                  Tested on the commit above. No source or reason is needed.
+                </p>
+              ) : (
+                <div className={styles.fields}>
+                  {basis === 'carried' && (
+                    <FormRow
+                      label="Carried from"
+                      hint="A commit of this task with a tested submit."
+                      error={errors.from}
+                    >
+                      <TextInput
+                        value={from}
+                        onChange={edit(setFrom, 'from')}
+                        label="Carried from"
+                        disabled={fieldsOff}
+                      />
+                    </FormRow>
+                  )}
+                  {reasonRow('Required. Shown on the card and in the history.')}
+                </div>
+              )}
+            </TabPanel>
+          </>
+        ) : (
+          reasonRow('Required. The worker reads it as the cause of the return.')
+        )}
+        {refusal !== undefined && (
+          <Banner variant="error" icon="x">
+            {refusal}
+          </Banner>
+        )}
+        <p className={styles.confirm}>
+          {form === 'submit'
+            ? `This closes ${turn.id} in your name and moves the task to ${next}. It cannot be undone.${later ? ' The task moves once its other exit conditions hold.' : ''}`
+            : `This closes ${turn.id} in your name and returns the task to dev. It cannot be undone, and it counts toward the cycle limit.`}
+        </p>
+        <div className={styles.buttons} ref={cancelRow}>
+          <Button type="submit" variant="primary" disabled={sendOff} busy={inFlight}>
+            {inFlight
+              ? PHASE[phase]
+              : form === 'submit'
+                ? `Submit and move to ${next}`
+                : 'Return to dev'}
+          </Button>
+          <Button disabled={inFlight} onClick={cancel}>
+            Cancel
+          </Button>
+        </div>
+        {inFlight && (
+          <p role="status" className={styles.status}>
+            {PHASE[phase]}…
+          </p>
+        )}
+      </form>
+    );
+  };
+  const closedBox = (entry: Bound) => {
+    const { turn, own } = entry;
+    return (
+      <div className={styles.turn} key={turn.id}>
+        {line(turn, 'closed', own === undefined && triggers(turn, true, true))}
+        {own !== undefined ? (
+          <p role="status" tabIndex={-1} ref={statusRef} className={styles.status}>
+            {own.outcome === 'submitted'
+              ? `${turn.id} submitted.${own.pending ? ' The board confirms the head on its next polls.' : ''}`
+              : `${turn.id} returned to dev.`}
+          </p>
+        ) : (
+          <Banner
+            variant="info"
+            icon="check"
+            detail={
+              outcome === 'submitted'
+                ? value.submission
+                  ? `Submitted ${value.submission.basis}, ${value.submission.sha.slice(0, 7)}, ${age(value.submission.at, now)} ago.`
+                  : undefined
+                : outcome === 'returned' && record?.closed
+                  ? `Returned to dev ${age(record.closed.at, now)} ago.`
+                  : undefined
+            }
+          >
+            {closer !== undefined
+              ? `${turn.id} was closed by ${closer}`
+              : outcome !== undefined
+                ? `${turn.id} was closed: ${OUTCOME[outcome] ?? outcome}`
+                : `${turn.id} was closed`}
+          </Banner>
+        )}
+        {form !== undefined && formElement(turn)}
+      </div>
+    );
+  };
+
+  const boundSummary = (entry: Bound) => {
+    const { id } = entry.turn;
+    if (inFlight) return `Closing ${id}…`;
+    if (entry.own) return `${id} ${entry.own.outcome}`;
+    if (!boundOpen)
+      return closer !== undefined
+        ? `${id} closed by ${closer}`
+        : outcome !== undefined
+          ? `${id} closed: ${OUTCOME[outcome] ?? outcome}`
+          : `${id} closed`;
+    if (refusal !== undefined)
+      return `${id} · refused${intent.current?.value.taken() || open.taken?.by === 'operator' ? ', you hold it' : ''}`;
+    return openSummary(open);
+  };
+  const summary = [
+    bound ? boundSummary(bound) : open && openSummary(open),
+    newer && openSummary(newer),
+  ]
+    .filter(Boolean)
+    .join('; ');
+  return (
+    <CollapsibleSection title="Turn" summary={summary}>
+      <div className={styles.turns}>
+        {bound === undefined
+          ? open && openBox(open, true)
+          : bound.own === undefined && (boundOpen || inFlight)
+            ? openBox(boundOpen ? open : bound.turn, true)
+            : closedBox(bound)}
+        {newer && openBox(newer, false)}
+      </div>
+    </CollapsibleSection>
+  );
+}

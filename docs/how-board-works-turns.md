@@ -56,7 +56,8 @@ act only on a current turn; reread after `turn_closed`.
 `turn_taken` and `turn_closed`: executor, taker, outcome.
 
 An operator takes over an open orchestrator turn, taken or not, with keyed
-`board inbox ack <entries>`, then submits or returns it. The earlier holder gets
+`board inbox ack <entries>`, then submits or returns it, or does both from the web
+[Turn](web-ui-task-turn.md) section. The earlier holder gets
 `not_turn_taker`, then `turn_closed`. The takeover is not sticky: the addressed
 orchestrator can ack the turn back.
 

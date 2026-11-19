@@ -1,7 +1,7 @@
 # Web UI
 
-View the Board and freshness, answer operator questions, follow up on them, comment and close
-an operator inbox item.
+View the Board and freshness, answer operator questions, follow up on them, comment, close
+an operator inbox item, and submit or return an orchestrator turn.
 Archived tasks are read-only; other actions use CLI, MCP or Slack.
 
 ## Opening it
@@ -22,6 +22,7 @@ Reads: `config.get`, chosen-project `status.get`, `inbox.operator`, open-task `t
   **Blocks**, **Comments** and **History** (journal events with channel, e.g. `operator (web)`).
 - [Task blocks and comments](web-ui-task-blocks.md): answers, follow-ups and comments in the task
   view.
+- [Turn](web-ui-task-turn.md): take an orchestrator turn and submit it or return it to Dev.
 
 ## Live and stale states
 

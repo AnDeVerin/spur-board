@@ -6,7 +6,7 @@ import {
   taskLinkHref,
   ticketBrowseHref,
 } from '../lib/links.ts';
-import type { BoardHistory, BoardTask } from './data.ts';
+import type { BoardConfig, BoardHistory, BoardTask } from './data.ts';
 import { formatDataTime, shortKey, type BoardColumnConfig, type BoardRow } from './model.ts';
 import { age as cardAge, quickLinks } from './card.ts';
 
@@ -51,6 +51,20 @@ export function age(iso: string, now: number): string {
 /** `agent:<project>/<session>` reads as the session; operator and system stay. */
 export const actorName = (actor: string) =>
   actor.startsWith('agent:') ? actor.slice(actor.indexOf('/') + 1) : actor;
+
+/**
+ * How the task view names an actor: `you` for the operator, `<Spur project display name> /
+ * <session>` for an agent, any other actor as it is.
+ */
+export function actorDisplayName(actor: string, config: BoardConfig | undefined): string {
+  if (actor === 'operator') return 'you';
+  if (!actor.startsWith('agent:')) return actor;
+  const [project, ...session] = actor.slice(6).split('/');
+  const binding = config?.projects
+    .flatMap((entry) => entry.spurProjects)
+    .find((entry) => entry.name === project);
+  return `${binding?.displayName ?? project ?? actor} / ${session.join('/')}`;
+}
 
 /** The actor with the channel its write arrived through, when the journal has one. */
 export const actorLabel = (actor: string, via: string | undefined) =>
@@ -142,9 +156,22 @@ function currentGate(why: TaskWhy | undefined): TaskGate | undefined {
 type NextColumnConfig = Pick<BoardColumnConfig, 'id' | 'group'>;
 
 /**
+ * The enabled column after `column` in `columns` order; none when `column` is not enabled or is
+ * the last. From a column of a group it skips the rest of that group, as the dispatcher does.
+ */
+export function columnAfter(
+  column: string,
+  columns: readonly NextColumnConfig[],
+): string | undefined {
+  const index = columns.findIndex((entry) => entry.id === column);
+  if (index === -1) return undefined;
+  const group = columns[index]?.group;
+  return columns.slice(index + 1).find((entry) => group === undefined || entry.group !== group)?.id;
+}
+
+/**
  * The column after `why.column` when every one of its exit conditions is met, a known gate with
- * no conditions included; none when the gate is unknown. From a column of a group it skips the
- * rest of that group, as the dispatcher does.
+ * no conditions included; none when the gate is unknown.
  */
 export function nextColumn(
   why: TaskWhy | undefined,
@@ -153,11 +180,7 @@ export function nextColumn(
   const gate = currentGate(why);
   if (!why || !gate) return undefined;
   if (!gate.conditions.every((condition) => condition.state === 'met')) return undefined;
-  const index = columns.findIndex((column) => column.id === why.column);
-  if (index === -1) return undefined;
-  const group = columns[index]?.group;
-  return columns.slice(index + 1).find((column) => group === undefined || column.group !== group)
-    ?.id;
+  return columnAfter(why.column, columns);
 }
 
 const CONDITIONS: Record<string, string> = {

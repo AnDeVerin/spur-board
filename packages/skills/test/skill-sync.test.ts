@@ -33,7 +33,11 @@ const guideNames = [
   '-web',
 ]
   .map((topic) => `how-board-works${topic}.md`)
-  .concat(['', '-board', '-status', '-task-view', '-task-blocks'].map((p) => `web-ui${p}.md`));
+  .concat(
+    ['', '-board', '-status', '-task-view', '-task-blocks', '-task-turn'].map(
+      (p) => `web-ui${p}.md`,
+    ),
+  );
 const guideDocs = guideNames.map((name) => readFileSync(`${docsPath}/${name}`, 'utf8'));
 const guideTexts = guideNames.map((name) => readFileSync(`${refsPath}/${name}`, 'utf8'));
 const skill = readFileSync(skillPath, 'utf8');
@@ -245,18 +249,18 @@ describe('product skill sync', () => {
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
     // guideDocs reads every listed guide, so the count rules out an unlisted docs page.
-    expect(readdirSync(docsPath).filter((n) => /^(how-board|web-ui)/.test(n))).toHaveLength(14);
+    expect(readdirSync(docsPath).filter((n) => /^(how-board|web-ui)/.test(n))).toHaveLength(15);
     for (const [index, reference] of guideTexts.entries()) {
       expect(reference).toBe(guideDocs[index]);
       expect(Buffer.byteLength(reference)).toBeLessThan(8192);
       expect(validateInvocations(reference)).toEqual([]);
     }
-    // Relative links: web-ui.md (5th from the end, so a new topic page keeps the index) links every
+    // Relative links: web-ui.md (6th from the end, so a new topic page keeps the index) links every
     // web-ui-* page after it; how-board-works.md (0) links its topics and web-ui.md, and may link
     // web-ui-* pages, but no page outside guideNames.
     const links = (i: number) => new Set(guideTexts.at(i)?.match(/(?<=\]\()(?!https?:)[^)]+/g));
-    expect(links(-5)).toEqual(new Set(guideNames.slice(-4)));
-    expect(links(0).union(links(-5))).toEqual(new Set(guideNames.slice(1)));
+    expect(links(-6)).toEqual(new Set(guideNames.slice(-5)));
+    expect(links(0).union(links(-6))).toEqual(new Set(guideNames.slice(1)));
     expect(skill).toContain('[how the Board works](references/how-board-works.md)');
     expect(skill).toContain('untrusted: true');
   });
