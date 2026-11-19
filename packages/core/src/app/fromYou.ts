@@ -601,7 +601,8 @@ export async function reconcileItems(
   // Tasks whose ticket reopened after the judged merge, with the clause their worker-end item names.
   const reopened = new Map<number, string>();
   // Tasks whose merged PR suppresses alerts only while their pr-closed item is held, as when a repo
-  // is blind: their shown alerts hold as they are, and nothing new is raised.
+  // is blind, or waits for the tracker grace of a newer close: their shown alerts hold as they are,
+  // and nothing new is raised.
   const liftHeld = new Set<number>();
   for (const [taskId, { facts, at, ref }] of judged) {
     const state = taskPrs[String(taskId)];
@@ -631,17 +632,17 @@ export async function reconcileItems(
     // No ticket status in the text: the item fingerprint hashes it, and a move between two
     // non-done statuses must not raise the item again.
     if (judgement === 'reopened') reopened.set(taskId, `; PR ${ref} merged, ticket reopened`);
-    if (state.hasMergedPr && judgement !== 'done' && prClosed.get(taskId)?.held === true)
-      liftHeld.add(taskId);
+    if (state.hasMergedPr && judgement !== 'done' && closure !== undefined) liftHeld.add(taskId);
   }
   const heldKeys: string[] = [];
   for (const task of tasks) {
     const closure = prClosed.get(task.id);
     if (closure === undefined) continue;
-    if (closure.held && (liftHeld.has(task.id) || taskPrs[String(task.id)]?.hasMergedPr === false))
-      heldKeys.push(closure.key);
-    else if (!closure.held && taskPrs[String(task.id)]?.hasMergedPr === false)
-      candidates.push(closure.item);
+    const key = closure.held ? closure.key : closure.item.key;
+    if (taskPrs[String(task.id)]?.hasMergedPr !== false) {
+      if (liftHeld.has(task.id)) heldKeys.push(key);
+    } else if (closure.held) heldKeys.push(key);
+    else candidates.push(closure.item);
   }
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];

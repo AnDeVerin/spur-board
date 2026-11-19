@@ -4048,6 +4048,7 @@ describe('anomaly blocks', () => {
         return [seven];
       },
       closedDoneInGrace: async (b: Board) => histories.followUpClosed(b),
+      secondClosure: async (b: Board) => histories.followUpClosed(b),
       closeHeld: followUpOpen,
       closeFresh: followUpOpen,
       blindAfterRaised: followUpOpen,
@@ -4106,6 +4107,15 @@ describe('anomaly blocks', () => {
         await seeAgain(b, ticket);
         now += 1_000;
         await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
+      },
+      // A recently closed #9 is linked after both alerts opened: they hold through its grace.
+      secondClosure: async (b, last, ticket) => {
+        await seeAgain(b, ticket);
+        now += 1_000;
+        await prs(b, last);
+        expect(await openLedger(b)).toEqual(['pr-closed', ENDED]);
+        now += 1_000;
+        await prs(b, [...last, { ...pr(9, 'closed'), updatedAt: iso(), closedAt: iso() }]);
       },
       // The ticket reaches done within the grace after the close: no alert at any step.
       closedDoneInGrace: async (b, last, ticket) => {
@@ -4185,6 +4195,7 @@ describe('anomaly blocks', () => {
       ['followUpClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
       ['followUpClosed', 'done', [], null, DONE],
       ['closedDoneInGrace', 'untouched', [], null, DONE],
+      ['secondClosure', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
       [
         'conflictMerged',
         'untouched',
