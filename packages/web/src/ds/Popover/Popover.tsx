@@ -33,8 +33,8 @@ import styles from './Popover.module.css';
  *
  * Near the bottom of the window its height shrinks to the space under the anchor, down to
  * `--space-2` above the window edge, and the body scrolls. With less space than the header and
- * the body padding need, the panel moves up just enough to keep its header in view and may cover
- * the bottom of the anchor; it never flips above the anchor. It is never shorter than that least
+ * one standard control (`--size-control`) in the padded body need, the panel moves up just enough
+ * to keep them in view and may cover the bottom of the anchor; it never flips above the anchor. It is never shorter than that least
  * height, so it slides out whole with an anchor whose top is below the window. At 375px it fills
  * the window width less `--space-2` on each side, still under its anchor: not a bottom sheet.
  *
@@ -68,8 +68,9 @@ import styles from './Popover.module.css';
  * breaks the placement; such an ancestor of a fixed anchor, which would clip it, is not followed
  * by the in-view test either. Left open while a `SidePanel` opens by keyboard, it draws above that
  * panel (`--z-menu` over `--z-panel`), though inert; a mouse press closes it. Its root is a
- * stacking context: a `HoverMenu` inside stacks within the panel; in the header its menu may
- * extend past the panel, in the body the scrolling body clips it.
+ * stacking context: a `HoverMenu` inside stacks within the panel. Beside the title its menu may
+ * extend past the panel; in `actions`, which scrolls sideways when its content is wider than the
+ * room beside Close (Close always stays in the panel), and in the body, the scroll box clips it.
  */
 export function Popover({
   open,

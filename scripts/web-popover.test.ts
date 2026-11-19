@@ -39,15 +39,16 @@ describe('Popover styles', () => {
         'max-height: max(var(--popover-least), min(var(--size-popover-height), 100% - var(--popover-y) - var(--space-2)))',
       ]),
     );
-    // No overflow on the root: a menu in the header may extend past the panel.
+    // No overflow on the root: a menu beside the title may extend past the panel.
     expect(root.filter((declaration) => declaration.startsWith('overflow'))).toEqual([]);
     expect(rule('.body')).toContain('overflow-y: auto');
   });
-  it('near the bottom moves up just enough to keep the header and body padding in the window', () => {
+  it('near the bottom moves up just enough to keep the header and one control in the window', () => {
     const root = rule('.root');
-    // The header row (content-box, with its hairline), the body padding and the root's borders.
+    // The header row (content-box, with its hairline), the body padding, room for one standard
+    // control in the body, and the root's borders.
     expect(root).toContain(
-      '--popover-least: calc(var(--size-section-header) + var(--size-hairline) + var(--space-1) + var(--space-3) + var(--size-hairline) + var(--size-hairline))',
+      '--popover-least: calc(var(--size-section-header) + var(--size-hairline) + var(--space-1) + var(--size-control) + var(--space-3) + var(--size-hairline) + var(--size-hairline))',
     );
     expect(rule('.header')).toEqual(
       expect.arrayContaining([
@@ -61,6 +62,22 @@ describe('Popover styles', () => {
     expect(root).toContain(
       '--popover-y: max(min(var(--popover-top) + var(--space-1), 100% - var(--space-2) - var(--popover-least)), var(--popover-anchor-top) - var(--popover-least) - var(--space-2))',
     );
+  });
+  it('keeps Close inside the panel: the actions slot shrinks and scrolls, Close never shrinks', () => {
+    const ring = 'calc(var(--width-ring) + var(--offset-ring))';
+    expect(rule('.actions')).toEqual(
+      expect.arrayContaining([
+        'flex: 0 1 auto',
+        'min-width: 0',
+        'overflow-x: auto',
+        // Grown by one ring outward on the top and sides and by the hairline below, then padded
+        // back: a focused tab's ring and its underline on the header border are not clipped.
+        `margin: calc(-1 * ${ring}) calc(-1 * ${ring}) calc(-1 * var(--size-hairline))`,
+        `padding: ${ring} ${ring} var(--size-hairline)`,
+      ]),
+    );
+    expect(rule('.close')).toContain('flex: none');
+    expect(rule('.title')).toEqual(expect.arrayContaining(['flex: 0 1 auto', 'min-width: 0']));
   });
   it('leaves the window wholly with an anchor scrolled out', () => {
     // Not in view: hidden, which also takes its controls out of the tab order.
