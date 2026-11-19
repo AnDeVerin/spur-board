@@ -13,7 +13,11 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as entry from '../../src/index.ts';
 import { githubSources } from '../../src/github/index.ts';
-import { classifyHttpFailure, failureBody } from '../../src/runner/http.ts';
+import {
+  classifyHttpFailure,
+  classifyResponseFailure,
+  withTimeout,
+} from '../../src/runner/http.ts';
 import { nextDelay } from '../../src/runner/policy.ts';
 import {
   type AdapterRunner,
@@ -566,14 +570,15 @@ describe('http failure classification', () => {
     expect(error.retryAt?.getTime()).toBe(retryAt);
   });
 
-  // A body that fails to read leaves the status and headers to classify the failure.
+  // A body that fails to read leaves a rate limit in the status and headers throttled; any other
+  // failure rethrows the read error, as before the body was read through this helper.
   it.each([
     ['429 with retry-after', 429, { 'retry-after': '60' }, 'throttled', now + 60_000],
     ['429 without retry headers', 429, {}, 'throttled', undefined],
     ['403 remaining 0', 403, { 'x-ratelimit-remaining': '0' }, 'throttled', undefined],
-    // A secondary rate limit may show only in the body, so an unread 403 stays retryable.
-    ['403 without rate-limit headers', 403, {}, 'transient', undefined],
-    ['500', 500, {}, 'transient', undefined],
+    // A secondary rate limit may show only in the body, so neither auth nor transient.
+    ['403 without rate-limit headers', 403, {}, 'read error', undefined],
+    ['500', 500, {}, 'read error', undefined],
   ] as const)('classifies %s whose body read fails', async (_, status, headers, kind, retryAt) => {
     const response = new Response(
       new ReadableStream({
@@ -583,17 +588,54 @@ describe('http failure classification', () => {
       }),
       { status, headers },
     );
-    const body = await failureBody(response);
-    expect(body).toBeNull();
-    const error = classifyHttpFailure({ status, headers: response.headers, body }, now);
+    const result = classifyResponseFailure(response, now);
+    if (kind === 'read error') {
+      await expect(result).rejects.toThrow('connection reset');
+      return;
+    }
+    const error = await result;
     expect(error.kind).toBe(kind);
     expect(error.retryAt?.getTime()).toBe(retryAt);
   });
 
+  // The status and headers are classified before the body read the request timer ends.
+  it.each([
+    ['with retry-after', { 'retry-after': '60' }, now + 60_000],
+    ['without retry headers', {}, undefined],
+  ] as const)(
+    'keeps a 429 %s throttled when the request timer ends its body read',
+    async (_, headers, retryAt) => {
+      const result = withTimeout(new AbortController().signal, 'timed out', async (signal) => {
+        const response = new Response(
+          new ReadableStream({
+            start(controller) {
+              signal.addEventListener('abort', () => {
+                controller.error(signal.reason);
+              });
+            },
+          }),
+          { status: 429, headers },
+        );
+        throw await classifyResponseFailure(response, now);
+      });
+      const settled = result.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      const error = await settled;
+      expect(error).toBeInstanceOf(AdapterError);
+      expect(error instanceof AdapterError ? error.kind : undefined).toBe('throttled');
+      expect(error instanceof AdapterError ? error.retryAt?.getTime() : undefined).toBe(retryAt);
+    },
+  );
+
   it('reads the body of a failed response that reads fine', async () => {
-    expect(await failureBody(new Response('API rate limit exceeded', { status: 403 }))).toBe(
-      'API rate limit exceeded',
+    const error = await classifyResponseFailure(
+      new Response('API rate limit exceeded', { status: 403 }),
+      now,
     );
+    expect(error.kind).toBe('throttled');
   });
 
   it('starts the next poll at the reset time after a 403 with no remaining requests', async () => {

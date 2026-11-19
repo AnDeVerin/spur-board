@@ -174,7 +174,7 @@ describe('GitHub Issues source', () => {
     expect(batch.items).toEqual([]);
   });
 
-  it('fails the poll as transient, not no_access, when the 403 of a key has an unreadable body', async () => {
+  it('fails the poll with the read error, not no_access, when the 403 of a key has an unreadable body', async () => {
     const pending = { kind: 'ticket', trackerId: id, key: 'acme/board#9' } as const;
     const unreadable = new ReadableStream({
       start(controller) {
@@ -193,7 +193,13 @@ describe('GitHub Issues source', () => {
       now,
       fetch: fetcher,
     });
-    await expect(adapter.poll(context([pending]))).rejects.toMatchObject({ kind: 'transient' });
+    const error: unknown = await adapter.poll(context([pending])).then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(error instanceof AdapterError).toBe(false);
+    expect(error instanceof Error ? error.message : undefined).toBe('connection reset');
   });
 
   it('keeps the first page but marks a failed later page incomplete', async () => {

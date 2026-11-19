@@ -2755,6 +2755,24 @@ describe('PR poll chunks', () => {
     });
     expect(numbersSent(fetcher, 'PrDetails')).toHaveLength(1);
   });
+  it('rejects a chunk whose 403 body cannot be read without resending', async () => {
+    const numbers = Array.from({ length: 10 }, (_, i) => i + 1);
+    const fetcher = byOperation((operation, sent) => {
+      if (operation === 'PrBatch') return discoveryAnswer();
+      if (operation === 'PrIndex') return response(aliased(sent, (n) => indexPr(n)));
+      const unreadable = new ReadableStream({
+        start(controller) {
+          controller.error(new Error('connection reset'));
+        },
+      });
+      return new Response(unreadable, { status: 403 });
+    });
+    // As before the body helper: the read error fails the poll, so no half is sent.
+    await expect(adapter(fetcher).poll(context(numbers.map(refOf), cursor))).rejects.toThrow(
+      'connection reset',
+    );
+    expect(numbersSent(fetcher, 'PrDetails')).toHaveLength(1);
+  });
   it('rejects after abort during halving', async () => {
     const numbers = Array.from({ length: 10 }, (_, i) => i + 1);
     const controller = new AbortController();
