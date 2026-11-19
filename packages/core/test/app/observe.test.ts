@@ -38,7 +38,7 @@ import {
   ringUndelivered,
 } from '../../src/app/doorbells.ts';
 import { closeTurns, openTurn, takeTurn } from '../../src/app/turns.ts';
-import { raiseItem } from '../../src/app/feed.ts';
+import { dismissItem, raiseItem } from '../../src/app/feed.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
 let now = Date.parse(at);
@@ -3746,13 +3746,48 @@ describe('anomaly blocks', () => {
 
       now += interval;
       await ticket('open');
-      const text =
-        'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (open) (worker-1)';
+      const text = 'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)';
       expect(await healthItems()).toEqual([['worker_completed', text, null]]);
 
       now += 1_000;
       await ticket('closed');
       expect(await healthItems()).toEqual([['worker_completed', text, expect.any(String)]]);
+    });
+
+    it('keeps the reopened worker-end item across non-done status changes, and its dismissal', async () => {
+      const { b, ticket } = await split();
+      await spur(b, [session('worker-1', 'working')]);
+      await prs(b, [pr(7, 'merged')]);
+      await ticket('open');
+      now += 1_000;
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+      now += 1_000;
+      await prs(b, [pr(7, 'merged')]);
+      now += interval;
+      await ticket('open');
+      const items = () =>
+        b.store.db
+          .selectFrom('operator_item')
+          .selectAll()
+          .where('item_key', 'like', 'health:%')
+          .execute();
+      const [raised] = await items();
+      if (raised === undefined) throw new Error('Missing worker-end item');
+      expect(raised.cleared_at).toBeNull();
+
+      // Any other non-done status, as a Jira workflow moves through.
+      now += 1_000;
+      await ticket('in review');
+      expect(await items()).toEqual([raised]);
+
+      now += 1_000;
+      await b.store.transaction((trx) => dismissItem(trx, raised, 'operator', new Date(now)));
+      now += 1_000;
+      await ticket('in progress');
+      const after = await items();
+      expect(after.map((item) => [item.id, item.fingerprint, item.cleared_at === null])).toEqual([
+        [raised.id, raised.fingerprint, false],
+      ]);
     });
 
     it('raises no worker-end item while the ticket is untouched since the merge, up to done', async () => {
@@ -3817,7 +3852,7 @@ describe('anomaly blocks', () => {
       expect(await healthItems()).toEqual([
         [
           'worker_completed',
-          'o/r#9: worker ended (completed); PR o/r#8 merged, ticket reopened (open) (worker-1)',
+          'o/r#9: worker ended (completed); PR o/r#8 merged, ticket reopened (worker-1)',
           null,
         ],
       ]);

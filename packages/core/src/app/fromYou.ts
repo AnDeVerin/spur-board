@@ -561,8 +561,9 @@ export async function reconcileItems(
       at === null ||
       project === undefined ||
       mergedTicket(project, ticket, task.manual_include === 1, at) !== 'reopened';
-    if (!state.hasMergedPr && ticket !== undefined)
-      reopened.set(taskId, `; PR ${ref} merged, ticket reopened (${ticket.status})`);
+    // No ticket status in the text: the item fingerprint hashes it, and a move between two
+    // non-done statuses must not raise the item again.
+    if (!state.hasMergedPr) reopened.set(taskId, `; PR ${ref} merged, ticket reopened`);
   }
   const heldKeys: string[] = [];
   for (const task of tasks) {
