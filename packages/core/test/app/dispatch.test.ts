@@ -6630,23 +6630,38 @@ describe('approvalRule github-rules', () => {
     expect(items[1]?.item_key).toBe(first?.item_key);
   });
 
-  it('keeps a closed item closed for a later undecided stretch with the same text', async () => {
-    const ctx = await pastProductReview(RULED);
-    const threads = (resolved: boolean) => ({
-      mergeState: 'blocked' as const,
-      reviewThreads: [{ resolved, id: 'PRRT_1' }],
-    });
-    await ctx.rulePr({ ...approved, ...threads(false) }, rule());
-    ctx.wait(HALF_HOUR);
-    await ctx.tick();
-    const [first] = await ruleItems(ctx);
-    await ctx.closeItem(`I${String(first?.id)}`);
-    await ctx.rulePr(threads(true), rule());
-    await ctx.rulePr(threads(false), rule());
-    ctx.wait(HALF_HOUR);
-    await ctx.tick();
-    expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
-  });
+  // A manual link refreshes the snapshot with a lowercase slug and the next poll can bring back
+  // the mixed case: the item stays one, and a closed one stays closed.
+  it.each([
+    { first: 'o/r', later: 'o/r' },
+    { first: 'O/R', later: 'o/r' },
+    { first: 'o/r', later: 'O/R' },
+  ])(
+    'keeps one item, and a closed item closed for a later undecided stretch with the same text, from repo $first to $later',
+    async ({ first: from, later }) => {
+      const ctx = await pastProductReview(RULED);
+      const threads = (resolved: boolean) => ({
+        repo: later,
+        mergeState: 'blocked' as const,
+        reviewThreads: [{ resolved, id: 'PRRT_1' }],
+      });
+      await ctx.rulePr({ ...approved, ...threads(false), repo: from }, rule());
+      ctx.wait(HALF_HOUR);
+      await ctx.tick();
+      const [first, ...rest] = await ruleItems(ctx);
+      expect(rest).toEqual([]);
+      expect(first?.item_key).toBe(`review-rule:${String((await ctx.task()).id)}:o/r#7:${A}`);
+      await ctx.rulePr(threads(false), rule());
+      await ctx.tick();
+      expect(await ruleItems(ctx)).toEqual([first]);
+      await ctx.closeItem(`I${String(first?.id)}`);
+      await ctx.rulePr(threads(true), rule());
+      await ctx.rulePr(threads(false), rule());
+      ctx.wait(HALF_HOUR);
+      await ctx.tick();
+      expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+    },
+  );
 
   it('a return to External Review on the same head keeps the clock that ran outside it', async () => {
     const ctx = await pastProductReview(RULED);

@@ -210,16 +210,18 @@ export async function reviewRuleItems(
     // for this source's own read, but GitHub has not left the rule undecided.
     const decided = storedDecision(verdictOf(gatePr, row, gate.changesRequested), null) !== null;
     if (!waitsOnGitHub(gate) || decided) continue;
+    // The slug as the meta key holds it: a manual link and a poll can spell it differently.
+    const ref = `${pr.repo.toLowerCase()}#${String(pr.number)}`;
     let raised = row.raised;
     if (raised === null) {
-      raised = `GitHub has not decided the review rule of ${pr.repo}#${String(pr.number)} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;
+      raised = `GitHub has not decided the review rule of ${ref} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;
       const value = toJson(storedSchema, { ...row, raised });
       await trx.updateTable('meta').set({ value }).where('key', '=', key).execute();
     }
     // Tasks linking the same PR share the row; each item names its own task.
     const summary = `${task.key}: ${raised}`;
     candidates.push({
-      key: `${REVIEW_RULE_KEY}${String(task.id)}:${pr.repo}#${String(pr.number)}:${row.headSha}`,
+      key: `${REVIEW_RULE_KEY}${String(task.id)}:${ref}:${row.headSha}`,
       kind: 'board_observation',
       taskId: task.id,
       summary,
