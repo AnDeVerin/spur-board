@@ -235,7 +235,8 @@ const upper = (value: string | null): string => (value === null ? 'null' : value
  * `REVIEW_RULE_UNDECIDED_MS` and whose gate, read as `readInput` reads it, still runs the clock: a
  * newer read of the head by another project's source can name someone to act first or carry
  * GitHub's answer, and then no item is raised or kept. GitHub's values are frozen in the row at
- * the first reconcile past the threshold, so a later poll or a restart keeps the item as raised.
+ * the first reconcile past the threshold and again when the cause changes, so a later poll or a
+ * restart keeps the item as raised.
  */
 export async function reviewRuleItems(
   trx: Trx,
@@ -270,12 +271,13 @@ export async function reviewRuleItems(
     if (now - Date.parse(row.undecidedSince) < REVIEW_RULE_UNDECIDED_MS) continue;
     // The slug as the meta key holds it: a manual link and a poll can spell it differently.
     const ref = `${pr.repo.toLowerCase()}#${String(pr.number)}`;
+    const what =
+      gate.decision === 'unreadable'
+        ? `The GitHub review rule for the base branch of ${ref} could not be read`
+        : `GitHub has not decided the review rule of ${ref}`;
     let raised = row.raised;
-    if (raised === null) {
-      const what =
-        gate.decision === 'unreadable'
-          ? `The GitHub review rule for the base branch of ${ref} could not be read`
-          : `GitHub has not decided the review rule of ${ref}`;
+    // A changed cause re-freezes the text, so the open item names the current one.
+    if (raised === null || !raised.startsWith(what)) {
       raised = `${what} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;
       const value = toJson(storedSchema, { ...row, raised });
       await trx

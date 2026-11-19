@@ -6466,13 +6466,13 @@ describe('approvalRule github-rules', () => {
       steps.push(want);
       state = `${want.column}/${want.stored}` as keyof typeof TRANSITIONS;
     }
-    // The item names the cause GitHub left undecided first in the stretch: a rule the token could
-    // not read, or the merge state.
-    const [first, last] = steps;
+    // The open item names the current cause GitHub left undecided: a rule the token could not
+    // read, or the merge state, even when the stretch started on the other one.
+    const last = steps.at(-1);
     if (last?.clock === true && last.column === ER) {
-      const cause = first?.clock === true ? previous : current;
-      expect((await ruleItems(ctx)).at(-1)?.text).toContain(
-        cause === 'denied'
+      const open = (await ruleItems(ctx)).filter((item) => item.cleared_at === null);
+      expect(open.at(-1)?.text).toContain(
+        current === 'denied'
           ? 'The GitHub review rule for the base branch of o/r#7 could not be read'
           : 'GitHub has not decided the review rule of o/r#7',
       );
