@@ -2209,6 +2209,21 @@ describe('PR feedback', () => {
       { kind: 'throttled', retryAt: new Date('2026-01-01T00:00:00.000Z') },
     ],
     [
+      'HTTP 429 whose body read fails',
+      () =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(new Error('connection reset'));
+              },
+            }),
+            { status: 429, headers: { 'x-ratelimit-reset': '1767225600' } },
+          ),
+        ),
+      { kind: 'throttled', retryAt: new Date('2026-01-01T00:00:00.000Z') },
+    ],
+    [
       'a GraphQL rate-limit error',
       () =>
         Promise.resolve(

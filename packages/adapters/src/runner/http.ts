@@ -22,6 +22,19 @@ export function classifyHttpFailure(failure: HttpFailure, now: number): AdapterE
   return new AdapterError('transient', message);
 }
 
+/**
+ * The body of a failed response for {@link classifyHttpFailure}, or undefined when reading it
+ * fails: a rate limit is still classified from the status and headers.
+ */
+export async function failureBody(response: Response): Promise<string | undefined> {
+  try {
+    return await response.text();
+  } catch {
+    // Only the body text is lost; the status and headers still classify the failure.
+    return undefined;
+  }
+}
+
 function retryAt(headers: Headers, now: number): Date | undefined {
   const retryAfter = headers.get('retry-after')?.trim();
   if (retryAfter) {

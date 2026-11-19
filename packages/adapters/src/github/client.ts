@@ -1,6 +1,6 @@
 import { AdapterError, type Batch } from '@spur-board/contracts';
 import { z } from 'zod';
-import { classifyHttpFailure, withTimeout } from '../runner/http.ts';
+import { classifyHttpFailure, failureBody, withTimeout } from '../runner/http.ts';
 import { parseWire } from '../runner/wire.ts';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -228,7 +228,11 @@ export class GithubClient {
         }
         if (!response.ok)
           throw classifyHttpFailure(
-            { status: response.status, headers: response.headers, body: await response.text() },
+            {
+              status: response.status,
+              headers: response.headers,
+              body: await failureBody(response),
+            },
             this.now(),
           );
         let body: unknown;

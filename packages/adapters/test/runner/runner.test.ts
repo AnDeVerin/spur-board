@@ -13,7 +13,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as entry from '../../src/index.ts';
 import { githubSources } from '../../src/github/index.ts';
-import { classifyHttpFailure } from '../../src/runner/http.ts';
+import { classifyHttpFailure, failureBody } from '../../src/runner/http.ts';
 import { nextDelay } from '../../src/runner/policy.ts';
 import {
   type AdapterRunner,
@@ -564,6 +564,34 @@ describe('http failure classification', () => {
     expect(error).toBeInstanceOf(AdapterError);
     expect(error.kind).toBe(kind);
     expect(error.retryAt?.getTime()).toBe(retryAt);
+  });
+
+  // A body that fails to read leaves the status and headers to classify the failure.
+  it.each([
+    ['429 with retry-after', 429, { 'retry-after': '60' }, 'throttled', now + 60_000],
+    ['429 without retry headers', 429, {}, 'throttled', undefined],
+    ['403 remaining 0', 403, { 'x-ratelimit-remaining': '0' }, 'throttled', undefined],
+    ['500', 500, {}, 'transient', undefined],
+  ] as const)('classifies %s whose body read fails', async (_, status, headers, kind, retryAt) => {
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.error(new Error('connection reset'));
+        },
+      }),
+      { status, headers },
+    );
+    const body = await failureBody(response);
+    expect(body).toBeUndefined();
+    const error = classifyHttpFailure({ status, headers: response.headers, body }, now);
+    expect(error.kind).toBe(kind);
+    expect(error.retryAt?.getTime()).toBe(retryAt);
+  });
+
+  it('reads the body of a failed response that reads fine', async () => {
+    expect(await failureBody(new Response('API rate limit exceeded', { status: 403 }))).toBe(
+      'API rate limit exceeded',
+    );
   });
 
   it('starts the next poll at the reset time after a 403 with no remaining requests', async () => {
