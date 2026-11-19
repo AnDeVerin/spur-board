@@ -34,6 +34,7 @@ import {
   shaError,
   submitConfirmation,
   UNAVAILABLE,
+  REFRESHING,
   STALE,
   type Basis,
 } from './turn-model.ts';
@@ -94,10 +95,13 @@ export function TaskTurn({
   const [refusal, setRefusal] = useState<string>();
   const [phase, setPhase] = useState<TurnPhase | 'idle'>('idle');
   // The re-read after a take or a close failed: the section claims no holder until a read answers.
-  const [stale, setStale] = useState(false);
+  // The re-read after a take or a close is pending or failed: the section names no holder and
+  // sends nothing until it answers; a failed one clears once any later read answers.
+  const [reread, setReread] = useState<'pending' | 'failed'>();
   useEffect(() => {
-    setStale(false);
+    setReread((current) => (current === 'failed' ? undefined : current));
   }, [value]);
+  const stale = reread !== undefined;
   const intent = useRef<{ signature: string; value: TurnIntent }>(undefined);
   const mounted = useRef(true);
   const actions = useRef<HTMLSpanElement>(null);
@@ -106,6 +110,7 @@ export function TaskTurn({
   const statusRef = useRef<HTMLParagraphElement>(null);
   const newerActions = useRef<HTMLSpanElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
+  const staleRef = useRef<HTMLParagraphElement>(null);
   const pendingFocus = useRef<'field' | Form | 'status'>(undefined);
   /** The form control that last lost focus to nothing; disabled, the browser left focus on the body. */
   const lostFocus = useRef<(Element & { disabled?: boolean }) | null>(null);
@@ -166,7 +171,8 @@ export function TaskTurn({
       (
         usable(actions.current?.querySelectorAll('button')[target === 'submit' ? 0 : 1]) ??
         usable(newerActions.current?.querySelector('button')) ??
-        noticeRef.current
+        noticeRef.current ??
+        staleRef.current
       )?.focus();
     }
   });
@@ -252,8 +258,9 @@ export function TaskTurn({
     const sent = intent.current.value;
     setRefusal(undefined);
     const watch = (refresh: Promise<boolean>) => {
+      setReread('pending');
       void refresh.then((read) => {
-        if (!read && mounted.current) setStale(true);
+        if (mounted.current) setReread(read ? undefined : 'failed');
       });
     };
     let closing = false;
@@ -347,7 +354,11 @@ export function TaskTurn({
           !formOpen &&
             triggers(turn, blocked !== undefined || inFlight || earlierForm || stale, primary),
         )}
-        {stale && <p className={styles.note}>{STALE}</p>}
+        {stale && (
+          <p ref={staleRef} tabIndex={-1} className={`${styles.note ?? ''} ${focusRing}`}>
+            {reread === 'pending' ? REFRESHING : STALE}
+          </p>
+        )}
         {!stale && turn.taken?.by === 'operator' && (
           <p className={styles.note}>
             You hold {turn.id}; the orchestrator cannot submit or return it until you finish or it
@@ -482,7 +493,10 @@ export function TaskTurn({
   };
 
   // While the re-read failed, an open turn's summary names no holder either.
-  const openText = (turn: Turn) => (stale ? `${turn.id} · could not refresh` : openSummary(turn));
+  const openText = (turn: Turn) =>
+    reread === undefined
+      ? openSummary(turn)
+      : `${turn.id} · ${reread === 'pending' ? 'refreshing' : 'could not refresh'}`;
   const summary = [
     bound
       ? stale && boundOpen && !inFlight && bound.own === undefined

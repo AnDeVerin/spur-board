@@ -288,6 +288,7 @@ describe('Turn section focus', () => {
   const HOLD =
     'You hold T5; the orchestrator cannot submit or return it until you finish or it takes the turn back.';
   const STALE = 'Could not refresh the turn. Reload to see who holds it.';
+  const REFRESHING = 'Refreshing the turn…';
   const held = orchestratorTaskGet({ taken: { by: 'operator', at: AT } });
   const closedBy = (column: string) =>
     orchestratorTaskGet(
@@ -298,86 +299,142 @@ describe('Turn section focus', () => {
         turns: [closedTurn('submitted')],
       },
     );
-  // Write outcome x the read after it. A failed read stops every claim of who holds the turn and
-  // disables the sends; a refused take writes nothing, so no read follows it.
-  it.each([
-    // [write, read, read after, shows, header, holder shown, hold line, plain line, send disabled]
-    [
-      'take ok, close refused',
-      'answers',
-      held,
-      'taken by you',
-      'T5 · refused, you hold it',
-      true,
-      true,
-      false,
-      false,
-    ],
-    [
-      'take ok, close refused',
-      'fails',
-      'fail',
-      undefined,
-      'T5 · could not refresh',
-      false,
-      false,
-      true,
-      true,
-    ],
-    ['take refused', 'answers', held, 'not taken', 'T5 · refused', false, false, false, false],
-    ['take refused', 'fails', 'fail', 'not taken', 'T5 · refused', false, false, false, false],
-    [
-      'close ok',
-      'answers',
-      closedBy('qa'),
-      'T5 submitted. The task is in qa.',
-      'T5 submitted',
-      false,
-      false,
-      false,
-      null,
-    ],
-    [
-      'close ok',
-      'fails',
-      'fail',
-      'T5 submitted. The task is in review.',
-      'T5 submitted',
-      false,
-      false,
-      false,
-      null,
-    ],
-    [
-      'turn_closed',
-      'answers',
-      closedBy('qa'),
-      'T5 was closed by qa / qa-1',
-      'T5 closed by qa-1',
-      false,
-      false,
-      false,
-      true,
-    ],
-    ['turn_closed', 'fails', 'fail', 'T5 was closed', 'T5 closed', false, false, false, true],
-  ] as const)(
-    'after %s and a read that %s, claims the holder only from a read',
-    async (write, _, after, shows, header, holder, hold, plain, sendOff) => {
+  // Write outcome x the read after it. While that read is pending or after it failed, the section
+  // names no holder, shows one plain line and sends nothing; Cancel then focuses that line. A
+  // refused take writes nothing, so no read follows it.
+  type Row = {
+    write: 'take ok, close refused' | 'take refused' | 'close ok' | 'turn_closed';
+    read: 'answers' | 'fails' | 'is pending';
+    after: ReturnType<typeof orchestratorTaskGet> | 'fail' | 'pending';
+    shows?: string;
+    header: string;
+    holder: boolean;
+    hold: boolean;
+    plain?: string;
+    /** Whether the form's send is disabled; null once the form closed. */
+    sendOff: boolean | null;
+  };
+  it.each<Row>([
+    {
+      write: 'take ok, close refused',
+      read: 'answers',
+      after: held,
+      shows: 'taken by you',
+      header: 'T5 · refused, you hold it',
+      holder: true,
+      hold: true,
+      sendOff: false,
+    },
+    {
+      write: 'take ok, close refused',
+      read: 'is pending',
+      after: 'pending',
+      header: 'T5 · refreshing',
+      holder: false,
+      hold: false,
+      plain: REFRESHING,
+      sendOff: true,
+    },
+    {
+      write: 'take ok, close refused',
+      read: 'fails',
+      after: 'fail',
+      header: 'T5 · could not refresh',
+      holder: false,
+      hold: false,
+      plain: STALE,
+      sendOff: true,
+    },
+    {
+      write: 'take refused',
+      read: 'answers',
+      after: held,
+      shows: 'not taken',
+      header: 'T5 · refused',
+      holder: false,
+      hold: false,
+      sendOff: false,
+    },
+    {
+      write: 'take refused',
+      read: 'fails',
+      after: 'fail',
+      shows: 'not taken',
+      header: 'T5 · refused',
+      holder: false,
+      hold: false,
+      sendOff: false,
+    },
+    {
+      write: 'close ok',
+      read: 'answers',
+      after: closedBy('qa'),
+      shows: 'T5 submitted. The task is in qa.',
+      header: 'T5 submitted',
+      holder: false,
+      hold: false,
+      sendOff: null,
+    },
+    {
+      write: 'close ok',
+      read: 'fails',
+      after: 'fail',
+      shows: 'T5 submitted. The task is in review.',
+      header: 'T5 submitted',
+      holder: false,
+      hold: false,
+      sendOff: null,
+    },
+    {
+      write: 'turn_closed',
+      read: 'answers',
+      after: closedBy('qa'),
+      shows: 'T5 was closed by qa / qa-1',
+      header: 'T5 closed by qa-1',
+      holder: false,
+      hold: false,
+      sendOff: true,
+    },
+    {
+      write: 'turn_closed',
+      read: 'fails',
+      after: 'fail',
+      shows: 'T5 was closed',
+      header: 'T5 closed',
+      holder: false,
+      hold: false,
+      sendOff: true,
+    },
+  ])(
+    'after $write and a read that $read, claims the holder only from a read',
+    async ({ write, after, shows, header, holder, hold, plain, sendOff }) => {
       const { d } = await open();
       if (write === 'take refused') d.routes['inbox.ack'] = () => problem('forbidden', 403);
       if (write === 'take ok, close refused')
         d.routes['task.submit'] = () => problem('head_mismatch', 409);
       if (write === 'turn_closed') d.routes['task.submit'] = () => problem('turn_closed', 409);
-      d.routes['task.get'] = after === 'fail' ? failure : () => Promise.resolve(envelope(after));
+      d.routes['task.get'] =
+        after === 'fail'
+          ? failure
+          : after === 'pending'
+            ? never
+            : () => Promise.resolve(envelope(after));
       await click('Submit…');
       await send();
       if (shows !== undefined) expect(text()).toContain(shows);
       expect(summary()).toBe(header);
       expect(text().includes('taken by you')).toBe(holder);
       expect(text().includes(HOLD)).toBe(hold);
-      expect(text().includes(STALE)).toBe(plain);
+      expect(text().includes(STALE)).toBe(plain === STALE);
+      expect(text().includes(REFRESHING)).toBe(plain === REFRESHING);
       const primary = turnSection().querySelector<HTMLButtonElement>('form button[type="submit"]');
       expect(primary === null ? null : primary.disabled).toBe(sendOff);
+      if (plain !== undefined) {
+        // Both opening actions are off then, so Cancel focuses the plain line, with the ring.
+        await click('Cancel');
+        expect(document.activeElement?.textContent).toBe(plain);
+        expect(document.activeElement?.classList.contains(focusRing)).toBe(true);
+      }
     },
   );
 
