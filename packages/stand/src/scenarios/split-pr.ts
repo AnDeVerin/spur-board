@@ -42,7 +42,8 @@ export const dispatchSplitPr: Scenario = {
 export const dispatchCloseAfterMerge: Scenario = {
   name: 'dispatch-close-after-merge',
   summary: `PR #1 closes ${ISSUE}; the close is seen one poll after the merge: Done with the wrap-up turn, no Dev visit.`,
-  // 60 s tracker interval: no scheduled poll on the real clock confirms the issue open pre-close.
+  // A 60 s tracker interval keeps scheduled tracker polls out of the seed, so its explicit polls
+  // alone move the task; the stand test also reads it back as the written adapters override.
   config: { ...flow(), adapters: { githubIssues: { intervalMs: 60_000 } } },
   async seed(board, fakes) {
     await toReadyToMerge(board, fakes, CLOSES);
