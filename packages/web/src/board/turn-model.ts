@@ -263,12 +263,22 @@ export interface SubmitFields {
 }
 /**
  * The draft text of a form: a return keeps its reason; a submit keeps commit, basis, source and
- * reason together, so a resumed Skipped or Carried draft never comes back as Tested. A submit with
- * no source and no reason typed has nothing unsent.
+ * reason together, so a resumed Skipped or Carried draft never comes back as Tested. A submit has
+ * nothing unsent only while it still equals what it opened with: Tested, `openedSha`, no source
+ * and no reason.
  */
-export function draftText(form: 'submit' | 'return', fields: SubmitFields): string {
+export function draftText(
+  form: 'submit' | 'return',
+  fields: SubmitFields,
+  openedSha: string,
+): string {
   if (form === 'return') return fields.reason;
-  return fields.from === '' && fields.reason === '' ? '' : JSON.stringify(fields);
+  const opened =
+    fields.basis === 'tested' &&
+    fields.sha === openedSha &&
+    fields.from === '' &&
+    fields.reason === '';
+  return opened ? '' : JSON.stringify(fields);
 }
 /** The fields a form opens with from its kept draft text; `sha` starts the commit without one. */
 export function restoreDraft(form: 'submit' | 'return', text: string, sha: string): SubmitFields {

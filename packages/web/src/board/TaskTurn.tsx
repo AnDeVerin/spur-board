@@ -141,8 +141,9 @@ export function TaskTurn({
   const open = orchestrated(value.turn);
   const inFlight = phase !== 'idle';
   const draftOpen = bound && form ? { turn: bound.turn.id, form } : undefined;
-  const draftFields = { sha, basis, from, reason };
-  const draft = useTurnDraft(drafts, taskKey, draftOpen, form ? draftText(form, draftFields) : '');
+  const openedSha = useRef('');
+  const text = form ? draftText(form, { sha, basis, from, reason }, openedSha.current) : '';
+  const draft = useTurnDraft(drafts, taskKey, draftOpen, text);
   const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
   const closed = bound !== undefined && !boundOpen && !inFlight;
   const blocked =
@@ -216,11 +217,8 @@ export function TaskTurn({
 
   const start = (next: Form, turn: Turn) => {
     setBound({ turn, own: undefined, refusedClosed: false });
-    const kept = restoreDraft(
-      next,
-      draft.restored(turn.id, next),
-      commitDefault(row, value.why, turn.id),
-    );
+    openedSha.current = commitDefault(row, value.why, turn.id);
+    const kept = restoreDraft(next, draft.restored(turn.id, next), openedSha.current);
     setSha(kept.sha);
     setBasis(kept.basis);
     setFrom(kept.from);

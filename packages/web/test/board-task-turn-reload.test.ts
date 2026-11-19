@@ -139,6 +139,49 @@ describe('Turn section after a reload', () => {
     });
   });
 
+  it.each([
+    [
+      'Skipped chosen before any reason',
+      { sha: 'a'.repeat(40), basis: 'skipped', from: '', reason: '' },
+    ],
+    ['an edited commit on Tested', { sha: 'c'.repeat(40), basis: 'tested', from: '', reason: '' }],
+  ])('keeps a submit draft with %s across a reload and restores it whole', async (_, kept) => {
+    const daemonVersion = { value: '0.4.0' };
+    const session = memorySession();
+    const reload = vi.fn();
+    const { d } = await open(undefined, { version: '0.4.0', session: session.session, reload });
+    d.fetcher = versioned(d.fetcher, () => daemonVersion.value).fetch;
+    await click('Submit…');
+    if (kept.basis === 'skipped') await choose('Skipped');
+    else type(commit(), kept.sha);
+    daemonVersion.value = '0.5.0';
+    await reread(d, orchestratorTaskGet());
+    expect(reload).toHaveBeenCalledTimes(1);
+    const id = JSON.stringify(['turn', 'ex/repo#7', 'T5', 'submit']);
+    const saved = JSON.parse(session.values.get('board-drafts') ?? '{}') as Record<string, string>;
+    expect(JSON.parse(saved[id] ?? '{}')).toEqual(kept);
+  });
+
+  it('reopens a kept Skipped draft without a reason as Skipped and still asks for the reason', async () => {
+    const id = JSON.stringify(['turn', 'ex/repo#7', 'T5', 'submit']);
+    const kept = { sha: 'a'.repeat(40), basis: 'skipped', from: '', reason: '' };
+    const session = memorySession({
+      values: { 'board-drafts': JSON.stringify({ [id]: JSON.stringify(kept) }) },
+    });
+    const { writes } = await open(undefined, {
+      version: '0.4.0',
+      session: session.session,
+      reload: vi.fn(),
+    });
+    await click('Submit…');
+    expect(turnSection().querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe(
+      'Skipped',
+    );
+    await send();
+    expect(text()).toContain('Enter a reason.');
+    expect(writes()).toEqual([]);
+  });
+
   it('blocks a second send of the turn from a reopened view while the first one runs', async () => {
     const daemonVersion = { value: '0.4.0' };
     const session = memorySession();

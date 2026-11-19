@@ -108,7 +108,8 @@ A Board update waits to reload the page while the ack and the close run, even wh
 closes first, so it never leaves the operator holding a turn mid-close. A view reopened while
 such a send runs keeps its send disabled and says the earlier send is still running. An unsent
 draft survives that reload and comes back only in the same form of the same turn: a return keeps
-its reason, a submit keeps its commit, basis, source and reason together.
+its reason; a submit changed in any way from how it opened, a basis chosen or a commit edited
+included, keeps its commit, basis, source and reason together.
 
 ## Unavailable and archived
 
