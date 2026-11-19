@@ -16,6 +16,7 @@ import type { BoardConfig, BoardData, BoardTask } from './data.ts';
 import type { BoardColumnConfig, BoardRow } from './model.ts';
 import { actorDisplayName, age } from './task-model.ts';
 import type { TurnIntent, TurnPhase } from './turn-intent.ts';
+import { useTurnReread } from './turn-reread.ts';
 import {
   ARCHIVED,
   BASES,
@@ -94,14 +95,6 @@ export function TaskTurn({
   const [errors, setErrors] = useState<FieldErrors>({});
   const [refusal, setRefusal] = useState<string>();
   const [phase, setPhase] = useState<TurnPhase | 'idle'>('idle');
-  // The re-read after a take or a close failed: the section claims no holder until a read answers.
-  // The re-read after a take or a close is pending or failed: the section names no holder and
-  // sends nothing until it answers; a failed one clears once any later read answers.
-  const [reread, setReread] = useState<'pending' | 'failed'>();
-  useEffect(() => {
-    setReread((current) => (current === 'failed' ? undefined : current));
-  }, [value]);
-  const stale = reread !== undefined;
   const intent = useRef<{ signature: string; value: TurnIntent }>(undefined);
   const mounted = useRef(true);
   const actions = useRef<HTMLSpanElement>(null);
@@ -110,8 +103,13 @@ export function TaskTurn({
   const statusRef = useRef<HTMLParagraphElement>(null);
   const newerActions = useRef<HTMLSpanElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
-  const staleRef = useRef<HTMLParagraphElement>(null);
   const pendingFocus = useRef<'field' | Form | 'status'>(undefined);
+  const turnsRef = useRef<HTMLDivElement>(null);
+  const firstActions = useCallback(() => actions.current, []);
+  const turns = useCallback(() => turnsRef.current, []);
+  // The re-read after a take or a close is pending or failed: no holder and no sends then.
+  const { reread, watch, line: plainLine } = useTurnReread(value, firstActions, turns);
+  const stale = reread !== undefined;
   /** The form control that last lost focus to nothing; disabled, the browser left focus on the body. */
   const lostFocus = useRef<(Element & { disabled?: boolean }) | null>(null);
   // A native listener: React ignores the blur a control fires while React's commit disables it.
@@ -172,7 +170,7 @@ export function TaskTurn({
         usable(actions.current?.querySelectorAll('button')[target === 'submit' ? 0 : 1]) ??
         usable(newerActions.current?.querySelector('button')) ??
         noticeRef.current ??
-        staleRef.current
+        plainLine.ref.current
       )?.focus();
     }
   });
@@ -257,12 +255,6 @@ export function TaskTurn({
       };
     const sent = intent.current.value;
     setRefusal(undefined);
-    const watch = (refresh: Promise<boolean>) => {
-      setReread('pending');
-      void refresh.then((read) => {
-        if (mounted.current) setReread(read ? undefined : 'failed');
-      });
-    };
     let closing = false;
     void sent
       .run((next) => {
@@ -355,7 +347,7 @@ export function TaskTurn({
             triggers(turn, blocked !== undefined || inFlight || earlierForm || stale, primary),
         )}
         {stale && (
-          <p ref={staleRef} tabIndex={-1} className={`${styles.note ?? ''} ${focusRing}`}>
+          <p {...plainLine} tabIndex={-1} className={`${styles.note ?? ''} ${focusRing}`}>
             {reread === 'pending' ? REFRESHING : STALE}
           </p>
         )}
@@ -515,7 +507,7 @@ export function TaskTurn({
     .join('; ');
   return (
     <CollapsibleSection title="Turn" summary={summary}>
-      <div className={styles.turns}>
+      <div className={styles.turns} ref={turnsRef}>
         {bound === undefined
           ? open && openBox(open, true)
           : bound.own === undefined && (boundOpen || inFlight)

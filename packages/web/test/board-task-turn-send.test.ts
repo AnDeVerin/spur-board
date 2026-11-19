@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { focusRing } from '../src/ds/index.ts';
 import {
   deferred,
@@ -304,8 +304,8 @@ describe('Turn section focus', () => {
   // refused take writes nothing, so no read follows it.
   type Row = {
     write: 'take ok, close refused' | 'take refused' | 'close ok' | 'turn_closed';
-    read: 'answers' | 'fails' | 'is pending';
-    after: ReturnType<typeof orchestratorTaskGet> | 'fail' | 'pending';
+    read: 'answers' | 'fails' | 'is pending' | 'stalls past the deadline';
+    after: ReturnType<typeof orchestratorTaskGet> | 'fail' | 'pending' | 'stall';
     shows?: string;
     header: string;
     holder: boolean;
@@ -333,6 +333,16 @@ describe('Turn section focus', () => {
       holder: false,
       hold: false,
       plain: REFRESHING,
+      sendOff: true,
+    },
+    {
+      write: 'take ok, close refused',
+      read: 'stalls past the deadline',
+      after: 'stall',
+      header: 'T5 · could not refresh',
+      holder: false,
+      hold: false,
+      plain: STALE,
       sendOff: true,
     },
     {
@@ -413,14 +423,23 @@ describe('Turn section focus', () => {
       if (write === 'take ok, close refused')
         d.routes['task.submit'] = () => problem('head_mismatch', 409);
       if (write === 'turn_closed') d.routes['task.submit'] = () => problem('turn_closed', 409);
+      const late = deferred();
       d.routes['task.get'] =
         after === 'fail'
           ? failure
           : after === 'pending'
-            ? never
-            : () => Promise.resolve(envelope(after));
+            ? () => late.promise
+            : after === 'stall'
+              ? never
+              : () => Promise.resolve(envelope(after));
       await click('Submit…');
+      if (after === 'stall') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       await send();
+      if (after === 'stall') {
+        // The keyed re-read never answers: past its deadline the section gives up on it.
+        await act(() => vi.advanceTimersByTimeAsync(15_000));
+        await settle();
+      }
       if (shows !== undefined) expect(text()).toContain(shows);
       expect(summary()).toBe(header);
       expect(text().includes('taken by you')).toBe(holder);
@@ -434,6 +453,12 @@ describe('Turn section focus', () => {
         await click('Cancel');
         expect(document.activeElement?.textContent).toBe(plain);
         expect(document.activeElement?.classList.contains(focusRing)).toBe(true);
+      }
+      if (after === 'pending') {
+        // The read answers and the focused line goes: focus moves to the first enabled action.
+        late.resolve(envelope(held));
+        await settle();
+        expect(document.activeElement).toBe(button('Submit…'));
       }
     },
   );

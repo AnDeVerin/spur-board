@@ -71,9 +71,10 @@ takes the turn again with a new key. A refusal after the ack leaves the operator
 and the read that follows shows it in the hold line and the header. Until the read after a take,
 submit or return answers, the section names no holder and disables its buttons: it shows
 `Refreshing the turn…` while that read runs and
-`Could not refresh the turn. Reload to see who holds it.` when it fails, and Cancel focuses that
-line. After a failure, press **Retry** on the task's error banner first: it reads the task again
-and keeps an open form; reload the page if that does not help. The line after your own close
+`Could not refresh the turn. Reload to see who holds it.` when it fails or has not answered in 15
+seconds, and Cancel focuses that line; when the line goes, focus moves to the first enabled
+button. After a failure, press **Retry** when the task's error banner offers it: it reads the
+task again and keeps an open form. Otherwise reload the page. The line after your own close
 keeps the column from the write's answer then.
 
 ## Closed elsewhere

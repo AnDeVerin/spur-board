@@ -34,6 +34,11 @@ const BRIEF_MAX = 16;
 export const UNAVAILABLE = 'The turn cannot be closed while the board is unavailable.';
 /** Shown in place of the holder when the re-read after a take or a close failed. */
 export const STALE = 'Could not refresh the turn. Reload to see who holds it.';
+/**
+ * How long the re-read after a take or a close may run before the section treats it as failed;
+ * the shared read coordinator has no deadline, and a later answer still clears the state.
+ */
+export const REREAD_LIMIT_MS = 15_000;
 /** Shown in place of the holder while that re-read runs. */
 export const REFRESHING = 'Refreshing the turn…';
 export const ARCHIVED = 'This task is archived. The turn cannot be closed.';
