@@ -1,5 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { COLUMNS } from '@spur-board/contracts/browser';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Banner,
   Button,
@@ -16,10 +15,25 @@ import type { BoardConfig, BoardData, BoardTask } from './data.ts';
 import type { BoardColumnConfig, BoardRow } from './model.ts';
 import { actorDisplayName, age, columnAfter } from './task-model.ts';
 import type { TurnIntent, TurnPhase } from './turn-intent.ts';
+import {
+  ARCHIVED,
+  BASES,
+  BASIS_ID,
+  brief,
+  isBasis,
+  NOTE,
+  orchestrated,
+  OUTCOME,
+  PHASE,
+  reasonError,
+  RETURNABLE,
+  shaError,
+  UNAVAILABLE,
+  type Basis,
+} from './turn-model.ts';
 import styles from './TaskTurn.module.css';
 
 type Turn = NonNullable<BoardTask['turn']>;
-type Basis = 'tested' | 'carried' | 'skipped';
 type Form = 'submit' | 'return';
 type FieldErrors = Partial<Record<'sha' | 'from' | 'reason', string | undefined>>;
 /** The turn a form opened on; the section keeps it until a form opens on a newer turn. */
@@ -29,49 +43,6 @@ interface Bound {
   own: { outcome: 'submitted' | 'returned'; pending: boolean } | undefined;
   /** A write answered that the turn is closed, whatever the last read says. */
   refusedClosed: boolean;
-}
-
-const BASIS_ID = 'turn-basis';
-const BASES = [
-  { value: 'tested', label: 'Tested' },
-  { value: 'carried', label: 'Carried' },
-  { value: 'skipped', label: 'Skipped' },
-];
-const isBasis = (value: string): value is Basis => BASES.some((basis) => basis.value === value);
-const SHA = /^[0-9a-f]{40,64}$/;
-const RETURNABLE = new Set<string>(
-  COLUMNS.filter((column) => column.returnable).map((column) => column.id),
-);
-const PHASE: Record<TurnPhase, string> = {
-  taking: 'Taking the turn',
-  closing: 'Closing the turn',
-};
-/** A close by anything but a submit or a return names no closer: the read does not know one. */
-const OUTCOME: Record<string, string> = {
-  moved: 'the task was moved',
-  corrected: 'the column was corrected',
-  rerouted: 'the turn went to another executor',
-  mode_changed: 'the dispatcher mode changed',
-  archived: 'the task was archived',
-};
-const UNAVAILABLE = 'The turn cannot be closed while the board is unavailable.';
-const ARCHIVED = 'This task is archived. The turn cannot be closed.';
-const NOTE =
-  'You can close this turn yourself when the orchestrator is down or you have the verdict from elsewhere.';
-
-const orchestrated = (turn: BoardTask['turn']) =>
-  turn?.addressee.startsWith('orchestrator:') ? turn : undefined;
-function shaError(value: string, what: string): string | undefined {
-  if (value === '') return `Enter ${what}.`;
-  return SHA.test(value)
-    ? undefined
-    : 'Enter the full lowercase commit SHA: 40 to 64 characters, 0-9 and a-f.';
-}
-function reasonError(value: string, max: number): string | undefined {
-  if (value.trim() === '') return 'Enter a reason.';
-  return value.length > max
-    ? `The reason must be ${max.toLocaleString('en-US')} characters or fewer.`
-    : undefined;
 }
 
 /**
@@ -121,6 +92,27 @@ export function TaskTurn({
   const cancelRow = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const pendingFocus = useRef<'field' | Form | 'status'>(undefined);
+  /** The form control that last lost focus to nothing; disabled, the browser left focus on the body. */
+  const lostFocus = useRef<(Element & { disabled?: boolean }) | null>(null);
+  // A native listener: React ignores the blur a control fires while React's commit disables it.
+  const watchForm = useCallback((node: HTMLFormElement | null) => {
+    formRef.current = node;
+    if (node === null) return;
+    const out = (event: FocusEvent) => {
+      lostFocus.current =
+        event.relatedTarget === null && event.target instanceof Element ? event.target : null;
+    };
+    const into = () => {
+      lostFocus.current = null;
+    };
+    node.addEventListener('focusout', out);
+    node.addEventListener('focusin', into);
+    return () => {
+      node.removeEventListener('focusout', out);
+      node.removeEventListener('focusin', into);
+      formRef.current = null;
+    };
+  }, []);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -154,9 +146,14 @@ export function TaskTurn({
     } else actions.current?.querySelectorAll('button')[target === 'submit' ? 0 : 1]?.focus();
   });
   useLayoutEffect(() => {
-    if (sendOff && formRef.current?.contains(document.activeElement))
-      cancelRow.current?.querySelectorAll('button')[1]?.focus();
-  }, [sendOff]);
+    const lost = lostFocus.current?.disabled === true;
+    lostFocus.current = null;
+    if (!sendOff && !inFlight) return;
+    // Chrome blurs a focused control as it becomes disabled, before this effect runs. Focus goes
+    // to Cancel once the turn cannot be sent, else to the busy primary button.
+    if (lost || formRef.current?.contains(document.activeElement))
+      cancelRow.current?.querySelectorAll('button')[sendOff ? 1 : 0]?.focus();
+  }, [sendOff, inFlight]);
 
   if (open === undefined && bound === undefined) return null;
   const name = (actor: string) => actorDisplayName(actor, config);
@@ -170,7 +167,7 @@ export function TaskTurn({
       ? `${turn.id} · not taken`
       : turn.taken.by === 'operator'
         ? `${turn.id} · you hold it`
-        : `${turn.id} · taken by ${name(turn.taken.by)}`;
+        : `${turn.id} · taken by ${brief(turn.taken.by)}`;
   const record = bound && value.turns?.find((turn) => turn.id === bound.turn.id);
   const outcome = record?.closed?.outcome;
   const closer =
@@ -344,7 +341,14 @@ export function TaskTurn({
       </FormRow>
     );
     return (
-      <form ref={formRef} className={styles.form} aria-busy={inFlight || undefined} onSubmit={send}>
+      <form
+        // One key in the open and the closed box, so a close keeps the form and its focus.
+        key="form"
+        ref={watchForm}
+        className={styles.form}
+        aria-busy={inFlight || undefined}
+        onSubmit={send}
+      >
         {form === 'submit' ? (
           <>
             <FormRow
@@ -472,7 +476,7 @@ export function TaskTurn({
     if (entry.own) return `${id} ${entry.own.outcome}`;
     if (!boundOpen)
       return closer !== undefined
-        ? `${id} closed by ${closer}`
+        ? `${id} closed by ${record?.taken ? brief(record.taken.by) : closer}`
         : outcome !== undefined
           ? `${id} closed: ${OUTCOME[outcome] ?? outcome}`
           : `${id} closed`;

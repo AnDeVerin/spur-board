@@ -133,6 +133,32 @@ describe('Turn section sends', () => {
 });
 
 describe('Turn section focus', () => {
+  it.each([
+    ['the browser blurs the disabled field', true],
+    ['focus stays on the disabled field', false],
+  ])('moves focus to Cancel when the turn closes elsewhere and %s', async (_, blurs) => {
+    const { d } = await open();
+    await click('Submit…');
+    expect(document.activeElement).toBe(commit());
+    let blurred = false;
+    commit().addEventListener('blur', () => {
+      blurred = true;
+    });
+    // Chrome blurs a focused control as it becomes disabled, with no related target, so focus
+    // is on the body when React's effects run. happy-dom keeps focus on a disabled control and
+    // refuses to blur one, so the field blurs here just before it is disabled.
+    const field = commit();
+    const setAttribute = field.setAttribute.bind(field);
+    field.setAttribute = (name: string, value: string) => {
+      if (name === 'disabled' && blurs) field.blur();
+      setAttribute(name, value);
+    };
+    await reread(d, orchestratorTaskGet({}, { turn: null, turns: [closedTurn('submitted')] }));
+    expect(blurred).toBe(blurs);
+    expect(commit().disabled).toBe(true);
+    expect(document.activeElement).toBe(button('Cancel'));
+  });
+
   it('moves focus into a form, back on Cancel and to the status line on success', async () => {
     await open();
     await click('Submit…');

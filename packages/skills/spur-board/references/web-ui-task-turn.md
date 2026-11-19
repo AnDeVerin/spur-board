@@ -92,7 +92,8 @@ dev.`, even when the task then has no open turn. A submit the Board still has to
 
 While the daemon or live updates are unavailable, the buttons are disabled and the section says
 `The turn cannot be closed while the board is unavailable.` An archived task reads `This task is
-archived. The turn cannot be closed.` Focus on a control that becomes disabled moves to Cancel.
+archived. The turn cannot be closed.` Focus on a control that becomes disabled moves to Cancel,
+or to the busy button while a request runs.
 
 ## Folded
 
@@ -100,5 +101,6 @@ The section folds like the others; folding keeps the form, its text and its keys
 up the turn: `T<n> · not taken`, `T<n> · taken by <name>` or `T<n> · you hold it`; `Closing
 T<n>…` while a request runs; `T<n> · refused, you hold it` after a refusal once the turn is held,
 else `T<n> · refused`; `T<n> submitted` or `T<n> returned` after your close; `T<n> closed by
-<name>` or `T<n> closed: <outcome>` after a close elsewhere. A newer open turn is added after a
+<name>` or `T<n> closed: <outcome>` after a close elsewhere. There `<name>` is the session alone, cut to 16 characters, so the
+section title keeps its room. A newer open turn is added after a
 `;`. A close while the section is folded does not move focus.

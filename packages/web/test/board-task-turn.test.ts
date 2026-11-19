@@ -38,7 +38,7 @@ describe('Turn section', () => {
       expect.arrayContaining(['Submit…', 'Return to dev…']),
     );
     expect(text()).toContain('You can close this turn yourself when the orchestrator is down');
-    expect(summary()).toBe('T5 · taken by rev / rev-1');
+    expect(summary()).toBe('T5 · taken by rev-1');
   });
 
   it('shows no Turn section for a worker turn and no Return for a non-returnable column', async () => {
@@ -171,7 +171,7 @@ describe('Turn section when the turn closes elsewhere', () => {
     expect(confirmation().primary?.disabled).toBe(true);
     expect(button('Cancel').disabled).toBe(false);
     expect(button('Submit…').disabled).toBe(true);
-    expect(summary()).toBe('T5 closed by qa / qa-1');
+    expect(summary()).toBe('T5 closed by qa-1');
     await send();
     expect(writes()).toEqual([]);
     await click('Cancel');
@@ -223,7 +223,7 @@ describe('Turn section when the turn closes elsewhere', () => {
     expect(text()).toContain('T5 was closed by qa / qa-1');
     const body = turnSection().querySelector('[id$="-body"]')?.textContent ?? '';
     expect(body.indexOf('T5 was closed')).toBeLessThan(body.indexOf('T6'));
-    expect(summary()).toBe('T5 closed by qa / qa-1; T6 · not taken');
+    expect(summary()).toBe('T5 closed by qa-1; T6 · not taken');
     const submits = () => buttons().filter((entry) => entry.textContent === 'Submit…');
     expect(submits().map((entry) => entry.disabled)).toEqual([true, true]);
     await send();
@@ -242,6 +242,15 @@ describe('Turn section when the turn closes elsewhere', () => {
 });
 
 describe('Turn section summary and availability', () => {
+  it('names only the cut session in the summary so a long closer leaves the title room', async () => {
+    const { d } = await open();
+    await click('Submit…');
+    const by = 'agent:stand-qa/stand-qa-5393a300271cfebf9c4bf472';
+    await reread(d, orchestratorTaskGet({}, { turn: null, turns: [closedTurn('submitted', by)] }));
+    expect(summary()).toBe('T5 closed by stand-qa-5393a3…');
+    expect(text()).toContain('T5 was closed by stand-qa / stand-qa-5393a300271cfebf9c4bf472');
+  });
+
   it('summarises the folded section truthfully', async () => {
     const { d } = await open();
     expect(summary()).toBe('T5 · not taken');
@@ -252,7 +261,7 @@ describe('Turn section summary and availability', () => {
     await send();
     expect(summary()).toBe('T5 · refused, you hold it');
     await reread(d, orchestratorTaskGet({}, { turn: null, turns: [closedTurn('returned')] }));
-    expect(summary()).toBe('T5 closed by qa / qa-1');
+    expect(summary()).toBe('T5 closed by qa-1');
     expect(text()).toContain('Returned to dev 0m ago.');
   });
 
