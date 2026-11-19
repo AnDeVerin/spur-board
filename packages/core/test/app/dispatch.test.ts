@@ -6453,6 +6453,50 @@ describe('approvalRule github-rules', () => {
     expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
   });
 
+  it('two tasks on one PR each get an item naming their own task, kept on the next reconcile', async () => {
+    const ctx = await pastProductReview(RULED);
+    const first = await ctx.task();
+    const { id: _id, ...copy } = first;
+    const second = await ctx.store.db
+      .insertInto('task')
+      .values({ ...copy, key: 'o/r#10', tracker_id: null })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const link = await ctx.store.db
+      .selectFrom('link')
+      .selectAll()
+      .where('task_id', '=', first.id)
+      .where('entity', '=', 'pr')
+      .executeTakeFirstOrThrow();
+    const { id: _linkId, ...linkCopy } = link;
+    await ctx.store.db
+      .insertInto('link')
+      .values({ ...linkCopy, task_id: second.id })
+      .execute();
+    // The reviewers' marks on the head, so the second task also stays in External Review.
+    for (const { id: _submission, ...submission } of await ctx.store.db
+      .selectFrom('submission')
+      .selectAll()
+      .where('task_id', '=', first.id)
+      .execute())
+      await ctx.store.db
+        .insertInto('submission')
+        .values({ ...submission, task_id: second.id })
+        .execute();
+    await ctx.rulePr({ ...approved, mergeState: 'behind' }, rule());
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    const items = await ruleItems(ctx);
+    expect(items.map((item) => item.item_key)).toEqual([
+      `review-rule:${String(first.id)}:o/r#7:${A}`,
+      `review-rule:${String(second.id)}:o/r#7:${A}`,
+    ]);
+    expect(items.map((item) => item.text.split(':')[0])).toEqual([KEY, 'o/r#10']);
+    expect(items[1]?.text.slice('o/r#10'.length)).toBe(items[0]?.text.slice(KEY.length));
+    await ctx.tick();
+    expect(await ruleItems(ctx)).toEqual(items);
+  });
+
   it('clears the item on a decision in External Review and raises a new one for the next undecided stretch', async () => {
     const ctx = await pastProductReview(RULED);
     const threads = (resolved: boolean) => ({

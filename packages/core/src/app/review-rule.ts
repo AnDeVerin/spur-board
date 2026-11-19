@@ -41,7 +41,10 @@ const storedSchema = z.strictObject({
    * names someone to act.
    */
   undecidedSince: z.iso.datetime().nullable(),
-  /** The item summary, frozen at the first reconcile 30 minutes after `undecidedSince`. */
+  /**
+   * GitHub's raw values for the item, frozen at the first reconcile 30 minutes after
+   * `undecidedSince`. The PR's tasks share it; each item's summary adds its own task key.
+   */
   raised: z.string().nullable(),
 });
 type Stored = z.output<typeof storedSchema>;
@@ -173,8 +176,8 @@ const upper = (value: string | null): string => (value === null ? 'null' : value
 
 /**
  * The items of github-rules tasks in External Review whose head has stayed undecided for
- * `REVIEW_RULE_UNDECIDED_MS`. Each summary is frozen in its row at the first reconcile past the
- * threshold, so a later poll or a restart keeps the item as raised.
+ * `REVIEW_RULE_UNDECIDED_MS`. GitHub's values are frozen in the row at the first reconcile past
+ * the threshold, so a later poll or a restart keeps the item as raised.
  */
 export async function reviewRuleItems(
   trx: Trx,
@@ -205,12 +208,14 @@ export async function reviewRuleItems(
     const row = await rowOnHead(trx, source, pr);
     if (row?.undecidedSince == null) continue;
     if (now - Date.parse(row.undecidedSince) < REVIEW_RULE_UNDECIDED_MS) continue;
-    let summary = row.raised;
-    if (summary === null) {
-      summary = `${task.key}: GitHub has not decided the review rule of ${pr.repo}#${String(pr.number)} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;
-      const value = toJson(storedSchema, { ...row, raised: summary });
+    let raised = row.raised;
+    if (raised === null) {
+      raised = `GitHub has not decided the review rule of ${pr.repo}#${String(pr.number)} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;
+      const value = toJson(storedSchema, { ...row, raised });
       await trx.updateTable('meta').set({ value }).where('key', '=', key).execute();
     }
+    // Tasks linking the same PR share the row; each item names its own task.
+    const summary = `${task.key}: ${raised}`;
     candidates.push({
       key: `${REVIEW_RULE_KEY}${String(task.id)}:${pr.repo}#${String(pr.number)}:${row.headSha}`,
       kind: 'board_observation',
