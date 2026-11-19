@@ -4,9 +4,10 @@
 
 - Map a failed HTTP response with `classifyHttpFailure` in `packages/adapters/src/runner/http.ts`:
   429, or 403 with a rate-limit sign, is `throttled`, with `retryAt` when the headers give a
-  usable time; a 403 whose body cannot be read and whose headers carry no rate-limit sign is
-  `transient`; other 401 and 403 are `auth`; the rest is `transient`. Board doctor reuses it and
-  the GraphQL rules.
+  usable time; other 401 and 403 are `auth`; the rest is `transient`. Board doctor reuses it and
+  the GraphQL rules. `classifyResponseFailure` reads the body first; when the read fails it keeps
+  a rate limit the headers show and otherwise fails as the read error (unexpected), so an
+  unreadable 403 without rate-limit headers is never `auth`.
 - `nextDelay` in `packages/adapters/src/runner/policy.ts` waits `authRetryMs` after `auth` or
   `config`, until `retryAt` after a `throttled` failure that carries one, and backs off
   exponentially otherwise, a `throttled` failure without `retryAt` included.
