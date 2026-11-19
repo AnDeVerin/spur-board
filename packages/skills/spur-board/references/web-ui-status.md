@@ -22,10 +22,11 @@ Service dots follow `status.get` health: green healthy, amber degraded, red fail
   `blind: <reason>`, `waits for rate budget`, `never completed`, `warming up` or `stale`;
   `waits for rate budget` means the daemon put off that source's next poll, for at least one poll
   interval, because its last poll left a GitHub budget under the configured reserve or was
-  throttled with a retry time; hover for the reason. After a daemon restart a button reads `warming up` until every source of its own
-  service, in every project, has polled once: an unpolled Jira source does not keep github or spur
-  warming up, and a blind source, a source waiting for its rate budget, or a stale one listed
-  first, of the same service shows its word instead.
+  throttled with a retry time; hover for the reason. After a daemon restart a button reads
+  `warming up` until every source of its own service, in every project, has polled once: an
+  unpolled Jira source does not keep github or spur warming up, and a blind source, a source
+  waiting for its rate budget, or a stale one listed first, of the same service shows its word
+  instead.
 - `unknown`, with a hollow dot, for a service with no health row, for all before the first status
   read, and for all but the daemon while the daemon does not answer.
 
