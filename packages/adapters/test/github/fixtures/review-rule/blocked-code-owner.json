@@ -26,7 +26,10 @@
         "requiredStatusCheckContexts": ["ci"]
       },
       "rules": {
-        "nodes": []
+        "nodes": [],
+        "pageInfo": {
+          "hasNextPage": false
+        }
       }
     },
     "statusCheckRollup": {

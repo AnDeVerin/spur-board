@@ -60,7 +60,10 @@
               "__typename": "MergeQueueParameters"
             }
           }
-        ]
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
       }
     },
     "statusCheckRollup": {

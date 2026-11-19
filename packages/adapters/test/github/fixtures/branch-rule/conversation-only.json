@@ -11,7 +11,10 @@
           "requiredStatusCheckContexts": []
         },
         "rules": {
-          "nodes": []
+          "nodes": [],
+          "pageInfo": {
+            "hasNextPage": false
+          }
         }
       }
     }

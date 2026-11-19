@@ -3603,6 +3603,11 @@ describe('approvalRule github-rules', () => {
       }),
     ).toEqual({ reviewDecision: 'approved', rule: null });
     expect(branchRuleOf({ rules: { nodes: [], pageInfo: { hasNextPage: false } } })).toEqual(none);
+    // No rulesets at all reads as none; rules without pageInfo may run past the page read.
+    expect(branchRuleOf({ rules: null })).toEqual(none);
+    expect(branchRuleOf({ refUpdateRule: null })).toEqual(none);
+    expect(branchRuleOf({ rules: { nodes: [] } })).toBeNull();
+    expect(branchRuleOf({ rules: { nodes: [], pageInfo: null } })).toBeNull();
     expect(
       branchRuleOf({
         refUpdateRule: {
@@ -3628,6 +3633,7 @@ describe('approvalRule github-rules', () => {
               },
             },
           ],
+          pageInfo: { hasNextPage: false },
         },
       }),
     ).toEqual({
@@ -3732,7 +3738,7 @@ describe('approvalRule github-rules', () => {
       reviewDecision: 'REVIEW_REQUIRED',
       baseRef: {
         refUpdateRule: { requiredApprovingReviewCount: 1, requiredStatusCheckContexts: ['build'] },
-        rules: { nodes: [] },
+        rules: { nodes: [], pageInfo: { hasNextPage: false } },
       },
       reviewThreads: conn([{ isResolved: true }]),
       statusCheckRollup: {

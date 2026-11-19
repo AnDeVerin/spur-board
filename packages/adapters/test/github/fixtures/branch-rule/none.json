@@ -14,7 +14,10 @@
               "type": "NON_FAST_FORWARD",
               "parameters": null
             }
-          ]
+          ],
+          "pageInfo": {
+            "hasNextPage": false
+          }
         }
       }
     }

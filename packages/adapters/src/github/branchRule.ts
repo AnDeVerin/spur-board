@@ -28,7 +28,7 @@ export const branchRuleWire = z.object({
   rules: z
     .object({
       nodes: z.array(z.object({ type: z.string(), parameters: parametersWire }).nullable()),
-      // Absent in reads recorded before the query selected it: one page, all rules read.
+      // The query always selects it: missing or null leaves the rules unconfirmed (`branchRuleOf`).
       pageInfo: z.object({ hasNextPage: z.boolean() }).nullish(),
     })
     .nullish(),
@@ -39,11 +39,12 @@ export type BranchRuleWire = z.output<typeof branchRuleWire>;
  * The merged rule: the largest approval count, a code owner review or resolved conversations
  * when any source requires one, and every required check once. A ruleset counts as a source only
  * through a pull request or required status checks rule. Null when the rules run past the one
- * page read, as for a rule the token could not read: an unread rule may require a check or a
- * review.
+ * page read or come without `pageInfo` to confirm they do not, as for a rule the token could not
+ * read: an unread rule may require a check or a review. No `rules` at all reads as no rulesets.
  */
 export function branchRuleOf(wire: BranchRuleWire | null | undefined): ReviewRule | null {
-  if (wire?.rules?.pageInfo?.hasNextPage === true) return null;
+  const rules = wire?.rules;
+  if (rules !== null && rules !== undefined && rules.pageInfo?.hasNextPage !== false) return null;
   const protection = wire?.refUpdateRule ?? null;
   const nodes = wire?.rules?.nodes ?? [];
   const parametersOf = (type: string, typename: string) =>

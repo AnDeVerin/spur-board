@@ -11,7 +11,10 @@
           "requiredStatusCheckContexts": ["build", "test"]
         },
         "rules": {
-          "nodes": []
+          "nodes": [],
+          "pageInfo": {
+            "hasNextPage": false
+          }
         }
       }
     }
