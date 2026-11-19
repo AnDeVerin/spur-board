@@ -35,7 +35,8 @@ describe('Popover styles', () => {
         'width: var(--popover-width)',
         'left: clamp(var(--space-2), var(--popover-left), 100% - var(--space-2) - var(--popover-width))',
         'top: var(--popover-y)',
-        'max-height: min(var(--size-popover-height), 100% - var(--popover-y) - var(--space-2))',
+        // Floored at the least height, so a panel following its anchor out slides out whole.
+        'max-height: max(var(--popover-least), min(var(--size-popover-height), 100% - var(--popover-y) - var(--space-2)))',
       ]),
     );
     // No overflow on the root: a menu in the header may extend past the panel.

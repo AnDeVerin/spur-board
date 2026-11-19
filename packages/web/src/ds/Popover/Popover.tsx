@@ -26,8 +26,9 @@ import styles from './Popover.module.css';
  * space under the anchor, down to `--space-2` above the window edge, and the body scrolls. With
  * less space than the header and the body padding need, the panel moves up just enough to keep
  * its header in view and may cover the bottom of the anchor; it never flips above the anchor.
- * An anchor whose top is below the window takes the panel out with it. At 375px it fills the window width less `--space-2` on each side, still under its
- * anchor: not a bottom sheet.
+ * It is never shorter than that least height, so an anchor whose top is below the window takes
+ * the whole panel out with it. At 375px it fills the window width less `--space-2` on each side,
+ * still under its anchor: not a bottom sheet.
  *
  * Focus: the opener is the element focused at the first render. With one, focus moves to Close
  * on open; with none (focus on `body`), focus stays put. Escape and Close call `onClose`; Close
@@ -119,12 +120,12 @@ function OpenPopover({
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
     };
-  }, []);
+  }, [anchor]);
   // Again after the whole commit: a popover rendered inside its anchor runs its layout effects
   // before React attaches the anchor's ref, so the first measure finds no anchor.
   useEffect(() => {
     place();
-  }, []);
+  }, [anchor]);
   // A layout effect, as a layer's: inside a layer opening in the same commit it runs first.
   useLayoutEffect(() => {
     const element = panel.current;
