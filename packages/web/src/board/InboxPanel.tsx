@@ -42,10 +42,14 @@ function noSession(entry: Entry, description: string): NoSession | undefined {
   const match = NO_SESSION.exec(description);
   if (!match || match[1] !== entry.project) return undefined;
   const rest = description.slice(match[0].length);
-  // A Spur project name may hold `; `: the action names it whole, so it is taken from there.
+  // A Spur project name may hold `; `: the action names it whole, so it is taken from there,
+  // and a known clause or the end must follow it, else the name could go on (a renamed project).
   // Without a named action the name ends at the first `; `.
   const named = entry.action === undefined ? undefined : NAMED_ACTION.exec(entry.action)?.[1];
-  if (named !== undefined && rest !== named && !rest.startsWith(`${named}; `)) return undefined;
+  if (named !== undefined && rest !== named) {
+    const next = rest.startsWith(`${named}; `) ? rest.slice(named.length + 2).split('; ')[0] : '';
+    if (next === undefined || !(OLDEST.test(next) || WAITING.test(next))) return undefined;
+  }
   const expects = named ?? rest.split('; ')[0] ?? '';
   if (expects === '') return undefined;
   const found: NoSession = { column: match[2] ?? '', expects };

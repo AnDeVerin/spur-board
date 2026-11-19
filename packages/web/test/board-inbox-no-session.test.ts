@@ -167,11 +167,11 @@ describe('inbox no-session item', () => {
     expect(meta('I9').at(-1)).toBe('30m');
   });
 
-  it('leaves out clauses it does not know, wherever they stand', async () => {
+  it('leaves out clauses it does not know, after a known one', async () => {
     const d = daemon();
     serveInbox(d, [
       open('I7'),
-      entry('I8', `${HEAD}; future thing 3; ${OLDEST}; ${waiting(2)}; future thing 3`),
+      entry('I8', `${HEAD}; ${OLDEST}; future thing 3; ${waiting(2)}; future thing 3`),
     ]);
     await openInbox(d);
     expect(lines('I8')).toEqual(lines('I7'));
@@ -254,15 +254,25 @@ describe('inbox no-session item', () => {
 
   const unnamed =
     'start a session in its Spur project, or take over its turns with board inbox ack';
+  // `after` is a clause put directly after the stored name, before the known ones.
   it.each([
-    ['a name holding "; "', 'QA; West', named('QA; West'), 'QA; West'],
-    ['a plain name', 'orbit-qa', named('orbit-qa'), 'orbit-qa'],
-    ['an action naming no project', 'orbit-qa', unnamed, 'orbit-qa'],
-    ['no action', 'orbit-qa', undefined, 'orbit-qa'],
-    ['an action naming another project', 'orbit-qa', named('other'), undefined],
-  ])('reads the Spur project with %s', async (_, spur, action, expects) => {
+    ['a name holding "; "', 'QA; West', named('QA; West'), 'QA; West', ''],
+    ['a plain name', 'orbit-qa', named('orbit-qa'), 'orbit-qa', ''],
+    ['an action naming no project', 'orbit-qa', unnamed, 'orbit-qa', ''],
+    ['no action', 'orbit-qa', undefined, 'orbit-qa', ''],
+    ['an action naming another project', 'orbit-qa', named('other'), undefined, ''],
+    ['an action naming a prefix of the stored name', 'QA; West', named('QA'), undefined, ''],
+    [
+      'a matching action and an unknown clause next',
+      'orbit-qa',
+      named('orbit-qa'),
+      undefined,
+      '; future thing 3',
+    ],
+    ['no action and an unknown clause next', 'orbit-qa', undefined, 'orbit-qa', '; future thing 3'],
+  ])('reads the Spur project with %s', async (_, spur, action, expects, after) => {
     const d = daemon();
-    const head = `a qa: turns wait for a live session of Spur project ${spur}`;
+    const head = `a qa: turns wait for a live session of Spur project ${spur}${after}`;
     const activeText = `${head}; ${OLDEST}; ${waiting(2)}`;
     const handledText = `${head}; ${OLDEST}`;
     const make = (id: string, text: string, extra: Entry = {}) => {
