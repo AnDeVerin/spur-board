@@ -47,6 +47,9 @@ function serviceOf(source: string): 'github' | 'spur' | 'jira' | null {
   return null;
 }
 
+/** The degraded word of a source whose rate budget is under the configured reserve. */
+const BUDGET_WAIT = 'waits for rate budget';
+
 /** Health of one source from its own fields, in core's order of reasons. */
 function sourceState(source: BoardSourceView): Health {
   if (source.blindReason !== null) return { tone: 'error', word: `blind: ${source.blindReason}` };
@@ -54,23 +57,22 @@ function sourceState(source: BoardSourceView): Health {
     return { tone: 'warn', word: source.warmingUp ? 'warming up' : 'never completed' };
   if (source.stale) return { tone: 'warn', word: 'stale' };
   if (source.warmingUp) return { tone: 'warn', word: 'warming up' };
+  if (source.waitsForBudget) return { tone: 'warn', word: BUDGET_WAIT };
   return { tone: 'ok', word: 'polling' };
 }
-
-/** The only degraded reason core reads from config, which the browser cannot see. */
-const BUDGET_WAIT = 'waits for rate budget';
 
 function serviceHealth(name: ServiceName, row: ServiceRow, sources: readonly BoardSourceView[]) {
   const tone = TONES[row.state];
   if (name === 'daemon') return { tone, word: row.state === 'healthy' ? 'running' : 'stalled' };
   if (name === 'slack') return { tone, word: row.state === 'healthy' ? 'up' : 'down' };
   if (row.state === 'healthy') return { tone, word: 'polling' };
-  // The first member source, in status order, whose own state has the row's tone.
+  // The first member source, in status order, whose own state has the row's tone: the one core
+  // names in the row's reason.
   const first = sources
     .filter((source) => serviceOf(source.source) === name)
     .map(sourceState)
     .find((health) => health.tone === tone);
-  return first ?? { tone, word: BUDGET_WAIT };
+  return first ?? { tone, word: row.state };
 }
 
 const pad = (value: number) => String(value).padStart(2, '0');
@@ -288,9 +290,8 @@ const tail = (source: string) => source.split(':').at(-1) ?? '';
 /**
  * The panel boxes: the shared daemon, host, slack and spur, then one run per project in the order
  * its sources come, each with one box per GitHub pull request source, GitHub issue source and Jira
- * source. A source box takes its word from its own fields, or `waits for rate budget` with its
- * service row's state when that row blames it and its fields cannot show why. While the daemon
- * does not answer every box but the daemon reads unknown; before the first status there are none.
+ * source. A source box takes its word from its own fields. While the daemon does not answer every
+ * box but the daemon reads unknown; before the first status there are none.
  */
 export function panelBoxes(
   snapshot: HealthSnapshot,
@@ -313,23 +314,13 @@ export function panelBoxes(
       rows,
     };
   };
-  const sourceHealth = (source: BoardSourceView, service: ServiceName): Health => {
-    const own = sourceState(source);
-    // Core's row reason starts with the id of the source it blames. When that source's own fields
-    // miss the row's state, as a budget wait past the configured reserve does, take the row's.
-    const row = live?.services.find((candidate) => candidate.service === service);
-    if (row === undefined || row.state === 'healthy' || TONES[row.state] === own.tone) return own;
-    return row.reason?.startsWith(`${source.source} `) === true
-      ? { tone: TONES[row.state], word: BUDGET_WAIT }
-      : own;
-  };
   const sourceBox = (source: BoardSourceView, service: ServiceName, name: string): PanelBox => ({
     id: source.source,
     service,
     project: source.project,
     icon: ICONS[service],
     name,
-    health: live ? sourceHealth(source, service) : UNKNOWN,
+    health: live ? sourceState(source) : UNKNOWN,
     rows: live ? sourceRows(source, formatTime) : GONE,
   });
   const sources = (status?.sources ?? []).filter((source) => source.source !== 'spur');
@@ -384,14 +375,27 @@ export function panelBoxes(
 }
 
 /**
- * The box a status bar button scrolls to: the first box of its service that is failing, else the
- * first degraded one, else its first box; undefined when the service has none.
+ * The box a status bar button scrolls to: a failing box of its service, else a degraded one, else
+ * its first box; undefined when the service has none. Among boxes of one tone it takes the source
+ * first in `order`, the `status.get` source order in which core picks the source its service row
+ * names, then the first in panel order.
  */
-export function scrollTarget(boxes: readonly PanelBox[], service: ServiceName): string | undefined {
+export function scrollTarget(
+  boxes: readonly PanelBox[],
+  service: ServiceName,
+  order: readonly string[] = [],
+): string | undefined {
   const own = boxes.filter((box) => box.service === service);
-  return (
-    own.find((box) => box.health?.tone === 'error') ??
-    own.find((box) => box.health?.tone === 'warn') ??
-    own[0]
-  )?.id;
+  const rank = (box: PanelBox) => {
+    const at = order.indexOf(box.id);
+    return at === -1 ? order.length : at;
+  };
+  const worst = (tone: StatusDotTone) =>
+    own
+      .filter((box) => box.health?.tone === tone)
+      .reduce<PanelBox | undefined>(
+        (best, box) => (best === undefined || rank(box) < rank(best) ? box : best),
+        undefined,
+      );
+  return (worst('error') ?? worst('warn') ?? own[0])?.id;
 }

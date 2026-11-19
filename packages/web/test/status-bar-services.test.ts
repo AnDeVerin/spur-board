@@ -112,7 +112,7 @@ describe('status bar indicators', () => {
     });
     expect(boxes.find((item) => item.id === PR)?.health).toEqual({ tone: 'ok', word: 'polling' });
 
-    const budget = status(undefined, [polled(PR), polled(ISSUES)], {
+    const budget = status(undefined, [polled(PR, { waitsForBudget: true }), polled(ISSUES)], {
       services: [service('github', 'degraded', { reason: `${PR} waits for its rate budget` })],
     });
     const [, , waiting] = indicators(snap(budget), time);
@@ -268,15 +268,14 @@ describe('services panel rows', () => {
     const ok = polled('github:a:ex/repo');
     const stale = polled('github:b:ex/other', { stale: true });
     const blind = polled('github:b:ex/third', { blindReason: 'auth' });
-    // Core blames this source in the github row; its own fields look healthy to the browser.
-    const waiting = polled('github:b:ex/other', {
-      budget: { remaining: 10, limit: 5000, resetAt: '2026-11-15T15:00:00.000Z' },
-    });
-    const waits = 'github:b:ex/other waits for its rate budget until 2026-11-15T15:00:00.000Z';
+    const budget = { remaining: 10, limit: 5000, resetAt: '2026-11-15T15:00:00.000Z' };
+    const waiting = (name: string) => polled(name, { budget, waitsForBudget: true });
     const github = (state: 'healthy' | 'degraded' | 'failing', reason?: string) => [
       ...HEALTHY.filter((row) => row.service !== 'github'),
       service('github', state, reason === undefined ? {} : { reason }),
     ];
+    const WAIT = 'waits for rate budget';
+    // `sources` in status.get order; `words` maps each source box to its head tone and word.
     it.each([
       {
         when: 'a box is failing',
@@ -284,54 +283,72 @@ describe('services panel rows', () => {
         sources: [polled('jira:a'), polled('jira:b', { blindReason: 'auth' })],
         services: [...HEALTHY, service('jira', 'failing', { reason: 'jira:b blind (auth)' })],
         expected: 'jira:b',
+        words: { 'jira:a': 'ok polling', 'jira:b': 'error blind: auth' },
       },
       {
-        when: 'a box is failing and another degraded',
+        when: 'a failing box beats an earlier degraded one',
         name: 'github' as const,
         sources: [ok, stale, blind],
         services: github('failing', 'github:b:ex/third blind (auth)'),
         expected: 'github:b:ex/third',
+        words: {
+          'github:a:ex/repo': 'ok polling',
+          'github:b:ex/other': 'warn stale',
+          'github:b:ex/third': 'error blind: auth',
+        },
       },
       {
-        when: 'a box is degraded',
+        when: 'one source of a later project waits for its rate budget',
         name: 'github' as const,
-        sources: [ok, stale],
-        services: github('degraded', 'github:b:ex/other stale'),
+        sources: [ok, waiting('github:b:ex/other'), polled('github:b:ex/third')],
+        services: github('degraded', 'github:b:ex/other waits for its rate budget'),
         expected: 'github:b:ex/other',
+        words: {
+          'github:a:ex/repo': 'ok polling',
+          'github:b:ex/other': `warn ${WAIT}`,
+          'github:b:ex/third': 'ok polling',
+        },
       },
       {
-        when: "the daemon blames a later project's source waiting for its rate budget",
+        when: 'sources of two projects wait for their rate budget',
         name: 'github' as const,
-        sources: [ok, waiting, polled('github:b:ex/third')],
-        services: github('degraded', waits),
-        expected: 'github:b:ex/other',
+        sources: [waiting('github:a:ex/repo'), waiting('github:b:ex/other')],
+        services: github('degraded', 'github:a:ex/repo waits for its rate budget'),
+        expected: 'github:a:ex/repo',
+        words: { 'github:a:ex/repo': `warn ${WAIT}`, 'github:b:ex/other': `warn ${WAIT}` },
+      },
+      {
+        // Core lists the issues tracker before the repos and blames it; the panel shows PRs first.
+        when: 'the issues source waits for its rate budget and the PR source is stale',
+        name: 'github' as const,
+        sources: [waiting('github-issues:b:ex/other'), stale],
+        services: github('degraded', 'github-issues:b:ex/other waits for its rate budget'),
+        expected: 'github-issues:b:ex/other',
+        words: { 'github:b:ex/other': 'warn stale', 'github-issues:b:ex/other': `warn ${WAIT}` },
       },
       {
         when: 'all boxes are healthy',
         name: 'github' as const,
-        sources: [ok, polled('github:b:ex/other')],
+        sources: [polled('github-issues:a:ex/repo'), ok, polled('github:b:ex/other')],
         services: github('healthy'),
         expected: 'github:a:ex/repo',
+        words: {
+          'github:a:ex/repo': 'ok polling',
+          'github-issues:a:ex/repo': 'ok polling',
+          'github:b:ex/other': 'ok polling',
+        },
       },
-    ])('$when', ({ name, sources, services, expected }) => {
-      const boxes = panelBoxes(
-        snap(status(undefined, [polled('spur'), ...sources], { services })),
-        time,
-      );
-      expect(scrollTarget(boxes, name)).toBe(expected);
-    });
-
-    it("heads the blamed box with the daemon's rate budget wait", () => {
-      const boxes = panelBoxes(
-        snap(
-          status(undefined, [polled('spur'), ok, waiting], { services: github('degraded', waits) }),
+    ])('$when', ({ name, sources, services, expected, words }) => {
+      const snapshot = snap(status(undefined, [polled('spur'), ...sources], { services }));
+      const boxes = panelBoxes(snapshot, time);
+      const own = boxes.filter((box) => box.service === name);
+      expect(
+        Object.fromEntries(
+          own.map((box) => [box.id, [box.health?.tone, box.health?.word].join(' ')]),
         ),
-        time,
-      );
-      expect(boxes.slice(-2).map((box) => box.health)).toEqual([
-        { tone: 'ok', word: 'polling' },
-        { tone: 'warn', word: 'waits for rate budget' },
-      ]);
+      ).toEqual(words);
+      const order = snapshot.status?.sources.map((entry) => entry.source);
+      expect(scrollTarget(boxes, name, order)).toBe(expected);
     });
   });
 

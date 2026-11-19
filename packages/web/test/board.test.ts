@@ -379,7 +379,8 @@ describe('board screen', () => {
         stale: true,
         lastCompleteAt: '2026-11-15T14:40:00.000Z',
       }),
-      source('github:ex/repo', { stale: true, warmingUp: true }),
+      // Project b's stale source stays out while it warms up.
+      source('github:b:ex/repo', { stale: true, warmingUp: true }),
       // Another project's blind source stays out of the banner of project b.
       source('jira:a', { blindReason: 'auth', lastCompleteAt: '2026-11-15T14:40:00.000Z' }),
     ];

@@ -26,6 +26,7 @@
   color: var(--color-text-tertiary);
   text-transform: uppercase;
   letter-spacing: var(--tracking-bar);
+  overflow-wrap: anywhere;
 }
 /* The state word of a box head, coloured as the dot beside it. */
 .state {

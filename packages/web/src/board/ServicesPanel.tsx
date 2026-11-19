@@ -98,13 +98,14 @@ export function ServicesPanel({
   const list = useRef<HTMLDivElement>(null);
   const boxes = panelBoxes(snapshot, formatDataTime);
   // Read at scroll time only: a refresh alone does not move the panel. Runs before the scroll.
-  const latest = useRef(boxes);
+  const order = (snapshot.status?.sources ?? []).map((source) => source.source);
+  const latest = useRef({ boxes, order });
   useEffect(() => {
-    latest.current = boxes;
+    latest.current = { boxes, order };
   });
   useEffect(() => {
     if (!open || scroll === undefined) return;
-    const target = scrollTarget(latest.current, scroll.service);
+    const target = scrollTarget(latest.current.boxes, scroll.service, latest.current.order);
     if (target === undefined) return;
     list.current?.querySelector(`[data-box="${target}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [open, scroll]);

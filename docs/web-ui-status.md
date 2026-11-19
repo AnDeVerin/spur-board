@@ -19,9 +19,11 @@ Service dots follow `status.get` health: green healthy, amber degraded, red fail
 - slack: `up` or `down`.
 - github, spur and jira: `polling` when healthy. GitHub takes the worst across repository pull
   request and issue sources. Otherwise the first source matching the service's colour supplies
-  `blind: <reason>`, `never completed`, `warming up` or `stale`. After a daemon restart they
-  read `warming up` until every project's sources have polled once. Else `waits for rate budget`
-  means a GitHub budget reached its configured reserve; hover for the reason.
+  `blind: <reason>`, `never completed`, `warming up`, `stale` or `waits for rate budget`, which
+  means that GitHub source's budget is under its configured reserve; hover for the reason. After
+  a daemon restart a button reads `warming up` until every source of its own service, in every
+  project, has polled once: an unpolled Jira source does not keep github or spur warming up, and a
+  blind source, or a stale one listed first, of the same service shows its word instead.
 - `unknown`, with a hollow dot, for a service with no health row, for all before the first status
   read, and for all but the daemon while the daemon does not answer.
 
@@ -39,18 +41,18 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
   no volume could be read or no sample yet. A host load wait adds an amber row.
 - slack: when down, Down since, Reason and Spaces.
 - spur, then one group per project, headed by the project id, with one box per GitHub source and
-  one per Jira source of that project. Each box is headed by its own state, or by
-  `waits for rate budget` when the daemon blames that source for a rate budget wait: Last
-  complete poll, Last observation, Blind (when blind), Freshness, Warming up, Points last hour
-  (pull request sources) and Budget: a bar of requests left over the limit with its reset time,
-  amber at 20% and red at 5%; `<n> left` without a limit; `—` without a budget. The spur box adds
-  an availability line while Spur is unavailable.
+  one per Jira source of that project. Each box is headed by its own state, so every GitHub
+  source waiting for its rate budget reads `waits for rate budget`: Last complete poll, Last
+  observation, Blind (when blind), Freshness, Warming up, Points last hour (pull request sources)
+  and Budget: a bar of requests left over the limit with its reset time, amber at 20% and red at
+  5%; `<n> left` without a limit; `—` without a budget. The spur box adds an availability line
+  while Spur is unavailable.
 
 A box name adds `· <repo>` only when its group has two sources of that kind. A service button
-scrolls the panel to its service's first failing box, else its first degraded box, else its
-first box, so it reaches a GitHub source waiting for its rate budget in any project when the
-daemon blames that source and no box is failing. Healthy services omit their healthy-since time. Before the first status the panel
-waits; an unreachable daemon makes boxes unknown. Lost live updates with a reachable daemon show
+scrolls the panel to its service's failing box, else its degraded box, else its first box; among
+boxes in the same state it takes the one whose word the button shows, the source the daemon
+blames. Healthy services omit their healthy-since time. Before the first status the panel waits;
+an unreachable daemon makes boxes unknown. Lost live updates with a reachable daemon show
 `Data from <time>` and retain data. Close, Escape, the scrim or services button closes the panel;
 focus returns to its opener, or services after a link.
 
