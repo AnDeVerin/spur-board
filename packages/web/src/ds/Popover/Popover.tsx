@@ -34,9 +34,10 @@ import styles from './Popover.module.css';
  * Near the bottom of the window its height shrinks to the space under the anchor, down to
  * `--space-2` above the window edge, and the body scrolls. With less space than the header and
  * one standard control (`--size-control`) in the padded body need, the panel moves up just enough
- * to keep them in view and may cover the bottom of the anchor; it never flips above the anchor. It is never shorter than that least
- * height, so it slides out whole with an anchor whose top is below the window. At 375px it fills
- * the window width less `--space-2` on each side, still under its anchor: not a bottom sheet.
+ * to keep them in view and may cover the bottom of the anchor; it never flips above the anchor.
+ * It is never shorter than that least height, so it slides out whole with an anchor whose top is
+ * below the window. At 375px it fills the window width less `--space-2` on each side, still under
+ * its anchor: not a bottom sheet.
  *
  * Focus: `trigger` is the element that opens the panel (the caller's control with
  * `aria-expanded`); the opener is the element focused at the first render. With an opener, focus
