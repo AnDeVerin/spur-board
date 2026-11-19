@@ -92,6 +92,8 @@ export function TaskTurn({
   const formRef = useRef<HTMLFormElement>(null);
   const cancelRow = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
+  const newerActions = useRef<HTMLSpanElement>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<'field' | Form | 'status'>(undefined);
   /** The form control that last lost focus to nothing; disabled, the browser left focus on the body. */
   const lostFocus = useRef<(Element & { disabled?: boolean }) | null>(null);
@@ -144,7 +146,17 @@ export function TaskTurn({
     if (target === 'field') formRef.current?.querySelector<HTMLElement>('input, textarea')?.focus();
     else if (target === 'status') {
       if (statusRef.current?.closest('[hidden]') === null) statusRef.current.focus();
-    } else actions.current?.querySelectorAll('button')[target === 'submit' ? 0 : 1]?.focus();
+    } else {
+      // Cancel goes back to the opening action; once its turn closed elsewhere that action is
+      // disabled, so focus goes to the newer turn's first action, else to the closed notice.
+      const usable = (button: HTMLButtonElement | null | undefined) =>
+        button && !button.disabled ? button : undefined;
+      (
+        usable(actions.current?.querySelectorAll('button')[target === 'submit' ? 0 : 1]) ??
+        usable(newerActions.current?.querySelector('button')) ??
+        noticeRef.current
+      )?.focus();
+    }
   });
   useLayoutEffect(() => {
     const lost = lostFocus.current?.disabled === true;
@@ -282,7 +294,7 @@ export function TaskTurn({
     </div>
   );
   const triggers = (turn: Turn, disabled: boolean, primary: boolean) => (
-    <span className={styles.actions} ref={primary ? actions : undefined}>
+    <span className={styles.actions} ref={primary ? actions : newerActions}>
       <Button
         disabled={disabled}
         onClick={() => {
@@ -451,25 +463,27 @@ export function TaskTurn({
               : `${turn.id} returned to dev.`}
           </p>
         ) : (
-          <Banner
-            variant="info"
-            icon="check"
-            detail={
-              outcome === 'submitted'
-                ? value.submission
-                  ? `Submitted ${value.submission.basis}, ${value.submission.sha.slice(0, 7)}, ${age(value.submission.at, now)} ago.`
-                  : undefined
-                : outcome === 'returned' && record?.closed
-                  ? `Returned to dev ${age(record.closed.at, now)} ago.`
-                  : undefined
-            }
-          >
-            {closer !== undefined
-              ? `${turn.id} was closed by ${closer}`
-              : outcome !== undefined
-                ? `${turn.id} was closed: ${OUTCOME[outcome] ?? outcome}`
-                : `${turn.id} was closed`}
-          </Banner>
+          <div ref={noticeRef} tabIndex={-1} className={focusRing}>
+            <Banner
+              variant="info"
+              icon="check"
+              detail={
+                outcome === 'submitted'
+                  ? value.submission
+                    ? `Submitted ${value.submission.basis}, ${value.submission.sha.slice(0, 7)}, ${age(value.submission.at, now)} ago.`
+                    : undefined
+                  : outcome === 'returned' && record?.closed
+                    ? `Returned to dev ${age(record.closed.at, now)} ago.`
+                    : undefined
+              }
+            >
+              {closer !== undefined
+                ? `${turn.id} was closed by ${closer}`
+                : outcome !== undefined
+                  ? `${turn.id} was closed: ${OUTCOME[outcome] ?? outcome}`
+                  : `${turn.id} was closed`}
+            </Banner>
+          </div>
         )}
         {form !== undefined && formElement(turn)}
       </div>

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
+import { focusRing } from '../src/ds/index.ts';
 import { orchestratorTaskGet, problem, taskGet } from './board-fixtures.ts';
 import { mountEachTest, press, settle } from './board-harness.ts';
 import {
@@ -166,8 +167,23 @@ describe('Turn section when the turn closes elsewhere', () => {
     const { d, writes } = await open();
     await click('Submit…');
     type(commit(), HEAD);
-    await reread(d, orchestratorTaskGet({}, { turn: null, turns: [closedTurn('submitted')] }));
+    const submission = {
+      column: 'review',
+      sha: HEAD,
+      at: AT,
+      basis: 'tested',
+      from: null,
+      testedOrigin: null,
+      reason: null,
+      pending: false,
+      voided: false,
+    };
+    await reread(
+      d,
+      orchestratorTaskGet({}, { turn: null, turns: [closedTurn('submitted')], submission }),
+    );
     expect(text()).toContain('T5 was closed by qa / qa-1');
+    expect(text()).toContain('Submitted tested, aaaaaaa, 0m ago.');
     expect(confirmation().primary?.disabled).toBe(true);
     expect(button('Cancel').disabled).toBe(false);
     expect(button('Submit…').disabled).toBe(true);
@@ -177,6 +193,9 @@ describe('Turn section when the turn closes elsewhere', () => {
     await click('Cancel');
     expect(turnSection().querySelector('form')).toBeNull();
     expect(text()).toContain('T5 was closed by qa / qa-1');
+    // The opening action is disabled now, so focus goes to the closed notice, with the ring.
+    expect(document.activeElement?.textContent).toContain('T5 was closed by qa / qa-1');
+    expect(document.activeElement?.classList.contains(focusRing)).toBe(true);
   });
 
   it.each(['turn_closed from submit', 'not_found from ack'])(
@@ -230,6 +249,8 @@ describe('Turn section when the turn closes elsewhere', () => {
     expect(writes()).toEqual([]);
     await click('Cancel');
     expect(submits().at(-1)?.disabled).toBe(false);
+    // T5's Submit… is disabled, so focus goes to the first action of T6.
+    expect(document.activeElement).toBe(submits().at(-1));
     press(submits().at(-1) ?? document.body, 'click');
     await settle();
     expect(text()).not.toContain('T5 was closed');

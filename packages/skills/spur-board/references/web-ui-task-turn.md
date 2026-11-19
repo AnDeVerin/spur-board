@@ -80,7 +80,8 @@ executor`, `the dispatcher mode changed` or `the task was archived`.
 The bound turn's buttons and the send button are disabled; **Cancel** still closes the form and
 the notice stays until the view closes or you open a form on a newer turn. When the same read
 shows a new orchestrator turn, it appears below with its own buttons, usable once no form of the
-closed turn is open.
+closed turn is open. Cancel there moves focus to the new turn's first button, or without one to
+the notice.
 
 ## Your own close
 
