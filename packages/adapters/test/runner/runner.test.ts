@@ -571,6 +571,8 @@ describe('http failure classification', () => {
     ['429 with retry-after', 429, { 'retry-after': '60' }, 'throttled', now + 60_000],
     ['429 without retry headers', 429, {}, 'throttled', undefined],
     ['403 remaining 0', 403, { 'x-ratelimit-remaining': '0' }, 'throttled', undefined],
+    // A secondary rate limit may show only in the body, so an unread 403 stays retryable.
+    ['403 without rate-limit headers', 403, {}, 'transient', undefined],
     ['500', 500, {}, 'transient', undefined],
   ] as const)('classifies %s whose body read fails', async (_, status, headers, kind, retryAt) => {
     const response = new Response(
@@ -582,7 +584,7 @@ describe('http failure classification', () => {
       { status, headers },
     );
     const body = await failureBody(response);
-    expect(body).toBeUndefined();
+    expect(body).toBeNull();
     const error = classifyHttpFailure({ status, headers: response.headers, body }, now);
     expect(error.kind).toBe(kind);
     expect(error.retryAt?.getTime()).toBe(retryAt);

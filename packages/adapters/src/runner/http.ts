@@ -4,7 +4,8 @@ import { AdapterError } from '@spur-board/contracts';
 export interface HttpFailure {
   status: number;
   headers: Headers;
-  body?: string | undefined;
+  /** The response body; null when it could not be read. */
+  body?: string | null | undefined;
 }
 
 /** Classifies a failed response; `now` is the current time in epoch milliseconds. */
@@ -18,20 +19,22 @@ export function classifyHttpFailure(failure: HttpFailure, now: number): AdapterE
         headers.has('retry-after') ||
         /rate limit/i.test(failure.body ?? '')));
   if (throttled) return new AdapterError('throttled', message, { retryAt: retryAt(headers, now) });
+  // GitHub can name a secondary rate limit only in the body, so an unread 403 stays retryable.
+  if (status === 403 && failure.body === null) return new AdapterError('transient', message);
   if (status === 401 || status === 403) return new AdapterError('auth', message);
   return new AdapterError('transient', message);
 }
 
 /**
- * The body of a failed response for {@link classifyHttpFailure}, or undefined when reading it
- * fails: a rate limit is still classified from the status and headers.
+ * The body of a failed response for {@link classifyHttpFailure}, or null when reading it fails:
+ * the status and headers still classify the failure.
  */
-export async function failureBody(response: Response): Promise<string | undefined> {
+export async function failureBody(response: Response): Promise<string | null> {
   try {
     return await response.text();
   } catch {
-    // Only the body text is lost; the status and headers still classify the failure.
-    return undefined;
+    // Only the body text is lost; the classifier treats an unread 403 as retryable.
+    return null;
   }
 }
 

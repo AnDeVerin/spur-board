@@ -174,6 +174,28 @@ describe('GitHub Issues source', () => {
     expect(batch.items).toEqual([]);
   });
 
+  it('fails the poll as transient, not no_access, when the 403 of a key has an unreadable body', async () => {
+    const pending = { kind: 'ticket', trackerId: id, key: 'acme/board#9' } as const;
+    const unreadable = new ReadableStream({
+      start(controller) {
+        controller.error(new Error('connection reset'));
+      },
+    });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(new Response(unreadable, { status: 403 }));
+    const adapter = createGithubIssuesAdapter({
+      id,
+      tracker: labelTracker,
+      token: 'test',
+      intervalMs: 60_000,
+      now,
+      fetch: fetcher,
+    });
+    await expect(adapter.poll(context([pending]))).rejects.toMatchObject({ kind: 'transient' });
+  });
+
   it('keeps the first page but marks a failed later page incomplete', async () => {
     const next = 'https://api.github.com/repos/acme/board/issues?page=2';
     const fetcher = vi
