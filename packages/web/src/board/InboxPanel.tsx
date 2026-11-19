@@ -24,7 +24,8 @@ const closable = (entry: Entry) =>
 interface NoSession {
   column: string;
   expects: string;
-  waiting?: number;
+  /** The waiting turns and the whole minutes without a live session. */
+  waiting?: { count: number; minutes: number };
   oldestAt?: string;
 }
 // The wording of core `turnsWithoutSession` (app/fromYou.ts) and `noSessionText`
@@ -33,7 +34,7 @@ const NO_SESSION = /^(\S+) (\S+): turns wait for a live session of Spur project 
 const NAMED_ACTION =
   /^start a session in Spur project (.+), or take over its turns with board inbox ack$/;
 const OLDEST = /^oldest T\d+ since (\S+)$/;
-const WAITING = /^(\d+) waiting, no live session for \d+ min$/;
+const WAITING = /^(\d+) waiting, no live session for (\d+) min$/;
 
 /** The no-session reading of an entry's description (action removed), or undefined. */
 function noSession(entry: Entry, description: string): NoSession | undefined {
@@ -52,8 +53,8 @@ function noSession(entry: Entry, description: string): NoSession | undefined {
   for (const clause of rest.slice(expects.length).split('; ').slice(1)) {
     const oldest = OLDEST.exec(clause)?.[1];
     if (oldest !== undefined && !Number.isNaN(Date.parse(oldest))) found.oldestAt = oldest;
-    const waiting = WAITING.exec(clause)?.[1];
-    if (waiting !== undefined) found.waiting = Number(waiting);
+    const waiting = WAITING.exec(clause);
+    if (waiting) found.waiting = { count: Number(waiting[1]), minutes: Number(waiting[2]) };
   }
   return found;
 }
@@ -200,14 +201,15 @@ export function InboxPanel({
     // A handled one keeps only its title and first sentence: the waiting turns are gone.
     const oldestAt = handled ? undefined : known?.oldestAt;
     const waiting = handled ? undefined : known?.waiting;
+    const oldest = oldestAt === undefined ? undefined : `the oldest for ${age(oldestAt, now)}`;
     const tail =
-      waiting !== undefined && oldestAt !== undefined
-        ? ` ${turns(waiting)}; the oldest for ${age(oldestAt, now)}.`
-        : waiting !== undefined
-          ? ` ${turns(waiting)}.`
-          : oldestAt !== undefined
-            ? ` The oldest turn waits for ${age(oldestAt, now)}.`
-            : '';
+      waiting !== undefined
+        ? ` ${[turns(waiting.count), oldest, `no live session for ${String(waiting.minutes)} min`]
+            .filter((part) => part !== undefined)
+            .join('; ')}.`
+        : oldestAt !== undefined
+          ? ` The oldest turn waits for ${age(oldestAt, now)}.`
+          : '';
     const body =
       known === undefined ? (
         <>

@@ -32,7 +32,8 @@ const entry = (id: string, text: string, extra: Entry = {}): Entry => ({
 /** Core's action when the column's config names its Spur project. */
 const named = (spur: string) =>
   `start a session in Spur project ${spur}, or take over its turns with board inbox ack`;
-const waiting = (count: number) => `${String(count)} waiting, no live session for 14 min`;
+const waiting = (count: number, minutes = 14) =>
+  `${String(count)} waiting, no live session for ${String(minutes)} min`;
 const open = (id = 'I7', count = 2, oldest = OLDEST) =>
   entry(id, `${HEAD}; ${oldest}; ${waiting(count)}`);
 
@@ -73,15 +74,33 @@ const invalidate = async (d: Daemon) => {
 
 describe('inbox no-session item', () => {
   it.each([
-    [2, '2 turns wait; the oldest for 1h 36m.'],
-    [1, '1 turn waits; the oldest for 1h 36m.'],
-  ])('renders the column, Spur project, %i waiting and the oldest age', async (count, tail) => {
+    [
+      'count, oldest and minutes',
+      `${HEAD}; ${OLDEST}; ${waiting(2)}`,
+      `${FIRST} 2 turns wait; the oldest for 1h 36m; no live session for 14 min.`,
+      '1h 36m',
+    ],
+    [
+      'one turn and one minute',
+      `${HEAD}; ${OLDEST}; ${waiting(1, 1)}`,
+      `${FIRST} 1 turn waits; the oldest for 1h 36m; no live session for 1 min.`,
+      '1h 36m',
+    ],
+    [
+      'count and minutes',
+      `${HEAD}; ${waiting(2)}`,
+      `${FIRST} 2 turns wait; no live session for 14 min.`,
+      '12m',
+    ],
+    ['oldest only', `${HEAD}; ${OLDEST}`, `${FIRST} The oldest turn waits for 1h 36m.`, '1h 36m'],
+    ['neither', HEAD, FIRST, '12m'],
+  ])('renders the column, Spur project and %s', async (_, text, description, at) => {
     const d = daemon();
-    serveInbox(d, [open('I7', count)]);
+    serveInbox(d, [entry('I7', text)]);
     await openInbox(d);
-    expect(lines('I7')).toEqual([`No session to ring for qa`, `${FIRST} ${tail}`, ACTION, CLEARS]);
+    expect(lines('I7')).toEqual([`No session to ring for qa`, description, ACTION, CLEARS]);
     expect(row('I7').querySelector('strong')?.textContent).toBe('orbit-qa');
-    expect(meta('I7')).toEqual(['a', 'board observation · attention', '#7', '1h 36m']);
+    expect(meta('I7')).toEqual(['a', 'board observation · attention', '#7', at]);
     expect(row('I7').querySelector('[aria-hidden="true"]')).not.toBeNull();
   });
 
@@ -142,7 +161,9 @@ describe('inbox no-session item', () => {
     await invalidate(d);
     expect(activeIds()).toEqual(['I9']);
     expect(handledIds()).toEqual([]);
-    expect(lines('I9')[1]).toBe(`${FIRST} 1 turn waits; the oldest for 30m.`);
+    expect(lines('I9')[1]).toBe(
+      `${FIRST} 1 turn waits; the oldest for 30m; no live session for 14 min.`,
+    );
     expect(meta('I9').at(-1)).toBe('30m');
   });
 
@@ -180,7 +201,7 @@ describe('inbox no-session item', () => {
     await openInbox(d);
     expect(lines('I1')).toEqual([
       'No session to ring for review',
-      'The review orchestrator is the Spur project first-orch, and it has no live session. 2 turns wait.',
+      'The review orchestrator is the Spur project first-orch, and it has no live session. 2 turns wait; no live session for 14 min.',
       action,
       CLEARS,
     ]);
@@ -214,7 +235,7 @@ describe('inbox no-session item', () => {
     await openInbox(d);
     expect(lines('I7')).toEqual([
       'No session to ring for qa',
-      `${FIRST} 2 turns wait; the oldest for 1h 36m.`,
+      `${FIRST} 2 turns wait; the oldest for 1h 36m; no live session for 14 min.`,
       CLEARS,
     ]);
   });
@@ -269,7 +290,7 @@ describe('inbox no-session item', () => {
         : [
             [
               'No session to ring for qa',
-              `${first} 2 turns wait; the oldest for 1h 36m.`,
+              `${first} 2 turns wait; the oldest for 1h 36m; no live session for 14 min.`,
               ...actions,
               CLEARS,
             ],
