@@ -15,10 +15,14 @@ import {
   changesRequested,
   externalReviews,
   onClock,
-  requiredCheckCompleted,
+  requiredCheckState,
   reviewRuleVerdict,
+  ruleDecision,
+  storedDecision,
+  waitsOnGitHub,
   type ReviewRuleVerdict,
 } from '../domain/review-rule.ts';
+import { withUnconfirmedCancels } from './cancelled-checks.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { TaskTable } from '../store/schema.ts';
 import { parsePr, taskPr, type Trx } from './board-utils.ts';
@@ -36,9 +40,9 @@ const storedSchema = z.strictObject({
   reviewDecision: prReviewRuleSchema.shape.reviewDecision,
   rule: prReviewRuleSchema.shape.rule,
   /**
-   * When this head's undecided GitHub answer started: no decision, or a merge state GitHub has
-   * not computed with a required check completed and no changes requested. Null while the read
-   * names someone to act.
+   * When this head's undecided GitHub answer started: no stored decision, and the gate waits on
+   * GitHub alone (`waitsOnGitHub`). Null while a decision is stored or the read names someone to
+   * act.
    */
   undecidedSince: z.iso.datetime().nullable(),
   /**
@@ -86,9 +90,10 @@ function verdictOf(pr: PrFacts, reviewRule: PrReviewRule, requested: boolean): R
  * Records one full read's review rule for a github-rules project's source. A PR that is not open
  * drops its row; an item without a review rule says nothing new. The adapter sends a reused read
  * with its first read's review rule again, which rewrites no unchanged row and writes a lost one
- * back, as after a rolled-back observation. A new head starts without a decision; `keep` (GitHub has not computed the merge state)
- * keeps the stored one and runs the 30-minute clock once a required check has completed and no
- * changes are requested, as the gate then waits on GitHub. Returns true when the decision, GitHub's verdict or the rule changed.
+ * back, as after a rolled-back observation. A new head starts without a decision; `keep` (GitHub
+ * has not computed the merge state) keeps the stored one. The 30-minute clock runs only while the
+ * head has no decision and the gate reads the same read as waiting on GitHub alone. Returns true
+ * when the decision, GitHub's verdict or the rule changed.
  */
 export async function recordReviewRule(
   trx: Trx,
@@ -107,13 +112,8 @@ export async function recordReviewRule(
   const old = await rowOnHead(trx, source, fact);
   const requested = changesRequested(fact, reviewRule.reviewDecision, agentLogin);
   const verdict = verdictOf(fact, reviewRule, requested);
-  const decision =
-    verdict === 'keep'
-      ? (old?.decision ?? null)
-      : verdict === 'satisfied' || verdict === 'blocked'
-        ? verdict
-        : null;
-  const clock = onClock(verdict) && !requested && requiredCheckCompleted(fact, reviewRule.rule);
+  const decision = storedDecision(verdict, old?.decision ?? null);
+  const clock = onClock(verdict, requiredCheckState(fact, reviewRule.rule), decision, requested);
   const next: Stored = {
     headSha: fact.headSha.toLowerCase(),
     decision,
@@ -156,19 +156,11 @@ export async function storedReviewRule(
   const requested = changesRequested(pr, row?.reviewDecision ?? null, agentLogin);
   const approved = externalReviews(pr, agentLogin).some((review) => review.state === 'approved');
   if (row === null) return { approved, changesRequested: requested, decision: 'undecided' };
-  const verdict = verdictOf(pr, row, requested);
-  const decision =
-    verdict === 'keep'
-      ? requiredCheckCompleted(pr, row.rule)
-        ? 'undecided'
-        : 'checks_pending'
-      : verdict === 'checks_pending' || verdict === 'unresolved_threads' || verdict === 'undecided'
-        ? verdict
-        : verdict === 'dev' || verdict === 'changes_requested'
-          ? 'undecided'
-          : verdict === 'blocked' && row.decision !== null
-            ? 'blocked'
-            : (row.decision ?? 'undecided');
+  const decision = ruleDecision(
+    verdictOf(pr, row, requested),
+    requiredCheckState(pr, row.rule),
+    row.decision,
+  );
   return { approved, changesRequested: requested, decision };
 }
 
@@ -176,8 +168,10 @@ const upper = (value: string | null): string => (value === null ? 'null' : value
 
 /**
  * The items of github-rules tasks in External Review whose head has stayed undecided for
- * `REVIEW_RULE_UNDECIDED_MS`. GitHub's values are frozen in the row at the first reconcile past
- * the threshold, so a later poll or a restart keeps the item as raised.
+ * `REVIEW_RULE_UNDECIDED_MS` and whose gate, read as `readInput` reads it, still waits on GitHub
+ * alone: a newer read of the head by another project's source can name someone to act first.
+ * GitHub's values are frozen in the row at the first reconcile past the threshold, so a later
+ * poll or a restart keeps the item as raised.
  */
 export async function reviewRuleItems(
   trx: Trx,
@@ -208,6 +202,10 @@ export async function reviewRuleItems(
     const row = await rowOnHead(trx, source, pr);
     if (row?.undecidedSince == null) continue;
     if (now - Date.parse(row.undecidedSince) < REVIEW_RULE_UNDECIDED_MS) continue;
+    const gatePr =
+      project.checksGate === 'dev' ? pr : await withUnconfirmedCancels(trx, source, pr);
+    if (!waitsOnGitHub(await storedReviewRule(trx, source, gatePr, project.operatorGithubLogin)))
+      continue;
     let raised = row.raised;
     if (raised === null) {
       raised = `GitHub has not decided the review rule of ${pr.repo}#${String(pr.number)} on ${row.headSha.slice(0, 7)} for 30 minutes in External Review (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`;

@@ -1,13 +1,13 @@
 import type { PrFacts, PrReviewRule, ReviewRule } from '@spur-board/contracts';
-import { VERDICT } from './gates.ts';
+import { VERDICT, type TaskGateFacts } from './gates.ts';
 
 /**
  * What one read of a PR head says about its base branch's review rule, in rule order:
  * - `keep`: GitHub has not computed mergeability or the merge state; the stored decision stands.
  * - `dev`: a draft or a conflict, which Dev's own conditions handle.
  * - `checks_pending`: no required check has completed on the head (with none required, a
- *   non-skipped check pending or red, or only skipped ones), or the merge is blocked while a
- *   required check is still running.
+ *   non-skipped check pending or red, or only skipped ones), or, unless GitHub reports the merge
+ *   not blocked, a required check is still pending (see `requiredCheckState`).
  * - `changes_requested`: a reviewer asked for changes.
  * - `satisfied`: the merge is not blocked (clean, unstable or has hooks).
  * - `unresolved_threads`: the merge is blocked while review threads stay unresolved.
@@ -29,21 +29,37 @@ export type ReviewRuleVerdict =
 type RulePr = Pick<PrFacts, 'draft' | 'mergeable' | 'mergeState' | 'requiredChecks' | 'checks'>;
 
 /**
- * Whether a required check has completed on the head: a check GitHub marks required that is not
- * expected or pending. When none is required (none on the head, and no source of the rule lists
- * one or the rule is unreadable), the Board's rule for no required checks applies, as for
- * `checks_green`: every check except skipped ones is green and there is at least one, or the
- * head has no checks at all.
+ * The required checks on the head, the one reading the verdict, the gate and the clock share. A
+ * check is required when GitHub marks it required on the head or a source of the rule lists its
+ * context.
+ * - `none`: no required check has completed. When none is required (none marked, and no source
+ *   lists one or the rule is unreadable), the Board's rule for no required checks applies instead,
+ *   as for `checks_green`: every check except skipped ones green and at least one, or no checks at
+ *   all on the head, gives `done`, anything else `none`.
+ * - `pending`: a check GitHub marks required has completed while another required check is
+ *   expected, pending, or a listed context has no completed run on the head (absent included).
+ * - `done`: every required check has completed.
  */
-export function requiredCheckCompleted(pr: RulePr, rule: ReviewRule | null): boolean {
-  if (pr.requiredChecks.length > 0)
-    return pr.requiredChecks.some(
-      (check) => check.state !== 'expected' && check.state !== 'pending',
-    );
-  if (rule !== null && rule.requiredChecks.length > 0) return false;
-  if (pr.checks.length === 0) return true;
-  const optional = pr.checks.filter((check) => check.state !== 'skipped');
-  return optional.length > 0 && optional.every((check) => VERDICT[check.state] === 'green');
+export type RequiredCheckState = 'none' | 'pending' | 'done';
+
+export function requiredCheckState(pr: RulePr, rule: ReviewRule | null): RequiredCheckState {
+  const listed = rule?.requiredChecks ?? [];
+  const running = (check: RulePr['checks'][number]) =>
+    check.state === 'expected' || check.state === 'pending';
+  if (pr.requiredChecks.length === 0 && listed.length === 0) {
+    if (pr.checks.length === 0) return 'done';
+    const optional = pr.checks.filter((check) => check.state !== 'skipped');
+    return optional.length > 0 && optional.every((check) => VERDICT[check.state] === 'green')
+      ? 'done'
+      : 'none';
+  }
+  // Only a check GitHub marks required completes the rule, as the issue asks.
+  if (pr.requiredChecks.every(running)) return 'none';
+  const runs = [...pr.requiredChecks, ...pr.checks];
+  return pr.requiredChecks.some(running) ||
+    listed.some((context) => !runs.some((check) => check.name === context && !running(check)))
+    ? 'pending'
+    : 'done';
 }
 
 /** The verdict of one read; see `ReviewRuleVerdict` for the order. */
@@ -55,25 +71,80 @@ export function reviewRuleVerdict(
 ): ReviewRuleVerdict {
   if (pr.mergeable === 'unknown' || pr.mergeState === 'unknown') return 'keep';
   if (pr.draft || pr.mergeable === 'conflicting') return 'dev';
-  if (!requiredCheckCompleted(pr, rule)) return 'checks_pending';
+  const checks = requiredCheckState(pr, rule);
+  if (checks === 'none') return 'checks_pending';
   if (changesRequested) return 'changes_requested';
-  if (rule === null) return 'undecided';
-  if (pr.mergeState === 'clean' || pr.mergeState === 'unstable' || pr.mergeState === 'has_hooks')
+  // GitHub's own answer that the merge is not blocked wins over a check it does not wait for.
+  if (
+    rule !== null &&
+    (pr.mergeState === 'clean' || pr.mergeState === 'unstable' || pr.mergeState === 'has_hooks')
+  )
     return 'satisfied';
-  if (pr.mergeState !== 'blocked') return 'undecided';
-  if (unresolvedThreads > 0) return 'unresolved_threads';
-  // A required check still running may be what blocks the merge, so CI holds the head.
-  return pr.requiredChecks.some((check) => check.state === 'expected' || check.state === 'pending')
-    ? 'checks_pending'
-    : 'blocked';
+  // A required check still pending may be what holds the merge, so CI holds the head.
+  if (checks === 'pending') return 'checks_pending';
+  if (rule === null || pr.mergeState !== 'blocked') return 'undecided';
+  return unresolvedThreads > 0 ? 'unresolved_threads' : 'blocked';
+}
+
+type ReviewRuleDecision = NonNullable<TaskGateFacts['reviewRule']>['decision'];
+
+/**
+ * What the gate reads from one read's verdict and the head's stored decision. While the merge
+ * state is unknown the stored decision does not count: the head waits on a pending required check
+ * or on GitHub. A read's block overrides a stored satisfied decision; a read's satisfied state or
+ * block never replaces a missing one. Dev's own conditions and `approved` own `dev` and
+ * `changes_requested`.
+ */
+export function ruleDecision(
+  verdict: ReviewRuleVerdict,
+  checks: RequiredCheckState,
+  stored: 'satisfied' | 'blocked' | null,
+): ReviewRuleDecision {
+  if (verdict === 'keep') return checks === 'done' ? 'undecided' : 'checks_pending';
+  if (verdict === 'checks_pending' || verdict === 'unresolved_threads' || verdict === 'undecided')
+    return verdict;
+  if (verdict === 'dev' || verdict === 'changes_requested' || stored === null) return 'undecided';
+  return verdict === 'blocked' ? 'blocked' : stored;
 }
 
 /**
- * Whether the verdict runs the 30-minute clock: GitHub's answer names nobody to act. For `keep`
- * the caller also requires a completed required check and no changes requested.
+ * Whether the head waits on GitHub alone, which the 30-minute item reports: no changes requested
+ * and the gate reads `undecided` or unresolved threads under a blocked merge.
  */
-export function onClock(verdict: ReviewRuleVerdict): boolean {
-  return verdict === 'keep' || verdict === 'unresolved_threads' || verdict === 'undecided';
+export function waitsOnGitHub(gate: {
+  changesRequested: boolean;
+  decision: ReviewRuleDecision;
+}): boolean {
+  return (
+    !gate.changesRequested &&
+    (gate.decision === 'undecided' || gate.decision === 'unresolved_threads')
+  );
+}
+
+/** The decision a read stores for its head: its own satisfied or blocked, else none; `keep` keeps `old`. */
+export function storedDecision(
+  verdict: ReviewRuleVerdict,
+  old: 'satisfied' | 'blocked' | null,
+): 'satisfied' | 'blocked' | null {
+  if (verdict === 'keep') return old;
+  return verdict === 'satisfied' || verdict === 'blocked' ? verdict : null;
+}
+
+/**
+ * Whether one read of a head runs the 30-minute clock: the head has no stored decision, the read
+ * is not Dev's, and the gate reads it as waiting on GitHub alone.
+ */
+export function onClock(
+  verdict: ReviewRuleVerdict,
+  checks: RequiredCheckState,
+  stored: 'satisfied' | 'blocked' | null,
+  changesRequested: boolean,
+): boolean {
+  return (
+    stored === null &&
+    verdict !== 'dev' &&
+    waitsOnGitHub({ changesRequested, decision: ruleDecision(verdict, checks, stored) })
+  );
 }
 
 /**

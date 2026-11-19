@@ -6266,101 +6266,175 @@ describe('approvalRule github-rules', () => {
     expect(await ctx.moves()).toHaveLength(moves + 1);
   });
 
-  const RUNNING = [{ name: 'ci', state: 'pending' as const, completedAt: null }];
-  const DONE = [{ name: 'ci', state: 'success' as const, completedAt: at(29) }];
-  it.each(
-    (['none', 'satisfied', 'blocked'] as const).flatMap((stored) =>
-      (['external-review', 'ready-to-merge'] as const).flatMap((column) =>
-        stored === 'satisfied' || column === 'external-review'
-          ? [false, true].flatMap((running) =>
-              (column === 'external-review' ? [false, true] : [false]).map((requested) => ({
-                stored,
-                column,
-                running,
-                requested,
-              })),
-            )
-          : [],
-      ),
-    ),
-  )(
-    'an unknown merge state with an approval arriving moves no task: stored $stored, in $column, required check running $running, changes requested $requested',
-    async ({ stored, column, running, requested }) => {
-      const ctx = await pastProductReview(RULED);
-      // Only an approved task reaches Ready to Merge; in External Review the approval arrives
-      // with the unknown read.
-      const before = column === 'ready-to-merge' ? approved : { reviews: [] };
-      if (stored !== 'none')
-        await ctx.rulePr(
-          { ...before, mergeState: stored === 'blocked' ? 'blocked' : 'clean' },
-          rule(),
-        );
-      expect((await ctx.task()).column).toBe(column);
-      const moves = (await ctx.moves()).length;
-      await ctx.rulePr(
-        { ...approved, mergeState: 'unknown', requiredChecks: running ? RUNNING : DONE },
-        rule({ reviewDecision: requested ? 'changes_requested' : 'approved' }),
-      );
-      expect((await ctx.task()).column).toBe(column);
-      expect(await ctx.moves()).toHaveLength(moves);
-      expect((await ctx.why()).waiting).toEqual([
-        running
-          ? { reason: 'checks_pending', head: A, text: `waiting for CI on ${A}` }
-          : requested
-            ? { reason: 'changes_requested', head: A, text: 'changes requested' }
-            : {
-                reason: 'merge_state_unknown',
-                head: A,
-                text: 'GitHub has not computed the merge state yet',
-              },
-      ]);
-      // The read keeps the stored decision; the clock runs only while the wait is on GitHub.
-      const [row] = await ruleRows(ctx);
-      const value = JSON.parse(row?.value ?? '{}') as {
-        decision: unknown;
-        undecidedSince: unknown;
-      };
-      expect(value.decision).toBe(stored === 'none' ? null : stored);
-      expect(value.undecidedSince === null).toBe(running || requested);
-      ctx.wait(HALF_HOUR);
-      await ctx.tick();
-      expect((await ctx.task()).column).toBe(column);
-      expect(await ruleItems(ctx)).toHaveLength(
-        !running && !requested && column === 'external-review' ? 1 : 0,
-      );
-    },
-  );
-
-  it('checksGate external-review: a block while one required check reruns holds Ready to Merge on CI', async () => {
-    const ctx = await pastProductReview({ ...RULED, checksGate: 'external-review' });
-    const twoChecks = rule({
+  // Class 1: required-check status. Each row's check variant sets the rollup and the contexts the
+  // rule lists; `state` is what `requiredCheckState` reads from them.
+  const run = (name: string, state: 'success' | 'pending') => ({
+    name,
+    state,
+    completedAt: state === 'pending' ? null : at(29),
+  });
+  const listing = (requiredChecks: string[]) =>
+    rule({
       rule: {
         sources: ['ruleset'],
         approvals: 1,
         codeOwners: false,
         conversationResolution: true,
-        requiredChecks: ['ci', 'e2e'],
+        requiredChecks,
       },
     });
-    const e2e = (state: 'pending' | 'success') => ({
-      requiredChecks: [
-        { name: 'ci', state: 'success' as const, completedAt: at(29) },
-        { name: 'e2e', state, completedAt: state === 'pending' ? null : at(29) },
-      ],
+  const CHECKS = {
+    'required check completed': { state: 'done', rollup: [run('ci', 'success')], listed: ['ci'] },
+    'listed check absent': {
+      state: 'pending',
+      rollup: [run('ci', 'success')],
+      listed: ['ci', 'e2e'],
+    },
+    // GitHub marks e2e required on the head; the rule read lists only ci.
+    'required check rerunning': {
+      state: 'pending',
+      rollup: [run('ci', 'success'), run('e2e', 'pending')],
+      listed: ['ci'],
+    },
+    'no required check completed': {
+      state: 'none',
+      rollup: [run('ci', 'pending')],
+      listed: ['ci'],
+    },
+  } as const;
+  it.each(
+    (Object.keys(CHECKS) as (keyof typeof CHECKS)[]).flatMap((checks) =>
+      (['blocked', 'unknown', 'behind', 'clean'] as const).flatMap((mergeState) =>
+        (['external-review', 'ready-to-merge'] as const).flatMap((column) =>
+          (['dev', 'external-review'] as const).map((checksGate) => ({
+            checks,
+            mergeState,
+            column,
+            checksGate,
+          })),
+        ),
+      ),
+    ),
+  )(
+    '$checks, merge state $mergeState, in $column, checksGate $checksGate',
+    async ({ checks, mergeState, column, checksGate }) => {
+      const { state, rollup, listed } = CHECKS[checks];
+      const ctx = await pastProductReview({ ...RULED, checksGate });
+      if (column === 'ready-to-merge')
+        await ctx.rulePr({ ...approved, mergeState: 'clean' }, rule());
+      expect((await ctx.task()).column).toBe(column);
+      const moves = (await ctx.moves()).length;
+      await ctx.rulePr(
+        { ...approved, mergeState, requiredChecks: [...rollup], checks: [...rollup] },
+        listing([...listed]),
+      );
+      // The rollup's own verdict, which checks green reads at the checksGate column.
+      const rollupPending = rollup.some((check) => check.state === 'pending');
+      // A pending or missing required check holds the head on CI, unless GitHub reports the merge
+      // not blocked; then only checks green, Dev's or External Review's, waits on a rollup check.
+      const ruleWaits = state === 'none' || (state === 'pending' && mergeState !== 'clean');
+      const reason =
+        ruleWaits || rollupPending
+          ? 'checks_pending'
+          : state === 'pending' || mergeState === 'clean'
+            ? null
+            : mergeState === 'blocked'
+              ? 'review_rule_blocked'
+              : 'merge_state_unknown';
+      expect((await ctx.why()).waiting?.map((entry) => entry.reason) ?? []).toEqual(
+        reason === null ? [] : [reason],
+      );
+      const to =
+        reason === null
+          ? 'ready-to-merge'
+          : reason === 'review_rule_blocked'
+            ? 'external-review'
+            : column;
+      expect((await ctx.task()).column).toBe(to);
+      // A hold never sends the task back from Ready to Merge.
+      if (reason !== 'review_rule_blocked' && column === 'ready-to-merge')
+        expect(await ctx.moves()).toHaveLength(moves);
+      const conditions = await externalConditions(ctx);
+      if (reason === 'checks_pending') {
+        expect(conditions).toContainEqual({
+          condition: 'review_rule_satisfied',
+          state: ruleWaits ? 'waiting' : 'met',
+          reason: ruleWaits ? 'checks_pending' : null,
+        });
+        if (checksGate === 'external-review')
+          expect(conditions).toContainEqual({
+            condition: 'checks_green',
+            state: rollupPending ? 'waiting' : 'met',
+            reason: rollupPending ? 'checks_pending' : null,
+          });
+      }
+      // The clock runs only for a head with no decision that waits on GitHub alone; Ready to Merge
+      // keeps its satisfied decision through an unknown merge state.
+      const clock =
+        reason === 'merge_state_unknown' &&
+        !(column === 'ready-to-merge' && mergeState === 'unknown');
+      const [row] = await ruleRows(ctx);
+      expect(JSON.parse(row?.value ?? '{}')).toMatchObject(
+        clock ? { undecidedSince: ctx.at() } : { undecidedSince: null },
+      );
+      ctx.wait(HALF_HOUR);
+      await ctx.tick();
+      expect(await ruleItems(ctx)).toHaveLength(clock && to === 'external-review' ? 1 : 0);
+    },
+  );
+
+  // Class 2: the 30-minute item follows the gate's read. The stored decision comes from a read of
+  // the project's own source; the latest read is its own or another project's newer one.
+  const STORED = { none: 'behind', satisfied: 'clean', blocked: 'blocked' } as const;
+  const LATEST = {
+    unknown: { source: GITHUB, patch: { mergeState: 'unknown' } },
+    behind: { source: GITHUB, patch: { mergeState: 'behind' } },
+    'blocked with an unresolved thread': {
+      source: GITHUB,
+      patch: { mergeState: 'blocked', reviewThreads: [{ resolved: false, id: 'PRRT_1' }] },
+    },
+    'newer shared blocked': { source: 'github:web:o/r', patch: { mergeState: 'blocked' } },
+    'newer shared blocked with a required check rerunning': {
+      source: 'github:web:o/r',
+      patch: {
+        mergeState: 'blocked',
+        requiredChecks: [run('ci', 'success'), run('e2e', 'pending')],
+      },
+    },
+  } as const satisfies Record<string, { source: string; patch: Partial<PrFacts> }>;
+  it.each(
+    (Object.keys(STORED) as (keyof typeof STORED)[]).flatMap((stored) =>
+      (Object.keys(LATEST) as (keyof typeof LATEST)[]).map((latest) => ({ stored, latest })),
+    ),
+  )('stored decision $stored, latest read $latest', async ({ stored, latest }) => {
+    const ctx = await pastProductReview({ ...RULED, sharedRepo: true });
+    // Without the approval a satisfied decision does not release the task.
+    await ctx.rulePr({ mergeState: STORED[stored] }, rule());
+    const { source, patch } = LATEST[latest];
+    const own = source === GITHUB;
+    await ctx.rulePr({ ...approved, ...patch }, own ? rule() : undefined, source);
+    const gate =
+      latest === 'newer shared blocked with a required check rerunning'
+        ? 'checks_pending'
+        : latest === 'blocked with an unresolved thread'
+          ? 'unresolved_threads'
+          : latest === 'newer shared blocked' && stored !== 'none'
+            ? 'review_rule_blocked'
+            : 'merge_state_unknown';
+    expect((await externalConditions(ctx))?.at(-1)).toEqual({
+      condition: 'review_rule_satisfied',
+      state: gate === 'review_rule_blocked' || gate === 'unresolved_threads' ? 'failed' : 'waiting',
+      reason: gate,
     });
-    await ctx.rulePr({ ...approved, ...e2e('success'), mergeState: 'clean' }, twoChecks);
-    expect((await ctx.task()).column).toBe('ready-to-merge');
-    const moves = (await ctx.moves()).length;
-    await ctx.rulePr({ ...e2e('pending'), mergeState: 'blocked' }, twoChecks);
-    expect((await ctx.task()).column).toBe('ready-to-merge');
-    expect(await ctx.moves()).toHaveLength(moves);
-    const conditions = await externalConditions(ctx);
-    expect(conditions?.map((entry) => entry.reason)).not.toContain('review_rule_blocked');
-    expect(conditions).toContainEqual({
-      condition: 'checks_green',
-      state: 'waiting',
-      reason: 'checks_pending',
-    });
+    expect((await ctx.task()).column).toBe('external-review');
+    // The item names a head with no decision whose gate waits on GitHub alone.
+    const raised =
+      (gate === 'merge_state_unknown' || gate === 'unresolved_threads') &&
+      (stored === 'none' || (own && latest !== 'unknown'));
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    expect(await ruleItems(ctx)).toHaveLength(raised ? 1 : 0);
+    expect((await ctx.task()).column).toBe('external-review');
   });
 
   it('waits on GitHub until the first full read of the head and drops the decision on a new head', async () => {

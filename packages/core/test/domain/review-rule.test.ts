@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   changesRequested,
   onClock,
-  requiredCheckCompleted,
+  requiredCheckState,
   reviewRuleVerdict,
+  ruleDecision,
+  storedDecision,
   type ReviewRuleVerdict,
 } from '../../src/domain/review-rule.ts';
 
@@ -197,6 +199,34 @@ const CASES: Case[] = [
     clock: false,
   },
   {
+    name: 'blocked while a listed required check is absent from the head',
+    pr: pr({ mergeState: 'blocked' }),
+    rule: { ...PROTECTION, requiredChecks: ['ci', 'e2e'] },
+    verdict: 'checks_pending',
+    clock: false,
+  },
+  {
+    name: 'behind while a listed required check is absent from the head',
+    pr: pr({ mergeState: 'behind' }),
+    rule: { ...PROTECTION, requiredChecks: ['ci', 'e2e'] },
+    verdict: 'checks_pending',
+    clock: false,
+  },
+  {
+    name: 'clean while a listed required check is absent from the head: GitHub wins',
+    pr: pr(),
+    rule: { ...PROTECTION, requiredChecks: ['ci', 'e2e'] },
+    verdict: 'satisfied',
+    clock: false,
+  },
+  {
+    name: 'an unknown merge state while a listed required check is absent: keep, no clock',
+    pr: pr({ mergeState: 'unknown' }),
+    rule: { ...PROTECTION, requiredChecks: ['ci', 'e2e'] },
+    verdict: 'keep',
+    clock: false,
+  },
+  {
     name: 'blocked by the code-owner rule',
     pr: pr({ mergeState: 'blocked' }),
     rule: { ...PROTECTION, codeOwners: true },
@@ -223,8 +253,16 @@ describe('reviewRuleVerdict', () => {
         entry.changesRequested ?? false,
         entry.threads ?? 0,
       );
+      const changes = entry.changesRequested ?? false;
       expect(verdict).toBe(entry.verdict);
-      expect(onClock(verdict)).toBe(entry.clock);
+      expect(
+        onClock(
+          verdict,
+          requiredCheckState(entry.pr, rule),
+          storedDecision(verdict, null),
+          changes,
+        ),
+      ).toBe(entry.clock);
     }
   });
 
@@ -255,48 +293,99 @@ describe('reviewRuleVerdict', () => {
       'checks_pending',
     );
     expect(verdict({ mergeState: 'blocked' }, true)).toBe('changes_requested');
-    expect(onClock('undecided')).toBe(true);
+    expect(onClock('undecided', 'done', null, false)).toBe(true);
   });
 
-  it('keep runs the clock, a verdict with its own owner does not', () => {
-    expect(onClock('keep')).toBe(true);
-    for (const verdict of [
-      'dev',
-      'checks_pending',
-      'changes_requested',
-      'satisfied',
-      'blocked',
-    ] as const)
-      expect(onClock(verdict)).toBe(false);
+  it('a stored decision stops the clock; the gate reads a block over a stored satisfied one', () => {
+    for (const stored of ['satisfied', 'blocked'] as const) {
+      expect(onClock('keep', 'done', stored, false)).toBe(false);
+      expect(ruleDecision('keep', 'done', stored)).toBe('undecided');
+      expect(ruleDecision('keep', 'pending', stored)).toBe('checks_pending');
+      expect(ruleDecision('blocked', 'done', stored)).toBe('blocked');
+      expect(ruleDecision('satisfied', 'done', stored)).toBe(stored);
+    }
+    expect(ruleDecision('blocked', 'done', null)).toBe('undecided');
+    expect(ruleDecision('dev', 'done', 'satisfied')).toBe('undecided');
   });
 });
 
-describe('requiredCheckCompleted', () => {
-  it('counts only checks GitHub marks required; without any listed, the non-skipped checks all green or no checks at all', () => {
-    const none: ReviewRule = { ...PROTECTION, requiredChecks: [] };
-    expect(requiredCheckCompleted(pr(), PROTECTION)).toBe(true);
-    expect(
-      requiredCheckCompleted(
-        pr({ requiredChecks: [{ name: 'ci', state: 'failure', completedAt: AT }] }),
-        PROTECTION,
-      ),
-    ).toBe(true);
-    expect(
-      requiredCheckCompleted(
-        pr({ requiredChecks: [{ name: 'ci', state: 'expected', completedAt: null }] }),
-        none,
-      ),
-    ).toBe(false);
-    expect(requiredCheckCompleted(pr({ requiredChecks: [] }), PROTECTION)).toBe(false);
-    expect(requiredCheckCompleted(pr({ requiredChecks: [] }), none)).toBe(true);
-    expect(requiredCheckCompleted(pr({ requiredChecks: [], checks: [] }), none)).toBe(true);
-    expect(
-      requiredCheckCompleted(
-        pr({ requiredChecks: [], checks: [{ name: 'ci', state: 'pending', completedAt: null }] }),
-        none,
-      ),
-    ).toBe(false);
+describe('requiredCheckState', () => {
+  const none: ReviewRule = { ...PROTECTION, requiredChecks: [] };
+  const two: ReviewRule = { ...PROTECTION, requiredChecks: ['ci', 'e2e'] };
+  const run = (name: string, state: 'success' | 'failure' | 'pending' | 'expected') => ({
+    name,
+    state,
+    completedAt: state === 'pending' || state === 'expected' ? null : AT,
   });
+  it.each([
+    { name: 'a required check completed', pr: pr(), rule: PROTECTION, state: 'done' },
+    {
+      name: 'a required check failed',
+      pr: pr({ requiredChecks: [run('ci', 'failure')] }),
+      rule: PROTECTION,
+      state: 'done',
+    },
+    {
+      name: 'the only required check expected',
+      pr: pr({ requiredChecks: [run('ci', 'expected')] }),
+      rule: none,
+      state: 'none',
+    },
+    {
+      name: 'a listed check not marked required',
+      pr: pr({ requiredChecks: [] }),
+      rule: PROTECTION,
+      state: 'none',
+    },
+    {
+      name: 'one completed, another marked required pending',
+      pr: pr({ requiredChecks: [run('ci', 'success'), run('e2e', 'pending')] }),
+      rule: PROTECTION,
+      state: 'pending',
+    },
+    { name: 'one completed, a listed one absent', pr: pr(), rule: two, state: 'pending' },
+    {
+      name: 'one completed, a listed one absent, rule unreadable',
+      pr: pr(),
+      rule: null,
+      state: 'done',
+    },
+    {
+      name: 'one completed, a listed one pending in the rollup only',
+      pr: pr({ checks: [run('ci', 'success'), run('e2e', 'pending')] }),
+      rule: two,
+      state: 'pending',
+    },
+    {
+      name: 'one completed, a listed one completed in the rollup only',
+      pr: pr({ checks: [run('ci', 'success'), run('e2e', 'success')] }),
+      rule: two,
+      state: 'done',
+    },
+    {
+      name: 'none required, an optional check green',
+      pr: pr({ requiredChecks: [] }),
+      rule: none,
+      state: 'done',
+    },
+    {
+      name: 'none required, no checks at all',
+      pr: pr({ requiredChecks: [], checks: [] }),
+      rule: none,
+      state: 'done',
+    },
+    {
+      name: 'none required, an optional check pending',
+      pr: pr({ requiredChecks: [], checks: [run('ci', 'pending')] }),
+      rule: none,
+      state: 'none',
+    },
+  ] satisfies { name: string; pr: PrFacts; rule: ReviewRule | null; state: string }[])(
+    '$name -> $state',
+    ({ pr: head, rule, state }) => {
+      expect(requiredCheckState(head, rule)).toBe(state);
+    },
+  );
 });
 
 describe('changesRequested', () => {

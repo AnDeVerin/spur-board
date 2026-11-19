@@ -329,7 +329,7 @@ const CONDITION_DEFINITIONS: Record<GateCondition, ConditionDefinition> = {
           : ['not_approved'],
   },
   review_rule_satisfied: {
-    text: "GitHub's review rule for the base branch, from branch protection and rulesets, is satisfied on the current PR head: a required check completed, or, when none is required, every check except skipped ones green and at least one (no checks at all also counts); no changes requested; and the merge not blocked.",
+    text: "GitHub's review rule for the base branch, from branch protection and rulesets, is satisfied on the current PR head: a required check completed, or, when none is required, every check except skipped ones green and at least one (no checks at all also counts); no changes requested; and the merge not blocked. A required check, one GitHub marks required or a context the rule lists, that is pending or missing holds the head on CI unless the merge state is clean, unstable or has hooks.",
     reasons: ({ reviewRule }) =>
       reviewRule === undefined || reviewRule.changesRequested
         ? []
@@ -456,18 +456,15 @@ function checkConditions(
 
 /**
  * The condition a gate reason fails in `column`: with a gate right of Dev, red checks fail Dev's
- * checks not red, and every other check reason fails checks green. Under github-rules, at
- * External Review unresolved threads, and pending checks unless External Review is the
- * `checksGate` column, fail the review rule.
+ * checks not red, and every other check reason fails checks green. External Review under
+ * github-rules reads each condition's own reasons instead (`explainGates`).
  */
-function conditionOf(reason: GateReason, column: ColumnId, project: GateProject): GateCondition {
-  const { checksGate } = project;
+function conditionOf(
+  reason: GateReason,
+  column: ColumnId,
+  checksGate: CheckGateColumn,
+): GateCondition {
   if (reason === 'checks_red' && column === 'dev' && checksGate !== 'dev') return 'checks_not_red';
-  if (column === 'external-review' && approvalRuleOf(project) === 'github-rules') {
-    if (reason === 'unresolved_threads') return 'review_rule_satisfied';
-    if (reason === 'checks_pending' && checksGate !== 'external-review')
-      return 'review_rule_satisfied';
-  }
   return CONDITION_OF[reason];
 }
 
@@ -533,17 +530,16 @@ export function explainGates(
     const blockedIn = gate.ok ? null : gate.column;
     const stopped = reasons.some((reason) => STOPS_DEV.has(reason));
     const own = isTodoGroupColumn(column) ? [] : columnConditions(column, project);
-    // A reason two conditions share, a pending check under github-rules, shows on both.
-    const rule =
-      own.includes('review_rule_satisfied') && !merged
-        ? CONDITION_DEFINITIONS.review_rule_satisfied.reasons(facts, project, column, waived)
-        : [];
+    // Under github-rules External Review's conditions can share a pending check: each shows the
+    // reasons its own rule gives, so a required check only the review rule waits for shows there.
+    const direct = own.includes('review_rule_satisfied');
     const conditions = own.map((condition): ConditionExplanation => {
+      const mine = direct
+        ? CONDITION_DEFINITIONS[condition].reasons(facts, project, column, waived)
+        : [];
       const reason =
-        reasons.find(
-          (r) =>
-            conditionOf(r, column, project) === condition ||
-            (condition === 'review_rule_satisfied' && rule.includes(r)),
+        reasons.find((r) =>
+          direct ? mine.includes(r) : conditionOf(r, column, project.checksGate) === condition,
         ) ?? null;
       if (reason === null) return { condition, state: stopped ? 'unchecked' : 'met', reason: null };
       return { condition, state: HOLD_ONLY.has(reason) ? 'waiting' : 'failed', reason };
