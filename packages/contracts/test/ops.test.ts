@@ -845,9 +845,9 @@ describe('snapshot', () => {
     );
     // Integration base 66092119: includes upstream config.get timing fields as well as every
     // existing schema, example and transport binding. Original intake was efa72d3b. #761 then
-    // added sources[].project and board-wide sources and services texts to status.get.
+    // added sources[].project and board-wide project, sources and services texts to status.get.
     expect(await catalogVersion(baseline)).toBe(
-      '7393e9b2645ecb355327d21970784012fa6b8818182bd8731a6e758e960a1100',
+      'f7ab61b21268bd75095885659f62fa5bc43314745d610038b31e40dd9dcd05b1',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

@@ -1,5 +1,5 @@
 {
-  "version": "70c6fa626cef48bea4805901a03a522ebb56142666765b92976c7f424f961f28",
+  "version": "3fa6c54a802feccd37c31979f4e3d81795d6f69bb4773e986892653c79b2c442",
   "grants": [
     "operator",
     "project-agent",
@@ -1172,7 +1172,7 @@
         "type": "object",
         "properties": {
           "project": {
-            "description": "Project to limit tasks, items, blocks and bindings to; absent means every project the caller may see. Sources and services always cover every project the caller may see, whatever project says.",
+            "description": "Project to limit the answer to, except sources and services, which always cover every project the caller may see; absent means every project the caller may see.",
             "type": "string",
             "minLength": 1,
             "maxLength": 256

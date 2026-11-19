@@ -198,7 +198,7 @@ export const statusInputSchema = z.strictObject({
     .max(256)
     .optional()
     .describe(
-      'Project to limit tasks, items, blocks and bindings to; absent means every project the caller may see. Sources and services always cover every project the caller may see, whatever project says.',
+      'Project to limit the answer to, except sources and services, which always cover every project the caller may see; absent means every project the caller may see.',
     ),
   detail: z
     .boolean()
