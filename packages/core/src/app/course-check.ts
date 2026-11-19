@@ -89,24 +89,26 @@ export function courseCounter(entry: CourseEntry, project: Pick<Project, 'column
 }
 
 /** The column help of External Review while its course check is on. */
-export const EXTERNAL_ROUNDS_RULE =
+const EXTERNAL_ROUNDS_RULE =
   "Returns for external comments (a changes-requested review is one) from any column, and each external change request on a new PR head while the task is in Dev, count toward this column's courseCheck, once per head; cycleLimit stays with the column the task left.";
 
-/** The column help of every other returnable column while External Review's check is on. */
-export const EXTERNAL_RETURNS_ELSEWHERE =
+/** The column help of External Review while its course check is 0. */
+const EXTERNAL_ROUNDS_OFF =
+  "Returns for external comments from any column count toward this column's courseCheck, which is 0: they raise no course check, and change requests on new PR heads in Dev are not counted; cycleLimit stays with the column the task left.";
+
+/** The column help of every other returnable column while External Review is enabled. */
+const EXTERNAL_RETURNS_ELSEWHERE =
   "Returns for external comments count toward External Review's courseCheck, not this column's; this column's cycleLimit still counts them.";
 
 /**
- * Where External Review's course check stands for a column's help: `own` for External Review
- * itself, `other` for the other columns, null when External Review is off or its check is 0.
+ * The column help line on where returns for external comments count (`courseCounter`), or null
+ * when External Review is not enabled and every return counts on the column it left.
  */
-export function externalCounter(
-  project: Pick<Project, 'columns'>,
-  column: ColumnId,
-): 'own' | 'other' | null {
+export function externalRule(project: Pick<Project, 'columns'>, column: ColumnId): string | null {
   const external = externalColumn(project);
-  if (external === undefined || external.courseCheck <= 0) return null;
-  return column === EXTERNAL_COUNTER ? 'own' : 'other';
+  if (external === undefined) return null;
+  if (column !== EXTERNAL_COUNTER) return EXTERNAL_RETURNS_ELSEWHERE;
+  return external.courseCheck > 0 ? EXTERNAL_ROUNDS_RULE : EXTERNAL_ROUNDS_OFF;
 }
 
 /** A counted round of a course count, with the head it was counted on, or null when unknown. */

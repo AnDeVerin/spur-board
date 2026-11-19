@@ -127,6 +127,33 @@ it('describes only visible enabled column policies without changing board state'
   });
 });
 
+it("describes external-comments returns under External Review's courseCheck 0", async () => {
+  const [first] = config.projects;
+  const off = configSchema.parse({
+    ...config,
+    projects: [
+      {
+        ...first,
+        columns: first?.columns.map((column) =>
+          column.id === 'external-review' ? { ...column, courseCheck: 0 } : column,
+        ),
+      },
+    ],
+  });
+  const store = openTempStore('board-column-policy-').store;
+  stores.push(store);
+  const registry = createOperationRegistry({ config: off, clock, completeSince: new Map() });
+  const query = createQuery({ store, config: off, clock });
+  const [project] = (await query(registry['columns.describe'], {}, 'operator')).projects;
+  const returns = (id: string) =>
+    project?.columns.find((column) => column.id === id)?.returns.join(' ');
+  expect(returns('external-review')).toContain(
+    "count toward this column's courseCheck, which is 0",
+  );
+  expect(returns('external-review')).not.toContain('once per head');
+  expect(returns('review')).toContain("count toward External Review's courseCheck");
+});
+
 it('uses effective bindings, project session selection, routing and configured timings', async () => {
   const store = openTempStore('board-column-routing-').store;
   stores.push(store);

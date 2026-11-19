@@ -12,12 +12,7 @@ import { nextColumn } from '../domain/dispatch.ts';
 import { describeConditions, threadsFrom } from '../domain/gates.ts';
 import { curatorProject } from './authorize.ts';
 import type { Trx } from './board-utils.ts';
-import {
-  courseAddressee,
-  EXTERNAL_RETURNS_ELSEWHERE,
-  EXTERNAL_ROUNDS_RULE,
-  externalCounter,
-} from './course-check.ts';
+import { courseAddressee, externalRule } from './course-check.ts';
 import { bestProjectSession, observedFacts } from './doorbells.ts';
 import { describeCompletion } from './dispatch.ts';
 import type { Query } from './queries.ts';
@@ -171,7 +166,7 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
       metadata.returnable,
       kind === 'dispatcher',
       from,
-      externalCounter(project, column.id),
+      externalRule(project, column.id),
     );
     const next = nextColumn(project, column.id);
     const timings = columnTurnTimings(config, project.id, column.id);
@@ -257,7 +252,7 @@ function returnRules(
   returnable: boolean,
   dispatcher: boolean,
   from: ColumnId | undefined,
-  external: 'own' | 'other' | null,
+  external: string | null,
 ): string[] {
   if (column === 'done') return ['A reopened ticket without a merged PR returns to Todo, not Dev.'];
   if (!returnable) return [];
@@ -270,10 +265,6 @@ function returnRules(
         ]
       : []),
     'A new PR head invalidates head-bound marks and submissions and can return the task to Dev. A taken turn otherwise defers broken upstream gates until submit. Pending checks, unknown mergeability and incomplete history alone hold the task without returning it.',
-    ...(external === 'own'
-      ? [EXTERNAL_ROUNDS_RULE]
-      : external === 'other'
-        ? [EXTERNAL_RETURNS_ELSEWHERE]
-        : []),
+    ...(external === null ? [] : [external]),
   ];
 }
