@@ -16,6 +16,7 @@ import type { BoardConfig, BoardData, BoardTask } from './data.ts';
 import type { BoardColumnConfig, BoardRow } from './model.ts';
 import { actorDisplayName, age } from './task-model.ts';
 import type { TurnIntent, TurnPhase } from './turn-intent.ts';
+import { useTurnDraft } from './turn-draft.ts';
 import {
   ARCHIVED,
   BASES,
@@ -25,9 +26,10 @@ import {
   isBasis,
   NOTE,
   orchestrated,
+  OWN_SUBMIT,
   otherConditionsUnmet,
   OUTCOME,
-  ownSubmitPending,
+  ownSubmitState,
   PHASE,
   reasonError,
   RETURNABLE,
@@ -67,6 +69,7 @@ export function TaskTurn({
   unavailable,
   submitTurnIntent,
   returnTurnIntent,
+  drafts,
   refreshTask,
 }: {
   value: BoardTask;
@@ -80,6 +83,8 @@ export function TaskTurn({
   unavailable: string | undefined;
   submitTurnIntent: BoardData['submitTurnIntent'];
   returnTurnIntent: BoardData['returnTurnIntent'];
+  /** Where the unsent reason is kept across a reload after a board update. */
+  drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
 }) {
   const [bound, setBound] = useState<Bound>();
@@ -130,6 +135,8 @@ export function TaskTurn({
 
   const open = orchestrated(value.turn);
   const inFlight = phase !== 'idle';
+  const draft = form === undefined ? undefined : reason;
+  const takeRestored = useTurnDraft(drafts, taskKey, draft, inFlight);
   const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
   const closed = bound !== undefined && !boundOpen && !inFlight;
   const blocked =
@@ -201,7 +208,7 @@ export function TaskTurn({
     setSha(prs.length === 1 ? (prs[0]?.headSha ?? '') : '');
     setBasis('tested');
     setFrom('');
-    setReason('');
+    setReason(takeRestored());
     setErrors({});
     setRefusal(undefined);
     intent.current = undefined;
@@ -347,7 +354,7 @@ export function TaskTurn({
   };
   const formElement = (turn: Turn) => {
     const next = submitMove(turn.column, columns);
-    const later = otherConditionsUnmet(value.why, turn.column);
+    const later = otherConditionsUnmet(value.why);
     const reasonRow = (hint: string) => (
       <FormRow label="Reason" hint={hint} error={errors.reason}>
         <TextArea value={reason} onChange={edit(setReason, 'reason')} disabled={fieldsOff} />
@@ -428,13 +435,7 @@ export function TaskTurn({
         </p>
         <div className={styles.buttons} ref={cancelRow}>
           <Button type="submit" variant="primary" disabled={sendOff} busy={inFlight}>
-            {inFlight
-              ? PHASE[phase]
-              : form === 'submit'
-                ? next === undefined
-                  ? 'Submit'
-                  : `Submit and move to ${next}`
-                : 'Return to dev'}
+            {inFlight ? PHASE[phase] : form === 'submit' ? 'Submit' : 'Return to dev'}
           </Button>
           <Button disabled={inFlight} onClick={cancel}>
             Cancel
@@ -461,7 +462,7 @@ export function TaskTurn({
             className={`${styles.status ?? ''} ${focusRing}`}
           >
             {own.outcome === 'submitted'
-              ? `${turn.id} submitted.${ownSubmitPending(value.submission, { ...own, column: turn.column }) ? ' The board confirms the head on its next polls.' : ''}`
+              ? `${turn.id} submitted.${OWN_SUBMIT[ownSubmitState(value.submission, { ...own, column: turn.column })]}`
               : `${turn.id} returned to dev.`}
           </p>
         ) : (

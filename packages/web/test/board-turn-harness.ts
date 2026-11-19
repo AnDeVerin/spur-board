@@ -8,6 +8,7 @@ import {
   row,
   type Daemon,
 } from './board-fixtures.ts';
+import type { UpdateOptions } from '../src/board/update.ts';
 import { mount, press, serve, settle } from './board-harness.ts';
 
 export const HEAD = 'a'.repeat(40);
@@ -60,26 +61,32 @@ export const closedTurn = (outcome: string, by: string | null = 'agent:qa/qa-1')
 });
 
 type Call = { op: string; input: Record<string, unknown>; key: string | undefined };
-export async function open(answer: unknown = orchestratorTaskGet()) {
+/** Opens ex/repo#7 on a fake daemon; `update` turns on the page's version check. */
+export async function open(answer: unknown = orchestratorTaskGet(), update?: UpdateOptions) {
   const d = daemon();
   const calls: Call[] = [];
   serve(d, [row('ex/repo#7', 'review', { prs: [prFacts(HEAD)] })], reviewConfig);
   setTask(d, answer);
   history.replaceState(null, '', '/?open=ex%2Frepo%237');
-  mount({
-    ...d,
-    fetcher: (url, init) => {
-      const path = url instanceof Request ? url.url : url.toString();
-      if (path.startsWith('/v1/ops/') && !path.endsWith('.get') && !path.endsWith('.operator')) {
-        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
-          input: Record<string, unknown>;
-          key?: string;
-        };
-        calls.push({ op: path.slice('/v1/ops/'.length), input: body.input, key: body.key });
-      }
-      return d.fetcher(url, init);
+  mount(
+    {
+      ...d,
+      fetcher: (url, init) => {
+        const path = url instanceof Request ? url.url : url.toString();
+        if (path.startsWith('/v1/ops/') && !path.endsWith('.get') && !path.endsWith('.operator')) {
+          const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+            input: Record<string, unknown>;
+            key?: string;
+          };
+          calls.push({ op: path.slice('/v1/ops/'.length), input: body.input, key: body.key });
+        }
+        return d.fetcher(url, init);
+      },
     },
-  });
+    {},
+    () => 0,
+    update,
+  );
   await settle();
   return { d, calls, writes: () => calls.filter((call) => call.op !== 'task.history') };
 }

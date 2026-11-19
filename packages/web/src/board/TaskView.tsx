@@ -216,6 +216,7 @@ export function TaskView({
                   unavailable={unavailable}
                   submitTurnIntent={submitTurnIntent}
                   returnTurnIntent={returnTurnIntent}
+                  drafts={drafts}
                   refreshTask={refreshTask}
                 />
               )}

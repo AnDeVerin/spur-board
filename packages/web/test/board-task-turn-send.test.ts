@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { focusRing } from '../src/ds/index.ts';
 import { envelope, orchestratorTaskGet, problem, taskGet, deferred } from './board-fixtures.ts';
 import { mountEachTest, press, settle } from './board-harness.ts';
+import { memorySession, versioned } from './board-update-fixtures.ts';
 import {
   AT,
   closedTurn,
@@ -133,6 +134,53 @@ describe('Turn section sends', () => {
   });
 });
 
+describe('Turn section and the board update guard', () => {
+  const DRAFT_ID = JSON.stringify(['turn', 'ex/repo#7']);
+  /** The page runs 0.4.0; `daemon.version` is what the daemon's answers say. */
+  async function openVersioned() {
+    const daemonVersion = { value: '0.4.0' };
+    const session = memorySession();
+    const reload = vi.fn();
+    const opened = await open(undefined, { version: '0.4.0', session: session.session, reload });
+    const fetcher = versioned(opened.d.fetcher, () => daemonVersion.value);
+    opened.d.fetcher = fetcher.fetch;
+    return { ...opened, daemonVersion, session, reload };
+  }
+
+  it('holds a board update reload while the ack and the close run, then reloads', async () => {
+    const { d, daemonVersion, reload } = await openVersioned();
+    const ack = deferred();
+    const answer = d.routes['inbox.ack'];
+    d.routes['inbox.ack'] = () => {
+      daemonVersion.value = '0.5.0';
+      return ack.promise;
+    };
+    await click('Submit…');
+    act(() => {
+      form().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    // Another answer from the updated daemon arrives while the ack is still open.
+    await reread(d, orchestratorTaskGet());
+    expect(reload).not.toHaveBeenCalled();
+    ack.resolve(await answer({ entries: [{ id: 'T5' }] }));
+    await settle();
+    expect(text()).toContain('T5 submitted.');
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an unsent reason across a board update reload', async () => {
+    const { d, daemonVersion, session, reload } = await openVersioned();
+    await click('Return to dev…');
+    type(reason(), 'Handle the empty list.');
+    daemonVersion.value = '0.5.0';
+    await reread(d, orchestratorTaskGet());
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(session.values.get('board-drafts') ?? '{}')).toEqual({
+      [DRAFT_ID]: 'Handle the empty list.',
+    });
+  });
+});
+
 describe('Turn section focus', () => {
   it.each([
     ['the browser blurs the disabled field', true],
@@ -226,6 +274,21 @@ describe('Turn section focus', () => {
       ),
     );
     expect(turnSection().querySelector('[role="status"]')?.textContent).toBe('T5 submitted.');
+    // A voided submission no longer counts: the line says the work needs another submit.
+    await reread(
+      d,
+      orchestratorTaskGet(
+        {},
+        {
+          turn: null,
+          turns: [closedTurn('submitted', 'operator')],
+          submission: { ...confirmed, voided: true },
+        },
+      ),
+    );
+    expect(turnSection().querySelector('[role="status"]')?.textContent).toBe(
+      'T5 submitted. The board voided this submission: it no longer counts for the gates, so the work needs another submit.',
+    );
   });
 
   it('skips the success focus while folded', async () => {

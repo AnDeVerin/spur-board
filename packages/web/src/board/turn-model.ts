@@ -31,6 +31,13 @@ export const OUTCOME: Record<string, string> = {
   archived: 'the task was archived',
 };
 const BRIEF_MAX = 16;
+/** What follows `T<n> submitted.` on the own-close line, by `ownSubmitState`. */
+export const OWN_SUBMIT = {
+  pending: ' The board confirms the head on its next polls.',
+  voided:
+    ' The board voided this submission: it no longer counts for the gates, so the work needs another submit.',
+  counted: '',
+} as const;
 export const UNAVAILABLE = 'The turn cannot be closed while the board is unavailable.';
 export const ARCHIVED = 'This task is archived. The turn cannot be closed.';
 export const NOTE =
@@ -75,17 +82,23 @@ export function submitMove(
   return next === 'done' ? undefined : next;
 }
 
-/** The line above the submit button: what the submit closes and where the task goes. */
+/**
+ * The line above the submit button. A submit closes the turn and the board re-evaluates every
+ * gate: `next` is where the task goes if they hold; `unmet` says some do not hold now, so the task
+ * may wait, or move back to an earlier column whose gate fails.
+ */
 export function submitConfirmation(
   turn: { id: string; column: string },
   next: string | undefined,
-  later: boolean,
+  unmet: boolean,
 ): string {
-  if (next !== undefined)
-    return `This closes ${turn.id} in your name and moves the task to ${next}. It cannot be undone.${later ? ' The task moves once its other exit conditions hold.' : ''}`;
   if (turn.column === 'done')
     return `This closes ${turn.id} in your name; the task stays in done. It cannot be undone.`;
-  return `This closes ${turn.id} in your name; the task stays in ${turn.column} until it completes: a merged pull request or a done ticket. It cannot be undone.`;
+  const outcome =
+    next === undefined
+      ? `the task stays in ${turn.column} until it completes: a merged pull request or a done ticket`
+      : `the task moves to ${next}`;
+  return `This closes ${turn.id} in your name and the board re-evaluates the task's gates. If they hold, ${outcome}.${unmet ? ' Some exit conditions do not hold now, so the task may wait, or move back to a column whose gate fails.' : ''} It cannot be undone.`;
 }
 
 type Submission = NonNullable<BoardTask['submission']>;
@@ -111,27 +124,36 @@ export function closedSubmitDetail(
 }
 
 /**
- * Whether an own submit of `sha` in `column` still waits for the board to confirm its head: the
- * latest submission tells once a read shows it; before that, the write's answer does.
+ * What became of an own submit of `sha` in `column`: the latest submission tells once a read
+ * shows it, `voided` when it no longer counts for the gates; before that, the write's answer does.
  */
-export function ownSubmitPending(
+export function ownSubmitState(
   submission: Submission | null | undefined,
   own: { sha: string; column: string; pending: boolean },
-): boolean {
-  if (submission && submission.sha === own.sha && submission.column === own.column)
-    return submission.pending && !submission.voided;
-  return own.pending;
+): 'pending' | 'voided' | 'counted' {
+  const matched =
+    submission && submission.sha === own.sha && submission.column === own.column
+      ? submission
+      : undefined;
+  if (matched?.voided === true) return 'voided';
+  return (matched?.pending ?? own.pending) ? 'pending' : 'counted';
 }
 
-/** The gate of `column` has an unmet exit condition other than the submit or review on the head. */
-export function otherConditionsUnmet(why: BoardTask['why'], column: string): boolean {
-  const gate = why?.gates.find((entry) => entry.column === column);
+/**
+ * An enabled gate of the task has an unmet exit condition other than the submit or review on the
+ * head, which the submit itself provides.
+ */
+export function otherConditionsUnmet(why: BoardTask['why']): boolean {
   return (
-    gate?.conditions.some(
-      (condition) =>
-        condition.state !== 'met' &&
-        condition.condition !== 'submit_on_head' &&
-        condition.condition !== 'review_on_head',
+    why?.gates.some(
+      (gate) =>
+        gate.enabled &&
+        gate.conditions.some(
+          (condition) =>
+            condition.state !== 'met' &&
+            condition.condition !== 'submit_on_head' &&
+            condition.condition !== 'review_on_head',
+        ),
     ) ?? false
   );
 }

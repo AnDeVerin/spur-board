@@ -1,7 +1,14 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { focusRing } from '../src/ds/index.ts';
-import { orchestratorTaskGet, problem, taskGet } from './board-fixtures.ts';
+import {
+  allMet,
+  condition,
+  gate,
+  orchestratorTaskGet,
+  problem,
+  taskGet,
+} from './board-fixtures.ts';
 import { mountEachTest, press, settle } from './board-harness.ts';
 import {
   HEAD,
@@ -29,6 +36,10 @@ import {
 } from './board-turn-harness.ts';
 
 mountEachTest();
+
+const REEVALUATE = "This closes T5 in your name and the board re-evaluates the task's gates.";
+const UNMET =
+  ' Some exit conditions do not hold now, so the task may wait, or move back to a column whose gate fails.';
 
 describe('Turn section', () => {
   it('shows an open orchestrator turn with its taker and both actions', async () => {
@@ -69,9 +80,10 @@ describe('Turn section', () => {
       if (basis === 'carried') type(source(), SOURCE);
       if (basis !== 'tested') type(reason(), 'Verified elsewhere.');
       const { primary, line } = confirmation();
-      expect(primary?.textContent).toBe('Submit and move to qa');
+      expect(primary?.textContent).toBe('Submit');
+      // The fixture's Dev gate has checks_green failed: the line warns the task may go back.
       expect(line).toBe(
-        'This closes T5 in your name and moves the task to qa. It cannot be undone.',
+        `${REEVALUATE} If they hold, the task moves to qa.${UNMET} It cannot be undone.`,
       );
       await send();
       expect(writes().map(({ op, input }) => ({ op, input }))).toEqual([
@@ -138,37 +150,35 @@ describe('Turn section', () => {
   });
 
   it.each([
-    ['qa', 'the task stays in qa until it completes: a merged pull request or a done ticket.'],
-    ['done', 'the task stays in done.'],
-  ])('promises no move when %s has no next column but done', async (column, stays) => {
+    [
+      'qa',
+      `${REEVALUATE} If they hold, the task stays in qa until it completes: a merged pull request or a done ticket.${UNMET} It cannot be undone.`,
+    ],
+    ['done', 'This closes T5 in your name; the task stays in done. It cannot be undone.'],
+  ])('promises no move when %s has no next column but done', async (column, expected) => {
     await open(orchestratorTaskGet({ column, addressee: `orchestrator:${column}` }));
     await click('Submit…');
     const { primary, line } = confirmation();
     expect(primary?.textContent).toBe('Submit');
-    expect(line).toBe(`This closes T5 in your name; ${stays} It cannot be undone.`);
+    expect(line).toBe(expected);
   });
 
-  it('adds the exit-condition sentence when other conditions of the turn column are unmet', async () => {
-    const why = {
-      ...taskGet().why,
-      column: 'review',
-      gates: [
-        {
-          column: 'review',
-          enabled: true,
-          ok: false,
-          blockedIn: 'review',
-          conditions: [
-            { condition: 'review_on_head', state: 'waiting', reason: null },
-            { condition: 'checks_green', state: 'failed', reason: 'checks_red' },
-          ],
-        },
-      ],
-    };
-    await open(orchestratorTaskGet({}, { why }));
+  it.each([
+    [
+      'an earlier gate fails',
+      [gate('dev', [condition('checks_green', 'failed', 'checks_red')])],
+      true,
+    ],
+    [
+      'only the review on the head waits',
+      [allMet, gate('review', [condition('review_on_head', 'waiting')])],
+      false,
+    ],
+  ])('warns about unmet exit conditions of any gate when %s', async (_, gates, warns) => {
+    await open(orchestratorTaskGet({}, { why: { ...taskGet().why, column: 'review', gates } }));
     await click('Submit…');
     expect(confirmation().line).toBe(
-      'This closes T5 in your name and moves the task to qa. It cannot be undone. The task moves once its other exit conditions hold.',
+      `${REEVALUATE} If they hold, the task moves to qa.${warns ? UNMET : ''} It cannot be undone.`,
     );
   });
 });
