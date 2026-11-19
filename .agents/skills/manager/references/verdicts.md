@@ -32,16 +32,23 @@ Step numbers are the Loop steps in `references/gates.md`.
   diff reruns, in step order, `doc-reviewer`, then for a UI change `tester` (step 11) and
   `designer` (code), then `reviewer`; the gate that asked reruns in its place. Each rerun counts
   toward its cap; at the cap there is no rerun and the gate goes under Missing.
-- Final head of a `tester` or `designer` (code) verdict: an APPROVED review on `headRefOid`, no
-  open point -> fetch, check out `headRefOid`, `pnpm ci:status <N>` once. Exit not 0 -> mark the
-  verdict `older than <HEAD>`. Exit 0 and `git diff --name-only <verdict head>..HEAD` has a path
-  under `packages/web/` outside `test/`, `gallery/` and `kit/`; `docs/design-system-decisions.md`;
-  or, for an issue naming `design/prototypes/<slice>/`, that folder or the step 11 pairs file ->
-  each runs in step order from a worktree at HEAD, once per gate per task, outside its cap:
+- Final head of a `tester` or `designer` (code) verdict: no open point, and an APPROVED review on
+  `headRefOid` or the acceptance-gates job as the only counted failed job of `ci:status` ->
+  fetch, check out `headRefOid`, `pnpm ci:status <N>` once. Exit not 0 with another failed job -> mark the
+  verdict `older than <HEAD>`; an acceptance-gates-only failure never does. Otherwise, when
+  `git diff --name-only <verdict head>..HEAD` has a path under `packages/web/` outside `test/`,
+  `gallery/` and `kit/`; `docs/design-system-decisions.md`; or, for an issue naming
+  `design/prototypes/<slice>/`, that folder or the step 11 pairs file -> each runs in step order
+  from a worktree at HEAD, once per gate per task, outside its cap:
   `<verdict> on <sha> (final head)`.
   FAIL or CHANGES_REQUESTED -> `developer`; reruns count toward the cap, recorded after the
   `(final head)` record; at it, Testing: `Missing: <gate> - verdict older than <sha>`. No such
   path -> Testing: `no UI change since <verdict head>`.
+- After each final-head run and each `no UI change since`, write that head into the PR body's
+  `## Acceptance gates` (`gitflow`). The cap never excuses the final-head run; CI
+  acceptance-gates stays red until each gate's SHA has no UI diff to the PR head. CI counts only
+  the base paths above (`isUiPath`, `scripts/acceptance-gates.ts`; change both together); the
+  `design/prototypes/<slice>/` clause stays a manager check.
 - Close-out and `doc-reviewer`: a stale verdict reruns once only while under the cap. That run's
   DOCS_CHANGES_REQUESTED is `BLOCKED_DOCS` with its findings under Missing, no fix. At the cap ->
   `Missing: doc-reviewer - verdict older than <sha>`.

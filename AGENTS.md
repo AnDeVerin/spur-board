@@ -184,6 +184,8 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
   first in the subject, e.g. `feat(core): #15 add the config schema`.
 - The body comes from `.github/pull_request_template.md`, filled as `gitflow` says, and keeps
   `Closes #<issue-number>`.
+- A PR that changes a UI file fills `## Acceptance gates` with each gate's last passed head or
+  `n/a`; CI `acceptance-gates` checks it (`gitflow`).
 - Before opening the PR run `pnpm check`, then `pnpm guardrails`. Every file guardrails reports,
   and every deleted, skipped or weakened check, gets a line under `## Changed checks`; the CI
   guardrails job fails otherwise. The developer fills that section from its report.
@@ -227,9 +229,9 @@ variables expanded into commands, and the GitHub API through `curl`.
   cancelled.
 - A cancelled run is not a failure. A cancelled run with a newer run on the same commit is
   superseded and does not count.
-- An edit of the PR title or body runs `reuse`, `pr-title`, `guardrails` and `ci-ok`. When
-  `reuse` finds this PR's code run that tested the same merge commit, the code jobs skip and
-  `ci-ok` checks the new title and body plus that run's code jobs, not that run's `ci-ok`.
+- An edit of the PR title or body runs `reuse`, `pr-title`, `guardrails`, `acceptance-gates` and
+  `ci-ok`. When `reuse` finds this PR's code run that tested the same merge commit, the code jobs
+  skip and `ci-ok` checks the new title and body plus that run's code jobs, not that run's `ci-ok`.
   Otherwise the edit runs the code jobs itself. `ci:status` then reports the edit run, whose
   `reuse` and `ci-ok` logs name the reused run. A red reused run keeps the edit red: after a
   cancel or infrastructure failure, rerun the code run's failed jobs and then rerun the whole

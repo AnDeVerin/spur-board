@@ -14,6 +14,12 @@
   `### Verification` and the close-out evidence. Tick `[x]` only when that proof was observed in
   this run; otherwise leave `[ ]` and write `pending - <why>`.
 - Risk - `high`, `medium` or `low` with a one-line reason, from the spec's `### Risks`.
+- Acceptance gates - required only when the PR changes a UI file: under `packages/web/` outside
+  `test/`, `gallery/` and `kit/`, or `docs/design-system-decisions.md`. `tester:` and `designer:`
+  each take the full head SHA of the gate's last passed run, or `n/a` when it did not run. CI
+  `acceptance-gates` fails while a UI file changed after a named head; a description edit re-runs
+  it. The cap never excuses the final-head run (Final head in
+  `.agents/skills/manager/references/verdicts.md`).
 - Changed checks - one line per entry below, from the developer's `Changed checks` output.
 
 ## Changed checks

@@ -43,8 +43,9 @@ appends the PR number: `feat(core): #15 add the config schema (#71)`.
 
 1. Copy `.github/pull_request_template.md` to `.scratch/pr-body-<issue-number>.md`.
 2. Fill each section as mapped below and follow the rules in the template's comments.
-3. Delete every `<!---` comment line, the placeholder rows, and `## Changed checks` when it has
-   no entries.
+3. Delete every `<!---` comment line, the placeholder rows, `## Changed checks` when it has
+   no entries, and `## Acceptance gates` when the PR changes no UI file; otherwise fill its
+   `tester:` and `designer:` lines (`references/pr-body.md`).
 4. Keep `Closes #<issue-number>`. The last line is the session marker: the one your launch
    instructions give, else `[AI-generated, session: $SPUR_SESSION]` with the variable expanded.
    It appears once.
