@@ -20,9 +20,9 @@ Service dots follow `status.get` health: green healthy, amber degraded, red fail
 - github, spur and jira: `polling` when healthy. GitHub takes the worst across repository pull
   request and issue sources. Otherwise the first source matching the service's colour supplies
   `blind: <reason>`, `waits for rate budget`, `never completed`, `warming up` or `stale`;
-  `waits for rate budget` means the daemon put off that GitHub source's next poll until its
-  budget resets, because its last poll left the budget under the configured reserve; hover for
-  the reason. After a daemon restart a button reads `warming up` until every source of its own
+  `waits for rate budget` means the daemon put off that GitHub source's next poll, for at least
+  one poll interval, because its last poll left the budget under the configured reserve; hover
+  for the reason. After a daemon restart a button reads `warming up` until every source of its own
   service, in every project, has polled once: an unpolled Jira source does not keep github or spur
   warming up, and a blind source, a source waiting for its rate budget, or a stale one listed
   first, of the same service shows its word instead.
