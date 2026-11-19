@@ -982,7 +982,7 @@ it('rolls sources and the daemon into one health row per service', async () => {
     state: 'degraded',
     since: null,
     lastGoodAt: startedAt,
-    reason: `${issuesBeta} waits for its rate budget until ${resetAt}`,
+    reason: `${issuesBeta} waits for its rate budget`,
   });
   expect((await status()).sources.find((entry) => entry.source === issuesBeta)?.healthySince).toBe(
     startedAt,

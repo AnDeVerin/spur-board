@@ -42,12 +42,10 @@ function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 'reason'> 
     };
   }
   const degraded = (reason: string) => ({ state: 'degraded' as const, reason });
-  // A source the runner pauses for its rate budget names the pause first: until the reset it
-  // does not poll, so it cannot complete, warm up or turn fresh.
-  if (source.waitsForBudget) {
-    const until = source.budget === null ? '' : ` until ${source.budget.resetAt}`;
-    return degraded(`${source.source} waits for its rate budget${until}`);
-  }
+  // A source the runner pauses for its rate budget names the pause first: while paused it does
+  // not poll, so it cannot complete, warm up or turn fresh. No time: the runner waits at least one
+  // poll interval, which can outlast the stored budget's resetAt.
+  if (source.waitsForBudget) return degraded(`${source.source} waits for its rate budget`);
   // The runner does not reload lastCompleteAt, so a restarted source can read null while it
   // completed in an earlier run: name it warming up until its first complete poll.
   if (source.lastCompleteAt === null)

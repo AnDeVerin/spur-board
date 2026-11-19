@@ -77,7 +77,7 @@ it.each<[string, Row]>([
       runMs: 0,
       waiting: [alpha, beta],
       alphaRemaining: reserve - 1,
-      reason: `${alpha} waits for its rate budget until ${new Date(RESET).toISOString()}`,
+      reason: `${alpha} waits for its rate budget`,
     },
   ],
   [
@@ -100,7 +100,7 @@ it.each<[string, Row]>([
       runMs: 0,
       waiting: [alpha],
       alphaRemaining: reserve - 1,
-      reason: `${alpha} waits for its rate budget until ${new Date(RESET).toISOString()}`,
+      reason: `${alpha} waits for its rate budget`,
     },
   ],
   [
@@ -147,20 +147,22 @@ it.each<[string, Row]>([
     });
   // A new core is a new daemon run on the same database.
   const core = createObservationCore({ store, config, clock });
+  // Holds every source's first poll until the read before any poll delivers.
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const adapter = (source: string, polls: Partial<Batch>[]) => {
     let n = 0;
     return createFakeAdapter({
       id: source,
       intervalMs: I,
-      poll: () =>
-        Promise.resolve({
-          source,
-          observedAt: observedAt(),
-          complete: true,
-          items: [],
-          entities: [],
-          ...polls[Math.min(n++, polls.length - 1)],
-        }),
+      poll: async () => {
+        const startedAt = observedAt();
+        const next = polls[Math.min(n++, polls.length - 1)];
+        await gate;
+        return { source, observedAt: startedAt, complete: true, items: [], entities: [], ...next };
+      },
       pollPr: (pr) =>
         Promise.resolve({
           source,
@@ -180,6 +182,10 @@ it.each<[string, Row]>([
     budgetWaits: () => runner?.budgetWaits,
   });
   const query = createQuery({ store, config, clock });
+  const waiting = async () =>
+    (await query(registry['status.get'], { project: 'beta' }, 'operator')).sources
+      .filter((entry) => entry.waitsForBudget)
+      .map((entry) => entry.source);
   try {
     runner = startRunner({
       entries: [
@@ -190,6 +196,9 @@ it.each<[string, Row]>([
       config,
       now: clock.now,
     });
+    // Before the first poll of this run delivers, nothing waits, whatever an earlier run stored.
+    expect(await waiting()).toEqual([]);
+    release();
     await runner.firstAttempts;
     if (row.refresh !== undefined)
       expect(await runner.pollPr?.(alpha, ref, { timeoutMs: 1000 })).toMatchObject({ ok: true });
