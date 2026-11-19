@@ -43,11 +43,13 @@ function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 'reason'> 
   }
   const degraded = (reason: string) => ({ state: 'degraded' as const, reason });
   // A source the runner pauses for a rate limit names the pause first: while paused its regular
-  // poll does not run, so it cannot complete, warm up or turn fresh; on-demand reads can still run.
-  // No time: the runner's wake time is its own, so the stored budget's resetAt can be wrong. A
-  // budget pause lasts until the later of the reset and one interval, a throttle with a retry time
-  // until the later of that time and one interval, and a throttle without one for its backoff,
-  // which jitter can make shorter than an interval.
+  // poll does not run, so it cannot complete, warm up or turn fresh. On-demand reads can still run
+  // during a budget pause; before a timed throttle's retry time the runner refuses them.
+  // No time: the runner's wake time is its own, so the stored budget's resetAt can be wrong. The
+  // requested delay is the later of the reset and one interval for a budget pause, the later of
+  // the retry time and one interval for a timed throttle, and the backoff (jitter can make it
+  // shorter than an interval) for an untimed one; the runner caps any wait at its longest timer,
+  // about 24.8 days, so a far-off reset or retry time ends the wait earlier.
   if (source.waitsForBudget) return degraded(`${source.source} waits for its rate budget`);
   // The runner does not reload lastCompleteAt, so a restarted source can read null while it
   // completed in an earlier run: name it warming up until its first complete poll.
