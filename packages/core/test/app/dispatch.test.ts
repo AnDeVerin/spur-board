@@ -6154,6 +6154,12 @@ describe('approvalRule github-rules', () => {
     await ctx.rulePr({ mergeState: 'unknown' }, rule());
     expect((await ctx.task()).column).toBe('external-review');
     expect((await ctx.why()).waiting).toEqual(blocked);
+    // A kept decision runs no 30-minute clock.
+    const [kept] = await ruleRows(ctx);
+    expect(JSON.parse(kept?.value ?? '{}')).toMatchObject({
+      decision: 'blocked',
+      undecidedSince: null,
+    });
     await ctx.rulePr({ mergeState: 'blocked' }, rule());
     expect((await ctx.why()).waiting).toEqual(blocked);
     expect(await ctx.moves()).toHaveLength(moves);

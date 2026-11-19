@@ -162,7 +162,7 @@ describe('reviewRuleVerdict', () => {
         entry.threads ?? 0,
       );
       expect(verdict).toBe(entry.verdict);
-      expect(onClock(verdict, false)).toBe(entry.clock);
+      expect(onClock(verdict)).toBe(entry.clock);
     }
   });
 
@@ -181,9 +181,8 @@ describe('reviewRuleVerdict', () => {
     }
   });
 
-  it('keep runs the clock only while the head has no decision', () => {
-    expect(onClock('keep', false)).toBe(true);
-    expect(onClock('keep', true)).toBe(false);
+  it('keep runs the clock, a verdict with its own owner does not', () => {
+    expect(onClock('keep')).toBe(true);
     for (const verdict of [
       'dev',
       'checks_pending',
@@ -191,7 +190,7 @@ describe('reviewRuleVerdict', () => {
       'satisfied',
       'blocked',
     ] as const)
-      expect(onClock(verdict, false)).toBe(false);
+      expect(onClock(verdict)).toBe(false);
   });
 });
 

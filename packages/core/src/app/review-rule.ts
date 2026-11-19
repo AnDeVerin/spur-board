@@ -44,28 +44,25 @@ type Stored = z.output<typeof storedSchema>;
 const reviewRuleKey = (source: string, ref: { repo: string; number: number }): string =>
   `review-rule:${source}:pr:${ref.repo.toLowerCase()}#${String(ref.number)}`;
 
-async function readRow(trx: Trx, key: string): Promise<Stored | null> {
-  const row = await trx
-    .selectFrom('meta')
-    .select('value')
-    .where('key', '=', key)
-    .executeTakeFirst();
-  if (row === undefined) return null;
-  try {
-    return parseJson(storedSchema, row.value);
-  } catch {
-    return null;
-  }
-}
-
 /** The stored row of `pr` on its current head; null when absent, unreadable or on another head. */
 async function rowOnHead(
   trx: Trx,
   source: string,
   pr: Pick<PrFacts, 'repo' | 'number' | 'headSha'>,
 ): Promise<Stored | null> {
-  const row = await readRow(trx, reviewRuleKey(source, pr));
-  return row !== null && row.headSha.toLowerCase() === pr.headSha.toLowerCase() ? row : null;
+  const row = await trx
+    .selectFrom('meta')
+    .select('value')
+    .where('key', '=', reviewRuleKey(source, pr))
+    .executeTakeFirst();
+  if (row === undefined) return null;
+  let stored: Stored;
+  try {
+    stored = parseJson(storedSchema, row.value);
+  } catch {
+    return null;
+  }
+  return stored.headSha.toLowerCase() === pr.headSha.toLowerCase() ? stored : null;
 }
 
 function verdictOf(pr: PrFacts, reviewRule: PrReviewRule, requested: boolean): ReviewRuleVerdict {
@@ -109,7 +106,7 @@ export async function recordReviewRule(
       : verdict === 'satisfied' || verdict === 'blocked'
         ? verdict
         : null;
-  const clock = decision === null && onClock(verdict, false);
+  const clock = decision === null && onClock(verdict);
   const next: Stored = {
     headSha: fact.headSha.toLowerCase(),
     decision,
@@ -143,9 +140,8 @@ export async function storedReviewRule(
   agentLogin: string,
 ): Promise<NonNullable<TaskGateFacts['reviewRule']>> {
   const row = await rowOnHead(trx, source, pr);
-  const reviews = externalReviews(pr, agentLogin);
   const requested = changesRequested(pr, row?.reviewDecision ?? null, agentLogin);
-  const approved = reviews.some((review) => review.state === 'approved');
+  const approved = externalReviews(pr, agentLogin).some((review) => review.state === 'approved');
   if (row === null) return { approved, changesRequested: requested, decision: 'undecided' };
   const verdict = verdictOf(pr, row, requested);
   const decision =

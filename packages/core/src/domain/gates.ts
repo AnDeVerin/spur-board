@@ -322,15 +322,11 @@ const CONDITION_DEFINITIONS: Record<GateCondition, ConditionDefinition> = {
   approved: {
     text: 'Approved by an external reviewer.',
     reasons: ({ externalReviewApproved, reviewRule }) =>
-      reviewRule === undefined
-        ? externalReviewApproved
+      reviewRule?.changesRequested === true
+        ? ['changes_requested']
+        : (reviewRule?.approved ?? externalReviewApproved)
           ? []
-          : ['not_approved']
-        : reviewRule.changesRequested
-          ? ['changes_requested']
-          : reviewRule.approved
-            ? []
-            : ['not_approved'],
+          : ['not_approved'],
   },
   review_rule_satisfied: {
     text: "GitHub's review rule for the base branch, from branch protection and rulesets, is satisfied on the current PR head: a required check completed, no changes requested and the merge not blocked.",

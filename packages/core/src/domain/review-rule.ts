@@ -51,13 +51,11 @@ export function reviewRuleVerdict(
 }
 
 /**
- * Whether the verdict runs the 30-minute clock: GitHub's answer names nobody to act. `keep` runs
- * it only while the head has no decision.
+ * Whether the verdict runs the 30-minute clock while the head has no decision: GitHub's answer
+ * names nobody to act.
  */
-export function onClock(verdict: ReviewRuleVerdict, decided: boolean): boolean {
-  return (
-    (verdict === 'keep' && !decided) || verdict === 'unresolved_threads' || verdict === 'undecided'
-  );
+export function onClock(verdict: ReviewRuleVerdict): boolean {
+  return verdict === 'keep' || verdict === 'unresolved_threads' || verdict === 'undecided';
 }
 
 /**
