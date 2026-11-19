@@ -29,19 +29,27 @@ interface NoSession {
 }
 // The wording of core `turnsWithoutSession` (app/fromYou.ts) and `noSessionText`
 // (app/operator-inbox.ts). Text that no longer matches falls back to the generic row.
-const NO_SESSION = /^(\S+) (\S+): turns wait for a live session of Spur project (.+)$/;
+const NO_SESSION = /^(\S+) (\S+): turns wait for a live session of Spur project /;
+const NAMED_ACTION =
+  /^start a session in Spur project (.+), or take over its turns with board inbox ack$/;
 const OLDEST = /^oldest T\d+ since (\S+)$/;
 const WAITING = /^(\d+) waiting, no live session for \d+ min$/;
 
 /** The no-session reading of an entry's description (action removed), or undefined. */
 function noSession(entry: Entry, description: string): NoSession | undefined {
   if (entry.kind !== 'board_observation') return undefined;
-  const [head = '', ...clauses] = description.split('; ');
-  const match = NO_SESSION.exec(head);
+  const match = NO_SESSION.exec(description);
   if (!match || match[1] !== entry.project) return undefined;
-  const found: NoSession = { column: match[2] ?? '', expects: match[3] ?? '' };
+  const rest = description.slice(match[0].length);
+  // A Spur project name may hold `; `: the action names it whole, so it is taken from there.
+  // Without a named action the name ends at the first `; `.
+  const named = entry.action === undefined ? undefined : NAMED_ACTION.exec(entry.action)?.[1];
+  if (named !== undefined && rest !== named && !rest.startsWith(`${named}; `)) return undefined;
+  const expects = named ?? rest.split('; ')[0] ?? '';
+  if (expects === '') return undefined;
+  const found: NoSession = { column: match[2] ?? '', expects };
   // Clauses come in any order; one the web does not know is left out.
-  for (const clause of clauses) {
+  for (const clause of rest.slice(expects.length).split('; ').slice(1)) {
     const oldest = OLDEST.exec(clause)?.[1];
     if (oldest !== undefined && !Number.isNaN(Date.parse(oldest))) found.oldestAt = oldest;
     const waiting = WAITING.exec(clause)?.[1];

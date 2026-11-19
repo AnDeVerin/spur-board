@@ -29,6 +29,9 @@ const entry = (id: string, text: string, extra: Entry = {}): Entry => ({
   task: TASK,
   ...extra,
 });
+/** Core's action when the column's config names its Spur project. */
+const named = (spur: string) =>
+  `start a session in Spur project ${spur}, or take over its turns with board inbox ack`;
 const waiting = (count: number) => `${String(count)} waiting, no live session for 14 min`;
 const open = (id = 'I7', count = 2, oldest = OLDEST) =>
   entry(id, `${HEAD}; ${oldest}; ${waiting(count)}`);
@@ -171,6 +174,7 @@ describe('inbox no-session item', () => {
         ...entry('I2', ''),
         project: 'proj',
         text: 'proj dev: turns wait for a live session of Spur project qa; oldest T1 since 2026-11-18T14:00:00.000Z',
+        action: named('qa'),
       },
     ]);
     await openInbox(d);
@@ -182,9 +186,11 @@ describe('inbox no-session item', () => {
     ]);
     expect(meta('I1').at(-1)).toBe('12m');
     // The entry's action does not end its text, so it stays a separate line.
-    expect(lines('I2').slice(0, 2)).toEqual([
+    expect(lines('I2')).toEqual([
       'No session to ring for dev',
       'The dev orchestrator is the Spur project qa, and it has no live session. The oldest turn waits for 42m.',
+      named('qa'),
+      CLEARS,
     ]);
     expect(meta('I2').at(-1)).toBe('42m');
   });
@@ -223,5 +229,55 @@ describe('inbox no-session item', () => {
     await openInbox(d);
     expect(lines('I7')).toEqual([text, ACTION]);
     expect(meta('I7').at(-1)).toBe('12m');
+  });
+
+  const unnamed =
+    'start a session in its Spur project, or take over its turns with board inbox ack';
+  it.each([
+    ['a name holding "; "', 'QA; West', named('QA; West'), 'QA; West'],
+    ['a plain name', 'orbit-qa', named('orbit-qa'), 'orbit-qa'],
+    ['an action naming no project', 'orbit-qa', unnamed, 'orbit-qa'],
+    ['no action', 'orbit-qa', undefined, 'orbit-qa'],
+    ['an action naming another project', 'orbit-qa', named('other'), undefined],
+  ])('reads the Spur project with %s', async (_, spur, action, expects) => {
+    const d = daemon();
+    const head = `a qa: turns wait for a live session of Spur project ${spur}`;
+    const activeText = `${head}; ${OLDEST}; ${waiting(2)}`;
+    const handledText = `${head}; ${OLDEST}`;
+    const make = (id: string, text: string, extra: Entry = {}) => {
+      const made: Entry = {
+        ...entry(id, ''),
+        text: action === undefined ? text : `${text}: ${action}`,
+      };
+      delete made['action'];
+      return { ...made, ...(action === undefined ? {} : { action }), ...extra };
+    };
+    serveInbox(
+      d,
+      [make('I7', activeText)],
+      [make('I8', handledText, { handledAt: '2026-11-18T14:41:00.000Z' })],
+    );
+    await openInbox(d);
+    const first = `The qa orchestrator is the Spur project ${expects ?? ''}, and it has no live session.`;
+    const actions = action === undefined ? [] : [action];
+    const [active, handled] =
+      expects === undefined
+        ? [
+            [activeText, ...actions],
+            [handledText, ...actions],
+          ]
+        : [
+            [
+              'No session to ring for qa',
+              `${first} 2 turns wait; the oldest for 1h 36m.`,
+              ...actions,
+              CLEARS,
+            ],
+            ['No session to ring for qa', first],
+          ];
+    expect(lines('I7')).toEqual(active);
+    expect(lines('I8')).toEqual(handled);
+    for (const id of ['I7', 'I8'])
+      expect(row(id).querySelector('strong')?.textContent).toBe(expects);
   });
 });
