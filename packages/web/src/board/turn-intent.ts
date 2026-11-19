@@ -2,10 +2,9 @@ import { createMutationIntent, ProblemError, type createApi } from '../lib/api.t
 
 /** The step a turn write is on: taking the turn through `inbox.ack`, then closing it. */
 export type TurnPhase = 'taking' | 'closing';
-/** A landed close: the task's column in the write's answer, and the re-read it started. */
+/** A landed close: the task's column in the write's answer. */
 export interface TurnClosed {
   column: string;
-  refresh: Promise<boolean>;
 }
 type TurnWrite =
   | { id: 'task.submit'; input: Parameters<typeof createMutationIntent<'task.submit'>>[2] }
@@ -16,7 +15,8 @@ type TurnWrite =
  * intent, so an unchanged resend reuses both keys. A confirmed ack is not sent again, nor one for a
  * turn `held` says the operator already holds, except after `not_turn_taker`: someone took the
  * turn back, so the next run takes it again with a new key.
- * `refused` names why the board cannot send now; `refresh` re-reads the task after the close.
+ * `refused` names why the board cannot send now; `refresh` starts a re-read of the task after the
+ * close.
  */
 export function createTurnIntent(options: {
   api: ReturnType<typeof createApi>;
@@ -24,7 +24,7 @@ export function createTurnIntent(options: {
   write: TurnWrite;
   held: boolean;
   refused: () => string | undefined;
-  refresh: () => Promise<boolean>;
+  refresh: () => void;
 }) {
   const { api, turn, write } = options;
   const takeIntent = () => createMutationIntent(api, 'inbox.ack', { entries: [{ id: turn }] });
@@ -45,7 +45,8 @@ export function createTurnIntent(options: {
     onPhase('closing');
     try {
       const result = await close.run();
-      confirmed = { column: result.task.column, refresh: options.refresh() };
+      options.refresh();
+      confirmed = { column: result.task.column };
       return confirmed;
     } catch (error) {
       if (error instanceof ProblemError && error.code === 'not_turn_taker') {

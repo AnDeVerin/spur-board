@@ -393,7 +393,7 @@ export function createBoardData(options: BoardDataOptions) {
           : unavailableFor(key, epoch)
             ? 'The turn cannot be closed while the board is unavailable.'
             : undefined,
-      refresh: () => refreshWrittenTask(key, epoch),
+      refresh: refreshTask,
     });
   };
 

@@ -220,6 +220,40 @@ describe('Turn section focus', () => {
     const line = () => turnSection().querySelector('[role="status"]')?.textContent;
     // The read from before the write still says Review; the return's answer says Dev.
     expect(line()).toBe('T5 returned to dev. The task is in dev.');
+    // A failed read publishes no new task, so the write's column stays.
+    next.resolve(await problem('unexpected', 500));
+    await settle();
+    expect(line()).toBe('T5 returned to dev. The task is in dev.');
+    await reread(
+      d,
+      orchestratorTaskGet(
+        {},
+        {
+          task: { ...taskGet().task, column: 'todo' },
+          turn: null,
+          turns: [closedTurn('returned', 'operator')],
+        },
+      ),
+    );
+    expect(line()).toBe('T5 returned to dev. The task is in todo.');
+  });
+
+  it('keeps the write column over a read that lands during the send', async () => {
+    const { d } = await open();
+    const write = deferred();
+    const returned = d.routes['task.return'];
+    d.routes['task.return'] = () => write.promise;
+    await click('Return to dev…');
+    type(reason(), 'Handle the empty list.');
+    await send();
+    // A Review read lands while the return still runs.
+    await reread(d, orchestratorTaskGet());
+    write.resolve(await returned({ turn: 'T5', reason: 'Handle the empty list.' }));
+    const next = deferred();
+    d.routes['task.get'] = () => next.promise;
+    await settle();
+    const line = () => turnSection().querySelector('[role="status"]')?.textContent;
+    expect(line()).toBe('T5 returned to dev. The task is in dev.');
     next.resolve(
       envelope(
         orchestratorTaskGet(

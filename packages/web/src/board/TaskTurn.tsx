@@ -96,6 +96,9 @@ export function TaskTurn({
   const [phase, setPhase] = useState<TurnPhase | 'idle'>('idle');
   const intent = useRef<{ signature: string; value: TurnIntent }>(undefined);
   const mounted = useRef(true);
+  // The read shown when a write resolves; a read that lands during the send is not newer than it.
+  const shown = useRef(value);
+  shown.current = value;
   const actions = useRef<HTMLSpanElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const cancelRow = useRef<HTMLDivElement>(null);
@@ -255,7 +258,7 @@ export function TaskTurn({
         const outcome = form === 'submit' ? 'submitted' : 'returned';
         setBound({
           turn,
-          own: { outcome, column: closed.column, at: value },
+          own: { outcome, column: closed.column, at: shown.current },
           refusedClosed: false,
         });
         pendingFocus.current = 'status';
