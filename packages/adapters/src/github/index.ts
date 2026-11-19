@@ -5,7 +5,6 @@ import {
   type Config,
   type PollContext,
   type PrEntityRef,
-  type PrFacts,
   type PrFeedback,
   type SourceCursor,
   approvalRuleOf,
