@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { Fragment, useEffect, useRef, type RefObject } from 'react';
 import {
   Icon,
   KeyValueBox,
@@ -10,7 +10,13 @@ import {
 } from '../ds/index.ts';
 import type { BoardSnapshot } from './data.ts';
 import { formatDataTime } from './model.ts';
-import { panelBoxes, type PanelBox, type PanelRow, type ServiceName } from './services.ts';
+import {
+  panelBoxes,
+  scrollTarget,
+  type PanelBox,
+  type PanelRow,
+  type ServiceName,
+} from './services.ts';
 import styles from './ServicesPanel.module.css';
 
 /** A request to bring the box of a service into view; `seq` repeats a request for the same one. */
@@ -60,9 +66,21 @@ function Box({ box }: { box: PanelBox }) {
   );
 }
 
+/** Consecutive boxes of one project, or the shared boxes when `project` is null. */
+function runs(boxes: readonly PanelBox[]) {
+  const out: { project: string | null; boxes: PanelBox[] }[] = [];
+  for (const box of boxes) {
+    const last = out.at(-1);
+    if (last?.project === box.project) last.boxes.push(box);
+    else out.push({ project: box.project, boxes: [box] });
+  }
+  return out;
+}
+
 /**
- * The services panel: a left SidePanel with one box per service, the host and each source, all
- * from the last good `status.get`. `keepLive` is the status bar, rendered before it.
+ * The services panel: a left SidePanel with the shared boxes (daemon, host, slack, spur), then one
+ * group per project headed by its id, all from the last good `status.get`. A bar button scrolls to
+ * its service's worst box. `keepLive` is the status bar, rendered before it.
  */
 export function ServicesPanel({
   snapshot,
@@ -78,13 +96,19 @@ export function ServicesPanel({
   keepLive: RefObject<HTMLElement | null>;
 }) {
   const list = useRef<HTMLDivElement>(null);
+  const boxes = panelBoxes(snapshot, formatDataTime);
+  // Read at scroll time only: a refresh alone does not move the panel. Runs before the scroll.
+  const order = (snapshot.status?.sources ?? []).map((source) => source.source);
+  const latest = useRef({ boxes, order });
+  useEffect(() => {
+    latest.current = { boxes, order };
+  });
   useEffect(() => {
     if (!open || scroll === undefined) return;
-    list.current
-      ?.querySelector(`[data-service="${scroll.service}"]`)
-      ?.scrollIntoView({ block: 'nearest' });
+    const target = scrollTarget(latest.current.boxes, scroll.service, latest.current.order);
+    if (target === undefined) return;
+    list.current?.querySelector(`[data-box="${target}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [open, scroll]);
-  const boxes = panelBoxes(snapshot, formatDataTime);
   return (
     <SidePanel
       open={open}
@@ -104,7 +128,17 @@ export function ServicesPanel({
         {boxes.length === 0 ? (
           <p className={styles.note}>Waiting for the first status from the daemon.</p>
         ) : (
-          boxes.map((box) => <Box key={box.id} box={box} />)
+          runs(boxes).map(({ project, boxes: own }) => {
+            const items = own.map((box) => <Box key={box.id} box={box} />);
+            return project === null ? (
+              <Fragment key="shared">{items}</Fragment>
+            ) : (
+              <section key={`project:${project}`} className={styles.group} aria-label={project}>
+                <h2 className={styles.heading}>{project}</h2>
+                <div className={styles.boxes}>{items}</div>
+              </section>
+            );
+          })
         )}
       </div>
     </SidePanel>

@@ -193,7 +193,14 @@ const serviceSchema = z
   .describe('Health of one service.');
 
 export const statusInputSchema = z.strictObject({
-  project,
+  project: z
+    .string()
+    .min(1)
+    .max(256)
+    .optional()
+    .describe(
+      'Project to limit the answer to, except sources and services, which always cover every project the caller may see; absent means every project the caller may see.',
+    ),
   detail: z
     .boolean()
     .optional()
@@ -201,7 +208,9 @@ export const statusInputSchema = z.strictObject({
 });
 export const statusOutputSchema = z.strictObject({
   items: z.array(statusItemSchema).describe('Actionable items in priority order.'),
-  warmingUp: z.boolean().describe('Whether required sources still need a complete poll.'),
+  warmingUp: z
+    .boolean()
+    .describe('Whether a source of the requested projects or spur still needs a complete poll.'),
   spurUnavailable: z
     .string()
     .nullable()
@@ -211,7 +220,7 @@ export const statusOutputSchema = z.strictObject({
   services: z
     .array(serviceSchema)
     .describe(
-      'One health row per service: daemon, each chat gateway, then github, spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up only the sources listed.',
+      'One health row per service: daemon, each chat gateway, then github, spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up the sources listed, which cover every project the caller may see whatever project says.',
     ),
   transport: z
     .array(
@@ -231,7 +240,11 @@ export const statusOutputSchema = z.strictObject({
         .describe('Transport health of one gateway.'),
     )
     .describe('Transport health of each chat gateway.'),
-  sources: z.array(sourceViewSchema).describe('Freshness and availability of each source.'),
+  sources: z
+    .array(sourceViewSchema)
+    .describe(
+      'Freshness and availability of each source of every project the caller may see, whatever project says, with spur first.',
+    ),
   tasks: z
     .array(statusTaskSchema)
     .describe('Tasks with state, turn, PR summary arrays and navigation; full facts with detail.'),

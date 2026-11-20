@@ -1,0 +1,98 @@
+/* Placed from the anchor's box, which Popover.tsx writes as --popover-left,
+   --popover-anchor-top and --popover-top (the anchor's bottom edge). 100% is the window (the
+   containing block of a fixed box): the width keeps --space-2 off each window edge, and the left
+   edge is clamped inside while the anchor shows. No overflow here: a menu beside the title may
+   extend past the panel. */
+.root {
+  --popover-width: min(var(--size-popover), 100% - var(--space-2) - var(--space-2));
+  /* The least height: the header as rendered (Popover.tsx writes --popover-header; a one-row
+     header with its hairline until then), the body padding around room for one standard
+     control, and the two borders. */
+  --popover-least: calc(
+    var(--popover-header, calc(var(--size-section-header) + var(--size-hairline))) +
+      var(--space-1) + var(--size-control) + var(--space-3) + var(--size-hairline) +
+      var(--size-hairline)
+  );
+  /* Under the anchor; near the bottom, up just enough for the least height. The lower bound
+     only acts once the anchor's top is below the window, where the panel is hidden
+     (data-away="bottom"). */
+  --popover-y: max(
+    min(var(--popover-top) + var(--space-1), 100% - var(--space-2) - var(--popover-least)),
+    var(--popover-anchor-top) - var(--popover-least) - var(--space-2)
+  );
+  position: fixed;
+  z-index: var(--z-menu);
+  top: var(--popover-y);
+  left: clamp(var(--space-2), var(--popover-left), 100% - var(--space-2) - var(--popover-width));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: var(--popover-width);
+  /* Never below the least height, so the header and one control always fit. */
+  max-height: max(
+    var(--popover-least),
+    min(var(--size-popover-height), 100% - var(--popover-y) - var(--space-2))
+  );
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  box-shadow: var(--shadow-popover);
+}
+/* The anchor out of view or not attached yet: the panel is not rendered, so no descendant can
+   show itself and its controls leave the tab order. Placement reads only the anchor. */
+.root[data-away] {
+  display: none;
+}
+/* Content-box, as the prototype: the hairline sits under a full section-header row, so an
+   underline tablist stretched to the row is the full section-header height. */
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--size-section-header);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border-bottom: var(--size-hairline) solid var(--color-border-default);
+}
+/* The title takes the free space of the row, so actions and Close sit at the right; it
+   ellipsizes first, so Close is never pushed out. */
+.title {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--color-text-primary);
+}
+/* Stretched to the header height, so an underline tablist sits on the header border. It shrinks
+   and scrolls sideways when its tabs are wider than the room beside Close, so Close stays in the
+   panel; a focused tab scrolls into view. The margin grows the scroll box by one ring on the top
+   and sides and by the hairline below, and the padding gives it back: a focused tab's ring and
+   its underline on the header border are not clipped. */
+.actions {
+  display: flex;
+  align-self: stretch;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: calc(-1 * calc(var(--width-ring) + var(--offset-ring)))
+    calc(-1 * calc(var(--width-ring) + var(--offset-ring))) calc(-1 * var(--size-hairline));
+  padding: calc(var(--width-ring) + var(--offset-ring)) calc(var(--width-ring) + var(--offset-ring))
+    var(--size-hairline);
+}
+.close {
+  display: inline-flex;
+  flex: none;
+}
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: var(--space-1) var(--space-3) var(--space-3);
+}

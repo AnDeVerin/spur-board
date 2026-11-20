@@ -29,6 +29,13 @@ export const sourceViewSchema = z
       .optional()
       .describe('Reported source points consumed during the preceding hour.'),
     source: z.string().min(1).describe('Adapter source identifier.'),
+    project: z
+      .string()
+      .min(1)
+      .nullable()
+      .describe(
+        'Board project whose tracker or repository this source polls; null for the shared spur source.',
+      ),
     observedAt: z.iso.datetime().nullable().describe('Time of the latest observation, if any.'),
     lastCompleteAt: z.iso
       .datetime()
@@ -54,6 +61,11 @@ export const sourceViewSchema = z
         'Request budget from the last poll of this source that reported one, or null when none did.',
       ),
     stale: z.boolean().describe('Whether facts from this source exceed their freshness threshold.'),
+    waitsForBudget: z
+      .boolean()
+      .describe(
+        "Whether the daemon's adapter runner has put off this source's next regular poll for a rate limit: the last regular poll in this daemon run either reported a budget under github.reserveRemaining (GitHub sources, complete or not) or failed as throttled, with or without a retry time (any source), or failed in any other way while the last budget a poll of this run reported, an on-demand refresh included, is under github.reserveRemaining with a future reset (this case also ends at that reset), and the paused poll has not started yet. Held in memory, so false after a restart until a poll pauses again; a stored budget or an on-demand refresh never sets it.",
+      ),
     healthySince: z.iso
       .datetime()
       .nullable()

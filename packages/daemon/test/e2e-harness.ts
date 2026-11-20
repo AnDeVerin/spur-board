@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ServerResponse } from 'node:http';
-import type { startAdapters as realStartAdapters } from '@spur-board/adapters';
+import type { AdapterRunner, startAdapters as realStartAdapters } from '@spur-board/adapters';
 import { configSchema, userIdSchema } from '@spur-board/contracts';
 import { openStore, type Store } from '@spur-board/core';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
@@ -38,7 +38,7 @@ export interface CliResult {
 export async function createE2eHarness(
   options: {
     /** Replaces the default runner, which polls nothing and has no `pollPr`. */
-    startAdapters?: typeof realStartAdapters;
+    startAdapters?: (...args: Parameters<typeof realStartAdapters>) => AdapterRunner;
     /** The version the daemon reports it runs; skill reload needs one. */
     productVersion?: string;
   } = {},

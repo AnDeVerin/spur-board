@@ -873,9 +873,11 @@ describe('snapshot', () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
-    // Manual moves extend task.move, move views, schema metadata and the error catalog.
+    // Manual moves extend task.move, move views, schema metadata and the error catalog. #761
+    // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
+    // and board-wide project, sources and services texts to status.get.
     expect(await catalogVersion(baseline)).toBe(
-      '9eccfebc2ab94a7f06e4420a34fa9d7307c7c9415ece807202798356b3519fd9',
+      'cbfe1de19b2b5c8d08c2c4dbe412b5e0f2881a7923e0a791b76a1cdb2c0f5b89',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

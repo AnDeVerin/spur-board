@@ -315,7 +315,7 @@ it('moves Spur observation times and the Slack recovery window with one shifted 
   }
 });
 
-it('forwards pollPr to the started runner', async () => {
+it('forwards pollPr and budgetWaits to the started runner', async () => {
   const clock = { now: () => base };
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-daemon-')), 'board.db'));
   const log = createLogger(
@@ -339,9 +339,11 @@ it('forwards pollPr to the started runner', async () => {
   const answer = ok({ status: 'not_found' as const, observedAt: new Date(base).toISOString() });
   const calls: unknown[][] = [];
   let withPollPr = true;
-  const { entries, pollPr } = createBoardModules(ctxFor, {
+  const waits = new Set(['github:board:o/r']);
+  const { entries, pollPr, budgetWaits } = createBoardModules(ctxFor, {
     startAdapters: () => ({
       stop: () => Promise.resolve(),
+      budgetWaits: waits,
       ...(withPollPr
         ? {
             pollPr: (...args: unknown[]) => {
@@ -360,11 +362,14 @@ it('forwards pollPr to the started runner', async () => {
       error: { kind: 'stopped' },
     });
 
+    expect(budgetWaits()).toBeUndefined();
     await adapters.module.start(new AbortController().signal);
     await expect(pollPr('github:board:o/r', ref, { timeoutMs: 10 })).resolves.toBe(answer);
     expect(calls).toEqual([['github:board:o/r', ref, { timeoutMs: 10 }]]);
+    expect(budgetWaits()).toBe(waits);
 
     await adapters.module.stop();
+    expect(budgetWaits()).toBeUndefined();
     await expect(pollPr('github:board:o/r', ref, { timeoutMs: 10 })).resolves.toMatchObject({
       ok: false,
       error: { kind: 'stopped' },

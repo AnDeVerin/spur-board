@@ -47,9 +47,13 @@ function serviceOf(source: string): 'github' | 'spur' | 'jira' | null {
   return null;
 }
 
+/** The degraded word of a source the daemon's runner pauses for a rate limit. */
+const BUDGET_WAIT = 'waits for rate budget';
+
 /** Health of one source from its own fields, in core's order of reasons. */
 function sourceState(source: BoardSourceView): Health {
   if (source.blindReason !== null) return { tone: 'error', word: `blind: ${source.blindReason}` };
+  if (source.waitsForBudget) return { tone: 'warn', word: BUDGET_WAIT };
   if (source.lastCompleteAt === null)
     return { tone: 'warn', word: source.warmingUp ? 'warming up' : 'never completed' };
   if (source.stale) return { tone: 'warn', word: 'stale' };
@@ -57,20 +61,18 @@ function sourceState(source: BoardSourceView): Health {
   return { tone: 'ok', word: 'polling' };
 }
 
-/** The only degraded reason core reads from config, which the browser cannot see. */
-const BUDGET_WAIT = 'waits for rate budget';
-
 function serviceHealth(name: ServiceName, row: ServiceRow, sources: readonly BoardSourceView[]) {
   const tone = TONES[row.state];
   if (name === 'daemon') return { tone, word: row.state === 'healthy' ? 'running' : 'stalled' };
   if (name === 'slack') return { tone, word: row.state === 'healthy' ? 'up' : 'down' };
   if (row.state === 'healthy') return { tone, word: 'polling' };
-  // The first member source, in status order, whose own state has the row's tone.
+  // The first member source, in status order, whose own state has the row's tone: the one core
+  // names in the row's reason.
   const first = sources
     .filter((source) => serviceOf(source.source) === name)
     .map(sourceState)
     .find((health) => health.tone === tone);
-  return first ?? { tone, word: BUDGET_WAIT };
+  return first ?? { tone, word: row.state };
 }
 
 const pad = (value: number) => String(value).padStart(2, '0');
@@ -271,6 +273,8 @@ export interface PanelBox {
   id: string;
   /** The status bar button that scrolls to it; null for the host. */
   service: ServiceName | null;
+  /** The board project whose group holds it; null for the shared boxes at the top. */
+  project: string | null;
   icon: IconName;
   name: string;
   /** The coloured word in the head; null for the host, which has no single state. */
@@ -284,9 +288,10 @@ const GONE: PanelRow[] = [{ key: 'Unknown while the daemon does not answer.', no
 const tail = (source: string) => source.split(':').at(-1) ?? '';
 
 /**
- * The panel boxes: daemon, host, slack, one per GitHub source, spur, one per Jira source. A
- * source box takes its word from its own fields. While the daemon does not answer every box but
- * the daemon reads unknown; before the first status there are none.
+ * The panel boxes: the shared daemon, host, slack and spur, then one run per project in the order
+ * its sources come, each with one box per GitHub pull request source, GitHub issue source and Jira
+ * source. A source box takes its word from its own fields. While the daemon does not answer every
+ * box but the daemon reads unknown; before the first status there are none.
  */
 export function panelBoxes(
   snapshot: HealthSnapshot,
@@ -302,6 +307,7 @@ export function panelBoxes(
     return {
       id: service,
       service,
+      project: null,
       icon: ICONS[service],
       name: service,
       health: found ? { tone: found.tone, word: found.word } : UNKNOWN,
@@ -311,22 +317,31 @@ export function panelBoxes(
   const sourceBox = (source: BoardSourceView, service: ServiceName, name: string): PanelBox => ({
     id: source.source,
     service,
+    project: source.project,
     icon: ICONS[service],
     name,
     health: live ? sourceState(source) : UNKNOWN,
     rows: live ? sourceRows(source, formatTime) : GONE,
   });
-  // A kind with several sources names each by its repo, or its project for Jira.
-  const named = (prefix: string, name: string, service: ServiceName) => {
-    const list = (status?.sources ?? []).filter((source) => source.source.startsWith(`${prefix}:`));
+  const sources = (status?.sources ?? []).filter((source) => source.source !== 'spur');
+  // A kind with several sources in one project's group names each by its repo.
+  const named = (project: string | null, prefix: string, name: string, service: ServiceName) => {
+    const list = sources.filter(
+      (source) => source.project === project && source.source.startsWith(`${prefix}:`),
+    );
     return list.map((source) =>
       sourceBox(source, service, list.length > 1 ? `${name} · ${tail(source.source)}` : name),
     );
   };
-  const github = [
-    ...named('github', 'github pull requests', 'github'),
-    ...named('github-issues', 'github issues', 'github'),
-  ];
+  // A source with no project, which core does not send today, stays with the shared boxes.
+  const grouped = [null, ...new Set(sources.flatMap((source) => source.project ?? []))].flatMap(
+    (project) => [
+      ...named(project, 'github', 'github pull requests', 'github'),
+      ...named(project, 'github-issues', 'github issues', 'github'),
+      ...named(project, 'jira', 'jira', 'jira'),
+    ],
+  );
+  const hasGithub = sources.some((source) => serviceOf(source.source) === 'github');
   const spurSource = status?.sources.find((source) => source.source === 'spur');
   const spur = spurSource
     ? sourceBox(spurSource, 'spur', 'spur')
@@ -338,6 +353,7 @@ export function panelBoxes(
     {
       id: 'host',
       service: null,
+      project: null,
       icon: 'pulse',
       name: 'host',
       health: null,
@@ -352,8 +368,34 @@ export function panelBoxes(
           )
         : GONE,
     ),
-    ...(github.length > 0 ? github : [serviceBox('github', live ? [] : GONE)]),
     spur,
-    ...named('jira', 'jira', 'jira'),
+    ...(hasGithub ? [] : [serviceBox('github', live ? [] : GONE)]),
+    ...grouped,
   ];
+}
+
+/**
+ * The box a status bar button scrolls to: a failing box of its service, else a degraded one, else
+ * its first box; undefined when the service has none. Among boxes of one tone it takes the source
+ * first in `order`, the `status.get` source order in which core picks the source its service row
+ * names, then the first in panel order.
+ */
+export function scrollTarget(
+  boxes: readonly PanelBox[],
+  service: ServiceName,
+  order: readonly string[] = [],
+): string | undefined {
+  const own = boxes.filter((box) => box.service === service);
+  const rank = (box: PanelBox) => {
+    const at = order.indexOf(box.id);
+    return at === -1 ? order.length : at;
+  };
+  const worst = (tone: StatusDotTone) =>
+    own
+      .filter((box) => box.health?.tone === tone)
+      .reduce<PanelBox | undefined>(
+        (best, box) => (best === undefined || rank(box) < rank(best) ? box : best),
+        undefined,
+      );
+  return (worst('error') ?? worst('warn') ?? own[0])?.id;
 }

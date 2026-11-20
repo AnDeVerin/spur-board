@@ -48,6 +48,16 @@ describe('web design assets and policy', () => {
     expect(tokens.match(/--lines-fold:/g)).toHaveLength(1);
     expect(dark['--lines-fold']).toBe('3');
     original = original.replace('  --lines-fold: 3;\n', '');
+    // Issue 745 authorizes only these additions; --size-popover-height per #745 and curator C289.
+    for (const [token, value] of [
+      ['--size-popover', '380px'],
+      ['--size-popover-height', '70dvh'],
+      ['--shadow-popover', '0 8px 24px rgba(0, 0, 0, 0.35)'],
+    ] as const) {
+      expect(tokens.match(new RegExp(`${token}:`, 'g'))).toHaveLength(1);
+      expect(dark[token]).toBe(value);
+      original = original.replace(`  ${token}: ${value};\n`, '');
+    }
     // Issue 656 authorizes only these dark-theme substitutions.
     original = original.replace(/:root \{[^}]*\}/, (block) => {
       for (const [token, value, prototypeValue] of [
