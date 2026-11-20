@@ -26,6 +26,8 @@ same name.
 Compact status rows include the unclosed `turn` (or null), `prSummary` and navigation `links`.
 Compact and detailed rows have `columnEnteredAt`: latest real entry into the current column
 in UTC, falling back to original add time; null if neither is known.
+Rows also have `position`: the 1-based place in the column's one board-wide order; new arrivals
+go last.
 An untaken turn names its last assigned recipient session in `addressedTo`; a taken turn names
 its holder and time in `taken`. `turn.stalledSince` is the executor stall start while its stall
 block is open, else null. `blocks` lists open blocks as `{id, addressee, session}`; `session` is

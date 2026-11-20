@@ -1,8 +1,7 @@
-/* Placed from the anchor's box, which Popover.tsx writes as --popover-left,
-   --popover-anchor-top and --popover-top (the anchor's bottom edge). 100% is the window (the
-   containing block of a fixed box): the width keeps --space-2 off each window edge, or the
-   safe-area inset when it is larger (viewport-fit=cover puts a notch inside the window), and the
-   left edge is clamped inside while the anchor shows. No overflow here: a menu beside the title
+/* Placed by Popover.tsx with @floating-ui/dom, which writes left and top on the panel and the
+   room it has as --popover-available. 100% is the window (the containing block of a fixed box):
+   the width keeps --space-2 off each window edge, or the safe-area inset when it is larger
+   (viewport-fit=cover puts a notch inside the window). No overflow here: a menu beside the title
    may extend past the panel. */
 .root {
   --popover-edge-left: max(var(--space-2), env(safe-area-inset-left, 0px));
@@ -20,39 +19,30 @@
       var(--space-1) + var(--size-control) + var(--space-3) + var(--size-hairline) +
       var(--size-hairline)
   );
-  /* Under the anchor; near the bottom, up just enough for the least height. The lower bound
-     only acts once the anchor's top is below the window, where the panel is hidden
-     (data-away="bottom"). */
-  --popover-y: max(
-    min(
-      var(--popover-top) + var(--space-1),
-      100% - var(--popover-edge-bottom) - var(--popover-least)
-    ),
-    var(--popover-anchor-top) - var(--popover-least) - var(--space-2)
-  );
+  /* The edges placement keeps inside the window, top, right, bottom and left. Popover.tsx reads
+     them back resolved from the computed scroll-padding (a custom property keeps the max and the
+     inset unresolved); the panel is no scroll container, so the padding has no effect of its
+     own. */
+  scroll-padding: var(--space-2) var(--popover-edge-right) var(--popover-edge-bottom)
+    var(--popover-edge-left);
   position: fixed;
   z-index: var(--z-menu);
-  top: var(--popover-y);
-  left: clamp(
-    var(--popover-edge-left),
-    var(--popover-left),
-    100% - var(--popover-edge-right) - var(--popover-width)
-  );
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   width: var(--popover-width);
-  /* Never below the least height, so the header and one control always fit. */
+  /* Shrinks to the room placement found, never below the least height: with less room the panel
+     flips above its anchor. The fallback keeps the value valid before the first placement. */
   max-height: max(
     var(--popover-least),
-    min(var(--size-popover-height), 100% - var(--popover-y) - var(--popover-edge-bottom))
+    min(var(--size-popover-height), var(--popover-available, var(--size-popover-height)))
   );
   background: var(--color-bg-elevated);
   border: var(--size-hairline) solid var(--color-border-strong);
   box-shadow: var(--shadow-popover);
 }
-/* The anchor out of view or not attached yet: the panel is not rendered, so no descendant can
-   show itself and its controls leave the tab order. Placement reads only the anchor. */
+/* Not placed yet, or the anchor out of view or not attached: the panel is not rendered, so no
+   descendant can show itself and its controls leave the tab order. */
 .root[data-away] {
   display: none;
 }

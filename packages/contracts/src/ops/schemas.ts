@@ -320,6 +320,7 @@ export const statusTaskSchema = taskViewSchema
       .describe(
         'Time the task entered its current real column, ISO 8601 UTC; latest real move or correction, falling back to the original add time, or null if neither is known.',
       ),
+    position: turns.columnPositionSchema,
     shadowColumn: z
       .enum(COLUMN_IDS)
       .optional()

@@ -146,6 +146,15 @@ async function prState(store: Store, number: number) {
       .executeTakeFirstOrThrow()
   ).pr_state;
 }
+/** Live tasks' column positions by key. */
+async function positions(store: Store) {
+  const rows = await store.db
+    .selectFrom('task')
+    .select(['key', 'position'])
+    .where('membership', '!=', 'archived')
+    .execute();
+  return Object.fromEntries(rows.map((row) => [row.key, row.position]));
+}
 async function membership(store: Store) {
   return await store.db
     .selectFrom('task')
@@ -198,6 +207,26 @@ it('warns once about a ticket detail of another shape and keeps the loose filter
 it('reactivates an out-of-filter archive when its ticket returns to the filter', async () => {
   const { store, core } = setup();
   await ticketPoll(core, true);
+  // A live hand-added task, raw and without an event: filter rules skip it.
+  await store.db
+    .insertInto('task')
+    .values({
+      project: 'board',
+      tracker_kind: 'github-issues',
+      tracker_id: null,
+      key: 'o/r#11',
+      membership: 'active',
+      archive_reason: null,
+      column: 'todo',
+      shadow_column: null,
+      created_at: new Date(now).toISOString(),
+      manual_include: 1,
+      last_change_at: null,
+      terminal_at: null,
+      archive_slot_at: null,
+    })
+    .execute();
+  expect(await positions(store)).toEqual({ 'o/r#9': 1, 'o/r#11': 2 });
   now += 1_000;
   await emptyPoll(core, source);
   now += 1_000;
@@ -207,16 +236,28 @@ it('reactivates an out-of-filter archive when its ticket returns to the filter',
   now += 1_000;
   await emptyPoll(core, source);
   expect(
-    (await store.db.selectFrom('task').select('archive_reason').executeTakeFirst())?.archive_reason,
+    (
+      await store.db
+        .selectFrom('task')
+        .select('archive_reason')
+        .where('key', '=', 'o/r#9')
+        .executeTakeFirst()
+    )?.archive_reason,
   ).toBe('out_of_filter');
+  expect(await positions(store)).toEqual({ 'o/r#11': 1 });
   now += 1_000;
   await ticketPoll(core, true);
   expect(
-    await store.db.selectFrom('task').select(['membership', 'archive_reason']).executeTakeFirst(),
+    await store.db
+      .selectFrom('task')
+      .select(['membership', 'archive_reason'])
+      .where('key', '=', 'o/r#9')
+      .executeTakeFirst(),
   ).toMatchObject({
     membership: 'active',
     archive_reason: null,
   });
+  expect(await positions(store)).toEqual({ 'o/r#9': 2, 'o/r#11': 1 });
   expect(
     await store.db.selectFrom('event').select('kind').where('kind', '=', 'task_added').execute(),
   ).toHaveLength(2);
@@ -390,6 +431,15 @@ it('manual archive excludes filter discovery until task.add clears it', async ()
   expect(
     await store.db.selectFrom('task').select(['membership', 'manual_exclude']).executeTakeFirst(),
   ).toMatchObject({ membership: 'active', manual_exclude: 0 });
+  // A later task sits after o/r#9, so a same-value membership write would swap them.
+  await apply(mutations.add, { task: 'o/r#11' }, 'operator');
+  expect(await positions(store)).toEqual({ 'o/r#9': 1, 'o/r#11': 2 });
+  await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+  expect(await positions(store)).toEqual({ 'o/r#9': 1, 'o/r#11': 2 });
+  await apply(mutations.archive, { task: 'o/r#9' }, 'operator');
+  expect(await positions(store)).toEqual({ 'o/r#11': 1 });
+  await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+  expect(await positions(store)).toEqual({ 'o/r#9': 2, 'o/r#11': 1 });
 });
 
 function trackerConfig(jiraId: string, projectKeys: string[]) {
@@ -535,6 +585,13 @@ it('retains filter loss with an open linked PR and raises an item', async () => 
   const { store, core } = setup();
   await ticketPoll(core, true);
   const task = await store.db.selectFrom('task').select('id').executeTakeFirstOrThrow();
+  // A hand-added task after o/r#9: the out_of_filter raise and clear must not move o/r#9 last.
+  await createApply({ store, config, clock })(
+    createMembershipMutations(config).add,
+    { task: 'o/r#11' },
+    'operator',
+  );
+  expect(await positions(store)).toEqual({ 'o/r#9': 1, 'o/r#11': 2 });
   await store.transaction(async (trx) => {
     await trx
       .insertInto('pr_snapshot')
@@ -576,7 +633,13 @@ it('retains filter loss with an open linked PR and raises an item', async () => 
   now += 1_000;
   await emptyPoll(core, source);
   expect(
-    (await store.db.selectFrom('task').select('membership').executeTakeFirst())?.membership,
+    (
+      await store.db
+        .selectFrom('task')
+        .select('membership')
+        .where('key', '=', 'o/r#9')
+        .executeTakeFirst()
+    )?.membership,
   ).toBe('out_of_filter');
   expect(
     (
@@ -587,6 +650,19 @@ it('retains filter loss with an open linked PR and raises an item', async () => 
         .execute()
     ).some((item) => item.text.includes('left the tracker filter')),
   ).toBe(true);
+  expect(await positions(store)).toEqual({ 'o/r#9': 1, 'o/r#11': 2 });
+  now += 1_000;
+  await ticketPoll(core, true);
+  expect(
+    (
+      await store.db
+        .selectFrom('task')
+        .select('membership')
+        .where('key', '=', 'o/r#9')
+        .executeTakeFirst()
+    )?.membership,
+  ).toBe('active');
+  expect(await positions(store)).toEqual({ 'o/r#9': 1, 'o/r#11': 2 });
 });
 
 it('retains filter loss with a live linked session, flag, and item', async () => {

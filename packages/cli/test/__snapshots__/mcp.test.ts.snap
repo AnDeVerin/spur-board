@@ -212,6 +212,14 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "task_move",
   },
   {
+    "description": "Place a task before or after another task, or at the top or bottom of its column order; exactly one placement (\`--before\`, \`--after\`, \`--top\` or \`--bottom\`) and a non-blank key are required, else \`usage\`.
+Use when: The operator wants a task earlier or later among the tasks of its column; pass an explicit key. Each column has one order for the whole board.
+When not to use: Use task_move to change the column.
+Example: {"mode":"before","task":"PROJ-123","anchor":"PROJ-120","idempotencyKey":"task_order-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
+    "name": "task_order",
+  },
+  {
     "description": "Show effective project columns, executors, Spur bindings and web origins.
 Use when: Read configuration before rendering the Board overview.
 When not to use: Use status_get for task state and freshness.

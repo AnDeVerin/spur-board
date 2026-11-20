@@ -146,7 +146,7 @@ describe('catalog', () => {
     ])
       expect(field.safeParse([bad]).success, JSON.stringify(bad)).toBe(false);
   });
-  it('defaults web off and exposes exactly the screen reads and eight operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and nine operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
@@ -165,6 +165,7 @@ describe('catalog', () => {
       'task.get',
       'task.history',
       'task.move',
+      'task.order',
       'task.return',
       'task.submit',
     ]);
@@ -179,6 +180,7 @@ describe('catalog', () => {
       'inbox.ack',
       'item.close',
       'task.move',
+      'task.order',
       'task.return',
       'task.submit',
     ]);
@@ -648,6 +650,30 @@ describe('catalog', () => {
     ).toBe(true);
   });
 
+  it('task.order binds --before/--after <anchor> | --top | --bottom', () => {
+    const order = OPERATIONS.find((op) => op.id === 'task.order');
+    if (order === undefined) throw new Error('Missing task.order');
+    expect(order.cli).toEqual({
+      command: 'order',
+      args: ['task'],
+      modes: [
+        { mode: 'before', flag: '--before', value: 'anchor' },
+        { mode: 'after', flag: '--after', value: 'anchor' },
+        { mode: 'top', flag: '--top', value: null },
+        { mode: 'bottom', flag: '--bottom', value: null },
+      ],
+      key: '--key',
+    });
+    expect(order.cli.defaultMode).toBeUndefined();
+    expect(order.explicitKeyModes).toEqual(['before', 'after', 'top', 'bottom']);
+    expect(order.input.safeParse({ mode: 'before', task: 'A-1', anchor: 'A-2' }).success).toBe(
+      true,
+    );
+    expect(order.input.safeParse({ mode: 'after', task: 'A-1' }).success).toBe(false);
+    expect(order.input.safeParse({ mode: 'top', task: 'A-1', anchor: 'A-2' }).success).toBe(false);
+    expect(order.input.safeParse({ mode: 'bottom', task: 'A-1' }).success).toBe(true);
+  });
+
   it('requires an exact revision when acknowledging a comment', () => {
     const ack = OPERATIONS.find((op) => op.id === 'inbox.ack');
     expect(ack?.input.safeParse({ entries: [{ id: 'C3', revision: 2 }] }).success).toBe(true);
@@ -783,6 +809,7 @@ describe('grants', () => {
         'column_mirrored',
       ],
     ],
+    ['task.order', 'mutation', [operator], null, [...archived, 'order_anchor_invalid']],
     ['config.get', 'query', [operator, projectAgent], null, ['not_found']],
     ['columns.describe', 'query', [operator, projectAgent], null, ['not_found']],
   ];
@@ -798,7 +825,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 29 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 30 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -819,7 +846,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(29);
+    expect(OPERATIONS).toHaveLength(30);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {
@@ -943,10 +970,12 @@ describe('snapshot', () => {
     // task.return; their schemas, grants and errors are unchanged. #738 adds the mirror move kind
     // and reason, sources[].failure and the github-project service texts. #755 adds
     // tasks[].qaSubmission to status.get. #753 adds the optional approvals list to status.get
-    // prSummary and task.get PR links. #798 drops the other-project operator source from
-    // status.get bindings and rewords the inbox.operator description.
+    // prSummary and task.get PR links. #737 adds task.order, tasks[].position, the
+    // order_anchor_invalid code and the task_reordered kind; the task.order description
+    // names its one-placement and non-blank key rule. #798 drops the other-project operator
+    // source from status.get bindings and rewords the inbox.operator description.
     expect(await catalogVersion(baseline)).toBe(
-      '80ae9784d2ce3321e7674aca1b45155de8cfecf584ad7419e224a412a98f7b92',
+      '899b0afa90dfbf277c19b70f2d2d9b4249f6d3eb4a1ac0afaa0b894c5868b521',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

@@ -98,6 +98,7 @@ const allowed = {
   'task.submit': ['operator', 'worker', 'orchestrator', 'addressee'],
   'task.return': ['operator', 'worker', 'orchestrator', 'addressee'],
   'task.move': ['operator'],
+  'task.order': ['operator'],
 } satisfies Record<MutationId, readonly ActorLabel[]>;
 
 const block: NonNullable<AuthorizationTarget['block']> = {
@@ -616,6 +617,7 @@ describe('authorize catalog grants', () => {
       'column',
       'to',
       'findings',
+      'anchor',
     ];
     const keys = new Set<string>();
     for (const entry of OPERATIONS) {

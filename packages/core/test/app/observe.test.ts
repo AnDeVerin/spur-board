@@ -2139,6 +2139,65 @@ describe('accepted observation', () => {
     });
   });
 
+  it('keeps the column position of the stable ticket a pending include transfers to', async () => {
+    const { store, core, apply, mutations } = setup();
+    await core.observe(source, {
+      batch: {
+        source,
+        observedAt: at,
+        complete: true,
+        items: [{ kind: 'ticket', facts: { ...fact('o/r#8'), inFilter: true } }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    // A later live task, so a same-value membership write on the stable task would move it last.
+    await apply(mutations.add, { task: 'o/r#11' }, 'operator');
+    const live = async () =>
+      (
+        await store.db
+          .selectFrom('task')
+          .select(['id', 'position'])
+          .where('membership', '!=', 'archived')
+          .orderBy('id')
+          .execute()
+      ).map((row) => [row.id, row.position]);
+    expect(await live()).toEqual([
+      [1, 1],
+      [2, 2],
+      [3, 3],
+    ]);
+    const ref = (await core.context(source)).observe.tickets.find((entry) => entry.key === 'o/r#9');
+    if (ref === undefined) throw new Error('Missing pending ticket request');
+    now += 1_000;
+    const later = new Date(now).toISOString();
+    await core.observe(source, {
+      batch: {
+        source,
+        observedAt: later,
+        complete: true,
+        items: [{ kind: 'ticket', facts: fact('o/r#9') }],
+        entities: [{ ref, status: 'ok' }],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: later, gone: [] },
+      outcomes: [],
+    });
+    const stable = await store.db
+      .selectFrom('task')
+      .select(['key', 'membership'])
+      .where('id', '=', 1)
+      .executeTakeFirstOrThrow();
+    expect(stable).toEqual({ key: 'o/r#9', membership: 'active' });
+    expect(await live()).toEqual([
+      [1, 1],
+      [3, 2],
+    ]);
+  });
+
   it('closes the turns of a merged pending task', async () => {
     const { store, core, apply, mutations } = setup();
     await core.observe(source, {
@@ -7050,11 +7109,33 @@ describe('ready-for-dev mirror', () => {
 
   it('moves an idle todo task in on Ready and journals the mirror move by system', async () => {
     const b = await board('on', ['o/r#9', 'o/r#10']);
+    // A task already in ready-for-dev that the read does not list: the mirror move goes after it.
+    await b.store.db
+      .insertInto('task')
+      .values({
+        project: 'board',
+        tracker_kind: 'github-issues',
+        tracker_id: null,
+        key: 'o/r#12',
+        membership: 'active',
+        archive_reason: null,
+        column: 'ready-for-dev',
+        shadow_column: null,
+        created_at: iso(),
+        manual_include: 1,
+        last_change_at: null,
+        terminal_at: null,
+        archive_slot_at: null,
+      })
+      .execute();
     await read(b, ready());
 
     expect(await column(b)).toBe('ready-for-dev');
     // A task the read does not list reads unknown and stays.
     expect(await column(b, 'o/r#10')).toBe('todo');
+    expect((await task(b, 'o/r#12')).position).toBe(1);
+    expect((await task(b)).position).toBe(2);
+    expect((await task(b, 'o/r#10')).position).toBe(1);
     expect(await mirrorEvents(b)).toEqual([
       {
         kind: 'task_mirror_moved',

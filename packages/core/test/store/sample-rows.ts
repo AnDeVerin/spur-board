@@ -45,6 +45,7 @@ export const sampleRows: SampleRows = {
     terminal_at: null,
     archive_slot_at: null,
     reopened_at: at,
+    position: 1,
   },
   source_cost: { id: 1, source: 'github', at, points: 3 },
   pr_snapshot: {

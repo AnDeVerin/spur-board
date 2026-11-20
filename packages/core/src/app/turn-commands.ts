@@ -17,7 +17,7 @@ import { authorizationTarget, blockView, answerReturn, openBlock, taskTarget } f
 import { emit, moveViews, taskPr, taskView, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import { correctColumn, dispatchTasks, manuallyMoveColumn, moveLeft } from './dispatch.ts';
-import { canonicalKey } from './membership.ts';
+import { storedKey } from './membership.ts';
 import { taskSubject } from './subject.ts';
 import { closeTurns } from './turns.ts';
 import {
@@ -53,17 +53,6 @@ async function turnVisitTarget(db: Trx, id: string): Promise<readonly ResolvedTa
   if (turn === undefined) return [{ kind: 'missing', id }];
   const task = await taskById(db, turn.task_id);
   return [{ ...(await authorizationTarget(db, { ...task, column: turn.column })), id }];
-}
-
-/**
- * The stored key a task key names, read as `task.get` reads it: only the short `repo#N` form needs
- * a configured project, so a task whose project left the config is still found by its full key.
- */
-function storedKey(config: Config, key: string): string {
-  const parsed = parseRef(key, 'task');
-  return parsed.ok && parsed.value.kind === 'task' && parsed.value.form === 'github-short'
-    ? canonicalKey(config, key).key
-    : key;
 }
 
 /**

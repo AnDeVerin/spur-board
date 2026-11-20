@@ -18,6 +18,7 @@ import { createColumnsQuery } from './columns.ts';
 import { createItemMutations, type ReapplyInbound } from './items.ts';
 import { createLinkMutations } from './links.ts';
 import { createMembershipMutations } from './membership.ts';
+import { createOrderMutations } from './order.ts';
 import { createOperatorInbox } from './operator-inbox.ts';
 import type { OperationHandlers } from './operations.ts';
 import type { Query } from './queries.ts';
@@ -308,5 +309,6 @@ export function createOperationRegistry(deps: {
     'task.submit': turns.submit,
     'task.return': turns.return,
     'task.move': turns.move,
+    'task.order': createOrderMutations(config).order,
   };
 }

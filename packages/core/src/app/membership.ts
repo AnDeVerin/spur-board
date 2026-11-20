@@ -22,6 +22,17 @@ export function canonicalKey(
   return { project, key };
 }
 
+/**
+ * The stored key a task key names, read as `task.get` reads it: only the short `repo#N` form needs
+ * a configured project, so a task whose project left the config is still found by its full key.
+ */
+export function storedKey(config: Config, key: string): string {
+  const parsed = parseRef(key, 'task');
+  return parsed.ok && parsed.value.kind === 'task' && parsed.value.form === 'github-short'
+    ? canonicalKey(config, key).key
+    : key;
+}
+
 async function target(trx: Trx, key: string) {
   const task = await trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
   return task === undefined

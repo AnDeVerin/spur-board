@@ -230,6 +230,15 @@ export const ERRORS = {
     hint: 'Change the task status in the named project tracker instead.',
     recovery: noRetry('Change the task status in the named project tracker instead.'),
   }),
+  order_anchor_invalid: spec('order_anchor_invalid', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The order anchor must be another live task in the same column.',
+    hint: 'Pick another task from the same column in `board status`, or use `--top` or `--bottom`.',
+    recovery: noRetry(
+      'Pick another task from the same column, or place the task at the top or bottom.',
+    ),
+  }),
   task_archived: spec('task_archived', {
     status: 409,
     exit: EXIT_CODES.refused,

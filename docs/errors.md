@@ -648,6 +648,40 @@ Example:
 }
 ```
 
+## order_anchor_invalid
+
+The order anchor must be another live task in the same column.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Pick another task from the same column in `board status`, or use `--top` or `--bottom`.  
+Recovery: Pick another task from the same column, or place the task at the top or bottom.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "order_anchor_invalid",
+    "requestId": "req-example-123",
+    "message": "The order anchor must be another live task in the same column.",
+    "hint": "Pick another task from the same column in `board status`, or use `--top` or `--bottom`.",
+    "docs": "docs/errors.md#order_anchor_invalid",
+    "recovery": {
+      "action": "Pick another task from the same column, or place the task at the top or bottom.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## task_archived
 
 The task is archived, so it cannot change.

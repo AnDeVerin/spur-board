@@ -222,7 +222,7 @@ describe('production query handlers', () => {
     expect(history.events.map(({ kind }) => kind)).toEqual(['task_added']);
   });
 
-  it('returns every task event in journal order with an encoded actor and one-line summary', async () => {
+  it('returns every task event but task_reordered in journal order with an encoded actor and one-line summary', async () => {
     const { store, registry, query } = await seeded();
     await store.transaction(async (trx) => {
       for (const kind of EVENT_KINDS) {
@@ -257,8 +257,10 @@ describe('production query handlers', () => {
         .execute();
     });
     const value = await query(required(registry['task.history']), { task: KEY }, worker);
-    expect(value.events.map(({ kind }) => kind)).toEqual(EVENT_KINDS);
-    expect(value.events).toHaveLength(EVENT_KINDS.length);
+    // The inserted task_reordered row is journaled but never listed.
+    const listed = EVENT_KINDS.filter((kind) => kind !== 'task_reordered');
+    expect(value.events.map(({ kind }) => kind)).toEqual(listed);
+    expect(value.events).toHaveLength(EVENT_KINDS.length - 1);
     for (const event of value.events) {
       expect(event.actor).toBe(worker);
       expect(event.summary.trim()).not.toBe('');

@@ -15,18 +15,15 @@ Open PR/live worker skips the group to Dev. New/reopened tasks enter `todo`.
 
 Manual: operator-only; enabled Todo-group endpoints, else
 `move_outside_todo_group`; eligible unbanned open PRs (conflicts too) or live linked
-workers give `work_started`. CLI default: `--manual`; MCP: `task_move`,
-`mode: manual`; also operator web API.
-Both modes: real column, new visit at end (same-column too).
-Idle stays; only later reopen resets; work/completion follow facts. Ties: journal
-order; saved reverse-time/key sorts win. Need non-blank literal reason
-(max 20,000 UTF-16 units) and explicit non-blank key; retry identical input/key.
-Exact reason in events/move views; history normalizes whitespace to one line.
+workers give `work_started`. CLI default `--manual`; MCP `task_move`; web API.
+Both modes: real column, new visit (same column too).
+Idle stays until a later reopen; work/completion follow facts. Ties: journal
+order; saved sorts win. Need non-blank literal reason
+(max 20,000 UTF-16 units), explicit non-blank key; retry identical input/key.
+Exact reason in events; one line in history.
 
-Normal moves are automatic; commands below are operator placement. `--correct`
-repairs enabled non-Done columns then settles gates. Dev return:
-`board return <turn> <reason>`. QA: `board submit <turn> <sha>` records evidence;
-the dispatcher moves.
+`--correct` repairs enabled non-Done columns then settles gates. Dev return:
+`board return <turn> <reason>`. QA: `board submit <turn> <sha>` records evidence.
 
 | Column            | Position source                | Who moves                    | Command                                                       |
 | ----------------- | ------------------------------ | ---------------------------- | ------------------------------------------------------------- |
@@ -40,6 +37,10 @@ the dispatcher moves.
 | `qa`              | Gates: QA confirmation         | Dispatcher/operator          | `board move <task> qa --correct --reason <text>`              |
 | `ready-to-merge`  | Gates: merge                   | Dispatcher/operator          | `board move <task> ready-to-merge --correct --reason <text>`  |
 | `done`            | Completion: PR/ticket facts    | Dispatcher                   | None (automatic)                                              |
+
+Order: one per column, board-wide; arrivals go last. Operator:
+`board order <task> --before <task> --key <key>` (`--after`, `--top`, `--bottom`);
+`board status` shows `position`.
 
 Mirror: `source` on `ready-for-dev`; `column_mirrored` refuses manual moves there.
 Each complete read moves idle tasks between it and `todo`, overriding `--correct`.

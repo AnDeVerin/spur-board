@@ -1,4 +1,13 @@
 import {
+  autoUpdate,
+  computePosition,
+  flip,
+  hide as hideMiddleware,
+  offset,
+  shift,
+  size,
+} from '@floating-ui/dom';
+import {
   useEffect,
   useId,
   useLayoutEffect,
@@ -18,39 +27,43 @@ import styles from './Popover.module.css';
  * carries `aria-expanded` and takes focus back on close. The header holds the title at the left,
  * then `actions` (e.g. an underline `Tabs`), then Close; the body scrolls.
  *
- * Placement: it sits `--space-1` under the anchor's bottom edge, starting at its left edge, and
- * follows the anchor on any scroll (a nested scroller included), on resize, and on any layout
- * change: it measures the anchor every animation frame while open and writes only a change. While
- * the anchor is in view the panel keeps `--space-2` inside the window edges. In view means the
- * anchor's box meets the visible area: the window cut, per axis, by the padding box of every
- * ancestor on the anchor's containing-block chain whose overflow clips, up to `body`. As in CSS,
- * an absolute anchor is clipped only from its nearest positioned ancestor up, and a fixed one by
- * none. An empty visible area (a scroller wholly outside the window) is not in view. An anchor out
- * of view, out of the window or clipped away by a scroller such as a board strip, hides the panel
- * (`display: none`, so nothing inside can show itself and its controls leave the tab order). A
- * hide that would take focus with it moves focus to the trigger first, and the panel showing again
- * gives it back, unless the element left the panel or focus moved on from the trigger.
+ * Placement comes from `@floating-ui/dom`: `computePosition` with `offset`, `size`, `flip`,
+ * `shift` and `hide`, run by `autoUpdate` on any scroll of the anchor's or the panel's scrolling
+ * ancestors, on resize, on a resize of either element and on a layout shift of the anchor, and
+ * again when the header resizes. The panel has no frame loop of its own. It sits `--space-1`
+ * under the anchor's bottom edge, starting at its left edge, and keeps `--space-2` inside the
+ * window edges, or the safe-area inset on a side where it is larger; both gaps are read from the
+ * panel's computed style at each update. The panel is hidden (`display: none`, so nothing inside
+ * can show itself and its controls leave the tab order) while the anchor is out of view: out of
+ * the window or clipped away by a scroller such as a board strip. Clipping follows the anchor's
+ * containing-block chain, a `transform`, `filter` or `contain` ancestor included. A hide that
+ * would take focus with it moves focus to the trigger first, and the panel showing again gives
+ * it back, unless the element left the panel or focus moved on from the trigger.
  *
- * An open panel closes (calls `onClose` once, moving no focus) when its anchor element unmounts or
+ * An open panel renders hidden (`data-away="pending"`) until its first placement, and a placement
+ * that shows a hidden panel places it once more, so its first shown position uses its rendered
+ * size. It closes (calls `onClose` once, moving no focus) when its anchor element unmounts or
  * leaves the document, or when the column re-renders a different element under the same ref: the
- * panel belongs to an element that is gone. Until an anchor attaches, as when both mount in one
- * commit, the panel stays hidden the same way. A caller that passes a new ref object retargets the
- * panel to it, hidden until that ref attaches.
+ * panel belongs to an element that is gone. Every commit and every DOM change reads the ref
+ * again. Until an anchor attaches, as when both mount in one commit, the panel stays pending. A
+ * caller that passes a new ref object retargets the panel to it, pending until that ref attaches,
+ * and an anchor moved under another parent is tracked again from there. Every placement update
+ * (a scroll, a resize, a layout shift) reads the ref again too, so a `ref.current` swap with
+ * neither a commit nor a DOM change is seen at the next one.
  *
- * Near the bottom of the window its height shrinks to the space under the anchor, down to
- * `--space-2` above the window edge, and the body scrolls. With less space than the header as
- * rendered (measured each frame, so tabs that wrap to two rows count) and one standard control
- * (`--size-control`) in the padded body need, the panel moves up just enough to keep them in view
- * and may cover the bottom of the anchor; it never flips above the anchor. It is never shorter
- * than that least height; an anchor whose top is below the window hides it (`data-away="bottom"`).
- * At 375px it fills the window width less `--space-2` on each side, still under
- * its anchor: not a bottom sheet.
+ * Height: it shrinks to the space under the anchor, down to that bottom edge, and the body
+ * scrolls. It is never shorter than its least height: the header as rendered (so tabs that wrap
+ * to two rows count) and one standard control (`--size-control`) in the padded body. With less
+ * room than that under the anchor, it flips above the anchor (`top-start`); when neither side has
+ * room it shifts to keep its header in the window. At 375px it fills the window width less
+ * `--space-2` on each side (or the safe-area inset), still next to its anchor: not a bottom
+ * sheet.
  *
  * Focus: `trigger` is the element that opens the panel (the caller's control with
  * `aria-expanded`); the opener is the element focused at the first render. With an opener, focus
- * moves to Close on open, or on the first placement that shows the panel when it opens hidden;
- * with none (focus on `body`, as after a click in Safari or an open from the URL), focus stays
- * put. Escape and Close call `onClose` and return focus to `trigger`, else,
+ * moves to Close on the first placement that shows the panel, if it is still on the opener; with
+ * none (focus on `body`, as after a click in Safari or an open from the URL), focus stays put.
+ * Escape and Close call `onClose` and return focus to `trigger`, else,
  * while it is not attached, to the opener: in Safari a click does not focus the trigger, so the
  * opener may be an unrelated control. Close always returns it; Escape only when focus was inside
  * the panel, or on `body` while the panel was shown: a hidden panel (its anchor out of view, its
@@ -75,13 +88,16 @@ import styles from './Popover.module.css';
  * The body is not a tab stop: its content must be focusable or sit in a `TabPanel`.
  *
  * Stacking and limits: the panel is `position: fixed` at `--z-menu`, rendered in place (no
- * portal). An ancestor with `transform`, `filter` or `contain` becomes its containing block and
- * breaks the placement; such an ancestor of a fixed anchor, which would clip it, is not followed
- * by the in-view test either. Left open while a `SidePanel` opens by keyboard, it draws above that
- * panel (`--z-menu` over `--z-panel`), though inert; a mouse press closes it. Its root is a
- * stacking context: a `HoverMenu` inside stacks within the panel. Beside the title its menu may
- * extend past the panel; in `actions`, which scrolls sideways when its content is wider than the
- * room beside Close (Close always stays in the panel), and in the body, the scroll box clips it.
+ * portal). A `transform`, `filter` or `contain` ancestor of the panel becomes its containing
+ * block: the position follows it, but the panel's width (`100%` is that ancestor's), the
+ * ancestor's overflow clipping and `--z-menu` stacking within its stacking context do not escape
+ * it. A `display: contents` wrapper clips nothing. An anchor spanning both edges of an empty
+ * visible area (a scroller wholly outside the window) counts as in view. Left open while a
+ * `SidePanel` opens by keyboard, it draws above that panel (`--z-menu` over `--z-panel`), though
+ * inert; a mouse press closes it. Its root is a stacking context: a `HoverMenu` inside stacks
+ * within the panel. Beside the title its menu may extend past the panel; in `actions`, which
+ * scrolls sideways when its content is wider than the room beside Close (Close always stays in
+ * the panel), and in the body, the scroll box clips it.
  */
 export function Popover({
   open,
@@ -99,49 +115,7 @@ export function Popover({
   return <OpenPopover {...props} />;
 }
 
-type Area = { left: number; top: number; right: number; bottom: number };
-
-/**
- * Where `element` can show: the window cut, per axis, by the padding box of every ancestor on its
- * containing-block chain whose overflow on that axis clips. Following the CSS rule, a box in flow
- * is clipped by its parent's overflow, an absolute box only by its nearest positioned ancestor's
- * and those above it, and a fixed box by none. `body` and the root are left out (their overflow
- * goes to the window), and inline and `display: contents` ancestors clip nothing. A `transform`,
- * `filter` or `contain` ancestor, which makes a fixed box's containing block, is not followed
- * (the limit the Popover doc comment states). An empty result means nothing is visible.
- */
-function visibleArea(element: HTMLElement): Area {
-  const root = document.documentElement;
-  const area: Area = { left: 0, top: 0, right: root.clientWidth, bottom: root.clientHeight };
-  // The position of the last box on the chain: it decides which ancestor holds it next.
-  let position = getComputedStyle(element).position;
-  for (
-    let node = element.parentElement;
-    node && node !== document.body && node !== root && position !== 'fixed';
-    node = node.parentElement
-  ) {
-    const style = getComputedStyle(node);
-    // An absolute box skips static ancestors up to its containing block.
-    if (position === 'absolute' && (style.position === '' || style.position === 'static')) continue;
-    position = style.position;
-    if (style.display === 'inline' || style.display === 'contents') continue;
-    const clipsX = style.overflowX !== '' && style.overflowX !== 'visible';
-    const clipsY = style.overflowY !== '' && style.overflowY !== 'visible';
-    if (!clipsX && !clipsY) continue;
-    const box = node.getBoundingClientRect();
-    const left = box.left + node.clientLeft;
-    const top = box.top + node.clientTop;
-    if (clipsX) {
-      area.left = Math.max(area.left, left);
-      area.right = Math.min(area.right, left + node.clientWidth);
-    }
-    if (clipsY) {
-      area.top = Math.max(area.top, top);
-      area.bottom = Math.min(area.bottom, top + node.clientHeight);
-    }
-  }
-  return area;
-}
+const px = (value: number) => `${String(value)}px`;
 
 /** The mounted panel: its effects run only while the popover is open. */
 function OpenPopover({
@@ -163,8 +137,7 @@ function OpenPopover({
   const panel = useRef<HTMLDivElement>(null);
   const header = useRef<HTMLDivElement>(null);
   const close = useRef<HTMLSpanElement>(null);
-  // The move to Close on open, held while the panel is hidden (its anchor out of view or not
-  // attached yet).
+  // The move to Close on open, held until a placement shows the panel.
   const pendingFocus = useRef(false);
   const focusClose = () => {
     close.current?.querySelector('button')?.focus({ preventScroll: true });
@@ -188,7 +161,7 @@ function OpenPopover({
   // The focused element a hide moved focus away from, to restore when the panel shows again.
   const parked = useRef<HTMLElement | null>(null);
   // Hiding the panel would drop focus to the page: move it to the trigger first.
-  const hide = (element: HTMLElement, away: string) => {
+  const hide = (element: HTMLElement, away: 'hidden' | 'pending') => {
     const active = document.activeElement;
     if (
       !element.hasAttribute('data-away') &&
@@ -198,7 +171,7 @@ function OpenPopover({
       parked.current = active;
       returnTarget()?.focus({ preventScroll: true });
     }
-    element.setAttribute('data-away', away);
+    if (element.getAttribute('data-away') !== away) element.setAttribute('data-away', away);
   };
   // Shown again: focus goes back where it was, unless the element left the panel or focus moved
   // on from the trigger meanwhile.
@@ -209,16 +182,95 @@ function OpenPopover({
     if (held?.isConnected && element.contains(held) && document.activeElement === returnTarget())
       held.focus({ preventScroll: true });
   };
-  // The values last written, so an unchanged frame writes nothing.
-  const written = useRef('');
   const headerWritten = useRef(0);
-  // The anchor element the first placement saw connected, under the ref object that held it.
+  // The number of the latest placement call. A stop, a new run, a close and an unmount raise it,
+  // so a result from an older call writes nothing and moves no focus.
+  const calls = useRef(0);
+  // The anchor element `autoUpdate` is bound to, and how to stop it.
+  const run = useRef<{ element: HTMLElement; stop: () => void } | null>(null);
+  // The anchor element a run was bound to, under the ref object that held it.
   const seen = useRef<{ ref: RefObject<HTMLElement | null>; element: HTMLElement } | null>(null);
   const closed = useRef(false);
-  // Writes the anchor's box on the panel, not in React state, and only when it changed.
-  // `data-away` names the side an anchor out of view left by, `empty` when nothing of the window
-  // is visible to it (a scroller wholly outside the window), or `pending` before it attaches.
-  const place = () => {
+  const stop = () => {
+    run.current?.stop();
+    run.current = null;
+    calls.current++;
+  };
+  // One placement of the panel next to `target`.
+  const place = (target: HTMLElement) => {
+    const element = panel.current;
+    if (!element || closed.current) return;
+    const call = ++calls.current;
+    const current = () => call === calls.current && !closed.current;
+    const style = getComputedStyle(element);
+    const near = parseFloat(style.getPropertyValue('--space-1')) || 0;
+    // The window edges to keep clear, resolved by CSS from --space-2 and the safe-area insets.
+    const side = (name: string) =>
+      parseFloat(style.getPropertyValue(`scroll-padding-${name}`)) || 0;
+    const edge = {
+      top: side('top'),
+      right: side('right'),
+      bottom: side('bottom'),
+      left: side('left'),
+    };
+    void computePosition(target, element, {
+      placement: 'bottom-start',
+      strategy: 'fixed',
+      middleware: [
+        offset(near),
+        // Before flip: the panel shrinks under the anchor down to its CSS least height, and only
+        // a panel that still does not fit flips.
+        size({
+          padding: edge,
+          // Whole pixels: the panel's height is read back from its computed style, which a
+          // browser rounds to three decimals, so a fractional room could read back a hair over
+          // itself and make flip take a panel that fits for one that overflows.
+          apply: ({ availableHeight }) => {
+            if (current())
+              element.style.setProperty('--popover-available', px(Math.floor(availableHeight)));
+          },
+        }),
+        flip({
+          fallbackStrategy: 'initialPlacement',
+          fallbackPlacements: ['top-start'],
+          crossAxis: false,
+          padding: edge,
+        }),
+        shift({ padding: edge, crossAxis: true }),
+        hideMiddleware({ strategy: 'referenceHidden' }),
+      ],
+    }).then(({ x, y, middlewareData }) => {
+      if (!current()) return;
+      if (middlewareData.hide?.referenceHidden) {
+        hide(element, 'hidden');
+        return;
+      }
+      element.style.left = px(x);
+      element.style.top = px(y);
+      const wasHidden = element.hasAttribute('data-away');
+      show(element);
+      // The rendered header, which grows when its actions wrap, sets the least height. Read only
+      // while shown: a hidden panel has no box. Zero means not laid out yet.
+      const height = header.current?.offsetHeight ?? 0;
+      const headerChanged = height > 0 && height !== headerWritten.current;
+      if (headerChanged) {
+        headerWritten.current = height;
+        element.style.setProperty('--popover-header', px(height));
+      }
+      // The first placement that shows the panel takes the held move to Close, unless focus has
+      // moved on since the open.
+      if (pendingFocus.current) {
+        pendingFocus.current = false;
+        if (opener && document.activeElement === opener) focusClose();
+      }
+      // A hidden panel was measured with no box, and a new header height moves the least height
+      // flip reacts to: place it again, before the frame paints.
+      if (wasHidden || headerChanged) place(target);
+    });
+  };
+  // Binds placement to the current anchor element. `moved`: a DOM change re-inserted the anchor,
+  // so its scrolling ancestors may have changed.
+  const track = (moved = false) => {
     const element = panel.current;
     if (!element || closed.current) return;
     const ref = latest.current.anchor;
@@ -227,86 +279,74 @@ function OpenPopover({
     // same ref: the panel belongs to an element that is gone, so it closes once. A new ref object
     // retargets.
     if (seen.current?.ref === ref && (seen.current.element !== target || !target.isConnected)) {
+      stop();
       closed.current = true;
       latest.current.onClose();
       return;
     }
     // Not attached yet (it mounts in the same commit as the panel, or a new ref holds none or an
-    // element not in the document yet): hidden, so it neither paints at its static or old place
-    // nor takes focus, until it attaches. Only an anchor placed while connected can close it.
+    // element not in the document yet): pending, so it neither paints at its static or old place
+    // nor takes focus, until it attaches. Only an anchor bound while connected can close it.
     if (!target?.isConnected) {
-      if (written.current !== 'pending') hide(element, 'pending');
-      written.current = 'pending';
+      if (run.current) stop();
+      hide(element, 'pending');
       return;
     }
     seen.current = { ref, element: target };
-    const rect = target.getBoundingClientRect();
-    const view = visibleArea(target);
-    let away: 'left' | 'right' | 'top' | 'bottom' | 'empty' | null = null;
-    if (view.left >= view.right || view.top >= view.bottom) away = 'empty';
-    else if (rect.right <= view.left) away = 'left';
-    else if (rect.left >= view.right) away = 'right';
-    else if (rect.bottom <= view.top) away = 'top';
-    else if (rect.top >= view.bottom) away = 'bottom';
-    const px = (value: number) => `${String(value)}px`;
-    const values = [rect.left, rect.right, rect.top, rect.bottom, away].join(' ');
-    if (values !== written.current) {
-      written.current = values;
-      element.style.setProperty('--popover-left', px(rect.left));
-      element.style.setProperty('--popover-anchor-top', px(rect.top));
-      element.style.setProperty('--popover-top', px(rect.bottom));
-      if (away) hide(element, away);
-      else show(element);
-    }
-    if (away) return;
-    // The rendered header, which grows when its actions wrap, sets the least height. Read only
-    // while shown: a hidden panel has no box. Zero means not laid out yet.
-    const height = header.current?.offsetHeight ?? 0;
-    if (height > 0 && height !== headerWritten.current) {
-      headerWritten.current = height;
-      element.style.setProperty('--popover-header', px(height));
-    }
-    // The first placement that shows the panel takes the held move to Close, unless focus has
-    // moved on since the open.
-    if (pendingFocus.current) {
-      pendingFocus.current = false;
-      if (document.activeElement === opener) focusClose();
-    }
+    if (run.current?.element === target && !moved) return;
+    stop();
+    // Each update first rereads the anchor element: a caller may swap it with no commit and no
+    // DOM change, which the close and retarget rules above then apply to. Only the element
+    // counts: a new ref object holding the same one keeps this run.
+    const update = () => {
+      if (latest.current.anchor.current === target) place(target);
+      else track();
+    };
+    const followed = autoUpdate(target, element, update);
+    // The header can grow (its actions wrap) while a capped panel keeps its outer size: neither
+    // element autoUpdate watches resizes, but the least height changes.
+    const resized = new ResizeObserver(update);
+    if (header.current) resized.observe(header.current);
+    run.current = {
+      element: target,
+      stop: () => {
+        followed();
+        resized.disconnect();
+      },
+    };
   };
+  // After each commit: a re-render may swap the ref or replace the anchor element.
   useLayoutEffect(() => {
-    place();
-    // Every frame while open: the anchor also moves on a layout change with no scroll or resize,
-    // such as a column before it growing.
-    let frame = 0;
-    // The next frame is asked for first: a close inside `place` that unmounts the panel at once
-    // runs the cleanup, which then cancels it.
-    const tick = () => {
-      frame = requestAnimationFrame(tick);
-      place();
-    };
-    frame = requestAnimationFrame(tick);
-    // Scroll does not bubble: capture it on window to hear every scroller. These place the panel
-    // in the same task as the scroll; the frame loop then finds nothing changed.
-    window.addEventListener('scroll', place, true);
-    window.addEventListener('resize', place);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener('scroll', place, true);
-      window.removeEventListener('resize', place);
-    };
-  }, []);
+    track();
+  });
   // Again after the whole commit: a popover rendered inside its anchor runs its layout effects
-  // before React attaches the anchor's ref, so the first measure finds no anchor.
+  // before React attaches the anchor's ref, so the layout effect finds no anchor.
   useEffect(() => {
-    place();
+    track();
+  });
+  // Any DOM change while open: an anchor removed, attached or moved without a re-render.
+  useLayoutEffect(() => {
+    const observer = new MutationObserver((records) => {
+      const target = run.current?.element;
+      const moved =
+        target !== undefined &&
+        records.some((record) =>
+          [...record.addedNodes].some((node) => node === target || node.contains(target)),
+        );
+      track(moved);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      stop();
+    };
   }, []);
   // A layout effect, as a layer's: inside a layer opening in the same commit it runs first.
   useLayoutEffect(() => {
     const element = panel.current;
     if (!element) return;
-    // A hidden panel cannot take focus: hold the move until a placement shows it.
-    if (opener && element.hasAttribute('data-away')) pendingFocus.current = true;
-    else if (opener) focusClose();
+    // The panel opens pending: hold the move to Close until a placement shows it.
+    if (opener) pendingFocus.current = true;
     const entry: OpenMenu = {
       root: element,
       hidden: () => element.hasAttribute('data-away'),
@@ -336,7 +376,13 @@ function OpenPopover({
     };
   }, []);
   return (
-    <div ref={panel} className={styles.root} role="dialog" aria-labelledby={titleId}>
+    <div
+      ref={panel}
+      className={styles.root}
+      role="dialog"
+      aria-labelledby={titleId}
+      data-away="pending"
+    >
       <div ref={header} className={styles.header}>
         <span id={titleId} className={styles.title}>
           {title}

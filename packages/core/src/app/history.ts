@@ -38,6 +38,7 @@ const EVENT_SUMMARIES = {
   task_corrected: 'Column corrected by the operator',
   task_manually_moved: 'Task manually moved by the operator',
   task_mirror_moved: 'Task moved by the GitHub Project mirror',
+  task_reordered: 'Task reordered',
   external_round: 'External change-request round',
   dispatcher_mode_changed: 'Dispatcher mode changed',
   turn_opened: 'Turn opened',
@@ -358,7 +359,8 @@ export function historyEvents(rows: readonly Selectable<EventTable>[]) {
   const previous = new Map<string, Facts>();
   const events = rows.flatMap((row) => {
     const kind = EVENT_KINDS.find((candidate) => candidate === row.kind);
-    if (kind === undefined) return [];
+    // A manual reorder changes only the column order, which History does not show.
+    if (kind === undefined || kind === 'task_reordered') return [];
     const entity = factsEntity(kind, row.payload);
     let summary: string | null;
     if (entity !== null && kind !== 'link_added') {

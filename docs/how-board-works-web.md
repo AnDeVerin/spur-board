@@ -10,6 +10,7 @@ Enabled writes are `comment.add`, `block.answer`, `block.followup`, `item.close`
 `task.move`, plus `inbox.ack`, `task.submit` and `task.return` from the task view's Turn
 section. The shell moves a task between Backlog parts through `task.move` from the card
 menu, a drop on another part or the task view.
+`task.order` is enabled for the operator; the shell does not call it yet.
 Token and skill routes stay on the agent API. The web listener is off by default
 and a failed bind does not stop the agent API.
 

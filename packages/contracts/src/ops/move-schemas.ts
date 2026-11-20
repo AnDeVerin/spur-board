@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { COLUMN_IDS } from '../enums.ts';
-import { taskKeyInputSchema } from '../ids.ts';
+import { taskKeyInputSchema, taskKeySchema } from '../ids.ts';
 import { moveViewSchema, taskViewSchema } from './schemas.ts';
 
 export const taskMoveInputSchema = z.discriminatedUnion('mode', [
@@ -46,4 +46,43 @@ export const taskMoveOutputSchema = z.strictObject({
   settled: z
     .array(moveViewSchema)
     .describe('Dispatcher moves after a correction, oldest first; empty for manual placement.'),
+});
+
+const orderAnchor = taskKeyInputSchema.describe(
+  'Another live task of the same column; the task goes directly before it in mode before, after it in mode after.',
+);
+
+export const taskOrderInputSchema = z.discriminatedUnion('mode', [
+  z.strictObject({
+    mode: z.literal('before').describe('Place the task directly before the anchor task.'),
+    task: taskKeyInputSchema,
+    anchor: orderAnchor,
+  }),
+  z.strictObject({
+    mode: z.literal('after').describe('Place the task directly after the anchor task.'),
+    task: taskKeyInputSchema,
+    anchor: orderAnchor,
+  }),
+  z.strictObject({
+    mode: z.literal('top').describe('Place the task first in its column order.'),
+    task: taskKeyInputSchema,
+  }),
+  z.strictObject({
+    mode: z.literal('bottom').describe('Place the task last in its column order.'),
+    task: taskKeyInputSchema,
+  }),
+]);
+
+export const taskOrderOutputSchema = z.strictObject({
+  task: taskViewSchema,
+  position: z
+    .int()
+    .min(1)
+    .describe('1-based place of the task in its column order after the call.'),
+  previous: taskKeySchema
+    .nullable()
+    .describe('Task directly before it in the column order; null when it is first.'),
+  next: taskKeySchema
+    .nullable()
+    .describe('Task directly after it in the column order; null when it is last.'),
 });

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 // Node-side, like web-hover-menu.test.ts: web tests may not import node:fs, and Vitest reads CSS
 // through a query as an empty string. The rendered behaviour is in
-// packages/web/test/ds-popover.test.ts; happy-dom has no layout, so the placement is checked here
+// packages/web/test/ds-popover.test.ts; happy-dom has no layout, so the styles are checked here
 // as written.
 const source = readFileSync(
   join(import.meta.dirname, '../packages/web/src/ds/Popover/Popover.module.css'),
@@ -25,7 +25,7 @@ function rule(selector: string): string[] {
 }
 
 describe('Popover styles', () => {
-  it('keeps inside the window under its anchor, at the menu level', () => {
+  it('keeps inside the window next to its anchor, at the menu level', () => {
     const root = rule('.root');
     expect(root).toEqual(
       expect.arrayContaining([
@@ -33,17 +33,29 @@ describe('Popover styles', () => {
         'z-index: var(--z-menu)',
         '--popover-width: min(var(--size-popover), 100% - var(--popover-edge-left) - var(--popover-edge-right))',
         'width: var(--popover-width)',
-        'left: clamp(var(--popover-edge-left), var(--popover-left), 100% - var(--popover-edge-right) - var(--popover-width))',
-        'top: var(--popover-y)',
-        // Floored at the least height, so the header and one control always fit.
-        'max-height: max(var(--popover-least), min(var(--size-popover-height), 100% - var(--popover-y) - var(--popover-edge-bottom)))',
+        // Floored at the least height, so the header and one control always fit; the fallback
+        // keeps it valid before the first placement writes --popover-available.
+        'max-height: max(var(--popover-least), min(var(--size-popover-height), var(--popover-available, var(--size-popover-height))))',
+        // The window edges: --space-2, or the safe-area inset when it is larger (#760), resolved
+        // through scroll-padding for Popover.tsx to read as placement padding.
+        '--popover-edge-left: max(var(--space-2), env(safe-area-inset-left, 0px))',
+        '--popover-edge-right: max(var(--space-2), env(safe-area-inset-right, 0px))',
+        '--popover-edge-bottom: max(var(--space-2), env(safe-area-inset-bottom, 0px))',
+        'scroll-padding: var(--space-2) var(--popover-edge-right) var(--popover-edge-bottom) var(--popover-edge-left)',
       ]),
     );
+    // Popover.tsx places it with @floating-ui/dom: no placement math in the stylesheet.
+    for (const name of ['top', 'left', '--popover-y'])
+      expect(
+        root.filter((declaration) => declaration.startsWith(`${name}:`)),
+        name,
+      ).toEqual([]);
+    expect(root.join(';')).not.toContain('clamp(');
     // No overflow on the root: a menu beside the title may extend past the panel.
     expect(root.filter((declaration) => declaration.startsWith('overflow'))).toEqual([]);
     expect(rule('.body')).toContain('overflow-y: auto');
   });
-  it('near the bottom moves up just enough to keep the header and one control in the window', () => {
+  it('near the bottom shrinks to the header and one control, which flip reacts to', () => {
     const root = rule('.root');
     // The header row (content-box, with its hairline), the body padding, room for one standard
     // control in the body, and the root's borders.
@@ -58,10 +70,6 @@ describe('Popover styles', () => {
     );
     expect(rule('.header').some((declaration) => declaration.startsWith('box-sizing'))).toBe(false);
     expect(rule('.body')).toContain('padding: var(--space-1) var(--space-3) var(--space-3)');
-    // The lower bound acts only for an anchor whose top is below the window, which hides the panel.
-    expect(root).toContain(
-      '--popover-y: max(min(var(--popover-top) + var(--space-1), 100% - var(--popover-edge-bottom) - var(--popover-least)), var(--popover-anchor-top) - var(--popover-least) - var(--space-2))',
-    );
   });
   it('keeps Close inside the panel: the actions slot shrinks and scrolls, Close never shrinks', () => {
     const ring = 'calc(var(--width-ring) + var(--offset-ring))';
