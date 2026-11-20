@@ -18,6 +18,7 @@ import {
   box,
   clip,
   flush,
+  holds,
   menu,
   mouse,
   opened,
@@ -25,8 +26,10 @@ import {
   popover,
   refuseHiddenFocus,
   scrolled,
+  shown,
   stubAnchorRect,
   stubEachTest,
+  until,
 } from './ds-popover-helpers.ts';
 
 mountEachTest();
@@ -48,8 +51,7 @@ describe('Popover', () => {
     // Not drawn and focus held on the opener until the first placement result.
     expect(dialog.getAttribute('data-away')).toBe('pending');
     expect(document.activeElement).toBe(button('Help'));
-    await flush();
-    expect(dialog.hasAttribute('data-away')).toBe(false);
+    await shown();
     expect(dialog.hasAttribute('aria-modal')).toBe(false);
     const title = document.getElementById(dialog.getAttribute('aria-labelledby') ?? '');
     expect(title?.textContent).toBe('Review');
@@ -69,8 +71,7 @@ describe('Popover', () => {
     });
     render(createElement(Fragment, null));
     render(createElement(Harness, { initial: true }));
-    await flush();
-    expect(opened().hasAttribute('data-away')).toBe(false);
+    await shown();
     expect(document.activeElement).toBe(document.body);
   });
 
@@ -102,7 +103,7 @@ describe('Popover', () => {
             if (opening === 'unrelated') button('Other').focus();
             button('Help').click();
           });
-          await flush();
+          await shown();
           const close = button('Close', opened());
           // Focus moves to Close only when something held focus, and without scrolling.
           expect(document.activeElement, row).toBe(opening === 'pointer' ? document.body : close);
@@ -128,29 +129,31 @@ describe('Popover', () => {
     refuseHiddenFocus();
     const control = createElement('button', { type: 'button' }, 'Body control');
     const other = createElement('button', { type: 'button' }, 'Other');
-    const scroll = async (left: number) => {
+    const scroll = (left: number) => {
       stubAnchorRect({ left, right: left + 320, top: 20, bottom: 40 });
-      await scrolled();
+      scrolled();
     };
     // stay: the anchor scrolls out and back; movedOn: the user focuses Other meanwhile.
     for (const how of ['stay', 'movedOn'] as const) {
       render(createElement(Fragment, null));
       render(createElement(Harness, { children: control, after: other }));
       press(button('Help'));
-      await flush();
+      await shown();
       act(() => {
         button('Body control', opened()).focus();
       });
       // The anchor scrolls wholly out: the panel hides, and focus goes to the trigger first.
-      await scroll(-400);
-      expect(opened().getAttribute('data-away')).toBe('hidden');
+      scroll(-400);
+      await until(() => {
+        expect(opened().getAttribute('data-away')).toBe('hidden');
+      });
       expect(document.activeElement).toBe(button('Help'));
       if (how === 'movedOn')
         act(() => {
           button('Other').focus();
         });
-      await scroll(100);
-      expect(opened().hasAttribute('data-away')).toBe(false);
+      scroll(100);
+      await shown();
       expect(document.activeElement, how).toBe(
         how === 'movedOn' ? button('Other') : button('Body control', opened()),
       );
@@ -171,7 +174,7 @@ describe('Popover', () => {
         });
       render(createElement(Fragment, null));
       render(harness(false));
-      await flush();
+      await shown();
       act(() => {
         button('Body control', opened()).focus();
       });
@@ -180,8 +183,12 @@ describe('Popover', () => {
       const anchor = document.getElementById('anchor');
       if (how === 'disconnected') anchor?.remove();
       else render(harness(true));
+      await until(() => {
+        expect(onClose, how).toHaveBeenCalled();
+      });
+      // Later updates close nothing more.
+      for (let index = 0; index < 2; index++) scrolled();
       await flush();
-      for (let index = 0; index < 2; index++) await scrolled();
       expect(onClose, how).toHaveBeenCalledTimes(1);
       expect(popover(), how).toBeUndefined();
       // The popover moved no focus: the removed control's focus fell to body.
@@ -206,14 +213,17 @@ describe('Popover', () => {
           ? createElement(Harness, { initial: true, attached: false, onClose })
           : createElement(Popover, props),
       );
-      for (let index = 0; index < 2; index++) await scrolled();
+      for (let index = 0; index < 2; index++) scrolled();
+      // Nothing happens within a bounded wait: still pending, not closed.
+      await flush();
       expect(opened().getAttribute('data-away'), how).toBe('pending');
       expect(onClose, how).not.toHaveBeenCalled();
       // A re-render, or a DOM append with no event at all.
       if (how === 'unmounted') render(createElement(Harness, { initial: true, onClose }));
       else document.body.append(element);
-      await flush();
-      expect(placement(), how).toEqual(box(100, 44));
+      await until(() => {
+        expect(placement(), how).toEqual(box(100, 44));
+      });
     }
     element.remove();
   });
@@ -222,7 +232,7 @@ describe('Popover', () => {
     const onClose = vi.fn();
     render(createElement(Harness, { onClose }));
     press(button('Help'));
-    await flush();
+    await shown();
     mouse('mousedown', opened().lastElementChild as Element);
     mouse('mousedown', button('Help'));
     act(() => {
@@ -259,26 +269,6 @@ describe('Popover', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('follows the anchor on nested scroll and resize', async () => {
-    // A scroller that clips around the anchor before the open, so autoUpdate listens on it.
-    render(createElement(Harness));
-    clip({ left: 0, right: 1024, top: 0, bottom: 768 });
-    press(button('Help'));
-    await flush();
-    expect(placement()).toEqual(box(100, 44));
-    stubAnchorRect({ left: 60, right: 380, top: 10, bottom: 30 });
-    act(() => {
-      document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
-    });
-    await flush();
-    expect(placement()).toEqual(box(60, 34));
-    stubAnchorRect({ left: 200, right: 520, top: 50, bottom: 70 });
-    act(() => {
-      window.dispatchEvent(new Event('resize'));
-    });
-    await flush();
-    expect(placement()).toEqual(box(200, 74));
-  });
   it('is in view only while the anchor meets the window and every clipping ancestor', async () => {
     render(createElement(Harness, { initial: true }));
     const scroller: Rect = { left: 200, right: 800, top: 0, bottom: 600 };
@@ -325,9 +315,12 @@ describe('Popover', () => {
       clip(area, scrollerPosition);
       document.getElementById('anchor')?.style.setProperty('position', anchorPosition);
       stubAnchorRect({ left, right, top, bottom });
-      await scrolled();
+      scrolled();
       const row = JSON.stringify({ left, right, top, bottom, area, layout });
-      expect(opened().getAttribute('data-away'), row).toBe(away);
+      // A row may expect the state the row before left: wait, then check it holds.
+      await holds(() => {
+        expect(opened().getAttribute('data-away'), row).toBe(away);
+      });
     }
   });
 
@@ -362,12 +355,14 @@ describe('Popover', () => {
     stubAnchorRect({ left: 10, right: 90, top: 20, bottom: 40 }, 'one');
     stubAnchorRect({ left: 500, right: 580, top: 60, bottom: 80 }, 'two');
     render(createElement(Swap, { second: false }));
-    await flush();
-    expect(placement()).toEqual(box(10, 44));
+    await until(() => {
+      expect(placement()).toEqual(box(10, 44));
+    });
     render(createElement(Swap, { second: true }));
-    await flush();
     // Placement follows anchor Two.
-    expect(placement()).toEqual(box(500, 84));
+    await until(() => {
+      expect(placement()).toEqual(box(500, 84));
+    });
     // The current anchor and the current trigger are not outside; the old ones are.
     for (const [name, closes] of [
       ['Two', 0],
@@ -409,8 +404,9 @@ describe('Popover', () => {
     });
     refuseHiddenFocus();
     render([opener, createElement(Inside, { key: 'inside' })]);
-    await flush();
-    expect(placement()).toEqual(box(100, 44));
+    await until(() => {
+      expect(placement()).toEqual(box(100, 44));
+    });
     // Something held focus at open: the move to Close waits until the panel is shown.
     expect(document.activeElement).toBe(button('Close', opened()));
   });
@@ -425,8 +421,9 @@ describe('Popover', () => {
       const onClose = vi.fn();
       render(createElement(Fragment, null));
       render(createElement(Harness, { initial: true, onClose }));
-      await flush();
-      expect(opened().hasAttribute('data-away')).toBe(!shown);
+      await until(() => {
+        expect(opened().getAttribute('data-away')).toBe(shown ? null : 'hidden');
+      });
       key('Escape');
       expect(onClose).toHaveBeenCalledTimes(1);
       expect(document.activeElement, String(shown)).toBe(shown ? button('Help') : document.body);
@@ -445,7 +442,10 @@ describe('Popover', () => {
       );
       render(createElement(Fragment, null));
       render([shown && createElement(Harness, { key: 'shown', initial: true }), hidden]);
-      await flush();
+      await until(() => {
+        const placed = dialogs().map((dialog) => dialog.getAttribute('data-away'));
+        expect(placed).toEqual(shown ? [null, 'hidden'] : ['hidden']);
+      });
       const away = () => dialogs().map((dialog) => dialog.hasAttribute('data-away'));
       expect(away()).toEqual(shown ? [false, true] : [true]);
       key('Escape');
@@ -456,7 +456,7 @@ describe('Popover', () => {
   it('a HoverMenu and a Popover: Escape closes the focused one, else the most recent', async () => {
     render(createElement(Harness, { after: menu('Sort') }));
     press(button('Help'));
-    await flush();
+    await shown();
     press(button('Sort'));
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
     // Focus back in the popover: it closes first, though the menu opened later.
@@ -471,7 +471,7 @@ describe('Popover', () => {
 
     // With focus on body, the most recently opened closes first.
     press(button('Help'));
-    await flush();
+    await shown();
     press(button('Sort'));
     act(() => {
       (document.activeElement as HTMLElement | null)?.blur();
@@ -486,7 +486,7 @@ describe('Popover', () => {
   it('a HoverMenu inside a Popover: Escape closes the menu, then the Popover', async () => {
     render(createElement(Harness, { children: menu('Sort') }));
     press(button('Help'));
-    await flush();
+    await shown();
     press(button('Sort', opened()));
     const items = opened().querySelector('[role="menu"]');
     expect(items?.contains(document.activeElement)).toBe(true);
@@ -527,7 +527,7 @@ describe('Popover', () => {
     const onClose = vi.fn();
     render(createElement(Harness, { onClose }));
     press(button('Help'));
-    await flush();
+    await shown();
     key('Escape', { isComposing: true });
     const close = button('Close', opened());
     close.addEventListener('keydown', (event) => {

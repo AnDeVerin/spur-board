@@ -1,6 +1,6 @@
 import { act, createElement, Fragment, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import { afterEach, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, expect, vi } from 'vitest';
 import { HoverMenu, Modal, Popover, type HoverMenuItem } from '../src/ds/index.ts';
 import { dialogs } from './ds-layers-helpers.ts';
 
@@ -251,7 +251,30 @@ export const box = (left: number, top: number, away: string | null = null) => ({
   away,
 });
 
-/** Lets placement results, effects and observer callbacks settle. */
+/**
+ * Waits until `check` passes: placement results and observer callbacks land asynchronously. Use it
+ * before every positive assertion; `flush` only before asserting that nothing happened.
+ */
+export const until = async (check: () => void) => {
+  await act(async () => {
+    await vi.waitFor(check, { interval: 1, timeout: 2000 });
+  });
+};
+/** Waits until the open panel is shown (`data-away` removed by a placement result). */
+export const shown = () =>
+  until(() => {
+    expect(opened().hasAttribute('data-away')).toBe(false);
+  });
+/** Waits until `check` passes, then for a bounded window, and checks it still holds. */
+export const holds = async (check: () => void) => {
+  await until(check);
+  await flush();
+  check();
+};
+/**
+ * A short, bounded wait, for asserting that nothing happened within it (no write, no call, still
+ * pending): three timer turns, which drain every microtask placement and observers queue.
+ */
 export const flush = async () => {
   await act(async () => {
     for (let index = 0; index < 3; index++)
@@ -302,15 +325,14 @@ export function Closing({ attached }: { attached: boolean }) {
 
 /**
  * A scroll of the window, and of `#scroller` when it clips: `autoUpdate` listens on the anchor's
- * and the panel's scrolling ancestors. Then the placement settles.
+ * and the panel's scrolling ancestors. The placement it starts lands later: wait with `until`.
  */
-export const scrolled = async () => {
+export const scrolled = () => {
   act(() => {
     const scroller = document.getElementById('scroller');
     if (scroller?.style.overflowX) scroller.dispatchEvent(new Event('scroll'));
     window.dispatchEvent(new Event('scroll'));
   });
-  await flush();
 };
 
 type Observed = { callback: (entries: unknown[]) => void; targets: Set<Element> };
@@ -346,22 +368,20 @@ export const stubObservers = () => {
   vi.stubGlobal('IntersectionObserver', fake(observers.intersection));
   vi.stubGlobal('ResizeObserver', fake(observers.resize));
 };
-/** Fires every live IntersectionObserver for its targets, fully visible, then settles. */
-export const intersect = async () => {
+/** Fires every live IntersectionObserver for its targets, fully visible. */
+export const intersect = () => {
   act(() => {
     for (const { callback, targets } of observers.intersection)
       if (targets.size > 0)
         callback([...targets].map((target) => ({ target, intersectionRatio: 1 })));
   });
-  await flush();
 };
-/** Fires every ResizeObserver watching `target` with one entry for it, then settles. */
-export const resized = async (target: Element) => {
+/** Fires every ResizeObserver watching `target` with one entry for it. */
+export const resized = (target: Element) => {
   act(() => {
     for (const { callback, targets } of observers.resize)
       if (targets.has(target)) callback([{ target }]);
   });
-  await flush();
 };
 
 export function stubEachTest(): void {

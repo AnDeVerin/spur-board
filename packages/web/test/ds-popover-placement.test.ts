@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { act, createElement, Fragment, useRef } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Popover } from '../src/ds/index.ts';
-import { button, mountEachTest, press, render } from './ds-layers-helpers.ts';
+import { HoverMenu, Popover } from '../src/ds/index.ts';
+import { button, key, mountEachTest, press, render } from './ds-layers-helpers.ts';
 import {
   Closing,
   Harness,
@@ -10,6 +10,7 @@ import {
   clip,
   flush,
   gaps,
+  holds,
   intersect,
   observers,
   opened,
@@ -17,10 +18,12 @@ import {
   popover,
   resized,
   scrolled,
+  shown,
   stubAnchorRect,
   stubEachTest,
   stubObservers,
   stubPanelSize,
+  until,
 } from './ds-popover-helpers.ts';
 
 // Placement through @floating-ui/dom, on the stubbed boxes of ds-popover-helpers.ts: a 1024x768
@@ -30,26 +33,31 @@ mountEachTest();
 stubEachTest();
 beforeEach(stubObservers);
 
-/** A Harness opened with its anchor at `anchor`, settled. */
-const openAt = async (anchor: { left: number; right: number; top: number; bottom: number }) => {
+/** A Harness opened with its anchor at `anchor`; its placement lands later. */
+const openAt = (anchor: { left: number; right: number; top: number; bottom: number }) => {
   stubAnchorRect(anchor);
   render(createElement(Harness, { initial: true }));
-  await flush();
 };
 
 describe('Popover placement', () => {
   it('sits the --space-1 gap under the anchor and keeps --space-2 off the window edge', async () => {
-    await openAt({ left: 100, right: 420, top: 20, bottom: 40 });
-    expect(placement()).toEqual(box(100, 44));
+    openAt({ left: 100, right: 420, top: 20, bottom: 40 });
+    await until(() => {
+      expect(placement()).toEqual(box(100, 44));
+    });
     // A right-edge anchor: shifted to 1024 - 8 - 320.
     stubAnchorRect({ left: 900, right: 1000, top: 20, bottom: 40 });
-    await scrolled();
-    expect(placement()).toEqual(box(696, 44));
+    scrolled();
+    await until(() => {
+      expect(placement()).toEqual(box(696, 44));
+    });
     // The gaps are read from the panel's computed style at each update, not fixed in code.
     Object.assign(gaps, { '--space-1': '6px', '--space-2': '12px' });
     try {
-      await scrolled();
-      expect(placement()).toEqual(box(1024 - 12 - 320, 46));
+      scrolled();
+      await until(() => {
+        expect(placement()).toEqual(box(1024 - 12 - 320, 46));
+      });
     } finally {
       Object.assign(gaps, { '--space-1': '4px', '--space-2': '8px' });
     }
@@ -57,21 +65,26 @@ describe('Popover placement', () => {
 
   it('flips above once less than the least height fits below; stays below otherwise; shifts into view when neither fits', async () => {
     // 156px below (768 - 8 - 604): it stays and shrinks to that room.
-    await openAt({ left: 100, right: 420, top: 580, bottom: 600 });
-    expect(placement()).toEqual(box(100, 604));
+    openAt({ left: 100, right: 420, top: 580, bottom: 600 });
+    await until(() => {
+      expect(placement()).toEqual(box(100, 604));
+    });
     expect(opened().style.getPropertyValue('--popover-available')).toBe('156px');
     // 56px below, less than the least height 120: above, at 680 - 4 - 200. The first result
     // measured the pending panel as 0x0 and fitted below; the update after it uses the shown size.
     stubAnchorRect({ left: 100, right: 420, top: 680, bottom: 700 });
     render(createElement(Fragment, null));
     render(createElement(Harness, { initial: true }));
-    await flush();
-    expect(placement()).toEqual(box(100, 476));
+    await until(() => {
+      expect(placement()).toEqual(box(100, 476));
+    });
     // A tall anchor: 56px below and 88px above. It stays below at its least height, shifted up to
     // keep its header in the window: 768 - 8 - 120.
     stubAnchorRect({ left: 100, right: 420, top: 100, bottom: 700 });
-    await scrolled();
-    expect(placement()).toEqual(box(100, 640));
+    scrolled();
+    await until(() => {
+      expect(placement()).toEqual(box(100, 640));
+    });
   });
 
   it('stays below with room on a fractional anchor edge: the room it writes is whole pixels', async () => {
@@ -86,9 +99,11 @@ describe('Popover placement', () => {
       stubPanelSize({ height: 600 });
       render(createElement(Fragment, null));
       render(createElement(Harness, { initial: true }));
-      await flush();
       const row = String(bottom);
-      expect(placement(), row).toEqual({ left: '100px', top: `${String(top)}px`, away: null });
+      // A flip would land after the first shown result: wait, then check it holds.
+      await holds(() => {
+        expect(placement(), row).toEqual({ left: '100px', top: `${String(top)}px`, away: null });
+      });
       expect(opened().style.getPropertyValue('--popover-available'), row).toBe(room);
     }
   });
@@ -117,29 +132,37 @@ describe('Popover placement', () => {
       const props = { open: true, onClose, anchor: held, trigger: held, title: 'T' };
       render(createElement(Fragment, null));
       render(createElement(Popover, { ...props, children: 'Body' }));
-      await flush();
-      expect(placement(), row).toEqual(box(100, 614));
+      await until(() => {
+        expect(placement(), row).toEqual(box(100, 614));
+      });
       if (row === 'swap') {
         held.current = two;
-        await scrolled();
-        await scrolled();
+        scrolled();
+        await until(() => {
+          expect(onClose, row).toHaveBeenCalled();
+        });
+        scrolled();
+        await flush();
         expect(onClose, row).toHaveBeenCalledTimes(1);
       } else if (row === 'newRef') {
         const fresh = { current: one };
         render(
           createElement(Popover, { ...props, anchor: fresh, trigger: fresh, children: 'Body' }),
         );
-        await flush();
         stubAnchorRect({ left: 200, right: 520, top: 300, bottom: 320 }, 'one');
-        await scrolled();
-        expect(placement(), row).toEqual(box(200, 324));
+        scrolled();
+        await until(() => {
+          expect(placement(), row).toEqual(box(200, 324));
+        });
         expect(onClose, row).not.toHaveBeenCalled();
       } else {
         const header = opened().firstElementChild as HTMLElement;
         Object.defineProperty(header, 'offsetHeight', { configurable: true, get: () => 66 });
-        await resized(header);
+        resized(header);
+        await until(() => {
+          expect(placement(), row).toEqual(box(100, 8));
+        });
         expect(opened().style.getPropertyValue('--popover-header'), row).toBe('66px');
-        expect(placement(), row).toEqual(box(100, 8));
         expect(onClose, row).not.toHaveBeenCalled();
       }
       render(createElement(Fragment, null));
@@ -148,9 +171,34 @@ describe('Popover placement', () => {
     }
   });
 
+  it('follows the anchor on nested scroll and resize', async () => {
+    // A scroller that clips around the anchor before the open, so autoUpdate listens on it.
+    render(createElement(Harness));
+    clip({ left: 0, right: 1024, top: 0, bottom: 768 });
+    press(button('Help'));
+    await until(() => {
+      expect(placement()).toEqual(box(100, 44));
+    });
+    stubAnchorRect({ left: 60, right: 380, top: 10, bottom: 30 });
+    act(() => {
+      document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
+    });
+    await until(() => {
+      expect(placement()).toEqual(box(60, 34));
+    });
+    stubAnchorRect({ left: 200, right: 520, top: 50, bottom: 70 });
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    await until(() => {
+      expect(placement()).toEqual(box(200, 74));
+    });
+  });
+
   it('follows a transform ancestor that clips a fixed anchor', async () => {
     // The transform makes the scroller the fixed anchor's containing block, so it clips it.
-    await openAt({ left: 300, right: 400, top: 20, bottom: 40 });
+    openAt({ left: 300, right: 400, top: 20, bottom: 40 });
+    await shown();
     const scroller = document.getElementById('scroller');
     clip({ left: 200, right: 800, top: 0, bottom: 600 });
     scroller?.style.setProperty('transform', 'translateX(0)');
@@ -161,30 +209,85 @@ describe('Popover placement', () => {
       [-200, 'hidden'],
     ] as const) {
       stubAnchorRect({ left, right: left + 100, top: 20, bottom: 40 });
-      await scrolled();
-      expect(opened().getAttribute('data-away'), String(left)).toBe(away);
+      scrolled();
+      await holds(() => {
+        expect(opened().getAttribute('data-away'), String(left)).toBe(away);
+      });
     }
+  });
+
+  it('a display: contents wrapper clips nothing, even with its own position and overflow', async () => {
+    // A #769 limit, kept: floating-ui skips a `display: contents` ancestor as a clipper, as the
+    // old walk did, so an anchor outside such a wrapper's area still counts as in view. The same
+    // wrapper laid out as a block clips it away.
+    openAt({ left: 100, right: 420, top: 20, bottom: 40 });
+    await shown();
+    for (const [display, away] of [
+      ['contents', null],
+      ['block', 'hidden'],
+    ] as const) {
+      clip({ left: 600, right: 900, top: 0, bottom: 600 }, 'relative');
+      document.getElementById('scroller')?.style.setProperty('display', display);
+      scrolled();
+      await holds(() => {
+        expect(opened().getAttribute('data-away'), display).toBe(away);
+      });
+    }
+  });
+
+  it('with focus on body, Escape closes an offscreen defaultOpen HoverMenu first: it counts as shown', async () => {
+    // A #769 limit, kept: a HoverMenu has no in-view test, so one opened by `defaultOpen` outside
+    // the window counts as shown, and as the most recently opened shown surface it closes first.
+    const offscreen = createElement(
+      'div',
+      { style: { position: 'fixed', left: '-9999px' } },
+      createElement(HoverMenu<'a'>, {
+        label: 'Sort',
+        icon: 'sun',
+        items: [{ value: 'a', label: 'First' }],
+        value: 'a',
+        onSelect: () => undefined,
+        defaultOpen: true,
+      }),
+    );
+    render(createElement(Harness, { initial: true }));
+    await shown();
+    render(createElement(Harness, { initial: true, after: offscreen }));
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    expect(document.activeElement).toBe(document.body);
+    key('Escape');
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(popover()).toBeDefined();
+    key('Escape');
+    expect(popover()).toBeUndefined();
   });
 
   it('follows a layout shift and a resize with no frame of its own', async () => {
     const frames = vi.spyOn(window, 'requestAnimationFrame');
-    await openAt({ left: 100, right: 420, top: 20, bottom: 40 });
+    openAt({ left: 100, right: 420, top: 20, bottom: 40 });
+    await shown();
     const panel = opened();
     const anchor = document.getElementById('anchor');
     if (!anchor) throw new Error('no anchor');
     // A column before it grows: the anchor moves with no scroll or resize event.
     stubAnchorRect({ left: 400, right: 720, top: 20, bottom: 40 });
-    await intersect();
-    expect(placement()).toEqual(box(400, 44));
+    intersect();
+    await until(() => {
+      expect(placement()).toEqual(box(400, 44));
+    });
     // Tabs wrap: the panel resizes and its header sets the new least height.
     const header = panel.firstElementChild as HTMLElement;
     Object.defineProperty(header, 'offsetHeight', { configurable: true, get: () => 66 });
-    await resized(panel);
-    expect(panel.style.getPropertyValue('--popover-header')).toBe('66px');
+    resized(panel);
+    await until(() => {
+      expect(panel.style.getPropertyValue('--popover-header')).toBe('66px');
+    });
     expect(frames).not.toHaveBeenCalled();
     // An anchor resize: floating-ui itself waits one frame to observe the panel again.
-    await resized(anchor);
-    expect(frames).toHaveBeenCalledTimes(1);
+    resized(anchor);
+    await holds(() => {
+      expect(frames).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('opens with an attached, out-of-view anchor: focus stays on the opener until it shows', async () => {
@@ -197,8 +300,9 @@ describe('Popover placement', () => {
       render(createElement(Fragment, null));
       render(createElement(Harness, { onClose, after: other }));
       press(button('Help'));
-      await flush();
-      expect(opened().getAttribute('data-away'), how).toBe('hidden');
+      await until(() => {
+        expect(opened().getAttribute('data-away'), how).toBe('hidden');
+      });
       expect(document.activeElement, how).toBe(button('Help'));
       expect(onClose, how).not.toHaveBeenCalled();
       if (how === 'movedOn')
@@ -206,8 +310,8 @@ describe('Popover placement', () => {
           button('Other').focus();
         });
       stubAnchorRect({ left: 100, right: 420, top: 20, bottom: 40 });
-      await scrolled();
-      expect(opened().hasAttribute('data-away'), how).toBe(false);
+      scrolled();
+      await shown();
       expect(document.activeElement, how).toBe(
         how === 'stay' ? button('Close', opened()) : button('Other'),
       );
@@ -239,9 +343,12 @@ describe('Popover placement', () => {
     render(createElement(Swap, { second: false }));
     const write = vi.spyOn(Element.prototype, 'setAttribute');
     render(createElement(Swap, { second: true }));
+    await until(() => {
+      expect(placement()).toEqual(box(500, 84));
+    });
+    // One's result never landed, also not after a bounded wait.
     await flush();
     expect(write.mock.calls.filter(([, value]) => value === 'hidden')).toEqual([]);
-    expect(placement()).toEqual(box(500, 84));
     expect(document.activeElement).toBe(document.body);
   });
 
@@ -249,6 +356,7 @@ describe('Popover placement', () => {
     render(createElement(Harness, { initial: true }));
     const panel = opened();
     press(button('Help'));
+    // Nothing lands within a bounded wait.
     await flush();
     expect(popover()).toBeUndefined();
     expect(panel.getAttribute('data-away')).toBe('pending');
@@ -258,8 +366,9 @@ describe('Popover placement', () => {
   it('an anchor moved under another clipping parent is re-tracked: hidden when it clips, re-placed on its scroll', async () => {
     const other = createElement('div', { id: 'other' });
     render(createElement(Harness, { initial: true, after: other }));
-    await flush();
-    expect(placement()).toEqual(box(100, 44));
+    await until(() => {
+      expect(placement()).toEqual(box(100, 44));
+    });
     const anchor = document.getElementById('anchor');
     const scroller = document.getElementById('scroller');
     const parent = document.getElementById('other');
@@ -269,22 +378,24 @@ describe('Popover placement', () => {
     act(() => {
       parent.append(anchor);
     });
-    await flush();
-    expect(placement().away).toBe('hidden');
+    await until(() => {
+      expect(placement().away).toBe('hidden');
+    });
     // A scroll of the new parent alone brings it in: autoUpdate listens there now.
     stubAnchorRect({ left: 650, right: 850, top: 20, bottom: 40 });
     act(() => {
       parent.dispatchEvent(new Event('scroll'));
     });
-    await flush();
-    expect(placement()).toEqual(box(650, 44));
+    await until(() => {
+      expect(placement()).toEqual(box(650, 44));
+    });
     // Back in place, so React can remove it on unmount.
     scroller.append(anchor);
   });
 
   it('a close that unmounts the panel inside an update leaves nothing observed', async () => {
     render(createElement(Closing, { attached: true }));
-    await flush();
+    await shown();
     const anchor = document.getElementById('anchor');
     const parent = anchor?.parentElement;
     if (!anchor || !parent) throw new Error('no anchor');
@@ -292,8 +403,9 @@ describe('Popover placement', () => {
     act(() => {
       anchor.remove();
     });
-    await flush();
-    expect(popover()).toBeUndefined();
+    await until(() => {
+      expect(popover()).toBeUndefined();
+    });
     const live = [...observers.intersection, ...observers.resize].filter(
       ({ targets }) => targets.size > 0,
     );
