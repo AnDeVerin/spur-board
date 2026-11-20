@@ -32,7 +32,9 @@ import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import {
   emit,
+  latest,
   mergedTicket,
+  newestMergeAt,
   parsePr,
   pastReopenFloor,
   projectForSource,
@@ -94,19 +96,15 @@ interface DispatchContext {
 const CURSOR_KEY = 'dispatcher_cursor';
 
 /** Policy counterpart of readInput's mergedTicket qualification and dispatchTasks' scope. */
-export function describeCompletion(project: Project, config: Config) {
+export function describeCompletion(project: Project) {
   const route = describeDomainCompletion();
   const done =
     project.tracker.type === 'jira'
       ? `a Jira status in ${JSON.stringify(project.tracker.doneStatuses)}`
       : 'GitHub status "closed"';
-  const interval =
-    project.tracker.type === 'jira'
-      ? config.adapters.jira.intervalMs
-      : config.adapters.githubIssues.intervalMs;
   return {
     ...route,
-    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once observed at least ${String(interval)} ms after the merge, in the tracker filter or for a manually included task; dropped-filter evidence alone stays unconfirmed. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
+    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once it changed at or after the newest merge, in the tracker filter or for a manually included task; a ticket untouched since the merge stays unconfirmed, and dropped-filter evidence alone stays unconfirmed; when no merged PR has a stored merge time (facts from before the dispatcher), work resumes once the ticket, in filter or manually included, is observed open at or past the judged PR's last update plus the tracker interval. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
   };
 }
 
@@ -885,7 +883,7 @@ export async function readInput(
   input: DispatchInput;
   handed: Handed[];
   unclosed: Row<'turn'> | undefined;
-  /** The merged PR whose ticket was seen open past the grace: the task has no PR for the gates. */
+  /** The merged PR whose ticket changed at or after the merge, not done: the task has no PR for the gates. */
   mergedOpen: { repo: string; number: number } | undefined;
   /** The task's PR merged and its ticket is neither done nor confirmed open: hold the task. */
   ticketUnconfirmed: boolean;
@@ -930,20 +928,21 @@ export async function readInput(
       }
     }
   }
-  // A merged PR finishes the task only with its ticket done. A ticket seen open one tracker
-  // interval after the merge sends it back to work without a PR; before that, it waits.
+  // A merged PR finishes the task only with its ticket done. A ticket changed at or after the merge and
+  // still not done sends it back to work without a PR; an untouched one waits.
   let mergedOpen: { repo: string; number: number } | undefined;
   let ticketUnconfirmed = false;
   if (pr?.state === 'merged') {
     const ticket = await readTicket();
-    const judged = mergedTicket(
-      project,
-      config,
-      ticket,
-      task.manual_include === 1,
-      pr.mergedAt ?? pr.updatedAt,
-    );
-    if (judged === 'open') mergedOpen = { repo: pr.repo, number: pr.number };
+    // A ticket edited before a later merge of another PR waits for that merge's close too; the
+    // interval fallback of a PR without a stored merge time applies only when no merge has one.
+    const mergedAt = latest([pr.mergedAt, await newestMergeAt(trx, task.id)]);
+    const judged = mergedTicket(project, config, ticket, task.manual_include === 1, {
+      ...pr,
+      ...(mergedAt === null ? {} : { mergedAt }),
+    });
+    if (judged === 'reopened' || judged === 'open')
+      mergedOpen = { repo: pr.repo, number: pr.number };
     ticketUnconfirmed = judged === 'unconfirmed';
   }
   // A merged PR that counts as no PR leaves the follow-up PR in any repo: every repo must see.

@@ -1,4 +1,5 @@
-// The split-PR scenarios: a merged PR whose issue stays open, and an issue closed after the merge.
+// The split-PR scenarios: a merged PR whose issue changes after it and stays open, and an issue
+// closed after the merge.
 import { openIssues, settledUnless } from './helpers.ts';
 import type { Scenario } from './index.ts';
 import { awaitTurn, check, entities, flow, ISSUE, PR, REPO, toReadyToMerge } from './dispatcher.ts';
@@ -22,14 +23,15 @@ export const dispatchTicketDoneNoPr: Scenario = {
 
 export const dispatchSplitPr: Scenario = {
   name: 'dispatch-split-pr',
-  summary: `PR #1 of ${ISSUE} merged while the issue stays open: back in Dev with the worker's turn naming the merged PR.`,
+  summary: `PR #1 of ${ISSUE} merged, then the issue changed while still open: back in Dev with the worker's turn naming the merged PR.`,
   config: flow(),
   async seed(board, fakes) {
     await toReadyToMerge(board, fakes);
     await fakes.github('merge', { repo: REPO, number: 1 });
     await board.poll();
-    // The issue counts as open once a tracker poll sees it one interval (5 s here) after the merge.
+    // The merged PR stops counting once the issue changed after the merge and is still open.
     await board.shiftClock(5_000);
+    await fakes.github('issue-milestone', { repo: REPO, number: 1, milestone: 'split' });
     await board.poll();
     await awaitTurn(board, 'worker', SPLIT_NOTE);
     return entities(board);
@@ -40,7 +42,8 @@ export const dispatchSplitPr: Scenario = {
 export const dispatchCloseAfterMerge: Scenario = {
   name: 'dispatch-close-after-merge',
   summary: `PR #1 closes ${ISSUE}; the close is seen one poll after the merge: Done with the wrap-up turn, no Dev visit.`,
-  // 60 s tracker interval: no scheduled poll on the real clock confirms the issue open pre-close.
+  // A 60 s tracker interval keeps scheduled tracker polls out of the seed, so its explicit polls
+  // alone move the task; the stand test also reads it back as the written adapters override.
   config: { ...flow(), adapters: { githubIssues: { intervalMs: 60_000 } } },
   async seed(board, fakes) {
     await toReadyToMerge(board, fakes, CLOSES);
