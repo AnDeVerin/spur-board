@@ -19,7 +19,8 @@ tooltip) and what changed since:
 - `on the head` for an approval on the current head.
 - `N commits since`, then ` · changed:` and the top-level entries those commits changed, in up
   to two groups that say it in words: `watched` with a warn chip per entry (tooltip
-  `Changed since the approval; watched`), then `not watched` with a ghost chip per entry (tooltip
+  `Changed since the approval; watched`), then `not watched` with a ghost chip per entry, or a
+  default chip in a row with the attention tint (tooltip
   `Changed since the approval; not watched`), e.g.
   `3 commits since · changed: watched back/ front/ · not watched docs/`. An empty group is left
   out, and a long entry name wraps within the row. After merges only, the row reads
@@ -34,8 +35,8 @@ tooltip) and what changed since:
 Watched entries are the project's `approvalWatch` (see the configuration reference); without the
 key every changed entry counts as watched. A row asks for a look, and takes the attention tint,
 when a watched entry changed after the approval or the history was rewritten after it. Its text
-reads at full brightness at rest, so a `not watched` entry there takes a plain chip rather than
-the ghost chip. Other rows read muted until hovered. With two or more PR links carrying
+reads at full brightness at rest, so a `not watched` entry there takes the default chip rather
+than the ghost chip. Other rows read muted until hovered. With two or more PR links carrying
 approvals, each row starts with its PR ref. A long PR ref or login breaks within the row, so
 the task view never scrolls sideways.
 
