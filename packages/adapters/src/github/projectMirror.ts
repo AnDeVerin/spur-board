@@ -204,7 +204,12 @@ async function readMirrorWith(
             'mirror_read_failed',
             'GitHub Project item value is not a single-select value',
           );
-        if (!options?.some((option) => option.id === value.optionId)) throw fieldNotFound(target);
+        if (!options?.some((option) => option.id === value.optionId))
+          throw failure(
+            'config',
+            'mirror_field_not_found',
+            `${target.repo}#${String(issue.number)}: its GitHub Project item has a ${mirror.field} option the field does not list; set its ${mirror.field} again in the Project`,
+          );
         if (value.optionId === optionId) ready = true;
       }
       readiness.push({

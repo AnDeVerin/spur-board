@@ -174,7 +174,12 @@ describe('GitHub Project mirror', () => {
   );
 
   it('rejects an item whose option the field does not list with mirror_field_not_found', async () => {
-    expectFailure(await rejection(fixture('unknown-option')), 'config', 'mirror_field_not_found');
+    const error = await rejection(fixture('unknown-option'));
+    expectFailure(error, 'config', 'mirror_field_not_found');
+    // The field and its Ready option exist; the message names the issue, not the config.
+    expect(error.message).toBe(
+      'AnDeVerin/spur-board#729: its GitHub Project item has a Status option the field does not list; set its Status again in the Project',
+    );
   });
 
   it('rejects an item whose value is not a single-select value with mirror_read_failed', async () => {
