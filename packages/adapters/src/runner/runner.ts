@@ -208,6 +208,10 @@ function runSource(
   let gone: readonly GoneRef[] = [];
   /** Set while a regular poll is in flight. */
   let controller: AbortController | undefined;
+  /** Aborts the optional reads of the regular poll in flight once an on-demand request queues. */
+  let optional: AbortController | undefined;
+  /** On-demand turns queued on the chain that have not started; a poll starting now is ahead. */
+  let demandsQueued = 0;
   /** Unsettled on-demand requests; each entry resolves its request as stopped unless observing. */
   const pending = new Set<() => void>();
   /** Until when a regular throttled failure forbids calling the source. */
@@ -357,6 +361,10 @@ function runSource(
     // A function, so each check reads the signal anew after an await.
     const aborted = () => abort.signal.aborted;
     controller = abort;
+    const yielding = new AbortController();
+    optional = yielding;
+    // An on-demand request queued while no regular poll was in flight waits behind this one.
+    if (demandsQueued > 0) yielding.abort();
     const startMs = now();
     let outcome: PollOutcome;
     let usage: Batch['usage'];
@@ -384,7 +392,7 @@ function runSource(
       const requested: GoneRef[] = [...context.observe.prs, ...context.observe.tickets];
       step = 'poll';
       const batch = await readSource(
-        () => adapter.poll({ ...context, signal: abort.signal }),
+        () => adapter.poll({ ...context, signal: abort.signal, optionalSignal: yielding.signal }),
         abort.signal,
       );
       // Only an abort ends the poll here; a missing or malformed batch fails validation below.
@@ -471,6 +479,7 @@ function runSource(
       outcome = { kind: 'failed', error };
     }
     controller = undefined;
+    optional = undefined;
     clearTimeout(hardBoundTimer);
     hardBoundTimer = undefined;
     const delay = nextDelay({
@@ -689,9 +698,13 @@ function runSource(
         settle(err({ kind: 'timeout', message: 'The on-demand poll timed out' }));
         abort.abort();
       }, timeoutMs);
-      // A transient source failure goes back on the chain after a wait, inside the deadline.
-      const attempt = () =>
-        run(async () => {
+      // A transient source failure goes back on the chain after a wait, inside the deadline. Each
+      // turn cuts short the optional reads of the regular poll it queues behind.
+      const attempt = () => {
+        optional?.abort();
+        demandsQueued += 1;
+        return run(async () => {
+          demandsQueued -= 1;
           let retry = false;
           // A function, so the read sees the flag the callback set during the await.
           const transient = () => retry;
@@ -718,6 +731,7 @@ function runSource(
           }
           settle(result);
         });
+      };
       void attempt();
     });
   }

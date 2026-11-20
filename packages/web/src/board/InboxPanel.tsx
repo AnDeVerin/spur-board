@@ -3,7 +3,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { focusRing, quiet, SidePanel, StatusDot, TabPanel, Tabs, TextToggle } from '../ds/index.ts';
 import { safeExternalUrl } from '../lib/links.ts';
 import { ProblemError } from '../lib/api.ts';
-import { BoardUnavailableError, type BoardData, type BoardSnapshot } from './data.ts';
+import type { BoardData, BoardSnapshot } from './data.ts';
+import { BoardUnavailableError } from './intents.ts';
 import { open } from './Card.tsx';
 import { openHref, shortKey } from './model.ts';
 import { age } from './task-model.ts';

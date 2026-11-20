@@ -31,11 +31,17 @@ describe('Popover styles', () => {
       expect.arrayContaining([
         'position: fixed',
         'z-index: var(--z-menu)',
-        '--popover-width: min(var(--size-popover), 100% - var(--space-2) - var(--space-2))',
+        '--popover-width: min(var(--size-popover), 100% - var(--popover-edge-left) - var(--popover-edge-right))',
         'width: var(--popover-width)',
         // Floored at the least height, so the header and one control always fit; the fallback
         // keeps it valid before the first placement writes --popover-available.
         'max-height: max(var(--popover-least), min(var(--size-popover-height), var(--popover-available, var(--size-popover-height))))',
+        // The window edges: --space-2, or the safe-area inset when it is larger (#760), resolved
+        // through scroll-padding for Popover.tsx to read as placement padding.
+        '--popover-edge-left: max(var(--space-2), env(safe-area-inset-left, 0px))',
+        '--popover-edge-right: max(var(--space-2), env(safe-area-inset-right, 0px))',
+        '--popover-edge-bottom: max(var(--space-2), env(safe-area-inset-bottom, 0px))',
+        'scroll-padding: var(--space-2) var(--popover-edge-right) var(--popover-edge-bottom) var(--popover-edge-left)',
       ]),
     );
     // Popover.tsx places it with @floating-ui/dom: no placement math in the stylesheet.

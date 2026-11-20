@@ -1,5 +1,7 @@
 import {
   prSourceId,
+  type ColumnId,
+  type Config,
   type PrPoller,
   type PollPrResult,
   type SubmissionBasis,
@@ -108,13 +110,21 @@ export async function submissionBasis(db: Db, task: number, input: BasisInput) {
   };
 }
 
-/** One bounded latest row per task, ordered by identity even at equal timestamps. */
+/**
+ * One bounded latest row per task, ordered by identity even at equal timestamps; with `column`,
+ * the latest row of that column.
+ */
 export async function latestSubmissions(
   db: Db,
   tasks: readonly Pick<Row<'task'>, 'id'>[],
+  column?: ColumnId,
 ): Promise<Map<number, SubmissionView>> {
   if (tasks.length === 0) return new Map();
   const ids = tasks.map((task) => task.id);
+  const inColumn = db
+    .selectFrom('submission')
+    .select(sql<number>`max(id)`.as('id'))
+    .where('task_id', 'in', ids);
   const rows = await db
     .selectFrom('submission as s')
     .leftJoin('submission as origin', 'origin.id', 's.tested_source_id')
@@ -124,11 +134,7 @@ export async function latestSubmissions(
     .where(
       's.id',
       'in',
-      db
-        .selectFrom('submission')
-        .select(sql<number>`max(id)`.as('id'))
-        .where('task_id', 'in', ids)
-        .groupBy('task_id'),
+      (column === undefined ? inColumn : inColumn.where('column', '=', column)).groupBy('task_id'),
     )
     .execute();
   return new Map(
@@ -146,5 +152,23 @@ export async function latestSubmissions(
         voided: row.voided_at !== null,
       },
     ]),
+  );
+}
+
+/** The latest QA row per task, for tasks whose project has an enabled QA column. */
+export async function latestQaSubmissions(
+  db: Db,
+  tasks: readonly Pick<Row<'task'>, 'id' | 'project'>[],
+  config: Pick<Config, 'projects'>,
+): Promise<Map<number, SubmissionView>> {
+  const withQa = new Set(
+    config.projects
+      .filter((project) => project.columns.some((column) => column.id === 'qa' && column.enabled))
+      .map((project) => project.id),
+  );
+  return latestSubmissions(
+    db,
+    tasks.filter((task) => withQa.has(task.project)),
+    'qa',
   );
 }

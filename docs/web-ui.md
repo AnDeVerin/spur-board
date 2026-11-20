@@ -1,7 +1,8 @@
 # Web UI
 
 View the Board and freshness, answer operator questions, follow up on them, comment, close
-an operator inbox item, and submit or return an orchestrator turn.
+an operator inbox item, submit or return an orchestrator turn, and move a task between Backlog
+parts.
 Archived tasks are read-only; other actions use CLI, MCP or Slack.
 
 ## Opening it
@@ -10,6 +11,8 @@ Enable the optional web listener with `web.port` and `web.publicOrigin` per
 [Optional browser access](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#optional-browser-access),
 then open `web.publicOrigin`. For 503 `UI is not built`, follow
 [Building the web UI](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#building-the-web-ui).
+The page shows the Spur mark as its tab icon and, over HTTPS, installs on a phone as a standalone
+app (see Optional browser access).
 
 Reads: `config.get`, chosen-project `status.get` and `columns.describe`, `inbox.operator`,
 open-task `task.get`/`task.history` and `/v1/events`. The UI owns no data.
@@ -23,6 +26,8 @@ open-task `task.get`/`task.history` and `/v1/events`. The UI owns no data.
 - [Task blocks and comments](web-ui-task-blocks.md): answers, follow-ups and comments in the task
   view.
 - [Turn](web-ui-task-turn.md): take an orchestrator turn and submit it or return it to Dev.
+- [Moving between Backlog parts](web-ui-board-move.md): the card menu, drop and task-view move
+  with a reason.
 
 ## Live and stale states
 

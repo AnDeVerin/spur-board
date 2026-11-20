@@ -1,0 +1,65 @@
+{
+  "detail": {
+    "id": "PR_7",
+    "number": 7,
+    "url": "https://github.com/demo/widgets/pull/7",
+    "title": "DEMO-42 Add widget",
+    "updatedAt": "2026-01-02T00:00:00Z",
+    "mergedAt": null,
+    "closedAt": null,
+    "state": "OPEN",
+    "isDraft": false,
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "BLOCKED",
+    "author": {
+      "login": "operator"
+    },
+    "headRefName": "DEMO-42-widget",
+    "headRefOid": "6b1f53303a732ccc8c6aae6640399827c15250e3",
+    "statusCheckRollup": null,
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR_1",
+          "author": {
+            "__typename": "User",
+            "login": "alice"
+          },
+          "state": "APPROVED",
+          "commit": {
+            "oid": "6b1f53303a732ccc8c6aae6640399827c15250e3"
+          },
+          "submittedAt": "2026-01-02T00:00:00Z",
+          "url": "https://github.com/demo/widgets/pull/7#pullrequestreview-1",
+          "lastEditedAt": null
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    },
+    "comments": {
+      "nodes": [],
+      "pageInfo": {
+        "hasPreviousPage": false,
+        "startCursor": null
+      }
+    },
+    "reviewThreads": {
+      "nodes": [],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    },
+    "reviewRequests": {
+      "nodes": [],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    }
+  },
+  "pairs": null
+}

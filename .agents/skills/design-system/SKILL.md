@@ -29,8 +29,9 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 - `ds/` files import only their own `ds/` files, `tokens.css` and browser packages such as
   `react`. Other code in `packages/web/src` and `packages/web/test` imports `ds/` only through
   `index.ts`.
-- `packages/web/gallery/` and `packages/web/kit/` read `ds/` directly on purpose (the gallery
-  reads `tokens.css` as raw text and globs the examples files); lint does not check them.
+- `packages/web/gallery/`, `packages/web/kit/` and `packages/web/build/` read `ds/` directly on
+  purpose (the gallery reads `tokens.css` as raw text and globs the examples files; the Vite icon
+  plugin in `build/` reads `tokens.css` and `Logo/mark.ts`); lint does not check them.
 - Enforced by `eslint/ds-import-boundary.ts` (cases in `packages/testkit/test/lint-rules.test.ts`
   `describe('design system boundary'`) and `packages/web/test/ds.test.ts`.
 - Each status color sits next to a visible word, or next to its own value text with the word

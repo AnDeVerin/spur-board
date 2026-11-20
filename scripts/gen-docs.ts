@@ -28,6 +28,11 @@ export const readyMirrorExample = readFileSync(
   new URL('../packages/contracts/test/fixtures/ready-mirror-project.yaml', import.meta.url),
   'utf8',
 );
+/** The example config of `## Example: watch what changed after an approval`. */
+export const approvalWatchExample = readFileSync(
+  new URL('../packages/contracts/test/fixtures/approval-watch-project.yaml', import.meta.url),
+  'utf8',
+);
 const program = createProgram({ io: { isTTY: false, stdout: () => {}, stderr: () => {} } });
 type CliCommand = ReturnType<typeof createProgram>;
 const operationByCommand = new Map(
@@ -319,6 +324,14 @@ export function renderConfigurationDocs(): string {
     '',
     '```yaml',
     readyMirrorExample.trimEnd(),
+    '```',
+    '',
+    '## Example: watch what changed after an approval',
+    '',
+    '`projects[].approvalWatch` names the top-level directories (`back/`) and root files (`package.json`) whose change after an approval matters for the project. For each open PR, `board status --json` lists `prSummary[].approvals[]` and `board task <key> --json` lists `links[].approvals[]`: one entry per latest approval with its `author`, `sha` and `onHead`. For an approval on an older commit, `commitsAfter` counts the commits after it up to the head, `changedAfter` lists every top-level entry they changed (`name/` for a directory, a bare name for a root file), and `watchedAfter` keeps the entries that match `approvalWatch`; a trailing `/` in either is ignored, so `back` and `back/` each match a directory or a file named `back`. Without the key every changed entry counts as watched. Merge commits, base-branch merges included, add neither commits nor entries. `notCounted` replaces the three fields when the commits cannot be counted: `history_rewritten` when the approved commit is no longer in the head history (a rebase or force-push), `rate_limit` while the GitHub budget is low, read again once it recovers, and `pr_too_large` above 100 commits. An entry without these fields is not read yet. It is a hint only: no gate, move or turn reads it. The daemon reads the key at start, so a change takes effect after a restart. Remove the key before `board rollback` to a version without it.',
+    '',
+    '```yaml',
+    approvalWatchExample.trimEnd(),
     '```',
     '',
     ...SESSION_LINKS,

@@ -32,13 +32,13 @@ import styles from './Popover.module.css';
  * ancestors, on resize, on a resize of either element and on a layout shift of the anchor, and
  * again when the header resizes. The panel has no frame loop of its own. It sits `--space-1`
  * under the anchor's bottom edge, starting at its left edge, and keeps `--space-2` inside the
- * window edges; both gaps are read from the panel's computed style at each update. The panel is
- * hidden (`display: none`, so nothing inside can show itself and its controls leave the tab
- * order) while the anchor is out of view: out of the window or clipped away by a scroller such as
- * a board strip. Clipping follows the anchor's containing-block chain, a `transform`, `filter` or
- * `contain` ancestor included. A hide that would take focus with it moves focus to the trigger
- * first, and the panel showing again gives it back, unless the element left the panel or focus
- * moved on from the trigger.
+ * window edges, or the safe-area inset on a side where it is larger; both gaps are read from the
+ * panel's computed style at each update. The panel is hidden (`display: none`, so nothing inside
+ * can show itself and its controls leave the tab order) while the anchor is out of view: out of
+ * the window or clipped away by a scroller such as a board strip. Clipping follows the anchor's
+ * containing-block chain, a `transform`, `filter` or `contain` ancestor included. A hide that
+ * would take focus with it moves focus to the trigger first, and the panel showing again gives
+ * it back, unless the element left the panel or focus moved on from the trigger.
  *
  * An open panel renders hidden (`data-away="pending"`) until its first placement, and a placement
  * that shows a hidden panel places it once more, so its first shown position uses its rendered
@@ -51,12 +51,13 @@ import styles from './Popover.module.css';
  * (a scroll, a resize, a layout shift) reads the ref again too, so a `ref.current` swap with
  * neither a commit nor a DOM change is seen at the next one.
  *
- * Height: it shrinks to the space under the anchor, down to `--space-2` above the window edge,
- * and the body scrolls. It is never shorter than its least height: the header as rendered (so
- * tabs that wrap to two rows count) and one standard control (`--size-control`) in the padded
- * body. With less room than that under the anchor, it flips above the anchor (`top-start`); when
- * neither side has room it shifts to keep its header in the window. At 375px it fills the window
- * width less `--space-2` on each side, still next to its anchor: not a bottom sheet.
+ * Height: it shrinks to the space under the anchor, down to that bottom edge, and the body
+ * scrolls. It is never shorter than its least height: the header as rendered (so tabs that wrap
+ * to two rows count) and one standard control (`--size-control`) in the padded body. With less
+ * room than that under the anchor, it flips above the anchor (`top-start`); when neither side has
+ * room it shifts to keep its header in the window. At 375px it fills the window width less
+ * `--space-2` on each side (or the safe-area inset), still next to its anchor: not a bottom
+ * sheet.
  *
  * Focus: `trigger` is the element that opens the panel (the caller's control with
  * `aria-expanded`); the opener is the element focused at the first render. With an opener, focus
@@ -203,7 +204,15 @@ function OpenPopover({
     const current = () => call === calls.current && !closed.current;
     const style = getComputedStyle(element);
     const near = parseFloat(style.getPropertyValue('--space-1')) || 0;
-    const edge = parseFloat(style.getPropertyValue('--space-2')) || 0;
+    // The window edges to keep clear, resolved by CSS from --space-2 and the safe-area insets.
+    const side = (name: string) =>
+      parseFloat(style.getPropertyValue(`scroll-padding-${name}`)) || 0;
+    const edge = {
+      top: side('top'),
+      right: side('right'),
+      bottom: side('bottom'),
+      left: side('left'),
+    };
     void computePosition(target, element, {
       placement: 'bottom-start',
       strategy: 'fixed',

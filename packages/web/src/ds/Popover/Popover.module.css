@@ -1,9 +1,16 @@
 /* Placed by Popover.tsx with @floating-ui/dom, which writes left and top on the panel and the
    room it has as --popover-available. 100% is the window (the containing block of a fixed box):
-   the width keeps --space-2 off each window edge. No overflow here: a menu beside the title may
-   extend past the panel. */
+   the width keeps --space-2 off each window edge, or the safe-area inset when it is larger
+   (viewport-fit=cover puts a notch inside the window). No overflow here: a menu beside the title
+   may extend past the panel. */
 .root {
-  --popover-width: min(var(--size-popover), 100% - var(--space-2) - var(--space-2));
+  --popover-edge-left: max(var(--space-2), env(safe-area-inset-left, 0px));
+  --popover-edge-right: max(var(--space-2), env(safe-area-inset-right, 0px));
+  --popover-edge-bottom: max(var(--space-2), env(safe-area-inset-bottom, 0px));
+  --popover-width: min(
+    var(--size-popover),
+    100% - var(--popover-edge-left) - var(--popover-edge-right)
+  );
   /* The least height: the header as rendered (Popover.tsx writes --popover-header; a one-row
      header with its hairline until then), the body padding around room for one standard
      control, and the two borders. */
@@ -12,6 +19,11 @@
       var(--space-1) + var(--size-control) + var(--space-3) + var(--size-hairline) +
       var(--size-hairline)
   );
+  /* The edges placement keeps inside the window, top, right, bottom and left. Popover.tsx reads
+     them back resolved from the computed scroll-padding (a custom property keeps max() and env()
+     unresolved); the panel is no scroll container, so the padding has no effect of its own. */
+  scroll-padding: var(--space-2) var(--popover-edge-right) var(--popover-edge-bottom)
+    var(--popover-edge-left);
   position: fixed;
   z-index: var(--z-menu);
   box-sizing: border-box;

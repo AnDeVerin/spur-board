@@ -1,4 +1,4 @@
-import { verifyWebAssets } from './package.ts';
+import { APP_FILES, manifestIcons, verifyWebAssets } from './package.ts';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import {
   existsSync,
@@ -358,7 +358,9 @@ export function prepareSkillsForSmoke(packageRoot: string): void {
 
 /**
  * Check the actual installed listener, including bytes so an index fallback cannot fake an asset.
- * The daemon serves the index with its version meta right after the first `<head>` tag.
+ * The daemon serves the index with its version meta right after the first `<head>` tag. The index
+ * links exactly the root app files and the manifest lists exactly the `icons/` ones (`APP_FILES`),
+ * since `package:smoke <tarball>` checks no tarball listing.
  */
 export async function verifyServedWeb(
   webRoot: string,
@@ -387,6 +389,41 @@ export async function verifyServedWeb(
     !Buffer.from(await response.arrayBuffer()).equals(readFileSync(join(webRoot, asset.slice(1))))
   )
     throw new Error('Installed referenced web asset did not match with HTTP 200.');
+  const linked = (rel: string) =>
+    [...index.matchAll(/<link\b[^>]*>/gi)].flatMap((tag) => {
+      if (!new RegExp(`\\brel=["']${rel}["']`, 'i').test(tag[0])) return [];
+      const href = /\bhref=["']([^"']+)["']/i.exec(tag[0])?.[1];
+      return href === undefined ? [] : [href];
+    });
+  const manifest = linked('manifest')[0];
+  if (manifest === undefined) throw new Error('Installed web index references no manifest.');
+  const links = [...linked('manifest'), ...linked('icon'), ...linked('apple-touch-icon')];
+  const icons = manifestIcons(readFileSync(join(webRoot, manifest.slice(1)), 'utf8'));
+  const expected = (listed: boolean) =>
+    APP_FILES.filter((file) => file.startsWith('icons/') === listed).map((file) => `/${file}`);
+  for (const [what, found, want] of [
+    ['index links', links, expected(false)],
+    ['manifest icons', icons, expected(true)],
+  ] as const)
+    if ([...found].sort().join(' ') !== [...want].sort().join(' '))
+      throw new Error(
+        `Installed web ${what} are ${found.join(' ') || 'none'}, expected ${want.join(' ')}.`,
+      );
+  for (const path of [...links, ...icons]) {
+    const type = path.endsWith('.webmanifest')
+      ? 'application/manifest+json'
+      : path.endsWith('.svg')
+        ? 'image/svg+xml'
+        : 'image/png';
+    const file = await fetcher(`${origin}${path}`, { signal: AbortSignal.timeout(5000) });
+    if (
+      file.status !== 200 ||
+      // The media type before any `;` parameters, so `image/png-extra` is not `image/png`.
+      (file.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() !== type ||
+      !Buffer.from(await file.arrayBuffer()).equals(readFileSync(join(webRoot, path.slice(1))))
+    )
+      throw new Error(`Installed web app file ${path} did not match with HTTP 200 and ${type}.`);
+  }
 }
 
 interface SmokeContext {

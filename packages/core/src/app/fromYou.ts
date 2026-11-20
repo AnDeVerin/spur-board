@@ -527,26 +527,35 @@ export async function reconcileItems(
     const facts = pr.detail === null ? null : parseJson(prFactsSchema, pr.detail);
     return facts === null ? NaN : Date.parse(facts.closedAt ?? facts.updatedAt);
   };
-  // Each task's newest merge time; null when no merged PR's detail is readable.
+  // Each task's newest merge time over merged links of any kind, the closure timing: closes before
+  // it are superseded, and its grace holds the pr-closed item. Null when no merged PR's detail is
+  // readable.
   const mergedAt = new Map<number, string | null>();
   // Each task's newest stored merge time (`newestMergeAt`): a ticket edited before it waits.
   const newestMerge = new Map<number, string | null>();
-  // Each task's merged PR as the dispatcher judges it (`taskMergedPr`): the newest eligible link;
-  // `at` is null when its detail is unreadable. A conflict link never counts as the task's PR.
+  // Each task's merged PR as the inbox judges it: the newest eligible merged link; `at` is null
+  // when its detail is unreadable. A merged conflict link counts as an active one, as in 0.127.0,
+  // unless an active link merged too: then the active merges decide, as the dispatcher's
+  // `taskMergedPr` does. When only a conflict link merged, the inbox judges a PR the dispatcher,
+  // which reads active links only, does not pick.
   const judged = new Map<
     number,
     { id: number; facts: ReturnType<typeof parsePr>; at: string | null; ref: string }
   >();
+  const activeMerged = new Set(
+    prs.filter((pr) => pr.state === 'merged' && pr.pr_state === 'active').map((pr) => pr.task_id),
+  );
   for (const pr of prs) {
     const state = taskPrs[String(pr.task_id)];
     if (state === undefined) continue;
     if (pr.state === 'open') state.hasOpenPr = true;
-    if (pr.state !== 'merged' || pr.pr_state !== 'active') continue;
+    if (pr.state !== 'merged') continue;
     const facts = parsePr(pr.detail ?? undefined);
     const at = facts === null ? null : (facts.mergedAt ?? facts.updatedAt);
     const newest = mergedAt.get(pr.task_id) ?? null;
     if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest)))
       mergedAt.set(pr.task_id, at);
+    if (pr.pr_state !== 'active' && activeMerged.has(pr.task_id)) continue;
     newestMerge.set(pr.task_id, latest([newestMerge.get(pr.task_id), facts?.mergedAt]));
     const current = judged.get(pr.task_id);
     if (current === undefined || pr.id > current.id)
@@ -558,9 +567,9 @@ export async function reconcileItems(
       });
   }
   // Each task's pr-closed item when it has no open PR: its PRs closed unmerged, less those closed
-  // before the newest merge, which superseded them. It is held until every repo completed a poll
-  // since the last close, so a replacement PR is seen first. A raised one also ends the merged
-  // PR's suppression below, so the two always agree.
+  // before the newest merge of any link kind, which superseded them, even beside an active merge. It
+  // is held until every repo completed a poll since the last close, so a replacement PR is seen
+  // first. A raised one also ends the merged PR's suppression below, so the two always agree.
   const prClosed = new Map<
     number,
     { held: true; key: string } | { held: false; item: ItemCandidate; closedAt: number }
@@ -582,7 +591,20 @@ export async function reconcileItems(
     if (first === undefined) continue;
     const closedAt = Math.max(...closed.map((pr) => pr.closedAt));
     const key = `pr-closed:${String(task.id)}`;
-    if (state.prCompleteAt === null || !(state.prCompleteAt >= closedAt)) {
+    // After a merge it is also held until the tracker saw the ticket open past the merge's grace,
+    // so a ticket the merge edits and then closes raises nothing.
+    const project = config.projects.find((entry) => entry.id === task.project);
+    const inMergeGrace =
+      Number.isFinite(mergedSince) &&
+      project !== undefined &&
+      !seenOpenSince(
+        project,
+        config,
+        tickets.find((entry) => entry.task_id === task.id),
+        task.manual_include === 1,
+        mergedSince,
+      );
+    if (inMergeGrace || state.prCompleteAt === null || !(state.prCompleteAt >= closedAt)) {
       prClosed.set(task.id, { held: true, key });
       continue;
     }

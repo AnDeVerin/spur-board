@@ -1,0 +1,33 @@
+/* The reason form of a move, under its card: the card's padding, open at the top so it reads as
+   part of the card above. */
+.under,
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-2-5) var(--space-2-5) var(--space-3);
+  background: var(--color-bg-elevated);
+  border: var(--size-hairline) solid var(--color-status-working);
+}
+.under {
+  border-top: 0;
+}
+/* In the task view the form stands alone, at reading width. */
+.view {
+  max-width: var(--size-measure);
+}
+
+/* The task view's `Move to` row: the label, then one button per other part. */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.label {
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--color-text-tertiary);
+}

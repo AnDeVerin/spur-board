@@ -1,7 +1,21 @@
 import { Fragment, useId, type MouseEvent, type ReactNode } from 'react';
-import { Chip, focusRing, Icon, quiet, StatusDot } from '../ds/index.ts';
+import {
+  Chip,
+  focusRing,
+  HoverMenu,
+  Icon,
+  quiet,
+  StatusDot,
+  type HoverMenuItem,
+} from '../ds/index.ts';
 import { age, markers, prStatus, quickLinks, turnView, type PrStatus } from './card.ts';
-import { matchesFilter, openHref, shortKey, type BoardRow } from './model.ts';
+import {
+  matchesFilter,
+  openHref,
+  shortKey,
+  type BoardColumnConfig,
+  type BoardRow,
+} from './model.ts';
 import styles from './Card.module.css';
 
 const classes = (...names: (string | undefined)[]) => names.filter(Boolean).join(' ');
@@ -112,10 +126,23 @@ function describedBy(status: PrStatus, id: string, hasMarkers: boolean, hasTurn:
   return ids.length === 0 ? undefined : ids.join(' ');
 }
 
+/** A Backlog card's menu: `Move to <part>…` for each other part of its band. */
+export interface CardMoves {
+  items: readonly HoverMenuItem<BoardColumnConfig['id']>[];
+  onSelect: (part: BoardColumnConfig['id']) => void;
+}
+/** A Backlog card's drag: its link is the drag source; the board marks the card while it moves. */
+export interface CardDrag {
+  onStart: () => void;
+  onEnd: () => void;
+  dragging: boolean;
+}
+
 /**
  * A task card: a link to `?open=<key>` holding the key, title, PR status, markers and turn line,
  * with the ticket, PR and Spur session links beside it, outside the card link. Dimmed, never
- * removed, when the filter misses.
+ * removed, when the filter misses. A Backlog card adds its `⋯` menu as the last quick link and
+ * drags by its link; `children` (an open move form) renders last in the wrapper, outside the link.
  */
 export function Card({
   row,
@@ -124,6 +151,9 @@ export function Card({
   spurUiOrigin,
   ticketBrowseBase,
   onOpen,
+  moves,
+  drag,
+  children,
 }: {
   row: BoardRow;
   filter: string;
@@ -133,6 +163,9 @@ export function Card({
   ticketBrowseBase: string | null;
   /** Asks the board to open the task. */
   onOpen: (key: string) => void;
+  moves?: CardMoves | undefined;
+  drag?: CardDrag | undefined;
+  children?: ReactNode;
 }) {
   const id = useId();
   const title = row.ticket?.title;
@@ -145,6 +178,7 @@ export function Card({
       className={classes(styles.wrap, quiet)}
       data-dimmed={matchesFilter(row, filter) ? undefined : ''}
       data-turn={turn?.kind ?? 'none'}
+      data-dragging={drag?.dragging === true ? '' : undefined}
     >
       <a
         className={classes(styles.card, focusRing)}
@@ -155,6 +189,8 @@ export function Card({
         onClick={(event) => {
           open(event, row.key, onOpen);
         }}
+        onDragStart={drag?.onStart}
+        onDragEnd={drag?.onEnd}
       >
         <div className={styles.keyRow}>
           <span className={styles.key}>{shortKey(row.key)}</span>
@@ -163,12 +199,13 @@ export function Card({
               {age(row.columnEnteredAt, now)}
             </span>
           )}
-          {links.length > 0 && (
-            // Room for the quick links, which sit over the card's top right corner.
+          {(links.length > 0 || moves) && (
+            // Room for the quick links and the menu, which sit over the card's top right corner.
             <span className={styles.spacer} aria-hidden="true">
               {links.map(({ kind }) => (
                 <span key={kind} className={styles.slot} />
               ))}
+              {moves && <span className={styles.slot} />}
             </span>
           )}
         </div>
@@ -207,7 +244,7 @@ export function Card({
           </div>
         )}
       </a>
-      {links.length > 0 && (
+      {(links.length > 0 || moves) && (
         <span className={styles.links}>
           {links.map((link) => (
             <a
@@ -222,8 +259,21 @@ export function Card({
               <Icon name={link.icon} />
             </a>
           ))}
+          {moves && (
+            <span className={styles.slot}>
+              <HoverMenu
+                label={`Move ${shortKey(row.key)}`}
+                text="⋯"
+                variant="action"
+                opens="down"
+                items={moves.items}
+                onSelect={moves.onSelect}
+              />
+            </span>
+          )}
         </span>
       )}
+      {children}
     </div>
   );
 }

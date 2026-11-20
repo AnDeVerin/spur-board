@@ -1,7 +1,9 @@
-/* Between the header band and the status bar band; the scrim fills the same box. */
+/* Between the header band and the status bar band; the scrim fills the same box. Both bands
+   grow by the safe-area insets in a standalone app. */
 .root {
   position: fixed;
-  inset: var(--size-header) 0 var(--size-statusbar) 0;
+  inset: calc(var(--size-header) + env(safe-area-inset-top, 0px)) 0
+    calc(var(--size-statusbar) + env(safe-area-inset-bottom, 0px)) 0;
   z-index: var(--z-panel);
 }
 .surface {
@@ -12,10 +14,12 @@
 }
 .surface[data-side='right'] {
   right: 0;
+  padding-right: env(safe-area-inset-right, 0px);
   border-left: var(--size-hairline) solid var(--color-border-strong);
 }
 .surface[data-side='left'] {
   left: 0;
+  padding-left: env(safe-area-inset-left, 0px);
   border-right: var(--size-hairline) solid var(--color-border-strong);
 }
 .header {
@@ -42,5 +46,10 @@
     inset: 0;
     width: auto;
     border: 0;
+  }
+  /* Full screen on a phone: the insets keep the header and Close clear of the notch. */
+  .surface[data-side] {
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+      env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   }
 }

@@ -9,7 +9,7 @@ type BoardSource = Output<'status.get'>['sources'][number];
 type BoardGroup = NonNullable<BoardColumnConfig['group']>;
 
 export interface BoardColumn {
-  id: string;
+  id: BoardColumnConfig['id'];
   /** `config.get` group of a Todo-group column, else null. */
   group: BoardGroup | null;
   /** Executor line: kind, then the named Spur project when there is one. */

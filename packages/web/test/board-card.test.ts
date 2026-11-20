@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { Chip, type ChipTone } from '../src/ds/index.ts';
 import { config, daemon, failure, prLink, prSummary, row, turn } from './board-fixtures.ts';
 import {
   all,
@@ -31,6 +34,8 @@ const description = (card: HTMLElement) =>
       return target.getAttribute('aria-label') ?? target.textContent;
     })
     .join(' | ');
+const chipClass = (tone: ChipTone) =>
+  /class="([^"]*)"/.exec(renderToStaticMarkup(createElement(Chip, { tone, children: 'x' })))?.[1];
 
 describe('board task cards', () => {
   it('a quick link does not open the task', async () => {
@@ -157,6 +162,71 @@ describe('board task cards', () => {
     expect(description(card('ABC-3'))).toBe('PR status: not observed yet');
     expect(description(card('ABC-4'))).toBe('no PR yet | T3 your turn open · 5m');
     expect(card('ABC-4').parentElement?.getAttribute('data-turn')).toBe('you');
+  });
+
+  it('a Ready to Merge card shows QA carried or QA skipped in its markers', async () => {
+    const sha = 'a'.repeat(40);
+    const qa = (basis: string, extra: Record<string, unknown> = {}) => ({
+      column: 'qa',
+      sha,
+      at: '2026-11-15T14:00:00.000Z',
+      basis,
+      from: null,
+      testedOrigin: null,
+      reason: null,
+      pending: false,
+      voided: false,
+      ...extra,
+    });
+    const [first, ...rest] = config.projects;
+    if (first === undefined) throw new Error('no project');
+    const d = daemon();
+    serve(
+      d,
+      [
+        row('ex/repo#7', 'ready-to-merge', {
+          qaSubmission: qa('carried', { from: sha, testedOrigin: sha, reason: 'Same tree' }),
+        }),
+        row('ex/repo#8', 'ready-to-merge', {
+          qaSubmission: qa('skipped', { reason: 'Docs only' }),
+        }),
+        row('ex/repo#9', 'ready-to-merge', { qaSubmission: qa('tested') }),
+      ],
+      {
+        ...config,
+        projects: [
+          {
+            ...first,
+            columns: [
+              ...first.columns,
+              { id: 'ready-to-merge', executor: { kind: 'operator', name: null } },
+            ],
+          },
+          ...rest,
+        ],
+      },
+    );
+    mount(d, {}, () => NOW);
+    await settle();
+    const card = (key: string) => one(`main a[title="${key}"]`);
+    const chip = (key: string, text: string) => {
+      const found = [...card(key).querySelectorAll('span')].find(
+        (span) => span.textContent === text,
+      );
+      if (found === undefined) throw new Error(`no ${text} chip on ${key}`);
+      return found;
+    };
+    const carried = chip('ex/repo#7', 'QA carried');
+    expect(carried.title).toBe(`Verdict carried from ${sha}: Same tree`);
+    expect(carried.className).toBe(chipClass('default'));
+    const skipped = chip('ex/repo#8', 'QA skipped');
+    expect(skipped.title).toBe('QA skipped: Docs only');
+    expect(skipped.className).toBe(chipClass('warn'));
+    expect(chipClass('warn')).not.toBe(chipClass('default'));
+    expect(description(card('ex/repo#7'))).toBe('QA carried');
+    expect(description(card('ex/repo#8'))).toBe('QA skipped');
+    expect(card('ex/repo#9').getAttribute('aria-describedby') ?? '').not.toContain('markers');
+    expect(card('ex/repo#9').textContent).not.toContain('QA');
   });
 
   it('a not-observed first PR keeps +N for the other linked PRs in the description', async () => {

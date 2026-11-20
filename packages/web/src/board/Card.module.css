@@ -8,7 +8,12 @@
   min-width: 0;
   --c: var(--color-text-tertiary);
 }
-.wrap[data-dimmed] {
+/* A filter miss or a card in the hand dims the card and its quick links, never the wrapper or
+   `.links`: an opacity there would fade the open `⋯` menu and paint it under the next card. */
+.wrap[data-dimmed] > .card,
+.wrap[data-dimmed] > .links > a,
+.wrap[data-dragging] > .card,
+.wrap[data-dragging] > .links > a {
   opacity: var(--opacity-dimmed);
 }
 .wrap[data-turn='agent'] {
@@ -92,6 +97,12 @@
 .slot {
   width: var(--size-logo);
   height: var(--size-logo);
+}
+/* The `⋯` menu takes one quick-link slot, its trigger centred in it. */
+.links > .slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .title {
   display: -webkit-box;

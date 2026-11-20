@@ -16,10 +16,11 @@ import { sql } from 'kysely';
 import type { z } from 'zod';
 import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
+import { approvalViews } from './approval-watch.ts';
 import { projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
-import { latestSubmissions } from './submissions.ts';
+import { latestQaSubmissions, latestSubmissions } from './submissions.ts';
 import { readOutageEnds, services } from './status-services.ts';
 import {
   columnGroupViews,
@@ -155,6 +156,7 @@ export async function getStatus(
   orderTodoGroupRows(rows, entries, projects);
   const tasks = [];
   const submissions = await latestSubmissions(store.db, rows);
+  const qaSubmissions = await latestQaSubmissions(store.db, rows, { projects });
   for (const task of rows) {
     if (!projectIds.has(task.project)) continue;
     const ticket = await store.db
@@ -168,6 +170,7 @@ export async function getStatus(
       .where('task_id', '=', task.id)
       .execute();
     const links = taskLinks.filter((link) => link.banned === 0);
+    const project = config.projects.find((entry) => entry.id === task.project);
     const prs: PrFacts[] = [];
     const summaries = [];
     const sessions: SessionFacts[] = [];
@@ -189,7 +192,8 @@ export async function getStatus(
             source.blind_reason !== null ||
             clock.now() - Date.parse(snapshot.observed_at) >
               config.thresholds.staleMultiplier * sourceInterval(config, snapshot.source);
-          summaries.push(summarizePr(fact, snapshot.observed_at, unconfirmed));
+          const approvals = await approvalViews(store.db, fact, project?.approvalWatch);
+          summaries.push(summarizePr(fact, snapshot.observed_at, unconfirmed, approvals));
         }
       } else if (link.entity === 'session' && link.session_id !== null) {
         const snapshot = await store.db
@@ -205,7 +209,6 @@ export async function getStatus(
       }
     }
     const ticketFacts = ticket === undefined ? null : parseJson(ticketFactsSchema, ticket.detail);
-    const project = config.projects.find((entry) => entry.id === task.project);
     const trackerRepo = issuesRepo(project);
     const linkHints: string[] = [];
     for (const session of sessions) {
@@ -237,6 +240,7 @@ export async function getStatus(
     tasks.push({
       key: task.key,
       submission: submissions.get(task.id) ?? null,
+      qaSubmission: qaSubmissions.get(task.id) ?? null,
       project: task.project,
       column: task.column,
       columnEnteredAt: columnEntries.get(task.id) ?? task.created_at,

@@ -52,15 +52,36 @@ describe('Popover placement', () => {
       expect(placement()).toEqual(box(696, 44));
     });
     // The gaps are read from the panel's computed style at each update, not fixed in code.
-    Object.assign(gaps, { '--space-1': '6px', '--space-2': '12px' });
-    try {
-      scrolled();
-      await until(() => {
-        expect(placement()).toEqual(box(1024 - 12 - 320, 46));
-      });
-    } finally {
-      Object.assign(gaps, { '--space-1': '4px', '--space-2': '8px' });
-    }
+    Object.assign(gaps, {
+      '--space-1': '6px',
+      'scroll-padding-top': '12px',
+      'scroll-padding-right': '12px',
+      'scroll-padding-bottom': '12px',
+      'scroll-padding-left': '12px',
+    });
+    scrolled();
+    await until(() => {
+      expect(placement()).toEqual(box(1024 - 12 - 320, 46));
+    });
+  });
+
+  it('keeps each window edge its own resolved width: a safe-area inset larger than --space-2', async () => {
+    // A notch inset of 40px on the right and 30px at the bottom (#760), resolved by the CSS into
+    // scroll-padding: the shift bound moves to 1024 - 40 - 320, and the room below to
+    // 768 - 30 - 604.
+    Object.assign(gaps, { 'scroll-padding-right': '40px', 'scroll-padding-bottom': '30px' });
+    stubPanelSize({ height: 600 });
+    openAt({ left: 900, right: 1000, top: 580, bottom: 600 });
+    await until(() => {
+      expect(placement()).toEqual(box(664, 604));
+    });
+    expect(opened().style.getPropertyValue('--popover-available')).toBe('134px');
+    // On the left the inset is under --space-2: the bound stays at 8.
+    stubAnchorRect({ left: -50, right: 50, top: 580, bottom: 600 });
+    scrolled();
+    await until(() => {
+      expect(placement()).toEqual(box(8, 604));
+    });
   });
 
   it('flips above once less than the least height fits below; stays below otherwise; shifts into view when neither fits', async () => {

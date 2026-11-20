@@ -4,8 +4,9 @@
 
 - Map a failed HTTP response with `classifyHttpFailure` in `packages/adapters/src/runner/http.ts`:
   429, or 403 with a rate-limit sign, is `throttled`, with `retryAt` when the headers give a
-  usable time; other 401 and 403 are `auth`; the rest is `transient`. Board doctor reuses it and
-  the GraphQL rules.
+  usable time; other 401 and 403 are `auth`; the rest is `transient`. `GithubClient.query` makes
+  an error body cut off after the headers `transient`. Board doctor reuses it and the GraphQL
+  rules.
 - `nextDelay` in `packages/adapters/src/runner/policy.ts` waits `authRetryMs` after `auth` or
   `config`, until `retryAt` after a `throttled` failure that carries one, and backs off
   exponentially otherwise, a `throttled` failure without `retryAt` included.
@@ -15,8 +16,8 @@
   (GitHub: `references/github-responses.md`). `budgetPause`
   pauses each bucket below `github.reserveRemaining`.
 - GitHub, GitHub Issues and Jira requests run under `withTimeout` in
-  `packages/adapters/src/runner/http.ts` (30 s): a timeout is `transient`, a caller abort passes
-  through unchanged. Spur keeps its own 5 s timer.
+  `packages/adapters/src/runner/http.ts` (30 s unless the caller passes `timeoutMs`; the approval
+  watch passes 4 s): a timeout is `transient`, a caller abort passes through unchanged. Spur keeps its own 5 s timer.
 - `schedule` (`packages/adapters/src/runner/runner.ts`) caps a poll wait at 2147483647 ms, the
   setTimeout limit; a longer one fires after 1 ms.
 - A source whose failure reaches the operator by code throws `AdapterError` with `code` from

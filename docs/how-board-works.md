@@ -56,6 +56,14 @@ expected and pending wait, and every other state, including skipped, fails. It p
 mergeability, counts review threads and lists only latest reviews on the current head.
 These are facts, not gate verdicts. `factAt` is the observation time; `unconfirmed` marks stale
 facts or a blind or missing source. Use `board task PROJ-123 --why` for gate explanations.
+An open PR with an approval also has `approvals[]`, one per latest approval in review order:
+`author`, `sha` and `onHead`. An approval on the head has `commitsAfter: 0`. For an older one,
+`commitsAfter` counts the single-parent commits after it (merges left out), `changedAfter`
+lists the top-level entries they changed (`name/` for a directory, a bare name for a root
+file), and `watchedAfter` the ones matching the project's `approvalWatch`, or all of them
+without the key. `notCounted` replaces them with `history_rewritten`, `rate_limit` or
+`pr_too_large`; none of them means not read yet. A hint, never a gate. `board task` shows the
+same `approvals` on its PR links.
 
 Status `links` is always `{ticket, prs, sessions}`: the observed ticket URL or null, effective PR
 URLs (also before observation), and effective session IDs. Banned links are excluded. Clients own

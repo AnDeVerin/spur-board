@@ -225,6 +225,14 @@ describe('fixtures', () => {
     expect(config.projects[0]?.checksGate).toBe('external-review');
   });
 
+  it('approvalWatch: parses approvalWatch from the example fixture and leaves it out when absent', () => {
+    const config = configSchema.parse(readFixture('approval-watch-project.yaml'));
+    expect(config.projects[0]?.approvalWatch).toEqual(['back/', 'front/', 'package.json']);
+    const project = configSchema.parse(validConfig()).projects[0];
+    expect(project?.approvalWatch).toBeUndefined();
+    expect(project).not.toHaveProperty('approvalWatch');
+  });
+
   it('approvalRule: parses the approval rule fixture with github-rules on External Review', () => {
     const config = configSchema.parse(readFixture('approval-rule-project.yaml'));
     const project = config.projects[0];
@@ -801,6 +809,42 @@ describe('board-wide spur projects', () => {
 
 describe('invalid configs', () => {
   it.each<[string, unknown, string, string]>([
+    [
+      'approvalWatch empty list',
+      validConfig({ approvalWatch: [] }),
+      'approvalWatch must list at least one entry',
+      'projects[0].approvalWatch',
+    ],
+    [
+      'approvalWatch not a list',
+      validConfig({ approvalWatch: 'back/' }),
+      'approvalWatch must be a list',
+      'projects[0].approvalWatch',
+    ],
+    ...['a/b', '', 'back /', 'back//'].map((entry): [string, unknown, string, string] => [
+      `approvalWatch entry ${JSON.stringify(entry)}`,
+      validConfig({ approvalWatch: [entry] }),
+      `approvalWatch entry ${JSON.stringify(entry)} is not allowed`,
+      'projects[0].approvalWatch[0]',
+    ]),
+    ...['.', '..', './', '../'].map((entry): [string, unknown, string, string] => [
+      `approvalWatch entry ${JSON.stringify(entry)}`,
+      validConfig({ approvalWatch: [entry] }),
+      `approvalWatch entry ${JSON.stringify(entry)} is not allowed`,
+      'projects[0].approvalWatch[0]',
+    ]),
+    [
+      'approvalWatch non-string entry',
+      validConfig({ approvalWatch: [3] }),
+      'approvalWatch entries must be strings',
+      'projects[0].approvalWatch[0]',
+    ],
+    [
+      'approvalWatch duplicate after the trailing slash',
+      validConfig({ approvalWatch: ['back/', 'back'] }),
+      'Duplicate approvalWatch entry "back": "back/" already names it',
+      'projects[0].approvalWatch[1]',
+    ],
     [
       'blank Slack app name',
       validConfig({}, { slack: { appName: '  ' } }),

@@ -12,7 +12,13 @@
         "gallery/main.tsx",
         "kit/entry.ts"
       ],
-      "project": ["src/**/*.{ts,tsx}", "test/**/*.ts", "gallery/**/*.{ts,tsx}", "kit/**/*.ts"]
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "test/**/*.ts",
+        "gallery/**/*.{ts,tsx}",
+        "kit/**/*.ts",
+        "build/**/*.ts"
+      ]
     }
   }
 }

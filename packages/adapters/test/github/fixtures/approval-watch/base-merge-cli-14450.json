@@ -1,0 +1,2824 @@
+{
+  "detail": {
+    "id": "PR_7",
+    "number": 7,
+    "url": "https://github.com/demo/widgets/pull/7",
+    "title": "DEMO-42 Add widget",
+    "updatedAt": "2026-01-02T00:00:00Z",
+    "mergedAt": null,
+    "closedAt": null,
+    "state": "OPEN",
+    "isDraft": false,
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "BLOCKED",
+    "author": {
+      "login": "operator"
+    },
+    "headRefName": "DEMO-42-widget",
+    "headRefOid": "f2ef40d80d0e0c7e02460d33d7325364129d86a1",
+    "statusCheckRollup": null,
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR_1",
+          "author": {
+            "__typename": "User",
+            "login": "alice"
+          },
+          "state": "APPROVED",
+          "commit": {
+            "oid": "bb793c5db983a099bbc55e12b87043676258a3e3"
+          },
+          "submittedAt": "2026-01-02T00:00:00Z",
+          "url": "https://github.com/demo/widgets/pull/7#pullrequestreview-1",
+          "lastEditedAt": null
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    },
+    "comments": {
+      "nodes": [],
+      "pageInfo": {
+        "hasPreviousPage": false,
+        "startCursor": null
+      }
+    },
+    "reviewThreads": {
+      "nodes": [],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    },
+    "reviewRequests": {
+      "nodes": [],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    }
+  },
+  "commits": {
+    "data": {
+      "rateLimit": {
+        "cost": 1,
+        "limit": 5000,
+        "remaining": 4321,
+        "resetAt": "2026-01-03T00:00:00Z"
+      },
+      "repository": {
+        "pullRequest": {
+          "baseRefName": "trunk",
+          "commits": {
+            "totalCount": 7,
+            "pageInfo": {
+              "hasPreviousPage": false
+            },
+            "nodes": [
+              {
+                "commit": {
+                  "oid": "49d1506dbc67ecbd8f43103208d6566c5858a7aa",
+                  "tree": {
+                    "entries": [
+                      {
+                        "name": ".devcontainer",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                      },
+                      {
+                        "name": ".experiments",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                      },
+                      {
+                        "name": ".gitattributes",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                      },
+                      {
+                        "name": ".github",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "7c3b50a2913915a2e835ef595824879d25d87039"
+                      },
+                      {
+                        "name": ".gitignore",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "2d65ee64682362cfb60f389081d7408e65538b61"
+                      },
+                      {
+                        "name": ".golangci.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                      },
+                      {
+                        "name": ".goreleaser.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                      },
+                      {
+                        "name": "AGENTS.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                      },
+                      {
+                        "name": "CLAUDE.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                      },
+                      {
+                        "name": "LICENSE",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                      },
+                      {
+                        "name": "Makefile",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                      },
+                      {
+                        "name": "README.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c6f2ebbf9d65c45107afc3ff6b2e2dbbd125cc27"
+                      },
+                      {
+                        "name": "acceptance",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "0490d07c35b638b5a2889115d8936e8f8ef9ff98"
+                      },
+                      {
+                        "name": "api",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "c9976ec0e35841844a861303ce770397fc4f659e"
+                      },
+                      {
+                        "name": "build",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                      },
+                      {
+                        "name": "cmd",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                      },
+                      {
+                        "name": "context",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                      },
+                      {
+                        "name": "docs",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                      },
+                      {
+                        "name": "git",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                      },
+                      {
+                        "name": "go.mod",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "e877539fa6df19f69d6d0e8589932f04d6e6fd47"
+                      },
+                      {
+                        "name": "go.sum",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "a695d8eab9b95a1b902c93fbeb8922b5f06daa21"
+                      },
+                      {
+                        "name": "internal",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "69faee0438fee42fd2da78c38b3ebd2ed3aece5a"
+                      },
+                      {
+                        "name": "pkg",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "2850afe60fffb28c9239e65c5f9a3294f42fe862"
+                      },
+                      {
+                        "name": "script",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                      },
+                      {
+                        "name": "skills",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "261a013370a0e574a5c1062f806c8c7c4bd59886"
+                      },
+                      {
+                        "name": "test",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                      },
+                      {
+                        "name": "utils",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                      }
+                    ]
+                  },
+                  "parents": {
+                    "totalCount": 1,
+                    "nodes": [
+                      {
+                        "oid": "9909db87c400abf1e5f01215ee8cae8d69d65045",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": ".devcontainer",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                            },
+                            {
+                              "name": ".experiments",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                            },
+                            {
+                              "name": ".gitattributes",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                            },
+                            {
+                              "name": ".github",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "7c3b50a2913915a2e835ef595824879d25d87039"
+                            },
+                            {
+                              "name": ".gitignore",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "2d65ee64682362cfb60f389081d7408e65538b61"
+                            },
+                            {
+                              "name": ".golangci.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                            },
+                            {
+                              "name": ".goreleaser.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                            },
+                            {
+                              "name": "AGENTS.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                            },
+                            {
+                              "name": "CLAUDE.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                            },
+                            {
+                              "name": "LICENSE",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                            },
+                            {
+                              "name": "Makefile",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c6f2ebbf9d65c45107afc3ff6b2e2dbbd125cc27"
+                            },
+                            {
+                              "name": "acceptance",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "0490d07c35b638b5a2889115d8936e8f8ef9ff98"
+                            },
+                            {
+                              "name": "api",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "c9976ec0e35841844a861303ce770397fc4f659e"
+                            },
+                            {
+                              "name": "build",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                            },
+                            {
+                              "name": "cmd",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                            },
+                            {
+                              "name": "context",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                            },
+                            {
+                              "name": "git",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                            },
+                            {
+                              "name": "go.mod",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "d6d98a4125bfac9a4b41c717b3003625fdfec79b"
+                            },
+                            {
+                              "name": "go.sum",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b748ad8f8ff7062f0c9717264cec82a79d2de28e"
+                            },
+                            {
+                              "name": "internal",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "69faee0438fee42fd2da78c38b3ebd2ed3aece5a"
+                            },
+                            {
+                              "name": "pkg",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2850afe60fffb28c9239e65c5f9a3294f42fe862"
+                            },
+                            {
+                              "name": "script",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                            },
+                            {
+                              "name": "skills",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "261a013370a0e574a5c1062f806c8c7c4bd59886"
+                            },
+                            {
+                              "name": "test",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                            },
+                            {
+                              "name": "utils",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "commit": {
+                  "oid": "d55e1d4685e4fb5c3123c168c10b600c8cd8c84d",
+                  "tree": {
+                    "entries": [
+                      {
+                        "name": ".devcontainer",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                      },
+                      {
+                        "name": ".experiments",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                      },
+                      {
+                        "name": ".gitattributes",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                      },
+                      {
+                        "name": ".github",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "7c3b50a2913915a2e835ef595824879d25d87039"
+                      },
+                      {
+                        "name": ".gitignore",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                      },
+                      {
+                        "name": ".golangci.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                      },
+                      {
+                        "name": ".goreleaser.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                      },
+                      {
+                        "name": "AGENTS.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                      },
+                      {
+                        "name": "CLAUDE.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                      },
+                      {
+                        "name": "LICENSE",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                      },
+                      {
+                        "name": "Makefile",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                      },
+                      {
+                        "name": "README.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c6f2ebbf9d65c45107afc3ff6b2e2dbbd125cc27"
+                      },
+                      {
+                        "name": "acceptance",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "0490d07c35b638b5a2889115d8936e8f8ef9ff98"
+                      },
+                      {
+                        "name": "api",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "c9976ec0e35841844a861303ce770397fc4f659e"
+                      },
+                      {
+                        "name": "build",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                      },
+                      {
+                        "name": "cmd",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                      },
+                      {
+                        "name": "context",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                      },
+                      {
+                        "name": "docs",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                      },
+                      {
+                        "name": "git",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                      },
+                      {
+                        "name": "go.mod",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "e877539fa6df19f69d6d0e8589932f04d6e6fd47"
+                      },
+                      {
+                        "name": "go.sum",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "a695d8eab9b95a1b902c93fbeb8922b5f06daa21"
+                      },
+                      {
+                        "name": "internal",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "4d9fc062e03552cb90bc8eed313d4d171f55f856"
+                      },
+                      {
+                        "name": "pkg",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "2850afe60fffb28c9239e65c5f9a3294f42fe862"
+                      },
+                      {
+                        "name": "script",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                      },
+                      {
+                        "name": "skills",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "261a013370a0e574a5c1062f806c8c7c4bd59886"
+                      },
+                      {
+                        "name": "test",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                      },
+                      {
+                        "name": "utils",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                      }
+                    ]
+                  },
+                  "parents": {
+                    "totalCount": 1,
+                    "nodes": [
+                      {
+                        "oid": "49d1506dbc67ecbd8f43103208d6566c5858a7aa",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": ".devcontainer",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                            },
+                            {
+                              "name": ".experiments",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                            },
+                            {
+                              "name": ".gitattributes",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                            },
+                            {
+                              "name": ".github",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "7c3b50a2913915a2e835ef595824879d25d87039"
+                            },
+                            {
+                              "name": ".gitignore",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "2d65ee64682362cfb60f389081d7408e65538b61"
+                            },
+                            {
+                              "name": ".golangci.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                            },
+                            {
+                              "name": ".goreleaser.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                            },
+                            {
+                              "name": "AGENTS.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                            },
+                            {
+                              "name": "CLAUDE.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                            },
+                            {
+                              "name": "LICENSE",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                            },
+                            {
+                              "name": "Makefile",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c6f2ebbf9d65c45107afc3ff6b2e2dbbd125cc27"
+                            },
+                            {
+                              "name": "acceptance",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "0490d07c35b638b5a2889115d8936e8f8ef9ff98"
+                            },
+                            {
+                              "name": "api",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "c9976ec0e35841844a861303ce770397fc4f659e"
+                            },
+                            {
+                              "name": "build",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                            },
+                            {
+                              "name": "cmd",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                            },
+                            {
+                              "name": "context",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                            },
+                            {
+                              "name": "git",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                            },
+                            {
+                              "name": "go.mod",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "e877539fa6df19f69d6d0e8589932f04d6e6fd47"
+                            },
+                            {
+                              "name": "go.sum",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "a695d8eab9b95a1b902c93fbeb8922b5f06daa21"
+                            },
+                            {
+                              "name": "internal",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "69faee0438fee42fd2da78c38b3ebd2ed3aece5a"
+                            },
+                            {
+                              "name": "pkg",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2850afe60fffb28c9239e65c5f9a3294f42fe862"
+                            },
+                            {
+                              "name": "script",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                            },
+                            {
+                              "name": "skills",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "261a013370a0e574a5c1062f806c8c7c4bd59886"
+                            },
+                            {
+                              "name": "test",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                            },
+                            {
+                              "name": "utils",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "commit": {
+                  "oid": "bb793c5db983a099bbc55e12b87043676258a3e3",
+                  "tree": {
+                    "entries": [
+                      {
+                        "name": ".devcontainer",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                      },
+                      {
+                        "name": ".experiments",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                      },
+                      {
+                        "name": ".gitattributes",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                      },
+                      {
+                        "name": ".github",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "7c3b50a2913915a2e835ef595824879d25d87039"
+                      },
+                      {
+                        "name": ".gitignore",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                      },
+                      {
+                        "name": ".golangci.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                      },
+                      {
+                        "name": ".goreleaser.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                      },
+                      {
+                        "name": "AGENTS.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                      },
+                      {
+                        "name": "CLAUDE.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                      },
+                      {
+                        "name": "LICENSE",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                      },
+                      {
+                        "name": "Makefile",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                      },
+                      {
+                        "name": "README.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c6f2ebbf9d65c45107afc3ff6b2e2dbbd125cc27"
+                      },
+                      {
+                        "name": "acceptance",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "0490d07c35b638b5a2889115d8936e8f8ef9ff98"
+                      },
+                      {
+                        "name": "api",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "573600c120e3b734639c6e02343f8cf8cb5bf0e8"
+                      },
+                      {
+                        "name": "build",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                      },
+                      {
+                        "name": "cmd",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                      },
+                      {
+                        "name": "context",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                      },
+                      {
+                        "name": "docs",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                      },
+                      {
+                        "name": "git",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                      },
+                      {
+                        "name": "go.mod",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "e877539fa6df19f69d6d0e8589932f04d6e6fd47"
+                      },
+                      {
+                        "name": "go.sum",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "a695d8eab9b95a1b902c93fbeb8922b5f06daa21"
+                      },
+                      {
+                        "name": "internal",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "a4c0580a658b1cc3a576198bb700a5a60afa0ebf"
+                      },
+                      {
+                        "name": "pkg",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "cc25909d3a28b486d2fc9daaab6221e1ef61cb40"
+                      },
+                      {
+                        "name": "script",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                      },
+                      {
+                        "name": "skills",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "261a013370a0e574a5c1062f806c8c7c4bd59886"
+                      },
+                      {
+                        "name": "test",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                      },
+                      {
+                        "name": "utils",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                      }
+                    ]
+                  },
+                  "parents": {
+                    "totalCount": 1,
+                    "nodes": [
+                      {
+                        "oid": "d55e1d4685e4fb5c3123c168c10b600c8cd8c84d",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": ".devcontainer",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                            },
+                            {
+                              "name": ".experiments",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                            },
+                            {
+                              "name": ".gitattributes",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                            },
+                            {
+                              "name": ".github",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "7c3b50a2913915a2e835ef595824879d25d87039"
+                            },
+                            {
+                              "name": ".gitignore",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                            },
+                            {
+                              "name": ".golangci.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                            },
+                            {
+                              "name": ".goreleaser.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                            },
+                            {
+                              "name": "AGENTS.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                            },
+                            {
+                              "name": "CLAUDE.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                            },
+                            {
+                              "name": "LICENSE",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                            },
+                            {
+                              "name": "Makefile",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c6f2ebbf9d65c45107afc3ff6b2e2dbbd125cc27"
+                            },
+                            {
+                              "name": "acceptance",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "0490d07c35b638b5a2889115d8936e8f8ef9ff98"
+                            },
+                            {
+                              "name": "api",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "c9976ec0e35841844a861303ce770397fc4f659e"
+                            },
+                            {
+                              "name": "build",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                            },
+                            {
+                              "name": "cmd",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                            },
+                            {
+                              "name": "context",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                            },
+                            {
+                              "name": "git",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                            },
+                            {
+                              "name": "go.mod",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "e877539fa6df19f69d6d0e8589932f04d6e6fd47"
+                            },
+                            {
+                              "name": "go.sum",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "a695d8eab9b95a1b902c93fbeb8922b5f06daa21"
+                            },
+                            {
+                              "name": "internal",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "4d9fc062e03552cb90bc8eed313d4d171f55f856"
+                            },
+                            {
+                              "name": "pkg",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2850afe60fffb28c9239e65c5f9a3294f42fe862"
+                            },
+                            {
+                              "name": "script",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                            },
+                            {
+                              "name": "skills",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "261a013370a0e574a5c1062f806c8c7c4bd59886"
+                            },
+                            {
+                              "name": "test",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                            },
+                            {
+                              "name": "utils",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "commit": {
+                  "oid": "2761962e6aefc7436f2cf947958bead70e60cb87",
+                  "tree": {
+                    "entries": [
+                      {
+                        "name": ".devcontainer",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                      },
+                      {
+                        "name": ".experiments",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                      },
+                      {
+                        "name": ".gitattributes",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                      },
+                      {
+                        "name": ".github",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "7c3b50a2913915a2e835ef595824879d25d87039"
+                      },
+                      {
+                        "name": ".gitignore",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                      },
+                      {
+                        "name": ".golangci.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                      },
+                      {
+                        "name": ".goreleaser.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                      },
+                      {
+                        "name": "AGENTS.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                      },
+                      {
+                        "name": "CLAUDE.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                      },
+                      {
+                        "name": "LICENSE",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                      },
+                      {
+                        "name": "Makefile",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                      },
+                      {
+                        "name": "README.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c6f2ebbf9d65c45107afc3ff6b2e2dbbd125cc27"
+                      },
+                      {
+                        "name": "acceptance",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "0490d07c35b638b5a2889115d8936e8f8ef9ff98"
+                      },
+                      {
+                        "name": "api",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "573600c120e3b734639c6e02343f8cf8cb5bf0e8"
+                      },
+                      {
+                        "name": "build",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                      },
+                      {
+                        "name": "cmd",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                      },
+                      {
+                        "name": "context",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                      },
+                      {
+                        "name": "docs",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                      },
+                      {
+                        "name": "git",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                      },
+                      {
+                        "name": "go.mod",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "e877539fa6df19f69d6d0e8589932f04d6e6fd47"
+                      },
+                      {
+                        "name": "go.sum",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "a695d8eab9b95a1b902c93fbeb8922b5f06daa21"
+                      },
+                      {
+                        "name": "internal",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "67e952ce64062deccc09c6fc86b116b79cdc2400"
+                      },
+                      {
+                        "name": "pkg",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "cc25909d3a28b486d2fc9daaab6221e1ef61cb40"
+                      },
+                      {
+                        "name": "script",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                      },
+                      {
+                        "name": "skills",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "261a013370a0e574a5c1062f806c8c7c4bd59886"
+                      },
+                      {
+                        "name": "test",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                      },
+                      {
+                        "name": "utils",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                      }
+                    ]
+                  },
+                  "parents": {
+                    "totalCount": 1,
+                    "nodes": [
+                      {
+                        "oid": "bb793c5db983a099bbc55e12b87043676258a3e3",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": ".devcontainer",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                            },
+                            {
+                              "name": ".experiments",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                            },
+                            {
+                              "name": ".gitattributes",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                            },
+                            {
+                              "name": ".github",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "7c3b50a2913915a2e835ef595824879d25d87039"
+                            },
+                            {
+                              "name": ".gitignore",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                            },
+                            {
+                              "name": ".golangci.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                            },
+                            {
+                              "name": ".goreleaser.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                            },
+                            {
+                              "name": "AGENTS.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                            },
+                            {
+                              "name": "CLAUDE.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                            },
+                            {
+                              "name": "LICENSE",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                            },
+                            {
+                              "name": "Makefile",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c6f2ebbf9d65c45107afc3ff6b2e2dbbd125cc27"
+                            },
+                            {
+                              "name": "acceptance",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "0490d07c35b638b5a2889115d8936e8f8ef9ff98"
+                            },
+                            {
+                              "name": "api",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "573600c120e3b734639c6e02343f8cf8cb5bf0e8"
+                            },
+                            {
+                              "name": "build",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                            },
+                            {
+                              "name": "cmd",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                            },
+                            {
+                              "name": "context",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                            },
+                            {
+                              "name": "git",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                            },
+                            {
+                              "name": "go.mod",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "e877539fa6df19f69d6d0e8589932f04d6e6fd47"
+                            },
+                            {
+                              "name": "go.sum",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "a695d8eab9b95a1b902c93fbeb8922b5f06daa21"
+                            },
+                            {
+                              "name": "internal",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "a4c0580a658b1cc3a576198bb700a5a60afa0ebf"
+                            },
+                            {
+                              "name": "pkg",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "cc25909d3a28b486d2fc9daaab6221e1ef61cb40"
+                            },
+                            {
+                              "name": "script",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                            },
+                            {
+                              "name": "skills",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "261a013370a0e574a5c1062f806c8c7c4bd59886"
+                            },
+                            {
+                              "name": "test",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                            },
+                            {
+                              "name": "utils",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "commit": {
+                  "oid": "a6435ab5c852bd86dc2d7d5f5367dc5f65930627",
+                  "tree": {
+                    "entries": [
+                      {
+                        "name": ".devcontainer",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                      },
+                      {
+                        "name": ".experiments",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                      },
+                      {
+                        "name": ".gitattributes",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                      },
+                      {
+                        "name": ".github",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "9932c2a26960e3cce2025827e1a8747cf5cf3d06"
+                      },
+                      {
+                        "name": ".gitignore",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                      },
+                      {
+                        "name": ".golangci.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                      },
+                      {
+                        "name": ".goreleaser.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                      },
+                      {
+                        "name": "AGENTS.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                      },
+                      {
+                        "name": "CLAUDE.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                      },
+                      {
+                        "name": "LICENSE",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                      },
+                      {
+                        "name": "Makefile",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                      },
+                      {
+                        "name": "README.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "e2d5ae54e7d03ea4268e2536ecd9cf3a08efdf47"
+                      },
+                      {
+                        "name": "acceptance",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "1222adfd7c0b73ba0a035a101d2804fda6d8598f"
+                      },
+                      {
+                        "name": "api",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "573600c120e3b734639c6e02343f8cf8cb5bf0e8"
+                      },
+                      {
+                        "name": "build",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                      },
+                      {
+                        "name": "cmd",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                      },
+                      {
+                        "name": "context",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                      },
+                      {
+                        "name": "docs",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                      },
+                      {
+                        "name": "git",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                      },
+                      {
+                        "name": "go.mod",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "166893af19a8b0252b19c6ec8dcaca553ea22edd"
+                      },
+                      {
+                        "name": "go.sum",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "9231ffd954c9d6f0f40022e44425a4bdfcb94556"
+                      },
+                      {
+                        "name": "internal",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "6911145ac3956b8f5dc7ff0b6bc4343a09f0ad86"
+                      },
+                      {
+                        "name": "pkg",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "93ce6e9b45c7f8bb8e7887669741d78daf347bc3"
+                      },
+                      {
+                        "name": "script",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                      },
+                      {
+                        "name": "skills",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "2f3ae1d0d6786143a59bcc6b013d8e04f259746b"
+                      },
+                      {
+                        "name": "test",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                      },
+                      {
+                        "name": "utils",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                      }
+                    ]
+                  },
+                  "parents": {
+                    "totalCount": 2,
+                    "nodes": [
+                      {
+                        "oid": "2761962e6aefc7436f2cf947958bead70e60cb87",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": ".devcontainer",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                            },
+                            {
+                              "name": ".experiments",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                            },
+                            {
+                              "name": ".gitattributes",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                            },
+                            {
+                              "name": ".github",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "7c3b50a2913915a2e835ef595824879d25d87039"
+                            },
+                            {
+                              "name": ".gitignore",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                            },
+                            {
+                              "name": ".golangci.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                            },
+                            {
+                              "name": ".goreleaser.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                            },
+                            {
+                              "name": "AGENTS.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                            },
+                            {
+                              "name": "CLAUDE.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                            },
+                            {
+                              "name": "LICENSE",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                            },
+                            {
+                              "name": "Makefile",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c6f2ebbf9d65c45107afc3ff6b2e2dbbd125cc27"
+                            },
+                            {
+                              "name": "acceptance",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "0490d07c35b638b5a2889115d8936e8f8ef9ff98"
+                            },
+                            {
+                              "name": "api",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "573600c120e3b734639c6e02343f8cf8cb5bf0e8"
+                            },
+                            {
+                              "name": "build",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                            },
+                            {
+                              "name": "cmd",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                            },
+                            {
+                              "name": "context",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                            },
+                            {
+                              "name": "git",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                            },
+                            {
+                              "name": "go.mod",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "e877539fa6df19f69d6d0e8589932f04d6e6fd47"
+                            },
+                            {
+                              "name": "go.sum",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "a695d8eab9b95a1b902c93fbeb8922b5f06daa21"
+                            },
+                            {
+                              "name": "internal",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "67e952ce64062deccc09c6fc86b116b79cdc2400"
+                            },
+                            {
+                              "name": "pkg",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "cc25909d3a28b486d2fc9daaab6221e1ef61cb40"
+                            },
+                            {
+                              "name": "script",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                            },
+                            {
+                              "name": "skills",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "261a013370a0e574a5c1062f806c8c7c4bd59886"
+                            },
+                            {
+                              "name": "test",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                            },
+                            {
+                              "name": "utils",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "oid": "fc4b137cdef0a6bd28fd461b7cf9c84a5812a8cd",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": ".devcontainer",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                            },
+                            {
+                              "name": ".experiments",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                            },
+                            {
+                              "name": ".gitattributes",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                            },
+                            {
+                              "name": ".github",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9932c2a26960e3cce2025827e1a8747cf5cf3d06"
+                            },
+                            {
+                              "name": ".gitignore",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "2d65ee64682362cfb60f389081d7408e65538b61"
+                            },
+                            {
+                              "name": ".golangci.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                            },
+                            {
+                              "name": ".goreleaser.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                            },
+                            {
+                              "name": "AGENTS.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                            },
+                            {
+                              "name": "CLAUDE.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                            },
+                            {
+                              "name": "LICENSE",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                            },
+                            {
+                              "name": "Makefile",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "e2d5ae54e7d03ea4268e2536ecd9cf3a08efdf47"
+                            },
+                            {
+                              "name": "acceptance",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "1222adfd7c0b73ba0a035a101d2804fda6d8598f"
+                            },
+                            {
+                              "name": "api",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "c9976ec0e35841844a861303ce770397fc4f659e"
+                            },
+                            {
+                              "name": "build",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                            },
+                            {
+                              "name": "cmd",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                            },
+                            {
+                              "name": "context",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                            },
+                            {
+                              "name": "git",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                            },
+                            {
+                              "name": "go.mod",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "7d0494476a0644003e74b79aaa1429e36a8a5b68"
+                            },
+                            {
+                              "name": "go.sum",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b79a9272be6f478ceab66570f2c37d37f162e7bd"
+                            },
+                            {
+                              "name": "internal",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "19d72953ec572fb79f68572c0648fda49fb4d2c9"
+                            },
+                            {
+                              "name": "pkg",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "0bbb24cb22954d037cb63874c814179655fac9a9"
+                            },
+                            {
+                              "name": "script",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                            },
+                            {
+                              "name": "skills",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f3ae1d0d6786143a59bcc6b013d8e04f259746b"
+                            },
+                            {
+                              "name": "test",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                            },
+                            {
+                              "name": "utils",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "commit": {
+                  "oid": "07c63c05e44d151560e29ca0f16b4d573057e128",
+                  "tree": {
+                    "entries": [
+                      {
+                        "name": ".devcontainer",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                      },
+                      {
+                        "name": ".experiments",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                      },
+                      {
+                        "name": ".gitattributes",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                      },
+                      {
+                        "name": ".github",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "e87efd39bc58b250367cf4ac9ea34e5cb6ab380f"
+                      },
+                      {
+                        "name": ".gitignore",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                      },
+                      {
+                        "name": ".golangci.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                      },
+                      {
+                        "name": ".goreleaser.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                      },
+                      {
+                        "name": "AGENTS.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                      },
+                      {
+                        "name": "LICENSE",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                      },
+                      {
+                        "name": "Makefile",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                      },
+                      {
+                        "name": "README.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "e2d5ae54e7d03ea4268e2536ecd9cf3a08efdf47"
+                      },
+                      {
+                        "name": "acceptance",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "1222adfd7c0b73ba0a035a101d2804fda6d8598f"
+                      },
+                      {
+                        "name": "api",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "573600c120e3b734639c6e02343f8cf8cb5bf0e8"
+                      },
+                      {
+                        "name": "build",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                      },
+                      {
+                        "name": "cmd",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                      },
+                      {
+                        "name": "context",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                      },
+                      {
+                        "name": "docs",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "6c3ae88160b8394e326d4905ea45233ecdd71e3a"
+                      },
+                      {
+                        "name": "git",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                      },
+                      {
+                        "name": "go.mod",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "b1657bd63bd562b20e1b6b13fc1dc4ef371b8cc5"
+                      },
+                      {
+                        "name": "go.sum",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "4c64d5bbbf857fc2eccbdffa60890e4c78d9af62"
+                      },
+                      {
+                        "name": "internal",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "f930b63912c51af520b36314b0801163c965c7db"
+                      },
+                      {
+                        "name": "pkg",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "049fc224aa62e865a4c5bde7e4d2e1dc2ee73350"
+                      },
+                      {
+                        "name": "script",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                      },
+                      {
+                        "name": "skills",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "eb33dd067948c3cf1fc21ebc6c6c4700d5e1f1a6"
+                      },
+                      {
+                        "name": "test",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                      },
+                      {
+                        "name": "utils",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                      }
+                    ]
+                  },
+                  "parents": {
+                    "totalCount": 2,
+                    "nodes": [
+                      {
+                        "oid": "a6435ab5c852bd86dc2d7d5f5367dc5f65930627",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": ".devcontainer",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                            },
+                            {
+                              "name": ".experiments",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                            },
+                            {
+                              "name": ".gitattributes",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                            },
+                            {
+                              "name": ".github",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9932c2a26960e3cce2025827e1a8747cf5cf3d06"
+                            },
+                            {
+                              "name": ".gitignore",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                            },
+                            {
+                              "name": ".golangci.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                            },
+                            {
+                              "name": ".goreleaser.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                            },
+                            {
+                              "name": "AGENTS.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                            },
+                            {
+                              "name": "CLAUDE.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "43c994c2d3617f947bcb5adf1933e21dabe46bb5"
+                            },
+                            {
+                              "name": "LICENSE",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                            },
+                            {
+                              "name": "Makefile",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "e2d5ae54e7d03ea4268e2536ecd9cf3a08efdf47"
+                            },
+                            {
+                              "name": "acceptance",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "1222adfd7c0b73ba0a035a101d2804fda6d8598f"
+                            },
+                            {
+                              "name": "api",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "573600c120e3b734639c6e02343f8cf8cb5bf0e8"
+                            },
+                            {
+                              "name": "build",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                            },
+                            {
+                              "name": "cmd",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                            },
+                            {
+                              "name": "context",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "906bfb04a72e7162aa2c6b78e694036f7f55a8fe"
+                            },
+                            {
+                              "name": "git",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                            },
+                            {
+                              "name": "go.mod",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "166893af19a8b0252b19c6ec8dcaca553ea22edd"
+                            },
+                            {
+                              "name": "go.sum",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9231ffd954c9d6f0f40022e44425a4bdfcb94556"
+                            },
+                            {
+                              "name": "internal",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "6911145ac3956b8f5dc7ff0b6bc4343a09f0ad86"
+                            },
+                            {
+                              "name": "pkg",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "93ce6e9b45c7f8bb8e7887669741d78daf347bc3"
+                            },
+                            {
+                              "name": "script",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                            },
+                            {
+                              "name": "skills",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f3ae1d0d6786143a59bcc6b013d8e04f259746b"
+                            },
+                            {
+                              "name": "test",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                            },
+                            {
+                              "name": "utils",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "oid": "1531837d8578fecd64eb8050d44a3665d85f9219",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": ".devcontainer",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                            },
+                            {
+                              "name": ".experiments",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                            },
+                            {
+                              "name": ".gitattributes",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                            },
+                            {
+                              "name": ".github",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "e87efd39bc58b250367cf4ac9ea34e5cb6ab380f"
+                            },
+                            {
+                              "name": ".gitignore",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "2d65ee64682362cfb60f389081d7408e65538b61"
+                            },
+                            {
+                              "name": ".golangci.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                            },
+                            {
+                              "name": ".goreleaser.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                            },
+                            {
+                              "name": "AGENTS.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                            },
+                            {
+                              "name": "LICENSE",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                            },
+                            {
+                              "name": "Makefile",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "e2d5ae54e7d03ea4268e2536ecd9cf3a08efdf47"
+                            },
+                            {
+                              "name": "acceptance",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "1222adfd7c0b73ba0a035a101d2804fda6d8598f"
+                            },
+                            {
+                              "name": "api",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "c9976ec0e35841844a861303ce770397fc4f659e"
+                            },
+                            {
+                              "name": "build",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                            },
+                            {
+                              "name": "cmd",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                            },
+                            {
+                              "name": "context",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "6c3ae88160b8394e326d4905ea45233ecdd71e3a"
+                            },
+                            {
+                              "name": "git",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                            },
+                            {
+                              "name": "go.mod",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "536dbd07f47e2c474e1b5ae18a1c67cef46be4c7"
+                            },
+                            {
+                              "name": "go.sum",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9e661cd74d452c2a50fcbcd93b0e6a6387bf9e2e"
+                            },
+                            {
+                              "name": "internal",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "20fd184b26c2f3a47d97a1be2fc0513014db4e69"
+                            },
+                            {
+                              "name": "pkg",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "5f30f22ef8f20702c65703ab01e2d24b8a434d7e"
+                            },
+                            {
+                              "name": "script",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                            },
+                            {
+                              "name": "skills",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "eb33dd067948c3cf1fc21ebc6c6c4700d5e1f1a6"
+                            },
+                            {
+                              "name": "test",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                            },
+                            {
+                              "name": "utils",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "commit": {
+                  "oid": "f2ef40d80d0e0c7e02460d33d7325364129d86a1",
+                  "tree": {
+                    "entries": [
+                      {
+                        "name": ".devcontainer",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                      },
+                      {
+                        "name": ".experiments",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                      },
+                      {
+                        "name": ".gitattributes",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                      },
+                      {
+                        "name": ".github",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "e87efd39bc58b250367cf4ac9ea34e5cb6ab380f"
+                      },
+                      {
+                        "name": ".gitignore",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                      },
+                      {
+                        "name": ".golangci.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                      },
+                      {
+                        "name": ".goreleaser.yml",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                      },
+                      {
+                        "name": "AGENTS.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                      },
+                      {
+                        "name": "LICENSE",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                      },
+                      {
+                        "name": "Makefile",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                      },
+                      {
+                        "name": "README.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "e2d5ae54e7d03ea4268e2536ecd9cf3a08efdf47"
+                      },
+                      {
+                        "name": "acceptance",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "1222adfd7c0b73ba0a035a101d2804fda6d8598f"
+                      },
+                      {
+                        "name": "api",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "573600c120e3b734639c6e02343f8cf8cb5bf0e8"
+                      },
+                      {
+                        "name": "build",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                      },
+                      {
+                        "name": "cmd",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                      },
+                      {
+                        "name": "context",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                      },
+                      {
+                        "name": "docs",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "6c3ae88160b8394e326d4905ea45233ecdd71e3a"
+                      },
+                      {
+                        "name": "git",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                      },
+                      {
+                        "name": "go.mod",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "b1657bd63bd562b20e1b6b13fc1dc4ef371b8cc5"
+                      },
+                      {
+                        "name": "go.sum",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "808f5bc3e620bc099895b9e4c7a56e7f45249d33"
+                      },
+                      {
+                        "name": "internal",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "f930b63912c51af520b36314b0801163c965c7db"
+                      },
+                      {
+                        "name": "pkg",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "049fc224aa62e865a4c5bde7e4d2e1dc2ee73350"
+                      },
+                      {
+                        "name": "script",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                      },
+                      {
+                        "name": "skills",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "eb33dd067948c3cf1fc21ebc6c6c4700d5e1f1a6"
+                      },
+                      {
+                        "name": "test",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                      },
+                      {
+                        "name": "utils",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                      }
+                    ]
+                  },
+                  "parents": {
+                    "totalCount": 1,
+                    "nodes": [
+                      {
+                        "oid": "07c63c05e44d151560e29ca0f16b4d573057e128",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": ".devcontainer",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "d793bd80f1384120ccc0d99e036a0da2c4026f8b"
+                            },
+                            {
+                              "name": ".experiments",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "2f6c50bdcc895e9cd7bf4859a88806d86e029f95"
+                            },
+                            {
+                              "name": ".gitattributes",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "113312c123de3906c6ebffb5f70d6e9c64b3d96d"
+                            },
+                            {
+                              "name": ".github",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "e87efd39bc58b250367cf4ac9ea34e5cb6ab380f"
+                            },
+                            {
+                              "name": ".gitignore",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "2b16c2106ff8de8b50c66b488c6e90d42abafc27"
+                            },
+                            {
+                              "name": ".golangci.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "f50707936b21a4d7886d80dcff3682e1c2a7186c"
+                            },
+                            {
+                              "name": ".goreleaser.yml",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "9dd3c3e00bc1e28c91fdff1169281578bd5dfc15"
+                            },
+                            {
+                              "name": "AGENTS.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "7dcd5487cf11518a6539106890ba5efcf28c03b1"
+                            },
+                            {
+                              "name": "LICENSE",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b6a58a9572cbd7e4550f8205a9c4fd199cd442f2"
+                            },
+                            {
+                              "name": "Makefile",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "c3b18f3133216972d42be4403d00aec7be755a09"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "e2d5ae54e7d03ea4268e2536ecd9cf3a08efdf47"
+                            },
+                            {
+                              "name": "acceptance",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "1222adfd7c0b73ba0a035a101d2804fda6d8598f"
+                            },
+                            {
+                              "name": "api",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "573600c120e3b734639c6e02343f8cf8cb5bf0e8"
+                            },
+                            {
+                              "name": "build",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "536a17d5ef051cce44b6e58b376c7c3c6681c537"
+                            },
+                            {
+                              "name": "cmd",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "9b6544cdc1f1a130170b7f1dc9b6b50b07eba80f"
+                            },
+                            {
+                              "name": "context",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "19e85389b441343a0d00d3bc50efe1ecca5db64a"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "6c3ae88160b8394e326d4905ea45233ecdd71e3a"
+                            },
+                            {
+                              "name": "git",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "22bb126e359b92c25787a57b2131f984149f6ec4"
+                            },
+                            {
+                              "name": "go.mod",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "b1657bd63bd562b20e1b6b13fc1dc4ef371b8cc5"
+                            },
+                            {
+                              "name": "go.sum",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "4c64d5bbbf857fc2eccbdffa60890e4c78d9af62"
+                            },
+                            {
+                              "name": "internal",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "f930b63912c51af520b36314b0801163c965c7db"
+                            },
+                            {
+                              "name": "pkg",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "049fc224aa62e865a4c5bde7e4d2e1dc2ee73350"
+                            },
+                            {
+                              "name": "script",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "4008a6065bc80ed924eca09673f340d382f16d59"
+                            },
+                            {
+                              "name": "skills",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "eb33dd067948c3cf1fc21ebc6c6c4700d5e1f1a6"
+                            },
+                            {
+                              "name": "test",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "3add16ac2070d7e1dc38905221eae4238ab4c32d"
+                            },
+                            {
+                              "name": "utils",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "8b209db0d1dc55fc509db2f5a356ac0c45a6ca42"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "pairs": [
+    {
+      "approvedSha": "bb793c5db983a099bbc55e12b87043676258a3e3",
+      "headSha": "f2ef40d80d0e0c7e02460d33d7325364129d86a1",
+      "commitsAfter": 2,
+      "changed": ["go.sum", "internal/"]
+    }
+  ]
+}

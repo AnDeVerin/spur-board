@@ -4,8 +4,10 @@
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  min-height: var(--size-statusbar);
-  padding: 0 var(--space-6);
+  /* Standalone on a phone: the safe-area insets keep the content clear of the home indicator. */
+  min-height: calc(var(--size-statusbar) + env(safe-area-inset-bottom, 0px));
+  padding: 0 max(var(--space-6), env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px)
+    max(var(--space-6), env(safe-area-inset-left, 0px));
   border-top: var(--size-hairline) solid var(--color-border-default);
   background: var(--color-bg-surface);
   font-size: var(--text-micro);
@@ -48,7 +50,8 @@
 @media (max-width: 760px) {
   .bar {
     gap: var(--space-3);
-    padding: 0 var(--space-3);
+    padding: 0 max(var(--space-3), env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px)
+      max(var(--space-3), env(safe-area-inset-left, 0px));
   }
   .label {
     display: none;

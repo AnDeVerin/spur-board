@@ -41,6 +41,7 @@ is selected once configuration arrives. Back and Forward restore both layers.
   `ticketBrowseBase` only when its prefix before `-<number>` matches the task's, ignoring case.
   Other ticket refs, Jira keys from another project, or Jira keys without a browse base stay plain.
   All links open new tabs.
+- A Backlog task, unless archived, shows `Move to` [part buttons](web-ui-board-move.md).
 - `History` lists the task's journal events, newest first by event time; events at the same
   time keep the reverse of their journal order. Each row shows the time (UTC, `hh:mm dd/mm/yy`),
   the summary of what changed with who did it, and the raw event kind, such as `turn_taken`. An agent reads as its session;

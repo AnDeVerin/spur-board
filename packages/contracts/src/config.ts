@@ -483,6 +483,9 @@ function checkBoard(items: readonly ColumnConfig[], ctx: z.RefinementCtx): void 
   });
 }
 
+/** One path segment with an optional trailing `/`: a top-level directory or root file name. */
+const APPROVAL_WATCH_ENTRY = /^[^/\s]+\/?$/;
+
 const projectSchema = z
   .strictObject({
     id: z
@@ -518,6 +521,30 @@ const projectSchema = z
       .default('dev')
       .describe(
         "The column whose exit requires green checks on the PR head: dev (the default), review, product-review or external-review, and the column must be enabled. Running checks, or no checks yet, hold a task only at the exit of this column. Red checks return the task to Dev from any column; a task whose turn is taken returns right after that turn's submit. A task enters ready-to-merge only with green checks. With dev, a cancelled check is red at once. With another column, a cancelled check counts as running until two complete GitHub polls after the one that saw it, about two GitHub poll intervals, and then counts as red; a new run in that window replaces it, and a source whose polls stay incomplete keeps it running. The daemon reads the key at start, so a change takes effect after a restart.",
+      ),
+    approvalWatch: z
+      .array(
+        z
+          .string({ error: 'approvalWatch entries must be strings' })
+          .regex(APPROVAL_WATCH_ENTRY, {
+            error: (issue) =>
+              `approvalWatch entry ${JSON.stringify(issue.input)} is not allowed: use one top-level directory or root file name, such as back/ or package.json, without spaces or an inner /`,
+          })
+          .refine((entry) => !['.', '..'].includes(entry.replace(/\/$/, '')), {
+            error: (issue) =>
+              `approvalWatch entry ${JSON.stringify(issue.input)} is not allowed: name a top-level directory or root file, not . or ..`,
+          })
+          .describe(
+            'One top-level directory (back/) or root file (package.json) of the repository. The trailing / is optional: back/ and back each match a directory or a file named back. Case-sensitive.',
+          ),
+        { error: 'approvalWatch must be a list of top-level directories or root files' },
+      )
+      .min(1, {
+        error: 'approvalWatch must list at least one entry; leave the key out to watch everything',
+      })
+      .optional()
+      .describe(
+        'Top-level directories and root files whose change after an approval the board points out. For each approval of an open PR given on an older commit than the head, board status and board task list every top-level entry changed by the commits after it in changedAfter, and the entries that match this list in watchedAfter. Without the key every changed top-level entry counts as watched. A hint only: no gate, move or turn reads it. The daemon reads the key at start, so a change takes effect after a restart.',
       ),
     link: z
       .strictObject({
@@ -616,6 +643,20 @@ const projectSchema = z
       ),
   })
   .superRefine((project, ctx) => {
+    const watched = new Map<string, string>();
+    project.approvalWatch?.forEach((entry, j) => {
+      const name = entry.replace(/\/$/, '');
+      const first = watched.get(name);
+      if (first === undefined) {
+        watched.set(name, entry);
+        return;
+      }
+      ctx.addIssue({
+        code: 'custom',
+        path: ['approvalWatch', j],
+        message: `Duplicate approvalWatch entry ${JSON.stringify(entry)}: ${JSON.stringify(first)} already names it`,
+      });
+    });
     const repos = new Set(project.repos.map((repo) => repo.toLowerCase()));
     project.reposWithoutCi.forEach((repo, j) => {
       if (repos.has(repo.toLowerCase())) return;

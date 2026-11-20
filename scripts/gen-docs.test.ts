@@ -9,6 +9,7 @@ import {
 } from '../packages/contracts/src/index.ts';
 import {
   approvalRuleExample,
+  approvalWatchExample,
   binaryRoutes,
   checksGateExample,
   formattedDocs,
@@ -89,6 +90,19 @@ describe('generated public references', () => {
       '`projects[].columns[].source.field (tracker)`',
       '`projects[].columns[].source.value (tracker)`',
     ]);
+  });
+
+  it('the approvalWatch example parses', () => {
+    const section = configuration.split('## Example: watch what changed after an approval')[1];
+    const block = section?.split('```yaml\n')[1]?.split('```')[0];
+    expect(block).toBe(approvalWatchExample);
+    expect(configSchema.parse(YAML.parse(block ?? '')).projects[0]?.approvalWatch).toEqual([
+      'back/',
+      'front/',
+      'package.json',
+    ]);
+    for (const text of ['watchedAfter', 'board rollback'])
+      expect(section?.split('\n## ')[0]).toContain(text);
   });
 
   it('cli.md names the review rule waits and their texts', () => {

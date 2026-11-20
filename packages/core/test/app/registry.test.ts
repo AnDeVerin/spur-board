@@ -1394,6 +1394,7 @@ it('keeps the default status for 100 tasks under the budget and lists every item
     'prCount',
     'prSummary',
     'project',
+    'qaSubmission',
     'sessionCount',
     'shadowColumn',
     'shadowDiffers',
@@ -1421,6 +1422,7 @@ it('keeps the default status for 100 tasks under the budget and lists every item
   const linked = result.tasks.find((row) => row.key === 'o/first#1');
   expect(linked).toEqual({
     submission: null,
+    qaSubmission: null,
     key: 'o/first#1',
     project: 'first',
     column: 'dev',
@@ -2706,6 +2708,18 @@ it('summarizes each observed PR without gates and exposes effective navigation b
     })
     .execute();
   const result = await read();
+  // The older approval has no stored pair yet: it shows no counts (not read yet).
+  const approvals = [
+    {
+      author: 'approved',
+      sha: head,
+      onHead: true,
+      commitsAfter: 0,
+      changedAfter: [],
+      watchedAfter: [],
+    },
+    { author: 'old', sha: oldHead, onHead: false },
+  ];
   expect(result.tasks[0]?.prSummary).toEqual([
     {
       repo: 'o/first',
@@ -2717,6 +2731,7 @@ it('summarizes each observed PR without gates and exposes effective navigation b
       draft: true,
       factAt: at,
       unconfirmed: false,
+      approvals,
     },
     {
       repo: 'o/first',
@@ -2728,6 +2743,7 @@ it('summarizes each observed PR without gates and exposes effective navigation b
       draft: true,
       factAt: at,
       unconfirmed: false,
+      approvals,
     },
   ]);
   expect(result.tasks[0]?.links).toEqual({

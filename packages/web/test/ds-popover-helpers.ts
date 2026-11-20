@@ -216,11 +216,20 @@ const stubPanelBox = () => {
 };
 
 /**
- * The gap tokens as `tokens.css` sets them on `:root`. happy-dom does not inherit custom
- * properties into `getComputedStyle`, so a computed style falls back to them, as in a browser.
+ * The values a browser computes for the panel that happy-dom does not: `--space-1` inherited
+ * from `:root` (`tokens.css`), and the window edges `Popover.module.css` resolves into
+ * `scroll-padding` (`--space-2`, or a larger safe-area inset; no inset here). happy-dom applies
+ * no CSS module and does not inherit custom properties, so a computed style falls back to these.
  * The panel's computed `width` and `height` are its laid-out size at three decimals.
  */
-export const gaps: Record<string, string> = { '--space-1': '4px', '--space-2': '8px' };
+const defaultGaps = {
+  '--space-1': '4px',
+  'scroll-padding-top': '8px',
+  'scroll-padding-right': '8px',
+  'scroll-padding-bottom': '8px',
+  'scroll-padding-left': '8px',
+};
+export const gaps: Record<string, string> = { ...defaultGaps };
 const computedStyle = () => {
   const original = window.getComputedStyle.bind(window);
   vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
@@ -397,6 +406,7 @@ export function stubEachTest(): void {
     for (const [name, original] of offsets)
       if (original) Object.defineProperty(HTMLElement.prototype, name, original);
     rects.clear();
+    Object.assign(gaps, defaultGaps);
     Object.assign(panelSize, { width: 320, height: 200, least: 120 });
     scrollerRect = undefined;
     vi.unstubAllGlobals();

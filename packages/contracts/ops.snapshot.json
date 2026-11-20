@@ -1,5 +1,5 @@
 {
-  "version": "4e98666202637a55afa9b77869c17fca4efc3459ae864c6d69525e60e91d55c4",
+  "version": "c852834e607efeec8aeff72145160a2ee371078c81c54cd06f60ac951977ca8b",
   "grants": [
     "operator",
     "project-agent",
@@ -1892,6 +1892,88 @@
                     { "type": "null" }
                   ]
                 },
+                "qaSubmission": {
+                  "description": "The QA column's latest submission, pending and voided included; null when none or when the project has no enabled QA column; absent on older servers.",
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "column": {
+                          "type": "string",
+                          "enum": [
+                            "todo",
+                            "triage",
+                            "ready-for-dev",
+                            "dev",
+                            "review",
+                            "product-review",
+                            "external-review",
+                            "qa",
+                            "ready-to-merge",
+                            "done"
+                          ],
+                          "description": "Column submitted from."
+                        },
+                        "sha": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{40,64}$",
+                          "description": "Full submitted commit SHA."
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "Submission time, ISO 8601 UTC."
+                        },
+                        "basis": {
+                          "type": "string",
+                          "enum": ["tested", "carried", "skipped"],
+                          "description": "Declared testing provenance; tested does not claim tests passed."
+                        },
+                        "from": {
+                          "anyOf": [
+                            { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                            { "type": "null" }
+                          ],
+                          "description": "Supplied source SHA for carried work, otherwise null."
+                        },
+                        "testedOrigin": {
+                          "anyOf": [
+                            { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                            { "type": "null" }
+                          ],
+                          "description": "Original tested submission SHA for carried work, otherwise null."
+                        },
+                        "reason": {
+                          "anyOf": [{ "type": "string", "maxLength": 2000 }, { "type": "null" }],
+                          "description": "Literal explanation supplied by the submitter."
+                        },
+                        "pending": {
+                          "type": "boolean",
+                          "description": "Whether head confirmation is pending."
+                        },
+                        "voided": {
+                          "type": "boolean",
+                          "description": "Whether this submission has been voided for gate purposes."
+                        }
+                      },
+                      "required": [
+                        "column",
+                        "sha",
+                        "at",
+                        "basis",
+                        "from",
+                        "testedOrigin",
+                        "reason",
+                        "pending",
+                        "voided"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Latest accepted submission by row order, including pending and voided submissions."
+                    },
+                    { "type": "null" }
+                  ]
+                },
                 "columnEnteredAt": {
                   "anyOf": [
                     {
@@ -3014,6 +3096,59 @@
                           "unconfirmed": {
                             "type": "boolean",
                             "description": "Observation is stale or its supporting source is blind or missing."
+                          },
+                          "approvals": {
+                            "description": "Latest approvals in review order with what changed after each; present only for an open pull request with at least one approval.",
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "author": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "description": "Login of the reviewer."
+                                },
+                                "sha": {
+                                  "type": "string",
+                                  "pattern": "^[0-9a-f]{40,64}$",
+                                  "description": "Commit the approval was given on."
+                                },
+                                "onHead": {
+                                  "type": "boolean",
+                                  "description": "Whether the approval was given on the current head."
+                                },
+                                "commitsAfter": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991,
+                                  "description": "Single-parent commits after the approval up to the head; merges, base-branch merges included, are left out. Absent when not counted or not read yet."
+                                },
+                                "changedAfter": {
+                                  "description": "Every top-level entry those commits changed, sorted. Absent when not counted or not read yet.",
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "description": "A top-level entry: name/ for a directory, a bare name for a file."
+                                  }
+                                },
+                                "watchedAfter": {
+                                  "description": "The part of changedAfter that matches the project's approvalWatch; all of changedAfter without the key. Absent when not counted or not read yet.",
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "description": "A top-level entry: name/ for a directory, a bare name for a file."
+                                  }
+                                },
+                                "notCounted": {
+                                  "description": "Why the commits were not counted: history_rewritten (the approved commit is not in the head history), rate_limit (waiting for GitHub budget) or pr_too_large (more than 100 commits). Absent when counted or not read yet.",
+                                  "type": "string",
+                                  "enum": ["history_rewritten", "rate_limit", "pr_too_large"]
+                                }
+                              },
+                              "required": ["author", "sha", "onHead"],
+                              "additionalProperties": false,
+                              "description": "A latest approval. commitsAfter, changedAfter and watchedAfter come together; notCounted replaces them; none of them means not read yet. A hint, never a gate."
+                            }
                           }
                         },
                         "required": [
@@ -4892,6 +5027,59 @@
                   "description": "Pull request state as last observed; absent for a session or ticket and for a pull request not observed yet. Only task.get sets it.",
                   "type": "string",
                   "enum": ["open", "closed", "merged"]
+                },
+                "approvals": {
+                  "description": "Latest approvals of an open pull request with what changed after each, as in status.get prSummary; absent for a session or ticket and for a pull request with no approval. Only task.get sets it.",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "author": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Login of the reviewer."
+                      },
+                      "sha": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40,64}$",
+                        "description": "Commit the approval was given on."
+                      },
+                      "onHead": {
+                        "type": "boolean",
+                        "description": "Whether the approval was given on the current head."
+                      },
+                      "commitsAfter": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991,
+                        "description": "Single-parent commits after the approval up to the head; merges, base-branch merges included, are left out. Absent when not counted or not read yet."
+                      },
+                      "changedAfter": {
+                        "description": "Every top-level entry those commits changed, sorted. Absent when not counted or not read yet.",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "description": "A top-level entry: name/ for a directory, a bare name for a file."
+                        }
+                      },
+                      "watchedAfter": {
+                        "description": "The part of changedAfter that matches the project's approvalWatch; all of changedAfter without the key. Absent when not counted or not read yet.",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "description": "A top-level entry: name/ for a directory, a bare name for a file."
+                        }
+                      },
+                      "notCounted": {
+                        "description": "Why the commits were not counted: history_rewritten (the approved commit is not in the head history), rate_limit (waiting for GitHub budget) or pr_too_large (more than 100 commits). Absent when counted or not read yet.",
+                        "type": "string",
+                        "enum": ["history_rewritten", "rate_limit", "pr_too_large"]
+                      }
+                    },
+                    "required": ["author", "sha", "onHead"],
+                    "additionalProperties": false,
+                    "description": "A latest approval. commitsAfter, changedAfter and watchedAfter come together; notCounted replaces them; none of them means not read yet. A hint, never a gate."
+                  }
                 }
               },
               "required": ["kind", "ref", "role"],
