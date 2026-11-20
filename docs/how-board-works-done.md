@@ -24,10 +24,12 @@ Reopening a ticket finished without a PR returns the task to To Do.
 
 ## Merged PR alerts
 
-A worker that completed with its ticket not done, no live worker and no open PR raises its
-worker-end alert (`anomaly`, or `worker_ended` while it still holds a turn, and its `health:` item
-in the [inbox](how-board-works-inbox.md)) once a complete Spur poll and complete PR polls follow
-its end. A merged PR suppresses the alert while the ticket is not done, unless one of these holds:
+An agent holding the current open non-Done turn raises `worker_ended` when it ends, whatever its
+PRs (see the [inbox](how-board-works-inbox.md)). Without a turn, a worker that completed with its
+ticket not done, no live worker and no open PR raises `anomaly` once a complete Spur poll and
+complete PR polls follow its end, and a killed worker without a PR whose ticket is not done raises
+`worker_ended`; each comes with its `health:` item. A merged PR suppresses these two while the
+ticket is not done, unless one of these holds:
 
 - the ticket changed in any way (status, label, comment) at or after the newest eligible merge
   while in the tracker filter or manually included; when no merged PR has a stored merge time, it
