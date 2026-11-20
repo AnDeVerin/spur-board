@@ -68,7 +68,7 @@ export function TaskApprovals({ links }: { links: BoardTask['links'] }) {
         {rows.map(({ ref, state }) => (
           <li
             key={`${ref} ${state.approval.author}`}
-            className={`${styles.row} ${quiet}`}
+            className={`${styles.row ?? ''} ${quiet}`}
             data-loud={state.loud ? '' : undefined}
           >
             <span className={styles.who}>

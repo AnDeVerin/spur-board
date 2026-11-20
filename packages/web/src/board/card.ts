@@ -214,7 +214,7 @@ export function sessionChip(row: BoardRow, spurUiOrigin: string | null): Marker 
   };
 }
 
-/** Every marker in drawing order: approval, QA, blocks, returned, draft, shadow, then the session chip. */
+/** Every marker in drawing order: approval, QA, blocks, returned, draft, shadow, session. */
 export function markers(row: BoardRow, spurUiOrigin: string | null): Marker[] {
   const draft: Marker | null =
     displayedPr(row)?.summary?.draft === true ? { tone: 'default', text: 'draft' } : null;
