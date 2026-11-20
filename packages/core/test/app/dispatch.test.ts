@@ -4310,13 +4310,25 @@ describe('external change-request rounds', () => {
 
   it.each([
     {
-      name: 'snapshots and no External Review return',
+      name: 'snapshots, no change request and no return',
       start: async (options: Options) => {
         const ctx = await inDev(options);
         for (const head of [B, C, D]) await ctx.pr({ headSha: head });
         return ctx;
       },
       returns: 0,
+      reads: 0,
+    },
+    {
+      name: 'snapshots and no External Review return',
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await cycle(ctx);
+        for (const head of [B, C, D]) await ctx.pr({ headSha: head });
+        return ctx;
+      },
+      returns: 0,
+      reads: 1,
     },
     {
       name: 'four External Review returns',
@@ -4330,10 +4342,11 @@ describe('external change-request rounds', () => {
         return ctx;
       },
       returns: 4,
+      reads: 1,
     },
   ])(
     "a dispatcher pass reads the task's course journal once: $name",
-    async ({ start, returns }) => {
+    async ({ start, returns, reads }) => {
       const options = {
         externalReview: true,
         curator: true,
@@ -4355,7 +4368,7 @@ describe('external change-request rounds', () => {
         .orderBy('id')
         .execute();
       const used = journal.flatMap<number>((row, index) =>
-        row.kind === 'task_moved' && row.payload.includes('"to":"dev"') && index > 0
+        row.kind === 'task_moved' && row.payload.includes('external_comments') && index > 0
           ? journal
               .slice(0, index)
               .filter((entry) => entry.kind === 'pr_facts_changed')
@@ -4389,7 +4402,7 @@ describe('external change-request rounds', () => {
           text.includes('pr_facts_changed'),
         ),
       );
-      expect(facts).toHaveLength(1);
+      expect(facts).toHaveLength(reads);
       const feedback = queries.filter((query) => query.sql.includes('json_each'));
       expect(
         feedback.map((query) =>

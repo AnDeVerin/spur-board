@@ -1,4 +1,5 @@
 import { prSourceId, type Config } from '@spur-board/contracts';
+import { sql } from 'kysely';
 import type { Row } from '../store/schema.ts';
 import { emit, type Trx } from './board-utils.ts';
 import {
@@ -77,6 +78,24 @@ export async function recordExternalRounds(
   }
 }
 
+/**
+ * Whether the task's journal holds a round that can count: an `external_round`, or a move whose
+ * reason a counted return can have (`gate_broken`, or none for an executor return). Without one
+ * the deferred raise reads no PR history. One row at most, through the event task index.
+ */
+async function mayCount(trx: Trx, taskId: number): Promise<boolean> {
+  const row = await trx
+    .selectFrom('event')
+    .select('id')
+    .where('task_id', '=', taskId)
+    .where(
+      sql<boolean>`(kind = 'external_round' or (kind = 'task_moved' and coalesce(json_extract(payload, '$.reason'), '') not in ('gate_passed', 'merged', 'ticket_done_no_pr', 'ticket_reopened', 'mode_changed')))`,
+    )
+    .limit(1)
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
 /** Whether External Review counts the task's Dev rounds: dispatcher on, in Dev, its check on. */
 function counting(task: Task, project: Project): boolean {
   const external = externalColumn(project);
@@ -105,7 +124,7 @@ export async function raiseDeferredCourseCheck(
   },
 ): Promise<boolean> {
   const { task, project, config, at } = input;
-  if (!counting(task, project)) return false;
+  if (!counting(task, project) || !(await mayCount(trx, task.id))) return false;
   const counter = courseCounter({ kind: 'external_round' }, project);
   const replay = await input.replay();
   return (await raiseCourseDue(trx, { task, project, config, at, counter, replay })) !== null;
