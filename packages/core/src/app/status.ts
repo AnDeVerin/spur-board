@@ -412,26 +412,25 @@ export async function getStatus(
     .where('cleared_at', 'is', null)
     .execute();
   const itemTasks = new Map(rows.map((task) => [task.id, task]));
-  // An item with neither a task nor a source is its subject's project's, as `inbox.operator`
-  // files it; only one with no subject is a board item.
+  // An item with a task or without a source is its subject's project's, as `inbox.operator`
+  // files it; only one with no subject, such as one of a project that left the config, is a
+  // board item. An item of a task follows the task's project; any other needs the caller to be
+  // its project's operator.
   const subjects = await itemSubjects(
     store.db,
-    itemRows.filter((item) => item.task_id === null && item.source === null),
+    itemRows.filter((item) => item.task_id !== null || item.source === null),
     config,
   );
-  const ownedBy = (item: { id: number }) => {
-    const owner = subjects.get(item.id)?.project;
-    return owner === undefined
-      ? includeBoardItems
-      : projectIds.has(owner) && operatorProjects.has(owner);
+  const ownedBy = (item: { id: number; task_id: number | null }) => {
+    const subject = subjects.get(item.id);
+    if (subject === undefined) return includeBoardItems;
+    if (item.task_id !== null)
+      return subject.task?.membership !== 'archived' && projectIds.has(subject.project);
+    return projectIds.has(subject.project) && operatorProjects.has(subject.project);
   };
   const items = itemRows
     .filter((item) =>
-      item.task_id !== null
-        ? projectIds.has(itemTasks.get(item.task_id)?.project ?? '')
-        : item.source !== null
-          ? required.has(item.source)
-          : ownedBy(item),
+      item.task_id === null && item.source !== null ? required.has(item.source) : ownedBy(item),
     )
     .map((item) => {
       const source = item.source === null ? null : sourceById.get(item.source);

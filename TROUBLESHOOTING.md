@@ -425,11 +425,12 @@ operator across projects, move its Spur project to top-level `spurProjects` with
 or `none` is refused there, so rename it in Spur first. A Board project that keeps its own
 operator binding is not served by the top-level operator, so also remove the local operator
 bindings from every Board project it should serve. To keep separate operators, give each
-Board project its own operator Spur project. Restoring an archived task and
-retrying or closing an item of a task count as that task's project; retrying or closing an item
-of a `board project ask` question, its failed post included, counts as that question's project
-while it is in the config. `board inbox operator` and `board status` list an item for the same
-operators that may retry or close it. Operations open
+Board project its own operator Spur project. Restoring an archived task counts as that task's
+project. Retrying or closing an item of a task counts as that task's project, and of a
+`board project ask` question as that question's project, its failed post, a Slack answer whose
+author is unavailable and a failed Slack reply in its thread included. Once that project has left
+the config, the item counts as the Board's. `board inbox operator` and `board status` list an
+item for the same operators that may retry or close it. Operations open
 only to project agents, such as `board ask`, still need the session's Spur project listed under
 that task's Board project. `board inbox ack` is also open to the operator; the operator token
 acks only orchestrator turns (`T<n>`). Linking a session to a task from its pull

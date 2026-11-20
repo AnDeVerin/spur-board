@@ -52,12 +52,32 @@ function deliveryId(item: Item): number | undefined {
     : undefined;
 }
 
-/** How an item finds its subject: a task directly, through a notification, comment or block. */
+/** How an item finds its subject: a task, or a notification, comment, thread or block. */
 interface SubjectRef {
   task?: number;
   notification?: number;
   comment?: number;
+  conversation?: string;
   block?: number;
+}
+
+/** The conversation of an `inbound_failure` item's stored event. */
+const storedEventSchema = z.object({ conversation: z.unknown().optional() });
+const UNAVAILABLE_KEY = 'doorbell:unavailable:';
+
+/**
+ * How an item with neither a task nor a block finds its subject from what it stores: an
+ * unavailable answer author's ring key names the comment, a stored inbound event its thread.
+ * Rows raised before the block was stored on these items have only these.
+ */
+function storedRef(item: Item): SubjectRef {
+  if (item.item_key.startsWith(UNAVAILABLE_KEY)) {
+    const comment = ringCommentId(item.item_key.slice(UNAVAILABLE_KEY.length));
+    if (comment !== undefined) return { comment };
+  }
+  if (item.inbound_event_json === null) return {};
+  const { conversation } = parseJson(storedEventSchema, item.inbound_event_json);
+  return typeof conversation === 'string' ? { conversation } : {};
 }
 
 /** How a failed delivery's outbox row finds its subject, from its payload or ring, if at all. */
@@ -78,9 +98,12 @@ function deliveryRef(row: {
 /**
  * What each item is about; `inbox.operator`, `status.get` and item actions all file an item by
  * it. An item is its own task's; else a failed delivery's: its payload's task, the block it
- * posts, or for a doorbell its ring's task; else the block it refers to (`itemBlockRef`). A block
- * is its task's, or a project-level block its project's while the project is in config. An item
- * missing from the map is a board item. Reads at most five statements, whatever the item count.
+ * posts, or for a doorbell its ring's notification or comment; else the block it refers to
+ * (`itemBlockRef`); else the comment or thread it stores (`storedRef`). A notification, comment
+ * or thread is its task's, else its block's; a block is its task's, else a project-level block
+ * its project's. A subject whose project has left the config is the board's, except an archived
+ * task's, which stays hidden. An item missing from the map is a board item. Reads at most six
+ * statements, whatever the item count.
  */
 export async function itemSubjects(
   trx: Trx,
@@ -105,21 +128,51 @@ export async function itemSubjects(
       item.task_id !== null
         ? { task: item.task_id }
         : ((outboxId === undefined ? undefined : deliveryRefs.get(outboxId)) ??
-          (blockRef === undefined ? {} : { block: blockRef }));
+          (blockRef === undefined ? storedRef(item) : { block: blockRef }));
     refs.set(item.id, ref);
   }
-  const ids = (pick: 'notification' | 'comment' | 'block') => [
+  const ids = <K extends 'notification' | 'comment' | 'conversation' | 'block'>(pick: K) => [
     ...new Set([...refs.values()].flatMap((ref) => ref[pick] ?? [])),
   ];
-  const [notifications, comments] = await Promise.all(
-    (['notification', 'comment'] as const).map((table) => {
-      const wanted = ids(table);
-      return wanted.length === 0
-        ? Promise.resolve([])
-        : trx.selectFrom(table).select(['id', 'task_id']).where('id', 'in', wanted).execute();
-    }),
-  );
-  const blockIds = ids('block');
+  type Linked = { task_id: number | null; block_id: number | null };
+  const notificationIds = ids('notification');
+  const commentIds = ids('comment');
+  const conversationRefs = ids('conversation');
+  const [notifications, comments, conversations] = await Promise.all([
+    notificationIds.length === 0
+      ? []
+      : trx
+          .selectFrom('notification')
+          .select(['id', 'task_id', 'block_id'])
+          .where('id', 'in', notificationIds)
+          .execute(),
+    commentIds.length === 0
+      ? []
+      : trx
+          .selectFrom('comment')
+          .select(['id', 'task_id', 'block_id'])
+          .where('id', 'in', commentIds)
+          .execute(),
+    conversationRefs.length === 0
+      ? []
+      : trx
+          .selectFrom('conversation')
+          .select(['ref', 'task_id', 'block_id'])
+          .where('ref', 'in', conversationRefs)
+          .execute(),
+  ]);
+  const linkedOf = {
+    notification: new Map<number, Linked>(notifications.map((row) => [row.id, row])),
+    comment: new Map<number, Linked>(comments.map((row) => [row.id, row])),
+    conversation: new Map<string, Linked>(conversations.map((row) => [row.ref, row])),
+  };
+  // The notification, comment or thread an item reaches, if any.
+  const linked = (ref: SubjectRef): Linked | undefined =>
+    (ref.notification === undefined ? undefined : linkedOf.notification.get(ref.notification)) ??
+    (ref.comment === undefined ? undefined : linkedOf.comment.get(ref.comment)) ??
+    (ref.conversation === undefined ? undefined : linkedOf.conversation.get(ref.conversation));
+  const blockOf = (ref: SubjectRef) => ref.block ?? linked(ref)?.block_id ?? undefined;
+  const blockIds = [...new Set([...refs.values()].flatMap((ref) => blockOf(ref) ?? []))];
   const blocks =
     blockIds.length === 0
       ? []
@@ -128,24 +181,16 @@ export async function itemSubjects(
           .select(['id', 'task_id', 'project'])
           .where('id', 'in', blockIds)
           .execute();
-  const taskOf = {
-    notification: new Map(notifications?.map((row) => [row.id, row.task_id])),
-    comment: new Map(comments?.map((row) => [row.id, row.task_id])),
-  };
   const blockById = new Map(blocks.map((row) => [row.id, row]));
   const configured = new Set(config.projects.map((project) => project.id));
   // Each item's task id, or the project of its project-level block.
   const resolved = new Map<number, { task: number } | { project: string }>();
   for (const [itemId, ref] of refs) {
-    const block = ref.block === undefined ? undefined : blockById.get(ref.block);
-    const taskId =
-      ref.task ??
-      (ref.notification === undefined ? undefined : taskOf.notification.get(ref.notification)) ??
-      (ref.comment === undefined ? undefined : taskOf.comment.get(ref.comment)) ??
-      block?.task_id;
+    const blockId = blockOf(ref);
+    const block = blockId === undefined ? undefined : blockById.get(blockId);
+    const taskId = ref.task ?? linked(ref)?.task_id ?? block?.task_id;
     if (typeof taskId === 'number') resolved.set(itemId, { task: taskId });
-    else if (block?.project != null && configured.has(block.project))
-      resolved.set(itemId, { project: block.project });
+    else if (block?.project != null) resolved.set(itemId, { project: block.project });
   }
   const taskIds = [
     ...new Set([...resolved.values()].flatMap((entry) => ('task' in entry ? [entry.task] : []))),
@@ -157,10 +202,18 @@ export async function itemSubjects(
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const subjects = new Map<number, BlockSubject>();
   for (const [itemId, entry] of resolved) {
-    if (!('task' in entry)) subjects.set(itemId, projectSubject(entry.project));
-    else {
-      const task = taskById.get(entry.task);
-      if (task !== undefined) subjects.set(itemId, taskSubject(task));
+    const task = 'task' in entry ? taskById.get(entry.task) : undefined;
+    const subject =
+      'task' in entry
+        ? task === undefined
+          ? undefined
+          : taskSubject(task)
+        : projectSubject(entry.project);
+    if (subject === undefined) continue;
+    // A project that left the config files its items under the board; an archived task's stay
+    // its task's, so they stay hidden.
+    if (configured.has(subject.project) || task?.membership === 'archived') {
+      subjects.set(itemId, subject);
     }
   }
   return subjects;

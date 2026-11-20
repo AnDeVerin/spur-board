@@ -89,6 +89,8 @@ export async function item(
     raisedAt?: string;
     clearedAt?: string | null;
     raiseNo?: number;
+    /** The inbound event stored for a retry. */
+    inboundEvent?: object;
   },
 ): Promise<string> {
   const row = await trx
@@ -104,7 +106,8 @@ export async function item(
       raised_at: input.raisedAt ?? ago(3 * HOUR),
       cleared_at: input.clearedAt ?? null,
       line_outbox_id: null,
-      inbound_event_json: null,
+      inbound_event_json:
+        input.inboundEvent === undefined ? null : JSON.stringify(input.inboundEvent),
     })
     .returning('id')
     .executeTakeFirstOrThrow();

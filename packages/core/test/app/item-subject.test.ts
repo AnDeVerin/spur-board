@@ -21,8 +21,11 @@ afterEach(async () => {
 
 /**
  * Per project: the failed post of a `board project ask` (only its outbox payload names the
- * block), the undelivered answer to one (the item's block), and an item of a task; plus a board
- * item that names nothing.
+ * block), the undelivered answer to one (the item's block), a Slack answer to one whose author
+ * is unavailable (only its key names the comment) and a failed Slack reply in its thread (only
+ * the stored event names the thread), as rows raised before items stored the block, and an item
+ * of a task. Plus a board item that names nothing, and a failed delivery and an item of a task
+ * whose project has left the config, which are the board's.
  */
 async function subjects(store: Store): Promise<Record<string, string>> {
   return store.transaction(async (trx) => {
@@ -32,6 +35,47 @@ async function subjects(store: Store): Promise<Record<string, string>> {
       ids[`${project} ask post`] = await failedPost(trx, {
         kind: 'conversation.open',
         payload: { key: `${project} (project)`, taskId: null, blockId: asked, commentId: null },
+      });
+      const thread = `thread-${project}`;
+      await trx
+        .insertInto('conversation')
+        .values({
+          gateway: 'slack',
+          ref: thread,
+          space: 'orchestrators',
+          task_id: null,
+          block_id: asked,
+          purpose: 'block',
+          state: 'open',
+          root_message_ref: `root-${project}`,
+          after_message_ref: null,
+          created_at: ago(HOUR),
+          closed_at: null,
+        })
+        .execute();
+      const answer = await trx
+        .insertInto('comment')
+        .values({
+          task_id: null,
+          block_id: asked,
+          author: 'operator',
+          text: 'Version 2.',
+          conversation_ref: thread,
+          message_ref: `reply-${project}`,
+          acked_revision: null,
+          created_at: ago(HOUR),
+          delivery_state: null,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      ids[`${project} author away`] = await item(trx, {
+        key: `doorbell:unavailable:doorbell:comment:${String(answer.id)}:revision:1`,
+        kind: 'answer_author_unavailable',
+      });
+      ids[`${project} reply failed`] = await item(trx, {
+        key: `inbound:failure:reply-${project}`,
+        kind: 'inbound_failure',
+        inboundEvent: { kind: 'message', conversation: thread, message: `reply-${project}` },
       });
       const answered = await block(trx, { project, unblockedAt: ago(HOUR) });
       ids[`${project} answer`] = await item(trx, {
@@ -47,20 +91,32 @@ async function subjects(store: Store): Promise<Record<string, string>> {
       });
     }
     ids.board = await item(trx, { key: 'token:8', kind: 'token_request' });
+    const gone = await task(trx, { project: 'gone', key: 'o/gone#1' });
+    ids['gone delivery'] = await failedPost(trx, {
+      kind: 'conversation.open',
+      payload: { taskId: gone },
+    });
+    ids['gone task'] = await item(trx, {
+      key: 'inbound:gone',
+      kind: 'inbound_failure',
+      taskId: gone,
+    });
     return ids;
   });
 }
 
-const firstOnes = ['first ask post', 'first answer', 'first task'];
-const secondOnes = ['second ask post', 'second answer', 'second task'];
+const kinds = ['ask post', 'answer', 'author away', 'reply failed', 'task'];
+const firstOnes = kinds.map((kind) => `first ${kind}`);
+const secondOnes = kinds.map((kind) => `second ${kind}`);
+const boardOnes = ['board', 'gone delivery', 'gone task'];
 
 describe("an operator item's project", () => {
   it.each([
-    ['no board-wide operator', 'operator', ownOnly, [...firstOnes, ...secondOnes, 'board']],
+    ['no board-wide operator', 'operator', ownOnly, [...firstOnes, ...secondOnes, ...boardOnes]],
     ['no board-wide operator', 'agent:first-ops/s1', ownOnly, firstOnes],
-    ['a board-wide operator', 'operator', mixed, [...firstOnes, ...secondOnes, 'board']],
+    ['a board-wide operator', 'operator', mixed, [...firstOnes, ...secondOnes, ...boardOnes]],
     ['a board-wide operator', 'agent:first-ops/s1', mixed, firstOnes],
-    ['a board-wide operator', 'agent:hq/s1', mixed, [...secondOnes, 'board']],
+    ['a board-wide operator', 'agent:hq/s1', mixed, [...secondOnes, ...boardOnes]],
   ] as const)(
     'with %s, %s sees and acts on the same items in the inbox, status and item actions',
     async (_name, actor: ActorId, config: Config, expected: readonly string[]) => {
