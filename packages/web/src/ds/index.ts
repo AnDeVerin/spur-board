@@ -15,6 +15,7 @@ export { LineClamp } from './LineClamp/LineClamp.tsx';
 export { Logo, type LogoSize } from './Logo/Logo.tsx';
 export { Meter, type MeterThresholds } from './Meter/Meter.tsx';
 export { Modal } from './Modal/Modal.tsx';
+export { Popover } from './Popover/Popover.tsx';
 export { quiet } from './Quiet/Quiet.tsx';
 export { Scrim } from './Scrim/Scrim.tsx';
 export { SidePanel, type SidePanelSide } from './SidePanel/SidePanel.tsx';

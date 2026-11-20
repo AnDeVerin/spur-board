@@ -885,10 +885,11 @@ describe('snapshot', () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
-    // The web Turn section sets web on inbox.ack, task.submit and task.return; their schemas,
-    // grants and errors are unchanged.
+    // #761 added sources[].project, sources[].waitsForBudget (the runner's rate limit pause) and
+    // board-wide project, sources and services texts to status.get. The web Turn section then set
+    // web on inbox.ack, task.submit and task.return; their schemas, grants and errors are unchanged.
     expect(await catalogVersion(baseline)).toBe(
-      'd252fff9288726bfa9ccf0d153407287c2f5f67cebed4af38e6dffac885df6ad',
+      '1d541ff9ffd5d2a04a4a74806c277be0a89d61b7db8e5a49c2369eb9f75668ec',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

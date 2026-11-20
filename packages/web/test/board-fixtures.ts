@@ -155,11 +155,13 @@ export const ROWS_TIMED = ROWS.map((task) =>
 );
 export const source = (name: string, extra: Record<string, unknown> = {}) => ({
   source: name,
+  project: name === 'spur' ? null : (name.split(':')[1] ?? null),
   observedAt: null,
   lastCompleteAt: null,
   blindReason: null,
   message: null,
   budget: null,
+  waitsForBudget: false,
   stale: false,
   healthySince: null,
   warmingUp: false,

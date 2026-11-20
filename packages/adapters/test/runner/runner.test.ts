@@ -14,7 +14,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as entry from '../../src/index.ts';
 import { githubSources } from '../../src/github/index.ts';
 import { classifyHttpFailure } from '../../src/runner/http.ts';
-import { type AdapterRunner, type PollFailure, startRunner } from '../../src/runner/runner.ts';
+import { nextDelay } from '../../src/runner/policy.ts';
+import {
+  type AdapterRunner,
+  type PollFailure,
+  startRunner,
+  type StartedRunner,
+} from '../../src/runner/runner.ts';
 import {
   createFakeAdapter,
   createFakeCore,
@@ -124,7 +130,7 @@ const runners: AdapterRunner[] = [];
 interface Started {
   core: FakeCore;
   adapter: FakeAdapter;
-  runner: AdapterRunner;
+  runner: StartedRunner;
   /** Elapsed ms at each poll start. */
   starts: number[];
   /** The last reported state. */
@@ -652,6 +658,103 @@ describe('budget', () => {
     expect(noReserve.starts).toEqual([0, I]);
   });
 
+  it.each([
+    [
+      'a budget under the reserve',
+      { kind: 'delivered', budget: { remaining: 999, resetAt: at(600_000) } },
+      true,
+    ],
+    [
+      'a budget at the reserve',
+      { kind: 'delivered', budget: { remaining: 1000, resetAt: at(600_000) } },
+      false,
+    ],
+    ['no budget', { kind: 'delivered' }, false],
+    [
+      'a transient failure',
+      { kind: 'failed', error: new AdapterError('transient', 'down') },
+      false,
+    ],
+    [
+      'a throttled failure',
+      {
+        kind: 'failed',
+        error: new AdapterError('throttled', 'slow', { retryAt: new Date(T0 + 600_000) }),
+      },
+      true,
+    ],
+    [
+      'a throttled failure without a retry time',
+      { kind: 'failed', error: new AdapterError('throttled', 'slow') },
+      true,
+    ],
+    [
+      'a config failure',
+      { kind: 'failed', error: new AdapterError('config', 'bad setting') },
+      false,
+    ],
+    ['an auth failure', { kind: 'failed', error: new AdapterError('auth', 'bad token') }, false],
+  ] as const)(
+    'nextDelay marks only a rate limit pause as a budget wait: %s',
+    (_name, outcome, budgetWait) => {
+      expect(
+        nextDelay({
+          outcome,
+          intervalMs: I,
+          failures: 0,
+          authRetryMs: 900_000,
+          reserveRemaining: 1000,
+          now: T0,
+        }).budgetWait,
+      ).toBe(budgetWait);
+    },
+  );
+
+  it('holds a source in budgetWaits from its budget pause until the paused poll starts', async () => {
+    random(0);
+    const low = { budget: { remaining: 999, resetAt: at(600_000) } };
+    const { runner, starts } = start(
+      (_, n) => Promise.resolve(n === 1 ? batch() : n === 2 ? batch(low) : batch()),
+      {
+        reserveRemaining: 1000,
+        // An on-demand read under the reserve neither adds nor removes a wait.
+        pollPr: () => Promise.resolve(prOk({ complete: false, ...low })),
+      },
+    );
+    const waits = () => [...runner.budgetWaits];
+    await flush();
+    expect(waits()).toEqual([]);
+    await expect(runner.pollPr?.('github', pr, { timeoutMs: I })).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(waits()).toEqual([]);
+    await advanceTo(2 * I);
+    expect(starts).toEqual([0, I, 2 * I]);
+    expect(waits()).toEqual(['github']);
+    await expect(runner.pollPr?.('github', pr, { timeoutMs: I })).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(waits()).toEqual(['github']);
+    await advanceTo(600_000 - 1);
+    expect(waits()).toEqual(['github']);
+    // The paused poll starts at the reset and delivers no budget.
+    await advanceTo(600_000);
+    expect(starts).toEqual([0, I, 2 * I, 600_000]);
+    expect(waits()).toEqual([]);
+  });
+
+  it('drops a budget wait on stop', async () => {
+    random(0);
+    const { runner } = start(
+      () => Promise.resolve(batch({ budget: { remaining: 999, resetAt: at(600_000) } })),
+      { reserveRemaining: 1000 },
+    );
+    await flush();
+    expect([...runner.budgetWaits]).toEqual(['github']);
+    await runner.stop();
+    expect([...runner.budgetWaits]).toEqual([]);
+  });
+
   /** One GitHub Issues project with one PR repo, through startAdapters on a routed fetch. */
   function startGithubBoard(issuesRemaining: string) {
     const config = configSchema.parse({
@@ -702,15 +805,15 @@ describe('budget', () => {
       return Promise.resolve(new Response('', { status: 404 }));
     });
     const core = createFakeCore();
-    runners.push(
-      entry.startAdapters(config, core, {
-        secrets: { GITHUB_TOKEN: 'synthetic' },
-        fetch,
-        now: () => Date.now(),
-      }),
-    );
+    const runner = entry.startAdapters(config, core, {
+      secrets: { GITHUB_TOKEN: 'synthetic' },
+      fetch,
+      now: () => Date.now(),
+    });
+    runners.push(runner);
     const issuesSource = 'github-issues:board:acme/board';
     return {
+      runner,
       issues: () => [...times.issues],
       graphql: () => [...times.graphql],
       issuesReports: () => core.reports.filter((report) => report.source === issuesSource),
@@ -721,6 +824,9 @@ describe('budget', () => {
   it('holds the GitHub Issues source below the reserve while the PR source keeps polling', async () => {
     random(0);
     const board = startGithubBoard('999');
+    await flush();
+    // startAdapters hands on the runner's own pause set, the one status.get reads.
+    expect([...board.runner.budgetWaits]).toEqual(['github-issues:board:acme/board']);
     await advanceTo(360_000);
     expect(board.issuesReports().filter((report) => report.state.blind)).toEqual([]);
     await advanceTo(360_001);

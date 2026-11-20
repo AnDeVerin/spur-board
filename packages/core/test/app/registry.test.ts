@@ -871,16 +871,21 @@ it('rolls sources and the daemon into one health row per service', async () => {
   const store = openTempStore('board-registry-').store;
   stores.push(store);
   const core = createObservationCore({ store, config: healthConfig, clock: movingClock });
+  // The sources the adapter runner pauses for the rate budget.
+  const budgetWaits = new Set<string>();
   const registry = createOperationRegistry({
     config: healthConfig,
     clock: movingClock,
     completeSince: core.completeSince,
     healthySince: core.healthySince,
+    budgetWaits: () => budgetWaits,
     lastDispatchAt: () => lastDispatchAt,
   });
   const query = createQuery({ store, config: healthConfig, clock: movingClock });
-  const status = (actor: 'operator' | `agent:${string}/${string}` = 'operator') =>
-    query(registry['status.get'], {}, actor);
+  const status = (
+    actor: 'operator' | `agent:${string}/${string}` = 'operator',
+    input: { project?: string } = {},
+  ) => query(registry['status.get'], input, actor);
   const row = async (service: string, actor?: `agent:${string}/${string}`) =>
     (await status(actor)).services.find((entry) => entry.service === service);
   const githubAlpha = 'github:alpha:o/a';
@@ -921,6 +926,12 @@ it('rolls sources and the daemon into one health row per service', async () => {
     reason: `${githubAlpha} warming up`,
   });
 
+  // warmingUp follows the requested project, while sources still list every project.
+  for (const source of ['spur', issuesBeta, githubBeta]) await observe(source);
+  const betaWarming = await status('operator', { project: 'beta' });
+  expect(betaWarming.warmingUp).toBe(false);
+  expect(betaWarming.sources.map((entry) => entry.source)).toEqual(sources);
+  expect((await status()).warmingUp).toBe(true);
   for (const source of sources) await observe(source);
   const healthy = (service: string, since: string, lastGoodAt: string | null = since) => ({
     service,
@@ -965,21 +976,19 @@ it('rolls sources and the daemon into one health row per service', async () => {
   now += 30_000;
   const resetAt = new Date(now + 3_600_000).toISOString();
   await observe(issuesBeta, { budget: { remaining: 999, limit: 5000, resetAt } });
+  budgetWaits.add(issuesBeta);
   expect(await row('github')).toEqual({
     service: 'github',
     state: 'degraded',
     since: null,
     lastGoodAt: startedAt,
-    reason: `${issuesBeta} waits for its rate budget until ${resetAt}`,
+    reason: `${issuesBeta} waits for its rate budget`,
   });
   expect((await status()).sources.find((entry) => entry.source === issuesBeta)?.healthySince).toBe(
     startedAt,
   );
-  await observe(issuesBeta, {
-    budget: { remaining: 999, limit: 5000, resetAt: new Date(now - 1).toISOString() },
-  });
-  expect(await row('github')).toEqual(healthy('github', later, startedAt));
-  await observe(issuesBeta, { budget: { remaining: 5000, limit: 5000, resetAt } });
+  // The stored budget stays under the reserve; the row follows the runner's pause alone.
+  budgetWaits.delete(issuesBeta);
   expect(await row('github')).toEqual(healthy('github', later, startedAt));
 
   await core.reportSourceState('jira:alpha', {
@@ -994,6 +1003,25 @@ it('rolls sources and the daemon into one health row per service', async () => {
     lastGoodAt: startedAt,
     reason: 'jira:alpha blind (auth): Jira credential is missing',
   });
+  // Another project's blind source still rolls into the services of a chosen project.
+  const betaView = await status('operator', { project: 'beta' });
+  expect(betaView.sources.map((entry) => [entry.source, entry.project])).toEqual([
+    ['spur', null],
+    ['jira:alpha', 'alpha'],
+    [githubAlpha, 'alpha'],
+    [issuesBeta, 'beta'],
+    [githubBeta, 'beta'],
+  ]);
+  expect(betaView.services.find((entry) => entry.service === 'jira')).toMatchObject({
+    state: 'failing',
+    reason: 'jira:alpha blind (auth): Jira credential is missing',
+  });
+  expect(betaView.projectBlocks).toEqual([{ project: 'beta', openBlocks: 0 }]);
+  expect((await status(agent, { project: 'beta' })).sources.map((entry) => entry.source)).toEqual([
+    'spur',
+    issuesBeta,
+    githubBeta,
+  ]);
   await observe('jira:alpha', { lastCompleteAt: new Date(now - 1_200_001).toISOString() });
   expect(await row('jira')).toEqual({
     service: 'jira',

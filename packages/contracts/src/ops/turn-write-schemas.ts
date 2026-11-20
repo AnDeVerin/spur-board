@@ -101,3 +101,28 @@ export const taskReturnOutputSchema = z.strictObject({
   task: taskViewSchema,
   block: blockViewSchema,
 });
+
+/**
+ * The three writes as `browserOperations` entries (`../browser.ts`), kept beside their schemas: the
+ * web Turn section calls them, and the catalog shares the same schema objects.
+ */
+export const turnWriteOperations = {
+  'inbox.ack': {
+    id: 'inbox.ack',
+    kind: 'mutation',
+    input: inboxAckInputSchema,
+    output: inboxAckOutputSchema,
+  },
+  'task.submit': {
+    id: 'task.submit',
+    kind: 'mutation',
+    input: taskSubmitInputSchema,
+    output: taskSubmitOutputSchema,
+  },
+  'task.return': {
+    id: 'task.return',
+    kind: 'mutation',
+    input: taskReturnInputSchema,
+    output: taskReturnOutputSchema,
+  },
+} as const;
