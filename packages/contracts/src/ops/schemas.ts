@@ -300,6 +300,9 @@ const count = (what: string) => z.int().min(0).describe(what);
 export const statusTaskSchema = taskViewSchema
   .extend({
     submission: turns.latestSubmissionSchema,
+    qaSubmission: turns.latestSubmissionSchema.describe(
+      "The QA column's latest submission, pending and voided included; null when none or when the project has no enabled QA column; absent on older servers.",
+    ),
     columnEnteredAt: z.iso
       .datetime()
       .nullable()

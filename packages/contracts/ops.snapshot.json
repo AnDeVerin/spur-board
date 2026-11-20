@@ -1,5 +1,5 @@
 {
-  "version": "565c5630e9d076112e893e4de208a32f6c018b12d0b2222228dcc2c42fae3406",
+  "version": "1919adfd3bf1932ed0628aa0334a08da12b4679119494a5bb1a8bba630f6d991",
   "grants": [
     "operator",
     "project-agent",
@@ -1783,6 +1783,88 @@
                 },
                 "submission": {
                   "description": "Latest submission; null when none, absent on older servers.",
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "column": {
+                          "type": "string",
+                          "enum": [
+                            "todo",
+                            "triage",
+                            "ready-for-dev",
+                            "dev",
+                            "review",
+                            "product-review",
+                            "external-review",
+                            "qa",
+                            "ready-to-merge",
+                            "done"
+                          ],
+                          "description": "Column submitted from."
+                        },
+                        "sha": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{40,64}$",
+                          "description": "Full submitted commit SHA."
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "Submission time, ISO 8601 UTC."
+                        },
+                        "basis": {
+                          "type": "string",
+                          "enum": ["tested", "carried", "skipped"],
+                          "description": "Declared testing provenance; tested does not claim tests passed."
+                        },
+                        "from": {
+                          "anyOf": [
+                            { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                            { "type": "null" }
+                          ],
+                          "description": "Supplied source SHA for carried work, otherwise null."
+                        },
+                        "testedOrigin": {
+                          "anyOf": [
+                            { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                            { "type": "null" }
+                          ],
+                          "description": "Original tested submission SHA for carried work, otherwise null."
+                        },
+                        "reason": {
+                          "anyOf": [{ "type": "string", "maxLength": 2000 }, { "type": "null" }],
+                          "description": "Literal explanation supplied by the submitter."
+                        },
+                        "pending": {
+                          "type": "boolean",
+                          "description": "Whether head confirmation is pending."
+                        },
+                        "voided": {
+                          "type": "boolean",
+                          "description": "Whether this submission has been voided for gate purposes."
+                        }
+                      },
+                      "required": [
+                        "column",
+                        "sha",
+                        "at",
+                        "basis",
+                        "from",
+                        "testedOrigin",
+                        "reason",
+                        "pending",
+                        "voided"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Latest accepted submission by row order, including pending and voided submissions."
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "qaSubmission": {
+                  "description": "The QA column's latest submission, pending and voided included; null when none or when the project has no enabled QA column; absent on older servers.",
                   "anyOf": [
                     {
                       "type": "object",

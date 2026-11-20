@@ -890,9 +890,10 @@ describe('snapshot', () => {
     // and board-wide project, sources and services texts to status.get; the external_round kind
     // extends the task.history event kinds. #733 adds the review-rule gate reasons and condition
     // to task.get --why. The web Turn section then set web on inbox.ack, task.submit and
-    // task.return; their schemas, grants and errors are unchanged.
+    // task.return; their schemas, grants and errors are unchanged. #755 adds
+    // tasks[].qaSubmission to status.get.
     expect(await catalogVersion(baseline)).toBe(
-      'dd3ffb9970512221f72dfd10dad8c50a98480192d9c3c363797f8ceed9fc580f',
+      '06e50f1c8cd2f3f4fc9a92204aea2f4d30403eb6e8647a5efe1c2ec937530781',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

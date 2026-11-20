@@ -1394,6 +1394,7 @@ it('keeps the default status for 100 tasks under the budget and lists every item
     'prCount',
     'prSummary',
     'project',
+    'qaSubmission',
     'sessionCount',
     'shadowColumn',
     'shadowDiffers',
@@ -1421,6 +1422,7 @@ it('keeps the default status for 100 tasks under the budget and lists every item
   const linked = result.tasks.find((row) => row.key === 'o/first#1');
   expect(linked).toEqual({
     submission: null,
+    qaSubmission: null,
     key: 'o/first#1',
     project: 'first',
     column: 'dev',
