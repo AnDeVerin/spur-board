@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, type ReactNode } from 'react';
 import {
   Banner,
   focusRing,
@@ -22,6 +22,26 @@ type Session = NonNullable<DescribedColumn['executor']['session']>;
 export type HelpTab = 'who' | 'rules';
 
 const classes = (...names: (string | undefined)[]) => names.filter(Boolean).join(' ');
+
+/**
+ * The element holding a column head and its help panel. While `open`, focus moving to any element
+ * outside it calls `setOpen(false)`: leaving by Tab or Shift+Tab does not close a Popover, and Enter on the
+ * next control (the Inbox button, another column's trigger) fires no outside mousedown.
+ */
+export function useHelpScope(open: boolean, setOpen: (open: boolean) => void) {
+  const scope = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const leave = (event: FocusEvent) => {
+      if (event.target instanceof Node && !scope.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('focusin', leave);
+    return () => {
+      document.removeEventListener('focusin', leave);
+    };
+  }, [open, setOpen]);
+  return scope;
+}
 
 /** Who moves a task here: a group part is filled by hand, else the executor kind decides. */
 export function actorIcon(kind: BoardColumn['kind'], part: boolean): IconName {

@@ -45,12 +45,12 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* The executor line is the column help trigger: its icon and text, quiet until hovered or open;
-   the attention colour, set last, wins while a bound executor has no live session. */
-/* Holds a head and its help panel for the focus test; adds no box. */
+/* Holds a head and its help panel for the focus-leave test of the panel; adds no box. */
 .helpScope {
   display: contents;
 }
+/* The executor line is the column help trigger: its icon and text, quiet until hovered or open;
+   the attention colour, set last, wins while a bound executor has no live session. */
 .actor {
   display: inline-flex;
   align-items: center;

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react';
+import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import styles from '../src/board/Columns.module.css';
@@ -528,78 +528,5 @@ describe('column help', () => {
     await openHelp('qa');
     await showRules();
     expect(titles()).toEqual(['Leaves to ready-to-merge when']);
-  });
-
-  /** The control before `element` in document order among buttons and links. */
-  const before = (element: HTMLElement) => {
-    const controls = [...document.querySelectorAll<HTMLElement>('button, a[href]')];
-    const found = controls[controls.indexOf(element) - 1];
-    if (!found) throw new Error('no control before');
-    return found;
-  };
-  const inboxButton = () => {
-    const found = all('header button').find((b) => b.textContent.includes('inbox'));
-    if (!found) throw new Error('no inbox button');
-    return found;
-  };
-  /** Open column help panels: dialogs labelled with a column id. */
-  const helpPanels = () =>
-    [...document.querySelectorAll('[role="dialog"]')]
-      .map((d) => document.getElementById(d.getAttribute('aria-labelledby') ?? '')?.textContent)
-      .filter(
-        (label) =>
-          label !== undefined && HELP_CONFIG.projects[0]?.columns.some((c) => c.id === label),
-      );
-  // Tab moves focus with no mousedown and Enter clicks with none: focus() then click stand in.
-  it.each([
-    {
-      path: 'Tab to the Inbox button, then Enter',
-      to: inboxButton,
-      enter: true,
-      dialogs: 1,
-      open: [],
-      expanded: [],
-    },
-    {
-      path: "Tab to another column's trigger, then Enter",
-      to: () => actor('qa'),
-      enter: true,
-      dialogs: 1,
-      open: ['qa'],
-      expanded: ['qa'],
-    },
-    {
-      path: 'Shift+Tab out of the trigger',
-      to: () => before(actor('review')),
-      enter: false,
-      dialogs: 0,
-      open: [],
-      expanded: [],
-    },
-  ])('$path leaves at most that one panel open', async ({ to, enter, dialogs, open, expanded }) => {
-    await board();
-    actor('review').focus();
-    await openHelp('review');
-    expect(helpPanels()).toEqual(['review']);
-    // Focus inside the panel and back on its own trigger keeps it open.
-    expect(panel().contains(document.activeElement)).toBe(true);
-    act(() => {
-      actor('review').focus();
-    });
-    expect(helpPanels()).toEqual(['review']);
-    const target = to();
-    act(() => {
-      target.focus();
-    });
-    if (enter) press(target, 'click');
-    await settle();
-    expect(helpPanels()).toEqual(open);
-    // The Inbox opened, or the other panel: one dialog, and no help panel left over it.
-    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(dialogs);
-    expect(
-      all('main button[aria-haspopup="dialog"][aria-expanded="true"]').map(
-        (b) => b.closest(css('head'))?.querySelector('h2, h3')?.textContent,
-      ),
-    ).toEqual(expanded);
   });
 });

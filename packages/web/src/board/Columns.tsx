@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import {
   Button,
   focusRing,
@@ -15,6 +15,7 @@ import {
   ColumnHelp,
   describedColumn,
   noLiveSession,
+  useHelpScope,
   type HelpTab,
 } from './ColumnHelp.tsx';
 import type { ColumnsState } from './columns-data.ts';
@@ -206,26 +207,14 @@ function ColumnHead({
   onHelpOpen: () => void;
 }) {
   const Label = part ? 'h3' : 'h2';
-  const scope = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
   const actor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const scope = useHelpScope(open, setOpen);
   const [tab, setTab] = useState<HelpTab>('who');
   const tabsId = useId();
   const warn = noLiveSession(describedColumn(columns, column.id)?.column, part);
   const title = `How ${column.id} works: who acts and the rules`;
-  useEffect(() => {
-    if (!open) return;
-    // Leaving by Tab or Shift+Tab does not close a Popover, and Enter on the next control fires
-    // no outside mousedown: close on the focus move itself.
-    const leave = (event: FocusEvent) => {
-      if (event.target instanceof Node && !scope.current?.contains(event.target)) setOpen(false);
-    };
-    document.addEventListener('focusin', leave);
-    return () => {
-      document.removeEventListener('focusin', leave);
-    };
-  }, [open]);
   return (
     <div ref={scope} className={styles.helpScope}>
       <div ref={head} className={classes(styles.head, quiet)}>
