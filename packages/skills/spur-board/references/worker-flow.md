@@ -8,7 +8,7 @@
 - A return to Dev: ack its Dev turn, read the reason in `board task <task>`, fix it, then
   keyed `board submit <turn> <sha>`. Taking the turn reads the "back" code block; the submit,
   of a new head or the same head as a reply, closes it `done` with the SHA.
-- Only for a code block without a Dev turn (shadow mode, no return): fix it, then keyed
+- Only for a code block whose Dev turn closed without a submit: fix it, then keyed
   `board unblock <block> --done <ref>` with commit/PR link.
 - Exit 3: not applied. Ask in your own session; when the Board returns, retry identically.
 - Exit 4: no Board config; report in your session; keep the key.
