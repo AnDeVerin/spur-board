@@ -4,6 +4,8 @@
   (`--as orchestrator`), Ready to Merge (the operator) and Done.
 - `dispatch-new-head-in-ready-to-merge` and `dispatch-ci-red-new-head-in-product-review` add
   Product Review and run Review, Product Review and Ready to Merge by `--as orchestrator`.
+- `qa-carried` and `qa-skipped` add QA (`--as orchestrator`) to the `dispatch-*` board; the card
+  waits in Ready to Merge with the matching QA submission. `dispatch-happy-path` has no QA column.
 - `dispatch-ci-pending-after-submit` and `dispatch-ring-closed-turn` set the conductor session
   `--state waiting` so rings to it go out.
 - The curator scenarios (`question-to-curator`, `curator-escalation`, `curator-absent`,
