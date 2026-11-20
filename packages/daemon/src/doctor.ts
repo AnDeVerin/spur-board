@@ -368,7 +368,7 @@ type RuleOutcome = { project: Project; repo: string; read: { found: BranchRule }
 const REVIEW_RULE_TOKEN_FIX =
   'Add GITHUB_TOKEN to secrets.env, then rerun board doctor to read the review rule of each approvalRule github-rules repo.';
 const REVIEW_RULE_ADD_TAIL = ' Require an approval or code owner review on the default branch';
-// Removing approvalRule turns off the gate of every repo of the project, unread ones included.
+// Removing approvalRule turns off the gate of every repo of the project, ruled and unread ones too.
 const REVIEW_RULE_REMOVE_TAIL = ', or remove approvalRule';
 // A failed read leaves the rule in force, unread: the fix is access, not a weaker gate.
 const REVIEW_RULE_READ_TAIL =
@@ -479,12 +479,13 @@ function reviewRuleCheck(outcomes: readonly RuleOutcome[] | null): Check {
       fix: fitFix(segments, '', `Read the review rule of ${String(segments.length)} repos.`),
     };
   const has = (cause: RuleSegment['cause']) => problems.some((segment) => segment.cause === cause);
-  // Removal is advised only while no project with a repo lacking a rule has a rule left unread.
-  const unreadIn = new Set(
-    problems.filter((segment) => segment.cause !== 'unfollowed').map((segment) => segment.project),
+  // Removal is advised only while every repo of each project with a repo lacking a rule lacks one
+  // too: a rule left unread or in force still gates its repo through the shared column key.
+  const gatedIn = new Set(
+    segments.filter((segment) => segment.cause !== 'unfollowed').map((segment) => segment.project),
   );
   const removable = problems.every(
-    (segment) => segment.cause !== 'unfollowed' || !unreadIn.has(segment.project),
+    (segment) => segment.cause !== 'unfollowed' || !gatedIn.has(segment.project),
   );
   const addTail = `${REVIEW_RULE_ADD_TAIL}${removable ? REVIEW_RULE_REMOVE_TAIL : ''}.`;
   const tail = `${has('unfollowed') ? addTail : ''}${has('unread') ? REVIEW_RULE_READ_TAIL : ''}`;

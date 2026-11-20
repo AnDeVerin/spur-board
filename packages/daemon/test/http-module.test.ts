@@ -2237,6 +2237,18 @@ describe('daemon doctor github.review_rule', () => {
     );
   });
 
+  it('github.review_rule keeps approvalRule when another repo of the project follows a rule', async () => {
+    const { rule } = await checkOf(
+      ruleFetch({ a: 'none', b: 'branch-protection' }),
+      ruledContext(undefined, ['o/a', 'o/b']),
+    );
+    expect(rule).toMatchObject({ status: 'warning', blocking: false });
+    // Removing the shared approvalRule would also turn off the gate the other repo's rule keeps.
+    expect(rule?.fix).toBe(
+      'board o/a@main: no branch protection or ruleset, no review rule to follow. board o/b@main: branch protection: 2 approvals, code owners yes, resolved conversations no, checks build, test. Require an approval or code owner review on the default branch.',
+    );
+  });
+
   it('github.review_rule warns without a GitHub token and is absent without github-rules', async () => {
     const { rule } = await checkOf(ruleFetch('none'), ruledContext({}));
     expect(rule).toMatchObject({ status: 'warning', blocking: false });

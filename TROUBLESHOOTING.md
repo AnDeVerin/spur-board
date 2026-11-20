@@ -285,8 +285,9 @@ check passes. With no review rule to follow, add a required approval or code own
 default branch, or remove `approvalRule` from the column. When the read fails, give the token read
 access to the branch protection and rulesets of every base branch; the rule still applies, so
 removing `approvalRule` would only weaken the gate. Doctor therefore leaves out the removal advice
-while a project with a repo that has no review rule to follow also has a repo whose rule it could
-not read or that has more than 100 ruleset rules.
+while a project with a repo that has no review rule to follow also has a repo whose rule is in
+force, could not be read or has more than 100 ruleset rules: removing `approvalRule` from the
+column would turn off the gate of that repo too.
 
 ### spur.api
 
