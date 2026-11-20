@@ -32,6 +32,7 @@ const remoteIds = [
   'github.credentials',
   'link.rules',
   'github.review_rule',
+  'github.mirror',
   'spur.api',
   'spur.send',
   'slack.auth',

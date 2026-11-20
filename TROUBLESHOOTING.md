@@ -10,18 +10,18 @@ reached its agent, or a planned pause, follow the [runbook](docs/runbook.md).
 
 Warnings never block readiness or an update. Blocking failures retain these gates:
 
-| Checks                                                                                                                                                                               | Policy and reason                                                                                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `config`                                                                                                                                                                             | Blocking: invalid daemon config.                                                                              |
-| `service.installed`, `service.node`, `service.running`, `flock`, `http.port`, `daemon.available`                                                                                     | Blocking: runtime, lock, API and service prerequisites.                                                       |
-| `database.private`, `secrets`                                                                                                                                                        | Blocking: private storage and configured credentials.                                                         |
-| `jira.credentials`, `github.credentials`, `spur.api`, `spur.send`                                                                                                                    | Blocking when configured: polling, enrichment or doorbell work fails; GitHub throttle warnings stay advisory. |
-| `slack.auth`, `slack.orchestrators_member`, `slack.feed_member`, known `slack.command` mismatch                                                                                      | Blocking when configured: delivery and inbound commands; unknown or unconfigured results warn.                |
-| `operator.path`                                                                                                                                                                      | Blocking: no operator session or approved token for required operator work.                                   |
-| `web.listening`, `web.spurUiOrigin`, `path.current`, `path.spur`, `skills.codex_visibility`                                                                                          | Warning: optional browser or agent tooling; the daemon continues.                                             |
-| `versions`                                                                                                                                                                           | Blocking daemon/running CLI mismatch; warning auxiliary PATH binary or skill versions.                        |
-| `web`, `projects.checksGate`                                                                                                                                                         | Passing configured-state report; no independent failure gate.                                                 |
-| `stand.port_range`, `link.rules`, `github.review_rule`, `sessions.codex_skill`, `sessions.stale`, `operator.tokens`, `curator.sessions`, `orchestrator.sessions`, `slack.configured` | Advisory; preserve their warnings.                                                                            |
+| Checks                                                                                                                                                                                                | Policy and reason                                                                                             |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `config`                                                                                                                                                                                              | Blocking: invalid daemon config.                                                                              |
+| `service.installed`, `service.node`, `service.running`, `flock`, `http.port`, `daemon.available`                                                                                                      | Blocking: runtime, lock, API and service prerequisites.                                                       |
+| `database.private`, `secrets`                                                                                                                                                                         | Blocking: private storage and configured credentials.                                                         |
+| `jira.credentials`, `github.credentials`, `spur.api`, `spur.send`                                                                                                                                     | Blocking when configured: polling, enrichment or doorbell work fails; GitHub throttle warnings stay advisory. |
+| `slack.auth`, `slack.orchestrators_member`, `slack.feed_member`, known `slack.command` mismatch                                                                                                       | Blocking when configured: delivery and inbound commands; unknown or unconfigured results warn.                |
+| `operator.path`                                                                                                                                                                                       | Blocking: no operator session or approved token for required operator work.                                   |
+| `web.listening`, `web.spurUiOrigin`, `path.current`, `path.spur`, `skills.codex_visibility`                                                                                                           | Warning: optional browser or agent tooling; the daemon continues.                                             |
+| `versions`                                                                                                                                                                                            | Blocking daemon/running CLI mismatch; warning auxiliary PATH binary or skill versions.                        |
+| `web`, `projects.checksGate`                                                                                                                                                                          | Passing configured-state report; no independent failure gate.                                                 |
+| `stand.port_range`, `link.rules`, `github.review_rule`, `github.mirror`, `sessions.codex_skill`, `sessions.stale`, `operator.tokens`, `curator.sessions`, `orchestrator.sessions`, `slack.configured` | Advisory; preserve their warnings.                                                                            |
 
 ### config
 
@@ -289,6 +289,29 @@ one exists when GitHub's answer has no `pageInfo`), so removing `approvalRule` c
 gate. Doctor therefore leaves out the removal advice while a project with a repo that has no review
 rule to follow also has a repo whose rule is in force or could not be read in full: removing
 `approvalRule` from the column would turn off the gate of that repo too.
+
+### github.mirror
+
+Listed only when a `github-issues` project's `ready-for-dev` column sets a tracker `source`. For
+each such project the daemon reads the GitHub Project once with `GITHUB_TOKEN`, as the Board does
+on every poll: the Project named by `source.project`, its single-select field `source.field` and
+the option `source.value`. It passes naming the Project title, the field and the option it read.
+The token needs the `read:project` scope (a fine-grained token: Projects read access for the
+owner). The check never blocks. It warns when `GITHUB_TOKEN` is missing, when the read could not
+finish within the doctor deadline (rerun `board doctor`, then check the daemon log), or with the
+failure code of the read, followed by the fix of the first one listed:
+
+- `mirror_project_forbidden`: the Project was not found or is not readable. Check the owner and
+  number against the Project URL and give the token the `read:project` scope.
+- `mirror_field_not_found`: the Project has no single-select field `source.field`, or the field
+  has no option `source.value`, letter case included. The warning names both.
+- `mirror_snapshot_incomplete`: the read did not fit one page: more than 100 open issues in the
+  tracker repository, or an issue in more than 20 Projects.
+- `mirror_rate_limited`: GitHub rate-limited the read; rerun after the reset.
+- `mirror_read_failed`: a network, server or other GitHub error; usually transient.
+
+[Errors](docs/errors.md) gives each code's meaning and fix. While a read fails the Board moves
+no task in or out of `ready-for-dev`.
 
 ### spur.api
 
