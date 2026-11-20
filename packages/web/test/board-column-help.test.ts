@@ -484,14 +484,14 @@ describe('column help', () => {
     expect(actor('qa').hasAttribute('data-warn')).toBe(true);
   });
 
-  it('ready-to-merge: holds while merged, then leaves to done by the completion route', async () => {
+  it('ready-to-merge: waits until merged, then leaves to done by the completion route', async () => {
     await board();
     await openHelp('ready-to-merge');
     expect(part('Acts here').querySelector('p')?.textContent).toBe('operator');
     expect(titles()).toEqual(['Acts here']);
     await showRules();
-    expect(titles()).toEqual(['Holds here while', 'Leaves to done by the completion route']);
-    expect(part('Holds here while').querySelector('li > span')?.textContent).toBe('Merged');
+    expect(titles()).toEqual(['Waits here until', 'Leaves to done by the completion route']);
+    expect(part('Waits here until').querySelector('li > span')?.textContent).toBe('Merged');
     expect(part('Leaves to done by the completion route').textContent).toContain(
       'A merged PR with a done ticket completes the task.',
     );

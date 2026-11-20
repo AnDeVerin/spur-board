@@ -212,7 +212,7 @@ function RulesHelp({ project, column }: { project: DescribedProject; column: Des
         </Part>
       ) : exit.to === null ? (
         <>
-          <Part title="Holds here while">
+          <Part title="Waits here until">
             <Conditions conditions={conditions} />
           </Part>
           <Part title={`Leaves to ${project.completion.to} by the completion route`}>
