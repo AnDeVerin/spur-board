@@ -43,10 +43,8 @@ export async function recordExternalRounds(
     const { externalHeads: counted } = await courseRounds(trx, task.id, project);
     const fresh = requests.filter((review) => !counted.has(review.commitSha.toLowerCase()));
     if (fresh.length > 0) {
-      const entries = await readStatusColumnEntries(trx, new Set([task.project]));
-      const entered = Date.parse(
-        entries.find((entry) => entry.task_id === task.id)?.at ?? task.created_at,
-      );
+      const [entry] = await readStatusColumnEntries(trx, new Set([task.project]), task.id);
+      const entered = Date.parse(entry?.at ?? task.created_at);
       const after = fresh
         .filter((review) => Date.parse(review.submittedAt) > entered)
         .sort(
