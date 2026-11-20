@@ -12,6 +12,7 @@
     "ds:build": "node kit/build.ts"
   },
   "dependencies": {
+    "@floating-ui/dom": "catalog:",
     "@spur-board/contracts": "workspace:*",
     "zod": "catalog:"
   },

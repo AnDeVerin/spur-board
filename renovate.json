@@ -54,6 +54,7 @@
       "matchDepTypes": ["pnpm.catalog.default"],
       "matchPackageNames": [
         "@commander-js/extra-typings",
+        "@floating-ui/dom",
         "@modelcontextprotocol/server",
         "@secretlint/core",
         "@secretlint/profiler",
