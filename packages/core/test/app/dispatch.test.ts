@@ -6698,6 +6698,13 @@ describe('approvalRule github-rules', () => {
       column: 'dev',
       gate: ['conflict'],
     },
+    {
+      name: 'a conflict with a merge state GitHub has not computed',
+      patch: { mergeable: 'conflicting', mergeState: 'unknown' },
+      review: rule(),
+      column: 'dev',
+      gate: ['conflict'],
+    },
   ] satisfies {
     name: string;
     patch: Partial<PrFacts>;

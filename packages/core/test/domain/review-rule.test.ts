@@ -95,6 +95,12 @@ const CASES: Case[] = [
     clock: false,
   },
   {
+    name: 'a conflict goes to Dev while GitHub has not computed the merge state',
+    pr: pr({ mergeable: 'conflicting', mergeState: 'unknown' }),
+    verdict: 'dev',
+    clock: false,
+  },
+  {
     name: 'a required check absent from the head',
     pr: pr({ requiredChecks: [], mergeState: 'blocked' }),
     verdict: 'checks_pending',
