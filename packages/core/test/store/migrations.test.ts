@@ -102,6 +102,8 @@ const INDEXES: Record<string, { table: string; columns: string[]; partialUnique:
 const real = readMigrations(migrationsDir);
 // The synthetic migrations follow the real chain, so their versions move with it.
 const latest = real.length;
+const MIRROR_COLUMNS = ['failure_code', 'failure_message', 'project_title'];
+const EMPTY_MIRROR = { failure_code: null, failure_message: null, project_title: null };
 const prefix = (version: number): string => String(version).padStart(4, '0');
 const probe: Migration = {
   version: latest + 1,
@@ -468,8 +470,9 @@ describe('migrate', () => {
     const { raw } = rawDb(join(tempDir(), 'board.db'));
     migrate(raw, real.slice(0, 22));
     const budget = ['budget_remaining', 'budget_limit', 'budget_reset_at'];
-    // 0025 adds default_branch later, so the row written at 0022 has neither.
-    const row = without(sampleRows.source_state, [...budget, 'default_branch']);
+    // 0025 and 0028 add default_branch and the mirror columns later, so the row written at
+    // 0022 has none of them.
+    const row = without(sampleRows.source_state, [...budget, 'default_branch', ...MIRROR_COLUMNS]);
     insertRaw(raw, 'source_state', row);
 
     migrate(raw, real);
@@ -481,6 +484,7 @@ describe('migrate', () => {
         budget_limit: null,
         budget_reset_at: null,
         default_branch: null,
+        ...EMPTY_MIRROR,
       },
     ]);
   });
@@ -500,12 +504,23 @@ describe('migrate', () => {
   it('leaves default_branch empty on source rows written before 0025', () => {
     const { raw } = rawDb(join(tempDir(), 'board.db'));
     migrate(raw, real.slice(0, 24));
-    const row = without(sampleRows.source_state, ['default_branch']);
+    const row = without(sampleRows.source_state, ['default_branch', ...MIRROR_COLUMNS]);
     insertRaw(raw, 'source_state', row);
 
     migrate(raw, real);
 
-    expect(rows(raw, 'source_state')).toEqual([{ ...row, default_branch: null }]);
+    expect(rows(raw, 'source_state')).toEqual([{ ...row, default_branch: null, ...EMPTY_MIRROR }]);
+  });
+
+  it('leaves the mirror columns empty on source rows written before 0028', () => {
+    const { raw } = rawDb(join(tempDir(), 'board.db'));
+    migrate(raw, real.slice(0, 27));
+    const row = without(sampleRows.source_state, MIRROR_COLUMNS);
+    insertRaw(raw, 'source_state', row);
+
+    migrate(raw, real);
+
+    expect(rows(raw, 'source_state')).toEqual([{ ...row, ...EMPTY_MIRROR }]);
   });
 
   it('preserves submissions and stored results from 0025 with nullable provenance and valid foreign keys', () => {
@@ -1217,6 +1232,7 @@ describe('migration pins', () => {
     '0026_submission_basis.sql': '328f5b70f2e9a32c52a7a9f04d1f8755d9282e20255db1ffd61c73961afb0745',
     '0027_session_finished_at.sql':
       'd1b873b8fb0a02f3c1d0b2bdf9891b04906e9949071d950812d6e9ddd1819b79',
+    '0028_source_mirror.sql': '4553449e520b89f35764593f000e16a4907db7216da720017c44fe457f4a241d',
     '0019_pr_polling.sql': '17e2b7964c72320f484ae05ae54e68f5964ebc06ea6c5e014013d13f2060d198',
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',

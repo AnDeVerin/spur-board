@@ -5,6 +5,8 @@ import {
   DISPATCHER_MODES,
   approvalRuleOf,
   isExternalAuthor,
+  mirrorSourceId,
+  readyMirrorOf,
   parseActorId,
   prSourceId,
   trackerSourceId,
@@ -17,12 +19,14 @@ import {
   type MarkColumnId,
   type MoveReason,
   type PrFacts,
+  type ReadinessState,
 } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import {
   describeCompletion as describeDomainCompletion,
   dispatch,
+  mirrorTarget,
   turnReason,
 } from '../domain/dispatch.ts';
 import type { GateMark } from '../domain/gates.ts';
@@ -355,6 +359,42 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
   }
 }
 
+/** Whether work on the task started: an eligible open linked PR or a live linked worker. */
+async function workStartedOn(trx: Trx, taskId: number): Promise<boolean> {
+  const openPr = await trx
+    .selectFrom('link')
+    .select('id')
+    .where('task_id', '=', taskId)
+    .where('entity', '=', 'pr')
+    .where('banned', '=', 0)
+    .where('pr_open', '=', 1)
+    .where(pastReopenFloor)
+    .executeTakeFirst();
+  return openPr !== undefined || (await linkedSession(trx, taskId, 'worker')) !== undefined;
+}
+
+/** Put the task in a fresh visit of a Todo-group column and close its turns. */
+async function placeInTodoGroup(
+  trx: Trx,
+  task: Task,
+  project: Project | undefined,
+  to: ColumnId,
+  at: Date,
+): Promise<void> {
+  await trx
+    .updateTable('task')
+    .set({
+      column: to,
+      shadow_column:
+        task.shadow_column === null && project?.dispatcher.mode !== 'shadow' ? null : to,
+      column_epoch: task.column_epoch + 1,
+      last_change_at: taskChangeAt(at.toISOString()),
+    })
+    .where('id', '=', task.id)
+    .execute();
+  await closeTurns(trx, { taskId: task.id, reason: 'moved', at });
+}
+
 /** Place idle work in a fresh real-column visit after synchronizing dispatcher mode. */
 export async function manuallyMoveColumn(
   trx: Trx,
@@ -376,32 +416,18 @@ export async function manuallyMoveColumn(
       'move_outside_todo_group',
       `Pick enabled Todo-group columns in project ${task.project}.`,
     );
-  const openPr = await trx
-    .selectFrom('link')
-    .select('id')
-    .where('task_id', '=', taskId)
-    .where('entity', '=', 'pr')
-    .where('banned', '=', 0)
-    .where('pr_open', '=', 1)
-    .where(pastReopenFloor)
-    .executeTakeFirst();
-  if (openPr !== undefined || (await linkedSession(trx, taskId, 'worker')) !== undefined)
+  const mirror = project === undefined ? undefined : readyMirrorOf(project);
+  if (mirror !== undefined && (task.column === 'ready-for-dev' || to === 'ready-for-dev'))
+    throw new CommandError(
+      'column_mirrored',
+      `Change the status of ${task.key} in GitHub Project ${mirror.project} (${mirror.field}) instead.`,
+    );
+  if (await workStartedOn(trx, taskId))
     throw new CommandError(
       'work_started',
       'Resolve the open pull request or live worker before moving idle work.',
     );
-  await trx
-    .updateTable('task')
-    .set({
-      column: to,
-      shadow_column:
-        task.shadow_column === null && project?.dispatcher.mode !== 'shadow' ? null : to,
-      column_epoch: task.column_epoch + 1,
-      last_change_at: taskChangeAt(at.toISOString()),
-    })
-    .where('id', '=', taskId)
-    .execute();
-  await closeTurns(trx, { taskId, reason: 'moved', at });
+  await placeInTodoGroup(trx, task, project, to, at);
   await emit(
     trx,
     'task_manually_moved',
@@ -412,6 +438,66 @@ export async function manuallyMoveColumn(
     actor,
   );
   return { from: task.column, to, column: to };
+}
+
+/**
+ * The mirror's move of an idle task between To Do and Ready for Dev, after synchronizing
+ * dispatcher mode: the manual move's writes, journaled as `task_mirror_moved` by `system`.
+ */
+async function mirrorMoveColumn(
+  trx: Trx,
+  input: { task: Task; project: Project; to: ColumnId; source: string; at: Date; config: Config },
+): Promise<void> {
+  const { task, project, to, source, at, config } = input;
+  await syncModes(trx, config, at);
+  const current = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('id', '=', task.id)
+    .executeTakeFirstOrThrow();
+  await placeInTodoGroup(trx, current, project, to, at);
+  await emit(trx, 'task_mirror_moved', project.id, task.id, at.toISOString(), {
+    from: current.column,
+    to,
+    source,
+  });
+}
+
+/**
+ * Apply a complete GitHub Project read of `source`: every live task of the mirrored project
+ * goes where `mirrorTarget` puts it. A task the read does not list stays put.
+ */
+export async function applyMirror(
+  trx: Trx,
+  input: {
+    source: string;
+    readiness: readonly { key: string; state: ReadinessState }[];
+    at: Date;
+    config: Config;
+  },
+): Promise<void> {
+  const { source, at, config } = input;
+  const project = config.projects.find((entry) => mirrorSourceId(entry) === source);
+  if (project === undefined) return;
+  const readiness = new Map(input.readiness.map((entry) => [entry.key, entry.state]));
+  const tasks = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('project', '=', project.id)
+    .where('membership', '!=', 'archived')
+    .where('column', 'in', ['todo', 'ready-for-dev'])
+    .orderBy('id')
+    .execute();
+  for (const task of tasks) {
+    const state = readiness.get(task.key) ?? 'unknown';
+    if (state === 'unknown') continue;
+    const to = mirrorTarget({
+      column: task.column,
+      workStarted: await workStartedOn(trx, task.id),
+      readiness: state,
+    });
+    if (to !== null) await mirrorMoveColumn(trx, { task, project, to, source, at, config });
+  }
 }
 
 /**
@@ -840,11 +926,11 @@ async function reopenNeedsDispatch(trx: Trx, taskId: number, project: Project): 
     .selectFrom('event')
     .select(['id', 'kind'])
     .where('task_id', '=', taskId)
-    .where('kind', 'in', ['task_manually_moved', 'task_corrected'])
+    .where('kind', 'in', ['task_manually_moved', 'task_mirror_moved', 'task_corrected'])
     .orderBy('id', 'desc')
     .executeTakeFirst();
-  if (placement?.kind !== 'task_manually_moved') return true;
-  // The manual visit acknowledges older reopen facts, not their permanent PR exclusion.
+  if (placement === undefined || placement.kind === 'task_corrected') return true;
+  // A manual or mirror visit acknowledges older reopen facts, not their permanent PR exclusion.
   // Journal order also distinguishes a new reopen when both writes share a timestamp.
   const statuses = await trx
     .selectFrom('event')

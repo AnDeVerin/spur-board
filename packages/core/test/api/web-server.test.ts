@@ -119,6 +119,7 @@ describe('web listener', () => {
   it('serves effective configuration and compact task projections through the web registry', async () => {
     const { app, store } = await setup();
     const configuration = await app.inject(post('config.get'));
+    const [executor, source] = [{ kind: 'worker', name: null }, { kind: 'manual' }];
     expect(configuration.statusCode).toBe(200);
     expect(configuration.json()).toEqual({
       ok: true,
@@ -128,8 +129,7 @@ describe('web listener', () => {
           {
             id: 'proj',
             columns: [
-              { id: 'todo', executor: { kind: 'worker', name: null }, group: 'todo' },
-              { id: 'ready-for-dev', executor: { kind: 'worker', name: null }, group: 'todo' },
+              ...['todo', 'ready-for-dev'].map((id) => ({ id, executor, group: 'todo', source })),
               ...[
                 ['dev', 'worker'],
                 ['review', 'worker'],

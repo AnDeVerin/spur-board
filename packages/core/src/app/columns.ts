@@ -3,6 +3,7 @@ import {
   COLUMN_IDS,
   columnTurnTimings,
   encodeActorId,
+  readyMirrorOf,
   type AddresseeRole,
   type ColumnId,
   type Config,
@@ -89,6 +90,7 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
                   : 'Project-selected live session; task-linked or author sessions can override it. Without a live orchestrator, ordinary questions wait for a session.',
     };
   }
+  const mirror = readyMirrorOf(project);
   const columns = [];
   for (const metadata of COLUMNS) {
     const column = project.columns.find((entry) => entry.id === metadata.id && entry.enabled);
@@ -219,15 +221,21 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
                 text: `Active with dispatcher on; shadow only models policy. A taken named executor uses its effective column quietTurnAfterMs. Existing worker/operator turns keep the global idle threshold. A taken agent turn gets one reminder after observed idle time; an operator item follows after the reminder is read and another quiet period. Open questions and blind sources pause observation. An unread reminder does not start the post-read timer; an exhausted failed reminder can raise an operator item once the current quiet period reaches remindAfterMs. Unhealthy executor episodes use continuous observation and turnStallAfterMs. Ordinary doorbells wait ${String(config.doorbells.firstRetryMs)}, then ${String(config.doorbells.secondRetryMs)} ms between delivered rings; the final unanswered pause is ${String(config.doorbells.unansweredAfterMs)} ms.`,
               },
       },
-      movedBy: {
-        kind: metadata.group !== null ? ('manual' as const) : ('dispatcher' as const),
-        text:
-          metadata.group !== null
-            ? column.id === 'todo'
-              ? 'New and reopened tasks enter Todo; task add and manual moves place idle work here; operator correction can also repair placement. Work starting leaves the whole Todo group.'
-              : 'Manual moves place idle work here; operator correction can also repair placement. New and reopened tasks enter Todo; work starting leaves the whole Todo group.'
-            : 'The dispatcher advances passing gates and completion shortcuts; in shadow mode it records only a shadow position. Operator corrections can also place tasks here.',
-      },
+      movedBy:
+        mirror !== undefined && column.id === 'ready-for-dev'
+          ? {
+              kind: 'mirror' as const,
+              text: `GitHub Project ${mirror.project} places idle work here while its ${mirror.field} field is ${mirror.value}, and back in Todo otherwise; manual moves into or out of this column are refused. Operator correction can still repair placement until the next complete read. Work starting leaves the whole Todo group.`,
+            }
+          : {
+              kind: metadata.group !== null ? ('manual' as const) : ('dispatcher' as const),
+              text:
+                metadata.group !== null
+                  ? column.id === 'todo'
+                    ? 'New and reopened tasks enter Todo; task add and manual moves place idle work here; operator correction can also repair placement. Work starting leaves the whole Todo group.'
+                    : 'Manual moves place idle work here; operator correction can also repair placement. New and reopened tasks enter Todo; work starting leaves the whole Todo group.'
+                  : 'The dispatcher advances passing gates and completion shortcuts; in shadow mode it records only a shadow position. Operator corrections can also place tasks here.',
+            },
     });
   }
   return {

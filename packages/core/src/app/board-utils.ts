@@ -3,6 +3,7 @@ import {
   defaultBranchViewSchema,
   encodeActorId,
   eventPayloadSchemas,
+  mirrorSourceId,
   parseActorId,
   parseRef,
   prFactsSchema,
@@ -181,6 +182,7 @@ export function projectForSource(config: Config, source: string) {
   return config.projects.find(
     (project) =>
       source === trackerSourceId(project) ||
+      source === mirrorSourceId(project) ||
       project.repos.some((repo) => source === prSourceId(project.id, repo)),
   );
 }
@@ -299,6 +301,7 @@ const MOVE_KINDS = [
   'task_shadow_moved',
   'task_corrected',
   'task_manually_moved',
+  'task_mirror_moved',
 ] as const;
 
 /** One column move as `task.get --why` and `task.move` show it. */
@@ -308,7 +311,7 @@ interface MoveView {
   actor: ActorId;
   from: ColumnId;
   to: ColumnId;
-  reason: MoveReason | 'returned' | 'corrected' | 'manual';
+  reason: MoveReason | 'returned' | 'corrected' | 'manual' | 'mirrored';
   gate: GateReason[];
   text: string | null;
 }
@@ -328,6 +331,12 @@ function moveView(row: Selectable<EventTable>): MoveView | null {
       gate: [],
       text: parsed.data.reason,
     };
+  }
+  if (row.kind === 'task_mirror_moved') {
+    const parsed = eventPayloadSchemas.task_mirror_moved.safeParse(payload);
+    if (!parsed.success) return null;
+    const { from, to, source } = parsed.data;
+    return { ...base, kind: row.kind, from, to, reason: 'mirrored', gate: [], text: source };
   }
   if (row.kind === 'task_corrected') {
     const parsed = eventPayloadSchemas.task_corrected.safeParse(payload);

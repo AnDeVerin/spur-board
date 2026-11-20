@@ -8,7 +8,13 @@ import {
   type GateReason,
 } from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
-import { dispatch, dispatchHolds, returnCauses, turnReason } from '../../src/domain/dispatch.ts';
+import {
+  dispatch,
+  dispatchHolds,
+  mirrorTarget,
+  returnCauses,
+  turnReason,
+} from '../../src/domain/dispatch.ts';
 import type { TaskGateFacts } from '../../src/domain/gates.ts';
 
 type Input = Parameters<typeof dispatch>[0];
@@ -941,5 +947,37 @@ describe('turnReason', () => {
     ],
   ])('%s', (_name, given, rerouted, expected) => {
     expect(turnReason(given, rerouted)).toEqual(expected);
+  });
+});
+
+describe('mirrorTarget', () => {
+  const READINESS = ['ready', 'not_ready', 'unknown'] as const;
+  const cells = COLUMN_IDS.flatMap((column) =>
+    [false, true].flatMap((workStarted) =>
+      READINESS.map((readiness) => ({ column, workStarted, readiness })),
+    ),
+  );
+
+  it.each(cells)(
+    '$column, workStarted $workStarted, $readiness',
+    ({ column, workStarted, readiness }) => {
+      const expected =
+        workStarted || readiness === 'unknown'
+          ? null
+          : column === 'todo' && readiness === 'ready'
+            ? 'ready-for-dev'
+            : column === 'ready-for-dev' && readiness === 'not_ready'
+              ? 'todo'
+              : null;
+      expect(mirrorTarget({ column, workStarted, readiness })).toBe(expected);
+    },
+  );
+
+  it('moves only between todo and ready-for-dev, and only idle work', () => {
+    const moved = cells.filter((cell) => mirrorTarget(cell) !== null);
+    expect(moved).toEqual([
+      { column: 'todo', workStarted: false, readiness: 'ready' },
+      { column: 'ready-for-dev', workStarted: false, readiness: 'not_ready' },
+    ]);
   });
 });

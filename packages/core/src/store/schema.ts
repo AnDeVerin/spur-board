@@ -412,6 +412,11 @@ export interface SourceStateTable {
   budget_reset_at: string | null;
   /** JSON `DefaultBranchView`, or null until a poll reads the default branch. */
   default_branch: string | null;
+  /** `MirrorFailureCode` of the last failed poll of a github-project source, else null. */
+  failure_code: string | null;
+  failure_message: string | null;
+  /** Title of the GitHub Project a github-project source last read completely. */
+  project_title: string | null;
 }
 
 export interface SourceMissTable {

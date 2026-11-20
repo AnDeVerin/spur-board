@@ -140,7 +140,12 @@ function capitalized(text: string): string {
 
 function serviceOf(source: string): string | undefined {
   if (source === 'spur') return 'Spur';
-  if (source.startsWith('github:') || source.startsWith('github-issues:')) return 'GitHub';
+  if (
+    source.startsWith('github:') ||
+    source.startsWith('github-issues:') ||
+    source.startsWith('github-project:')
+  )
+    return 'GitHub';
   return source.startsWith('jira:') ? 'Jira' : undefined;
 }
 

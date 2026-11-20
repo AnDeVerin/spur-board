@@ -6,6 +6,7 @@ import {
   type ColumnId,
   type GateReason,
   type MoveReason,
+  type ReadinessState,
   type TaskHold,
 } from '@spur-board/contracts';
 import {
@@ -139,6 +140,23 @@ function dropSubmits(marks: readonly GateMark[], to: ColumnId): GateMark[] {
 function workStarted(input: DispatchInput): boolean {
   const workerLive = input.liveWorker && !input.spurBlind;
   return input.openPr || (!input.reopened && workerLive);
+}
+
+/**
+ * Where a GitHub Project mirror puts the task, or null to leave it: an idle To Do task the
+ * Project marks ready goes to Ready for Dev, and an idle Ready for Dev task it marks not ready
+ * goes back to To Do. `unknown` (no complete read, or the task missing from it), started work
+ * and every other column stay put.
+ */
+export function mirrorTarget(input: {
+  column: ColumnId;
+  workStarted: boolean;
+  readiness: ReadinessState | 'unknown';
+}): 'todo' | 'ready-for-dev' | null {
+  if (input.workStarted) return null;
+  if (input.column === 'todo' && input.readiness === 'ready') return 'ready-for-dev';
+  if (input.column === 'ready-for-dev' && input.readiness === 'not_ready') return 'todo';
+  return null;
 }
 
 function ticketFinished(input: DispatchInput): boolean {

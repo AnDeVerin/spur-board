@@ -2,7 +2,9 @@ import {
   buildCatalogSnapshot,
   columnTurnTimings,
   COLUMNS,
+  mirrorSourceId,
   OPERATIONS,
+  readyMirrorOf,
   resolveWebOrigin,
   roleCanUseOperation,
   type Config,
@@ -20,11 +22,17 @@ import { createOperatorInbox } from './operator-inbox.ts';
 import type { OperationHandlers } from './operations.ts';
 import type { Query } from './queries.ts';
 import { getStatus } from './status.ts';
+import { sourceHealth } from './status-services.ts';
+import { sourceView } from './status-views.ts';
 import { createTaskQueries, projectTargets, visibleProjects } from './task-queries.ts';
 import { tokenListQuery, tokenRevokeMutation } from './tokens.ts';
 import { createTurnMutations } from './turn-commands.ts';
 
 const catalog = await buildCatalogSnapshot(OPERATIONS);
+
+type ConfigView = z.output<Extract<(typeof OPERATIONS)[number], { id: 'config.get' }>['output']>;
+type ColumnSource = NonNullable<ConfigView['projects'][number]['columns'][number]['source']>;
+const MANUAL_SOURCE: ColumnSource = { kind: 'manual' };
 
 /**
  * `<baseUrl>/browse/` of a Jira tracker, without userinfo, query or fragment; null for a tracker
@@ -132,64 +140,102 @@ export function createOperationRegistry(deps: {
     resolveTargets(_trx, input, actor) {
       return Promise.resolve(projectTargets(config, input.project, actor));
     },
-    run(_trx, input, actor) {
+    async run(trx, input, actor) {
       const visible = visibleProjects(config, actor);
-      return Promise.resolve({
-        projects: config.projects
-          .filter(
-            (project) =>
-              visible.has(project.id) &&
-              (input.project === undefined || input.project === project.id),
-          )
-          .map((project) => ({
-            id: project.id,
-            columns: project.columns
-              .filter((column) => column.enabled)
-              .map((column) => {
-                const named =
-                  column.orchestrator === 'none' || column.orchestrator === 'operator'
-                    ? undefined
-                    : project.spurProjects.find((spur) => spur.name === column.orchestrator);
-                const group = COLUMNS.find((c) => c.id === column.id)?.group ?? null;
-                const timings = columnTurnTimings(config, project.id, column.id);
-                return {
-                  id: column.id,
-                  executor: {
-                    kind:
-                      column.orchestrator === 'operator'
-                        ? ('operator' as const)
-                        : named?.role === 'curator'
-                          ? ('curator' as const)
-                          : named !== undefined
-                            ? ('orchestrator' as const)
-                            : column.id === 'external-review'
-                              ? ('dispatcher' as const)
-                              : ('worker' as const),
-                    name: named?.name ?? null,
-                  },
-                  ...(group === null ? {} : { group }),
-                  ...(timings === null
-                    ? {}
-                    : {
-                        quietTurnAfterMs: timings.quietTurnAfterMs,
-                        noRecipientAfterMs: timings.noRecipientAfterMs,
-                      }),
-                };
-              }),
-            dispatcher: { mode: project.dispatcher.mode },
-            spurProjects: project.spurProjects.map((spur) => ({
-              name: spur.name,
-              role: spur.role,
-              displayName: spur.displayName ?? spur.name,
-            })),
-            ticketBrowseBase: ticketBrowseBase(project.tracker),
-            checksGate: project.checksGate,
+      const shown = config.projects.filter(
+        (project) =>
+          visible.has(project.id) && (input.project === undefined || input.project === project.id),
+      );
+      const mirrors = new Map<string, ColumnSource>();
+      for (const project of shown) {
+        const mirror = readyMirrorOf(project);
+        const source = mirrorSourceId(project);
+        if (mirror === undefined || source === undefined) continue;
+        const row = await trx
+          .selectFrom('source_state')
+          .selectAll()
+          .where('source', '=', source)
+          .executeTakeFirst();
+        const view = sourceView({
+          source,
+          row,
+          config,
+          now: clock.now(),
+          points: new Map(),
+          completeSince,
+          healthySince: deps.healthySince,
+          budgetWaits: deps.budgetWaits?.(),
+        });
+        mirrors.set(project.id, {
+          kind: 'mirror',
+          tracker: 'github-project',
+          name: row?.project_title ?? mirror.project,
+          project: mirror.project,
+          field: mirror.field,
+          value: mirror.value,
+          health: sourceHealth(view).state,
+          readAt: view.lastCompleteAt,
+          ...(view.failure == null ? {} : { error: view.failure }),
+        });
+      }
+      return {
+        projects: shown.map((project) => ({
+          id: project.id,
+          columns: project.columns
+            .filter((column) => column.enabled)
+            .map((column) => {
+              const named =
+                column.orchestrator === 'none' || column.orchestrator === 'operator'
+                  ? undefined
+                  : project.spurProjects.find((spur) => spur.name === column.orchestrator);
+              const group = COLUMNS.find((c) => c.id === column.id)?.group ?? null;
+              const timings = columnTurnTimings(config, project.id, column.id);
+              return {
+                id: column.id,
+                executor: {
+                  kind:
+                    column.orchestrator === 'operator'
+                      ? ('operator' as const)
+                      : named?.role === 'curator'
+                        ? ('curator' as const)
+                        : named !== undefined
+                          ? ('orchestrator' as const)
+                          : column.id === 'external-review'
+                            ? ('dispatcher' as const)
+                            : ('worker' as const),
+                  name: named?.name ?? null,
+                },
+                ...(group === null
+                  ? {}
+                  : {
+                      group,
+                      source:
+                        column.id === 'ready-for-dev'
+                          ? (mirrors.get(project.id) ?? MANUAL_SOURCE)
+                          : MANUAL_SOURCE,
+                    }),
+                ...(timings === null
+                  ? {}
+                  : {
+                      quietTurnAfterMs: timings.quietTurnAfterMs,
+                      noRecipientAfterMs: timings.noRecipientAfterMs,
+                    }),
+              };
+            }),
+          dispatcher: { mode: project.dispatcher.mode },
+          spurProjects: project.spurProjects.map((spur) => ({
+            name: spur.name,
+            role: spur.role,
+            displayName: spur.displayName ?? spur.name,
           })),
+          ticketBrowseBase: ticketBrowseBase(project.tracker),
+          checksGate: project.checksGate,
+        })),
         web: {
           publicOrigin: webOrigin() ?? null,
           spurUiOrigin: config.web.spurUiOrigin ?? null,
         },
-      });
+      };
     },
   };
   const status: Query<'status.get'> = {
