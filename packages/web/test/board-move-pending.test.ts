@@ -178,6 +178,32 @@ const LIFECYCLE: Record<string, () => Promise<{ keys: string[]; expected: string
     const keys = moves.map((body) => body.key);
     return { keys: [...new Set(keys)], expected: keys };
   },
+  'a move to the part the task is already in frees the task': async () => {
+    history.replaceState(null, '', `/?open=${encodeURIComponent(KEY)}`);
+    // A stale view reads todo; the task is in triage, so the daemon's new visit leaves triage.
+    let column = 'todo';
+    const { moves } = await board(THREE, ROWS, (daemon) => {
+      daemon.routes['task.get'] = () => Promise.resolve(viewOf({ column }));
+      daemon.routes['task.move'] = (input) => {
+        column = String(input['column']);
+        return Promise.resolve(
+          envelope({
+            task: { ...taskGet().task, key: KEY, column },
+            from: column,
+            to: column,
+            column,
+            settled: [],
+          }),
+        );
+      };
+    });
+    await sendFromView('triage', 'Groomed');
+    await sendFromView('ready-for-dev', 'Next');
+    expect(viewAlert()).toBeUndefined();
+    expect(moves.map((body) => body.input['column'])).toEqual(['triage', 'ready-for-dev']);
+    const keys = moves.map((body) => body.key);
+    return { keys: [...new Set(keys)], expected: keys };
+  },
   'a task of another project settles on its task view': async () => {
     history.replaceState(null, '', `/?open=${encodeURIComponent(KEY)}`);
     const { d, moves } = await board(

@@ -126,7 +126,10 @@ export function createHeldMoves(api: ReturnType<typeof createApi>) {
       // An accepted move left the part the daemon names, which a stale row may not.
       const accepted = (source: string) => {
         const entry = held.get(task);
-        if (entry !== undefined && entry.inner === inner) entry.from = source;
+        if (entry === undefined || entry.inner !== inner) return;
+        // A move into the part it was already in is a new visit there: settled at once.
+        if (source === entry.column) held.delete(task);
+        else entry.from = source;
       };
       return {
         run: () => {
