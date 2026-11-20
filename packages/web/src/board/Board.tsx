@@ -18,6 +18,8 @@ import styles from './Board.module.css';
 
 /** Skeleton columns before `config.get` answers, as in the prototype. */
 const UNNAMED = [undefined, undefined, undefined, undefined];
+const WRITES = 'Answers and comments cannot be sent.';
+const MOVES = 'Moves cannot be sent.';
 
 function columnsView(snapshot: BoardSnapshot): ColumnsView {
   const project = chosenProject(snapshot);
@@ -44,8 +46,8 @@ function taskTitle(snapshot: BoardSnapshot, task: TaskState): TaskTitle {
   return text === undefined ? { state: 'none' } : { state: 'ready', text };
 }
 
-/** Why the task view cannot send; undefined while it can. */
-function unavailable(snapshot: BoardSnapshot): string | undefined {
+/** Why the board cannot send `action`; undefined while it can. */
+function unavailable(snapshot: BoardSnapshot, action: string): string | undefined {
   const reason = snapshot.readFailed
     ? snapshot.update !== undefined
       ? `The board was updated to ${snapshot.update.version}.`
@@ -55,7 +57,7 @@ function unavailable(snapshot: BoardSnapshot): string | undefined {
     : snapshot.stream === 'offline'
       ? 'Live updates are lost.'
       : undefined;
-  return reason === undefined ? undefined : `${reason} Answers and comments cannot be sent.`;
+  return reason === undefined ? undefined : `${reason} ${action}`;
 }
 
 /** The current URL without `open`, keeping the other params and the hash. */
@@ -242,6 +244,8 @@ export function Board({ data }: { data: BoardData }) {
             history.pushState(null, '', openHref(key));
             setOpenKey(key);
           }}
+          moveIntent={data.moveIntent}
+          moveUnavailable={unavailable(snapshot, MOVES)}
         />
       </main>
       {inboxOpen && (
@@ -277,7 +281,9 @@ export function Board({ data }: { data: BoardData }) {
           statusReadAt={snapshot.lastGoodAt}
           offline={snapshot.stream === 'offline'}
           config={snapshot.config}
-          unavailable={unavailable(snapshot)}
+          unavailable={unavailable(snapshot, WRITES)}
+          moveIntent={data.moveIntent}
+          moveUnavailable={unavailable(snapshot, MOVES)}
           notice={notice}
           answerIntent={data.answerIntent}
           followUpIntent={data.followUpIntent}

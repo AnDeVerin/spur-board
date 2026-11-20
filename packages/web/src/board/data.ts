@@ -11,7 +11,7 @@ import { connectStream, type RefreshScope, type StreamState } from '../lib/strea
 import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
 import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
 
-/** `closeItemIntent` refused to send because the board is unavailable. */
+/** `closeItemIntent` or `moveIntent` refused to send because the board is unavailable. */
 export class BoardUnavailableError extends Error {
   constructor() {
     super('the board is unavailable.');
@@ -371,6 +371,38 @@ export function createBoardData(options: BoardDataOptions) {
     };
   };
 
+  /**
+   * One board-level intent: refused while the board is unavailable, a pending run is shared, and
+   * after a confirmed run `onConfirm` re-reads and later runs return at once.
+   */
+  const boardIntent = <K extends 'item.close' | 'task.move'>(
+    id: K,
+    input: Parameters<typeof createMutationIntent<K>>[2],
+    onConfirm: () => void,
+  ) => {
+    const intent = createMutationIntent(api, id, input);
+    let pending: Promise<void> | undefined;
+    let confirmed = false;
+    return {
+      run(): Promise<void> {
+        if (confirmed) return Promise.resolve();
+        if (pending) return pending;
+        if (stopped || state.readFailed || state.stream === 'offline')
+          return Promise.reject(new BoardUnavailableError());
+        pending = intent
+          .run()
+          .then(() => {
+            confirmed = true;
+            onConfirm();
+          })
+          .finally(() => {
+            pending = undefined;
+          });
+        return pending;
+      },
+    };
+  };
+
   return {
     /** An arrow, so `useSyncExternalStore(data.subscribe, ...)` can pass it unbound. */
     subscribe: (listener: () => void) => {
@@ -413,29 +445,23 @@ export function createBoardData(options: BoardDataOptions) {
      * Close one operator inbox item; the object owns one idempotent intent. Refused while the
      * board is unavailable; a confirmed close re-reads the inbox and later runs return at once.
      */
-    closeItemIntent: (item: string) => {
-      const intent = createMutationIntent(api, 'item.close', { item });
-      let pending: Promise<void> | undefined;
-      let confirmed = false;
-      return {
-        run(): Promise<void> {
-          if (confirmed) return Promise.resolve();
-          if (pending) return pending;
-          if (stopped || state.readFailed || state.stream === 'offline')
-            return Promise.reject(new BoardUnavailableError());
-          pending = intent
-            .run()
-            .then(() => {
-              confirmed = true;
-              inbox.refresh();
-            })
-            .finally(() => {
-              pending = undefined;
-            });
-          return pending;
-        },
-      };
-    },
+    closeItemIntent: (item: string) =>
+      boardIntent('item.close', { item }, () => {
+        inbox.refresh();
+      }),
+    /**
+     * Move a task to another Backlog part with a reason; the object owns one idempotent intent.
+     * Refused as `closeItemIntent` is; a confirmed move re-reads the board and the open task.
+     */
+    moveIntent: (
+      task: string,
+      column: BoardConfig['projects'][number]['columns'][number]['id'],
+      reason: string,
+    ) =>
+      boardIntent('task.move', { mode: 'manual', task, column, reason }, () => {
+        status.refresh();
+        refreshTask();
+      }),
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
     /**
      * Open a task by key, or close it with null: read `task.get` with why, then again whenever the

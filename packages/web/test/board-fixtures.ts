@@ -10,14 +10,15 @@ type OpId =
   | 'block.answer'
   | 'block.followup'
   | 'comment.add'
-  | 'item.close';
+  | 'item.close'
+  | 'task.move';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
 export const failure = () => Promise.resolve(Response.json({ broken: true }, { status: 500 }));
 export const never = () => new Promise<Response>(() => undefined);
-/** A daemon problem answer with its stable code. */
-export const problem = (code: string, status = 404) =>
+/** A daemon problem answer with its stable code and the hint the daemon sent. */
+export const problem = (code: string, status = 404, hint = 'hint') =>
   Promise.resolve(
     Response.json(
       {
@@ -27,7 +28,7 @@ export const problem = (code: string, status = 404) =>
         code,
         requestId: 'r1',
         message: code,
-        hint: 'hint',
+        hint,
         docs: `docs/errors.md#${code}`,
         context: {},
         recovery: { action: 'Check', sideEffects: 'none', maxRetries: 0, retryTiming: 'Never' },
@@ -54,6 +55,12 @@ const project = (id: string, mode: 'on' | 'shadow', columns: ReturnType<typeof c
   ticketBrowseBase: null as string | null,
   checksGate: 'dev' as const,
 });
+/** A config column; Todo-group columns carry `group: 'todo'` as `config.get` sets it. */
+export const configColumn = (id: string, grouped = false, kind = 'dispatcher') => ({
+  id,
+  executor: { kind, name: null },
+  ...(grouped ? { group: 'todo' } : {}),
+});
 export const config = {
   projects: [
     project('a', 'on', [
@@ -66,6 +73,11 @@ export const config = {
   ],
   web: { publicOrigin: null, spurUiOrigin: null },
 };
+/** The fixture config with project `a` on columns `a` and project `b` on `b`. */
+export const configWith = (a: ReturnType<typeof configColumn>[], b = a) => ({
+  ...config,
+  projects: config.projects.map((entry, index) => ({ ...entry, columns: index === 0 ? a : b })),
+});
 const ticket = (key: string, title: string) => ({
   trackerId: 'gh',
   id: key,
@@ -349,7 +361,7 @@ export const taskHistory = (
   ],
 ) => ({ task: taskGet().task, events });
 
-/** Fake daemon: the five reads by route and an event stream the test writes to. */
+/** Fake daemon: the reads and writes by route and an event stream the test writes to. */
 export function daemon(tasks: unknown[] = ROWS) {
   const routes: Record<OpId, Route> = {
     'config.get': () => Promise.resolve(envelope(config)),
@@ -365,6 +377,16 @@ export function daemon(tasks: unknown[] = ROWS) {
     'block.followup': () =>
       Promise.resolve(envelope({ comment: comment({ id: 'C9', block: 'B12' }) })),
     'task.history': () => Promise.resolve(envelope(taskHistory())),
+    'task.move': (input) =>
+      Promise.resolve(
+        envelope({
+          task: { ...taskGet().task, key: input['task'], column: input['column'] },
+          from: 'todo',
+          to: input['column'],
+          column: input['column'],
+          settled: [],
+        }),
+      ),
     'item.close': (input) =>
       Promise.resolve(
         envelope({

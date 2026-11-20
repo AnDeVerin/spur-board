@@ -2,7 +2,7 @@
 
 The task view of the [web UI](web-ui.md) shows one task in a dialog over the columns; on a
 narrow screen it fills the screen. It reads `task.get` with `why` for the open task, `task.history` while History shows and, like
-the rest of the UI, refreshes from the event stream. It also offers the three writes below.
+the rest of the UI, refreshes from the event stream. It also offers the three writes below and a move between Backlog parts.
 
 ## Opening it
 
@@ -41,6 +41,8 @@ is selected once configuration arrives. Back and Forward restore both layers.
   `ticketBrowseBase` only when its prefix before `-<number>` matches the task's, ignoring case.
   Other ticket refs, Jira keys from another project, or Jira keys without a browse base stay plain.
   All links open new tabs.
+- A task in a Backlog part, not archived, then shows `Move to` and a `<part>…` button per other
+  part; one opens the [board's move form](web-ui-board.md) here, and focus returns to the buttons.
 - `History` lists the task's journal events, newest first by event time; events at the same
   time keep the reverse of their journal order. Each row shows the time (UTC, `hh:mm dd/mm/yy`),
   the summary of what changed with who did it, and the raw event kind, such as `turn_taken`. An agent reads as its session;

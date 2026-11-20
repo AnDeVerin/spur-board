@@ -296,7 +296,7 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
       clauses: [
         /second loopback listener serves browser\s*assets/,
         /Enabled writes are `comment.add`, `block.answer`, `block.followup`, `item.close` and\s+`task.move`/,
-        /Task moves use the operator API; the shell has no move control/,
+        /The shell moves a task between Backlog parts through `task.move` from the card\s+menu, a drop on another part or the task view/,
         /a failed bind does not stop the agent API/,
       ],
       keys: ['web.port', 'web.publicOrigin'],

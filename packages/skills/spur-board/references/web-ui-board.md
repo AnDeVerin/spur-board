@@ -59,6 +59,25 @@ Columns follow configuration order:
   reads `manual` instead of the executor. The band's caret toggle folds the group into one
   column with a section per part (`empty` when it has no tasks) and unfolds it back into
   columns. The browser keeps the fold per project; a fold reads nothing from the daemon.
+- A card in a Backlog part moves to another part of its band with a reason, sent as one
+  `task.move` (`manual`):
+  - Its `⋯` menu (`Move <short key>`), the last of its links, lists `Move to <part>…` for each
+    other part. A tap or click opens it pinned with focus on the first item.
+  - Dragging the card onto another part's cards, empty spine or folded section marks that part
+    and, except on a spine, reads `Drop to move to <part>. A reason is asked.`; its own part,
+    other columns and drags from elsewhere take nothing.
+  - The task view's `Move to` row ([task view](web-ui-task-view.md)) does the same.
+
+  Each opens the form `Move <short key> to <part>: reason` under the card, focused, with
+  `Move to <part>` and Cancel. The send stays disabled until the reason has text; over 20,000
+  characters it says so. Nothing moves before the daemon accepts: the send then reads `Moving`
+  until a read shows the card at the end of the target part, then the form closes and the card
+  takes focus. A refusal shows the daemon's hint under the field and keeps the reason; any other
+  failure reads `Could not move the task. Send again to retry.`. A resend of the same reason
+  reuses its idempotency key, so it never moves twice; an edited reason is a new move. While the
+  daemon or live updates are unavailable the send is disabled and the hint adds why, then
+  `Moves cannot be sent.`. Cancel closes the form at any time.
+
 - `done` lists every done task in a compact scrolling list, each with its time in the column.
 - A card opens the task view on click or Enter, a new tab on a modified click. It shows the short
   key (full key on hover) and its time in the column, the ticket title, then:

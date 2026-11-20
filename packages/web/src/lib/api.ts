@@ -13,13 +13,15 @@ export type Output<K extends OperationId> = z.output<
   Operation<K> extends { read: z.ZodType } ? Operation<K>['read'] : Operation<K>['output']
 >;
 type ProblemCode = z.output<typeof problemSchema>['code'];
-/** A daemon problem answer: the message as the error's, and its stable code. */
+/** A daemon problem answer: the message as the error's, its stable code and its hint as sent. */
 export class ProblemError extends Error {
   readonly code: ProblemCode;
-  constructor(message: string, code: ProblemCode) {
+  readonly hint: string;
+  constructor(message: string, code: ProblemCode, hint: string) {
     super(message);
     this.name = 'ProblemError';
     this.code = code;
+    this.hint = hint;
   }
 }
 /**
@@ -55,7 +57,7 @@ export function createApi(fetcher: typeof fetch = fetch) {
     const value: unknown = await response.json();
     if (!response.ok) {
       const problem = problemSchema.parse(value);
-      throw new ProblemError(problem.message, problem.code);
+      throw new ProblemError(problem.message, problem.code, problem.hint);
     }
     const entry: { output: z.ZodType; read?: z.ZodType } = operation;
     try {
@@ -69,7 +71,7 @@ export function createApi(fetcher: typeof fetch = fetch) {
 }
 /** Own one instance per user intent. Retry uncertain outcomes on this same instance. */
 export function createMutationIntent<
-  K extends 'comment.add' | 'block.answer' | 'block.followup' | 'item.close',
+  K extends 'comment.add' | 'block.answer' | 'block.followup' | 'item.close' | 'task.move',
 >(
   api: ReturnType<typeof createApi>,
   id: K,

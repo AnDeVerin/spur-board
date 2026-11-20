@@ -16,6 +16,7 @@ import type { BoardConfig, BoardData, BoardTask, HistoryState, TaskState } from 
 import { TaskBlock } from './TaskBlock.tsx';
 import { TaskWrite } from './TaskWrite.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
+import { TaskMove } from './MoveForm.tsx';
 import { shortKey, type BoardColumnConfig } from './model.ts';
 import { age, linkChips, timeInColumn, whyRows, whySummary } from './task-model.ts';
 import styles from './TaskView.module.css';
@@ -59,6 +60,8 @@ export function TaskView({
   commentIntent,
   drafts,
   refreshTask,
+  moveIntent,
+  moveUnavailable,
 }: {
   task: TaskState;
   history: HistoryState | undefined;
@@ -71,6 +74,9 @@ export function TaskView({
   commentIntent: BoardData['commentIntent'];
   drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
+  moveIntent: BoardData['moveIntent'];
+  /** Why moves cannot be sent now; undefined while they can. */
+  moveUnavailable: string | undefined;
   title: TaskTitle;
   row: BoardRow | undefined;
   /** Enabled columns of the task's project in `config.get` order, with their group. */
@@ -118,6 +124,13 @@ export function TaskView({
   const failed = task.state === 'failed' || task.retrying;
   const chips =
     value === undefined ? [] : linkChips(value.links, key, spurUiOrigin, ticketBrowseBase, row);
+  // Another Backlog part to move an active Backlog task to; Todo-group columns are adjacent.
+  const parts = columns.filter(({ group }) => group === 'todo').map(({ id }) => id);
+  const from = value?.task.column;
+  const moves =
+    from !== undefined && value?.task.membership !== 'archived' && parts.includes(from)
+      ? parts.filter((part) => part !== from)
+      : [];
   return (
     <Modal
       open
@@ -187,6 +200,16 @@ export function TaskView({
                         )}
                       </div>
                     )}
+                {value !== undefined && from !== undefined && moves.length > 0 && (
+                  <TaskMove
+                    taskKey={value.task.key}
+                    name={shortKey(key)}
+                    from={from}
+                    parts={moves}
+                    moveIntent={moveIntent}
+                    unavailable={moveUnavailable}
+                  />
+                )}
               </div>
               {value !== undefined && (
                 <CollapsibleSection title="Why it is here" summary={whySummary(value)}>
