@@ -8,9 +8,11 @@
 - A return to Dev: ack its Dev turn, read the reason in `board task <task>`, fix it, then
   keyed `board submit <turn> <sha>`. Taking the turn reads the "back" code block; once the
   Board confirms the submit, of a new head or the same head as a reply, it closes `done`.
-- A "back" block still open after its Dev turn closed (no submit, an orchestrator's, or one a
-  merge at another head superseded, which opens no turn): take a later Dev turn of that visit and
-  submit as above; with none, fix it, then keyed `board unblock <block> --done <commit/PR link>`.
+- A named orchestrator runs Dev: its take leaves the "back" block unread, so ack the block on
+  its doorbell, then once the fix is in keyed `board unblock <block> --done <commit/PR link>`.
+- A "back" block still open after your Dev turn closed (no submit, or one a merge at another
+  head superseded, which opens no turn): take a later Dev turn of that visit and submit as
+  above; with none, fix it, then close it with `--done` as above.
 - Exit 3: not applied. Ask in your own session; when the Board returns, retry identically.
 - Exit 4: no Board config; report in your session; keep the key.
 - Exit 5 (unknown): retry up to 3 times in a minute, then ask in your own session.
