@@ -75,8 +75,9 @@ Columns follow configuration order:
     with its findings, `draft`, and in shadow mode the dispatcher's column. The agents' block count
     and overflow `+N` have a soft red fill and red block icon with neutral text and border;
     `B<n> → you` keeps its attention styling. In Ready to Merge, when the QA column's latest
-    submission was carried or skipped, `QA carried` (tooltip: source commit and reason) or a warn
-    `QA skipped` (tooltip: reason) comes first; tested, none or no QA column adds nothing.
+    submission was carried or skipped and not voided, `QA carried` (tooltip: source commit and
+    reason) or a warn `QA skipped` (tooltip: reason) comes first; tested, none or no QA column adds
+    nothing.
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
     on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
     without a turn. Ages stop while the data is stale.

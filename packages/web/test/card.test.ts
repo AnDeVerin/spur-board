@@ -436,12 +436,14 @@ describe('task card', () => {
       expect(qaMarker(ready({ qaSubmission }))?.title).toBe(title);
     });
 
-    it('shows pending and voided rows by their basis', () => {
-      for (const state of [{ pending: true }, { voided: true }])
-        for (const confirmed of [carried, skipped])
-          expect(qaMarker(ready({ qaSubmission: { ...confirmed, ...state } }))).toEqual(
-            qaMarker(ready({ qaSubmission: confirmed })),
-          );
+    it('shows pending rows by their basis and voided rows not at all', () => {
+      for (const confirmed of [carried, skipped]) {
+        expect(qaMarker(ready({ qaSubmission: { ...confirmed, pending: true } }))).toEqual(
+          qaMarker(ready({ qaSubmission: confirmed })),
+        );
+        expect(qaMarker(ready({ qaSubmission: confirmed }))).not.toBeNull();
+        expect(qaMarker(ready({ qaSubmission: { ...confirmed, voided: true } }))).toBeNull();
+      }
     });
 
     it('shows nothing without a QA submission, outside Ready to Merge, or for another column', () => {

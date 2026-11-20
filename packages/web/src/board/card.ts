@@ -161,12 +161,12 @@ function shadowMarker(row: BoardRow): Marker | null {
 
 /**
  * In Ready to Merge, the QA column's latest submission when it was not tested: `QA carried` with
- * the source commit and reason, or a warn `QA skipped` with the reason. Pending and voided rows
- * count by their basis.
+ * the source commit and reason, or a warn `QA skipped` with the reason. A pending row counts by
+ * its basis; a voided one gives nothing.
  */
 export function qaMarker(row: BoardRow): Marker | null {
   const qa = row.qaSubmission;
-  if (row.column !== 'ready-to-merge' || qa === undefined || qa === null) return null;
+  if (row.column !== 'ready-to-merge' || qa === undefined || qa === null || qa.voided) return null;
   const reason = qa.reason === null ? '' : `: ${qa.reason}`;
   if (qa.basis === 'carried')
     return {
