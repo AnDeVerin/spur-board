@@ -152,6 +152,12 @@ Missing UI assets return
 503 with the hint ``UI is not built: run `pnpm --filter @spur-board/web build` ``; health and
 operations still work. The UI build is supplied separately from this listener.
 
+The page carries the Spur mark as its tab icon and a web app manifest, so a phone can install
+the Board as a standalone app. Installing needs the HTTPS `web.publicOrigin` (a secure origin,
+such as the private-network proxy) with a certificate the phone trusts; plain HTTP offers no
+install. In Chrome on Android use the menu, then Install app; in Safari on iOS use Share, then
+Add to Home Screen.
+
 ## 4. Install the service and choose operator access
 
 Check the service first, then install it if missing:

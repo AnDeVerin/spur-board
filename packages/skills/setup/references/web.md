@@ -33,3 +33,7 @@ Run that build, then restart the daemon: it loads the assets at startup. Health 
 operations remain usable. Request logs record the web channel and untrusted
 forwarded client metadata and user agent. Journal events and history retain `via: web` beside
 the operator actor.
+
+To install the Board on a phone as a standalone app, open the HTTPS `web.publicOrigin` with a
+certificate the phone trusts: Chrome on Android, menu, then Install app; Safari on iOS, Share,
+then Add to Home Screen. Plain HTTP offers no install.
