@@ -981,20 +981,15 @@ async function readApprovalPairs(
     const approved = offHeadApprovals(facts);
     const cached = entry.pairs;
     const missing = approved.filter((sha) => !cached.has(sha));
-    const limited = new Map<string, PrApprovalPair>();
+    let limited = false;
     const waiting = entry.unreadableUntil !== undefined && now() < entry.unreadableUntil;
     if (missing.length > 0 && !waiting && scope.requests.failed < MAX_FAILED_REQUESTS) {
       if (
         acc.budget !== undefined &&
         acc.budget.remaining < APPROVAL_RESERVE_FACTOR * reserveRemaining
-      ) {
-        for (const approvedSha of missing)
-          limited.set(approvedSha, {
-            approvedSha,
-            headSha: facts.headSha,
-            notCounted: 'rate_limit',
-          });
-      } else {
+      )
+        limited = true;
+      else {
         const response = await attempt(scope, commitsQuery(), { number: facts.number });
         if (response !== undefined) {
           acc.budget = response.budget;
@@ -1007,9 +1002,11 @@ async function readApprovalPairs(
         }
       }
     }
-    const pairs = approved.flatMap((sha) => {
-      const pair = cached.get(sha) ?? limited.get(sha);
-      return pair === undefined ? [] : [pair];
+    // Only a missing pair can be rate-limited: every other one is cached.
+    const pairs = approved.flatMap((approvedSha): PrApprovalPair[] => {
+      const pair = cached.get(approvedSha);
+      if (pair !== undefined) return [pair];
+      return limited ? [{ approvedSha, headSha: facts.headSha, notCounted: 'rate_limit' }] : [];
     });
     if (pairs.length > 0) acc.items[i] = { ...item, approvalPairs: pairs };
   }

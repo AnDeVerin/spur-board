@@ -29,7 +29,7 @@ export function summarizePr(
   fact: PrFacts,
   factAt: string,
   unconfirmed: boolean,
-  approvals: readonly ApprovalView[] = [],
+  approvals: ApprovalView[],
 ) {
   const checks = fact.requiredChecks.length > 0 ? fact.requiredChecks : fact.checks;
   return {
@@ -61,7 +61,7 @@ export function summarizePr(
     draft: fact.draft,
     factAt,
     unconfirmed,
-    ...(approvals.length === 0 ? {} : { approvals: [...approvals] }),
+    ...(approvals.length === 0 ? {} : { approvals }),
   };
 }
 

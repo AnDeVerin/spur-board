@@ -12,7 +12,7 @@ import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../d
 import type { CommentTable, TaskTable } from '../store/schema.ts';
 import { authorize, projectTarget } from './authorize.ts';
 import { blockView, commentView, subjectTarget, taskBlockViews, taskTarget } from './blocks.ts';
-import { approvalViews } from './approval-watch.ts';
+import { approvalViews, type ApprovalView } from './approval-watch.ts';
 import { linkView, moveViews, parsePr, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
@@ -278,7 +278,7 @@ export function createTaskQueries(deps: {
           .execute(),
       ]);
       const watch = config.projects.find((entry) => entry.id === task.project)?.approvalWatch;
-      const approvals = new Map<number, Awaited<ReturnType<typeof approvalViews>>>();
+      const approvals = new Map<number, ApprovalView[]>();
       for (const link of links) {
         const fact = link.entity === 'pr' ? parsePr(link.detail ?? undefined) : null;
         if (fact === null) continue;
