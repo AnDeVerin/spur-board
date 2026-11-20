@@ -16,7 +16,7 @@ import {
 import { browserOperations } from '../src/browser.ts';
 import { inboxEntrySchema, inboxHandledSchema } from '../src/ops/inbox-schemas.ts';
 import { defineOperation } from '../src/ops/define.ts';
-import { SCHEMA_ROLES, statusTaskSchema } from '../src/ops/schemas.ts';
+import { SCHEMA_ROLES, linkViewSchema, statusTaskSchema } from '../src/ops/schemas.ts';
 import { catalogSnapshotBody, catalogVersion } from '../src/ops/snapshot.ts';
 import { type JsonObject, isObject, walk } from './json-schema-walk.ts';
 
@@ -109,6 +109,41 @@ describe('catalog', () => {
     const property = schema.properties?.['columnEnteredAt'];
     if (!isObject(property)) throw new Error('Missing column entry schema');
     expect(property['description']).toContain('original add');
+  });
+  it('lists optional approvals on status prSummary and task.get PR links', () => {
+    const summary = statusTaskSchema.shape.prSummary.unwrap().element;
+    const link = linkViewSchema;
+    const approvals = [
+      {
+        author: 'alice',
+        sha: 'a'.repeat(40),
+        onHead: false,
+        commitsAfter: 1,
+        changedAfter: ['back/', 'docs/'],
+        watchedAfter: ['back/'],
+      },
+      { author: 'bob', sha: 'b'.repeat(40), onHead: false, notCounted: 'history_rewritten' },
+      { author: 'carol', sha: 'c'.repeat(40), onHead: false },
+      {
+        author: 'dave',
+        sha: 'd'.repeat(40),
+        onHead: true,
+        commitsAfter: 0,
+        changedAfter: [],
+        watchedAfter: [],
+      },
+    ];
+    const field = summary.shape.approvals;
+    expect(field.parse(approvals)).toEqual(approvals);
+    expect(field.parse(undefined)).toBeUndefined();
+    expect(link.shape.approvals.parse(approvals)).toEqual(approvals);
+    for (const bad of [
+      { ...approvals[2], notCounted: 'throttled' },
+      { ...approvals[2], sha: 'short' },
+      { ...approvals[2], extra: true },
+      { sha: 'a'.repeat(40), onHead: false },
+    ])
+      expect(field.safeParse([bad]).success, JSON.stringify(bad)).toBe(false);
   });
   it('defaults web off and exposes exactly the screen reads and eight operator writes', () => {
     expect(
@@ -881,7 +916,7 @@ describe('comment shape', () => {
 });
 
 describe('snapshot', () => {
-  it('pins the catalog excluding columns.describe after adding external rounds', async () => {
+  it('pins the catalog excluding columns.describe after adding approval freshness', async () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
@@ -890,9 +925,10 @@ describe('snapshot', () => {
     // and board-wide project, sources and services texts to status.get; the external_round kind
     // extends the task.history event kinds. #733 adds the review-rule gate reasons and condition
     // to task.get --why. The web Turn section then set web on inbox.ack, task.submit and
-    // task.return; their schemas, grants and errors are unchanged.
+    // task.return; their schemas, grants and errors are unchanged. #753 adds the optional
+    // approvals list to status.get prSummary and task.get PR links.
     expect(await catalogVersion(baseline)).toBe(
-      'dd3ffb9970512221f72dfd10dad8c50a98480192d9c3c363797f8ceed9fc580f',
+      'aa79b36f1c110d47c4655547ddb4a5b77770791870872c3ea049d0d2b25d2340',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

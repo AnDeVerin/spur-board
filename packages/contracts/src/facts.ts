@@ -327,6 +327,48 @@ export const prReviewRuleSchema = z
   .describe("The pull request's review verdict and its base branch's review rule.");
 export type PrReviewRule = z.output<typeof prReviewRuleSchema>;
 
+/** Why the commits after an approval were not counted. */
+export const APPROVAL_NOT_COUNTED = ['history_rewritten', 'rate_limit', 'pr_too_large'] as const;
+export type ApprovalNotCounted = (typeof APPROVAL_NOT_COUNTED)[number];
+
+const approvalPairShape = {
+  approvedSha: commitShaSchema.describe('Commit the approval was given on.'),
+  headSha: commitShaSchema.describe('Head commit of the pull request the pair was read for.'),
+};
+
+/**
+ * What changed between an approval's commit and the head, from a read of the PR's commits. It
+ * travels beside the PR facts, never inside them, and never feeds a gate.
+ */
+export const prApprovalPairSchema = z
+  .union([
+    z.strictObject({
+      ...approvalPairShape,
+      commitsAfter: z
+        .int()
+        .min(0)
+        .describe('Single-parent commits after the approval up to the head; merges left out.'),
+      changed: z
+        .array(
+          z
+            .string()
+            .regex(/^[^/]+\/?$/, 'Expected a top-level entry name')
+            .describe('A top-level entry: name/ for a directory, a bare name for a file.'),
+        )
+        .describe('Top-level entries those commits changed, sorted, once each.'),
+    }),
+    z.strictObject({
+      ...approvalPairShape,
+      notCounted: z
+        .enum(APPROVAL_NOT_COUNTED)
+        .describe(
+          'history_rewritten: the approved commit is not in the head history; rate_limit: the read waited for GitHub budget; pr_too_large: more than 100 commits.',
+        ),
+    }),
+  ])
+  .describe('The commits and top-level entries after one approval, or why they were not counted.');
+export type PrApprovalPair = z.output<typeof prApprovalPairSchema>;
+
 /**
  * Whether a comment or review came from outside: not by `agentLogin` in any letter case and not
  * by a bot. A deleted account counts as external.

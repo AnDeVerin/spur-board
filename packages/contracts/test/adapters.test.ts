@@ -292,6 +292,43 @@ describe('batch', () => {
     ).toBe(false);
   });
 
+  it('keeps optional approvalPairs on a PR item and rejects a malformed pair', () => {
+    const counted = {
+      approvedSha: 'a'.repeat(40),
+      headSha: sha,
+      commitsAfter: 2,
+      changed: ['back/', 'package.json'],
+    };
+    const notCounted = { approvedSha: 'c'.repeat(40), headSha: sha, notCounted: 'rate_limit' };
+    const withPairs = (value: unknown): Record<string, unknown> =>
+      batch({ items: [{ kind: 'pr', facts: prFacts, approvalPairs: value }] });
+    expect(batchSchema.parse(withPairs([counted, notCounted])).items[0]).toMatchObject({
+      approvalPairs: [counted, notCounted],
+    });
+    for (const reason of ['history_rewritten', 'rate_limit', 'pr_too_large'])
+      expect(
+        batchSchema.safeParse(withPairs([{ ...notCounted, notCounted: reason }])).success,
+      ).toBe(true);
+    expect(batchSchema.parse(batch({ items: [items.pr.valid] })).items[0]).not.toHaveProperty(
+      'approvalPairs',
+    );
+    for (const bad of [
+      { ...counted, notCounted: 'rate_limit' },
+      { ...counted, changed: ['back/front/'] },
+      { ...counted, changed: [''] },
+      { ...counted, commitsAfter: -1 },
+      { ...counted, approvedSha: 'short' },
+      { ...notCounted, notCounted: 'throttled' },
+      { approvedSha: counted.approvedSha, headSha: sha },
+    ])
+      expect(batchSchema.safeParse(withPairs([bad])).success, JSON.stringify(bad)).toBe(false);
+    expect(
+      batchSchema.safeParse(
+        batch({ items: [{ kind: 'ticket', facts: ticketFacts, approvalPairs: [counted] }] }),
+      ).success,
+    ).toBe(false);
+  });
+
   it('keeps an optional default-branch fact and rejects a malformed one', () => {
     const green = { state: 'green', branch: 'main', sha };
     const red = { ...green, state: 'red', check: 'build', url: 'https://github.com/o/r/runs/1' };

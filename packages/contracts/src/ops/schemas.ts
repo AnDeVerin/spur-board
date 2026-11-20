@@ -291,6 +291,12 @@ export const linkViewSchema = z
       .describe(
         'Pull request state as last observed; absent for a session or ticket and for a pull request not observed yet. Only task.get sets it.',
       ),
+    approvals: z
+      .array(turns.approvalViewSchema)
+      .optional()
+      .describe(
+        'Latest approvals of an open pull request with what changed after each, as in status.get prSummary; absent for a session or ticket and for a pull request with no approval. Only task.get sets it.',
+      ),
   })
   .describe('An effective link to a task.');
 
