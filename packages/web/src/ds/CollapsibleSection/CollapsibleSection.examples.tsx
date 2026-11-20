@@ -64,7 +64,7 @@ export function OnOpenChange() {
       >
         <p>The rows of the latest submission.</p>
       </CollapsibleSection>
-      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
+      <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>
         {`Last reported: ${last === null ? 'none' : last ? 'open' : 'closed'}`}
       </p>
     </div>

@@ -91,7 +91,7 @@ describe('task view sections', () => {
       );
   });
 
-  it('writes on click and double-click, once per toggle', async () => {
+  it('writes once per toggle; a chevron double-click writes its two clicks, not the dblclick', async () => {
     const writes: [string, string][] = [];
     await open(() => ({
       getItem: () => null,
@@ -109,8 +109,14 @@ describe('task view sections', () => {
       ['board-section:blocks', 'closed'],
       ['board-section:blocks', 'open'],
     ]);
+    // A real double-click on the chevron sends click, click, dblclick.
+    press(chevron('blocks'), 'click');
+    press(chevron('blocks'), 'click');
     press(chevron('blocks'), 'dblclick');
-    expect(writes).toHaveLength(2);
+    expect(writes.slice(2)).toEqual([
+      ['board-section:blocks', 'closed'],
+      ['board-section:blocks', 'open'],
+    ]);
     expect(expanded('blocks')).toBe(true);
   });
 
