@@ -119,7 +119,8 @@ or to the busy button while a request runs.
 
 ## Folded
 
-The section folds like the others; folding keeps the form, its text and its keys. The header sums
+The section folds like the others and the browser remembers it ([task view](web-ui-task-view.md));
+folding keeps the form, its text and its keys. The header sums
 up the turn: `T<n> · not taken`, `T<n> · taken by <name>` or `T<n> · you hold it`; `Closing
 T<n>…` while a request runs; `T<n> · refused, you hold it` after a refusal once the turn is held,
 else `T<n> · refused`; `T<n> submitted` or `T<n> returned` after your close; `T<n> closed by

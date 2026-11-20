@@ -23,14 +23,18 @@ import { z } from 'zod';
 import {
   describeCompletion as describeDomainCompletion,
   dispatch,
+  dispatchHolds,
+  returnCauses,
   turnReason,
 } from '../domain/dispatch.ts';
-import type { GateMark } from '../domain/gates.ts';
+import { countCycles, type GateMark } from '../domain/gates.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import {
   emit,
+  latest,
   mergedTicket,
+  newestMergeAt,
   parsePr,
   pastReopenFloor,
   projectForSource,
@@ -41,13 +45,16 @@ import {
   type Trx,
 } from './board-utils.ts';
 import {
+  courseCounter,
   courseKeyPrefix,
+  cycleEvents,
   cycleKeyPrefix,
-  raiseCourseCheck,
-  returnCounts,
+  raiseCourseDue,
+  replayOnce,
   shadowCourseCheck,
   uncounted,
 } from './course-check.ts';
+import { raiseDeferredCourseCheck, recordExternalRounds } from './external-rounds.ts';
 import { answerReturn } from './blocks.ts';
 import { withUnconfirmedCancels } from './cancelled-checks.ts';
 import { externalReviews } from '../domain/review-rule.ts';
@@ -89,19 +96,15 @@ interface DispatchContext {
 const CURSOR_KEY = 'dispatcher_cursor';
 
 /** Policy counterpart of readInput's mergedTicket qualification and dispatchTasks' scope. */
-export function describeCompletion(project: Project, config: Config) {
+export function describeCompletion(project: Project) {
   const route = describeDomainCompletion();
   const done =
     project.tracker.type === 'jira'
       ? `a Jira status in ${JSON.stringify(project.tracker.doneStatuses)}`
       : 'GitHub status "closed"';
-  const interval =
-    project.tracker.type === 'jira'
-      ? config.adapters.jira.intervalMs
-      : config.adapters.githubIssues.intervalMs;
   return {
     ...route,
-    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once observed at least ${String(interval)} ms after the merge, in the tracker filter or for a manually included task; dropped-filter evidence alone stays unconfirmed. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
+    text: `${route.text} A done ticket means ${done}. After a merge, a missing ticket or unconfirmed status holds dispatch. An open ticket resumes work without the merged PR only once it changed at or after the newest merge, in the tracker filter or for a manually included task; a ticket untouched since the merge stays unconfirmed, and dropped-filter evidence alone stays unconfirmed; when no merged PR has a stored merge time (facts from before the dispatcher), work resumes once the ticket, in filter or manually included, is observed open at or past the judged PR's last update plus the tracker interval. Only non-archived tasks are evaluated; eligible links must be unbanned and past the reopen floor. Missing or unreadable facts for a chosen or fallback PR hold evaluation. Cycle holds do not stop completion shortcuts. Dispatcher on applies moves; shadow computes only a shadow position.`,
   };
 }
 
@@ -197,8 +200,8 @@ async function voidSubmits(trx: Trx, taskId: number, to: ColumnId, at: Date): Pr
  * Moves a task left to `to` as a new visit: bumps `column_epoch` and `left_moves`, voids the
  * submits of `to` and right of it, closes its turns (`returned` for a `task.return` of `turn`,
  * else `moved`, named on `turn_closed` as `closedBy` when given) and journals `task_moved`. In `on` mode a counted return that reaches the
- * column's cycle limit raises its cycle-limit block; otherwise one that reaches its course check
- * raises the course check. Either holds the task, and
+ * column's cycle limit raises its cycle-limit block; otherwise one that reaches the course check
+ * of the column it counts under (`courseCounter`) raises that course check. Either holds the task, and
  * `limitReached` tells the dispatcher to stop the cascade.
  */
 export async function moveLeft(
@@ -258,22 +261,27 @@ export async function moveLeft(
   const column = project?.columns.find((entry) => entry.id === task.column);
   if (project?.dispatcher.mode !== 'on' || column === undefined || uncounted(reason))
     return { task: moved, limitReached: false };
-  const counts = await returnCounts(trx, task.id, task.column);
-  if (counts.cycle >= column.cycleLimit) {
+  // The cycle limit counts returns alone: PR history is read only for a course count that is on.
+  const cycle = countCycles(await cycleEvents(trx, task.id), task.column, Infinity).count;
+  if (cycle >= column.cycleLimit) {
     await raiseCycleLimit(trx, { task: moved, column: task.column, at, config });
     return { task: moved, limitReached: true };
   }
-  if (column.courseCheck > 0 && counts.course >= column.courseCheck) {
-    await raiseCourseCheck(trx, {
-      task: moved,
-      column: task.column,
-      count: counts.course,
-      at,
-      config,
-    });
-    return { task: moved, limitReached: true };
-  }
-  return { task: moved, limitReached: false };
+  const course = await raiseCourseDue(trx, {
+    task: moved,
+    project,
+    config,
+    at,
+    counter: courseCounter(
+      {
+        kind: 'return',
+        column: task.column,
+        causes: returnCauses(gate ?? [], block !== undefined),
+      },
+      project,
+    ),
+  });
+  return { task: moved, limitReached: course !== null };
 }
 
 /**
@@ -875,7 +883,7 @@ export async function readInput(
   input: DispatchInput;
   handed: Handed[];
   unclosed: Row<'turn'> | undefined;
-  /** The merged PR whose ticket was seen open past the grace: the task has no PR for the gates. */
+  /** The merged PR whose ticket changed at or after the merge, not done: the task has no PR for the gates. */
   mergedOpen: { repo: string; number: number } | undefined;
   /** The task's PR merged and its ticket is neither done nor confirmed open: hold the task. */
   ticketUnconfirmed: boolean;
@@ -920,20 +928,21 @@ export async function readInput(
       }
     }
   }
-  // A merged PR finishes the task only with its ticket done. A ticket seen open one tracker
-  // interval after the merge sends it back to work without a PR; before that, it waits.
+  // A merged PR finishes the task only with its ticket done. A ticket changed at or after the merge and
+  // still not done sends it back to work without a PR; an untouched one waits.
   let mergedOpen: { repo: string; number: number } | undefined;
   let ticketUnconfirmed = false;
   if (pr?.state === 'merged') {
     const ticket = await readTicket();
-    const judged = mergedTicket(
-      project,
-      config,
-      ticket,
-      task.manual_include === 1,
-      pr.mergedAt ?? pr.updatedAt,
-    );
-    if (judged === 'open') mergedOpen = { repo: pr.repo, number: pr.number };
+    // A ticket edited before a later merge of another PR waits for that merge's close too; the
+    // interval fallback of a PR without a stored merge time applies only when no merge has one.
+    const mergedAt = latest([pr.mergedAt, await newestMergeAt(trx, task.id)]);
+    const judged = mergedTicket(project, config, ticket, task.manual_include === 1, {
+      ...pr,
+      ...(mergedAt === null ? {} : { mergedAt }),
+    });
+    if (judged === 'reopened' || judged === 'open')
+      mergedOpen = { repo: pr.repo, number: pr.number };
     ticketUnconfirmed = judged === 'unconfirmed';
   }
   // A merged PR that counts as no PR leaves the follow-up PR in any repo: every repo must see.
@@ -1281,6 +1290,10 @@ export async function dispatchTasks(
     const project = ctx.config.projects.find((entry) => entry.id === task.project);
     if (project === undefined) continue;
     const mode = project.dispatcher.mode;
+    // One replay of the task's course journal serves the recording, the dedupe and the threshold.
+    const replay = replayOnce(trx, task.id, project);
+    if (mode === 'on')
+      await recordExternalRounds(trx, { task, project, at: ctx.at, blind, replay });
     const read = await readInput(trx, task, project, mode, blind, ctx.config, ctx);
     if (read === null) continue;
     // Before the merged-ticket hold: a merge settles the submit whatever the ticket says.
@@ -1288,7 +1301,28 @@ export async function dispatchTasks(
       await supersedeSubmit(trx, task, read.pending, ctx.at);
     if (read.ticketUnconfirmed) continue;
     if (read.pending?.state === 'confirmed') await confirmSubmit(trx, task, read.pending, ctx.at);
-    const result = dispatch(read.input);
+    let result = dispatch(read.input);
+    // External Review's deferred course check waits for a final decision of this pass: completion
+    // and every other move go first, and a held pass (blind GitHub, a pending submit, an open
+    // item) decides nothing yet. Spur blindness holds it only as it holds the Dev turn: `dispatch`
+    // defers a turn of a column without an orchestrator (the worker's) while Spur is blind. Its
+    // hold then opens no turn in this pass.
+    const devWaitsForSpur =
+      (project.columns.find((column) => column.id === 'dev')?.orchestrator ?? 'none') === 'none';
+    if (
+      mode === 'on' &&
+      result.moves.length === 0 &&
+      dispatchHolds({ ...read.input, spurBlind: devWaitsForSpur && read.input.spurBlind })
+        .length === 0 &&
+      (await raiseDeferredCourseCheck(trx, {
+        task,
+        project,
+        config: ctx.config,
+        at: ctx.at,
+        replay,
+      }))
+    )
+      result = dispatch({ ...read.input, cycleHeld: true });
     if (mode === 'shadow') await applyShadow(trx, task, project, result, ctx.at);
     else await applyOn(trx, task, read, result, ctx);
   }

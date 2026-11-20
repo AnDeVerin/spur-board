@@ -881,17 +881,18 @@ describe('comment shape', () => {
 });
 
 describe('snapshot', () => {
-  it('pins the catalog excluding columns.describe after opening the Turn writes to the web', async () => {
+  it('pins the catalog excluding columns.describe after adding external rounds', async () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
     // Manual moves extend task.move, move views, schema metadata and the error catalog. #761
     // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
-    // and board-wide project, sources and services texts to status.get. #733 adds the
-    // review-rule gate reasons and condition to task.get --why. The web Turn section then set
-    // web on inbox.ack, task.submit and task.return; their schemas, grants and errors are unchanged.
+    // and board-wide project, sources and services texts to status.get; the external_round kind
+    // extends the task.history event kinds. #733 adds the review-rule gate reasons and condition
+    // to task.get --why. The web Turn section then set web on inbox.ack, task.submit and
+    // task.return; their schemas, grants and errors are unchanged.
     expect(await catalogVersion(baseline)).toBe(
-      'e056a85238a847bb152d15a23c98e51b672af33c45f4081c896b3a6229f1341b',
+      'dd3ffb9970512221f72dfd10dad8c50a98480192d9c3c363797f8ceed9fc580f',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

@@ -230,8 +230,15 @@ export async function readStatusBlocks(db: Store['db'], projectIds: ReadonlySet<
   return blocks;
 }
 
-/** Latest real entry into each visible task's current column, ordered by journal position. */
-export async function readStatusColumnEntries(db: Store['db'], projectIds: ReadonlySet<string>) {
+/**
+ * Latest real entry into each visible task's current column, ordered by journal position; with
+ * `taskId`, of that task only, read through the event index on `(task_id, id)`.
+ */
+export async function readStatusColumnEntries(
+  db: Store['db'],
+  projectIds: ReadonlySet<string>,
+  taskId?: number,
+) {
   return await db
     .selectFrom('event')
     .innerJoin(
@@ -242,6 +249,7 @@ export async function readStatusColumnEntries(db: Store['db'], projectIds: Reado
           .select((eb) => eb.fn.max<number>('entry.id').as('id'))
           .where('task.membership', '!=', 'archived')
           .where('task.project', 'in', [...projectIds])
+          .$if(taskId !== undefined, (query) => query.where('entry.task_id', '=', taskId ?? 0))
           .where(
             sql<boolean>`(json_extract(entry.payload, '$.to') = task.column OR (
             entry.kind = 'task_added' AND entry.at = task.created_at AND json_extract(entry.payload, '$.column') = task.column AND entry.id = (

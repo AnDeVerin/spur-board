@@ -60,23 +60,27 @@ export function remount(): void {
 
 /**
  * Mounts a Board on the fake daemon, with the page's version check when `update` is given; the
- * stored values the board writes are returned.
+ * stored values the board writes are returned. A storage factory is passed through as is, and the
+ * returned map then stays empty.
  */
 export function mount(
   d: Daemon,
-  storage: Record<string, string> = {},
+  storage: Record<string, string> | (() => Pick<Storage, 'getItem' | 'setItem'>) = {},
   now = () => 0,
   update?: UpdateOptions,
 ) {
-  const values = new Map(Object.entries(storage));
+  const values = new Map(typeof storage === 'function' ? [] : Object.entries(storage));
   const data = createBoardData({
     fetch: d.fetcher,
-    storage: () => ({
-      getItem: (key) => values.get(key) ?? null,
-      setItem: (key, value) => {
-        values.set(key, value);
-      },
-    }),
+    storage:
+      typeof storage === 'function'
+        ? storage
+        : () => ({
+            getItem: (key) => values.get(key) ?? null,
+            setItem: (key, value) => {
+              values.set(key, value);
+            },
+          }),
     now,
     ...(update === undefined ? {} : { update }),
   });

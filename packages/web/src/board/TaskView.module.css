@@ -197,6 +197,5 @@ button.band {
   margin-left: auto;
 }
 .submission {
-  margin-top: var(--space-3);
   overflow-wrap: anywhere;
 }

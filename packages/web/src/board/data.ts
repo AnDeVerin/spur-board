@@ -10,6 +10,7 @@ import {
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
 import { createBoardIntent, createHeldMoves } from './intents.ts';
+import { createSectionStore } from './sections.ts';
 import { createTurnIntent } from './turn-intent.ts';
 import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
 
@@ -578,6 +579,7 @@ export function createBoardData(options: BoardDataOptions) {
         /* The fold lasts until reload without storage. */
       }
     },
+    ...createSectionStore(options.storage),
     /** Unsent text of the task view writers, kept across a reload after a board update. */
     drafts: check.drafts,
     /**

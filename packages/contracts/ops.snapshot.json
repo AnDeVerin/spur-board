@@ -1,5 +1,5 @@
 {
-  "version": "a324777a7a3688d307c2a60bbc414817de09ec9df8f6480436296c5f27f8e76b",
+  "version": "565c5630e9d076112e893e4de208a32f6c018b12d0b2222228dcc2c42fae3406",
   "grants": [
     "operator",
     "project-agent",
@@ -6075,6 +6075,7 @@
                     "task_shadow_moved",
                     "task_corrected",
                     "task_manually_moved",
+                    "external_round",
                     "dispatcher_mode_changed",
                     "turn_opened",
                     "turn_taken",
@@ -11647,7 +11648,7 @@
                 "resolvedThreadsFrom": null,
                 "completion": {
                   "to": "done",
-                  "text": "Completion bypasses normal gates: an eligible linked merged PR with a done ticket (GitHub closed or configured Jira doneStatuses), or a done ticket without open linked PRs/live workers and with fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch. An open ticket resumes work after the configured tracker interval with in-filter or manual-inclusion evidence. Blind GitHub or a pending submit holds both routes."
+                  "text": "Completion bypasses normal gates: an eligible linked merged PR with a done ticket (GitHub closed or configured Jira doneStatuses), or a done ticket without open linked PRs/live workers and with fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch. An open ticket resumes work only once it changed at or after the newest merge, with in-filter or manual-inclusion evidence; when no merged PR has a stored merge time (facts from before the dispatcher), work resumes once the ticket, in filter or manually included, is observed open at or past the judged PR last update plus the tracker interval. Blind GitHub or a pending submit holds both routes."
                 },
                 "columns": [
                   {
@@ -11762,7 +11763,7 @@
                     },
                     "text": {
                       "type": "string",
-                      "description": "Alternative completion routes: eligible linked merged PR with a tracker-done ticket (GitHub closed or effective Jira doneStatuses), or a done ticket without open linked PRs/live workers after fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch; confirmed-open evidence after the effective tracker interval, in filter or manually included, resumes work. Blind GitHub and pending submits hold both routes. Includes eligibility/readability, non-archived scope and dispatcher-mode qualifications."
+                      "description": "Alternative completion routes: eligible linked merged PR with a tracker-done ticket (GitHub closed or effective Jira doneStatuses), or a done ticket without open linked PRs/live workers after fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch; a ticket that stays non-done and changed in any way at or after the newest merge, in filter or manually included, resumes work; a ticket untouched since the merge stays unconfirmed; when no merged PR has a stored merge time (facts from before the dispatcher), work resumes once the ticket, in filter or manually included, is observed open at or past the judged PR last update plus the tracker interval. Blind GitHub and pending submits hold both routes. Includes eligibility/readability, non-archived scope and dispatcher-mode qualifications."
                     }
                   },
                   "required": ["to", "text"],
@@ -11863,7 +11864,7 @@
                       "returns": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Applicable return triggers and completion/reopening qualifications."
+                        "description": "Applicable return triggers, course-check rounds and completion/reopening qualifications."
                       },
                       "limits": {
                         "anyOf": [
@@ -11880,7 +11881,7 @@
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 9007199254740991,
-                                "description": "Counted returns before a course check; zero disables it. Executor, feedback and thread returns count; draft, conflict and red CI do not."
+                                "description": "Counted returns before a course check; zero disables it. Executor, feedback and thread returns count; draft, conflict and red CI do not. With External Review enabled, returns for external comments count toward its courseCheck instead, as does each external change request on a new PR head while in Dev, once per head."
                               },
                               "courseCheckTo": {
                                 "type": "object",

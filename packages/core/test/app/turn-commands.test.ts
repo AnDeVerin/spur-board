@@ -657,7 +657,14 @@ describe('task.submit', () => {
         ...(basis === 'carried' ? { from: A } : {}),
       });
       expect((await ctx.task()).column).toBe('qa');
-      expect(await returnCounts(ctx.store.db, 1, 'qa')).toEqual({ cycle: 0, course: 0 });
+      expect(
+        await returnCounts(
+          ctx.store.db,
+          1,
+          'qa',
+          ctx.config.projects[0] ?? { columns: [], operatorGithubLogin: '' },
+        ),
+      ).toEqual({ cycle: 0, course: 0 });
       const turn = await ctx.store.db
         .selectFrom('turn')
         .select('id')
@@ -666,7 +673,14 @@ describe('task.submit', () => {
       const id = `T${String(turn.id)}`;
       await ctx.ack(QA_1, id);
       await ctx.return(QA_1, 'return-after-basis', id);
-      expect(await returnCounts(ctx.store.db, 1, 'qa')).toEqual({ cycle: 1, course: 1 });
+      expect(
+        await returnCounts(
+          ctx.store.db,
+          1,
+          'qa',
+          ctx.config.projects[0] ?? { columns: [], operatorGithubLogin: '' },
+        ),
+      ).toEqual({ cycle: 1, course: 1 });
     },
   );
 
@@ -2348,7 +2362,14 @@ describe('task.move', () => {
       ]);
       expect(await ctx.turn()).toMatchObject({ closed_reason: 'corrected' });
       expect((await ctx.task()).left_moves).toBe(before.left_moves);
-      expect(await returnCounts(ctx.store.db, 1, 'qa')).toEqual({ cycle: 0, course: 0 });
+      expect(
+        await returnCounts(
+          ctx.store.db,
+          1,
+          'qa',
+          ctx.config.projects[0] ?? { columns: [], operatorGithubLogin: '' },
+        ),
+      ).toEqual({ cycle: 0, course: 0 });
       const turns = await ctx.store.db
         .selectFrom('turn')
         .select(['column', 'closed_reason'])

@@ -263,18 +263,23 @@ export interface ItemCandidate {
   source: string | null;
   priority: number;
   revision?: string | null;
+  /**
+   * The text the fingerprint hashes in place of `summary`, when the shown text may change while
+   * the item stays the same, so its dismissal holds.
+   */
+  hashedSummary?: string;
   /** The feed line's link when it is not the task's (or the board's, task-less). */
   url?: string;
 }
 
 export function fingerprint(
-  candidate: Pick<ItemCandidate, 'key' | 'summary' | 'source' | 'revision'>,
+  candidate: Pick<ItemCandidate, 'key' | 'summary' | 'source' | 'revision' | 'hashedSummary'>,
 ): string {
   return createHash('sha256')
     .update(
       JSON.stringify([
         candidate.key,
-        candidate.summary,
+        candidate.hashedSummary ?? candidate.summary,
         candidate.source,
         candidate.revision ?? null,
       ]),
