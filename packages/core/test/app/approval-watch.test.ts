@@ -264,6 +264,20 @@ describe('approval watch', () => {
     expect((await statusApprovals())?.[0]).toMatchObject({ commitsAfter: 4 });
   });
 
+  it('a new read replaces a stored row for the same pair, as after the PR is retargeted', async () => {
+    const { observe, statusApprovals, rows } = await setup();
+    const facts = prFact({ reviews: [approval('alice', older)] });
+    await observe(facts, [{ approvedSha: older, headSha: head, notCounted: 'pr_too_large' }]);
+    await observe(facts, [counted(older, 2, ['front/'])]);
+    expect(await rows()).toEqual([
+      {
+        key: `approval-watch:o/r#7:${older}:${head}`,
+        value: JSON.stringify({ commitsAfter: 2, changed: ['front/'] }),
+      },
+    ]);
+    expect((await statusApprovals())?.[0]).toMatchObject({ commitsAfter: 2 });
+  });
+
   it('changes no event, move or turn: a hint only', async () => {
     const { store, observe, rows } = await setup(['back/']);
     const facts = prFact({ reviews: [approval('alice', older)] });

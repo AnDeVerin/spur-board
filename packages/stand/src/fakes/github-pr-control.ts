@@ -62,6 +62,8 @@ const fieldsSchema = z.strictObject({
   mergeStateStatus: z.string(),
   author: actorSchema,
   headRefName: z.string().min(1),
+  // The base branch; `main` unless seeded.
+  baseRefName: z.string().min(1).optional(),
   headRefOid: z.string().regex(SHA),
   contexts: z.array(contextSchema),
   reviews: z.array(

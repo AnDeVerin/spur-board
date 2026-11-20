@@ -3,6 +3,7 @@ import { sourceCursorSchema, type PrFacts } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as client from '../../adapters/src/github/client.ts';
 import {
+  basesQuery,
   commitsQuery,
   detailQuery,
   discoveryQuery,
@@ -77,6 +78,7 @@ describe('adapter queries', () => {
         .filter((name) => name.endsWith('Query'))
         .sort(),
     ).toEqual([
+      'basesQuery',
       'commitsQuery',
       'detailQuery',
       'discoveryQuery',
@@ -88,6 +90,10 @@ describe('adapter queries', () => {
 
   it('knows PrCommits', () => {
     expect(isKnownShape(commitsQuery())).toBe(true);
+  });
+
+  it('knows PrBases', () => {
+    for (const numbers of numberSets) expect(isKnownShape(basesQuery(numbers))).toBe(true);
   });
 
   it.each(booleans)('knows PrBatch for bootstrap %s', (bootstrap) => {
@@ -986,6 +992,19 @@ describe('commits', () => {
     expect(commits.nodes[0]?.commit.parents.totalCount).toBe(1);
     const wrong = pr(fakes, 3, 'create', { seed: { ...seeded, headRefOid: C3 } });
     expect(wrong.status).toBe(400);
+  });
+
+  it('answers PrBases with each PR base branch, main unless seeded', async () => {
+    created(1, seeded);
+    created(2, { baseRefName: 'release' });
+    const response = await postQuery(fakeFetch(fakes), basesQuery([1, 2]), {
+      owner: 'stand-org',
+      repo: 'board',
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { data: Record<string, unknown> };
+    expect(body.data['pr0']).toEqual({ pullRequest: { baseRefName: 'main' } });
+    expect(body.data['pr1']).toEqual({ pullRequest: { baseRefName: 'release' } });
   });
 
   it('the real adapter reads approvalPairs for a requested PR from the fake', async () => {

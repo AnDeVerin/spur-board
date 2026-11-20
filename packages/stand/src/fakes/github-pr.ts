@@ -337,6 +337,7 @@ export function createGithubPrFake(options: {
       mergeStateStatus: pr.mergeStateStatus,
       author: pr.author,
       headRefName: pr.headRefName,
+      baseRefName: pr.baseRefName ?? 'main',
       headRefOid: pr.headRefOid,
       statusCheckRollup:
         contexts.length === 0

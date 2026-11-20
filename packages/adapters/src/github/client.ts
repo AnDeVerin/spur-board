@@ -178,9 +178,15 @@ export function pageQuery(
 const TREE_FIELDS = 'tree { entries { name type mode oid } }';
 // The PR's last 100 commits with their parents and root trees (`approvalWatch.ts`). The list
 // leaves out base-branch history, so a merge from the base names a parent outside it, whose
-// tree is selected inline here. Every parent is selected, so an octopus merge loses none.
+// tree is selected inline here. Every parent is selected, so an octopus merge loses none. The
+// list depends on the base branch, so the read also names it.
 export function commitsQuery(): string {
-  return `query PrCommits($owner: String!, $repo: String!, $number: Int!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { commits(last: 100) { totalCount pageInfo { hasPreviousPage } nodes { commit { oid ${TREE_FIELDS} parents(first: 100) { totalCount nodes { oid ${TREE_FIELDS} } } } } } } } }`;
+  return `query PrCommits($owner: String!, $repo: String!, $number: Int!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { baseRefName commits(last: 100) { totalCount pageInfo { hasPreviousPage } nodes { commit { oid ${TREE_FIELDS} parents(first: 100) { totalCount nodes { oid ${TREE_FIELDS} } } } } } } } }`;
+}
+// The base branch of each PR; the approval watch compares it with the base its commits read
+// named, since a retarget changes the commits list without changing the head.
+export function basesQuery(numbers: readonly number[]): string {
+  return `query PrBases($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, () => 'baseRefName')} }`;
 }
 
 /**

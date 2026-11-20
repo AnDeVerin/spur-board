@@ -27,6 +27,7 @@ const commitsRootWire = z
   .object({
     pullRequest: z
       .object({
+        baseRefName: z.string(),
         commits: z.object({
           totalCount: z.int().nonnegative(),
           pageInfo: z.object({ hasPreviousPage: z.boolean() }),
@@ -76,16 +77,18 @@ function changedEntries(tree: readonly Entry[], parent: readonly Entry[]): strin
  * head reaches: a commit that landed on the base drops out of the list. Any other gives
  * `history_rewritten`. Otherwise the commits after an approval are those the head reaches and it
  * does not; only those with fewer than two parents count, each compared with its first parent's
- * root tree, so a merge from the base adds neither commits nor entries.
+ * root tree, so a merge from the base adds neither commits nor entries. `base` is the base branch
+ * the list was read against.
  */
 export function approvalPairs(
   facts: PrFacts,
   response: Pick<ResponseData, 'data' | 'errors'>,
-): { pairs: PrApprovalPair[] } | 'unreadable' {
+): { pairs: PrApprovalPair[]; base: string } | 'unreadable' {
   if (response.errors.length > 0) return 'unreadable';
   const parsed = commitsRootWire.safeParse(response.data['repository']);
-  const commits = parsed.success ? parsed.data?.pullRequest?.commits : undefined;
-  if (commits === undefined) return 'unreadable';
+  const pr = parsed.success ? parsed.data?.pullRequest : undefined;
+  if (pr === undefined || pr === null) return 'unreadable';
+  const { commits, baseRefName: base } = pr;
   const listed = commits.nodes.map((node) => node.commit);
   const readable = listed.every(
     (commit) =>
@@ -99,6 +102,7 @@ export function approvalPairs(
   if (commits.totalCount > listed.length || commits.pageInfo.hasPreviousPage)
     return {
       pairs: approved.map((approvedSha) => ({ approvedSha, headSha, notCounted: 'pr_too_large' })),
+      base,
     };
   const byOid = new Map(listed.map((commit) => [commit.oid, commit]));
   if (!byOid.has(headSha)) return 'unreadable';
@@ -138,5 +142,5 @@ export function approvalPairs(
     );
     return { approvedSha, headSha, commitsAfter: after.length, changed: [...changed].sort() };
   });
-  return { pairs };
+  return { pairs, base };
 }

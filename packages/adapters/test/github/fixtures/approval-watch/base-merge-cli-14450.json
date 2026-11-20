@@ -71,6 +71,7 @@
       },
       "repository": {
         "pullRequest": {
+          "baseRefName": "trunk",
           "commits": {
             "totalCount": 7,
             "pageInfo": {

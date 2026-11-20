@@ -85,6 +85,7 @@
       },
       "repository": {
         "pullRequest": {
+          "baseRefName": "main",
           "commits": {
             "totalCount": 3,
             "pageInfo": {

@@ -18,6 +18,7 @@ import { approvalPairs, offHeadApprovals } from './approvalWatch.ts';
 import {
   GithubClient,
   checkAccessDenied,
+  basesQuery,
   commitsQuery,
   connectionWire,
   deniedBranchRule,
@@ -91,6 +92,8 @@ const UNREADABLE_RETRY_MS = 900_000;
 /** The approval pairs read for a PR's head, by approved commit; never a `rate_limit` pair. */
 interface CachedPairs {
   head: string;
+  /** The base branch the last readable commits read listed the commits against. */
+  base?: string;
   pairs: Map<string, PrApprovalPair>;
   /** Until when no commits read goes out for this head after an unreadable one. */
   unreadableUntil?: number;
@@ -920,7 +923,13 @@ async function pollRepository({
   }
   for (const number of pairCache.keys())
     if (!byNumber.has(number) || terminal.has(number)) pairCache.delete(number);
-  await readApprovalPairs(request, acc, byNumber, pairCache, reserveRemaining, now);
+  await readApprovalPairs(request, acc, {
+    byNumber,
+    fullRead: new Set(changed),
+    pairCache,
+    reserveRemaining,
+    now,
+  });
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
   if (requests.firstError !== undefined && requests.succeeded === 0) throw requests.firstError;
   rethrowLoneParseFailure(acc);
@@ -951,21 +960,67 @@ async function pollRepository({
     ...(discovery.defaultBranch === undefined ? {} : { defaultBranch: discovery.defaultBranch }),
   };
 }
+interface PairArgs {
+  byNumber: ReadonlyMap<number, PrEntityRef>;
+  /** The PRs read in full this poll: a retarget moves `updatedAt`, so it forces a full read. */
+  fullRead: ReadonlySet<number>;
+  pairCache: Map<number, CachedPairs>;
+  reserveRemaining: number;
+  now: () => number;
+}
+const baseWire = z.object({ pullRequest: z.object({ baseRefName: z.string() }) });
+/**
+ * Drops the cached pairs of each PR read in full this poll whose base branch is no longer the one
+ * its commits read named, so the pass reads its commits again. One aliased request for them all;
+ * a failed or unanswered alias keeps the pairs.
+ */
+async function checkBases(
+  scope: RequestScope,
+  acc: Accumulator,
+  { byNumber, fullRead, pairCache, reserveRemaining }: PairArgs,
+): Promise<void> {
+  const numbers = acc.items.flatMap((item) => {
+    if (item.kind !== 'pr' || item.facts.state !== 'open') return [];
+    const { number, headSha } = item.facts;
+    const entry = pairCache.get(number);
+    const known = entry?.head === headSha && entry.base !== undefined && entry.pairs.size > 0;
+    return byNumber.has(number) && fullRead.has(number) && known ? [number] : [];
+  });
+  if (numbers.length === 0 || !mayReadPairs(scope, acc, reserveRemaining)) return;
+  const response = await attempt(scope, basesQuery(numbers));
+  if (response === undefined) return;
+  acc.budget = response.budget;
+  if (unscoped(response.errors, aliasesOf(numbers))) return;
+  for (const [i, number] of numbers.entries()) {
+    const alias = `pr${String(i)}`;
+    const parsed = baseWire.safeParse(response.data[alias]);
+    if (scoped(response.errors, alias).length > 0 || !parsed.success) continue;
+    if (parsed.data.pullRequest.baseRefName !== pairCache.get(number)?.base)
+      pairCache.delete(number);
+  }
+}
+/** Whether the poll may send one more approval-watch read: below the failure cap and budget. */
+function mayReadPairs(scope: RequestScope, acc: Accumulator, reserveRemaining: number): boolean {
+  return (
+    scope.requests.failed < MAX_FAILED_REQUESTS &&
+    (acc.budget === undefined || acc.budget.remaining >= APPROVAL_RESERVE_FACTOR * reserveRemaining)
+  );
+}
 /**
  * Adds `approvalPairs` to each requested open PR item with an approval off its head, after every
  * detail read. A pair missing from `pairCache` costs one commits read per PR, unless the head is
  * in its unreadable wait, the poll is at its failure cap (left out) or the budget is below
  * `APPROVAL_RESERVE_FACTOR` times the reserve (sent as `rate_limit`, not cached). A failed or
- * unreadable read leaves the PR's missing pairs out and keeps the batch complete.
+ * unreadable read leaves the PR's missing pairs out and keeps the batch complete. A PR read in
+ * full whose base branch changed reads its pairs again (`checkBases`).
  */
 async function readApprovalPairs(
   scope: RequestScope,
   acc: Accumulator,
-  byNumber: ReadonlyMap<number, PrEntityRef>,
-  pairCache: Map<number, CachedPairs>,
-  reserveRemaining: number,
-  now: () => number,
+  args: PairArgs,
 ): Promise<void> {
+  const { byNumber, pairCache, reserveRemaining, now } = args;
+  await checkBases(scope, acc, args);
   for (const [i, item] of acc.items.entries()) {
     if (item.kind !== 'pr' || !byNumber.has(item.facts.number)) continue;
     const { facts } = item;
@@ -984,11 +1039,7 @@ async function readApprovalPairs(
     let limited = false;
     const waiting = entry.unreadableUntil !== undefined && now() < entry.unreadableUntil;
     if (missing.length > 0 && !waiting && scope.requests.failed < MAX_FAILED_REQUESTS) {
-      if (
-        acc.budget !== undefined &&
-        acc.budget.remaining < APPROVAL_RESERVE_FACTOR * reserveRemaining
-      )
-        limited = true;
+      if (!mayReadPairs(scope, acc, reserveRemaining)) limited = true;
       else {
         const response = await attempt(scope, commitsQuery(), { number: facts.number });
         if (response !== undefined) {
@@ -997,6 +1048,7 @@ async function readApprovalPairs(
           if (read === 'unreadable') entry.unreadableUntil = now() + UNREADABLE_RETRY_MS;
           else {
             delete entry.unreadableUntil;
+            entry.base = read.base;
             for (const pair of read.pairs) cached.set(pair.approvedSha, pair);
           }
         }

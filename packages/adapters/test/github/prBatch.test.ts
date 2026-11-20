@@ -2496,7 +2496,8 @@ describe('PR feedback', () => {
 
 const prNumbers = (query: string): number[] =>
   [...query.matchAll(/pullRequest\(number: (\d+)\)/g)].map((match) => Number(match[1]));
-type Operation = 'PrBatch' | 'PrIndex' | 'PrDetails' | 'PrPage' | 'DiscoveryPage' | 'PrCommits';
+type Operation =
+  'PrBatch' | 'PrIndex' | 'PrDetails' | 'PrPage' | 'DiscoveryPage' | 'PrCommits' | 'PrBases';
 /** A fetch that answers each request by its operation name and the PR numbers it names. */
 function byOperation(answer: (operation: Operation, numbers: number[]) => Response) {
   return vi.fn<typeof fetch>((_input, init) => {
@@ -3871,6 +3872,7 @@ describe('approval watch', () => {
       detailStatus: 200,
       remaining: 4321,
       discovered: [] as Json[],
+      base: 'main',
     };
     const rate = () => ({ remaining: state.remaining, resetAt: '2026-01-03T00:00:00.000Z' });
     const fetcher = byOperation((operation, numbers) => {
@@ -3885,6 +3887,11 @@ describe('approval watch', () => {
             })
           : failure(state.detailStatus);
       if (operation === 'PrCommits') return state.commits();
+      if (operation === 'PrBases')
+        return response({
+          ...aliased(numbers, () => ({ pullRequest: { baseRefName: state.base } })),
+          rateLimit: rate(),
+        });
       return failure();
     });
     const source = adapter(fetcher, config(), 0, () => t);
@@ -4168,5 +4175,47 @@ describe('approval watch', () => {
     const relinked = await run.poll();
     expect(run.sent('PrCommits')).toBe(1);
     expect(pairsOf(relinked)).toEqual(run.loaded.pairs);
+  });
+  it('reads the pairs again after a retarget and keeps them while the base stays', async () => {
+    const run = scenario('watched-changed');
+    type Commits = {
+      data: {
+        repository: { pullRequest: { baseRefName: string; commits: { totalCount: number } } };
+      };
+    };
+    const onMain = run.loaded.commits as Commits;
+    const large = structuredClone(onMain);
+    large.data.repository.pullRequest.commits.totalCount = 105;
+    run.state.commits = () => json(large);
+    const first = await run.poll();
+    const { approvedSha, headSha } =
+      (run.loaded.pairs as { approvedSha: string; headSha: string }[])[0] ?? {};
+    expect(pairsOf(first)).toEqual([{ approvedSha, headSha, notCounted: 'pr_too_large' }]);
+    const initial = run.state.detail;
+    // A full read with the base unchanged checks the base and keeps the pairs.
+    run.state.detail = { ...initial, updatedAt: '2026-01-05T00:00:00Z' };
+    run.advance(MINUTE);
+    const same = await run.poll();
+    expect(run.sent('PrDetails')).toBe(1);
+    expect(run.sent('PrBases')).toBe(1);
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(pairsOf(same)).toEqual(pairsOf(first));
+    // Retargeted with the head and the approval kept: the shorter list is read again.
+    const onRelease = structuredClone(onMain);
+    onRelease.data.repository.pullRequest.baseRefName = 'release';
+    run.state.detail = { ...initial, updatedAt: '2026-01-06T00:00:00Z' };
+    run.state.base = 'release';
+    run.state.commits = () => json(onRelease);
+    run.advance(MINUTE);
+    const retargeted = await run.poll();
+    expect(run.sent('PrBases')).toBe(1);
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(pairsOf(retargeted)).toEqual(run.loaded.pairs);
+    // A reused poll checks nothing.
+    run.advance(MINUTE);
+    const reused = await run.poll();
+    expect(run.sent('PrBases')).toBe(0);
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(pairsOf(reused)).toEqual(run.loaded.pairs);
   });
 });
