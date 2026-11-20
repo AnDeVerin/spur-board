@@ -1799,8 +1799,16 @@ it('lists only each project its own operator while no board-wide operator exists
 it.each([
   ['restores its own project task', 'first-ops', 'add', 'o/first#1', 'allowed'],
   ['restores another project task', 'first-ops', 'add', 'o/second#2', 'denied'],
-  ['adds a new key', 'first-ops', 'add', 'o/first#9', 'denied'],
-  ['adds a new key as board-wide operator', 'hq', 'add', 'o/first#9', 'allowed'],
+  ['adds a new key of its own project', 'first-ops', 'add', 'o/first#9', 'allowed'],
+  ['adds a new key of another project', 'first-ops', 'add', 'o/second#9', 'denied'],
+  [
+    'adds a new key of a project with its own operator as board-wide operator',
+    'hq',
+    'add',
+    'o/first#9',
+    'denied',
+  ],
+  ['adds a new key as board-wide operator', 'hq', 'add', 'o/second#9', 'allowed'],
   ['closes its own project item', 'first-ops', 'close', 'I1', 'allowed'],
   ['closes another project item', 'first-ops', 'close', 'I2', 'denied'],
   ['closes a board item', 'first-ops', 'close', 'I3', 'denied'],

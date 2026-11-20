@@ -413,7 +413,7 @@ projects, give each its own Spur projects.
 A Spur project listed with `role: operator` under `projects[].spurProjects` has operator access
 only on the Board project that lists it. A top-level `spurProjects` entry with `role: operator`
 serves every Board project without its own operator. Operator commands that name no project, such
-as `board token list`, `board task add` with a key not yet on the Board, and `board item retry`
+as `board token list`, `board task add` with a key that matches no unique project tracker, and `board item retry`
 or `board item close` on an item of neither a task nor a project question, run only for the
 operator token, the board-wide operator, or, without one, the operator of a one-project Board.
 Before this rule, a project

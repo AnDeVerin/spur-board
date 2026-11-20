@@ -1,4 +1,4 @@
-import { configSchema, type TicketFacts } from '@spur-board/contracts';
+import { configSchema, type ActorId, type TicketFacts } from '@spur-board/contracts';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   createApply,
@@ -449,6 +449,34 @@ it('resolves a task key by its form, never a # key to Jira', async () => {
 it('keeps a # key away from a Jira project with no project keys', async () => {
   expect((await addedProject(trackerConfig('any', []), 'my-org/board#1'))?.project).toBe('board');
 });
+
+it.each([
+  ['agent:alpha-ops/ops-1', 'alpha'],
+  ['agent:beta-ops/ops-1', null],
+  ['operator', 'alpha'],
+] as const)(
+  'lets %s add a new key of a project without a board-wide operator: %s',
+  async (actor: ActorId, added) => {
+    const split = configSchema.parse({
+      projects: ['alpha', 'beta'].map((id) => ({
+        id,
+        tracker: { type: 'github-issues', repo: `${id}/r`, label: 'board' },
+        repos: [`${id}/r`],
+        operatorGithubLogin: 'operator',
+        spurProjects: [{ name: `${id}-ops`, role: 'operator' }],
+      })),
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    const { store } = setup(split);
+    const apply = createApply({ store, config: split, clock });
+    const run = apply(createMembershipMutations(split).add, { task: 'alpha/r#5' }, actor, 'add');
+    if (added === null) await expect(run).rejects.toMatchObject({ code: 'forbidden' });
+    else await run;
+    const task = await store.db.selectFrom('task').select('project').executeTakeFirst();
+    expect(task?.project ?? null).toBe(added);
+  },
+);
 
 it('does not use a poll started before the task changed to prove absence', async () => {
   const { store, core } = setup();
