@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type DragEvent, type RefObject } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type DragEvent,
+  type RefObject,
+  type SetStateAction,
+} from 'react';
 import { Button, FormRow, TextArea } from '../ds/index.ts';
 import { ProblemError } from '../lib/api.ts';
 import type { BoardData } from './data.ts';
@@ -13,14 +21,38 @@ const TOO_LONG = 'Reason must be 20,000 characters or fewer.';
 const FAILED = 'Could not move the task. Send again to retry.';
 
 /**
+ * What an open move form holds, kept on its `Moving` so it outlives a remount (a Backlog fold
+ * swaps the card's branch): the reason, the send's phase and error, and one intent per reason
+ * text, so a resend of the same text keeps its key.
+ */
+interface MoveDraft {
+  reason: string;
+  error: string | undefined;
+  phase: 'idle' | 'sending' | 'moving';
+  intent: { text: string; value: MoveIntent } | undefined;
+  focused: boolean;
+  /** Re-renders the mounted form after a change. */
+  listen: (() => void) | undefined;
+}
+const newDraft = (): MoveDraft => ({
+  reason: '',
+  error: undefined,
+  phase: 'idle',
+  intent: undefined,
+  focused: false,
+  listen: undefined,
+});
+
+/**
  * The reason form of a move to another Backlog part; sending it is the confirmation. A refusal
  * shows the daemon's hint as sent. After the daemon accepts, the send stays busy as `Moving`
- * until the caller closes the form, once a read shows the task in `to`. One intent per reason
- * text: a resend of the same text keeps its key. Cancel closes the form and aborts nothing.
+ * until the caller closes the form, once a read shows the task in `to`. Cancel closes the form
+ * and aborts nothing.
  */
 function MoveForm({
   name,
   to,
+  draft,
   createIntent,
   unavailable,
   onSent,
@@ -30,6 +62,7 @@ function MoveForm({
   /** The task's short key. */
   name: string;
   to: ColumnId;
+  draft: MoveDraft;
   createIntent: (reason: string) => MoveIntent;
   /** Why moves cannot be sent now; undefined while they can. */
   unavailable: string | undefined;
@@ -39,20 +72,24 @@ function MoveForm({
   /** In the task view rather than under a card. */
   view?: boolean;
 }) {
-  const [reason, setReason] = useState('');
-  const [error, setError] = useState<string>();
-  const [phase, setPhase] = useState<'idle' | 'sending' | 'moving'>('idle');
-  const busy = useRef(false);
-  const intent = useRef<{ text: string; value: MoveIntent }>(undefined);
-  const mounted = useRef(true);
+  const [, rerender] = useState(0);
   const area = useRef<HTMLFormElement>(null);
   useEffect(() => {
-    mounted.current = true;
-    area.current?.querySelector('textarea')?.focus();
-    return () => {
-      mounted.current = false;
+    draft.listen = () => {
+      rerender((count) => count + 1);
     };
-  }, []);
+    // Focus the field once per form, not again when a fold remounts it.
+    if (!draft.focused) area.current?.querySelector('textarea')?.focus();
+    draft.focused = true;
+    return () => {
+      draft.listen = undefined;
+    };
+  }, [draft]);
+  const update = (patch: Partial<MoveDraft>) => {
+    Object.assign(draft, patch);
+    draft.listen?.();
+  };
+  const { reason, error, phase } = draft;
   const suffix = unavailable === undefined ? '' : ` ${unavailable}`;
   return (
     <form
@@ -60,27 +97,22 @@ function MoveForm({
       className={view ? styles.view : styles.under}
       onSubmit={(event) => {
         event.preventDefault();
-        if (busy.current || unavailable !== undefined || reason.trim() === '') return;
+        if (draft.phase !== 'idle' || unavailable !== undefined || reason.trim() === '') return;
         if (reason.length > 20_000) {
-          setError(TOO_LONG);
+          update({ error: TOO_LONG });
           return;
         }
-        busy.current = true;
-        if (intent.current?.text !== reason)
-          intent.current = { text: reason, value: createIntent(reason) };
-        setPhase('sending');
-        setError(undefined);
-        intent.current.value.run().then(
+        if (draft.intent?.text !== reason)
+          draft.intent = { text: reason, value: createIntent(reason) };
+        const run = draft.intent.value.run();
+        update({ phase: 'sending', error: undefined });
+        run.then(
           () => {
-            if (!mounted.current) return;
-            setPhase('moving');
+            update({ phase: 'moving' });
             onSent();
           },
           (cause: unknown) => {
-            if (!mounted.current) return;
-            busy.current = false;
-            setPhase('idle');
-            setError(cause instanceof ProblemError ? cause.hint : FAILED);
+            update({ phase: 'idle', error: cause instanceof ProblemError ? cause.hint : FAILED });
           },
         );
       }}
@@ -106,8 +138,7 @@ function MoveForm({
         <TextArea
           value={reason}
           onChange={(text) => {
-            setReason(text);
-            setError(undefined);
+            update({ reason: text, error: undefined });
           }}
         />
       </FormRow>
@@ -115,13 +146,17 @@ function MoveForm({
   );
 }
 
-/** An open move form: from which part to which, and whether the daemon accepted it. */
+/** An open move form: from which part to which, whether the daemon accepted it, its draft. */
 export interface Moving {
   key: string;
   from: ColumnId;
   to: ColumnId;
   sent: boolean;
+  draft: MoveDraft;
 }
+/** Marks the move of `draft` accepted, unless its form was closed or replaced since. */
+const accepted = (draft: MoveDraft) => (open: Moving | null) =>
+  open?.draft === draft ? { ...open, sent: true } : open;
 
 /**
  * The task view's move: `Move to` and a button per other Backlog part, then the form for the
@@ -160,7 +195,7 @@ export function TaskMove({
           <Button
             key={part}
             onClick={() => {
-              setMoving({ key: taskKey, from, to: part, sent: false });
+              setMoving({ key: taskKey, from, to: part, sent: false, draft: newDraft() });
             }}
           >
             {part}…
@@ -172,11 +207,12 @@ export function TaskMove({
           key={moving.to}
           name={name}
           to={moving.to}
+          draft={moving.draft}
           view
           createIntent={(reason) => moveIntent(taskKey, moving.to, reason)}
           unavailable={unavailable}
           onSent={() => {
-            setMoving((open) => (open === null ? open : { ...open, sent: true }));
+            setMoving(accepted(moving.draft));
           }}
           onCancel={() => {
             setMoving(null);
@@ -196,7 +232,7 @@ export interface Band {
   moving: Moving | null;
   drag: { key: string; from: ColumnId } | null;
   over: ColumnId | null;
-  setMoving: (moving: Moving | null) => void;
+  setMoving: Dispatch<SetStateAction<Moving | null>>;
   setDrag: (drag: { key: string; from: ColumnId } | null) => void;
   setOver: (over: ColumnId | null | ((over: ColumnId | null) => ColumnId | null)) => void;
   /** A drag of this band's card from another part is over `part`. */
@@ -268,7 +304,7 @@ export function zone(band: Band | undefined, part: ColumnId) {
       event.preventDefault();
       band.setDrag(null);
       band.setOver(null);
-      band.setMoving({ key: drag.key, from: drag.from, to: part, sent: false });
+      band.setMoving({ key: drag.key, from: drag.from, to: part, sent: false, draft: newDraft() });
     },
   };
 }
@@ -282,7 +318,7 @@ export function bandProps(row: BoardRow, band: Band, part: ColumnId) {
         .filter(({ id }) => id !== part)
         .map(({ id }) => ({ value: id, label: `Move to ${id}…`, group: 'part' })),
       onSelect: (to: ColumnId) => {
-        band.setMoving({ key: row.key, from: part, to, sent: false });
+        band.setMoving({ key: row.key, from: part, to, sent: false, draft: newDraft() });
       },
     },
     drag: {
@@ -300,10 +336,11 @@ export function bandProps(row: BoardRow, band: Band, part: ColumnId) {
         key={moving.to}
         name={shortKey(row.key)}
         to={moving.to}
+        draft={moving.draft}
         createIntent={(reason) => band.moveIntent(row.key, moving.to, reason)}
         unavailable={band.moveUnavailable}
         onSent={() => {
-          band.setMoving({ ...moving, sent: true });
+          band.setMoving(accepted(moving.draft));
         }}
         onCancel={() => {
           band.setMoving(null);

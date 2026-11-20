@@ -224,6 +224,47 @@ describe('move between Backlog parts: sending', () => {
   });
 });
 
+describe('move between Backlog parts: a fold', () => {
+  const fold = () => {
+    press(one('main section[aria-labelledby] h2 button'), 'click');
+  };
+  it('a fold keeps the reason, the pending send and the key', async () => {
+    const { d, moves } = await board();
+    d.routes['task.move'] = failure;
+    choose('Move to triage…');
+    type(field(), 'Groomed');
+    submit();
+    await settle();
+    const held = deferred();
+    d.routes['task.move'] = () => held.promise;
+    fold();
+    fold();
+    expect(field().value).toBe('Groomed');
+    submit();
+    await settle();
+    expect(send().textContent).toBe('Moving');
+    fold();
+    expect(field().value).toBe('Groomed');
+    expect(send().textContent).toBe('Moving');
+    expect(send().getAttribute('aria-busy')).toBe('true');
+    submit();
+    await settle();
+    expect(moves).toHaveLength(2);
+    // The held send fails after the fold: the folded form shows it and resends with the key.
+    held.resolve(Response.json({ broken: true }, { status: 500 }));
+    await settle();
+    expect(one('main [role="alert"]').textContent).toBe(
+      'Could not move the task. Send again to retry.',
+    );
+    d.routes['task.move'] = failure;
+    submit();
+    await settle();
+    expect(moves).toHaveLength(3);
+    expect(new Set(moves.map((body) => body.key)).size).toBe(1);
+    expect(moves.map((body) => body.input['reason'])).toEqual(['Groomed', 'Groomed', 'Groomed']);
+  });
+});
+
 describe('move between Backlog parts: the task view', () => {
   it('task view offers the move and moves the task', async () => {
     const { d, moves } = await openTask();
