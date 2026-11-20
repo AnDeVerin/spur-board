@@ -286,6 +286,7 @@ export function Board({ data }: { data: BoardData }) {
           returnTurnIntent={data.returnTurnIntent}
           drafts={data.drafts}
           refreshTask={data.refreshTask}
+          sections={{ get: data.sectionOpen, set: data.setSectionOpen }}
           onClose={() => {
             closed.current = task.value?.task.key ?? task.key;
             history.pushState(null, '', inboxOpen ? openHref('inbox') : withoutOpen());

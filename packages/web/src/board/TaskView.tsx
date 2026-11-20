@@ -4,7 +4,6 @@ import {
   Button,
   focusRing,
   Icon,
-  CollapsibleSection,
   quiet,
   KeyValueBox,
   Modal,
@@ -17,11 +16,13 @@ import { TaskBlock } from './TaskBlock.tsx';
 import { TaskWrite } from './TaskWrite.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
 import { TaskTurn } from './TaskTurn.tsx';
+import { TaskSection, TaskSectionsProvider, type TaskSections } from './TaskSection.tsx';
 import { shortKey, type BoardColumnConfig } from './model.ts';
 import {
   actorDisplayName,
   age,
   linkChips,
+  submissionSummary,
   timeInColumn,
   whyRows,
   whySummary,
@@ -42,7 +43,8 @@ export type TaskTitle = { state: 'loading' } | { state: 'ready'; text: string } 
 /**
  * The task view: a modal with the short key, `<column> · <time in column>` and the Now and
  * History tabs. Now holds links, Why, blocks and comments; History lists journal events and
- * reads only while shown. Key it by the task key so state resets for another task.
+ * reads only while shown. Key it by the task key so state resets for another task; each
+ * section starts in the open or closed state `sections` keeps for every task.
  */
 export function TaskView({
   task,
@@ -69,6 +71,7 @@ export function TaskView({
   returnTurnIntent,
   drafts,
   refreshTask,
+  sections,
 }: {
   task: TaskState;
   history: HistoryState | undefined;
@@ -83,6 +86,7 @@ export function TaskView({
   returnTurnIntent: BoardData['returnTurnIntent'];
   drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
+  sections: TaskSections;
   title: TaskTitle;
   row: BoardRow | undefined;
   /** Enabled columns of the task's project in `config.get` order, with their group. */
@@ -133,159 +137,167 @@ export function TaskView({
   const chips =
     value === undefined ? [] : linkChips(value.links, key, spurUiOrigin, ticketBrowseBase, row);
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={<span title={key}>{shortKey(key)}</span>}
-      detail={detail}
-      actions={<Tabs id={TABS_ID} label="Task view" tabs={TABS} value={tab} onChange={setTab} />}
-    >
-      {notice}
-      <TabPanel tabsId={TABS_ID} value={tab}>
-        {/* Keep drafts and intent guards for this modal's lifetime, including on History. */}
-        <div hidden={tab !== 'now'}>
-          {task.state === 'missing' ? (
-            <p className={styles.note}>Task not found.</p>
-          ) : (
-            <>
-              {failed && !(offline && value !== undefined) && (
-                <Banner
-                  variant="error"
-                  icon="x"
-                  action={
-                    <Button busy={task.retrying} onClick={onRetry}>
-                      {task.retrying ? 'Retrying' : 'Retry'}
-                    </Button>
-                  }
-                >
-                  Could not load the task.
-                </Banner>
-              )}
-              <div className={`${quiet} ${styles.top ?? ''}`}>
-                {title.state === 'loading' ? (
-                  <Skeleton widths={[60]} />
-                ) : (
-                  title.state === 'ready' && <h2 className={styles.title}>{title.text}</h2>
-                )}
-                {value === undefined
-                  ? task.state === 'loading' && <Skeleton />
-                  : chips.length > 0 && (
-                      <div className={styles.links}>
-                        {chips.map((chip, index) =>
-                          // A link has no id of its own; its position in the list stays put.
-                          chip.href === null ? (
-                            <span
-                              key={index}
-                              className={`${cardStyles.cell ?? ''} ${cardStyles.standalone ?? ''} ${styles.link ?? ''}`}
-                              data-kind={chip.kind}
-                              title={chip.text}
-                            >
-                              <Icon name={chip.icon} />
-                              <span className={styles.linkText}>{chip.text}</span>
-                            </span>
-                          ) : (
-                            <a
-                              key={index}
-                              className={`${cardStyles.cell ?? ''} ${cardStyles.standalone ?? ''} ${styles.link ?? ''} ${focusRing}`}
-                              data-kind={chip.kind}
-                              href={chip.href}
-                              aria-label={chip.label}
-                              title={chip.text}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <Icon name={chip.icon} />
-                              <span className={styles.linkText}>{chip.text}</span>
-                            </a>
-                          ),
-                        )}
-                      </div>
-                    )}
-              </div>
-              {value !== undefined && (
-                <CollapsibleSection title="Why it is here" summary={whySummary(value)}>
-                  <KeyValueBox rows={whyRows(value, columns, now, turnStale)} />
-                </CollapsibleSection>
-              )}
-              {value !== undefined && (
-                <TaskTurn
-                  value={value}
-                  taskKey={task.key}
-                  row={row}
-                  columns={columns}
-                  config={config}
-                  now={now}
-                  unavailable={unavailable}
-                  submitTurnIntent={submitTurnIntent}
-                  returnTurnIntent={returnTurnIntent}
-                  onStale={setTurnStale}
-                />
-              )}
-              {value?.submission !== undefined && (
-                <div className={`${quiet} ${styles.submission ?? ''}`}>
-                  <KeyValueBox
-                    title="Latest submission"
-                    rows={
-                      value.submission === null
-                        ? [{ key: 'No submissions yet' }]
-                        : [
-                            { key: 'Column', value: value.submission.column },
-                            { key: 'Time', value: value.submission.at },
-                            { key: 'SHA', value: value.submission.sha },
-                            { key: 'Basis', value: value.submission.basis },
-                            ...(value.submission.from === null
-                              ? []
-                              : [{ key: 'Source SHA', value: value.submission.from }]),
-                            ...(value.submission.testedOrigin === null
-                              ? []
-                              : [
-                                  {
-                                    key: 'Tested origin SHA',
-                                    value: value.submission.testedOrigin,
-                                  },
-                                ]),
-                            ...(value.submission.reason === null
-                              ? []
-                              : [{ key: 'Reason', value: value.submission.reason }]),
-                            { key: 'Pending', value: value.submission.pending ? 'Yes' : 'No' },
-                            { key: 'Voided', value: value.submission.voided ? 'Yes' : 'No' },
-                          ]
-                    }
-                  />
-                </div>
-              )}
-              {value !== undefined && (
-                <TaskDiscussion
-                  value={value}
-                  taskKey={task.key}
-                  config={config}
-                  now={now}
-                  unavailable={
-                    value.task.membership === 'archived'
-                      ? 'This task is archived. Answers and comments cannot be sent.'
-                      : unavailable
-                  }
-                  answerIntent={answerIntent}
-                  followUpIntent={followUpIntent}
-                  commentIntent={commentIntent}
-                  drafts={drafts}
-                  refreshTask={refreshTask}
-                />
-              )}
-            </>
-          )}
-        </div>
-        {historyShown && (
-          <div role="region" aria-label="History">
-            {task.state === 'missing' || history?.state === 'missing' ? (
+    <TaskSectionsProvider value={sections}>
+      <Modal
+        open
+        onClose={onClose}
+        title={<span title={key}>{shortKey(key)}</span>}
+        detail={detail}
+        actions={<Tabs id={TABS_ID} label="Task view" tabs={TABS} value={tab} onChange={setTab} />}
+      >
+        {notice}
+        <TabPanel tabsId={TABS_ID} value={tab}>
+          {/* Keep drafts and intent guards for this modal's lifetime, including on History. */}
+          <div hidden={tab !== 'now'}>
+            {task.state === 'missing' ? (
               <p className={styles.note}>Task not found.</p>
             ) : (
-              <TaskHistory history={history} offline={offline} onRetry={onRetryHistory} />
+              <>
+                {failed && !(offline && value !== undefined) && (
+                  <Banner
+                    variant="error"
+                    icon="x"
+                    action={
+                      <Button busy={task.retrying} onClick={onRetry}>
+                        {task.retrying ? 'Retrying' : 'Retry'}
+                      </Button>
+                    }
+                  >
+                    Could not load the task.
+                  </Banner>
+                )}
+                <div className={`${quiet} ${styles.top ?? ''}`}>
+                  {title.state === 'loading' ? (
+                    <Skeleton widths={[60]} />
+                  ) : (
+                    title.state === 'ready' && <h2 className={styles.title}>{title.text}</h2>
+                  )}
+                  {value === undefined
+                    ? task.state === 'loading' && <Skeleton />
+                    : chips.length > 0 && (
+                        <div className={styles.links}>
+                          {chips.map((chip, index) =>
+                            // A link has no id of its own; its position in the list stays put.
+                            chip.href === null ? (
+                              <span
+                                key={index}
+                                className={`${cardStyles.cell ?? ''} ${cardStyles.standalone ?? ''} ${styles.link ?? ''}`}
+                                data-kind={chip.kind}
+                                title={chip.text}
+                              >
+                                <Icon name={chip.icon} />
+                                <span className={styles.linkText}>{chip.text}</span>
+                              </span>
+                            ) : (
+                              <a
+                                key={index}
+                                className={`${cardStyles.cell ?? ''} ${cardStyles.standalone ?? ''} ${styles.link ?? ''} ${focusRing}`}
+                                data-kind={chip.kind}
+                                href={chip.href}
+                                aria-label={chip.label}
+                                title={chip.text}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Icon name={chip.icon} />
+                                <span className={styles.linkText}>{chip.text}</span>
+                              </a>
+                            ),
+                          )}
+                        </div>
+                      )}
+                </div>
+                {value !== undefined && (
+                  <TaskSection id="why" title="Why it is here" summary={whySummary(value)}>
+                    <KeyValueBox rows={whyRows(value, columns, now, turnStale)} />
+                  </TaskSection>
+                )}
+                {value !== undefined && (
+                  <TaskTurn
+                    value={value}
+                    taskKey={task.key}
+                    row={row}
+                    columns={columns}
+                    config={config}
+                    now={now}
+                    unavailable={unavailable}
+                    submitTurnIntent={submitTurnIntent}
+                    returnTurnIntent={returnTurnIntent}
+                    onStale={setTurnStale}
+                  />
+                )}
+                {value?.submission !== undefined && (
+                  <TaskSection
+                    id="submission"
+                    defaultOpen={false}
+                    title="Latest submission"
+                    summary={submissionSummary(value.submission)}
+                  >
+                    <div className={styles.submission}>
+                      <KeyValueBox
+                        rows={
+                          value.submission === null
+                            ? [{ key: 'No submissions yet' }]
+                            : [
+                                { key: 'Column', value: value.submission.column },
+                                { key: 'Time', value: value.submission.at },
+                                { key: 'SHA', value: value.submission.sha },
+                                { key: 'Basis', value: value.submission.basis },
+                                ...(value.submission.from === null
+                                  ? []
+                                  : [{ key: 'Source SHA', value: value.submission.from }]),
+                                ...(value.submission.testedOrigin === null
+                                  ? []
+                                  : [
+                                      {
+                                        key: 'Tested origin SHA',
+                                        value: value.submission.testedOrigin,
+                                      },
+                                    ]),
+                                ...(value.submission.reason === null
+                                  ? []
+                                  : [{ key: 'Reason', value: value.submission.reason }]),
+                                { key: 'Pending', value: value.submission.pending ? 'Yes' : 'No' },
+                                { key: 'Voided', value: value.submission.voided ? 'Yes' : 'No' },
+                              ]
+                        }
+                      />
+                    </div>
+                  </TaskSection>
+                )}
+                {value !== undefined && (
+                  <TaskDiscussion
+                    value={value}
+                    taskKey={task.key}
+                    config={config}
+                    now={now}
+                    unavailable={
+                      value.task.membership === 'archived'
+                        ? 'This task is archived. Answers and comments cannot be sent.'
+                        : unavailable
+                    }
+                    answerIntent={answerIntent}
+                    followUpIntent={followUpIntent}
+                    commentIntent={commentIntent}
+                    drafts={drafts}
+                    refreshTask={refreshTask}
+                  />
+                )}
+              </>
             )}
           </div>
-        )}
-      </TabPanel>
-    </Modal>
+          {historyShown && (
+            <div role="region" aria-label="History">
+              {task.state === 'missing' || history?.state === 'missing' ? (
+                <p className={styles.note}>Task not found.</p>
+              ) : (
+                <TaskHistory history={history} offline={offline} onRetry={onRetryHistory} />
+              )}
+            </div>
+          )}
+        </TabPanel>
+      </Modal>
+    </TaskSectionsProvider>
   );
 }
 
@@ -322,7 +334,8 @@ function TaskDiscussion({
   const [followed, setFollowed] = useState<ReadonlySet<string>>(new Set());
   return (
     <>
-      <CollapsibleSection
+      <TaskSection
+        id="blocks"
         title="Blocks"
         count={blocks.length}
         summary={`${String(blocks.filter((block) => block.state === 'open').length)} open`}
@@ -354,8 +367,8 @@ function TaskDiscussion({
             ))}
           </div>
         )}
-      </CollapsibleSection>
-      <CollapsibleSection title="Comments" count={comments.length}>
+      </TaskSection>
+      <TaskSection id="comments" title="Comments" count={comments.length}>
         <div className={styles.items}>
           {comments.length === 0 && <p className={styles.empty}>No comments on this task.</p>}
           {comments.map((comment) => (
@@ -378,7 +391,7 @@ function TaskDiscussion({
             />
           </div>
         </div>
-      </CollapsibleSection>
+      </TaskSection>
     </>
   );
 }
