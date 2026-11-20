@@ -47,7 +47,8 @@ export function createMembershipMutations(config: Config): {
     add: {
       id: 'task.add',
       // An existing key is its project's task; a new or unknown key has no project yet, so only
-      // the board-wide operator or the token may add it. `run` raises the key's own error.
+      // the token, the board-wide operator or a one-project board's operator may add it. `run`
+      // raises the key's own error.
       async resolveTargets(trx, input) {
         let canonical;
         try {

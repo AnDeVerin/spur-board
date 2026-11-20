@@ -306,7 +306,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board inbox operator`
 
-List what waits for the operator and what was handled in the last 24 hours; a project's own operator session sees only its operator projects, and _board entries only when no board-wide operator is configured.
+List what waits for the operator and what was handled in the last 24 hours; a project's own operator session sees only its operator projects, and _board entries go to the operator token, the board-wide operator, or a one-project board's operator.
 
 Arguments: none.
 

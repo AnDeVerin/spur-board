@@ -182,21 +182,55 @@ describe('authorize catalog grants', () => {
     );
   });
 
-  it("keeps a project operator's rights on every board project without a board-wide operator", () => {
-    const archive = operation('task.archive');
-    const elsewhere = { ...target, project: 'other' };
-    expect(
-      authorize(archive.grants, 'agent:ops/ops-1', {
-        config,
-        target: { kind: 'found', value: elsewhere },
-      }).status,
-    ).toBe('allowed');
-    expect(
-      authorize(operation('token.list').grants, 'agent:ops/ops-1', {
-        config,
-        target: { kind: 'missing' },
-      }).status,
-    ).toBe('allowed');
+  describe('project operators without a board-wide operator', () => {
+    const board = (operators: Record<string, string | undefined>) =>
+      configSchema.parse({
+        projects: Object.entries(operators).map(([id, ops]) => ({
+          id,
+          tracker: { type: 'github-issues', repo: `${id}/r`, milestone: 'M1' },
+          repos: [`${id}/r`],
+          operatorGithubLogin: 'operator',
+          spurProjects: ops === undefined ? [] : [{ name: ops, role: 'operator' }],
+        })),
+        operator: { slack: 'operator' },
+        digest: { tz: 'UTC' },
+      });
+    const split = board({ alpha: 'alpha-ops', beta: 'beta-ops', gamma: undefined });
+    const alphaOps: ActorId = 'agent:alpha-ops/ops-1';
+    const betaOps: ActorId = 'agent:beta-ops/ops-1';
+    const on = (project: string) => ({
+      config: split,
+      target: { kind: 'found' as const, value: { ...target, project, workers: [] } },
+    });
+
+    it.each([
+      [alphaOps, 'alpha', 'allowed'],
+      [alphaOps, 'beta', 'denied'],
+      [betaOps, 'beta', 'allowed'],
+      [betaOps, 'alpha', 'denied'],
+      [alphaOps, 'gamma', 'denied'],
+      [betaOps, 'gamma', 'denied'],
+      ['operator', 'gamma', 'allowed'],
+    ] as const)('gives %s the operator grant on %s: %s', (actor, project, status) => {
+      expect(authorize(operation('task.archive').grants, actor, on(project)).status).toBe(status);
+    });
+
+    it.each([
+      ['three-project', alphaOps, 'denied', split],
+      ['three-project', betaOps, 'denied', split],
+      ['three-project', 'operator', 'allowed', split],
+      ['one-project', 'agent:solo-ops/ops-1', 'allowed', board({ solo: 'solo-ops' })],
+    ] as const)(
+      'on a %s board, gives %s an operator operation without a target: %s',
+      (_board, actor, status, state) => {
+        expect(
+          authorize(operation('token.list').grants, actor, {
+            config: state,
+            target: { kind: 'missing' },
+          }).status,
+        ).toBe(status);
+      },
+    );
   });
 
   describe('board-wide operator', () => {

@@ -12,7 +12,7 @@ import {
   failedPost,
   HOUR,
   item,
-  legacy,
+  ownOnly,
   mixed,
   notification,
   seedEveryKind,
@@ -467,7 +467,7 @@ describe('inbox.operator', () => {
     ['the token', mixed, 'operator', ['_board', 'first', 'second']],
     ['the board-wide operator', mixed, 'agent:hq/s1', ['_board', 'second']],
     ['a project operator', mixed, 'agent:first-ops/s1', ['first']],
-    ['a legacy project operator', legacy, 'agent:first-ops/s1', ['_board', 'first', 'second']],
+    ['a project operator without a board-wide one', ownOnly, 'agent:first-ops/s1', ['first']],
   ] as const)('scopes the operator inbox: %s', async (_name, config, actor, projects) => {
     const { store, inbox } = setup(config);
     await scoped(store);

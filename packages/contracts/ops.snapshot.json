@@ -1,5 +1,5 @@
 {
-  "version": "c852834e607efeec8aeff72145160a2ee371078c81c54cd06f60ac951977ca8b",
+  "version": "1c8ddc9e52fcb53c7e2c1be59928e5d368e5394eca6bcab80c64a111fe2de79b",
   "grants": [
     "operator",
     "project-agent",
@@ -3942,8 +3942,8 @@
                     },
                     "source": {
                       "type": "string",
-                      "enum": ["project", "board-wide", "other-project"],
-                      "description": "project: its own spurProjects; board-wide: top-level spurProjects; other-project: another project's operator, without a board-wide one."
+                      "enum": ["project", "board-wide"],
+                      "description": "project: its own spurProjects; board-wide: top-level spurProjects."
                     }
                   },
                   "required": ["project", "operator", "source"],
@@ -7227,7 +7227,7 @@
     {
       "id": "inbox.operator",
       "kind": "query",
-      "description": "List what waits for the operator and what was handled in the last 24 hours; a project's own operator session sees only its operator projects, and _board entries only when no board-wide operator is configured.",
+      "description": "List what waits for the operator and what was handled in the last 24 hours; a project's own operator session sees only its operator projects, and _board entries go to the operator token, the board-wide operator, or a one-project board's operator.",
       "grants": [{ "grant": "operator" }],
       "preconditions": null,
       "errors": [
@@ -11877,7 +11877,7 @@
                       "role": {
                         "type": "string",
                         "enum": ["worker", "operator", "curator", "orchestrator"],
-                        "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
+                        "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator of this board project only. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
                       },
                       "displayName": {
                         "type": "string",
@@ -12311,7 +12311,7 @@
                               {
                                 "type": "string",
                                 "enum": ["worker", "operator", "curator", "orchestrator"],
-                                "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
+                                "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator of this board project only. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
                               },
                               { "type": "null" }
                             ],

@@ -410,12 +410,18 @@ curator's Spur project. The daemon refuses such a
 `config.yaml` at start and names the Spur project and both Board projects. To run two Board
 projects, give each its own Spur projects.
 
-Without a board-wide operator, a Spur project with `role: operator` has operator access on every
-Board project. Once top-level `spurProjects` has an entry with `role: operator`, that entry
-serves every Board project without its own operator, a project's own operator acts only in its
-project, and only the board-wide operator and the operator token run operator commands that name
-no project, such as `board token list`, `board task add` with a key not yet on the Board, and
-`board item retry` or `board item close` on an item of no task. Restoring an archived task and
+A Spur project listed with `role: operator` under `projects[].spurProjects` has operator access
+only on the Board project that lists it. A top-level `spurProjects` entry with `role: operator`
+serves every Board project without its own operator. Operator commands that name no project, such
+as `board token list`, `board task add` with a key not yet on the Board, and `board item retry`
+or `board item close` on an item of no task, run only for the operator token, the board-wide
+operator, or, without one, the operator of a one-project Board. Before this rule, a project
+operator of a Board with several projects and no board-wide operator acted on every Board
+project; such a Board now refuses it with `forbidden` outside its own project. To keep one
+operator across projects, move its Spur project to top-level `spurProjects` with
+`role: operator` and remove it from `projects[].spurProjects`; a Spur project named `operator`
+or `none` is refused there, so rename it in Spur first. To keep separate operators, give each
+Board project its own operator Spur project. Restoring an archived task and
 retrying or closing an item of a task count as that task's project. Operations open
 only to project agents, such as `board ask`, still need the session's Spur project listed under
 that task's Board project. `board inbox ack` is also open to the operator; the operator token

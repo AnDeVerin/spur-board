@@ -49,8 +49,8 @@ export const mixed = configSchema.parse({
   ...base,
   spurProjects: [{ name: 'hq', role: 'operator' }],
 });
-/** No board-wide operator: `first-ops` acts on every project and on the board. */
-export const legacy = configSchema.parse(base);
+/** No board-wide operator: `first-ops` acts only on `first`; `second` and the board have only the token. */
+export const ownOnly = configSchema.parse(base);
 
 export async function task(
   trx: Trx,

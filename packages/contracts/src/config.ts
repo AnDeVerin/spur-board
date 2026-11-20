@@ -226,7 +226,7 @@ const spurProject = z.strictObject({
   role: z
     .enum(['worker', 'operator', 'curator', 'orchestrator'])
     .describe(
-      "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one.",
+      "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator of this board project only. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one.",
     ),
   shortName: z
     .string()
@@ -814,7 +814,7 @@ const boardWideEntry = z.strictObject({
   role: z
     .enum(['orchestrator', 'operator'])
     .describe(
-      "orchestrator: sessions execute the listed columns in every board project that enables the column and leaves its orchestrator at none. operator: sessions act as the operator of every board project that lists no operator of its own; while one exists, a project's own operator acts only in its project. At most one operator.",
+      "orchestrator: sessions execute the listed columns in every board project that enables the column and leaves its orchestrator at none. operator: sessions act as the operator of every board project that lists no operator of its own; a project's own operator acts only in its project. At most one operator.",
     ),
   columns: z
     .array(columnId.describe('A built-in column this orchestrator executes.'))
@@ -1486,16 +1486,14 @@ export interface ConfigBindings {
 
 /**
  * The effective column orchestrators and operators of `projects`, in config order, and the
- * default Slack addressee. Columns that are disabled or left at none have no row. While no
- * board-wide operator exists, each project also lists the other projects' operators, since those
- * act on every board project then (`isOperator`).
+ * default Slack addressee. Columns that are disabled or left at none have no row; a project
+ * operator acts only in the project that lists it (`isOperator`).
  */
 export function configBindings(config: Config, projects: ReadonlySet<string>): ConfigBindings {
   const source = (name: string) =>
     boardWideSpurProject(config, name) === undefined ? 'project' : 'board-wide';
   const operatorsOf = (project: Config['projects'][number]) =>
     project.spurProjects.filter((spur) => spur.role === 'operator');
-  const boardWideOperator = config.spurProjects.some((entry) => entry.role === 'operator');
   const served = config.projects.filter((project) => projects.has(project.id));
   return {
     columns: served.flatMap((project) =>
@@ -1508,23 +1506,13 @@ export function configBindings(config: Config, projects: ReadonlySet<string>): C
           source: source(column.orchestrator),
         })),
     ),
-    operators: served.flatMap((project): OperatorBinding[] => {
-      const own = operatorsOf(project).map((spur): OperatorBinding => ({
+    operators: served.flatMap((project) =>
+      operatorsOf(project).map((spur): OperatorBinding => ({
         project: project.id,
         operator: spur.name,
         source: source(spur.name),
-      }));
-      if (boardWideOperator) return own;
-      const others = config.projects
-        .filter((other) => other.id !== project.id)
-        .flatMap(operatorsOf)
-        .map((spur): OperatorBinding => ({
-          project: project.id,
-          operator: spur.name,
-          source: 'other-project',
-        }));
-      return [...own, ...others];
-    }),
+      })),
+    ),
     defaultAddressee: defaultAddressee(config),
   };
 }

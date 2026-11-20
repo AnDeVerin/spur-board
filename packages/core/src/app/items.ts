@@ -131,7 +131,8 @@ export async function itemOwner(trx: Trx, item: Item): Promise<Row<'task'> | und
 
 /**
  * An item of a task is that task's project's; a board item or an unknown ID has no target, so
- * only the board-wide operator or the token may act on it, and `run` raises the unknown ID.
+ * only the token, the board-wide operator or a one-project board's operator may act on it, and
+ * `run` raises the unknown ID.
  */
 async function itemTarget(trx: Trx, input: { item: string }): Promise<readonly ResolvedTarget[]> {
   const item = await trx
