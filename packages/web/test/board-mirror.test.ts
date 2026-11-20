@@ -225,8 +225,12 @@ describe('mirrored Backlog part and the top banner', () => {
     const mirror = (extra: Record<string, unknown>) =>
       source('github-project:a:ex/1', { lastCompleteAt: LAST, ...extra });
     const failed = { code: 'mirror_read_failed', message: 'GitHub answered 502' };
-    const said = (name: string) =>
-      `${name} has not answered since 14:40 15/11/26.Its facts may be out of date.`;
+    const FROZE =
+      'ready-for-dev is frozen: tasks stay where they were until the mirror reads again.';
+    const NAME = 'GitHub Project ex/1';
+    const OLDEST = 'The oldest answer is from 14:40 15/11/26.';
+    const said = (name: string, detail = FROZE) =>
+      `${name} has not answered since 14:40 15/11/26.${detail}`;
     const warnings = async (
       sources: unknown[],
       rows: unknown[] = MIRRORED_ROWS,
@@ -242,44 +246,47 @@ describe('mirrored Backlog part and the top banner', () => {
         .filter((banner) => banner.closest('main') === null)
         .map((banner) => banner.textContent);
     };
-    // The Backlog notice can be offscreen at 375 px, so the banner names the mirror too.
-    expect(await warnings([mirror({ blindReason: 'auth', stale: true })])).toEqual([
-      said('github-project:a:ex/1'),
-    ]);
-    expect(await warnings([mirror({ failure: failed, stale: true })])).toEqual([
-      said('github-project:a:ex/1'),
-    ]);
+    // The Backlog notice can be offscreen at 375 px, so the banner names the mirror and says
+    // its part is frozen.
+    expect(await warnings([mirror({ blindReason: 'auth', stale: true })])).toEqual([said(NAME)]);
+    expect(await warnings([mirror({ failure: failed, stale: true })])).toEqual([said(NAME)]);
     // A stale mirror that is not blind is degraded, not frozen.
     expect(
       await warnings([mirror({ stale: true })], MIRRORED_ROWS, { health: 'degraded' }),
-    ).toEqual([said('github-project:a:ex/1')]);
+    ).toEqual([said(NAME, 'Its facts may be out of date.')]);
     // No tasks: the board shows its empty message instead of the notice; the banner stays.
     expect(await warnings([mirror({ blindReason: 'stale', stale: true })], [])).toEqual([
-      said('github-project:a:ex/1'),
+      said(NAME),
     ]);
     expect(await warnings([mirror({ failure: failed, blindReason: 'auth' })], [])).toEqual([
-      said('github-project:a:ex/1'),
+      said(NAME),
     ]);
     expect(
       await warnings([
         mirror({ blindReason: 'auth', failure: failed }),
         source('jira:a', { blindReason: 'auth', lastCompleteAt: LAST }),
       ]),
-    ).toEqual([
-      '2 sources have not answered: github-project:a:ex/1, jira:a.' +
-        'The oldest answer is from 14:40 15/11/26.',
-    ]);
+    ).toEqual([`2 sources have not answered: ${NAME}, jira:a.${OLDEST} ${FROZE}`]);
     // A failed read alone, not yet blind or stale, freezes the part, so the banner names it.
-    expect(await warnings([mirror({ failure: failed })])).toEqual([said('github-project:a:ex/1')]);
+    expect(await warnings([mirror({ failure: failed })])).toEqual([said(NAME)]);
     expect(
       await warnings([
         mirror({ failure: failed }),
         source('github:a:ex/repo', { blindReason: 'auth', lastCompleteAt: LAST }),
       ]),
-    ).toEqual([
-      '2 sources have not answered: github-project:a:ex/1, github:a:ex/repo.' +
-        'The oldest answer is from 14:40 15/11/26.',
+    ).toEqual([`2 sources have not answered: ${NAME}, github:a:ex/repo.${OLDEST} ${FROZE}`]);
+    // A blind source that is not a mirror freezes nothing.
+    const jira = source('jira:a', { blindReason: 'auth', lastCompleteAt: LAST });
+    expect(await warnings([jira], MIRRORED_ROWS, {})).toEqual([
+      said('jira:a', 'Its facts may be out of date.'),
     ]);
+    expect(
+      await warnings(
+        [jira, source('github:a:ex/repo', { blindReason: 'auth', lastCompleteAt: LAST })],
+        MIRRORED_ROWS,
+        {},
+      ),
+    ).toEqual([`2 sources have not answered: jira:a, github:a:ex/repo.${OLDEST}`]);
     // A mirror that reads again has no failure and raises no banner.
     expect(await warnings([mirror({ failure: null })], MIRRORED_ROWS, {})).toEqual([]);
   });

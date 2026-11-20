@@ -215,7 +215,15 @@ export interface BoardBanner {
   action?: 'reload';
 }
 
-const sourceName = (source: BoardSource) => (source.source === 'spur' ? 'Spur' : source.source);
+const sourceName = ({ source }: BoardSource) =>
+  source === 'spur'
+    ? 'Spur'
+    : source.startsWith('github-project:')
+      ? `GitHub Project ${source.split(':').at(-1) ?? ''}`
+      : source;
+/** What a frozen mirrored part means, as the top warning and the mirror's service box say it. */
+export const frozenNote = (part: string) =>
+  `${part} is frozen: tasks stay where they were until the mirror reads again.`;
 const sinceText = (source: BoardSource) =>
   source.lastCompleteAt === null
     ? 'has never completed a poll'
@@ -224,21 +232,35 @@ const sinceText = (source: BoardSource) =>
 /**
  * Blind or stale sources of the chosen project and the shared spur; other projects' are left out.
  * A GitHub Project mirror whose last read failed is named too, as its frozen Backlog notice can
- * be offscreen.
+ * be offscreen; the warning then says which part is frozen, by its id in `columns`.
  */
 function blindBanner(
   sources: readonly BoardSource[],
   project: string | undefined,
+  columns: readonly BoardColumnConfig[],
 ): BoardBanner | undefined {
+  const isMirror = (source: BoardSource) => source.source.startsWith('github-project:');
   const blind = sources.filter(
     (source) =>
       (source.project === null || source.project === project) &&
       (source.blindReason !== null ||
         (source.stale && !source.warmingUp) ||
-        (source.source.startsWith('github-project:') && source.failure != null)),
+        (isMirror(source) && source.failure != null)),
   );
   const [first] = blind;
   if (first === undefined) return undefined;
+  // A mirror is frozen when blind or its last read failed; a stale one alone is only degraded.
+  const frozen = blind
+    .filter((source) => isMirror(source) && (source.blindReason !== null || source.failure != null))
+    .map((source) => {
+      const part = columns.find(
+        ({ source: part }) =>
+          part?.kind === 'mirror' && mirrorSourceId(project, part) === source.source,
+      );
+      return frozenNote(part?.id ?? 'ready-for-dev');
+    });
+  const notes = [...new Set(frozen)];
+  const withNotes = (detail: string) => [detail, ...notes].join(' ');
   if (blind.length === 1)
     return {
       variant: 'warning',
@@ -247,7 +269,7 @@ function blindBanner(
       detail:
         first.source === 'spur'
           ? 'Session states may be out of date.'
-          : 'Its facts may be out of date.',
+          : (notes[0] ?? 'Its facts may be out of date.'),
     };
   const times = blind.flatMap((source) =>
     source.lastCompleteAt === null ? [] : [Date.parse(source.lastCompleteAt)],
@@ -256,10 +278,11 @@ function blindBanner(
     variant: 'warning',
     icon: 'clock',
     text: `${String(blind.length)} sources have not answered: ${blind.map(sourceName).join(', ')}.`,
-    detail:
+    detail: withNotes(
       times.length === 0
         ? 'None has completed a poll.'
         : `The oldest answer is from ${formatDataTime(Math.min(...times))}.`,
+    ),
   };
 }
 
@@ -300,7 +323,11 @@ export function banners(snapshot: BoardSnapshot): BoardBanner[] {
     });
   else if (snapshot.stream === 'offline')
     list.push({ variant: 'error', icon: 'x', text: 'Live updates are lost.', detail: data });
-  const blind = blindBanner(snapshot.status?.sources ?? [], snapshot.project);
+  const blind = blindBanner(
+    snapshot.status?.sources ?? [],
+    snapshot.project,
+    chosenProject(snapshot)?.columns ?? [],
+  );
   if (blind) list.push(blind);
   if (chosenProject(snapshot)?.dispatcher.mode === 'shadow')
     list.push({

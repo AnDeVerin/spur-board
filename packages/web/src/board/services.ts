@@ -1,6 +1,7 @@
 import type { IconName, MeterThresholds, StatusDotTone } from '../ds/index.ts';
 import type { Output } from '../lib/api.ts';
 import type { BoardSnapshot } from './data.ts';
+import { frozenNote } from './model.ts';
 
 type BoardStatus = Output<'status.get'>;
 type ServiceRow = BoardStatus['services'][number];
@@ -285,7 +286,7 @@ export interface PanelBox {
 }
 
 const GONE: PanelRow[] = [{ key: 'Unknown while the daemon does not answer.', note: true }];
-const FROZEN = 'ready-for-dev is frozen: tasks stay where they were until the mirror reads again.';
+const FROZEN = frozenNote('ready-for-dev');
 
 /** The last part of a source id: the repo of a GitHub source, the project of a Jira one. */
 const tail = (source: string) => source.split(':').at(-1) ?? '';
