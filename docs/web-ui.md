@@ -57,7 +57,7 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
   repeats that banner, so **Reload** keeps the text typed there without closing it.
 - **Source blind**: a warning names unresponsive project sources and their last complete poll;
   warming-up sources are omitted. A blind or failing GitHub Project mirror shows on its Backlog
-  part instead.
+  part instead, or in this warning while the project has no tasks.
 - **Shadow**: an info banner says the dispatcher computes columns and turns but does not act.
 
 Banners order errors, warnings, info. Data time means this browser's last good status read.
