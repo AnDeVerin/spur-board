@@ -17,7 +17,9 @@
   `github_blind` and others), the Board can still open that turn: wait. Only when none is
   listed and no later Dev turn of that visit opened, fix it, then close it with `--done` as
   above. A hold that does not clear (a ticket left unconfirmed): keyed `board ask <task> <text>`
-  for the operator to check it instead of closing by hand.
+  naming the hold instead of closing by hand. The Board routes it as any question
+  ([Blocks and escalation](how-board-works-blocks.md)); its recipient checks the hold or escalates
+  it with keyed `board escalate <block>`.
 - Exit 3: not applied. Ask in your own session; when the Board returns, retry identically.
 - Exit 4: no Board config; report in your session; keep the key.
 - Exit 5 (unknown): retry up to 3 times in a minute, then ask in your own session.
