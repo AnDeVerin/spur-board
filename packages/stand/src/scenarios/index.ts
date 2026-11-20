@@ -44,6 +44,7 @@ import { dispatchCloseAfterMerge, dispatchSplitPr, dispatchTicketDoneNoPr } from
 import { empty } from './empty.ts';
 import { feedCodeHints } from './feed-code-hints.ts';
 import { prFinality } from './pr-finality.ts';
+import { qaCarried, qaSkipped } from './qa-basis.ts';
 import {
   dispatchCiPendingAfterSubmit,
   dispatchCiRedNewHeadInProductReview,
@@ -211,6 +212,8 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchReviewerStatusComment,
   dispatchUnresolvedThread,
   dispatchApprovalWithNotes,
+  qaCarried,
+  qaSkipped,
   spurTransitionsRapidRecovery,
   spurTransitionsCursorExpired,
   spurTransitionsKilledHolder,
