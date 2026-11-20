@@ -8,13 +8,16 @@
   justify-content: safe center;
   gap: var(--space-3);
   min-height: 0;
-  padding: var(--space-4) var(--space-6);
+  /* The side safe-area insets keep the first and last column clear of a landscape notch. */
+  padding: var(--space-4) max(var(--space-6), env(safe-area-inset-right, 0px)) var(--space-4)
+    max(var(--space-6), env(safe-area-inset-left, 0px));
   overflow-x: auto;
   overflow-y: hidden;
 }
 /* breakpoints.narrow */
 @media (max-width: 760px) {
   .main {
-    padding: var(--space-3);
+    padding: var(--space-3) max(var(--space-3), env(safe-area-inset-right, 0px)) var(--space-3)
+      max(var(--space-3), env(safe-area-inset-left, 0px));
   }
 }
