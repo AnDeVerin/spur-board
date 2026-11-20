@@ -179,11 +179,23 @@ export const clip = (area: Rect | undefined, position = '', id = 'scroller') => 
 /**
  * The panel's size as a browser would lay it out: `width` and the content `height`, capped by the
  * CSS `max-height` (the room placement wrote as `--popover-available`, floored at `least`). A
- * panel under `[data-away]` is not rendered and has no box.
+ * panel under `[data-away]` is not rendered and has no box. As in Chrome, `offsetWidth` and
+ * `offsetHeight` round it to whole pixels and `getComputedStyle` to three decimals.
  */
 const panelSize = { width: 320, height: 200, least: 120 };
-const isPanel = (element: HTMLElement) =>
-  element.getAttribute('role') === 'dialog' && !element.hasAttribute('aria-modal');
+export const stubPanelSize = (next: Partial<typeof panelSize>) => {
+  Object.assign(panelSize, next);
+};
+const isPanel = (element: Element): element is HTMLElement =>
+  element instanceof HTMLElement &&
+  element.getAttribute('role') === 'dialog' &&
+  !element.hasAttribute('aria-modal');
+const laidOut = (panel: HTMLElement) => {
+  if (panel.closest('[data-away]')) return { width: 0, height: 0 };
+  const available = parseFloat(panel.style.getPropertyValue('--popover-available'));
+  const cap = Math.max(panelSize.least, Number.isNaN(available) ? Infinity : available);
+  return { width: panelSize.width, height: Math.min(panelSize.height, cap) };
+};
 const offsets = (['offsetWidth', 'offsetHeight'] as const).map(
   (name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)] as const,
 );
@@ -193,11 +205,8 @@ const stubPanelBox = () => {
       configurable: true,
       get(this: HTMLElement): number {
         if (!isPanel(this)) return Number(original?.get?.call(this) ?? 0);
-        if (this.closest('[data-away]')) return 0;
-        if (name === 'offsetWidth') return panelSize.width;
-        const available = parseFloat(this.style.getPropertyValue('--popover-available'));
-        const cap = Math.max(panelSize.least, Number.isNaN(available) ? Infinity : available);
-        return Math.min(panelSize.height, cap);
+        const { width, height } = laidOut(this);
+        return Math.round(name === 'offsetWidth' ? width : height);
       },
     });
 };
@@ -205,9 +214,10 @@ const stubPanelBox = () => {
 /**
  * The gap tokens as `tokens.css` sets them on `:root`. happy-dom does not inherit custom
  * properties into `getComputedStyle`, so a computed style falls back to them, as in a browser.
+ * The panel's computed `width` and `height` are its laid-out size at three decimals.
  */
 export const gaps: Record<string, string> = { '--space-1': '4px', '--space-2': '8px' };
-const inheritGaps = () => {
+const computedStyle = () => {
   const original = window.getComputedStyle.bind(window);
   vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
     const style = original(element, pseudo);
@@ -215,6 +225,8 @@ const inheritGaps = () => {
       get(target, property) {
         if (property === 'getPropertyValue')
           return (name: string) => target.getPropertyValue(name) || (gaps[name] ?? '');
+        if ((property === 'width' || property === 'height') && isPanel(element))
+          return `${String(Math.round(laidOut(element)[property] * 1000) / 1000)}px`;
         const value: unknown = Reflect.get(target, property);
         return typeof value === 'function'
           ? (value as (...args: unknown[]) => unknown).bind(target)
@@ -353,7 +365,7 @@ export function stubEachTest(): void {
   beforeEach(() => {
     anchorRect();
     stubPanelBox();
-    inheritGaps();
+    computedStyle();
   });
   afterEach(() => {
     Reflect.deleteProperty(document.documentElement, 'clientWidth');
@@ -361,6 +373,7 @@ export function stubEachTest(): void {
     for (const [name, original] of offsets)
       if (original) Object.defineProperty(HTMLElement.prototype, name, original);
     rects.clear();
+    Object.assign(panelSize, { width: 320, height: 200, least: 120 });
     scrollerRect = undefined;
     vi.unstubAllGlobals();
   });

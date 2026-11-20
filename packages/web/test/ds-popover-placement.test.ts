@@ -20,6 +20,7 @@ import {
   stubAnchorRect,
   stubEachTest,
   stubObservers,
+  stubPanelSize,
 } from './ds-popover-helpers.ts';
 
 // Placement through @floating-ui/dom, on the stubbed boxes of ds-popover-helpers.ts: a 1024x768
@@ -71,6 +72,25 @@ describe('Popover placement', () => {
     stubAnchorRect({ left: 100, right: 420, top: 100, bottom: 700 });
     await scrolled();
     expect(placement()).toEqual(box(100, 640));
+  });
+
+  it('stays below with room on a fractional anchor edge: the room it writes is whole pixels', async () => {
+    // A computed height at three decimals can exceed a fractional room by a hair, which flip
+    // took as overflow: 768 - 8 - 431.703125 = 328.296875 reads back as 328.297px.
+    for (const [bottom, top, room] of [
+      [427.703125, 431.703125, '328px'],
+      [427.5, 431.5, '328px'],
+      [428, 432, '328px'],
+    ] as const) {
+      stubAnchorRect({ left: 100, right: 420, top: bottom - 28, bottom });
+      stubPanelSize({ height: 600 });
+      render(createElement(Fragment, null));
+      render(createElement(Harness, { initial: true }));
+      await flush();
+      const row = String(bottom);
+      expect(placement(), row).toEqual({ left: '100px', top: `${String(top)}px`, away: null });
+      expect(opened().style.getPropertyValue('--popover-available'), row).toBe(room);
+    }
   });
 
   it('follows a transform ancestor that clips a fixed anchor', async () => {

@@ -211,8 +211,12 @@ function OpenPopover({
         // a panel that still does not fit flips.
         size({
           padding: edge,
+          // Whole pixels: the panel's height is read back from its computed style, which a
+          // browser rounds to three decimals, so a fractional room could read back a hair over
+          // itself and make flip take a panel that fits for one that overflows.
           apply: ({ availableHeight }) => {
-            if (current()) element.style.setProperty('--popover-available', px(availableHeight));
+            if (current())
+              element.style.setProperty('--popover-available', px(Math.floor(availableHeight)));
           },
         }),
         flip({
