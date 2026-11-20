@@ -1775,6 +1775,31 @@ describe('on-demand PR poll', () => {
     expect(result).toMatchObject({ ok: true, value: { status: 'ok', observedAt: at(I / 2) } });
   });
 
+  it('cuts short the optional reads of the poll in flight when an on-demand call queues', async () => {
+    const signals: AbortSignal[] = [];
+    // The regular poll's optional reads run until the on-demand call aborts them.
+    const { adapter, runner } = start(
+      (ctx) => {
+        const optional = ctx.optionalSignal;
+        if (optional === undefined) return Promise.reject(new Error('no optional signal'));
+        signals.push(optional);
+        return new Promise((resolve) => {
+          optional.addEventListener('abort', () => {
+            resolve(batch());
+          });
+        });
+      },
+      { pollPr: () => Promise.resolve(demandOk()) },
+    );
+    await advanceTo(I / 4);
+    expect(signals.map((signal) => signal.aborted)).toEqual([false]);
+    const call = request(runner);
+    await flush();
+    expect(signals.map((signal) => signal.aborted)).toEqual([true]);
+    await expect(call.result).resolves.toMatchObject({ ok: true });
+    expect(adapter.prRequests).toHaveLength(1);
+  });
+
   it('a timer poll waits for the on-demand call', async () => {
     random(0);
     const onDemand = deferred<Batch>();

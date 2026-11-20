@@ -949,6 +949,7 @@ async function pollRepository({
     fullRead: new Set(changed),
     pairCache,
     pause: pairPause,
+    ...(ctx.optionalSignal === undefined ? {} : { optional: ctx.optionalSignal }),
     reserveRemaining,
     now,
   });
@@ -988,6 +989,8 @@ interface PairArgs {
   fullRead: ReadonlySet<number>;
   pairCache: Map<number, CachedPairs>;
   pause: PairPause;
+  /** `PollContext.optionalSignal`: an on-demand read is waiting, so the pass stops. */
+  optional?: AbortSignal;
   reserveRemaining: number;
   now: () => number;
 }
@@ -997,24 +1000,33 @@ type PairRead = (
 ) => Promise<ResponseData | undefined>;
 /**
  * Sends one approval-watch read, or none (undefined) at the failure cap, past
- * `APPROVAL_PASS_MS` or while paused. A transient failure returns undefined as `attempt` does;
- * `throttled` or `auth` pauses the source's approval-watch reads and returns undefined too, so the
- * poll keeps its batch. An abort or any other error rejects the poll.
+ * `APPROVAL_PASS_MS`, while paused or once `optional` (`PollContext.optionalSignal`) aborted.
+ * The reads are best effort: any error returns undefined, so the poll keeps its batch. A
+ * `throttled` or `auth` one also pauses the source's approval-watch reads; `optional` aborting
+ * cuts the read in flight short. Only an abort of the poll itself rejects it.
  */
-function pairReader(scope: RequestScope, pause: PairPause, now: () => number): PairRead {
+function pairReader(
+  scope: RequestScope,
+  pause: PairPause,
+  now: () => number,
+  optional?: AbortSignal,
+): PairRead {
   const started = now();
+  const signal = optional === undefined ? scope.signal : AbortSignal.any([scope.signal, optional]);
+  const pass: RequestScope = { ...scope, signal };
   return async (query, variables = {}) => {
     const paused = pause.until !== undefined && now() < pause.until;
-    if (paused || scope.requests.failed >= MAX_FAILED_REQUESTS) return undefined;
+    if (paused || optional?.aborted === true) return undefined;
+    if (scope.requests.failed >= MAX_FAILED_REQUESTS) return undefined;
     if (now() - started >= APPROVAL_PASS_MS) return undefined;
     try {
-      return await attempt(scope, query, variables, APPROVAL_REQUEST_MS);
+      return await attempt(pass, query, variables, APPROVAL_REQUEST_MS);
     } catch (error) {
-      if (scope.signal.aborted || !(error instanceof AdapterError)) throw error;
-      if (error.kind === 'throttled')
+      if (scope.signal.aborted) throw error;
+      if (error instanceof AdapterError && error.kind === 'throttled')
         pause.until = error.retryAt?.getTime() ?? now() + APPROVAL_THROTTLE_MS;
-      else if (error.kind === 'auth') pause.until = now() + UNREADABLE_RETRY_MS;
-      else throw error;
+      else if (error instanceof AdapterError && error.kind === 'auth')
+        pause.until = now() + UNREADABLE_RETRY_MS;
       return undefined;
     }
   };
@@ -1067,7 +1079,7 @@ async function readApprovalPairs(
   args: PairArgs,
 ): Promise<void> {
   const { byNumber, pairCache, reserveRemaining, now } = args;
-  const read = pairReader(scope, args.pause, now);
+  const read = pairReader(scope, args.pause, now, args.optional);
   await checkBases(read, acc, args);
   for (const [i, item] of acc.items.entries()) {
     if (item.kind !== 'pr' || !byNumber.has(item.facts.number)) continue;

@@ -365,6 +365,11 @@ export interface PollContext {
     | undefined;
   /** Aborted when core stops the poll (A7). */
   signal: AbortSignal;
+  /**
+   * Aborted when an on-demand read waits for this poll: the adapter ends its optional reads
+   * (approval history), its own in flight included, and returns the batch it has. Absent: never.
+   */
+  optionalSignal?: AbortSignal;
 }
 
 /** Source id of the PR poll of one project repo: `github:<project>:<repo lowercased>`. */

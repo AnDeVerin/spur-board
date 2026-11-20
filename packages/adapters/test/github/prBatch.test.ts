@@ -9,6 +9,8 @@ import {
   prFactsSchema,
   sourceCursorSchema,
   type Adapter,
+  type Batch,
+  type PollContext,
 } from '@spur-board/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -3880,6 +3882,8 @@ describe('approval watch', () => {
       remaining: 4321,
       discovered: [] as Json[],
       base: 'main',
+      // A `PrBases` answer in place of the one built from `base`.
+      bases: undefined as (() => Response) | undefined,
     };
     const rate = () => ({ remaining: state.remaining, resetAt: '2026-01-03T00:00:00.000Z' });
     const fetcher = byOperation((operation, numbers, init) => {
@@ -3897,6 +3901,7 @@ describe('approval watch', () => {
             })
           : failure(state.detailStatus);
       if (operation === 'PrCommits') return state.commits(init);
+      if (operation === 'PrBases' && state.bases !== undefined) return state.bases();
       if (operation === 'PrBases')
         return response({
           ...aliased(numbers, () => ({ pullRequest: { baseRefName: state.base } })),
@@ -3912,9 +3917,9 @@ describe('approval watch', () => {
       advance: (ms: number) => {
         t += ms;
       },
-      poll: (prs = [refOf(7)]) => {
+      poll: (prs = [refOf(7)], extra: Partial<PollContext> = {}) => {
         fetcher.mockClear();
-        return source.poll(context(prs, cursor));
+        return source.poll({ ...context(prs, cursor), ...extra });
       },
       sent: (operation: Operation) => numbersSent(fetcher, operation).length,
     };
@@ -4059,18 +4064,6 @@ describe('approval watch', () => {
   );
   it.each<[string, () => Response]>([
     ['502', () => failure(502)],
-    [
-      'a 502 whose body is cut off after the headers',
-      () =>
-        new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.error(new TypeError('terminated'));
-            },
-          }),
-          { status: 502 },
-        ),
-    ],
     ['a non-JSON body', () => new Response('not json', { status: 200 })],
     ['no rateLimit', () => json({ data: { repository: watchedCommits()['repository'] } })],
   ])('retries a transient commits failure on the next poll: %s', async (_name, answer) => {
@@ -4085,6 +4078,79 @@ describe('approval watch', () => {
     expect(run.sent('PrDetails')).toBe(0);
     expect(run.sent('PrCommits')).toBe(1);
     expect(second.complete).toBe(true);
+  });
+  const cutOff = () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.error(new TypeError('terminated'));
+        },
+      }),
+      { status: 502 },
+    );
+  // Approval history is best effort: no error of its reads costs the batch, and an on-demand
+  // read waiting on the queue cuts the pass short instead of waiting for it.
+  it.each<[string, (run: ReturnType<typeof scenario>) => Promise<Batch>, 'none' | 'cached']>([
+    [
+      'a PrCommits 502 whose body is cut off after the headers',
+      (run) => {
+        run.state.commits = cutOff;
+        return run.poll();
+      },
+      'none',
+    ],
+    [
+      'a PrCommits fetch that rejects',
+      (run) => {
+        run.state.commits = () => Promise.reject(new TypeError('fetch failed'));
+        return run.poll();
+      },
+      'none',
+    ],
+    [
+      'a PrBases 502 whose body is cut off after the headers',
+      async (run) => {
+        await run.poll();
+        // A full read with cached pairs checks the base.
+        run.state.detail = { ...run.state.detail, updatedAt: '2026-01-05T00:00:00Z' };
+        run.state.bases = cutOff;
+        run.advance(MINUTE);
+        const batch = await run.poll();
+        expect(run.sent('PrBases')).toBe(1);
+        return batch;
+      },
+      'cached',
+    ],
+    [
+      'an on-demand read queued while the PrCommits read is in flight',
+      async (run) => {
+        vi.useFakeTimers();
+        try {
+          const waiting = new AbortController();
+          run.state.commits = (init) => hanging('https://api.github.com/graphql', init);
+          const poll = run.poll([refOf(7)], { optionalSignal: waiting.signal });
+          const state = settle(poll);
+          await vi.advanceTimersByTimeAsync(0);
+          expect(run.sent('PrCommits')).toBe(1);
+          waiting.abort();
+          // Well inside the 4 s request timeout: the pass does not wait for the read.
+          await vi.advanceTimersByTimeAsync(0);
+          expect(state.settled).toBe(true);
+          return await poll;
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+      'none',
+    ],
+  ])('keeps the batch after %s', async (_name, read, pairs) => {
+    const run = scenario('watched-changed');
+    const batch = await read(run);
+    expect(batchSchema.parse(batch)).toEqual(batch);
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref: refOf(7), status: 'ok' }]);
+    expect(batch.items).toHaveLength(1);
+    expect(pairsOf(batch)).toEqual(pairs === 'cached' ? run.loaded.pairs : undefined);
   });
   it('omits pairs on a failed or malformed commits read and keeps the batch complete', async () => {
     for (const answer of [() => failure(503), () => json({ data: { rateLimit: {}, x: 1 } })]) {
