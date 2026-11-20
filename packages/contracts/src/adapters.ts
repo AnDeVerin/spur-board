@@ -1,7 +1,7 @@
 // The adapter port: one poll method per source. `Batch` is what an adapter hands back to core
 // and is validated at runtime; `Adapter` and `PollContext` are built by core and are not.
 import { z } from 'zod';
-import type { Config } from './config.ts';
+import { readyMirrorOf, type Config } from './config.ts';
 import type { Result } from './errors.ts';
 import {
   commitShaSchema,
@@ -167,6 +167,10 @@ export const defaultBranchFactSchema = z
   .describe('Colour of the default-branch head.');
 export type DefaultBranchFact = z.output<typeof defaultBranchFactSchema>;
 
+/** What a complete GitHub Project read says about one issue; no complete read means unknown. */
+export const READINESS_STATES = ['ready', 'not_ready'] as const;
+export type ReadinessState = (typeof READINESS_STATES)[number];
+
 export const batchSchema = z
   .strictObject({
     source: z.string().min(1).describe('Id of the adapter that produced the batch.'),
@@ -226,8 +230,44 @@ export const batchSchema = z
       .describe(
         'Colour of the default-branch head read by this poll; omitted when the poll did not read a settled colour.',
       ),
+    mirror: z
+      .strictObject({
+        title: z.string().min(1).describe('Title of the GitHub Project read.'),
+        readiness: z
+          .array(
+            z.strictObject({
+              key: taskKeySchema.describe('Task key of one open tracker issue.'),
+              state: z
+                .enum(READINESS_STATES)
+                .describe(
+                  'ready: the issue has the configured option in the Project; not_ready: it has another, none, or is not in the Project.',
+                ),
+            }),
+          )
+          .describe('One entry per open issue of the tracker repository.'),
+      })
+      .optional()
+      .describe(
+        'The GitHub Project status read by a github-project source; only on a complete batch.',
+      ),
   })
   .superRefine((batch, ctx) => {
+    if (batch.mirror !== undefined && !batch.complete)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['mirror'],
+        message: 'Only a complete batch carries mirror',
+      });
+    const readiness = new Set<string>();
+    batch.mirror?.readiness.forEach((entry, index) => {
+      if (readiness.has(entry.key))
+        ctx.addIssue({
+          code: 'custom',
+          path: ['mirror', 'readiness', index, 'key'],
+          message: 'Report each task key once',
+        });
+      readiness.add(entry.key);
+    });
     const positions = new Set<string>();
     batch.sessionTransitions?.forEach((edge, index) => {
       if (positions.has(edge.position))
@@ -338,6 +378,57 @@ export function trackerSourceId(
 }
 
 /**
+ * Source id of a project's GitHub Project mirror, `github-project:<project>:<owner/number
+ * lowercased>`, or undefined when its ready-for-dev column is manual.
+ */
+export function mirrorSourceId(
+  project: Pick<Config['projects'][number], 'id' | 'tracker' | 'columns'>,
+): string | undefined {
+  const mirror = readyMirrorOf(project);
+  return mirror === undefined
+    ? undefined
+    : `github-project:${project.id}:${mirror.project.toLowerCase()}`;
+}
+
+/** Why a github-project source read no complete snapshot; positions stay where they are. */
+export const MIRROR_FAILURE_CODES = [
+  'mirror_project_forbidden',
+  'mirror_field_not_found',
+  'mirror_snapshot_incomplete',
+  'mirror_rate_limited',
+  'mirror_read_failed',
+] as const;
+export type MirrorFailureCode = (typeof MIRROR_FAILURE_CODES)[number];
+
+/** Meaning and fix of each mirror failure code, for docs/errors.md and board doctor. */
+export const MIRROR_FAILURES: Record<MirrorFailureCode, { meaning: string; fix: string }> = {
+  mirror_project_forbidden: {
+    meaning:
+      'The GitHub Project was not found or is not readable with GITHUB_TOKEN: a wrong owner or number, a missing read:project scope, or no access to the Project.',
+    fix: 'Check projects[].columns[].source.project against the Project URL and give GITHUB_TOKEN the read:project scope (a fine-grained token: Projects read access for the owner). Restart the daemon after changing config.yaml or secrets.env.',
+  },
+  mirror_field_not_found: {
+    meaning:
+      'The Project has no single-select field with the configured name, or the field has no option with the configured value.',
+    fix: 'Set source.field to the name of a single-select field of the Project and source.value to one of its option names, letter case included, and restart the daemon; or add the option to the field in the Project.',
+  },
+  mirror_snapshot_incomplete: {
+    meaning:
+      'The read did not fit one page: the tracker repository has more than 100 open issues, or an issue sits in more than 20 Projects.',
+    fix: 'Close or move open issues until the repository has at most 100, or remove an issue from Projects it does not need; the mirror applies the next complete read.',
+  },
+  mirror_rate_limited: {
+    meaning: 'GitHub rate-limited the read; the board retries after the reset.',
+    fix: 'Wait for the reset. If it repeats, lower the GraphQL load of other clients of the token or raise adapters.githubIssues.intervalMs.',
+  },
+  mirror_read_failed: {
+    meaning:
+      'The read failed for another reason: a network or server error, a malformed response or a GraphQL error on the repository.',
+    fix: 'Usually transient: the board retries on its next poll. If it persists, check the daemon log for the GitHub error.',
+  },
+};
+
+/**
  * One source of facts. Core calls `poll` every `intervalMs` and decides what the facts mean.
  *
  * Obligations:
@@ -350,7 +441,7 @@ export function trackerSourceId(
  * - A3: `complete` is true only when the whole listing was read without errors. A request the
  *   adapter gave up on or deferred for budget also leaves it false. An incomplete batch still
  *   carries the facts it did observe. Core concludes anything from absence only after a
- *   complete batch.
+ *   complete batch. Only a complete batch carries `mirror`, and core moves tasks by it.
  * - A4: `entities` holds exactly one entry for each ref in `PollContext.observe`. An `ok`
  *   entity has exactly one item with the same identity (a PR by repo and number, a ticket by
  *   tracker and id, a session by id); a `not_found` or `no_access` entity has none, so a missed
@@ -407,6 +498,8 @@ export interface SourceState {
   /** Poll-start time of the last effectively complete batch. */
   lastCompleteAt?: string | undefined;
   blind?: { reason: 'auth' | 'config' | 'stale'; message: string } | undefined;
+  /** Why the last poll of a github-project source failed; absent after a delivered batch. */
+  failure?: { code: MirrorFailureCode; message: string } | undefined;
   gone: readonly EntityRef[];
 }
 
@@ -436,17 +529,20 @@ export interface AdapterCore {
 export class AdapterError extends Error {
   readonly kind: AdapterErrorKind;
   readonly retryAt?: Date | undefined;
+  /** The mirror failure code a github-project source reports with this failure. */
+  readonly code?: MirrorFailureCode | undefined;
   usage?: Batch['usage'];
 
   constructor(
     kind: AdapterErrorKind,
     message: string,
-    options: { retryAt?: Date | undefined; cause?: unknown } = {},
+    options: { retryAt?: Date | undefined; cause?: unknown; code?: MirrorFailureCode } = {},
   ) {
     super(message, 'cause' in options ? { cause: options.cause } : undefined);
     this.name = 'AdapterError';
     this.kind = kind;
     this.retryAt = options.retryAt;
+    this.code = options.code;
   }
 }
 

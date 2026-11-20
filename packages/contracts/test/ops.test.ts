@@ -162,6 +162,19 @@ describe('catalog', () => {
         ".projects[].columns[].executor.kind",
         ".projects[].columns[].executor.name",
         ".projects[].columns[].group",
+        ".projects[].columns[].source",
+        ".projects[].columns[].source|0.kind",
+        ".projects[].columns[].source|1.kind",
+        ".projects[].columns[].source|1.tracker",
+        ".projects[].columns[].source|1.name",
+        ".projects[].columns[].source|1.project",
+        ".projects[].columns[].source|1.field",
+        ".projects[].columns[].source|1.value",
+        ".projects[].columns[].source|1.health",
+        ".projects[].columns[].source|1.readAt",
+        ".projects[].columns[].source|1.error",
+        ".projects[].columns[].source|1.error.code",
+        ".projects[].columns[].source|1.error.message",
         ".projects[].columns[].quietTurnAfterMs",
         ".projects[].columns[].noRecipientAfterMs",
         ".projects[].dispatcher",
@@ -848,6 +861,7 @@ describe('comment shape', () => {
           'lastDispatchAt',
           'lastGoodAt',
           'columnEnteredAt',
+          'readAt',
         ].some((name) => path.endsWith(name)) && !path.includes('.prSummary');
       expect(Array.isArray(node['anyOf']), path).toBe(nullable);
       const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];
@@ -876,9 +890,10 @@ describe('snapshot', () => {
     // Manual moves extend task.move, move views, schema metadata and the error catalog. #761
     // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
     // and board-wide project, sources and services texts to status.get. #733 adds the
-    // review-rule gate reasons and condition to task.get --why.
+    // review-rule gate reasons and condition to task.get --why. #738 adds the mirror move kind
+    // and reason, sources[].failure and the github-project service texts.
     expect(await catalogVersion(baseline)).toBe(
-      '8cf3cae1ff4e6672978851312490f41f8ad5f73eece7d5c101adb6777d21a844',
+      '6b5496de8c0d31b56655ef0721bd22decd7d246848c1043e545d2840e86b3e16',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { renderErrorsDocs } from '../../../scripts/gen-errors-docs.ts';
 import {
   ERRORS,
+  MIRROR_FAILURES,
+  MIRROR_FAILURE_CODES,
   EXIT_CODES,
   errorContextSchema,
   errorEnvelopeSchema,
@@ -413,6 +415,12 @@ describe('generated error documentation', () => {
       'utf8',
     );
     expect(committed).toBe(rendered);
+    const mirror = rendered.split('\n## Mirror failure codes\n')[1];
+    for (const code of MIRROR_FAILURE_CODES) {
+      const section = mirror?.split(`### ${code}\n`)[1]?.split('\n### ')[0];
+      expect(section, code).toContain(MIRROR_FAILURES[code].meaning);
+      expect(section, code).toContain(`Fix: ${MIRROR_FAILURES[code].fix}`);
+    }
     for (const [code, spec] of Object.entries(ERRORS)) {
       const section = rendered.split(`## ${code}\n`)[1]?.split('\n\n## ')[0];
       expect(section).toBeDefined();

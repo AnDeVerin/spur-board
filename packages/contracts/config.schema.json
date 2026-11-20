@@ -340,6 +340,43 @@
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 9007199254740991
+                },
+                "source": {
+                  "description": "Where ready-for-dev takes its tasks from: manual (the default), or a GitHub Project field mirrored by the board. Only on the ready-for-dev column.",
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "manual",
+                      "description": "manual: the operator moves tasks into and out of the column, the default."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "tracker",
+                          "description": "tracker: the board places idle Todo-group tasks between todo and ready-for-dev from the status of their issue in a GitHub Project, read on every poll with GITHUB_TOKEN (scope read:project). An issue whose field has the value moves to ready-for-dev; one that loses it, leaves the Project or is archived there moves back to todo. Tasks with started work, and triage, are never moved. Manual moves into or out of ready-for-dev are refused with column_mirrored. A failed or incomplete read moves nothing. Only on the ready-for-dev column of a github-issues project."
+                        },
+                        "project": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9-]+\\/[1-9][0-9]*$",
+                          "description": "The GitHub Project as owner/number: the user or organization login that owns it and its number from the Project URL."
+                        },
+                        "field": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Name of the single-select field of the Project to read, such as Status."
+                        },
+                        "value": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The option of field that places a task in ready-for-dev, such as Ready; matched to an option name exactly, letter case included."
+                        }
+                      },
+                      "required": ["type", "project", "field", "value"],
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               },
               "required": ["id"],

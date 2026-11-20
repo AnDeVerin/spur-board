@@ -39,6 +39,7 @@ export const EVENT_KINDS = [
   'task_shadow_moved',
   'task_corrected',
   'task_manually_moved',
+  'task_mirror_moved',
   'dispatcher_mode_changed',
   'turn_opened',
   'turn_taken',
@@ -201,6 +202,11 @@ export const eventPayloadSchemas = {
     from: z.enum(COLUMN_IDS),
     to: z.enum(COLUMN_IDS),
     reason: S,
+  }),
+  task_mirror_moved: z.looseObject({
+    from: z.enum(COLUMN_IDS),
+    to: z.enum(COLUMN_IDS),
+    source: S,
   }),
   task_corrected: z.looseObject({
     from: z.enum(COLUMN_IDS),

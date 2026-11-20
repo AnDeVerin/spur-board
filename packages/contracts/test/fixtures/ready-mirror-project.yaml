@@ -1,0 +1,24 @@
+projects:
+  - id: web
+    tracker:
+      type: github-issues
+      repo: example-org/web
+    repos: [example-org/web]
+    operatorGithubLogin: octocat
+    columns:
+      - id: todo
+      - id: triage
+      - id: ready-for-dev
+        source:
+          type: tracker
+          project: example-org/3
+          field: Status
+          value: Ready
+      - id: dev
+      - id: review
+      - id: ready-to-merge
+      - id: done
+operator:
+  slack: U0000000000
+digest:
+  tz: UTC

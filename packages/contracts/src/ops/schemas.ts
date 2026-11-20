@@ -121,17 +121,23 @@ export const moveViewSchema = z
   .strictObject({
     at: z.iso.datetime().describe('When the task moved, ISO 8601 UTC.'),
     kind: z
-      .enum(['task_moved', 'task_shadow_moved', 'task_corrected', 'task_manually_moved'])
+      .enum([
+        'task_moved',
+        'task_shadow_moved',
+        'task_corrected',
+        'task_manually_moved',
+        'task_mirror_moved',
+      ])
       .describe(
-        'task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement.',
+        'task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement, task_mirror_moved is a placement between todo and ready-for-dev by the GitHub Project mirror.',
       ),
     actor: actorIdSchema,
     from: z.enum(COLUMN_IDS).describe('Column the task left.'),
     to: z.enum(COLUMN_IDS).describe('Column the task entered.'),
     reason: z
-      .enum([...MOVE_REASONS, 'returned', 'corrected', 'manual'])
+      .enum([...MOVE_REASONS, 'returned', 'corrected', 'manual', 'mirrored'])
       .describe(
-        'Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), or manual (operator Todo-group placement).',
+        'Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), manual (operator Todo-group placement), or mirrored (GitHub Project mirror).',
       ),
     gate: z
       .array(z.enum(GATE_REASONS))
@@ -140,7 +146,7 @@ export const moveViewSchema = z
       .string()
       .nullable()
       .describe(
-        'The block a return opened, or the literal reason for an operator correction or manual move; null otherwise.',
+        'The block a return opened, the literal reason for an operator correction or manual move, or the source id of a mirror move; null otherwise.',
       ),
   })
   .describe('A column move of a task.');
