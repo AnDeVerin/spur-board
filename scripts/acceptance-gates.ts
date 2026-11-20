@@ -59,6 +59,15 @@ export function parseGates(section: string): ParsedGates {
   return errors.length === 0 ? { ok: true, gates } : { ok: false, errors };
 }
 
+/** `## Acceptance gates` headings outside HTML comments, matched as `sectionText` matches them. */
+function gateHeadings(body: string): number {
+  const visible = body.replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+  return visible
+    .split('\n')
+    .filter((line) => /^##[ \t]+(.*?)[ \t]*$/.exec(line)?.[1]?.toLowerCase() === 'acceptance gates')
+    .length;
+}
+
 class UsageError extends Error {}
 
 const USAGE =
@@ -128,10 +137,12 @@ function run(argv: string[], env: NodeJS.ProcessEnv): number {
   }
   out(`PR head ${prHead}, ${String(changed.length)} UI file(s) changed`);
 
-  const parsed = parseGates(sectionText(request.body ?? '', 'acceptance gates'));
+  const body = request.body ?? '';
+  const parsed = parseGates(sectionText(body, 'acceptance gates'));
   const problems: string[] = [];
   const passed: string[] = [];
-  if (!parsed.ok) problems.push(...parsed.errors);
+  if (gateHeadings(body) > 1) problems.push('more than one ## Acceptance gates section');
+  else if (!parsed.ok) problems.push(...parsed.errors);
   else {
     for (const gate of GATES) {
       const value = parsed.gates[gate];

@@ -13,7 +13,6 @@
   then the test, or the command and the output it printed, taken from the spec's
   `### Verification` and the close-out evidence. Tick `[x]` only when that proof was observed in
   this run; otherwise leave `[ ]` and write `pending - <why>`.
-- Risk - `high`, `medium` or `low` with a one-line reason, from the spec's `### Risks`.
 - Acceptance gates - required only when the PR changes a UI file: under `packages/web/` outside
   `test/`, `gallery/` and `kit/`, or `docs/design-system-decisions.md`. `tester:` and `designer:`
   each take the full head SHA of the gate's last passing run (tester PASS, designer APPROVED, or
@@ -25,6 +24,7 @@
   `acceptance-gates` fails while a UI file changed after a named head; a description edit re-runs
   it. The cap never excuses the final-head run (Final head in
   `.agents/skills/manager/references/verdicts.md`).
+- Risk - `high`, `medium` or `low` with a one-line reason, from the spec's `### Risks`.
 - Changed checks - one line per entry below, from the developer's `Changed checks` output.
 
 ## Changed checks

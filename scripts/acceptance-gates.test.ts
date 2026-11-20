@@ -110,6 +110,15 @@ describe('parseGates', () => {
   });
 });
 
+describe('PR template', () => {
+  it('follows Acceptance gates with a heading gitflow never deletes', () => {
+    const headings = template.split('\n').filter((line) => line.startsWith('## '));
+    const next = headings[headings.indexOf('## Acceptance gates') + 1];
+    expect(next).toBeDefined();
+    expect(['## Changed checks', '## Design System decisions']).not.toContain(next);
+  });
+});
+
 describe('acceptance-gates.ts CLI', () => {
   const script = fileURLToPath(new URL('acceptance-gates.ts', import.meta.url));
 
@@ -317,6 +326,32 @@ describe('acceptance-gates.ts CLI', () => {
       expect(result.status).toBe(1);
       expect(errorLine(result.stdout)[0]).toContain(problem);
     }
+  });
+
+  it('passes a body in template order with no Changed checks and the closing lines after it', () => {
+    const { box, gate } = uiPr();
+    box.merge();
+    const text = [
+      '## Description\n\n- x',
+      '## Testing\n\n- [x] ok',
+      `## Acceptance gates\n\ntester: ${gate}\ndesigner: n/a`,
+      '## Risk\n\n- low - docs',
+      'Closes #1\n\n[AI-generated, session: s-1]\n',
+    ].join('\n\n');
+    const result = box.run(text);
+    expect(result.status).toBe(0);
+    expect(last(result.stdout)).toBe(
+      `acceptance-gates: PASS (no UI change since tester ${gate}, designer n/a)`,
+    );
+  });
+
+  it('fails a body with more than one Acceptance gates section', () => {
+    const { box, gate } = uiPr();
+    box.merge();
+    const text = `## Acceptance gates\n\ntester: ${gate}\n\n## Acceptance Gates\n\ndesigner: ${gate}\n\n<!--\n## Acceptance gates\n-->\n\n## Risk\n\n- low`;
+    const result = box.run(text);
+    expect(result.status).toBe(1);
+    expect(errorLine(result.stdout)[0]).toContain('more than one ## Acceptance gates section');
   });
 
   it('fails a UI PR whose section holds a code fence, naming the line', () => {
