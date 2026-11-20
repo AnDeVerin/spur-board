@@ -176,12 +176,11 @@
   background: var(--color-fill-attention);
   color: var(--color-status-attention);
 }
-/* A quiet fact after a cell's text, such as `+3` commits since an approval. */
+/* A quiet fact after a cell's text, such as `+3` commits since an approval. Secondary text keeps
+   it at 4.5:1 or more on every cell fill in both themes; tertiary and the light attention colour
+   fall below that at this size. */
 .suffix {
-  color: var(--color-text-tertiary);
-}
-.cell[data-tone='pend'] .suffix {
-  color: inherit;
+  color: var(--color-text-secondary);
 }
 .placeholder {
   display: flex;
