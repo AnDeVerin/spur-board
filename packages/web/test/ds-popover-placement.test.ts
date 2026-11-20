@@ -93,6 +93,49 @@ describe('Popover placement', () => {
     }
   });
 
+  it('places again when an input changes with no commit, DOM change or autoUpdate trigger', async () => {
+    // swap: the caller points the same ref at another connected element, then a scroll: the
+    // panel's element is gone, so it closes once. header: tabs wrap while the panel is capped by
+    // the room below, so its outer size stays: the header's own resize raises the least height
+    // to 152, over the 146px below, and the panel flips above (582 - 4 - 570).
+    for (const row of ['swap', 'header'] as const) {
+      const onClose = vi.fn();
+      const attach = (id: string) => {
+        const element = document.createElement('button');
+        element.id = id;
+        document.body.append(element);
+        return element;
+      };
+      const one = attach('one');
+      const two = attach('two');
+      stubAnchorRect({ left: 100, right: 420, top: 582, bottom: 610 }, 'one');
+      stubAnchorRect({ left: 500, right: 580, top: 60, bottom: 80 }, 'two');
+      stubPanelSize({ height: 600 });
+      const held = { current: one };
+      const props = { open: true, onClose, anchor: held, trigger: held, title: 'T' };
+      render(createElement(Fragment, null));
+      render(createElement(Popover, { ...props, children: 'Body' }));
+      await flush();
+      expect(placement(), row).toEqual(box(100, 614));
+      if (row === 'swap') {
+        held.current = two;
+        await scrolled();
+        await scrolled();
+        expect(onClose, row).toHaveBeenCalledTimes(1);
+      } else {
+        const header = opened().firstElementChild as HTMLElement;
+        Object.defineProperty(header, 'offsetHeight', { configurable: true, get: () => 66 });
+        await resized(header);
+        expect(opened().style.getPropertyValue('--popover-header'), row).toBe('66px');
+        expect(placement(), row).toEqual(box(100, 8));
+        expect(onClose, row).not.toHaveBeenCalled();
+      }
+      render(createElement(Fragment, null));
+      one.remove();
+      two.remove();
+    }
+  });
+
   it('follows a transform ancestor that clips a fixed anchor', async () => {
     // The transform makes the scroller the fixed anchor's containing block, so it clips it.
     await openAt({ left: 300, right: 400, top: 20, bottom: 40 });

@@ -178,7 +178,8 @@ export const clip = (area: Rect | undefined, position = '', id = 'scroller') => 
 
 /**
  * The panel's size as a browser would lay it out: `width` and the content `height`, capped by the
- * CSS `max-height` (the room placement wrote as `--popover-available`, floored at `least`). A
+ * CSS `max-height` (the room placement wrote as `--popover-available`, floored at `least`, which
+ * grows with `--popover-header`). A
  * panel under `[data-away]` is not rendered and has no box. As in Chrome, `offsetWidth` and
  * `offsetHeight` round it to whole pixels and `getComputedStyle` to three decimals.
  */
@@ -193,7 +194,10 @@ const isPanel = (element: Element): element is HTMLElement =>
 const laidOut = (panel: HTMLElement) => {
   if (panel.closest('[data-away]')) return { width: 0, height: 0 };
   const available = parseFloat(panel.style.getPropertyValue('--popover-available'));
-  const cap = Math.max(panelSize.least, Number.isNaN(available) ? Infinity : available);
+  // The least height grows with a header written taller than the one-row 34px.
+  const header = parseFloat(panel.style.getPropertyValue('--popover-header'));
+  const least = panelSize.least + Math.max(0, (Number.isNaN(header) ? 34 : header) - 34);
+  const cap = Math.max(least, Number.isNaN(available) ? Infinity : available);
   return { width: panelSize.width, height: Math.min(panelSize.height, cap) };
 };
 const offsets = (['offsetWidth', 'offsetHeight'] as const).map(

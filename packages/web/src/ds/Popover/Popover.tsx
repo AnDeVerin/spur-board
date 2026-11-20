@@ -29,8 +29,8 @@ import styles from './Popover.module.css';
  *
  * Placement comes from `@floating-ui/dom`: `computePosition` with `offset`, `size`, `flip`,
  * `shift` and `hide`, run by `autoUpdate` on any scroll of the anchor's or the panel's scrolling
- * ancestors, on resize, on a resize of either element and on a layout shift of the anchor. The
- * panel has no frame loop of its own. It sits `--space-1` under the anchor's bottom edge,
+ * ancestors, on resize, on a resize of either element and on a layout shift of the anchor, and
+ * again when the header resizes. The panel has no frame loop of its own. It sits `--space-1` under the anchor's bottom edge,
  * starting at its left edge, and keeps `--space-2` inside the window edges; both gaps are read
  * from the panel's computed style at each update. The panel is hidden (`display: none`, so
  * nothing inside can show itself and its controls leave the tab order) while the anchor is out of
@@ -46,8 +46,9 @@ import styles from './Popover.module.css';
  * panel belongs to an element that is gone. Every commit and every DOM change reads the ref
  * again. Until an anchor attaches, as when both mount in one commit, the panel stays pending. A
  * caller that passes a new ref object retargets the panel to it, pending until that ref attaches,
- * and an anchor moved under another parent is tracked again from there. A `ref.current` swap with
- * neither a commit nor a DOM change is seen only at the next update.
+ * and an anchor moved under another parent is tracked again from there. Every placement update
+ * (a scroll, a resize, a layout shift) reads the ref again too, so a `ref.current` swap with
+ * neither a commit nor a DOM change is seen at the next one.
  *
  * Height: it shrinks to the space under the anchor, down to `--space-2` above the window edge,
  * and the body scrolls. It is never shorter than its least height: the header as rendered (so
@@ -241,7 +242,8 @@ function OpenPopover({
       // The rendered header, which grows when its actions wrap, sets the least height. Read only
       // while shown: a hidden panel has no box. Zero means not laid out yet.
       const height = header.current?.offsetHeight ?? 0;
-      if (height > 0 && height !== headerWritten.current) {
+      const headerChanged = height > 0 && height !== headerWritten.current;
+      if (headerChanged) {
         headerWritten.current = height;
         element.style.setProperty('--popover-header', px(height));
       }
@@ -251,9 +253,9 @@ function OpenPopover({
         pendingFocus.current = false;
         if (opener && document.activeElement === opener) focusClose();
       }
-      // A hidden panel was measured with no box: place it again at its rendered size, before
-      // the frame paints.
-      if (wasHidden) place(target);
+      // A hidden panel was measured with no box, and a new header height moves the least height
+      // flip reacts to: place it again, before the frame paints.
+      if (wasHidden || headerChanged) place(target);
     });
   };
   // Binds placement to the current anchor element. `moved`: a DOM change re-inserted the anchor,
@@ -283,11 +285,25 @@ function OpenPopover({
     seen.current = { ref, element: target };
     if (run.current?.element === target && !moved) return;
     stop();
+    // Each update first rereads the ref: a caller may swap `anchor` or its element with no commit
+    // and no DOM change, which the close and retarget rules above then apply to.
+    const update = () => {
+      const now = latest.current.anchor;
+      if (now !== ref || now.current !== target) track();
+      else place(target);
+    };
+    const followed = autoUpdate(target, element, update);
+    // The header can grow (its actions wrap) while a capped panel keeps its outer size: neither
+    // element autoUpdate watches resizes, but the least height changes.
+    const resized =
+      typeof ResizeObserver === 'function' && header.current ? new ResizeObserver(update) : null;
+    if (header.current) resized?.observe(header.current);
     run.current = {
       element: target,
-      stop: autoUpdate(target, element, () => {
-        place(target);
-      }),
+      stop: () => {
+        followed();
+        resized?.disconnect();
+      },
     };
   };
   // After each commit: a re-render may swap the ref or replace the anchor element.
