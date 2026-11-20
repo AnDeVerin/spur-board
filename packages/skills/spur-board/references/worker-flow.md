@@ -11,10 +11,12 @@
 - Close a "back" block by hand: keyed `board unblock <block> --done <commit/PR link>` once the
   fix is in, only if `board task <task>` shows it open with `addressee` worker, and that
   submit left it open or you have no Dev turn (an orchestrator or operator runs Dev). Ack it
-  when you read it in `board inbox`; `not_found` means no notification, no ack. While
-  `board task <task> --why` lists `submit_pending` or another hold, wait. A hold that does not
-  clear: keyed `board ask <task> <text>` naming it; its recipient checks or escalates it with
-  keyed `board escalate <block>`, up to the operator
+  when you read it in `board inbox`; `not_found` means no notification, no ack. If the ack
+  answers `forbidden` (the block's ring is assigned to another worker, or you authored the
+  block), skip the ack: close it with `--done` if it is yours to close, otherwise leave it to
+  the worker it rings. While `board task <task> --why` lists `submit_pending` or another hold,
+  wait. A hold that does not clear: keyed `board ask <task> <text>` naming it; its recipient
+  checks or escalates it with keyed `board escalate <block>`, up to the operator
   ([Blocks and escalation](how-board-works-blocks.md)).
 - Exit 3: not applied. Ask in your own session; when the Board returns, retry identically.
 - Exit 4: no Board config; report in your session; keep the key.
