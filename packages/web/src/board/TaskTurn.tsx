@@ -36,6 +36,7 @@ import {
   submitConfirmation,
   UNAVAILABLE,
   REFRESHING,
+  UNSETTLED,
   STALE,
   type Basis,
 } from './turn-model.ts';
@@ -73,6 +74,7 @@ export function TaskTurn({
   unavailable,
   submitTurnIntent,
   returnTurnIntent,
+  onStale,
 }: {
   value: BoardTask;
   /** The key the task view opened, which its writes are bound to. */
@@ -85,6 +87,8 @@ export function TaskTurn({
   unavailable: string | undefined;
   submitTurnIntent: BoardData['submitTurnIntent'];
   returnTurnIntent: BoardData['returnTurnIntent'];
+  /** Hears whether the post-write re-read is pending or failed (`useTurnReread`). */
+  onStale?: ((stale: boolean) => void) | undefined;
 }) {
   const [bound, setBound] = useState<Bound>();
   const [form, setForm] = useState<Form>();
@@ -94,6 +98,7 @@ export function TaskTurn({
   const [reason, setReason] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
   const [refusal, setRefusal] = useState<string>();
+  const [unsettled, setUnsettled] = useState(false); // A close got no answer: input kept as sent.
   const [phase, setPhase] = useState<TurnPhase | 'idle'>('idle');
   const intent = useRef<{ signature: string; value: TurnIntent }>(undefined);
   const mounted = useRef(true);
@@ -115,7 +120,7 @@ export function TaskTurn({
   );
   const turns = useCallback(() => turnsRef.current, []);
   // The re-read after a take or a close is pending or failed: no holder and no sends then.
-  const { reread, watch, line: plainLine } = useTurnReread(value, firstActions, turns);
+  const { reread, watch, line: plainLine } = useTurnReread(value, firstActions, turns, onStale);
   const stale = reread !== undefined;
   /** The form control that last lost focus to nothing; disabled, the browser left focus on the body. */
   const lostFocus = useRef<(Element & { disabled?: boolean }) | null>(null);
@@ -156,7 +161,7 @@ export function TaskTurn({
         ? undefined
         : UNAVAILABLE;
   const sendOff = closed || blocked !== undefined || stale;
-  const fieldsOff = inFlight || sendOff;
+  const fieldsOff = inFlight || sendOff || unsettled;
   /** An open turn other than the bound one: the next turn a close opened. */
   const newer =
     bound !== undefined && open !== undefined && open.id !== bound.turn.id ? open : undefined;
@@ -224,6 +229,7 @@ export function TaskTurn({
     setForm(undefined);
     setErrors({});
     setRefusal(undefined);
+    setUnsettled(false);
     intent.current = undefined;
   };
   const send = (event: { preventDefault: () => void }) => {
@@ -296,6 +302,7 @@ export function TaskTurn({
           setRefusal(
             cause instanceof Error ? cause.message : 'Could not close the turn. Try again.',
           );
+          setUnsettled(closing && !(cause instanceof ProblemError));
           // The take landed (or was already held) before the close was refused, or the take got
           // no server answer and may have landed: the read then says who holds the turn.
           if (closing || (taking && !(cause instanceof ProblemError))) watch(sent.refresh());
@@ -441,6 +448,7 @@ export function TaskTurn({
         ) : (
           reasonRow('Required. The worker reads it as the cause of the return.')
         )}
+        {unsettled && <p className={styles.note}>{UNSETTLED}</p>}
         {refusal !== undefined && (
           <Banner variant="error" icon="x">
             {refusal}

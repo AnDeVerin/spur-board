@@ -102,6 +102,8 @@ export function TaskView({
   onRetryHistory: () => void;
 }) {
   const [tab, setTab] = useState('now');
+  // The Turn section's re-read after a write has not answered: Why names no holder either.
+  const [turnStale, setTurnStale] = useState(false);
   const historyShown = tab === 'history';
   useEffect(() => {
     if (!historyShown) return;
@@ -202,7 +204,7 @@ export function TaskView({
               </div>
               {value !== undefined && (
                 <CollapsibleSection title="Why it is here" summary={whySummary(value)}>
-                  <KeyValueBox rows={whyRows(value, columns, now)} />
+                  <KeyValueBox rows={whyRows(value, columns, now, turnStale)} />
                 </CollapsibleSection>
               )}
               {value !== undefined && (
@@ -216,6 +218,7 @@ export function TaskView({
                   unavailable={unavailable}
                   submitTurnIntent={submitTurnIntent}
                   returnTurnIntent={returnTurnIntent}
+                  onStale={setTurnStale}
                 />
               )}
               {value?.submission !== undefined && (

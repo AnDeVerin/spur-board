@@ -215,12 +215,13 @@ function conditionRow(condition: TaskGate['conditions'][number]): WhyRow {
   }
 }
 
-function turnRow(turn: BoardTask['turn'], now: number): WhyRow {
+function turnRow(turn: BoardTask['turn'], now: number, holderUnknown: boolean): WhyRow {
   if (turn === null) return { key: 'Open turn', value: 'none' };
   const key = `Open turn ${turn.id}`;
   if (turn.addressee === 'operator')
     return { key, value: `yours · open · ${age(turn.at, now)}`, status: 'wait' };
   const role = turn.addressee.split(':')[0] ?? turn.addressee;
+  if (holderUnknown) return { key, value: `${role} · holder unknown`, status: 'unchecked' };
   if (turn.taken)
     return {
       key,
@@ -233,12 +234,15 @@ const openBlocks = (value: BoardTask) => value.blocks.filter((block) => block.st
 
 /**
  * "Why it is here": the exit conditions of the `why.column` gate (or why they are unknown), each
- * hold, the open turn, the open blocks, and the next column when every condition is met.
+ * hold, the open turn, the open blocks, and the next column when every condition is met. With
+ * `holderUnknown` (the Turn section's re-read after a write has not answered) the open turn names
+ * no holder.
  */
 export function whyRows(
   value: BoardTask,
   columns: readonly NextColumnConfig[],
   now: number,
+  holderUnknown = false,
 ): WhyRow[] {
   const { why } = value;
   const gate = currentGate(why);
@@ -248,7 +252,7 @@ export function whyRows(
   else rows.push(...gate.conditions.map(conditionRow));
   for (const hold of why?.holds ?? [])
     rows.push({ key: 'Hold', value: inWords(hold), status: 'wait' });
-  rows.push(turnRow(value.turn, now));
+  rows.push(turnRow(value.turn, now, holderUnknown));
   const blocks = openBlocks(value);
   rows.push(
     blocks.length > 0

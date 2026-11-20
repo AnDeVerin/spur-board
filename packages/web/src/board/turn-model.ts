@@ -39,6 +39,8 @@ export const STALE = 'Could not refresh the turn. Reload to see who holds it.';
  * the shared read coordinator has no deadline, and a later answer still clears the state.
  */
 export const REREAD_LIMIT_MS = 15_000;
+/** In a form whose close got no server answer: why its fields stay as sent. */
+export const UNSETTLED = 'The earlier send may still land; send it again to settle it, or Cancel.';
 /** Shown in place of the holder while that re-read runs. */
 export const REFRESHING = 'Refreshing the turn…';
 export const ARCHIVED = 'This task is archived. The turn cannot be closed.';

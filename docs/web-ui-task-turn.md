@@ -70,9 +70,12 @@ applied twice; an edited one is a new write with a new key. After `not_turn_take
 takes the turn again with a new key. A refusal after the ack leaves the operator holding the turn,
 and the read that follows shows it in the hold line and the header. A take, submit or return
 whose answer was lost, or did not come in 15 seconds, may have landed: Cancel works at once, and
-a resend asks again under the same key, so it is safe. Until the read after a take, submit or
-return answers, the section names no holder, and **Submit…**, **Return to dev…** and the form's
-send stay locked; it shows
+a resend asks again under the same key, so it is safe. A submit or return without an answer keeps
+its form as sent, read-only, with
+`The earlier send may still land; send it again to settle it, or Cancel.`: the send resends that
+input until it gets an answer, and Cancel drops it. Until the read after a take, submit or
+return answers, the section names no holder (**Why it is here** reads `holder unknown` too), and
+**Submit…**, **Return to dev…** and the form's send stay locked; it shows
 `Refreshing the turn…` while that read runs and
 `Could not refresh the turn. Reload to see who holds it.` when it fails or has not answered in 15
 seconds, and Cancel focuses that line; when the line goes, focus moves to the first enabled

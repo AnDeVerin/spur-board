@@ -20,6 +20,8 @@ import {
   turnSection,
   button,
   buttons,
+  choose,
+  commit,
   reason,
   type,
   text,
@@ -34,6 +36,12 @@ describe('Turn section after a write', () => {
   const HOLD =
     'You hold T5; the orchestrator cannot submit or return it until you finish or it takes the turn back.';
   const STALE = 'Could not refresh the turn. Reload to see who holds it.';
+  const UNSETTLED = 'The earlier send may still land; send it again to settle it, or Cancel.';
+  /** The text of the task view's "Why it is here" section. */
+  const why = () =>
+    [...(document.querySelector('[role="dialog"]')?.querySelectorAll('section') ?? [])].find(
+      (section) => section.querySelector('[id$="-title"]')?.textContent === 'Why it is here',
+    )?.textContent ?? '';
   const REFRESHING = 'Refreshing the turn…';
   const held = orchestratorTaskGet({ taken: { by: 'operator', at: AT } });
   const closedBy = (column: string) =>
@@ -348,16 +356,36 @@ describe('Turn section after a write', () => {
       expect(primary === null ? null : primary.disabled).toBe(sendOff);
       // Nothing is in flight any more: an open form's Cancel works.
       if (primary !== null) expect(button('Cancel').disabled).toBe(false);
+      // While the re-read has not answered, Why names no holder either.
+      if (plain !== undefined) expect(why()).toContain('holder unknown');
       if (resend === true && answer !== undefined) {
         late.resolve(envelope(answer));
         await settle();
         expect(summary()).toBe(answered);
+        expect(why()).not.toContain('holder unknown');
+        const closeStalled = stalled === 'task.submit' || stalled === 'task.return';
+        if (closeStalled) {
+          // The close may still land: the form keeps its input, read-only, until it settles.
+          expect(text()).toContain(UNSETTLED);
+          expect((stalled === 'task.submit' ? commit() : reason()).disabled).toBe(true);
+          if (stalled === 'task.submit') {
+            await choose('Skipped');
+            expect(
+              turnSection().querySelector('[role="tab"][aria-selected="true"]')?.textContent,
+            ).toBe('Tested');
+          }
+        }
         if (stalled !== undefined && answering !== undefined) d.routes[stalled] = answering;
         await send();
-        // The stalled write is asked again under the same key: a replay if it had landed.
+        // The stalled write is asked again with the same body and key: a replay if it had landed.
         const asked = writes().filter((call) => call.op === stalled);
         expect(asked).toHaveLength(2);
         expect(asked[1]?.key).toBe(asked[0]?.key);
+        expect(asked[1]?.input).toEqual(asked[0]?.input);
+        if (closeStalled)
+          expect(text()).toContain(
+            stalled === 'task.submit' ? 'T5 submitted.' : 'T5 returned to dev.',
+          );
         return;
       }
       if (plain !== undefined) {
@@ -375,6 +403,7 @@ describe('Turn section after a write', () => {
         expect(document.activeElement).toBe(submits.at(-1));
         expect(submits.at(-1)?.disabled).toBe(false);
         if (answered !== undefined) expect(summary()).toBe(answered);
+        expect(why()).not.toContain('holder unknown');
       }
     },
   );

@@ -15,6 +15,8 @@ export function useTurnReread(
   value: BoardTask,
   actions: () => HTMLElement | null,
   section: () => HTMLElement | null,
+  /** Hears whether the section is stale, so others name no holder either. */
+  onStale?: (stale: boolean) => void,
 ) {
   const [reread, setReread] = useState<'pending' | 'failed'>();
   // The keyed re-read of the latest write answered, well or not.
@@ -34,6 +36,9 @@ export function useTurnReread(
   const ref = useRef<HTMLParagraphElement>(null);
   const focused = useRef(false);
   const stale = reread !== undefined;
+  useEffect(() => {
+    onStale?.(stale);
+  }, [stale, onStale]);
   useLayoutEffect(() => {
     if (stale || !focused.current) return;
     focused.current = false;
