@@ -66,6 +66,8 @@ export interface TaskTable {
   archive_slot_at: string | null;
   /** When the ticket last went from done to not done (migration 0014); never cleared. */
   reopened_at: string | null;
+  /** 1-based place among live tasks of the (project, column), kept dense by migration 0029 triggers. */
+  position: Generated<number>;
 }
 
 export interface PrSnapshotTable {

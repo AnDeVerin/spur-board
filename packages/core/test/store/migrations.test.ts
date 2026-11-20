@@ -164,6 +164,9 @@ function insertRaw(raw: Database.Database, table: string, row: Record<string, un
     .run(...Object.values(row));
 }
 
+/** Task columns added after 0028, left out of every old-shape `sampleRows.task` insert. */
+const POST_0028_TASK = ['position'];
+
 /** `row` without the columns a later migration added. */
 function without(row: object, columns: string[]): Record<string, unknown> {
   return Object.fromEntries(Object.entries(row).filter(([name]) => !columns.includes(name)));
@@ -231,6 +234,12 @@ describe('migrate', () => {
       const flag = spec.partialUnique ? 1 : 0;
       expect(listed, name).toEqual([{ unique: flag, partial: flag }]);
     }
+    // A table rebuild of task drops these; the rebuild must recreate them (0029).
+    const triggers = raw
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name")
+      .pluck()
+      .all();
+    expect(triggers).toEqual(['task_position_insert', 'task_position_update']);
     expect(raw.pragma('foreign_key_check')).toEqual([]);
     expect(userVersion(raw)).toBe(latest);
     expect(store.migration).toEqual({
@@ -492,7 +501,7 @@ describe('migrate', () => {
   it('leaves via empty on event rows written before 0024', () => {
     const { raw } = rawDb(join(tempDir(), 'board.db'));
     migrate(raw, real.slice(0, 23));
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'task', without(sampleRows.task, POST_0028_TASK));
     const row = without(sampleRows.event, ['via']);
     insertRaw(raw, 'event', row);
 
@@ -523,10 +532,99 @@ describe('migrate', () => {
     expect(rows(raw, 'source_state')).toEqual([{ ...row, ...EMPTY_MIRROR }]);
   });
 
+  it('orders live tasks by column entry time from a 0028 database', () => {
+    const { raw } = rawDb(join(tempDir(), 'board.db'));
+    migrate(raw, real.slice(0, 28));
+    const task = (
+      id: number,
+      project: string,
+      column: string,
+      created_at: string,
+      membership = 'active',
+    ) => {
+      insertRaw(raw, 'task', {
+        ...without(sampleRows.task, POST_0028_TASK),
+        id,
+        project,
+        key: `o/r#${String(id)}`,
+        tracker_id: String(id),
+        membership,
+        column,
+        shadow_column: null,
+        created_at,
+      });
+    };
+    let eventId = 0;
+    const event = (taskId: number, kind: string, at: string, payload: object) => {
+      eventId += 1;
+      insertRaw(raw, 'event', {
+        ...without(sampleRows.event, ['via']),
+        id: eventId,
+        task_id: taskId,
+        kind,
+        at,
+        payload: JSON.stringify(payload),
+      });
+    };
+    // Created without milliseconds, no entry event: by time it precedes 2, by text it does not.
+    task(1, 'proj', 'todo', '2026-01-01T10:00:00Z');
+    task(2, 'proj', 'todo', '2026-01-01T09:00:00.000Z');
+    event(2, 'task_moved', '2026-01-01T10:00:00.500Z', { from: 'triage', to: 'todo' });
+    task(3, 'proj', 'todo', '2026-01-01T10:00:01.000Z');
+    task(4, 'proj', 'todo', '2026-01-01T09:00:00.000Z');
+    // Equal entry times: journal order puts 4 (event 2) before 3 (event 3).
+    event(4, 'task_manually_moved', '2026-01-01T10:00:01.000Z', {
+      from: 'dev',
+      to: 'todo',
+      reason: 'x',
+    });
+    event(3, 'task_added', '2026-01-01T10:00:01.000Z', { column: 'todo' });
+    task(5, 'proj', 'todo', '2026-01-01T09:00:00.000Z');
+    event(5, 'task_corrected', '2026-01-01T10:00:02.000Z', {
+      from: 'dev',
+      to: 'todo',
+      reason: 'x',
+      shadow: false,
+    });
+    // Shadow-only entries never count, though they are later in the journal and earlier in time.
+    event(5, 'task_corrected', '2026-01-01T08:00:00.000Z', {
+      from: 'dev',
+      to: 'todo',
+      reason: 'x',
+      shadow: true,
+    });
+    task(6, 'proj', 'todo', '2026-01-01T10:00:03.000Z');
+    event(6, 'task_mirror_moved', '2026-01-01T08:00:00.000Z', {
+      from: 'triage',
+      to: 'todo',
+      source: 's',
+      shadow: true,
+    });
+    task(7, 'proj', 'todo', '2026-01-01T07:00:00.000Z', 'archived');
+    task(8, 'other', 'todo', '2026-01-01T11:00:00.000Z');
+    task(9, 'proj', 'ready-for-dev', '2026-01-01T12:00:00.000Z');
+    task(10, 'proj', 'ready-for-dev', '2026-01-01T12:00:00.000Z');
+
+    migrate(raw, real);
+
+    expect(raw.prepare('SELECT id, position FROM task ORDER BY id').all()).toEqual([
+      { id: 1, position: 1 },
+      { id: 2, position: 2 },
+      { id: 3, position: 4 },
+      { id: 4, position: 3 },
+      { id: 5, position: 5 },
+      { id: 6, position: 6 },
+      { id: 7, position: 0 },
+      { id: 8, position: 1 },
+      { id: 9, position: 1 },
+      { id: 10, position: 2 },
+    ]);
+  });
+
   it('preserves submissions and stored results from 0025 with nullable provenance and valid foreign keys', () => {
     const { raw } = rawDb(join(tempDir(), 'board.db'));
     migrate(raw, real.slice(0, 25));
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'task', without(sampleRows.task, POST_0028_TASK));
     const submission = without(sampleRows.submission, [
       'basis',
       'source_sha',
@@ -624,6 +722,7 @@ describe('migrate', () => {
         'terminal_at',
         'archive_slot_at',
         'reopened_at',
+        ...POST_0028_TASK,
       ]),
     );
     insertRaw(raw, 'block', without(sampleRows.block, ['project', 'addressee_spur_project']));
@@ -705,6 +804,7 @@ describe('migrate', () => {
         'terminal_at',
         'archive_slot_at',
         'reopened_at',
+        ...POST_0028_TASK,
       ]),
     );
     insertRaw(
@@ -726,7 +826,7 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 9));
-    insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
+    insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at', ...POST_0028_TASK]));
     insertRaw(raw, 'pr_snapshot', {
       ...without(sampleRows.pr_snapshot, ['closed_recheck_at']),
       state: 'closed',
@@ -857,6 +957,7 @@ describe('migrate', () => {
         'terminal_at',
         'archive_slot_at',
         'reopened_at',
+        ...POST_0028_TASK,
       ]),
     );
     insertRaw(
@@ -899,7 +1000,7 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 11));
-    insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
+    insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at', ...POST_0028_TASK]));
     insertRaw(raw, 'block', without(sampleRows.block, ['project', 'addressee_spur_project']));
     const old = without(
       { ...sampleRows.notification, author_session: null, last_outbox_id: null },
@@ -942,7 +1043,7 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 12));
-    insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
+    insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at', ...POST_0028_TASK]));
     insertRaw(raw, 'block', without(sampleRows.block, ['project', 'addressee_spur_project']));
     insertRaw(raw, 'turn', {
       ...without(sampleRows.turn, ['head_sha']),
@@ -1010,7 +1111,7 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 17));
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'task', without(sampleRows.task, POST_0028_TASK));
     const block = without(sampleRows.block, ['project', 'addressee_spur_project']);
     insertRaw(raw, 'block', block);
     insertRaw(raw, 'comment', sampleRows.comment);
@@ -1069,7 +1170,7 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 19));
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'task', without(sampleRows.task, POST_0028_TASK));
     const block = without(sampleRows.block, ['addressee_spur_project']);
     insertRaw(raw, 'block', block);
     insertRaw(raw, 'block', { ...block, id: 2, task_id: null, project: 'proj' });
@@ -1233,6 +1334,7 @@ describe('migration pins', () => {
     '0027_session_finished_at.sql':
       'd1b873b8fb0a02f3c1d0b2bdf9891b04906e9949071d950812d6e9ddd1819b79',
     '0028_source_mirror.sql': '4553449e520b89f35764593f000e16a4907db7216da720017c44fe457f4a241d',
+    '0029_task_position.sql': 'e940f9c1a7bf653e4f66aa307b65bb73b3ba7ac68628ed2e44524305a2b2e43e',
     '0019_pr_polling.sql': '17e2b7964c72320f484ae05ae54e68f5964ebc06ea6c5e014013d13f2060d198',
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',
