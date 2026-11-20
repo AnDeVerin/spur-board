@@ -7,7 +7,8 @@
   doorbell. Update: keyed `board comment <task> <text>`.
 - A return to Dev: ack its Dev turn, read the reason in `board task <task>`, fix it, then
   keyed `board submit <turn> <sha>`. Taking the turn reads the "back" code block; once the
-  Board confirms the submit, of a new head or the same head as a reply, it closes `done`.
+  Board confirms the submit, of a new head or the same head as a reply, it closes `done`. If
+  the block's doorbell still rings (a turn taken before a Board upgrade), ack it too.
 - A Dev turn you cannot take (a named orchestrator or the operator runs Dev) leaves the "back"
   block unread: ack the block on its doorbell, then once the fix is in keyed
   `board unblock <block> --done <commit/PR link>`.
