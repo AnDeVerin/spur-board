@@ -4330,11 +4330,12 @@ describe('anomaly blocks', () => {
       ['secondClosure', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['laterMergeAfterEdit', 'untouched', [], null, UNCONFIRMED],
       ['legacyThenStored', 'untouched', [], null, UNCONFIRMED],
+      // The inbox counts the conflict-linked merge, as 0.127.0 did; dispatch reads active links.
       [
         'conflictMerged',
         'untouched',
-        ['pr-closed', ENDED],
-        NO_PR,
+        [],
+        null,
         { pr: 'closed', mergedOpen: null, unconfirmed: false },
       ],
       // The conflict-linked merge closed the ticket while #7 is open: no ticket-closed block.
@@ -4404,6 +4405,192 @@ describe('anomaly blocks', () => {
           mergedOpen: read?.mergedOpen?.number ?? null,
           unconfirmed: read?.ticketUnconfirmed,
         }).toEqual(outcome);
+      },
+    );
+
+    /** Unlinks a PR by hand, as the operator does with a wrong link. */
+    const unlink = (b: Board, number: number) =>
+      b.apply(
+        createLinkMutations(b.config).remove,
+        {
+          mode: 'pr',
+          task: b.task.key,
+          pr: `https://github.com/o/r/pull/${String(number)}`,
+          reason: 'Wrong PR.',
+        },
+        'operator',
+      );
+    /**
+     * #8 as the task's only PR, linked as `kind`: beside the open #7, which is then unlinked, so
+     * the poller never promotes a conflict link. Ends with #8 in `state`.
+     */
+    const onlyPr = async (
+      b: Board,
+      kind: 'active' | 'conflict',
+      state: 'open' | 'merged' | 'closed',
+    ) => {
+      const [first, second] = kind === 'active' ? [8, 7] : [7, 8];
+      await prs(b, [pr(first, 'open')]);
+      now += 1_000;
+      await prs(b, [pr(first, 'open'), pr(second, 'open')]);
+      now += 1_000;
+      await unlink(b, 7);
+      now += 1_000;
+      await prs(b, [pr(8, 'open')]);
+      const { pr_state } = await b.store.db
+        .selectFrom('link')
+        .select('pr_state')
+        .where('entity', '=', 'pr')
+        .where('number', '=', 8)
+        .executeTakeFirstOrThrow();
+      expect(pr_state).toBe(kind);
+      now += 1_000;
+      const eight =
+        state === 'merged'
+          ? { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() }
+          : state === 'closed'
+            ? { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() }
+            : pr(8, 'open');
+      await prs(b, [eight]);
+      return eight;
+    };
+    type Scenario = (b: Board, ticket: Ticket) => Promise<void>;
+    /** Each merged/left check of the inbox, for #8 as the task's only PR. */
+    const checks = {
+      // A worker ends with the ticket untouched: an open or merged PR keeps the alert away.
+      'worker-end': (kind, state) => async (b, ticket) => {
+        const before = iso();
+        await spur(b, [session('worker-1', 'working')]);
+        await ticket('open', before);
+        now += 1_000;
+        const eight = await onlyPr(b, kind, state);
+        now += 1_000;
+        await ticket('open', before);
+        now += 1_000;
+        await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+        now += 1_000;
+        await seeAgain(b, ticket);
+        now += 1_000;
+        await prs(b, [eight]);
+      },
+      // The ticket closes while a worker is live: only a merge may have closed it.
+      'ticket-closed': (kind, state) => async (b, ticket) => {
+        await spur(b, [session('worker-1', 'working')]);
+        await ticket('open');
+        now += 1_000;
+        const eight = await onlyPr(b, kind, state);
+        now += 1_000;
+        await ticket('closed');
+        now += 1_000;
+        await prs(b, [eight]);
+      },
+    } satisfies Record<
+      string,
+      (kind: 'active' | 'conflict', state: 'open' | 'merged' | 'closed') => Scenario
+    >;
+    const expected = {
+      'worker-end': { open: [], merged: [], closed: ['pr-closed', ENDED] },
+      'ticket-closed': {
+        open: ['ticket-closed'],
+        merged: [],
+        closed: ['pr-closed', 'ticket-closed'],
+      },
+    } as const;
+    /** Case A: a merged PR linked as a conflict beside the open #7, then the ticket closes. */
+    const caseA: Scenario = async (b, ticket) => {
+      await spur(b, [session('worker-1', 'working')]);
+      await ticket('open');
+      now += 1_000;
+      await prs(b, [pr(7, 'open')]);
+      now += 1_000;
+      await prs(b, [pr(7, 'open'), pr(8, 'open')]);
+      now += 1_000;
+      const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [pr(7, 'open'), eight]);
+      now += 1_000;
+      await ticket('closed');
+      now += 1_000;
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+      now += 1_000;
+      await prs(b, [pr(7, 'open'), eight]);
+    };
+    /** Case B: active #7 closes unmerged, then conflict-linked #8 merges and closes the ticket. */
+    const caseB: Scenario = async (b, ticket) => {
+      await spur(b, [session('worker-1', 'working')]);
+      await ticket('open');
+      now += 1_000;
+      await prs(b, [pr(7, 'open')]);
+      now += 1_000;
+      await prs(b, [pr(7, 'open'), pr(8, 'open')]);
+      now += 1_000;
+      const seven = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+      await prs(b, [seven, pr(8, 'open')]);
+      now += 1_000;
+      const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [seven, eight]);
+      now += 1_000;
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+      now += 1_000;
+      await ticket('closed');
+      now += 1_000;
+      await prs(b, [seven, eight]);
+      await seeAgain(b, ticket);
+      now += 1_000;
+      await prs(b, [seven, eight]);
+    };
+    /**
+     * Case C: #7 merges, the merge workflow edits the still-open ticket, redundant #8 closes
+     * unmerged and fresh polls follow, then the ticket is done, all inside the merge's grace.
+     * No block opens at any step.
+     */
+    const caseC: Scenario = async (b, ticket) => {
+      const none = async () => {
+        expect((await surface(b)).blocks).toEqual([]);
+      };
+      await prs(b, [pr(7, 'open')]);
+      now += 1_000;
+      await prs(b, [pr(7, 'open'), pr(8, 'open')]);
+      now += 1_000;
+      const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [seven, pr(8, 'open')]);
+      now += 1_000;
+      await ticket('open');
+      await none();
+      now += 1_000;
+      const eight = { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() };
+      await prs(b, [seven, eight]);
+      now += 1_000;
+      await prs(b, [seven, eight]);
+      await none();
+      now += 1_000;
+      await ticket('closed');
+      now += 1_000;
+      await prs(b, [seven, eight]);
+      await none();
+    };
+    it.each([
+      ...(['worker-end', 'ticket-closed'] as const).flatMap((check) =>
+        (['active', 'conflict'] as const).flatMap((kind) =>
+          (['open', 'merged', 'closed'] as const).map(
+            (state) =>
+              [
+                `${check}, ${kind} PR ${state}`,
+                checks[check](kind, state),
+                expected[check][state] as readonly string[],
+              ] as const,
+          ),
+        ),
+      ),
+      ['case A: conflict merge beside an open PR, ticket done', caseA, []],
+      ['case B: active PR closed unmerged, conflict merge, ticket done', caseB, []],
+      ['case C: redundant PR closed and ticket edited, done in the merge grace', caseC, []],
+    ] as const)(
+      'counts a conflict link as an active one for merged and remaining PRs: %s',
+      async (_name, scenario, ledger) => {
+        const { b, ticket } = await split();
+        await scenario(b, ticket);
+        expect(await openLedger(b)).toEqual(ledger);
+        if (ledger.length === 0) expect((await surface(b)).opens).toBe(0);
       },
     );
 
