@@ -244,10 +244,8 @@ function ColumnHead({
             }}
           >
             <Icon name={actorIcon(column.kind, part)} />
-            <span className={styles.execText}>
-              {part ? PART_SOURCE : column.executor}
-              {warn && ' · no live session'}
-            </span>
+            <span className={styles.execText}>{part ? PART_SOURCE : column.executor}</span>
+            {warn && <span className={styles.execWarn}> · no live session</span>}
           </button>
           {column.rows.length > 0 && <SortControl id={column.id} sort={sort} onChange={onSort} />}
         </div>

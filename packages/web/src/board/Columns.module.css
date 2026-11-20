@@ -45,6 +45,12 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* The no-live-session words follow the executor and never shrink, so a long executor name
+   clips before them and the warning stays whole. */
+.execWarn {
+  flex: none;
+  white-space: nowrap;
+}
 /* Holds a head and its help panel for the focus-leave test of the panel; adds no box. */
 .helpScope {
   display: contents;

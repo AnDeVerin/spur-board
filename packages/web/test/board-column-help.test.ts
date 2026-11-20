@@ -306,17 +306,18 @@ describe('column help', () => {
     let qa: { id: string; links: never[] } | null = null;
     await board(() => Promise.resolve(envelope(answer(qa))));
     expect(actor('qa').hasAttribute('data-warn')).toBe(true);
-    expect(line('qa')).toBe('orchestrator stand-qa · no live session');
+    expect(line('qa')).toBe('orchestrator stand-qa');
+    expect(actor('qa').textContent).toBe('orchestrator stand-qa · no live session');
     expect(actor('qa').title).toBe('How qa works: who acts and the rules · no live session');
     // A part bound to a project without a session, a dispatcher and a live session do not warn.
     for (const id of ['todo', 'external-review', 'review', 'dev']) {
       expect(actor(id).hasAttribute('data-warn')).toBe(false);
-      expect(line(id)).not.toContain('no live session');
+      expect(actor(id).textContent).not.toContain('no live session');
     }
     qa = qaSession;
     await openHelp('qa');
     expect(actor('qa').hasAttribute('data-warn')).toBe(false);
-    expect(line('qa')).toBe('orchestrator stand-qa');
+    expect(actor('qa').textContent).toBe('orchestrator stand-qa');
     expect(actor('qa').title).toBe('How qa works: who acts and the rules');
     press(actor('qa'), 'click');
     qa = null;
