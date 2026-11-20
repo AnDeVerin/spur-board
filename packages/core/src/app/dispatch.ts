@@ -22,6 +22,7 @@ import { z } from 'zod';
 import {
   describeCompletion as describeDomainCompletion,
   dispatch,
+  dispatchHolds,
   returnCauses,
   turnReason,
 } from '../domain/dispatch.ts';
@@ -1269,12 +1270,13 @@ export async function dispatchTasks(
     if (read.ticketUnconfirmed) continue;
     if (read.pending?.state === 'confirmed') await confirmSubmit(trx, read.pending);
     let result = dispatch(read.input);
-    // External Review's deferred course check waits for this pass's decision: completion and every
-    // other move go first. Its hold then opens no turn in this pass.
+    // External Review's deferred course check waits for a final decision of this pass: completion
+    // and every other move go first, and a held pass (blind GitHub or Spur, a pending submit, an
+    // open item) decides nothing yet. Its hold then opens no turn in this pass.
     if (
       mode === 'on' &&
       result.moves.length === 0 &&
-      !read.input.cycleHeld &&
+      dispatchHolds(read.input).length === 0 &&
       (await raiseDeferredCourseCheck(trx, { task, project, config: ctx.config, at: ctx.at }))
     )
       result = dispatch({ ...read.input, cycleHeld: true });

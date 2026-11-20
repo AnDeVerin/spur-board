@@ -4259,6 +4259,45 @@ describe('external change-request rounds', () => {
     },
   );
 
+  it.each([
+    {
+      name: 'the PR had merged',
+      fresh: async (ctx: Board) => {
+        await ctx.pr({ state: 'merged' });
+        await ctx.ticket('closed');
+      },
+      column: 'done',
+      checks: [],
+    },
+    {
+      name: 'the PR is still open',
+      fresh: async (ctx: Board) => {
+        await ctx.spur();
+        expect(await openKeys(ctx)).toEqual([]);
+        await ctx.github();
+      },
+      column: 'dev',
+      checks: ['course-check:1:external-review'],
+    },
+  ])(
+    'a deferred External Review check waits for a fresh GitHub view: $name',
+    async ({ fresh, column, checks }) => {
+      const ctx = await inReview(deferredCheck);
+      await externalReturn(ctx, A);
+      const [limit] = await itemsOf(ctx, 'cycle_limit');
+      expect(limit?.item_key).toBe('cycle-limit:1:review');
+      ctx.restart(deferredCheck);
+      await ctx.closeItem(`I${String(limit?.id)}`);
+      await ctx.tick();
+      expect((await ctx.why()).holds).toContain('github_blind');
+      expect(await openKeys(ctx)).toEqual([]);
+
+      await fresh(ctx);
+      expect((await ctx.task()).column).toBe(column);
+      expect(await openKeys(ctx)).toEqual(checks);
+    },
+  );
+
   it('repeated change requests on one head count once', async () => {
     const ctx = await inDev({ externalReview: true, curator: true });
     await devRound(ctx, B);
