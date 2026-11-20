@@ -45,6 +45,8 @@ catalog:
   '@modelcontextprotocol/server': ^2.4.0
   '@modelcontextprotocol/client': ^2.4.0
   tsdown: 0.23.7
+  # Popover placement (#776), pinned exactly: the web bundle inlines it.
+  '@floating-ui/dom': 1.8.0
   # Release and mutation-testing tools, pinned exactly.
   '@semantic-release/changelog': 7.0.0
   '@semantic-release/commit-analyzer': 13.0.1

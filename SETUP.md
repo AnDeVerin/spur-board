@@ -154,6 +154,12 @@ Missing UI assets return
 503 with the hint ``UI is not built: run `pnpm --filter @spur-board/web build` ``; health and
 operations still work. The UI build is supplied separately from this listener.
 
+The page carries the Spur mark as its tab icon and a web app manifest, so a phone can install
+the Board as a standalone app. Installing needs the HTTPS `web.publicOrigin` (a secure origin,
+such as the private-network proxy) with a certificate the phone trusts; plain HTTP offers no
+install. In Chrome on Android use the menu, then Install app; in Safari on iOS use Share, then
+Add to Home Screen.
+
 ## 4. Install the service and choose operator access
 
 Check the service first, then install it if missing:
@@ -281,7 +287,8 @@ is available, and Auto follows the system appearance.
 With `web.port` and `web.publicOrigin` configured, the daemon serves the packaged SPA and local
 assets on its separate loopback web listener. A “UI is not built” 503 means assets need
 building/packaging; restart the daemon after rebuilding because it loads assets at startup.
-`pnpm package:smoke` verifies installed `GET /` and a referenced asset on an isolated listener.
+`pnpm package:smoke` verifies installed `GET /`, a referenced asset, the web app manifest, the
+favicons and the app icons on an isolated listener.
 The shell gets live updates from `GET /v1/events` on the same listener; behind a reverse proxy,
 turn response buffering off for that path and keep the read timeout above 15 seconds. The status bar shows the daemon version from
 `status.get` `daemon.version` and stays empty until the first status read.

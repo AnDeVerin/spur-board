@@ -11,6 +11,8 @@ Enable the optional web listener with `web.port` and `web.publicOrigin` per
 [Optional browser access](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#optional-browser-access),
 then open `web.publicOrigin`. For 503 `UI is not built`, follow
 [Building the web UI](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#building-the-web-ui).
+The page shows the Spur mark as its tab icon and, over HTTPS, installs on a phone as a standalone
+app (see Optional browser access).
 
 Reads: `config.get`, chosen-project `status.get` and `columns.describe`, `inbox.operator`,
 open-task `task.get`/`task.history` and `/v1/events`. The UI owns no data.

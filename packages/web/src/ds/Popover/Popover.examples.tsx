@@ -168,9 +168,19 @@ export function FollowsColumn() {
 export function LongContent() {
   return (
     <Demo lines={60}>
-      Starts closed. Scroll so the button sits in the lower third of the window and open it: the
-      panel stays under the button, its bottom edge keeps inside the window, and the body scrolls.
-      It never flips above.
+      Starts closed; open it with the button in the lower third: the panel stays under it and
+      shrinks down to its header and one control while the body scrolls, flips above with less room,
+      and at 375px fills the width less a small space each side.
+    </Demo>
+  );
+}
+
+export function FlipsAbove() {
+  return (
+    <Demo lines={60} style={{ minHeight: '100dvh', alignContent: 'end' }}>
+      Starts closed. Scroll until the button sits at the bottom of the window and open it: with less
+      room under the button than its header and one control, the panel opens above it, its header
+      and Close inside the window.
     </Demo>
   );
 }

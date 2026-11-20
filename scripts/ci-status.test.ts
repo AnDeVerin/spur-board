@@ -314,6 +314,11 @@ describe('parseFailedLog', () => {
 describe('reproFor', () => {
   it.each([
     ['test (24)', 'Run pnpm check:full --only test', 'pnpm check:full --only test'],
+    [
+      'quality',
+      'Run pnpm check:full --only format,lint,types,knip,agents',
+      'NODE_OPTIONS=--max-old-space-size=8192 pnpm check:full --only format,lint,types,knip,agents',
+    ],
     ['guardrails', 'Run pnpm guardrails', 'pnpm guardrails'],
     [
       'secrets',

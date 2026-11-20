@@ -24,9 +24,10 @@ A map of the repo for agents and contributors. The rules live in the files and s
   build. `scripts/web-shell-qa.ts` is a test-only loopback fixture for controlled sidecar QA
   scenarios. Browser code imports only `@spur-board/contracts/browser` among workspace
   packages; the boundary lint is in `eslint.config.js`. The design system lives in `src/ds/`;
-  `src/` and `test/` reach it only through `src/ds/index.ts`. `gallery/` (its example page) and
-  `kit/` (the kit build for prototypes) read `src/ds/` directly on purpose, and lint does not
-  check them. Skill: `design-system`.
+  `src/` and `test/` reach it only through `src/ds/index.ts`. `gallery/` (its example page),
+  `kit/` (the kit build for prototypes) and `build/` (the Vite plugin that draws the favicon,
+  app icons and web app manifest from `src/ds/Logo/mark.ts` and the tokens) read `src/ds/`
+  directly on purpose, and lint does not check them. Skill: `design-system`.
 - `packages/skills` - the product skills that `board skills install` ships; not a workspace
   package.
 - `packages/adapters` - the adapter runner in `src/runner/`: per-source schedule, backoff,

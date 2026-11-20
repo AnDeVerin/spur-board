@@ -56,7 +56,19 @@ const mime: Readonly<Record<string, string>> = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.webp': 'image/webp',
+  '.webmanifest': 'application/manifest+json',
 };
+// The favicon, app icons and manifest the web build emits at fixed root names
+// (`packages/web/build/app-icons.ts`); `scripts/package.ts` lists the same names.
+const APP_FILES: ReadonlySet<string> = new Set([
+  '/manifest.webmanifest',
+  '/favicon.svg',
+  '/favicon-32.png',
+  '/apple-touch-icon.png',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-512-maskable.png',
+]);
 
 async function loadFiles(root: string | URL): Promise<Map<string, Buffer>> {
   const files = new Map<string, Buffer>();
@@ -251,7 +263,10 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
     )
       throw new CommandError('not_found', 'This web route is not available.');
     const key = path === '/' ? '/index.html' : path;
-    const file = key === '/index.html' || path.startsWith('/assets/') ? files.get(key) : undefined;
+    const file =
+      key === '/index.html' || APP_FILES.has(key) || path.startsWith('/assets/')
+        ? files.get(key)
+        : undefined;
     const fallback = extname(path) === '' ? files.get('/index.html') : undefined;
     if (file === undefined && fallback === undefined) {
       if (!files.has('/index.html'))
@@ -266,7 +281,7 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
       'cache-control',
       index
         ? 'no-cache'
-        : /[.-][a-z0-9_-]{8,}\.[^.]+$/i.test(key)
+        : path.startsWith('/assets/') && /[.-][a-z0-9_-]{8,}\.[^.]+$/i.test(key)
           ? 'public, max-age=31536000, immutable'
           : 'no-cache',
     );

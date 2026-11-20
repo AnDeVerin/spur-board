@@ -187,6 +187,9 @@ jobs:
       - name: Check generated command pages are tracked
         run: test -z "$(git ls-files --others --exclude-standard packages/skills/spur-board/references docs/cli.md docs/configuration.md)"
       - run: pnpm check:full --only format,lint,types,knip,agents
+        # Whole-repo eslint runs out of memory at Node's default heap (~4 GB).
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
 
   test:
     needs: reuse

@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
+import { appIcons } from './build/app-icons.ts';
 
 export default defineConfig({
+  plugins: [appIcons()],
   build: {
     sourcemap: false,
     assetsInlineLimit: 0,

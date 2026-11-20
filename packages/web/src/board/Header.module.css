@@ -4,8 +4,10 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: var(--size-header);
-  padding: 0 var(--space-6);
+  /* Standalone on a phone: the safe-area insets keep the content clear of the notch. */
+  height: calc(var(--size-header) + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) max(var(--space-6), env(safe-area-inset-right, 0px)) 0
+    max(var(--space-6), env(safe-area-inset-left, 0px));
   border-bottom: var(--size-hairline) solid var(--color-border-default);
 }
 .brand {
@@ -92,15 +94,17 @@
   .header {
     position: relative;
     gap: var(--space-2);
-    padding: 0 var(--space-3);
+    padding: env(safe-area-inset-top, 0px) max(var(--space-3), env(safe-area-inset-right, 0px)) 0
+      max(var(--space-3), env(safe-area-inset-left, 0px));
   }
-  /* The list hangs from the header, inside its padding, so it never widens the page. */
+  /* The list hangs from the header, inside its padding (the safe-area insets included), so it
+     never widens the page. */
   .switcher {
     position: static;
   }
   .list {
-    left: var(--space-3);
-    right: var(--space-3);
+    left: max(var(--space-3), env(safe-area-inset-left, 0px));
+    right: max(var(--space-3), env(safe-area-inset-right, 0px));
     width: auto;
     max-width: none;
   }

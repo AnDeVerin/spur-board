@@ -1,9 +1,23 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, inject, it } from 'vitest';
 import type {} from '../packages/testkit/src/global-setup.ts';
-import { assembleSkills, assembleWeb, verifyWebAssets, validateTarball } from './package.ts';
+import {
+  assembleSkills,
+  assembleWeb,
+  manifestIcons,
+  verifyWebAssets,
+  validateTarball,
+} from './package.ts';
 
 const manifest = {
   name: 'spur-board',
@@ -12,6 +26,15 @@ const manifest = {
   bin: { board: './dist/bin.mjs' },
   dependencies: { 'better-sqlite3': '^13.0.3' },
 };
+const appFiles = [
+  'manifest.webmanifest',
+  'favicon.svg',
+  'favicon-32.png',
+  'apple-touch-icon.png',
+  'icons/icon-192.png',
+  'icons/icon-512.png',
+  'icons/icon-512-maskable.png',
+];
 const files = [
   'package/package.json',
   'package/README.md',
@@ -21,6 +44,7 @@ const files = [
   'package/dist/web/assets/index-abcdefgh.js',
   'package/dist/web/assets/index-abcdefgh.css',
   'package/dist/web/assets/JetBrainsMono-Regular-abcdefgh.woff2',
+  ...appFiles.map((file) => `package/dist/web/${file}`),
   'package/dist/bin.mjs',
   'package/dist/cli.mjs',
   'package/dist/mcp.mjs',
@@ -55,6 +79,9 @@ describe('package tarball allowlist', () => {
     'package/dist/migrations/0001_init.sql.map',
     'package/dist/urls-DAMwWWmT.mjs',
     'package/dist/chunk-short.mjs',
+    'package/dist/web/favicon.ico',
+    'package/dist/web/icons/icon-64.png',
+    'package/dist/web/other.webmanifest',
   ])('rejects unexpected dist member %s', (file) => {
     expect(() => {
       validateTarball([...files, file], manifest);
@@ -75,6 +102,15 @@ describe('package tarball allowlist', () => {
     expect(() => {
       validateTarball([...files, file], manifest);
     }).toThrow(/outside the allowlist/);
+  });
+
+  it.each(appFiles)('rejects a tarball missing the app file %s', (file) => {
+    expect(() => {
+      validateTarball(
+        files.filter((entry) => entry !== `package/dist/web/${file}`),
+        manifest,
+      );
+    }).toThrow(/missing/);
   });
 
   it('rejects a missing board binary', () => {
@@ -167,5 +203,56 @@ describe('web assembly', () => {
     expect(build.indexOf("run('pnpm', ['build'], packageRoot)")).toBeLessThan(
       build.indexOf('  assembleWeb();'),
     );
+  });
+});
+
+describe('web app manifest references', () => {
+  function copyOfBuild(): { target: string; license: string } {
+    const root = mkdtempSync(join(tmpdir(), 'board-web-manifest-'));
+    const target = join(root, 'web');
+    cpSync(inject('webAssetsRoot'), target, { recursive: true });
+    writeFileSync(join(root, 'OFL.txt'), 'license');
+    return { target, license: join(root, 'OFL.txt') };
+  }
+  const writeIcons = (target: string, srcs: string[]) => {
+    writeFileSync(
+      join(target, 'manifest.webmanifest'),
+      JSON.stringify({ icons: srcs.map((src) => ({ src })) }),
+    );
+  };
+
+  it('reads the icon sources and rejects a manifest without icons', () => {
+    expect(manifestIcons('{"icons":[{"src":"/icons/icon-192.png"}]}')).toEqual([
+      '/icons/icon-192.png',
+    ]);
+    expect(() => manifestIcons('{"name":"Board"}')).toThrow(/no icons array/);
+    expect(() => manifestIcons('{"icons":[{}]}')).toThrow(/no src/);
+    expect(() => manifestIcons('not json')).toThrow();
+  });
+
+  it('rejects a manifest icon outside the app files', () => {
+    const { target, license } = copyOfBuild();
+    writeFileSync(join(target, 'icons', 'icon-64.png'), 'png');
+    writeIcons(target, ['/icons/icon-64.png']);
+    expect(() => {
+      verifyWebAssets(target, license);
+    }).toThrow(/Unexpected web reference: icons\/icon-64.png/);
+  });
+
+  it('rejects a manifest icon missing from the output', () => {
+    const { target, license } = copyOfBuild();
+    rmSync(join(target, 'icons', 'icon-512-maskable.png'));
+    expect(() => {
+      verifyWebAssets(target, license);
+    }).toThrow(/Missing web asset: icons\/icon-512-maskable.png/);
+  });
+
+  it('rejects output whose index links no manifest', () => {
+    const { target, license } = copyOfBuild();
+    const index = join(target, 'index.html');
+    writeFileSync(index, readFileSync(index, 'utf8').replace(/<link rel="manifest"[^>]*>/, ''));
+    expect(() => {
+      verifyWebAssets(target, license);
+    }).toThrow(/manifest[.]webmanifest/);
   });
 });

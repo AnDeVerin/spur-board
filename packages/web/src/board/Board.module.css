@@ -8,6 +8,9 @@
   justify-content: safe center;
   gap: var(--space-3);
   min-height: 0;
+  /* Margins inset the scrollport itself, so it clips at a landscape notch, not under it. */
+  margin-right: env(safe-area-inset-right, 0px);
+  margin-left: env(safe-area-inset-left, 0px);
   padding: var(--space-4) var(--space-6);
   overflow-x: auto;
   overflow-y: hidden;
