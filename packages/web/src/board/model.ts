@@ -223,7 +223,8 @@ const sinceText = (source: BoardSource) =>
 
 /**
  * Blind or stale sources of the chosen project and the shared spur; other projects' are left out.
- * A frozen mirror is named here too, as its Backlog notice can be offscreen.
+ * A GitHub Project mirror whose last read failed is named too, as its frozen Backlog notice can
+ * be offscreen.
  */
 function blindBanner(
   sources: readonly BoardSource[],
@@ -232,7 +233,9 @@ function blindBanner(
   const blind = sources.filter(
     (source) =>
       (source.project === null || source.project === project) &&
-      (source.blindReason !== null || (source.stale && !source.warmingUp)),
+      (source.blindReason !== null ||
+        (source.stale && !source.warmingUp) ||
+        (source.source.startsWith('github-project:') && source.failure != null)),
   );
   const [first] = blind;
   if (first === undefined) return undefined;

@@ -269,12 +269,18 @@ describe('mirrored Backlog part and the top banner', () => {
       '2 sources have not answered: github-project:a:ex/1, jira:a.' +
         'The oldest answer is from 14:40 15/11/26.',
     ]);
-    // A failed read alone, not yet blind or stale, raises no banner, as for any source.
+    // A failed read alone, not yet blind or stale, freezes the part, so the banner names it.
+    expect(await warnings([mirror({ failure: failed })])).toEqual([said('github-project:a:ex/1')]);
     expect(
       await warnings([
         mirror({ failure: failed }),
         source('github:a:ex/repo', { blindReason: 'auth', lastCompleteAt: LAST }),
       ]),
-    ).toEqual([said('github:a:ex/repo')]);
+    ).toEqual([
+      '2 sources have not answered: github-project:a:ex/1, github:a:ex/repo.' +
+        'The oldest answer is from 14:40 15/11/26.',
+    ]);
+    // A mirror that reads again has no failure and raises no banner.
+    expect(await warnings([mirror({ failure: null })], MIRRORED_ROWS, {})).toEqual([]);
   });
 });

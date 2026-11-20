@@ -45,5 +45,5 @@ failure of the last read, else why the source is blind, such as
 while polling waits for it. An empty frozen part stays a column for the notice. The Who tab of
 the part shows the same; a readable mirror shows `read <age> ago`. A degraded one adds an amber
 dot and `degraded · ` before it, or `waiting for the GitHub rate budget · ` while polling waits
-for the budget. The top warning names a blind mirror too, as the notice can be off screen on a
-narrow window.
+for the budget. The top warning names a blind or failing mirror too, as the notice can be off
+screen on a narrow window.
