@@ -32,6 +32,9 @@ Fix or answer every open PR point once, with a reason for each rejection.
 - Push once, after all fixes are committed, so reviewers get one notification and one new head.
 - A fix changes a test or a check -> add its line to the PR's `## Changed checks` section
   (`gh pr edit <N> --body-file`).
+- Before the push, a fix that makes a gate's modifier apply while its `## Acceptance gates` line
+  says `n/a` -> replace that line with the template placeholder, so CI stays red until the gate
+  runs.
 
 ## 4. Reply
 
@@ -68,7 +71,9 @@ Fix or answer every open PR point once, with a reason for each rejection.
   `packages/web/src/ds/`: `designer`), whatever its body line says, and either an APPROVED review on
   `headRefOid` or an acceptance-gates-only failure -> apply `Final head` in
   `.agents/skills/manager/references/verdicts.md`, with the handoffs of
-  `.agents/skills/manager/references/runtime.md`. Acceptance-gates-only failure:
+  `.agents/skills/manager/references/runtime.md`; approved or not, go on only when
+  `pnpm ci:status <N>` exits 0 or shows an acceptance-gates-only failure, else wait for the next
+  notification. Acceptance-gates-only failure:
   `pnpm ci:status <N>` lists `acceptance-gates` as the only counted failed job, the ci run is
   completed, and `gh run view <its ci run id> --log-failed` once shows
   `ci-ok: acceptance-gates failure FAIL` and no other `ci-ok: ... FAIL` line except

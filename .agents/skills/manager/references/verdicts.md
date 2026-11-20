@@ -36,14 +36,15 @@ Step numbers are the Loop steps in `references/gates.md`.
   HEAD, recorded verdict or not, whatever its `## Acceptance gates` line says (a stale `n/a` gets
   the passed head or the placeholder; a gate whose modifier no longer applies gets `n/a`): no
   open point, and an APPROVED review on `headRefOid` or an acceptance-gates-only failure ->
-  fetch, check out `headRefOid`, `pnpm ci:status <N>` once. Exit not 0 with another failed job ->
-  mark the verdict `older than <HEAD>`; an acceptance-gates-only failure never does.
-  Acceptance-gates-only failure: `ci:status` lists the acceptance-gates job as the only counted
-  failed job, the ci run is completed, and `gh run view <its ci run id> --log-failed` once shows
-  `ci-ok: acceptance-gates failure FAIL` and no other `ci-ok: ... FAIL` line except
-  `ci-ok: FAIL`; otherwise wait for the next notification. `ci:status` neither counts ci-ok nor
-  prints its log, `--log-failed` prints nothing for an unfinished run, and on a PR edit ci-ok
-  also carries the reused code run's failures.
+  fetch, check out `headRefOid`, `pnpm ci:status <N>` once. Approved or not, go on only when it
+  exits 0 or shows an acceptance-gates-only failure; pending (exit 3) or another failure -> wait
+  for the next notification, and another failed job also marks the verdict `older than <HEAD>`
+  (an acceptance-gates-only failure never does). Acceptance-gates-only failure: `ci:status`
+  lists the acceptance-gates job as the only counted failed job, the ci run is completed, and
+  `gh run view <its ci run id> --log-failed` once shows `ci-ok: acceptance-gates failure FAIL`
+  and no other `ci-ok: ... FAIL` line except `ci-ok: FAIL`; otherwise wait for the next
+  notification. `ci:status` neither counts ci-ok nor prints its log, `--log-failed` prints nothing
+  for an unfinished run, and on a PR edit ci-ok also carries the reused code run's failures.
   Otherwise, per gate, `<passed head>` is the head of its last tester PASS or designer APPROVED,
   never a FAIL or CHANGES_REQUESTED head. No passed head, or
   `git diff --no-renames --name-only <passed head>..HEAD` (as CI) has a path under
