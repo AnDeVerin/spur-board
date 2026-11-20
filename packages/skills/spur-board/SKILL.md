@@ -42,7 +42,8 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
   block. Once handled, ack its revision, ID or ring N<number>-<ring> with keyed
   `board inbox ack <entries>`. Keyed `board answer` handles its block; no ack follows.
 - A return's `code` block needs no ack: taking its Dev turn reads it, and the confirmed submit
-  closes it. Still open after that turn closed: `board unblock <block> --done <ref>`.
+  closes it. Still open after its Dev turn closed without a submit, or after an orchestrator's
+  submit: `board unblock <block> --done <ref>`.
 
 ## Board commands
 
