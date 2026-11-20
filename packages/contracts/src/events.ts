@@ -40,6 +40,7 @@ export const EVENT_KINDS = [
   'task_corrected',
   'task_manually_moved',
   'task_mirror_moved',
+  'external_round',
   'dispatcher_mode_changed',
   'turn_opened',
   'turn_taken',
@@ -208,6 +209,8 @@ export const eventPayloadSchemas = {
     to: z.enum(COLUMN_IDS),
     source: S,
   }),
+  /** An external change request on a new PR head while the task is in Dev: one course-check round. */
+  external_round: z.looseObject({ repo: S, pr: N, head: S, reviewer: S }),
   task_corrected: z.looseObject({
     from: z.enum(COLUMN_IDS),
     to: z.enum(COLUMN_IDS),

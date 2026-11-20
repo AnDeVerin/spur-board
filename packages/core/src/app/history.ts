@@ -38,6 +38,7 @@ const EVENT_SUMMARIES = {
   task_corrected: 'Column corrected by the operator',
   task_manually_moved: 'Task manually moved by the operator',
   task_mirror_moved: 'Task moved by the GitHub Project mirror',
+  external_round: 'External change-request round',
   dispatcher_mode_changed: 'Dispatcher mode changed',
   turn_opened: 'Turn opened',
   turn_taken: 'Turn taken',
@@ -290,6 +291,8 @@ const SUMMARIES: { [K in EventKind]?: (payload: Payload<K>) => string | null } =
   pr_state_changed: (p) => `PR ${ref(p.repo, p.pr)}: ${from(p.from, p.to)}`,
   ticket_status_changed: (p) => `Ticket status: ${from(p.from, p.to)}`,
   review_submitted: (p) => `Review by ${p.reviewer} on ${ref(p.repo, p.pr)}: ${p.state}`,
+  external_round: (p) =>
+    `External change request by ${p.reviewer} on ${ref(p.repo, p.pr)} at ${p.head.slice(0, 7)}: a course-check round`,
   task_moved: (p) => `Moved ${p.from} → ${p.to}${optional(': ', p.reason)}${gates(p.gate)}`,
   task_shadow_moved: (p) =>
     `Would move ${p.from} → ${p.to} (shadow mode): ${p.reason}${gates(p.gate)}${p.courseCheck === true ? ', with a course check' : ''}`,

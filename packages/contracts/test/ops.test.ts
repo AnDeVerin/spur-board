@@ -110,7 +110,7 @@ describe('catalog', () => {
     if (!isObject(property)) throw new Error('Missing column entry schema');
     expect(property['description']).toContain('original add');
   });
-  it('defaults web off and exposes exactly the screen reads and five operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and eight operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
@@ -121,6 +121,7 @@ describe('catalog', () => {
       'columns.describe',
       'comment.add',
       'config.get',
+      'inbox.ack',
       'inbox.get',
       'inbox.operator',
       'item.close',
@@ -128,12 +129,23 @@ describe('catalog', () => {
       'task.get',
       'task.history',
       'task.move',
+      'task.return',
+      'task.submit',
     ]);
     expect(
       OPERATIONS.filter((op) => op.kind === 'mutation' && op.web !== null)
         .map((op) => op.id)
         .sort(),
-    ).toEqual(['block.answer', 'block.followup', 'comment.add', 'item.close', 'task.move']);
+    ).toEqual([
+      'block.answer',
+      'block.followup',
+      'comment.add',
+      'inbox.ack',
+      'item.close',
+      'task.move',
+      'task.return',
+      'task.submit',
+    ]);
     expect(OPERATIONS.find((op) => op.id === 'schema.get')?.web).toBeNull();
     expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
       true,
@@ -883,17 +895,19 @@ describe('comment shape', () => {
 });
 
 describe('snapshot', () => {
-  it('pins the catalog excluding columns.describe after adding manual moves', async () => {
+  it('pins the catalog excluding columns.describe after adding external rounds', async () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
     // Manual moves extend task.move, move views, schema metadata and the error catalog. #761
     // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
-    // and board-wide project, sources and services texts to status.get. #733 adds the
-    // review-rule gate reasons and condition to task.get --why. #738 adds the mirror move kind
+    // and board-wide project, sources and services texts to status.get; the external_round kind
+    // extends the task.history event kinds. #733 adds the review-rule gate reasons and condition
+    // to task.get --why. The web Turn section then set web on inbox.ack, task.submit and
+    // task.return; their schemas, grants and errors are unchanged. #738 adds the mirror move kind
     // and reason, sources[].failure and the github-project service texts.
     expect(await catalogVersion(baseline)).toBe(
-      'b12ee84c06d12dc7246a579025816488bfee5b8f445dc9e705d7e874e4c876a2',
+      'e8f8e2ebf6901e17cd6a4e6ad8e860b44f1cdbad55e542f8a33bd1987388cb69',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

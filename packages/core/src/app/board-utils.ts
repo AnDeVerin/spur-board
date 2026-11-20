@@ -64,34 +64,64 @@ export function ticketDone(project: Config['projects'][number], status: string):
 }
 
 /**
- * How the ticket of a task stands after its PR merged at `mergedAt`: `done`; `open` once the
- * tracker saw it open at least one tracker interval after the merge, in the filter or fetched by
- * key for a hand-added task; else `unconfirmed`, since the close a merge triggers may not be
- * polled yet and a ticket dropped from the filter keeps a stale status.
+ * How the ticket of a task stands after its PR merged at `mergedAt`: `done`; `reopened` once the
+ * ticket changed at or after the merge and is still not done, in the filter or fetched by key for
+ * a hand-added task; else `unconfirmed`, since a ticket untouched since the merge only waits to be
+ * moved to done, and a ticket dropped from the filter keeps a stale status. An equal time counts as
+ * a change: GitHub times have one-second precision, and a merge-triggered edit of the issue in the
+ * same second shows the merge time. PR facts stored by an earlier version carry no merge time: for
+ * them the ticket is `open`, as it was then, once seen open one tracker interval after the PR's
+ * last change; that stops the merged PR counting like `reopened`, without naming a reopen.
  */
 export function mergedTicket(
   project: Config['projects'][number],
   config: Config,
   ticket: { status: string; detail: string; observed_at: string } | undefined,
   manualInclude: boolean,
-  mergedAt: string,
-): 'done' | 'open' | 'unconfirmed' {
+  pr: { mergedAt?: string | undefined; updatedAt: string },
+): 'done' | 'reopened' | 'open' | 'unconfirmed' {
   if (ticket === undefined) return 'unconfirmed';
   if (ticketDone(project, ticket.status)) return 'done';
-  let inFilter: boolean;
+  if (pr.mergedAt === undefined)
+    return seenOpenSince(project, config, ticket, manualInclude, Date.parse(pr.updatedAt))
+      ? 'open'
+      : 'unconfirmed';
+  let facts: { inFilter: boolean; updatedAt: string };
   try {
     const parsed = ticketFactsSchema.safeParse(JSON.parse(ticket.detail));
     if (!parsed.success) return 'unconfirmed';
-    inFilter = parsed.data.inFilter;
+    facts = parsed.data;
   } catch {
     return 'unconfirmed';
   }
+  if (!(facts.inFilter || manualInclude)) return 'unconfirmed';
+  return Date.parse(facts.updatedAt) >= Date.parse(pr.mergedAt) ? 'reopened' : 'unconfirmed';
+}
+
+/**
+ * Whether the tracker saw the ticket still not done, in the filter or fetched by key for a
+ * hand-added task, at least one tracker interval after `since`: the grace in which a close the
+ * PR's merge triggers may not be polled yet.
+ */
+export function seenOpenSince(
+  project: Config['projects'][number],
+  config: Config,
+  ticket: { status: string; detail: string; observed_at: string } | undefined,
+  manualInclude: boolean,
+  since: number,
+): boolean {
+  if (ticket === undefined || ticketDone(project, ticket.status)) return false;
+  const parsed = (() => {
+    try {
+      return ticketFactsSchema.safeParse(JSON.parse(ticket.detail));
+    } catch {
+      return null;
+    }
+  })();
+  if (parsed?.success !== true || !(parsed.data.inFilter || manualInclude)) return false;
   const { intervalMs } =
     project.tracker.type === 'jira' ? config.adapters.jira : config.adapters.githubIssues;
-  return (inFilter || manualInclude) &&
-    Date.parse(ticket.observed_at) >= Date.parse(mergedAt) + intervalMs
-    ? 'open'
-    : 'unconfirmed';
+  return Date.parse(ticket.observed_at) >= since + intervalMs;
 }
 
 /**
@@ -154,6 +184,37 @@ export async function taskMergedPr(
   return link?.repo == null || link.number === null
     ? null
     : { repo: link.repo, number: link.number };
+}
+
+/**
+ * The newest merge time among the task's eligible merged PRs (those `taskMergedPr` picks from), or
+ * null when none is readable. A merge after the judged PR's still holds a ticket edited before it.
+ */
+export async function newestMergeAt(db: Trx, taskId: number): Promise<string | null> {
+  const rows = await db
+    .selectFrom('link')
+    .innerJoin('pr_snapshot', (join) =>
+      join
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+        .onRef('pr_snapshot.number', '=', 'link.number'),
+    )
+    .select('pr_snapshot.detail')
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'pr')
+    .where('link.pr_state', '=', 'active')
+    .where('link.banned', '=', 0)
+    .where('pr_snapshot.state', '=', 'merged')
+    .where(pastReopenFloor)
+    .execute();
+  return latest(rows.map((row) => parsePr(row.detail)?.mergedAt ?? null));
+}
+
+/** The latest of some times, or null when none is given. */
+export function latest(times: readonly (string | null | undefined)[]): string | null {
+  let newest: string | null = null;
+  for (const time of times)
+    if (time != null && (newest === null || Date.parse(time) > Date.parse(newest))) newest = time;
+  return newest;
 }
 
 /** A PR snapshot's facts, or null when the detail is missing or unreadable. */

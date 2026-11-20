@@ -1344,6 +1344,11 @@ describe('task history summaries', () => {
       summary: 'Review by rev on o/r#7: approved',
     },
     {
+      name: 'an external change-request round',
+      rows: [['external_round', { repo: 'o/r', pr: 7, head: SHA, reviewer: 'rev' }]],
+      summary: `External change request by rev on o/r#7 at ${SHA.slice(0, 7)}: a course-check round`,
+    },
+    {
       name: 'a move with reason and gates',
       rows: [
         [

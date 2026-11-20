@@ -17,19 +17,19 @@ import {
   taskHistoryInputSchema,
   taskHistoryOutputSchema,
 } from '../browser.ts';
+import {
+  inboxAckInputSchema,
+  inboxAckOutputSchema,
+  taskReturnInputSchema,
+  taskReturnOutputSchema,
+  taskSubmitInputSchema,
+  taskSubmitOutputSchema,
+} from './turn-write-schemas.ts';
 import { z } from 'zod';
 import { configViewSchema } from './config-view-schema.ts';
 import { columnsDescribeOutputSchema } from './columns-schema.ts';
-import { BLOCK_TYPES, TOKEN_STATUSES, SUBMISSION_BASES } from '../enums.ts';
-import {
-  blockIdSchema,
-  commentIdSchema,
-  ringIdSchema,
-  taskKeyInputSchema,
-  taskKeySchema,
-  turnIdSchema,
-} from '../ids.ts';
-import { commitShaSchema } from '../facts.ts';
+import { BLOCK_TYPES, TOKEN_STATUSES } from '../enums.ts';
+import { blockIdSchema, commentIdSchema, taskKeyInputSchema, taskKeySchema } from '../ids.ts';
 import { defineOperation } from './define.ts';
 import {
   SCHEMA_ROLES,
@@ -49,8 +49,6 @@ const NAME_MAX = 256;
 const LEGACY_TOKEN_NAME_MAX = 1_048_576;
 /** Longest pull request URL or unblock reference an input takes. */
 const REF_MAX = 2048;
-/** Most entries one `inbox.ack` call acknowledges. */
-const ACK_ENTRIES_MAX = 100;
 
 const project = z
   .string()
@@ -682,32 +680,9 @@ export const OPERATIONS = [
         'Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take over an open orchestrator turn, taken or not.',
       whenNotToUse: 'Use inbox_get to inspect them first.',
     },
-    input: z.strictObject({
-      entries: z
-        .array(
-          z.union([
-            z.strictObject({
-              id: commentIdSchema,
-              revision: z.int().positive().describe('Revision the caller read.'),
-            }),
-            z.strictObject({ id: blockIdSchema }),
-            z.strictObject({ id: turnIdSchema }),
-            z.strictObject({ id: ringIdSchema }),
-          ]),
-        )
-        .min(1)
-        .max(ACK_ENTRIES_MAX)
-        .describe('Comment revisions, blocks, turns and ring IDs to acknowledge.'),
-    }),
-    output: z.strictObject({
-      acked: z
-        .array(z.union([commentIdSchema, blockIdSchema, turnIdSchema, ringIdSchema]))
-        .describe('Entries now acknowledged.'),
-      alreadyHandled: z
-        .array(z.union([commentIdSchema, blockIdSchema, turnIdSchema, ringIdSchema]))
-        .optional()
-        .describe('Entries that were already handled; nothing new was acknowledged for them.'),
-    }),
+    input: inboxAckInputSchema,
+    output: inboxAckOutputSchema,
+    web: true,
     grants: [{ grant: 'project-agent' }, { grant: 'operator' }],
     errors: ['wrong_id_kind', 'not_found', 'stale_comment_revision'],
     cli: { command: 'inbox ack', args: ['entries'] },
@@ -1304,48 +1279,9 @@ export const OPERATIONS = [
         'Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.',
       whenNotToUse: 'Use task_return to send the task back to Dev instead.',
     },
-    input: z.strictObject({
-      turn: z
-        .union([turnIdSchema, taskKeyInputSchema])
-        .describe(
-          'Turn ID you took (T4); while the project dispatcher is in shadow mode, the task key instead.',
-        ),
-      sha: commitShaSchema
-        .max(64)
-        .describe('Full commit SHA at the head of the pull request, lowercase.'),
-      basis: z
-        .enum(SUBMISSION_BASES)
-        .optional()
-        .describe(
-          'Testing provenance: tested (default), carried from a tested origin on this task, or skipped with a reason.',
-        ),
-      from: commitShaSchema
-        .max(64)
-        .optional()
-        .describe('Full lowercase source SHA on this task; required only for carried.'),
-      reason: z
-        .string()
-        .max(2000)
-        .optional()
-        .describe(
-          'Literal nonblank explanation, up to 2000 UTF-16 units; required for carried and skipped.',
-        ),
-    }),
-    output: z.strictObject({
-      task: taskViewSchema,
-      turn: turnIdSchema
-        .nullable()
-        .describe('The closed turn; null for a submit by task key in shadow mode.'),
-      sha: commitShaSchema.describe('The submitted commit SHA.'),
-      // The default reads a result stored before pending submits existed, when every submit
-      // confirmed its head; a new call always sets status, so the output schema keeps it required.
-      status: z
-        .enum(['confirmed', 'pending'])
-        .default('confirmed')
-        .describe(
-          'confirmed: the board saw the PR head at sha. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block.',
-        ),
-    }),
+    input: taskSubmitInputSchema,
+    output: taskSubmitOutputSchema,
+    web: true,
     grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, { grant: 'operator' }],
     errors: [
       'wrong_id_kind',
@@ -1413,16 +1349,9 @@ export const OPERATIONS = [
       whenToUse: 'Send the task back to Dev when the work needs code changes.',
       whenNotToUse: 'Use task_submit to hand in the work instead.',
     },
-    input: z.strictObject({
-      turn: turnIdSchema,
-      reason: text('What the worker must change, sent to the worker as a code block.', TEXT_MAX),
-      findings: z
-        .int()
-        .min(0)
-        .optional()
-        .describe("Number of review findings the return sends; shown on the task's status row."),
-    }),
-    output: z.strictObject({ task: taskViewSchema, block: blockViewSchema }),
+    input: taskReturnInputSchema,
+    output: taskReturnOutputSchema,
+    web: true,
     grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, { grant: 'operator' }],
     errors: [
       'wrong_id_kind',
@@ -1613,7 +1542,7 @@ export const OPERATIONS = [
               resolvedThreadsFrom: null,
               completion: {
                 to: 'done',
-                text: 'Completion bypasses normal gates: an eligible linked merged PR with a done ticket (GitHub closed or configured Jira doneStatuses), or a done ticket without open linked PRs/live workers and with fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch. An open ticket resumes work after the configured tracker interval with in-filter or manual-inclusion evidence. Blind GitHub or a pending submit holds both routes.',
+                text: 'Completion bypasses normal gates: an eligible linked merged PR with a done ticket (GitHub closed or configured Jira doneStatuses), or a done ticket without open linked PRs/live workers and with fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch. An open ticket resumes work only once it changed at or after the newest merge, with in-filter or manual-inclusion evidence; when no merged PR has a stored merge time (facts from before the dispatcher), work resumes once the ticket, in filter or manually included, is observed open at or past the judged PR last update plus the tracker interval. Blind GitHub or a pending submit holds both routes.',
               },
               columns: [
                 {

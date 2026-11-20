@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +29,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { taskPr } from '../../src/app/board-utils.ts';
+import { readInput } from '../../src/app/dispatch.ts';
 import { createLinkMutations } from '../../src/app/links.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { createBlockMutations, openSystemBlock } from '../../src/app/blocks.ts';
@@ -37,7 +39,7 @@ import {
   ringUndelivered,
 } from '../../src/app/doorbells.ts';
 import { closeTurns, openTurn, takeTurn } from '../../src/app/turns.ts';
-import { raiseItem } from '../../src/app/feed.ts';
+import { dismissItem, raiseItem } from '../../src/app/feed.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
 let now = Date.parse(at);
@@ -3701,20 +3703,20 @@ describe('anomaly blocks', () => {
     expect((await surface(merged.b)).blocks).toEqual([]);
   });
 
-  describe('a merged PR beside a ticket seen open past the tracker interval', () => {
+  describe('a merged PR beside a ticket changed after the merge', () => {
     const interval = config.adapters.githubIssues.intervalMs;
     /** A hand-added task and its ticket, observed by key as the tracker requests it. */
     async function split() {
       const b = await board();
       const ref = (await b.core.context(source)).observe.tickets[0];
       if (ref === undefined) throw new Error('Missing ticket request');
-      const ticket = (status: string) =>
+      const ticket = (status: string, updatedAt = iso()) =>
         b.core.observe(source, {
           batch: {
             source,
             observedAt: iso(),
             complete: true,
-            items: [{ kind: 'ticket', facts: { ...fact(), status, updatedAt: iso() } }],
+            items: [{ kind: 'ticket', facts: { ...fact(), status, updatedAt } }],
             entities: [{ ref, status: 'ok' }],
           },
           effectiveComplete: true,
@@ -3732,8 +3734,32 @@ describe('anomaly blocks', () => {
       return { b, ticket, healthItems };
     }
 
-    it('raises the worker-end item beside a merged PR once the ticket is seen open past the tracker interval', async () => {
+    it('raises the worker-end item naming the merged PR once the ticket changed after the merge', async () => {
       const { b, ticket, healthItems } = await split();
+      const before = iso();
+      await spur(b, [session('worker-1', 'working')]);
+      now += 1_000;
+      const merged = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [merged]);
+      await ticket('open', before);
+      now += 1_000;
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+      now += 1_000;
+      await prs(b, [merged]);
+      expect(await healthItems()).toEqual([]);
+
+      now += interval;
+      await ticket('open');
+      const text = 'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)';
+      expect(await healthItems()).toEqual([['worker_completed', text, null]]);
+
+      now += 1_000;
+      await ticket('closed');
+      expect(await healthItems()).toEqual([['worker_completed', text, expect.any(String)]]);
+    });
+
+    it('keeps the reopened worker-end item across non-done status changes, and its dismissal', async () => {
+      const { b, ticket } = await split();
       await spur(b, [session('worker-1', 'working')]);
       await prs(b, [pr(7, 'merged')]);
       await ticket('open');
@@ -3741,24 +3767,645 @@ describe('anomaly blocks', () => {
       await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
       now += 1_000;
       await prs(b, [pr(7, 'merged')]);
-      expect(await healthItems()).toEqual([]);
-
       now += interval;
       await ticket('open');
-      expect(await healthItems()).toEqual([
-        ['worker_completed', 'o/r#9: worker ended (completed), no PR (worker-1)', null],
-      ]);
+      const items = () =>
+        b.store.db
+          .selectFrom('operator_item')
+          .selectAll()
+          .where('item_key', 'like', 'health:%')
+          .execute();
+      const [raised] = await items();
+      if (raised === undefined) throw new Error('Missing worker-end item');
+      expect(raised.cleared_at).toBeNull();
+
+      // Any other non-done status, as a Jira workflow moves through.
+      now += 1_000;
+      await ticket('in review');
+      expect(await items()).toEqual([raised]);
 
       now += 1_000;
+      await b.store.transaction((trx) => dismissItem(trx, raised, 'operator', new Date(now)));
+      now += 1_000;
+      await ticket('in progress');
+      const after = await items();
+      expect(after.map((item) => [item.id, item.fingerprint, item.cleared_at === null])).toEqual([
+        [raised.id, raised.fingerprint, false],
+      ]);
+    });
+
+    it.each([
+      'unlinked after dismissal',
+      'dismissed before the upgrade',
+      'ended again after dismissal',
+      'unlinked while shown',
+    ] as const)('keeps the dismissal of a worker-end item off its shown text: %s', async (row) => {
+      const { b, ticket } = await split();
+      /** The worker-end items not cleared or dismissed, by text. */
+      const shown = async () =>
+        (
+          await b.store.db
+            .selectFrom('operator_item')
+            .select('text')
+            .where('item_key', 'like', 'health:%')
+            .where('cleared_at', 'is', null)
+            .execute()
+        ).map((item) => item.text);
+      await spur(b, [session('worker-1', 'working')]);
+      await ticket('open', iso());
+      now += 1_000;
+      const merged = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [merged]);
+      now += 1_000;
+      await ticket('open');
+      now += 1_000;
+      const endedAt = iso();
+      if (row === 'dismissed before the upgrade') {
+        // The dismissal an earlier version stored for the same exit, hashed from its text.
+        const key = `health:${String(b.task.id)}:worker-1:worker_completed`;
+        const text = 'o/r#9: worker ended (completed), no PR (worker-1)';
+        await b.store.db
+          .insertInto('dismissal')
+          .values({
+            item_key: key,
+            fingerprint: createHash('sha256')
+              .update(JSON.stringify([key, text, 'spur', endedAt]))
+              .digest('hex'),
+            dismissed_by: 'operator',
+            dismissed_at: endedAt,
+          })
+          .execute();
+      }
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt }]);
+      now += 1_000;
+      await prs(b, [merged]);
+      if (row === 'dismissed before the upgrade') {
+        expect(await shown()).toEqual([]);
+        expect(await openLedger(b)).toEqual([]);
+        return;
+      }
+      expect(await openLedger(b)).toEqual(['health:worker-1:worker_completed']);
+      const item = await b.store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('item_key', 'like', 'health:%')
+        .executeTakeFirstOrThrow();
+      expect(item.text).toBe(
+        'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)',
+      );
+      const unlink = () =>
+        b.apply(
+          createLinkMutations(b.config).remove,
+          {
+            mode: 'pr',
+            task: b.task.key,
+            pr: 'https://github.com/o/r/pull/7',
+            reason: 'Other ticket.',
+          },
+          'operator',
+        );
+      if (row === 'unlinked while shown') {
+        // The same item and block stay, showing the current text; no new notification.
+        const outbox = await b.store.db.selectFrom('outbox').select('id').execute();
+        now += 1_000;
+        await unlink();
+        now += 1_000;
+        await prs(b, [merged]);
+        expect(await shown()).toEqual(['o/r#9: worker ended (completed), no PR (worker-1)']);
+        const { blocks } = await surface(b);
+        expect(blocks.map((block) => [block.id, block.state, block.reason])).toEqual([
+          [item.block_id, 'open', 'worker ended (completed), no PR (worker-1)'],
+        ]);
+        expect(await b.store.db.selectFrom('outbox').select('id').execute()).toEqual(outbox);
+        return;
+      }
+      await b.store.transaction((trx) => dismissItem(trx, item, 'operator', new Date(now)));
+      expect(await shown()).toEqual([]);
+      now += 1_000;
+      if (row === 'unlinked after dismissal') {
+        await unlink();
+        now += 1_000;
+        await prs(b, [merged]);
+        expect(await shown()).toEqual([]);
+      } else {
+        await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+        now += 1_000;
+        await prs(b, [merged]);
+        expect(await shown()).toEqual([
+          'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)',
+        ]);
+      }
+    });
+
+    it('raises no worker-end item while the ticket is untouched since the merge, up to done', async () => {
+      const { b, ticket, healthItems } = await split();
+      const before = iso();
+      await spur(b, [session('worker-1', 'working')]);
+      await ticket('open', before);
+      now += 1_000;
+      const merged = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [merged]);
+      now += 1_000;
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+      now += 1_000;
+      await prs(b, [merged]);
+      expect(await healthItems()).toEqual([]);
+
+      // The operator moves the ticket to done minutes after the worker ended.
+      now += interval;
+      await ticket('open', before);
+      await prs(b, [merged]);
+      expect(await healthItems()).toEqual([]);
+      now += 3 * 60_000;
       await ticket('closed');
+      await prs(b, [merged]);
+      expect(await healthItems()).toEqual([]);
+    });
+
+    it('judges the same merged PR as the dispatcher when the first-linked PR merges last', async () => {
+      const { b, ticket, healthItems } = await split();
+      await spur(b, [session('worker-1', 'working')]);
+      await prs(b, [pr(7, 'open')]);
+      now += 1_000;
+      // #7 closes, follow-up #8 is linked after it and merges, then #7 reopens and merges last.
+      await prs(b, [pr(7, 'closed')]);
+      now += 1_000;
+      await prs(b, [pr(7, 'closed'), pr(8, 'open')]);
+      now += 1_000;
+      const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [pr(7, 'closed'), eight]);
+      now += 1_000;
+      await prs(b, [pr(7, 'open'), eight]);
+      now += 1_000;
+      const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [seven, eight]);
+      now += 1_000;
+      await ticket('open');
+      now += 1_000;
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+      now += 1_000;
+      await prs(b, [seven, eight]);
+      // The ticket changed after both merges: both judge #8, the newest link, and name it.
+      const project = b.config.projects[0];
+      if (project === undefined) throw new Error('missing project');
+      const read = await b.store.transaction(async (trx) => {
+        const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+        return readInput(trx, task, project, 'on', () => false, b.config, {
+          at: new Date(now),
+          complete: new Map(),
+        });
+      });
+      expect(read?.mergedOpen).toEqual({ repo: 'o/r', number: 8 });
       expect(await healthItems()).toEqual([
         [
           'worker_completed',
-          'o/r#9: worker ended (completed), no PR (worker-1)',
-          expect.any(String),
+          'o/r#9: worker ended (completed); PR o/r#8 merged, ticket reopened (worker-1)',
+          null,
         ],
       ]);
     });
+
+    /** #7 merged and follow-up #8 open; the final steps close #8. */
+    const followUpOpen = async (b: Board) => {
+      const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [seven]);
+      now += 1_000;
+      await prs(b, [seven, pr(8, 'open')]);
+      return [seven, pr(8, 'open')];
+    };
+    /** Link histories: each ends with the PR facts its last poll reports. */
+    const histories = {
+      /** #7 merged. */
+      merged: async (b: Board) => {
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven]);
+        return [seven];
+      },
+      /** #7 merged, then follow-up #8 linked and closed unmerged. */
+      followUpClosed: async (b: Board) => {
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven]);
+        now += 1_000;
+        await prs(b, [seven, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [seven, eight]);
+        return [seven, eight];
+      },
+      /** Active #7 closed unmerged, then #8, linked as a conflict while #7 was open, merged. */
+      conflictMerged: async (b: Board) => {
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [pr(7, 'open'), pr(8, 'open')]);
+        now += 1_000;
+        const seven = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [seven, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven, eight]);
+        return [seven, eight];
+      },
+      /** #7 open, #8 linked as a conflict beside it, then #8 merged while #7 stays open. */
+      conflictMergedOpen: async (b: Board) => {
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [pr(7, 'open'), pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [pr(7, 'open'), eight]);
+        return [pr(7, 'open'), eight];
+      },
+      /** #8 merged, follow-up #9 closed unmerged, then the first-linked #7 reopened and merged last. */
+      supersededClose: async (b: Board) => {
+        const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [closed7]);
+        now += 1_000;
+        await prs(b, [closed7, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [closed7, eight]);
+        now += 1_000;
+        await prs(b, [closed7, eight, pr(9, 'open')]);
+        now += 1_000;
+        const nine = { ...pr(9, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [closed7, eight, nine]);
+        now += 1_000;
+        await prs(b, [{ ...pr(7, 'open'), updatedAt: iso() }, eight, nine]);
+        now += 1_000;
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven, eight, nine]);
+        return [seven, eight, nine];
+      },
+      /** #7 merged while follow-up #8, linked as a conflict, was open; #8 then closed unmerged. */
+      conflictFollowUpClosed: async (b: Board) => {
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [pr(7, 'open'), pr(8, 'open')]);
+        now += 1_000;
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [seven, eight]);
+        return [seven, eight];
+      },
+      /** #7 merged in facts of an earlier version, without mergedAt. */
+      legacyMerged: async (b: Board) => {
+        const seven = { ...pr(7, 'merged'), updatedAt: iso() };
+        await prs(b, [seven]);
+        return [seven];
+      },
+      closedDoneInGrace: async (b: Board) => histories.followUpClosed(b),
+      secondClosure: async (b: Board) => histories.followUpClosed(b),
+      /** #7 closed, then #8 linked and merged in facts of an earlier version, without mergedAt. */
+      legacyThenStored: async (b: Board) => {
+        const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [closed7]);
+        now += 1_000;
+        await prs(b, [closed7, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso() };
+        await prs(b, [closed7, eight]);
+        return [closed7, eight];
+      },
+      /** #7 closed, then #8 linked and merged; the final steps reopen and merge #7 last. */
+      laterMergeAfterEdit: async (b: Board) => {
+        const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [closed7]);
+        now += 1_000;
+        await prs(b, [closed7, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [closed7, eight]);
+        return [closed7, eight];
+      },
+      closeHeld: followUpOpen,
+      closeFresh: followUpOpen,
+      blindAfterRaised: followUpOpen,
+      closedDuringTrackerOutage: followUpOpen,
+      unlinkDuringTrackerOutage: async (b: Board) => histories.followUpClosed(b),
+      blindThenLiveWorker: followUpOpen,
+      blindThenLeftFilter: followUpOpen,
+      blindAfterDismissed: followUpOpen,
+      /** #7 closed, #8 linked and merged, then #7 reopened as the only open PR and closed again. */
+      reopenedClosed: async (b: Board) => {
+        const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [closed7]);
+        now += 1_000;
+        await prs(b, [closed7, pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [closed7, eight]);
+        now += 1_000;
+        await prs(b, [{ ...pr(7, 'open'), updatedAt: iso() }, eight]);
+        now += 1_000;
+        const seven = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [seven, eight]);
+        return [seven, eight];
+      },
+    };
+    /** #8 closes after the worker ended, seen by a poll that started before the close. */
+    const closeSeenStale = async (b: Board, [seven]: PrFacts[]) => {
+      const startedAt = iso();
+      now += 1_000;
+      const eight = { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() };
+      await prs(b, [seven ?? pr(7, 'merged'), eight], startedAt);
+      return eight;
+    };
+    type Ticket = Awaited<ReturnType<typeof split>>['ticket'];
+    /** The tracker sees the ticket again, unchanged, one interval later: past a close's grace. */
+    const seeAgain = async (b: Board, ticket: Ticket) => {
+      const { detail } = await b.store.db
+        .selectFrom('ticket_snapshot')
+        .select('detail')
+        .executeTakeFirstOrThrow();
+      const facts = JSON.parse(detail) as { status: string; updatedAt: string };
+      now += interval;
+      await ticket(facts.status, facts.updatedAt);
+    };
+    /**
+     * Final steps after the worker ended; by default the ticket is seen again past the grace and
+     * the last PR facts are polled complete.
+     */
+    const finals: Partial<
+      Record<keyof typeof histories, (b: Board, last: PrFacts[], ticket: Ticket) => Promise<void>>
+    > = {
+      closeHeld: async (b, last) => {
+        await closeSeenStale(b, last);
+      },
+      closeFresh: async (b, last, ticket) => {
+        const eight = await closeSeenStale(b, last);
+        await seeAgain(b, ticket);
+        now += 1_000;
+        await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
+      },
+      // The ticket is edited between #8's merge and #7's later one: it waits for #7's close too.
+      laterMergeAfterEdit: async (b, [, eight], ticket) => {
+        await ticket('open');
+        now += 1_000;
+        await prs(b, [{ ...pr(7, 'open'), updatedAt: iso() }, eight ?? pr(8, 'merged')]);
+        now += 1_000;
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven, eight ?? pr(8, 'merged')]);
+      },
+      // #7 reopens and merges with a stored time; past #8's grace the untouched ticket still waits.
+      legacyThenStored: async (b, [, eight], ticket) => {
+        const legacy = eight ?? pr(8, 'merged');
+        await prs(b, [{ ...pr(7, 'open'), updatedAt: iso() }, legacy]);
+        now += 1_000;
+        const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [seven, legacy]);
+        await seeAgain(b, ticket);
+        now += 1_000;
+        await prs(b, [seven, legacy]);
+      },
+      // A recently closed #9 is linked after both alerts opened: the worker-end item stays the
+      // same, and the pr-closed item names both PRs at once, its grace counted from the merge.
+      secondClosure: async (b, last, ticket) => {
+        await seeAgain(b, ticket);
+        now += 1_000;
+        await prs(b, last);
+        expect(await openLedger(b)).toEqual(['pr-closed', ENDED]);
+        const ended = () =>
+          b.store.db
+            .selectFrom('operator_item')
+            .select('id')
+            .where('item_key', 'like', 'health:%')
+            .where('cleared_at', 'is', null)
+            .execute();
+        const before = await ended();
+        now += 1_000;
+        await prs(b, [...last, { ...pr(9, 'closed'), updatedAt: iso(), closedAt: iso() }]);
+        expect(await ended()).toEqual(before);
+        expect((await surface(b)).blocks.at(-1)?.reason).toBe(
+          'linked pull request o/r#8, o/r#9 closed without merge, no open PR',
+        );
+      },
+      // The ticket reaches done within the grace after the close: no alert at any step.
+      closedDoneInGrace: async (b, last, ticket) => {
+        await prs(b, last);
+        expect(await openLedger(b)).toEqual([]);
+        now += 1_000;
+        await ticket('closed');
+        now += 1_000;
+        await prs(b, last);
+      },
+      // #7 is edited after the ticket change; the ticket is seen again one interval after the edit.
+      legacyMerged: async (b, [seven], ticket) => {
+        const edited = { ...(seven ?? pr(7, 'merged')), updatedAt: iso() };
+        await prs(b, [edited]);
+        const { detail } = await b.store.db
+          .selectFrom('ticket_snapshot')
+          .select('detail')
+          .executeTakeFirstOrThrow();
+        now += interval;
+        await ticket('open', (JSON.parse(detail) as { updatedAt: string }).updatedAt);
+        now += 1_000;
+        await prs(b, [edited]);
+      },
+      // Seen open past the merge's grace while #8 is open; #8 closes days later in a tracker outage.
+      closedDuringTrackerOutage: async (b, last, ticket) => {
+        await seeAgain(b, ticket);
+        now += 1_000;
+        await prs(b, last);
+        expect(await openLedger(b)).toEqual([]);
+        await blindTracker(b);
+        now += 3 * 24 * 60 * 60_000;
+        const eight = { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
+        now += 1_000;
+        await prs(b, [last[0] ?? pr(7, 'merged'), eight]);
+      },
+      // #9, closed, is linked and #8 unlinked in a tracker outage: the block names only #9.
+      unlinkDuringTrackerOutage: async (b, last, ticket) => {
+        await seeAgain(b, ticket);
+        now += 1_000;
+        await prs(b, last);
+        expect(await openLedger(b)).toEqual(['pr-closed', ENDED]);
+        await blindTracker(b);
+        now += 1_000;
+        const nine = { ...pr(9, 'closed'), updatedAt: iso(), closedAt: iso() };
+        await prs(b, [...last, nine]);
+        await b.apply(
+          createLinkMutations(b.config).remove,
+          {
+            mode: 'pr',
+            task: b.task.key,
+            pr: 'https://github.com/o/r/pull/8',
+            reason: 'Wrong PR.',
+          },
+          'operator',
+        );
+        now += 1_000;
+        await prs(b, [...last, nine]);
+        const open = (await surface(b)).blocks.filter((block) => block.state === 'open');
+        expect(open.map((block) => block.reason)).toContain(
+          'linked pull request o/r#9 closed without merge, no open PR',
+        );
+        expect(open.map((block) => block.reason).join('\n')).not.toContain('o/r#8');
+      },
+      blindAfterRaised: async (b, last, ticket) => {
+        await finals.closeFresh?.(b, last, ticket);
+        now += 1_000;
+        await blindGithub(b);
+      },
+      // A new live worker during the outage ends the worker-end alert; the pr-closed one holds.
+      blindThenLiveWorker: async (b, last, ticket) => {
+        await finals.blindAfterRaised?.(b, last, ticket);
+        const { detail } = await b.store.db
+          .selectFrom('session_snapshot')
+          .select('detail')
+          .where('id', '=', 'worker-1')
+          .executeTakeFirstOrThrow();
+        now += 1_000;
+        await spur(b, [JSON.parse(detail) as SessionFacts, session('worker-2', 'working')]);
+      },
+      // In the GitHub outage the tracker sees the ticket, a filter task here, leave the filter.
+      blindThenLeftFilter: async (b, last, ticket) => {
+        await finals.blindAfterRaised?.(b, last, ticket);
+        await b.store.db.updateTable('task').set({ manual_include: 0 }).execute();
+        const { detail } = await b.store.db
+          .selectFrom('ticket_snapshot')
+          .select('detail')
+          .executeTakeFirstOrThrow();
+        now += 1_000;
+        await ticket('open', (JSON.parse(detail) as { updatedAt: string }).updatedAt);
+      },
+      blindAfterDismissed: async (b, last, ticket) => {
+        await finals.closeFresh?.(b, last, ticket);
+        const item = await b.store.db
+          .selectFrom('operator_item')
+          .selectAll()
+          .where('item_key', 'like', 'pr-closed:%')
+          .executeTakeFirstOrThrow();
+        await b.store.transaction((trx) => dismissItem(trx, item, 'operator', new Date(now)));
+        now += 1_000;
+        await blindGithub(b);
+        expect(await b.store.db.selectFrom('dismissal').select('item_key').execute()).toEqual([
+          { item_key: item.item_key },
+        ]);
+      },
+    };
+    /** A tracker poll that fails as blind: the ticket is not seen again until it recovers. */
+    const blindTracker = (b: Board) =>
+      b.core.observe(source, {
+        batch: { source, observedAt: iso(), complete: false, items: [], entities: [] },
+        effectiveComplete: false,
+        state: { blind: { reason: 'auth', message: 'Bad token' }, gone: [] },
+        outcomes: [],
+      });
+    /** A GitHub poll that fails as blind: its alerts and dismissals hold through the outage. */
+    const blindGithub = (b: Board) =>
+      b.core.observe(github, {
+        batch: { source: github, observedAt: iso(), complete: false, items: [], entities: [] },
+        effectiveComplete: false,
+        state: { blind: { reason: 'auth', message: 'Bad token' }, gone: [] },
+        outcomes: [],
+      });
+    const NO_PR = 'o/r#9: worker ended (completed), no PR (worker-1)';
+    const UNCONFIRMED = { pr: 'merged', mergedOpen: null, unconfirmed: true };
+    const DONE = { pr: 'merged', mergedOpen: null, unconfirmed: false };
+    const ENDED = 'health:worker-1:worker_completed';
+    it.each([
+      ['merged', 'untouched', [], null, UNCONFIRMED],
+      [
+        'merged',
+        'changed',
+        [ENDED],
+        'o/r#9: worker ended (completed); PR o/r#7 merged, ticket reopened (worker-1)',
+        { pr: null, mergedOpen: 7, unconfirmed: false },
+      ],
+      ['merged', 'done', [], null, DONE],
+      ['followUpClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
+      ['followUpClosed', 'done', [], null, DONE],
+      ['closedDoneInGrace', 'untouched', [], null, DONE],
+      ['secondClosure', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      ['laterMergeAfterEdit', 'untouched', [], null, UNCONFIRMED],
+      ['legacyThenStored', 'untouched', [], null, UNCONFIRMED],
+      [
+        'conflictMerged',
+        'untouched',
+        ['pr-closed', ENDED],
+        NO_PR,
+        { pr: 'closed', mergedOpen: null, unconfirmed: false },
+      ],
+      // The conflict-linked merge closed the ticket while #7 is open: no ticket-closed block.
+      [
+        'conflictMergedOpen',
+        'done',
+        [],
+        null,
+        { pr: 'open', mergedOpen: null, unconfirmed: false },
+      ],
+      ['supersededClose', 'untouched', [], null, UNCONFIRMED],
+      ['reopenedClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
+      ['reopenedClosed', 'done', [], null, DONE],
+      ['conflictFollowUpClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
+      ['closeHeld', 'untouched', [], null, UNCONFIRMED],
+      ['closeFresh', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      ['blindAfterRaised', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      ['closedDuringTrackerOutage', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      ['unlinkDuringTrackerOutage', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
+      ['blindThenLiveWorker', 'untouched', ['pr-closed'], null, UNCONFIRMED],
+      ['blindThenLeftFilter', 'untouched', [], null, UNCONFIRMED],
+      // Seen open past the interval only: the merged PR stops counting, with no reopen named.
+      ['legacyMerged', 'changed', [ENDED], NO_PR, { pr: null, mergedOpen: 7, unconfirmed: false }],
+      // The dismissed pr-closed item is cleared; its block stays open, as for any dismissal.
+      ['blindAfterDismissed', 'untouched', [ENDED, null], NO_PR, UNCONFIRMED],
+    ] as const)(
+      'agrees with the dispatcher on which merged PR counts: %s, ticket %s',
+      async (history, change, ledger, ended, outcome) => {
+        const { b, ticket } = await split();
+        const before = iso();
+        await spur(b, [session('worker-1', 'working')]);
+        await ticket('open', before);
+        now += 1_000;
+        const last = await histories[history](b);
+        now += 1_000;
+        if (change === 'untouched') await ticket('open', before);
+        else await ticket(change === 'done' ? 'closed' : 'open');
+        now += 1_000;
+        await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+        now += 1_000;
+        const final = finals[history];
+        if (final !== undefined) await final(b, last, ticket);
+        else {
+          await seeAgain(b, ticket);
+          now += 1_000;
+          await prs(b, last);
+        }
+        expect(await openLedger(b)).toEqual(ledger);
+        const shown = await b.store.db
+          .selectFrom('operator_item')
+          .select('text')
+          .where('item_key', 'like', 'health:%')
+          .where('cleared_at', 'is', null)
+          .execute();
+        expect(shown.map((item) => item.text)).toEqual(ended === null ? [] : [ended]);
+        const project = b.config.projects[0];
+        if (project === undefined) throw new Error('missing project');
+        const read = await b.store.transaction(async (trx) => {
+          const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+          return readInput(trx, task, project, 'on', () => false, b.config, {
+            at: new Date(now),
+            complete: new Map(),
+          });
+        });
+        expect({
+          pr: read?.input.facts.pr?.state ?? null,
+          mergedOpen: read?.mergedOpen?.number ?? null,
+          unconfirmed: read?.ticketUnconfirmed,
+        }).toEqual(outcome);
+      },
+    );
 
     it('opens the PR-closed block for an unmerged follow-up beside a merged PR while the ticket is seen open', async () => {
       const { b, ticket } = await split();
@@ -4986,7 +5633,9 @@ describe('anomaly blocks', () => {
 
       const merged = await board();
       await ticket(merged, 'open');
-      await prs(merged, [pr(7, 'merged')]);
+      // Merged after the ticket's last change: the open ticket is only not moved yet.
+      const later = new Date(Date.parse(at) + 1_000).toISOString();
+      await prs(merged, [{ ...pr(7, 'merged'), updatedAt: later, mergedAt: later }]);
       await spur(merged, [sessionFact('worker-1', link, true)]);
       expect(await openLedger(merged)).toEqual([]);
     });

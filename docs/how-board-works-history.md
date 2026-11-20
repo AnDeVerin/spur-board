@@ -16,6 +16,7 @@ says what changed:
 | `mergeable_changed`, `pr_state_changed`                             | `Mergeable on <ref>: <from> → <to>`, `PR <ref>: <from> → <to>`                                                      |
 | `ticket_status_changed`                                             | `Ticket status: <from> → <to>`                                                                                      |
 | `review_submitted`                                                  | `Review by <reviewer> on <ref>: <state>`                                                                            |
+| `external_round`                                                    | `External change request by <reviewer> on <ref> at <sha7>: a course-check round`                                    |
 | `task_moved`                                                        | `Moved <from> → <to>: <reason> (<gates>)`                                                                           |
 | `task_manually_moved`                                               | `Manually moved <from> → <to>: <reason>`; actor and channel name the operator write                                 |
 | `task_mirror_moved`                                                 | `Mirror moved <from> → <to>: <source>`; actor `system`                                                              |

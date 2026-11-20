@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextColumn, whyRows } from '../src/board/task-model.ts';
+import { columnAfter, nextColumn, whyRows } from '../src/board/task-model.ts';
 import { allMet, condition, gate, parsedTask as task } from './board-fixtures.ts';
 
 const NOW = Date.parse('2026-11-15T14:00:00.000Z');
@@ -79,5 +79,17 @@ describe('next column', () => {
     const value = task({ column: 'review', dispatcher: 'shadow', gates: [allMet, reviewMet] });
     expect(value.task.column).toBe('dev');
     expect(nextColumn(value.why, COLUMNS)).toBe('done');
+  });
+
+  it('names the column after a turn column whatever its gate says', () => {
+    expect(columnAfter('review', COLUMNS)).toBe('done');
+    expect(columnAfter('done', COLUMNS)).toBeUndefined();
+    expect(columnAfter('qa', COLUMNS)).toBeUndefined();
+    const grouped: Parameters<typeof columnAfter>[1] = [
+      { id: 'todo', group: 'todo' },
+      { id: 'triage', group: 'todo' },
+      { id: 'dev' },
+    ];
+    expect(columnAfter('todo', grouped)).toBe('dev');
   });
 });

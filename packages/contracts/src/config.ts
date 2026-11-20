@@ -311,7 +311,7 @@ const columnConfig = z.strictObject({
     .min(0)
     .default(DEFAULT_COURSE_CHECK)
     .describe(
-      'How many returns to Dev from this column, counted as for cycleLimit, before the board holds the task and asks courseCheckTo (by default the curator, or the operator when the project has no curator) to check its course. The answer resets the count and reaches the worker as a task comment. 0 turns the check off; cycleLimit is checked first.',
+      "How many returns to Dev from this column, counted as for cycleLimit, before the board holds the task and asks courseCheckTo (by default the curator, or the operator when the project has no curator) to check its course. The answer resets the count and reaches the worker as a task comment. 0 turns the check off; cycleLimit is checked first. With External Review enabled, returns for external comments from any column, and each external change request on a new PR head while the task is in Dev (once per head), count toward External Review's courseCheck instead of this column's; cycleLimit still counts them per column.",
     ),
   courseCheckTo: nonEmpty
     .optional()

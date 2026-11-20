@@ -58,7 +58,7 @@ export const columnsDescribeOutputSchema = z.strictObject({
             text: z
               .string()
               .describe(
-                'Alternative completion routes: eligible linked merged PR with a tracker-done ticket (GitHub closed or effective Jira doneStatuses), or a done ticket without open linked PRs/live workers after fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch; confirmed-open evidence after the effective tracker interval, in filter or manually included, resumes work. Blind GitHub and pending submits hold both routes. Includes eligibility/readability, non-archived scope and dispatcher-mode qualifications.',
+                'Alternative completion routes: eligible linked merged PR with a tracker-done ticket (GitHub closed or effective Jira doneStatuses), or a done ticket without open linked PRs/live workers after fresh complete non-blind repository and Spur observations. Missing/unconfirmed merged-ticket status holds dispatch; a ticket that stays non-done and changed in any way at or after the newest merge, in filter or manually included, resumes work; a ticket untouched since the merge stays unconfirmed; when no merged PR has a stored merge time (facts from before the dispatcher), work resumes once the ticket, in filter or manually included, is observed open at or past the judged PR last update plus the tracker interval. Blind GitHub and pending submits hold both routes. Includes eligibility/readability, non-archived scope and dispatcher-mode qualifications.',
               ),
           })
           .describe(
@@ -103,7 +103,9 @@ export const columnsDescribeOutputSchema = z.strictObject({
                 ),
               returns: z
                 .array(z.string())
-                .describe('Applicable return triggers and completion/reopening qualifications.'),
+                .describe(
+                  'Applicable return triggers, course-check rounds and completion/reopening qualifications.',
+                ),
               limits: z
                 .strictObject({
                   cycleLimit: z
@@ -116,7 +118,7 @@ export const columnsDescribeOutputSchema = z.strictObject({
                     .int()
                     .min(0)
                     .describe(
-                      'Counted returns before a course check; zero disables it. Executor, feedback and thread returns count; draft, conflict and red CI do not.',
+                      'Counted returns before a course check; zero disables it. Executor, feedback and thread returns count; draft, conflict and red CI do not. With External Review enabled, returns for external comments count toward its courseCheck instead, as does each external change request on a new PR head while in Dev, once per head.',
                     ),
                   courseCheckTo: destination.describe(
                     'Resolved course-check destination; missing live recipient falls back to operator.',
