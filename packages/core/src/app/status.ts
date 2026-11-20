@@ -153,7 +153,7 @@ export async function getStatus(
   orderTodoGroupRows(rows, entries, projects);
   const tasks = [];
   const submissions = await latestSubmissions(store.db, rows);
-  const qaSubmissions = await latestQaSubmissions(store.db, rows, config);
+  const qaSubmissions = await latestQaSubmissions(store.db, rows, { projects });
   for (const task of rows) {
     if (!projectIds.has(task.project)) continue;
     const ticket = await store.db
