@@ -18,6 +18,7 @@ import {
   closedTurn,
   open,
   turnSection,
+  button,
   buttons,
   text,
   summary,
@@ -47,7 +48,12 @@ describe('Turn section after a write', () => {
   // refused take writes nothing, so no read follows it.
   type Row = {
     write:
-      'take ok, close refused' | 'take refused' | 'take unanswered' | 'close ok' | 'turn_closed';
+      | 'take ok, close refused'
+      | 'take refused'
+      | 'take unanswered'
+      | 'take stalls'
+      | 'close ok'
+      | 'turn_closed';
     /** How the read after the write goes, for the title. */
     read: string;
     after: ReturnType<typeof orchestratorTaskGet> | 'fail' | 'pending' | 'stall';
@@ -64,6 +70,8 @@ describe('Turn section after a write', () => {
     answered?: string;
     /** A read issued before the write, held, and answering after the keyed read's deadline. */
     older?: ReturnType<typeof orchestratorTaskGet>;
+    /** Answer the read without Cancel, then send again: the take asks with the same key. */
+    resend?: true;
   };
   it.each<Row>([
     {
@@ -110,6 +118,19 @@ describe('Turn section after a write', () => {
       sendOff: true,
       answer: held,
       answered: 'T5 · you hold it',
+    },
+    {
+      write: 'take stalls',
+      read: 'is pending',
+      after: 'pending',
+      header: 'T5 · refreshing',
+      holder: false,
+      hold: false,
+      plain: REFRESHING,
+      sendOff: true,
+      answer: held,
+      answered: 'T5 · refused, you hold it',
+      resend: true,
     },
     {
       write: 'take unanswered',
@@ -217,8 +238,12 @@ describe('Turn section after a write', () => {
       answer,
       answered,
       older,
+      resend,
     }) => {
-      const { d } = await open();
+      const { d, writes } = await open();
+      const acked = d.routes['inbox.ack'];
+      // The ack may have landed, but its answer never comes.
+      if (write === 'take stalls') d.routes['inbox.ack'] = never;
       if (write === 'take refused') d.routes['inbox.ack'] = () => problem('forbidden', 403);
       if (write === 'take ok, close refused')
         d.routes['task.submit'] = () => problem('head_mismatch', 409);
@@ -243,7 +268,7 @@ describe('Turn section after a write', () => {
               ? never
               : () => Promise.resolve(envelope(after));
       await click('Submit…');
-      const stalls = after === 'stall' || older !== undefined;
+      const stalls = after === 'stall' || older !== undefined || write === 'take stalls';
       if (stalls) vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       await send();
       if (stalls) {
@@ -264,6 +289,19 @@ describe('Turn section after a write', () => {
       expect(text().includes(REFRESHING)).toBe(plain === REFRESHING);
       const primary = turnSection().querySelector<HTMLButtonElement>('form button[type="submit"]');
       expect(primary === null ? null : primary.disabled).toBe(sendOff);
+      // Nothing is in flight any more: an open form's Cancel works.
+      if (primary !== null) expect(button('Cancel').disabled).toBe(false);
+      if (resend === true && answer !== undefined) {
+        late.resolve(envelope(answer));
+        await settle();
+        expect(summary()).toBe(answered);
+        d.routes['inbox.ack'] = acked;
+        await send();
+        const acks = writes().filter((call) => call.op === 'inbox.ack');
+        expect(acks).toHaveLength(2);
+        expect(acks[1]?.key).toBe(acks[0]?.key);
+        return;
+      }
       if (plain !== undefined) {
         // Both opening actions are off then, so Cancel focuses the plain line, with the ring.
         await click('Cancel');

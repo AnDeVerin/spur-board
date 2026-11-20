@@ -1,4 +1,5 @@
 import { createMutationIntent, ProblemError, type createApi } from '../lib/api.ts';
+import { REREAD_LIMIT_MS } from './turn-model.ts';
 
 /** The step a turn write is on: taking the turn through `inbox.ack`, then closing it. */
 export type TurnPhase = 'taking' | 'closing';
@@ -16,7 +17,9 @@ type TurnWrite =
  * Take turn `turn` with `inbox.ack`, then close it with the write; each step owns one idempotent
  * intent, so an unchanged resend reuses both keys. A confirmed ack is not sent again, nor one for a
  * turn `held` says the operator already holds, except after `not_turn_taker`: someone took the
- * turn back, so the next run takes it again with a new key.
+ * turn back, so the next run takes it again with a new key. The take has `REREAD_LIMIT_MS` to
+ * answer: past it the run fails as a take with an unknown outcome, ignores any late answer, and a
+ * resend asks again with the same key, so a take that landed replays.
  * `refused` names why the board cannot send now; `refresh` re-reads the task the write was for and
  * answers whether that read succeeded.
  */
@@ -29,8 +32,33 @@ export function createTurnIntent(options: {
   refresh: () => Promise<boolean>;
 }) {
   const { api, turn, write } = options;
-  const takeIntent = () => createMutationIntent(api, 'inbox.ack', { entries: [{ id: turn }] });
-  let take = takeIntent();
+  let takeKey = crypto.randomUUID();
+  /** One take request under the kept key, aborted once it outlasts the deadline. */
+  const take = async () => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error('Taking the turn got no answer in time; its outcome is unknown.'));
+      }, REREAD_LIMIT_MS);
+    });
+    const asked = api(
+      'inbox.ack',
+      { entries: [{ id: turn }] },
+      {
+        key: takeKey,
+        signal: controller.signal,
+      },
+    );
+    // A late answer after the deadline settles nothing.
+    asked.catch(() => undefined);
+    try {
+      await Promise.race([asked, late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   let taken = options.held;
   const close =
     write.id === 'task.submit'
@@ -41,7 +69,7 @@ export function createTurnIntent(options: {
   const run = async (onPhase: (phase: TurnPhase) => void): Promise<TurnClosed> => {
     if (!taken) {
       onPhase('taking');
-      await take.run();
+      await take();
       taken = true;
     }
     onPhase('closing');
@@ -52,7 +80,7 @@ export function createTurnIntent(options: {
     } catch (error) {
       if (error instanceof ProblemError && error.code === 'not_turn_taker') {
         taken = false;
-        take = takeIntent();
+        takeKey = crypto.randomUUID();
       }
       throw error;
     }
