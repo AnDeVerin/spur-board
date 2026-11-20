@@ -36,11 +36,13 @@ export function shellFixture(scenario: Scenario) {
               scenario === 'mixed'
                 ? `github:project-with-a-long-source-name-for-footer-wrapping-${String(i + 1)}`
                 : `github:project-${String(i + 1)}`,
+            project: 'web',
             observedAt: at,
             lastCompleteAt: at,
             blindReason: scenario === 'mixed' && i % 3 === 0 ? 'auth' : null,
             message: null,
             budget: null,
+            waitsForBudget: false,
             stale: scenario === 'mixed' && i % 2 === 0,
             healthySince: scenario === 'mixed' && i % 3 === 0 ? null : at,
             warmingUp: false,

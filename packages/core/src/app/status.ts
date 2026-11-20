@@ -91,6 +91,8 @@ export async function getStatus(
     daemon?: { version: string; startedAt: string; lastDispatchAt: string | null } | undefined;
     /** When each source became usable in this daemon run; defaults to none. */
     healthySince?: ReadonlyMap<string, string> | undefined;
+    /** Sources the adapter runner of this run pauses for the rate budget; defaults to none. */
+    budgetWaits?: ReadonlySet<string> | undefined;
     /** The last host sample, or null before the first; never sampled here. */
     host?: StatusOutput['host'] | undefined;
   },
@@ -116,16 +118,11 @@ export async function getStatus(
   const { project: projectId, visibleProjects, detail = false } = options;
   const includeBoardItems = options.includeBoardItems ?? visibleProjects === undefined;
   const operatorProjects = options.operatorProjects ?? new Set<string>();
+  const visible = config.projects.filter(
+    (project) => visibleProjects === undefined || visibleProjects.has(project.id),
+  );
   const projects =
-    projectId === undefined
-      ? config.projects.filter(
-          (project) => visibleProjects === undefined || visibleProjects.has(project.id),
-        )
-      : config.projects.filter(
-          (project) =>
-            project.id === projectId &&
-            (visibleProjects === undefined || visibleProjects.has(project.id)),
-        );
+    projectId === undefined ? visible : visible.filter((project) => project.id === projectId);
   if (projects.length === 0) throw new CommandError('not_found', 'Check the project ID.');
   const projectIds = new Set(projects.map((project) => project.id));
   const rows = await store.db
@@ -362,13 +359,18 @@ export async function getStatus(
       const { id, spurProject, branch, lifecycle, health } = facts;
       return { id, spurProject, branch, lifecycle, health };
     });
-  const required = new Set([
-    'spur',
-    ...projects.flatMap((project) => [
-      trackerSourceId(project),
-      ...project.repos.map((repo) => prSourceId(project.id, repo)),
-    ]),
-  ]);
+  const sourceIds = (scope: readonly Config['projects'][number][]) =>
+    new Set([
+      'spur',
+      ...scope.flatMap((project) => [
+        trackerSourceId(project),
+        ...project.repos.map((repo) => prSourceId(project.id, repo)),
+      ]),
+    ]);
+  // Items and warmingUp follow the requested projects; sources and services stay board-wide
+  // (every project the caller may see), so the web bar shows every service whatever is chosen.
+  const required = sourceIds(projects);
+  const boardSources = sourceIds(visible);
   const costs = await store.db
     .selectFrom('source_cost')
     .select(['source', 'points'])
@@ -377,7 +379,7 @@ export async function getStatus(
     .execute();
   const points = new Map<string, number>();
   for (const cost of costs) points.set(cost.source, (points.get(cost.source) ?? 0) + cost.points);
-  const sources = [...required].map((source) => {
+  const sources = [...boardSources].map((source) => {
     const row = sourceById.get(source);
     const last = row?.last_complete_at ?? null;
     const blindReason: 'auth' | 'config' | 'stale' | null =
@@ -388,6 +390,7 @@ export async function getStatus(
         : null;
     return {
       source,
+      project: projectForSource(config, source)?.id ?? null,
       ...(source.startsWith('github:') && {
         pointsLastHour: points.get(source) ?? 0,
         defaultBranch: parseDefaultBranch(row?.default_branch),
@@ -404,6 +407,9 @@ export async function getStatus(
               resetAt: row.budget_reset_at,
             }
           : null,
+      // The runner's own pause, not the stored budget: an on-demand poll or an earlier daemon
+      // run may have stored a budget under the reserve that no regular poll of this run waits on.
+      waitsForBudget: deps.budgetWaits?.has(source) ?? false,
       stale:
         last === null ||
         clock.now() - Date.parse(last) >
@@ -499,7 +505,7 @@ export async function getStatus(
     });
   return {
     items,
-    warmingUp: sources.some((source) => source.warmingUp),
+    warmingUp: sources.some((source) => required.has(source.source) && source.warmingUp),
     spurUnavailable:
       spur?.blind_reason === null || spur === undefined
         ? null
@@ -507,7 +513,6 @@ export async function getStatus(
     hostLoad: host?.value !== undefined && host.value !== 'null' ? 'Host under load' : null,
     host: deps.host ?? null,
     services: services({
-      config,
       now: clock.now(),
       daemon,
       transport,

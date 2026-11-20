@@ -25,7 +25,7 @@ update.
 
 The private web package builds the Board screen for one chosen project; the
 [web UI](web-ui.md) guide describes what it shows and its states. It reads `config.get`,
-`status.get` with detail for the chosen project, `inbox.operator` and `task.get` with `why` for
+`status.get` with detail for the chosen project, whose sources and services cover every project, whatever project is chosen, `inbox.operator` and `task.get` with `why` for
 the open task, and `task.history` while History shows. A card click or the address `?open=<task key>` opens the
 [task view](web-ui-task-view.md) with its "Why it is here", Blocks and Comments sections and History tab.
 The task view can answer open operator questions through `block.answer`, follow up on answered
@@ -42,7 +42,7 @@ adjacent Todo-group columns show under one Backlog band that folds into one colu
 `done` lists every done task. The status bar holds one health button per service (daemon,
 slack, github, spur, and jira when configured), coloured from the `services` rows of
 `status.get`, the persistent Light/Dark/Auto theme choice and the daemon version; its services
-panel (`?open=services`) shows daemon, host, gateway and per-source rows from the same read. It uses local JetBrains Mono fonts and the
+panel (`?open=services`) shows daemon, host, gateway and spur rows, then per-source rows grouped by project, from the same read. It uses local JetBrains Mono fonts and the
 V1 prototype tokens. Failed reads keep the last good data on screen under an error banner with
 its time; stream failures reconnect with capped backoff and show offline after five failed
 attempts while continuing recovery. Reconnects retain valid SSE cursors, including ID-only

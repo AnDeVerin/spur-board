@@ -1,11 +1,12 @@
 # Web UI: status bar and services
 
-The status bar and the services panel of the [web UI](web-ui.md) show service health.
+The status bar and the services panel of the [web UI](web-ui.md) show service health for
+every project, whatever project is chosen in the header.
 
 ## Status bar
 
 Left to right: **services** toggles its panel; service buttons (daemon, slack, github, spur, jira
-when listed); Light/Dark/Auto theme menu with the choice's icon; daemon version, empty until
+when any project uses Jira); Light/Dark/Auto theme menu with the choice's icon; daemon version, empty until
 the first status read.
 
 Service dots follow `status.get` health: green healthy, amber degraded, red failing. Names read
@@ -18,8 +19,14 @@ Service dots follow `status.get` health: green healthy, amber degraded, red fail
 - slack: `up` or `down`.
 - github, spur and jira: `polling` when healthy. GitHub takes the worst across repository pull
   request and issue sources. Otherwise the first source matching the service's colour supplies
-  `blind: <reason>`, `never completed`, `warming up` or `stale`. Else `waits for rate budget`
-  means a GitHub budget reached its configured reserve; hover for the reason.
+  `blind: <reason>`, `waits for rate budget`, `never completed`, `warming up` or `stale`;
+  `waits for rate budget` means the daemon holds back that source's regular poll, because its last
+  poll left a GitHub budget under the configured reserve, was throttled, or failed while the last
+  budget was under the reserve, unless the source is blind, which outranks the wait; hover for
+  the reason. After a daemon restart a button reads `warming up` until every source of its own
+  service, in every project, has polled once: an unpolled Jira source does not keep github or spur
+  warming up, and a blind source, a source waiting for its rate budget, or a stale one listed
+  first, of the same service shows its word instead.
 - `unknown`, with a hollow dot, for a service with no health row, for all before the first status
   read, and for all but the daemon while the daemon does not answer.
 
@@ -36,14 +43,21 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
   bar, such as `41.1 GiB free`. A volume that cannot be read is left out; `Disk — / 100` means
   no volume could be read or no sample yet. A host load wait adds an amber row.
 - slack: when down, Down since, Reason and Spaces.
-- One box per GitHub source, spur, one per Jira source, headed by its own state: Last complete
-  poll, Last observation, Blind (when blind), Freshness, Warming up, Points last hour (pull request
-  sources) and Budget: a bar of requests left over the limit with its reset time, amber at 20% and
-  red at 5%; `<n> left` without a limit; `—` without a budget. The spur box adds an availability
-  line while Spur is unavailable.
+- spur, then one group per project, headed by the project id, with one box per GitHub source and
+  one per Jira source of that project. Each box is headed by its own state, so every source the
+  daemon holds back for a rate limit reads `waits for rate budget`, even before its first complete
+  poll after a restart. A blind source reads its blind reason instead, `blind: stale`,
+  `blind: auth` or `blind: config`, because blind outranks the wait. Each box shows Last
+  complete poll, Last observation, Blind (when blind), Freshness, Warming up, Points last hour
+  (pull request sources) and Budget: a bar of requests left over the limit with its reset time,
+  amber at 20% and red at 5%; `<n> left` without a limit; `—` without a budget. The spur box
+  adds an availability line while Spur is unavailable.
 
-Healthy services omit their healthy-since time. Before the first status the panel waits; an
-unreachable daemon makes boxes unknown. Lost live updates with a reachable daemon show
+A box name adds `· <repo>` only when its group has two sources of that kind. A service button
+scrolls the panel to its service's failing box, else its degraded box, else its first box; among
+boxes in the same state it takes the one whose word the button shows, the source the daemon
+blames. Healthy services omit their healthy-since time. Before the first status the panel waits;
+an unreachable daemon makes boxes unknown. Lost live updates with a reachable daemon show
 `Data from <time>` and retain data. Close, Escape, the scrim or services button closes the panel;
 focus returns to its opener, or services after a link.
 

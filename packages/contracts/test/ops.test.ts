@@ -873,10 +873,12 @@ describe('snapshot', () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
-    // Manual moves extend task.move, move views, schema metadata and the error catalog. #733 adds
-    // the review-rule gate reasons and condition to task.get --why.
+    // Manual moves extend task.move, move views, schema metadata and the error catalog. #761
+    // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
+    // and board-wide project, sources and services texts to status.get. #733 adds the
+    // review-rule gate reasons and condition to task.get --why.
     expect(await catalogVersion(baseline)).toBe(
-      '0a63c263b8e59ed3f2a8c47471da20fccf25554dbfe01544705bbdb47224cf70',
+      '8cf3cae1ff4e6672978851312490f41f8ad5f73eece7d5c101adb6777d21a844',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

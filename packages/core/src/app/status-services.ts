@@ -1,4 +1,4 @@
-import { BOARD_TICK_MS, type Config } from '@spur-board/contracts';
+import { BOARD_TICK_MS } from '@spur-board/contracts';
 import type { statusOutputSchema } from '@spur-board/contracts/browser';
 import type { Kysely } from 'kysely';
 import type { z } from 'zod';
@@ -33,11 +33,7 @@ function pickTime(values: readonly (string | null)[], pick: 'latest' | 'oldest')
 }
 
 /** One source's health: failing when blind, degraded while not fully usable, else healthy. */
-function sourceHealth(
-  source: SourceView,
-  config: Config,
-  now: number,
-): Pick<ServiceRow, 'state' | 'reason'> {
+function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 'reason'> {
   if (source.blindReason !== null) {
     const message = source.message === null ? '' : `: ${source.message}`;
     return {
@@ -46,20 +42,17 @@ function sourceHealth(
     };
   }
   const degraded = (reason: string) => ({ state: 'degraded' as const, reason });
+  // A source the runner holds back from its regular polls because GitHub or Jira throttled it
+  // (a budget under the reserve or a throttled response) names the wait first: while held back it
+  // does not poll, so it cannot complete, warm up or turn fresh. The reason names no time; see
+  // policy.ts and runner.ts for the timing.
+  if (source.waitsForBudget) return degraded(`${source.source} waits for its rate budget`);
   // The runner does not reload lastCompleteAt, so a restarted source can read null while it
   // completed in an earlier run: name it warming up until its first complete poll.
   if (source.lastCompleteAt === null)
     return degraded(`${source.source} ${source.warmingUp ? 'warming up' : 'never completed'}`);
   if (source.stale) return degraded(`${source.source} stale`);
   if (source.warmingUp) return degraded(`${source.source} warming up`);
-  const { budget } = source;
-  if (
-    source.source.startsWith('github') &&
-    budget !== null &&
-    budget.remaining < config.github.reserveRemaining &&
-    Date.parse(budget.resetAt) > now
-  )
-    return degraded(`${source.source} waits for its rate budget until ${budget.resetAt}`);
   return { state: 'healthy', reason: null };
 }
 
@@ -68,7 +61,6 @@ function sourceHealth(
  * rolled up from the given sources only.
  */
 export function services(input: {
-  config: Config;
   now: number;
   daemon: StatusOutput['daemon'];
   transport: StatusOutput['transport'];
@@ -76,7 +68,7 @@ export function services(input: {
   outageEnds: ReadonlyMap<string, string>;
   sources: readonly SourceView[];
 }): ServiceRow[] {
-  const { config, now, daemon } = input;
+  const { now, daemon } = input;
   const lastTick = daemon.lastDispatchAt ?? daemon.startedAt;
   const stalled = now - Date.parse(lastTick) > DAEMON_STALL_MS;
   const rows: ServiceRow[] = [
@@ -116,7 +108,7 @@ export function services(input: {
       (source) => SOURCE_SERVICES[source.source.split(':')[0] ?? ''] === service,
     );
     if (members.length === 0) continue;
-    const health = members.map((source) => sourceHealth(source, config, now));
+    const health = members.map(sourceHealth);
     const worst = health.reduce((a, b) => (STATE_RANK[b.state] > STATE_RANK[a.state] ? b : a));
     rows.push({
       service,

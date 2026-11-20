@@ -56,6 +56,11 @@ export function createOperationRegistry(deps: {
   reapplyInbound?: () => ReapplyInbound | undefined;
   /** Read at operation time: the adapter runner starts after the registry and may be absent. */
   prPoller?: () => PrPoller['pollPr'] | undefined;
+  /**
+   * Read at operation time: the sources the running adapter runner pauses for the rate budget,
+   * reported by `status.get` `sources[].waitsForBudget`; absent before the runner starts.
+   */
+  budgetWaits?: () => ReadonlySet<string> | undefined;
   /** Product version of the running daemon, reported by `status.get` `daemon`. */
   productVersion?: string;
   /** Read at operation time: when the last board tick completed, or null before the first. */
@@ -202,6 +207,7 @@ export function createOperationRegistry(deps: {
           gateways,
           daemon: { version: productVersion, startedAt, lastDispatchAt: lastDispatchAt() },
           healthySince: deps.healthySince,
+          budgetWaits: deps.budgetWaits?.(),
           host: deps.hostMetrics?.(),
         },
         {

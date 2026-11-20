@@ -10,11 +10,11 @@ import {
 import { githubSources } from './github/index.ts';
 import { createGithubIssuesAdapter } from './github/issues.ts';
 import { createJiraAdapter } from './jira/jira.ts';
-import { startRunner, type AdapterRunner, type PollFailure } from './runner/runner.ts';
+import { startRunner, type PollFailure, type StartedRunner } from './runner/runner.ts';
 import { createSpurAdapter, type SpurNotice } from './spur/spur.ts';
 
 export type { AdapterCore, SourceState } from '@spur-board/contracts';
-export type { AdapterRunner, PollFailure } from './runner/runner.ts';
+export type { AdapterRunner, PollFailure, StartedRunner } from './runner/runner.ts';
 export { sampleLinkRules } from './github/linkSample.ts';
 export { readBranchRule } from './github/branchRule.ts';
 // Board doctor classifies its own GitHub probes with the same rules as the PR source.
@@ -51,7 +51,7 @@ export function startAdapters(
   config: Config,
   core: AdapterCore,
   options: StartAdaptersOptions,
-): AdapterRunner {
+): StartedRunner {
   const secrets = options.secrets ?? {};
   const githubToken = secrets['GITHUB_TOKEN'];
   const entries: { adapter: Adapter; reserveRemaining?: number; repo?: string }[] = [];
@@ -147,6 +147,7 @@ export function startAdapters(
     onFailure: options.onPollFailure,
   });
   return {
+    budgetWaits: runner.budgetWaits,
     firstAttempts: runner.firstAttempts,
     pollPr: runner.pollPr,
     async stop() {

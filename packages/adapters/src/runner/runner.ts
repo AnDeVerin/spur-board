@@ -70,6 +70,17 @@ interface RunnerEntry {
 }
 
 export interface AdapterRunner {
+  /**
+   * Sources whose next regular poll this runner holds back for a rate limit. A source is added
+   * when a regular poll's delay is a rate-limit wait (a budget under its reserve, a throttled
+   * failure, or any other failure while the last budget this run saw is under the reserve before
+   * its reset) and removed when that poll's timer fires or the runner stops; the last kind is also
+   * removed when that budget's reset passes. An on-demand poll
+   * never adds or removes one. `startRunner` owns the set and `startAdapters` passes the same
+   * set through (both return a `StartedRunner`, so the compiler rejects a wrapper that drops
+   * it); empty in one-shot mode. Optional only for test stand-ins.
+   */
+  budgetWaits?: ReadonlySet<string> | undefined;
   /** Outcome of the first poll of each source, after its observation or failure report. */
   firstAttempts?:
     Promise<readonly { source: string; outcome: PollOutcome | undefined }[]> | undefined;
@@ -84,6 +95,9 @@ export interface AdapterRunner {
    */
   stop(): Promise<void>;
 }
+
+/** A runner `startRunner` and `startAdapters` return: its budget waits are always present. */
+export type StartedRunner = AdapterRunner & { budgetWaits: ReadonlySet<string> };
 
 /** One failed step of a poll or a source report, for the warn log. Never carries a value. */
 export interface PollFailure {
@@ -111,11 +125,13 @@ export interface RunnerOptions {
   onFailure?: ((failure: PollFailure) => void) | undefined;
 }
 
-export function startRunner(options: RunnerOptions): AdapterRunner {
+export function startRunner(options: RunnerOptions): StartedRunner {
   const startedAt = options.now();
-  const sources = options.entries.map((entry) => runSource(entry, options, startedAt));
+  const budgetWaits = new Set<string>();
+  const sources = options.entries.map((entry) => runSource(entry, options, startedAt, budgetWaits));
   const byId = new Map(sources.map((source) => [source.id, source]));
   return {
+    budgetWaits,
     firstAttempts: Promise.all(
       sources.map(async (source) => ({
         source: source.id,
@@ -143,7 +159,12 @@ type Timer = ReturnType<typeof setTimeout>;
 const noop = () => undefined;
 const stoppedError: PollPrError = { kind: 'stopped', message: 'The adapter runner is stopping' };
 
-function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: number) {
+function runSource(
+  entry: RunnerEntry,
+  options: RunnerOptions,
+  runnerStartMs: number,
+  budgetWaits: Set<string>,
+) {
   const { adapter, reserveRemaining } = entry;
   const { core, config } = options;
   const { now } = options;
@@ -184,11 +205,15 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   const pending = new Set<() => void>();
   /** Until when a regular throttled failure forbids calling the source. */
   let throttledUntilMs: number | undefined;
+  /** The last budget a regular or on-demand poll of this run reported. */
+  let lastBudget: Batch['budget'];
   /** Tail of the single-flight chain: regular polls and on-demand requests, one at a time. */
   let chain: Promise<void> = Promise.resolve();
   let pollTimer: Timer | undefined;
   let deadlineTimer: Timer | undefined;
   let hardBoundTimer: Timer | undefined;
+  /** Ends a remembered-budget wait at the budget's reset. */
+  let waitTimer: Timer | undefined;
   let reports: Promise<void> = Promise.resolve();
   let lastReported: string | undefined;
 
@@ -278,11 +303,29 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     return result;
   }
 
-  function schedule(delayMs: number): void {
+  /**
+   * Arms the next regular poll; `budgetWait` marks it as put off for the rate budget. With
+   * `waitEndsAt`, the mark ends at that time even if the poll is due later.
+   */
+  function schedule(delayMs: number, budgetWait: boolean, waitEndsAt?: number): void {
     if (stopping) return;
+    clearTimeout(waitTimer);
+    waitTimer = undefined;
+    if (budgetWait) budgetWaits.add(source);
+    if (budgetWait && waitEndsAt !== undefined)
+      waitTimer = setTimeout(
+        () => {
+          waitTimer = undefined;
+          budgetWaits.delete(source);
+        },
+        Math.min(Math.max(waitEndsAt - now(), 0), MAX_TIMER_MS),
+      );
     pollTimer = setTimeout(
       () => {
         pollTimer = undefined;
+        clearTimeout(waitTimer);
+        waitTimer = undefined;
+        budgetWaits.delete(source);
         void run(poll);
       },
       Math.min(delayMs, MAX_TIMER_MS),
@@ -394,6 +437,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
         await accepted;
         if (aborted()) return;
         outcome = { kind: 'delivered', budget: parsed.data.budget };
+        lastBudget = parsed.data.budget ?? lastBudget;
       }
     } catch (error) {
       if (aborted()) return;
@@ -419,7 +463,22 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     throttledUntilMs = outcome.kind === 'failed' ? throttledRetryAt(outcome.error) : undefined;
     if (!options.oneShot) armDeadline();
     await report(usage);
-    if (!options.oneShot) schedule(delay.delayMs);
+    // A failed poll that names no rate limit still waits for one while the last reported budget,
+    // from an on-demand poll too, is under the reserve until a future reset.
+    const underReserve =
+      reserveRemaining !== undefined &&
+      lastBudget !== undefined &&
+      lastBudget.remaining < reserveRemaining &&
+      Date.parse(lastBudget.resetAt) > now();
+    // That fallback ends at the budget's reset, as a stored budget's check did, while the retry
+    // keeps its own time.
+    const fallback = !delay.budgetWait && outcome.kind === 'failed' && underReserve;
+    if (!options.oneShot)
+      schedule(
+        delay.delayMs,
+        delay.budgetWait || fallback,
+        fallback && lastBudget !== undefined ? Date.parse(lastBudget.resetAt) : undefined,
+      );
     return outcome;
   }
 
@@ -543,6 +602,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
         counts = recoveredCounts;
         gone = recoveredGone;
         lastReported = JSON.stringify(committed);
+        lastBudget = parsed.data.budget ?? lastBudget;
         return ok(value);
       });
       reports = accepted.then(noop, noop);
@@ -652,7 +712,9 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       clearTimeout(pollTimer);
       clearTimeout(deadlineTimer);
       clearTimeout(hardBoundTimer);
-      pollTimer = deadlineTimer = hardBoundTimer = undefined;
+      clearTimeout(waitTimer);
+      pollTimer = deadlineTimer = hardBoundTimer = waitTimer = undefined;
+      budgetWaits.delete(source);
       controller?.abort();
       for (const cancel of [...pending]) cancel();
       await chain;
