@@ -4122,6 +4122,32 @@ describe('approval watch', () => {
       'cached',
     ],
     [
+      'a PrCommits answer whose rateLimit.resetAt is not a datetime',
+      (run) => {
+        run.state.commits = () =>
+          json({ data: { ...watchedCommits(), rateLimit: { remaining: 4000, resetAt: 'soon' } } });
+        return run.poll();
+      },
+      'cached',
+    ],
+    [
+      'a PrBases answer whose rateLimit.resetAt is not a datetime',
+      async (run) => {
+        await run.poll();
+        run.state.detail = { ...run.state.detail, updatedAt: '2026-01-05T00:00:00Z' };
+        run.state.bases = () =>
+          response({
+            ...aliased([7], () => ({ pullRequest: { baseRefName: run.state.base } })),
+            rateLimit: { remaining: 4000, resetAt: 'soon' },
+          });
+        run.advance(MINUTE);
+        const batch = await run.poll();
+        expect(run.sent('PrBases')).toBe(1);
+        return batch;
+      },
+      'cached',
+    ],
+    [
       'an on-demand read queued while the PrCommits read is in flight',
       async (run) => {
         vi.useFakeTimers();

@@ -9,6 +9,7 @@ import {
   type PrFeedback,
   type SourceCursor,
   approvalRuleOf,
+  batchSchema,
   prSourceId,
   sourceCursorSchema,
 } from '@spur-board/contracts';
@@ -1032,6 +1033,13 @@ function pairReader(
   };
 }
 const baseWire = z.object({ pullRequest: z.object({ baseRefName: z.string() }) });
+/**
+ * Keeps an approval-watch read's budget only when `batchSchema` would accept it, so an invalid
+ * one (the client takes any `resetAt` string) never replaces the regular reads' budget.
+ */
+function keepPairBudget(acc: Accumulator, budget: NonNullable<Batch['budget']>): void {
+  if (batchSchema.shape.budget.safeParse(budget).success) acc.budget = budget;
+}
 /** Whether the budget is below `APPROVAL_RESERVE_FACTOR` times the reserve. */
 const pairBudgetLow = (acc: Accumulator, reserveRemaining: number): boolean =>
   acc.budget !== undefined && acc.budget.remaining < APPROVAL_RESERVE_FACTOR * reserveRemaining;
@@ -1055,7 +1063,7 @@ async function checkBases(
   if (numbers.length === 0 || pairBudgetLow(acc, reserveRemaining)) return;
   const response = await read(basesQuery(numbers));
   if (response === undefined) return;
-  acc.budget = response.budget;
+  keepPairBudget(acc, response.budget);
   if (unscoped(response.errors, aliasesOf(numbers))) return;
   for (const [i, number] of numbers.entries()) {
     const alias = `pr${String(i)}`;
@@ -1105,7 +1113,7 @@ async function readApprovalPairs(
     if (missing.length > 0 && !waiting && !limited) {
       const response = await read(commitsQuery(), { number: facts.number });
       if (response !== undefined) {
-        acc.budget = response.budget;
+        keepPairBudget(acc, response.budget);
         const pairs = approvalPairs(facts, response);
         if (pairs === 'unreadable') entry.unreadableUntil = now() + UNREADABLE_RETRY_MS;
         else {
