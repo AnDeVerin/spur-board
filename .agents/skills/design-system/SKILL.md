@@ -35,8 +35,9 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
   `describe('design system boundary'`) and `packages/web/test/ds.test.ts`.
 - Each status color sits next to a visible word, or next to its own value text with the word
   visually hidden; a decorative dot is `aria-hidden`.
-- A ds part that floats next to an anchor is placed with `@floating-ui/dom` (catalog, exact
-  pin), not hand-written measuring (#776).
+- A ds part whose placement measures its anchor or the window uses `@floating-ui/dom` (catalog,
+  exact pin), not hand-written measuring (#776). CSS-only placement against the part's own
+  trigger, as in `HoverMenu`, is exempt.
 - A ds API change takes its own decisions row, returned after your output in a manager
   run: `docs/design-system-decisions.md`, `## Design system changes`.
 
