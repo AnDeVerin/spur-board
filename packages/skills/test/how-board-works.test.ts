@@ -14,7 +14,7 @@ describe('how the Board works guide', () => {
     expect(rows.slice(2).join('\n'))
       .toBe(`todo|New/reopened; manual|Dispatcher/operator|board move <task> todo --reason <text> --key <key>
 triage|Manual|Operator|board move <task> triage --reason <text> --key <key>
-ready-for-dev|Manual|Operator|board move <task> ready-for-dev --reason <text> --key <key>
+ready-for-dev|Manual or Project mirror|Operator/mirror|board move <task> ready-for-dev --reason <text> --key <key>
 dev|Work start/gate failure/return|Dispatcher/executor/operator|board move <task> dev --correct --reason <text>
 review|Gates: internal review|Dispatcher/operator|board move <task> review --correct --reason <text>
 product-review|Gates: product review|Dispatcher/operator|board move <task> product-review --correct --reason <text>

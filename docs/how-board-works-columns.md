@@ -32,7 +32,7 @@ the dispatcher moves.
 | ----------------- | ------------------------------ | ---------------------------- | ------------------------------------------------------------- |
 | `todo`            | New/reopened; manual           | Dispatcher/operator          | `board move <task> todo --reason <text> --key <key>`          |
 | `triage`          | Manual                         | Operator                     | `board move <task> triage --reason <text> --key <key>`        |
-| `ready-for-dev`   | Manual                         | Operator                     | `board move <task> ready-for-dev --reason <text> --key <key>` |
+| `ready-for-dev`   | Manual or Project mirror       | Operator/mirror              | `board move <task> ready-for-dev --reason <text> --key <key>` |
 | `dev`             | Work start/gate failure/return | Dispatcher/executor/operator | `board move <task> dev --correct --reason <text>`             |
 | `review`          | Gates: internal review         | Dispatcher/operator          | `board move <task> review --correct --reason <text>`          |
 | `product-review`  | Gates: product review          | Dispatcher/operator          | `board move <task> product-review --correct --reason <text>`  |
@@ -41,7 +41,7 @@ the dispatcher moves.
 | `ready-to-merge`  | Gates: merge                   | Dispatcher/operator          | `board move <task> ready-to-merge --correct --reason <text>`  |
 | `done`            | Completion: PR/ticket facts    | Dispatcher                   | None (automatic)                                              |
 
-No mirroring config; reserved `column_mirrored` directs status to the named project.
+Mirror: `source` on `ready-for-dev`; `column_mirrored` refuses manual moves there.
 `board config get`: `group: todo`; `board status`: `columnGroups`.
 
 Each column has one executor: `projects[].columns[].orchestrator`:

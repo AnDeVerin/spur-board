@@ -18,6 +18,7 @@ says what changed:
 | `review_submitted`                                                  | `Review by <reviewer> on <ref>: <state>`                                                                            |
 | `task_moved`                                                        | `Moved <from> → <to>: <reason> (<gates>)`                                                                           |
 | `task_manually_moved`                                               | `Manually moved <from> → <to>: <reason>`; actor and channel name the operator write                                 |
+| `task_mirror_moved`                                                 | `Mirror moved <from> → <to>: <source>`; actor `system`                                                              |
 | `task_shadow_moved`                                                 | `Would move <from> → <to> (shadow mode): <reason> (<gates>)`                                                        |
 | `pr_facts_changed`, `session_facts_changed`, `ticket_facts_changed` | `PR <ref>:`, `Session <id>:` or `Ticket <key>:` with up to 3 changes and `+N more`; `first observed` the first time |
 | `block_*`, `comment_*`, `doorbell_*`                                | the ID with its addressee, outcome, revision or reason                                                              |
