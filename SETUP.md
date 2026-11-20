@@ -285,7 +285,8 @@ is available, and Auto follows the system appearance.
 With `web.port` and `web.publicOrigin` configured, the daemon serves the packaged SPA and local
 assets on its separate loopback web listener. A “UI is not built” 503 means assets need
 building/packaging; restart the daemon after rebuilding because it loads assets at startup.
-`pnpm package:smoke` verifies installed `GET /` and a referenced asset on an isolated listener.
+`pnpm package:smoke` verifies installed `GET /`, a referenced asset, the web app manifest, the
+favicons and the app icons on an isolated listener.
 The shell gets live updates from `GET /v1/events` on the same listener; behind a reverse proxy,
 turn response buffering off for that path and keep the read timeout above 15 seconds. The status bar shows the daemon version from
 `status.get` `daemon.version` and stays empty until the first status read.
