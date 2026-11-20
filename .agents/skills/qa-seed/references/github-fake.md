@@ -10,6 +10,13 @@
   `fake github issue <n> close`.
 - `fake github pr <n> edit <index>` edits comment `<index>` (0 is the oldest) at the stand clock;
   the PR's `updatedAt` stays, so only the index `edited` alias shows it.
+- `fake github pr <n> create --seed` takes `commits`: `[{oid, parents, changed}]`, oldest first,
+  the last `oid` equal to `headRefOid` or `create` answers 400. `changed` names the top-level
+  entries a commit changes, `name/` for a directory; a parent not listed is base history. Without
+  `commits` the PR has one commit at its head. `push <sha>` appends a commit on the old head that
+  changes nothing.
+- A PR's commits are read only once core requests it: a PR created after its issue is only
+  discovered on the first poll, so poll twice before reading its `approvals`.
 - `fake github inspect` prints the last 500 GraphQL requests the fake answered: `seq`, operation,
   repo and PR numbers; `reset` clears them. Each `pnpm stand poll` restarts the adapters, so
   in-memory adapter state such as the PR cache starts empty on that poll.

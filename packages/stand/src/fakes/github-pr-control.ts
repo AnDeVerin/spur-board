@@ -104,6 +104,16 @@ const fieldsSchema = z.strictObject({
         .nullable(),
     )
     .nullable(),
+  // The PR's commits, oldest first, the last one at `headRefOid`. Each names the top-level
+  // entries it changes against its first parent, `name/` for a directory; a parent not listed
+  // is base history. `create` defaults to one commit at the head.
+  commits: z.array(
+    z.strictObject({
+      oid: z.string().regex(SHA),
+      parents: z.array(z.string().regex(SHA)),
+      changed: z.array(z.string().regex(/^[^/\s]+\/?$/)).default([]),
+    }),
+  ),
 });
 /** What `create` accepts; each field replaces its default. An empty `contexts` means no rollup. */
 const seedSchema = fieldsSchema.partial();

@@ -173,6 +173,14 @@ export function pageQuery(
         : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? REVIEW_FIELDS : connection === 'reviewThreads' ? THREAD_FIELDS : REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }`;
   return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }
+// A tree's top-level entries; the approval watch compares a commit's with its first parent's.
+const TREE_FIELDS = 'tree { entries { name type oid } }';
+// The PR's last 100 commits with their parents and root trees (`approvalWatch.ts`). The list
+// leaves out base-branch history, so a merge from the base names a parent outside it, whose
+// tree is selected inline here.
+export function commitsQuery(): string {
+  return `query PrCommits($owner: String!, $repo: String!, $number: Int!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { commits(last: 100) { totalCount pageInfo { hasPreviousPage } nodes { commit { oid ${TREE_FIELDS} parents(first: 2) { totalCount nodes { oid ${TREE_FIELDS} } } } } } } } }`;
+}
 
 /**
  * The failure that GraphQL `errors` mean for the whole request, in rule order: a rate limit is

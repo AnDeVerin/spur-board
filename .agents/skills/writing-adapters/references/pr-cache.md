@@ -30,3 +30,18 @@ Read with `references/github-responses.md`, PR poll chunks and index.
   the cache key. A re-emitted entry carries no `continuation`, so core keeps its row. It carries
   the full read's `reviewRule` again (github-rules sources), so a batch core did not accept
   loses no review rule.
+
+## Pair cache
+
+- `pairCache` in the `githubSources` closure holds, per PR number, the head it was read for and
+  the `approvalPairs` computed for it by approved commit: counted, `history_rewritten` or
+  `pr_too_large`, never `rate_limit`. Its pairs go out again on every poll, full read or reused.
+- Prune: drop a number no longer requested or in `terminalPrs`; an item with a new head starts
+  an empty entry; an item no longer open drops it. A PR with no item this poll (failed or
+  deferred detail read, `no_access`) keeps its entry.
+- An unreadable `PrCommits` response (any GraphQL error, null `repository` or `pullRequest`, a
+  malformed part, null `tree.entries`, head not listed) sets `unreadableUntil`: no read for that
+  head for `UNREADABLE_RETRY_MS` (15 minutes). A transient failure sets nothing and is retried
+  next poll.
+- `pollPr` reads no commits, sends no `approvalPairs` and leaves the pair cache as it was.
+- Tests: `describe('approval watch')` in `packages/adapters/test/github/prBatch.test.ts`.

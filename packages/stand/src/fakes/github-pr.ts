@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import { FakeViolation, type FakeModule } from './fetch.ts';
+import { BASE_SHA, commitsView } from './github-pr-commits.ts';
 import {
   branchControlSchema,
   PR_VERBS,
@@ -97,6 +98,7 @@ export function createGithubPrFake(options: {
 
   function create(repo: string, number: number, seed: Seed): Pr {
     const at = iso(now());
+    const head = seed.headRefOid ?? createHash('sha1').update(keyOf(repo, number)).digest('hex');
     return {
       repo,
       number,
@@ -111,7 +113,7 @@ export function createGithubPrFake(options: {
       mergeStateStatus: 'BLOCKED',
       author: { login: AGENT },
       headRefName: `stand-${String(number)}`,
-      headRefOid: createHash('sha1').update(keyOf(repo, number)).digest('hex'),
+      headRefOid: head,
       contexts: [
         {
           __typename: 'CheckRun',
@@ -138,6 +140,7 @@ export function createGithubPrFake(options: {
         { requestedReviewer: { __typename: 'User', login: REVIEWER }, asCodeOwner: false },
       ],
       closingIssuesReferences: [],
+      commits: [{ oid: head, parents: [BASE_SHA], changed: [] }],
       ...seed,
     } as Pr;
   }
@@ -232,6 +235,7 @@ export function createGithubPrFake(options: {
         pr.mergeStateStatus = 'DIRTY';
         break;
       case 'push':
+        pr.commits = [...pr.commits, { oid: command.sha, parents: [pr.headRefOid], changed: [] }];
         pr.headRefOid = command.sha;
         pr.contexts = pr.contexts.map((context) => pending(context, at));
         pr.mergeable = 'MERGEABLE';
@@ -346,6 +350,7 @@ export function createGithubPrFake(options: {
       reviewRequests: (args: Args) => page('reviewRequests', pr.reviewRequests, args),
       closingIssuesReferences:
         closing === null ? null : (args: Args) => page('closingIssuesReferences', closing, args),
+      commits: (args: Args) => commitsView(pr.commits, args),
     };
   }
 
@@ -446,6 +451,8 @@ export function createGithubPrFake(options: {
       if (existing !== undefined)
         return { status: 409, body: { error: `Pull request ${name} already exists.` } };
       const pr = create(command.repo, command.number, command.seed);
+      if (pr.commits.at(-1)?.oid !== pr.headRefOid)
+        return { status: 400, body: { error: 'The last seeded commit must be headRefOid.' } };
       prs.set(key, pr);
       return { status: 200, body: { pr: name, updatedAt: pr.updatedAt } };
     }

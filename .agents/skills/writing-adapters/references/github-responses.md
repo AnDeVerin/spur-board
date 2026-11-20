@@ -24,6 +24,10 @@ An exception to the SKILL.md rule "A missing or denied requested entity gets `no
   drop `Batch.defaultBranch`, keep discovery `ok` and `complete` (`readDiscovery`,
   `defaultBranchFact`). `INSUFFICIENT_SCOPES` and rate limits there still fail the request in
   `GithubClient.query` (`auth`, `throttled`) and blind the source, as on the PR detail read.
+- Except a failed, errored or malformed `PrCommits` read (`commitsQuery`, `approvalWatch.ts`):
+  leave out that PR's missing `approvalPairs`, keep `complete` and `parseError`. Never pass its
+  errors to `rejectUnscoped`; `approvalPairs` reads `repository` with `safeParse` and never throws.
+  `throttled`, `auth` and an abort still reject the poll.
 
 ## PR poll chunks and index
 
@@ -38,7 +42,10 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
 - Order: discovery, its own request; due state probes; the index (`indexQuery`, 50 aliases) of every requested PR
   and of each discovered one the cache holds; full reads (`detailQuery`, 10 aliases, requested
   PRs in their own chunks first) of the PRs the index shows changed and of discovered ones the
-  cache does not hold.
+  cache does not hold; last, one `PrCommits` read per requested open PR item, read in full or
+  reused, with an approval off its head and a pair missing from the pair cache
+  (`readApprovalPairs`, `references/pr-cache.md`). Below 3 times `github.reserveRemaining` it
+  sends none and the missing pairs go out as `rate_limit`; it never defers a detail read.
 - Discovery lists `OPEN` PRs on bootstrap and `OPEN, MERGED, CLOSED` after it (`discoveryQuery`):
   a merge or close moves `updatedAt`, so an unlinked operator PR's new state reaches core
   through its detail read. The bootstrap `mergedBaseline` reads the newest `MERGED, CLOSED` PR, so
