@@ -36,7 +36,8 @@ key every changed entry counts as watched. A row asks for a look, and takes the 
 when a watched entry changed after the approval or the history was rewritten after it. Its text
 reads at full brightness at rest, so a `not watched` entry there takes a plain chip rather than
 the ghost chip. Other rows read muted until hovered. With two or more PR links carrying
-approvals, each row starts with its PR ref.
+approvals, each row starts with its PR ref. A long PR ref or login breaks within the row, so
+the task view never scrolls sideways.
 
 ## On the card
 

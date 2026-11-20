@@ -44,3 +44,10 @@
 .row[data-loud] .ref {
   color: var(--color-text-secondary);
 }
+/* A long repo name or login breaks within the row, as the entry chips do, so a narrow dialog never
+   scrolls sideways; the short SHA has a fixed width. */
+.ref,
+.author {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

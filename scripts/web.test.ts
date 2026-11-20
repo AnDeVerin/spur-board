@@ -194,6 +194,17 @@ describe('web design assets and policy', () => {
     const [x, y] = [luminance(theme[text] ?? ''), luminance(background)];
     expect((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toBeGreaterThanOrEqual(4.5);
   });
+  it('lets each free text of an Approvals row break within the row', () => {
+    const rules = cssRules(read(approvals));
+    for (const part of ['.ref', '.author'])
+      expect(
+        rules.some(
+          ({ selector, body }) =>
+            selector.split(/\s*,\s*/).includes(part) && /overflow-wrap: anywhere;/.test(body),
+        ),
+        part,
+      ).toBe(true);
+  });
   it('rejects raw color literals outside the token file, including negative fixtures', () => {
     for (const invalid of ['color: #abc;', 'color: #123456;', 'rgb(0, 0, 0)', 'rgba(1,2,3,.5)'])
       expect(rawColor(invalid)).toBe(true);
