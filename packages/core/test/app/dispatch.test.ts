@@ -788,6 +788,38 @@ async function started(options: Options = {}, worker: 'live' | 'none' = 'live'):
 }
 
 /** The worker took the Dev turn and opened PR #7 at head A. */
+/** A live hand-added task of the project in `column`, inserted raw without an event. */
+async function seedTask(ctx: Board, key: string, column: ColumnId) {
+  await ctx.store.db
+    .insertInto('task')
+    .values({
+      project: 'proj',
+      tracker_kind: 'github-issues',
+      tracker_id: null,
+      key,
+      membership: 'active',
+      archive_reason: null,
+      column,
+      shadow_column: null,
+      created_at: ctx.at(),
+      manual_include: 1,
+      last_change_at: null,
+      terminal_at: null,
+      archive_slot_at: null,
+    })
+    .execute();
+}
+
+/** Live tasks as key -> [column, position]. */
+async function livePositions(ctx: Board) {
+  const rows = await ctx.store.db
+    .selectFrom('task')
+    .select(['key', 'column', 'position'])
+    .where('membership', '!=', 'archived')
+    .execute();
+  return Object.fromEntries(rows.map((row) => [row.key, [row.column, row.position]]));
+}
+
 async function inDev(options: Options = {}): Promise<Board> {
   const ctx = await started(options);
   const turn = await ctx.openTurn();
@@ -1219,6 +1251,17 @@ describe('flow tables', () => {
     ]);
   });
 
+  it('a gate-passing move puts the task last in its new column', async () => {
+    const ctx = board();
+    await ctx.ticket();
+    await ctx.github();
+    await ctx.spur('none');
+    await seedTask(ctx, 'o/r#50', 'dev');
+    await ctx.spur('live');
+    expect((await ctx.moves()).at(-1)).toMatchObject({ from: 'todo', to: 'dev' });
+    expect(await livePositions(ctx)).toEqual({ 'o/r#50': ['dev', 1], [KEY]: ['dev', 2] });
+  });
+
   it('the review cycle', async () => {
     const ctx = await inReview();
     await ctx.ack(REV, 'T2');
@@ -1348,12 +1391,15 @@ describe('flow tables', () => {
 
   it('a reopened ticket goes to To Do and stays until a new PR opens above the floor', async () => {
     const ctx = await inDev();
+    await seedTask(ctx, 'o/r#50', 'todo');
     await ctx.pr({ state: 'merged' });
     await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
     await ctx.ticket('open');
     const task = await ctx.task();
     expect(task).toMatchObject({ column: 'todo' });
+    // The reopen is a new visit: after the task already waiting in To Do.
+    expect(await livePositions(ctx)).toEqual({ 'o/r#50': ['todo', 1], [KEY]: ['todo', 2] });
     expect(
       await ctx.store.db
         .selectFrom('link')
