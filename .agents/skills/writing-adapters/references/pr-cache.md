@@ -43,5 +43,15 @@ Read with `references/github-responses.md`, PR poll chunks and index.
   malformed part, null `tree.entries`, head not listed) sets `unreadableUntil`: no read for that
   head for `UNREADABLE_RETRY_MS` (15 minutes). A transient failure sets nothing and is retried
   next poll.
+- The walk (`approvalPairs`) compares each top-level entry by `oid` and `mode`, reads every
+  parent (fewer listed than `totalCount` is unreadable), and takes an approved commit that is an
+  unlisted parent of a commit the head reaches as an ancestor: it landed on the base.
+- A readable read records the PR's `baseRefName`. When PRs with cached pairs get a full read,
+  one aliased `PrBases` (`basesQuery`) checks their bases; a changed base drops the PR's entry,
+  since a retarget changes the list but not the head. A failed check keeps it.
+- Time: `pairReader` starts no read once `APPROVAL_PASS_MS` (2 s) passed in the pass and times
+  each out at `APPROVAL_REQUEST_MS` (4 s), so `pollPr` (10 s deadline, same queue) waits at most
+  6 s on it. `throttled` pauses the source's reads (`pairPause`) until `retryAt`, else for
+  `APPROVAL_THROTTLE_MS` (1 minute); `auth` for 15 minutes. Unread PRs leave pairs out.
 - `pollPr` reads no commits, sends no `approvalPairs` and leaves the pair cache as it was.
 - Tests: `describe('approval watch')` in `packages/adapters/test/github/prBatch.test.ts`.

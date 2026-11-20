@@ -24,10 +24,10 @@ An exception to the SKILL.md rule "A missing or denied requested entity gets `no
   drop `Batch.defaultBranch`, keep discovery `ok` and `complete` (`readDiscovery`,
   `defaultBranchFact`). `INSUFFICIENT_SCOPES` and rate limits there still fail the request in
   `GithubClient.query` (`auth`, `throttled`) and blind the source, as on the PR detail read.
-- Except a failed, errored or malformed `PrCommits` read (`commitsQuery`, `approvalWatch.ts`):
-  leave out that PR's missing `approvalPairs`, keep `complete` and `parseError`. Never pass its
-  errors to `rejectUnscoped`; `approvalPairs` reads `repository` with `safeParse` and never throws.
-  `throttled`, `auth` and an abort still reject the poll.
+- Except a failed, errored, malformed, throttled or refused `PrCommits` or `PrBases` read: leave
+  out that PR's missing `approvalPairs`, keep `complete` and `parseError`. Never pass its errors to
+  `rejectUnscoped`; `approvalPairs` reads `repository` with `safeParse` and never throws.
+  `throttled` and `auth` pause the approval watch (`references/pr-cache.md`); an abort rejects.
 
 ## PR poll chunks and index
 

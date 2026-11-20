@@ -14,7 +14,9 @@
   the last `oid` equal to `headRefOid` or `create` answers 400. `changed` names the top-level
   entries a commit changes, `name/` for a directory; a parent not listed is base history. Without
   `commits` the PR has one commit at its head. `push <sha>` appends a commit on the old head that
-  changes nothing.
+  changes nothing. Tree entry modes are git's, as numbers: 16384 (`040000`) for a directory,
+  33188 (`100644`) for a file.
+- `create --seed` takes `baseRefName`, `main` by default, which `PrCommits` and `PrBases` answer.
 - A PR's commits are read only once core requests it: a PR created after its issue is only
   discovered on the first poll, so poll twice before reading its `approvals`.
 - `fake github issue <n> project-status <Backlog|Ready|Done|none|archived|removed>` sets the
