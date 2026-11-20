@@ -9,7 +9,7 @@ import {
 } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
-import { createBoardIntent } from './intents.ts';
+import { createBoardIntent, createHeldMoves } from './intents.ts';
 import { createTurnIntent } from './turn-intent.ts';
 import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
 
@@ -185,6 +185,7 @@ export function createBoardData(options: BoardDataOptions) {
       statusUnreadable = cause instanceof UnreadableAnswerError;
       settleRetry('chain', seq);
       update(value ? { status: value, lastGoodAt: options.now() } : {});
+      if (value) moves.settle(value.tasks);
     },
   );
   const config = coordinateRead(
@@ -369,6 +370,8 @@ export function createBoardData(options: BoardDataOptions) {
     };
   };
 
+  const moves = createHeldMoves();
+  const rowOf = (key: string) => state.status?.tasks.find((row) => row.key === key);
   const boardIntent = createBoardIntent(
     api,
     () => stopped || state.readFailed || state.stream === 'offline',
@@ -448,18 +451,21 @@ export function createBoardData(options: BoardDataOptions) {
         inbox.refresh();
       }),
     /**
-     * Move a task to another Backlog part with a reason; the object owns one idempotent intent.
-     * Refused as `closeItemIntent` is; a confirmed move re-reads the board and the open task.
+     * Move a task to another Backlog part with a reason; the object owns one idempotent intent,
+     * shared by every form while the move is held (`createHeldMoves`). Refused as
+     * `closeItemIntent` is; a confirmed move re-reads the board and the open task.
      */
     moveIntent: (
       task: string,
       column: BoardConfig['projects'][number]['columns'][number]['id'],
       reason: string,
     ) =>
-      boardIntent('task.move', { mode: 'manual', task, column, reason }, () => {
-        status.refresh();
-        refreshTask();
-      }),
+      moves.intent(task, column, reason, rowOf(task)?.column, () =>
+        boardIntent('task.move', { mode: 'manual', task, column, reason }, () => {
+          status.refresh();
+          refreshTask();
+        }),
+      ),
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
     /**
      * Open a task by key, or close it with null: read `task.get` with why and detail, then whenever the

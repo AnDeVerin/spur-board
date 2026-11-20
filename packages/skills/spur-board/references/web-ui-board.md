@@ -75,7 +75,9 @@ Columns follow configuration order:
   part, at the end of its list, then the form closes. On the Board the moved card takes focus;
   in the task view the first part button does. A refusal shows the daemon's hint under the field and keeps the reason; any other
   failure reads `Could not move the task. Send again to retry.`. A resend of the same reason
-  reuses its idempotency key, so it never moves twice; an edited reason is a new move. While the
+  reuses its idempotency key, so it never moves twice; an edited reason is a new move. Until the
+  move shows, another form for the task with the same part and reason joins it; any other reads
+  `This task is already being moved. Wait until the Board shows it.`. While the
   daemon or live updates are unavailable the send is disabled and the hint adds why, then
   `Moves cannot be sent.`. Cancel closes the form at any time.
 

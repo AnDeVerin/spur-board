@@ -40,3 +40,71 @@ export function createBoardIntent(api: ReturnType<typeof createApi>, unavailable
     };
   };
 }
+
+/** A move of this task is already in flight with another part or reason. */
+export class MovePendingError extends Error {
+  constructor() {
+    super('This task is already being moved. Wait until the Board shows it.');
+    this.name = 'MovePendingError';
+  }
+}
+
+interface HeldMove {
+  from: string | undefined;
+  column: string;
+  reason: string;
+  confirmed: boolean;
+  intent: { run: () => Promise<void> };
+}
+
+/**
+ * One move per task in flight, whichever form sends it: from the send until a read after the
+ * daemon accepted shows the task out of its source part, or until the send fails. Meanwhile the
+ * same part and reason get the held intent (its key), and any other move of the task is refused.
+ */
+export function createHeldMoves() {
+  const held = new Map<string, HeldMove>();
+  return {
+    intent(
+      task: string,
+      column: string,
+      reason: string,
+      from: string | undefined,
+      create: () => { run: () => Promise<void> },
+    ) {
+      const current = held.get(task);
+      if (current)
+        return current.column === column && current.reason === reason
+          ? current.intent
+          : { run: () => Promise.reject(new MovePendingError()) };
+      const inner = create();
+      const entry: HeldMove = {
+        from,
+        column,
+        reason,
+        confirmed: false,
+        intent: {
+          run: () =>
+            inner.run().then(
+              () => {
+                entry.confirmed = true;
+              },
+              (cause: unknown) => {
+                if (held.get(task) === entry) held.delete(task);
+                throw cause;
+              },
+            ),
+        },
+      };
+      held.set(task, entry);
+      return entry.intent;
+    },
+    /** A status read landed: release accepted moves whose task left its source part. */
+    settle(rows: readonly { key: string; column: string }[]) {
+      for (const [task, entry] of held) {
+        if (!entry.confirmed) continue;
+        if (rows.find((row) => row.key === task)?.column !== entry.from) held.delete(task);
+      }
+    },
+  };
+}

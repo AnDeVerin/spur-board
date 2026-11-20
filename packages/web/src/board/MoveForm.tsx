@@ -10,6 +10,7 @@ import {
 import { Button, FormRow, TextArea } from '../ds/index.ts';
 import { ProblemError } from '../lib/api.ts';
 import type { BoardData } from './data.ts';
+import { MovePendingError } from './intents.ts';
 import { openHref, shortKey, type BoardColumn, type BoardRow } from './model.ts';
 import styles from './MoveForm.module.css';
 
@@ -112,7 +113,15 @@ function MoveForm({
             onSent();
           },
           (cause: unknown) => {
-            update({ phase: 'idle', error: cause instanceof ProblemError ? cause.hint : FAILED });
+            update({
+              phase: 'idle',
+              error:
+                cause instanceof ProblemError
+                  ? cause.hint
+                  : cause instanceof MovePendingError
+                    ? cause.message
+                    : FAILED,
+            });
           },
         );
       }}
