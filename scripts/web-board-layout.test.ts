@@ -51,7 +51,7 @@ function declarations(file: string, selector: string, narrow: boolean): Record<s
   );
 }
 
-it('keeps the header, status bar, columns, side panel and modal clear of the safe-area insets', () => {
+it('keeps the header, its project list, status bar, columns, side panel, modal and popover clear of the safe-area insets', () => {
   const header = (space: string) =>
     sides(inset('top'), sideMax(space, 'right'), '0', sideMax(space, 'left'));
   const bar = (space: string) =>
@@ -104,6 +104,16 @@ it('keeps the header, status bar, columns, side panel and modal clear of the saf
     right: sideMax('--space-6', 'right'),
   });
   expect(declarations(modal, '.surface', true)).toMatchObject({ inset: '0', padding: all });
+  expect(declarations('board/Header.module.css', '.list', true)).toMatchObject({
+    left: sideMax('--space-3', 'left'),
+    right: sideMax('--space-3', 'right'),
+  });
+  // Popover width, left clamp and bottom room all read these edges (web-popover.test.ts).
+  expect(declarations('ds/Popover/Popover.module.css', '.root', false)).toMatchObject({
+    '--popover-edge-left': sideMax('--space-2', 'left'),
+    '--popover-edge-right': sideMax('--space-2', 'right'),
+    '--popover-edge-bottom': sideMax('--space-2', 'bottom'),
+  });
 });
 
 it('writes every env() in the web shell as a safe-area inset with a 0px fallback', () => {

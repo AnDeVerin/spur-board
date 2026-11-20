@@ -1,10 +1,17 @@
 /* Placed from the anchor's box, which Popover.tsx writes as --popover-left,
    --popover-anchor-top and --popover-top (the anchor's bottom edge). 100% is the window (the
-   containing block of a fixed box): the width keeps --space-2 off each window edge, and the left
-   edge is clamped inside while the anchor shows. No overflow here: a menu beside the title may
-   extend past the panel. */
+   containing block of a fixed box): the width keeps --space-2 off each window edge, or the
+   safe-area inset when it is larger (viewport-fit=cover puts a notch inside the window), and the
+   left edge is clamped inside while the anchor shows. No overflow here: a menu beside the title
+   may extend past the panel. */
 .root {
-  --popover-width: min(var(--size-popover), 100% - var(--space-2) - var(--space-2));
+  --popover-edge-left: max(var(--space-2), env(safe-area-inset-left, 0px));
+  --popover-edge-right: max(var(--space-2), env(safe-area-inset-right, 0px));
+  --popover-edge-bottom: max(var(--space-2), env(safe-area-inset-bottom, 0px));
+  --popover-width: min(
+    var(--size-popover),
+    100% - var(--popover-edge-left) - var(--popover-edge-right)
+  );
   /* The least height: the header as rendered (Popover.tsx writes --popover-header; a one-row
      header with its hairline until then), the body padding around room for one standard
      control, and the two borders. */
@@ -17,13 +24,20 @@
      only acts once the anchor's top is below the window, where the panel is hidden
      (data-away="bottom"). */
   --popover-y: max(
-    min(var(--popover-top) + var(--space-1), 100% - var(--space-2) - var(--popover-least)),
+    min(
+      var(--popover-top) + var(--space-1),
+      100% - var(--popover-edge-bottom) - var(--popover-least)
+    ),
     var(--popover-anchor-top) - var(--popover-least) - var(--space-2)
   );
   position: fixed;
   z-index: var(--z-menu);
   top: var(--popover-y);
-  left: clamp(var(--space-2), var(--popover-left), 100% - var(--space-2) - var(--popover-width));
+  left: clamp(
+    var(--popover-edge-left),
+    var(--popover-left),
+    100% - var(--popover-edge-right) - var(--popover-width)
+  );
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -31,7 +45,7 @@
   /* Never below the least height, so the header and one control always fit. */
   max-height: max(
     var(--popover-least),
-    min(var(--size-popover-height), 100% - var(--popover-y) - var(--space-2))
+    min(var(--size-popover-height), 100% - var(--popover-y) - var(--popover-edge-bottom))
   );
   background: var(--color-bg-elevated);
   border: var(--size-hairline) solid var(--color-border-strong);

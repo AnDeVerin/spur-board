@@ -97,13 +97,14 @@
     padding: env(safe-area-inset-top, 0px) max(var(--space-3), env(safe-area-inset-right, 0px)) 0
       max(var(--space-3), env(safe-area-inset-left, 0px));
   }
-  /* The list hangs from the header, inside its padding, so it never widens the page. */
+  /* The list hangs from the header, inside its padding (the safe-area insets included), so it
+     never widens the page. */
   .switcher {
     position: static;
   }
   .list {
-    left: var(--space-3);
-    right: var(--space-3);
+    left: max(var(--space-3), env(safe-area-inset-left, 0px));
+    right: max(var(--space-3), env(safe-area-inset-right, 0px));
     width: auto;
     max-width: none;
   }

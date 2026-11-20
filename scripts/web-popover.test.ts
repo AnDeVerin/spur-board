@@ -31,12 +31,12 @@ describe('Popover styles', () => {
       expect.arrayContaining([
         'position: fixed',
         'z-index: var(--z-menu)',
-        '--popover-width: min(var(--size-popover), 100% - var(--space-2) - var(--space-2))',
+        '--popover-width: min(var(--size-popover), 100% - var(--popover-edge-left) - var(--popover-edge-right))',
         'width: var(--popover-width)',
-        'left: clamp(var(--space-2), var(--popover-left), 100% - var(--space-2) - var(--popover-width))',
+        'left: clamp(var(--popover-edge-left), var(--popover-left), 100% - var(--popover-edge-right) - var(--popover-width))',
         'top: var(--popover-y)',
         // Floored at the least height, so the header and one control always fit.
-        'max-height: max(var(--popover-least), min(var(--size-popover-height), 100% - var(--popover-y) - var(--space-2)))',
+        'max-height: max(var(--popover-least), min(var(--size-popover-height), 100% - var(--popover-y) - var(--popover-edge-bottom)))',
       ]),
     );
     // No overflow on the root: a menu beside the title may extend past the panel.
@@ -60,7 +60,7 @@ describe('Popover styles', () => {
     expect(rule('.body')).toContain('padding: var(--space-1) var(--space-3) var(--space-3)');
     // The lower bound acts only for an anchor whose top is below the window, which hides the panel.
     expect(root).toContain(
-      '--popover-y: max(min(var(--popover-top) + var(--space-1), 100% - var(--space-2) - var(--popover-least)), var(--popover-anchor-top) - var(--popover-least) - var(--space-2))',
+      '--popover-y: max(min(var(--popover-top) + var(--space-1), 100% - var(--popover-edge-bottom) - var(--popover-least)), var(--popover-anchor-top) - var(--popover-least) - var(--space-2))',
     );
   });
   it('keeps Close inside the panel: the actions slot shrinks and scrolls, Close never shrinks', () => {
