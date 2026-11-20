@@ -15,7 +15,7 @@ import { parseAddressee } from '../domain/blocks/blocks.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import { isOperator } from './authorize.ts';
-import { emit, parsePr, taskPr, taskUrl, turnReturn, type Trx } from './board-utils.ts';
+import { emit, parsePr, taskPr, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import {
   acknowledgeNotification,
@@ -77,27 +77,6 @@ export async function turnNotification(trx: Trx, turnId: number) {
     .where('turn_id', '=', turnId)
     .where('kind', '=', 'turn')
     .orderBy('id', 'desc')
-    .executeTakeFirst();
-}
-
-/**
- * The open `code` block of the return that opened `turn`'s visit while it is still addressed to
- * the turn's role, else undefined. Taking the turn reads it; the turn's submit closes it.
- */
-export async function openReturnBlock(
-  trx: Trx,
-  turn: Pick<Turn, 'task_id' | 'column' | 'epoch' | 'role'>,
-): Promise<Row<'block'> | undefined> {
-  const returned = await turnReturn(trx, turn);
-  if (returned === undefined) return undefined;
-  return trx
-    .selectFrom('block')
-    .selectAll()
-    .where('id', '=', Number(returned.block.slice(1)))
-    .where('task_id', '=', turn.task_id)
-    .where('state', '=', 'open')
-    .where('type', '=', 'code')
-    .where('addressee_role', '=', turn.role)
     .executeTakeFirst();
 }
 
@@ -198,9 +177,7 @@ export async function openTurn(
  * may be taken over by whoever its notification is now addressed to. An operator on the task's
  * project may take any open orchestrator turn, taken or not. Others get `forbidden`.
  * Every take starts a new ownership episode: an unsent reminder of an earlier one is acked, so
- * `ringStillCurrent` drops its ring. Taking the Dev turn of a return also reads the return's
- * open `code` block (`openReturnBlock`), so its rings stop and it never raises
- * `worker_not_reading`.
+ * `ringStillCurrent` drops its ring.
  */
 export async function takeTurn(
   trx: Trx,
@@ -244,11 +221,6 @@ export async function takeTurn(
     { turn: turnRef(turnId), taker: actor },
     actor,
   );
-  const block = await openReturnBlock(trx, turn);
-  // The take above already authorized the actor for this visit, so the block is read as a
-  // takeover even when its ring went to another linked session of the role.
-  if (block !== undefined)
-    await acknowledgeNotification(trx, { blockId: block.id, actor, at, config, takeover: true });
   return true;
 }
 

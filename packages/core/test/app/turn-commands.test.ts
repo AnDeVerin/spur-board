@@ -1444,7 +1444,11 @@ describe('task.return', () => {
       pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
     });
     const clock = { now: () => Date.parse(AT) };
-    const registry = createOperationRegistry({ config: ctx.config, clock });
+    const registry = createOperationRegistry({
+      config: ctx.config,
+      clock,
+      completeSince: new Map(),
+    });
     const apply = createApply({ store: ctx.store, clock, config: ctx.config });
     await ctx.return(REV_1, 'return-1');
     const block = () =>

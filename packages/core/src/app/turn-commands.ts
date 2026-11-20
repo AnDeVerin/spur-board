@@ -14,12 +14,12 @@ import type { TaskTable, TurnTable } from '../store/schema.ts';
 import { isOperator, type ResolvedTarget } from './authorize.ts';
 import { queueBlockOpen } from './block-thread.ts';
 import { authorizationTarget, blockView, closeOpenBlock, openBlock, taskTarget } from './blocks.ts';
-import { emit, moveViews, taskPr, taskView, type Trx } from './board-utils.ts';
+import { emit, moveViews, openReturnBlock, taskPr, taskView, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import { correctColumn, dispatchTasks, manuallyMoveColumn, moveLeft } from './dispatch.ts';
 import { canonicalKey } from './membership.ts';
 import { taskSubject } from './subject.ts';
-import { closeTurns, openReturnBlock } from './turns.ts';
+import { closeTurns } from './turns.ts';
 import {
   submissionBasis,
   pollTaskPr,
