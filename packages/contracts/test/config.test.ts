@@ -14,6 +14,8 @@ import {
   columnTurnTimings,
   configSchema,
   defaultAddressee,
+  mirrorSourceId,
+  readyMirrorOf,
 } from '../src/index.ts';
 import { walk as walkJsonSchema } from './json-schema-walk.ts';
 
@@ -272,6 +274,44 @@ describe('fixtures', () => {
       configSchema.parse(validConfig()).projects[0],
     ])
       expect(project === undefined ? undefined : approvalRuleOf(project)).toBe('any-approval');
+  });
+
+  it('source: parses the ready mirror fixture with a tracker source on ready-for-dev', () => {
+    const project = configSchema.parse(readFixture('ready-mirror-project.yaml')).projects[0];
+    expect(project?.columns.find((c) => c.id === 'ready-for-dev')?.source).toEqual({
+      type: 'tracker',
+      project: 'example-org/3',
+      field: 'Status',
+      value: 'Ready',
+    });
+    expect(project === undefined ? undefined : readyMirrorOf(project)).toEqual({
+      project: 'example-org/3',
+      owner: 'example-org',
+      number: 3,
+      field: 'Status',
+      value: 'Ready',
+    });
+    expect(project === undefined ? undefined : mirrorSourceId(project)).toBe(
+      'github-project:web:example-org/3',
+    );
+  });
+
+  it('source: manual and an absent key mirror nothing', () => {
+    const parse = (readyForDev: Record<string, unknown>) =>
+      configSchema.parse(
+        validConfig({
+          tracker: githubTracker,
+          columns: [...columns('todo'), readyForDev, ...columns('dev', 'done')],
+        }),
+      ).projects[0];
+    const manual = parse({ id: 'ready-for-dev', source: 'manual' });
+    expect(manual?.columns[1]?.source).toBe('manual');
+    const plain = parse({ id: 'ready-for-dev' });
+    expect(plain?.columns[1]).not.toHaveProperty('source');
+    for (const project of [manual, plain, configSchema.parse(validConfig()).projects[0]]) {
+      expect(project === undefined ? undefined : readyMirrorOf(project)).toBeUndefined();
+      expect(project === undefined ? undefined : mirrorSourceId(project)).toBeUndefined();
+    }
   });
 
   it('parses the QA turn timings fixture and resolves the column timings', () => {
@@ -964,6 +1004,88 @@ describe('invalid configs', () => {
       }),
       'Invalid option',
       'projects[0].columns[2].approvalRule',
+    ],
+    [
+      'source on review',
+      validConfig({
+        tracker: githubTracker,
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', source: 'manual' },
+          ...columns('done'),
+        ],
+      }),
+      'Column "review" cannot set source: source is allowed only on the ready-for-dev column',
+      'projects[0].columns[2].source',
+    ],
+    [
+      'source on triage',
+      validConfig({
+        tracker: githubTracker,
+        columns: [
+          ...columns('todo'),
+          {
+            id: 'triage',
+            source: { type: 'tracker', project: 'example-org/3', field: 'Status', value: 'Ready' },
+          },
+          ...columns('dev', 'done'),
+        ],
+      }),
+      'Column "triage" cannot set source: source is allowed only on the ready-for-dev column',
+      'projects[0].columns[1].source',
+    ],
+    [
+      'tracker source on a jira project',
+      validConfig({
+        columns: [
+          ...columns('todo'),
+          {
+            id: 'ready-for-dev',
+            source: { type: 'tracker', project: 'example-org/3', field: 'Status', value: 'Ready' },
+          },
+          ...columns('dev', 'done'),
+        ],
+      }),
+      'source type tracker needs a github-issues project: tracker "jira" has no GitHub Project to mirror',
+      'projects[0].columns[1].source',
+    ],
+    [
+      'tracker source on a disabled ready-for-dev',
+      validConfig({
+        tracker: githubTracker,
+        columns: [
+          ...columns('todo'),
+          {
+            id: 'ready-for-dev',
+            enabled: false,
+            source: { type: 'tracker', project: 'example-org/3', field: 'Status', value: 'Ready' },
+          },
+          ...columns('dev', 'done'),
+        ],
+      }),
+      'Column "ready-for-dev" cannot mirror a GitHub Project while disabled: set enabled: true or remove source',
+      'projects[0].columns[1].source',
+    ],
+    [
+      'tracker source with a repository instead of a Project',
+      validConfig({
+        tracker: githubTracker,
+        columns: [
+          ...columns('todo'),
+          {
+            id: 'ready-for-dev',
+            source: {
+              type: 'tracker',
+              project: 'example-org/web',
+              field: 'Status',
+              value: 'Ready',
+            },
+          },
+          ...columns('dev', 'done'),
+        ],
+      }),
+      'Expected owner/number, such as example-org/3',
+      'projects[0].columns[1].source.project',
     ],
     [
       'built-in columns out of order',

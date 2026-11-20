@@ -17,6 +17,10 @@
   changes nothing.
 - A PR's commits are read only once core requests it: a PR created after its issue is only
   discovered on the first poll, so poll twice before reading its `approvals`.
+- `fake github issue <n> project-status <Backlog|Ready|Done|none|archived|removed>` sets the
+  issue's Status in the one fake GitHub Project, `stand-org/1` ("Stand roadmap", field `Status`);
+  `none` clears the field, `archived` archives the item, `removed` takes the issue out; follow it
+  with `pnpm stand poll`. Another Project number or field name answers `NOT_FOUND`, as on GitHub.
 - `fake github inspect` prints the last 500 GraphQL requests the fake answered: `seq`, operation,
   repo and PR numbers; `reset` clears them. Each `pnpm stand poll` restarts the adapters, so
   in-memory adapter state such as the PR cache starts empty on that poll.

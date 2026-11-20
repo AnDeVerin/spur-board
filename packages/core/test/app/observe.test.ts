@@ -6640,3 +6640,337 @@ describe('ordered historical session observations', () => {
     ).toHaveLength(1);
   });
 });
+
+describe('ready-for-dev mirror', () => {
+  const MIRROR = 'github-project:board:acme/7';
+  const GITHUB = 'github:board:o/r';
+  const iso = () => new Date(now).toISOString();
+  type Readiness = NonNullable<Batch['mirror']>['readiness'];
+
+  function mirrorConfig(mode: 'on' | 'shadow') {
+    const base = configSchema.parse(config);
+    return configSchema.parse({
+      ...base,
+      // Positions, not health clocks, are under test: a long window keeps every source fresh.
+      thresholds: { ...base.thresholds, staleMultiplier: 1000 },
+      projects: base.projects.map((project) => ({
+        ...project,
+        dispatcher: { ...project.dispatcher, mode },
+        columns: project.columns.map((column) =>
+          column.id === 'triage'
+            ? { ...column, enabled: true }
+            : column.id === 'ready-for-dev'
+              ? {
+                  ...column,
+                  source: { type: 'tracker', project: 'acme/7', field: 'Status', value: 'Ready' },
+                }
+              : column,
+        ),
+      })),
+    });
+  }
+
+  async function board(mode: 'on' | 'shadow' = 'on', keys = ['o/r#9']) {
+    const boardConfig = mirrorConfig(mode);
+    const ctx = setup(boardConfig);
+    for (const key of keys) await ctx.apply(ctx.mutations.add, { task: key }, 'operator');
+    const registry = createOperationRegistry({
+      config: boardConfig,
+      clock,
+      completeSince: ctx.core.completeSince,
+    });
+    const query = createQuery({ store: ctx.store, config: boardConfig, clock });
+    return { ...ctx, config: boardConfig, registry, query };
+  }
+  type Board = Awaited<ReturnType<typeof board>>;
+
+  /** One mirror read; `complete: false` is an accepted read that is not effectively complete. */
+  async function read(b: Board, readiness: Readiness, complete = true, title = 'Roadmap') {
+    now += 1_000;
+    await b.core.observe(MIRROR, {
+      batch: {
+        source: MIRROR,
+        observedAt: iso(),
+        complete: true,
+        items: [],
+        entities: [],
+        mirror: { title, readiness },
+      },
+      effectiveComplete: complete,
+      state: complete ? { lastCompleteAt: iso(), gone: [] } : { gone: [] },
+      outcomes: [],
+    });
+  }
+  const ready = (key = 'o/r#9') => [{ key, state: 'ready' as const }];
+  const notReady = (key = 'o/r#9') => [{ key, state: 'not_ready' as const }];
+  async function poll(b: Board, src: string, items: Batch['items']) {
+    now += 1_000;
+    await b.core.observe(src, {
+      batch: { source: src, observedAt: iso(), complete: true, items, entities: [] },
+      effectiveComplete: true,
+      state: { lastCompleteAt: iso(), gone: [] },
+      outcomes: [],
+    });
+  }
+  const ticket = (b: Board, status: string) =>
+    poll(b, source, [{ kind: 'ticket', facts: { ...fact(), inFilter: true, status } }]);
+  const prs = (b: Board, state: PrFacts['state']) =>
+    poll(b, GITHUB, [{ kind: 'pr', facts: { ...prFact(), state } }]);
+  const task = (b: Board, key = 'o/r#9') =>
+    b.store.db.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirstOrThrow();
+  const column = async (b: Board, key = 'o/r#9') => (await task(b, key)).column;
+  const mirrorEvents = (b: Board) =>
+    b.store.db
+      .selectFrom('event')
+      .select(['kind', 'actor', 'payload'])
+      .where('kind', '=', 'task_mirror_moved')
+      .orderBy('id')
+      .execute();
+  const move = (b: Board, to: ColumnId, mode: 'manual' | 'correct', key: string) =>
+    b.apply(
+      b.registry['task.move'],
+      mode === 'manual'
+        ? { mode, task: 'o/r#9', column: to, reason: 'Placed by hand.' }
+        : { mode, task: 'o/r#9', column: to as Exclude<ColumnId, 'done'>, reason: 'Fix.' },
+      'operator',
+      key,
+    );
+  const sourceRow = (b: Board) =>
+    b.store.db
+      .selectFrom('source_state')
+      .select(['failure_code', 'failure_message', 'project_title', 'last_complete_at'])
+      .where('source', '=', MIRROR)
+      .executeTakeFirstOrThrow();
+
+  it('moves an idle todo task in on Ready and journals the mirror move by system', async () => {
+    const b = await board('on', ['o/r#9', 'o/r#10']);
+    await read(b, ready());
+
+    expect(await column(b)).toBe('ready-for-dev');
+    // A task the read does not list reads unknown and stays.
+    expect(await column(b, 'o/r#10')).toBe('todo');
+    expect(await mirrorEvents(b)).toEqual([
+      {
+        kind: 'task_mirror_moved',
+        actor: 'system',
+        payload: JSON.stringify({ from: 'todo', to: 'ready-for-dev', source: MIRROR }),
+      },
+    ]);
+    const why = await b.query(b.registry['task.get'], { task: 'o/r#9', why: true }, 'operator');
+    expect(why.why?.moves.at(-1)).toMatchObject({
+      kind: 'task_mirror_moved',
+      actor: 'system',
+      reason: 'mirrored',
+      text: MIRROR,
+    });
+    const { events } = await b.query(b.registry['task.history'], { task: 'o/r#9' }, 'operator');
+    expect(events.at(-1)).toMatchObject({
+      kind: 'task_mirror_moved',
+      summary: `Mirror moved todo → ready-for-dev: ${MIRROR}`,
+    });
+
+    // The same read again moves nothing: no ping-pong.
+    await read(b, ready());
+    expect(await mirrorEvents(b)).toHaveLength(1);
+  });
+
+  it.each(['another option', 'a cleared field', 'removal from the Project', 'an archived item'])(
+    'moves an idle ready-for-dev task back to todo on %s',
+    async () => {
+      const b = await board();
+      await read(b, ready());
+      expect(await column(b)).toBe('ready-for-dev');
+
+      await read(b, notReady());
+      expect(await column(b)).toBe('todo');
+      expect((await mirrorEvents(b)).map((row) => JSON.parse(row.payload) as unknown)).toEqual([
+        { from: 'todo', to: 'ready-for-dev', source: MIRROR },
+        { from: 'ready-for-dev', to: 'todo', source: MIRROR },
+      ]);
+    },
+  );
+
+  it('leaves a task with an open PR where it is (shadow keeps it in the Todo group)', async () => {
+    const b = await board('shadow');
+    await prs(b, 'open');
+    await read(b, ready());
+    expect(await column(b)).toBe('todo');
+    expect(await mirrorEvents(b)).toEqual([]);
+  });
+
+  it('leaves a task with a live linked worker where it is', async () => {
+    const b = await board('shadow');
+    await poll(b, 'spur', [
+      {
+        kind: 'session',
+        facts: sessionFact('worker-1', { 'board-worker': 'https://github.com/o/r/issues/9' }),
+      },
+    ]);
+    await read(b, ready());
+    expect(await column(b)).toBe('todo');
+    expect(await mirrorEvents(b)).toEqual([]);
+  });
+
+  it('leaves a task in triage, Dev and to the right untouched', async () => {
+    const b = await board('on', ['o/r#9', 'o/r#10', 'o/r#11']);
+    await move(b, 'triage', 'manual', 'triage-1');
+    await b.store.db
+      .updateTable('task')
+      .set({ column: 'dev' })
+      .where('key', '=', 'o/r#10')
+      .execute();
+    await b.store.db
+      .updateTable('task')
+      .set({ column: 'review' })
+      .where('key', '=', 'o/r#11')
+      .execute();
+    for (const readiness of ['ready', 'not_ready'] as const) {
+      await read(
+        b,
+        ['o/r#9', 'o/r#10', 'o/r#11'].map((key) => ({ key, state: readiness })),
+      );
+      expect([await column(b), await column(b, 'o/r#10'), await column(b, 'o/r#11')]).toEqual([
+        'triage',
+        'dev',
+        'review',
+      ]);
+    }
+    expect(await mirrorEvents(b)).toEqual([]);
+  });
+
+  it('overrides a manual triage -> todo move on the next read', async () => {
+    const b = await board();
+    await move(b, 'triage', 'manual', 'triage-1');
+    await move(b, 'todo', 'manual', 'todo-1');
+    expect(await column(b)).toBe('todo');
+    await read(b, ready());
+    expect(await column(b)).toBe('ready-for-dev');
+  });
+
+  it('overrides a correction on the next read', async () => {
+    const b = await board();
+    await move(b, 'ready-for-dev', 'correct', 'correct-1');
+    expect(await column(b)).toBe('ready-for-dev');
+    await read(b, notReady());
+    expect(await column(b)).toBe('todo');
+
+    await read(b, ready());
+    await move(b, 'todo', 'correct', 'correct-2');
+    expect(await column(b)).toBe('todo');
+    await read(b, ready());
+    expect(await column(b)).toBe('ready-for-dev');
+  });
+
+  it('applies nothing from a read that is not effectively complete', async () => {
+    const b = await board();
+    await read(b, ready(), false);
+    expect(await column(b)).toBe('todo');
+    expect(await mirrorEvents(b)).toEqual([]);
+  });
+
+  it('stores a reported failure and clears it with the next complete read, which applies', async () => {
+    const b = await board();
+    await read(b, notReady(), true, 'Roadmap');
+    await b.core.reportSourceState(MIRROR, {
+      gone: [],
+      blind: { reason: 'auth', message: 'Project not readable' },
+      failure: { code: 'mirror_project_forbidden', message: 'Project not readable' },
+    });
+    expect(await sourceRow(b)).toMatchObject({
+      failure_code: 'mirror_project_forbidden',
+      failure_message: 'Project not readable',
+      project_title: 'Roadmap',
+    });
+    expect(await column(b)).toBe('todo');
+
+    await read(b, ready(), true, 'Roadmap v2');
+    expect(await sourceRow(b)).toMatchObject({
+      failure_code: null,
+      failure_message: null,
+      project_title: 'Roadmap v2',
+      last_complete_at: iso(),
+    });
+    expect(await column(b)).toBe('ready-for-dev');
+  });
+
+  it('sets both column and shadow column in shadow mode', async () => {
+    const b = await board('shadow');
+    await read(b, ready());
+    expect(await task(b)).toMatchObject({
+      column: 'ready-for-dev',
+      shadow_column: 'ready-for-dev',
+    });
+    await read(b, notReady());
+    expect(await task(b)).toMatchObject({ column: 'todo', shadow_column: 'todo' });
+  });
+
+  it('keeps a shadow column right of the Todo group in shadow mode', async () => {
+    const b = await board('shadow');
+    // As after a closed PR: the real column is back in todo while the shadow stays in Dev.
+    await b.store.db
+      .updateTable('task')
+      .set({ column: 'todo', shadow_column: 'dev' })
+      .where('key', '=', 'o/r#9')
+      .execute();
+    await read(b, ready());
+    expect(await task(b)).toMatchObject({ column: 'ready-for-dev', shadow_column: 'dev' });
+    await read(b, notReady());
+    expect(await task(b)).toMatchObject({ column: 'todo', shadow_column: 'dev' });
+  });
+
+  it('moves a corrected shadow column back when the real column is already right', async () => {
+    const b = await board('shadow');
+    await move(b, 'ready-for-dev', 'correct', 'shadow-correct');
+    const corrected = await task(b);
+    expect(corrected).toMatchObject({ column: 'todo', shadow_column: 'ready-for-dev' });
+
+    await read(b, notReady());
+    // Only the shadow column moves: the real visit and its epoch stay.
+    expect(await task(b)).toMatchObject({
+      column: 'todo',
+      shadow_column: 'todo',
+      column_epoch: corrected.column_epoch,
+    });
+    expect(await mirrorEvents(b)).toEqual([
+      {
+        kind: 'task_mirror_moved',
+        actor: 'system',
+        payload: JSON.stringify({
+          from: 'ready-for-dev',
+          to: 'todo',
+          source: MIRROR,
+          shadow: true,
+        }),
+      },
+    ]);
+    const { events } = await b.query(b.registry['task.history'], { task: 'o/r#9' }, 'operator');
+    expect(events.at(-1)).toMatchObject({
+      summary: `Mirror moved ready-for-dev → todo (shadow mode): ${MIRROR}`,
+    });
+
+    // The same read again moves nothing.
+    await read(b, notReady());
+    expect(await mirrorEvents(b)).toHaveLength(1);
+  });
+
+  it('keeps a reopened task the mirror placed in ready-for-dev there', async () => {
+    const b = await board();
+    await ticket(b, 'open');
+    await prs(b, 'merged');
+    await ticket(b, 'closed');
+    await ticket(b, 'open');
+    const hidden = await b.store.db
+      .selectFrom('link')
+      .select('number')
+      .where('reopen_hidden_at', 'is not', null)
+      .execute();
+    expect(hidden).toEqual([{ number: 7 }]);
+    expect(await column(b)).toBe('todo');
+
+    await read(b, ready());
+    expect(await column(b)).toBe('ready-for-dev');
+    // The next pass of the dispatcher over journaled tasks keeps the mirror's placement.
+    await prs(b, 'merged');
+    expect(await column(b)).toBe('ready-for-dev');
+  });
+});

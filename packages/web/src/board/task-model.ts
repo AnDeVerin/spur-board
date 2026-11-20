@@ -196,12 +196,15 @@ const CONDITIONS: Record<string, string> = {
   review_on_head: 'Review on the head',
   approved: 'Approved',
   merged: 'Merged',
+  work_started: 'Work started',
 };
 /** A condition, reason or hold in words: `_` as a space, `pr` as `PR`. */
 const inWords = (value: string) => value.replace(/_/g, ' ').replace(/\bpr\b/g, 'PR');
+/** An exit condition in the words of the Why table; an unknown one reads as its id in words. */
+export const conditionWords = (id: string) => CONDITIONS[id] ?? inWords(id);
 
 function conditionRow(condition: TaskGate['conditions'][number]): WhyRow {
-  const key = CONDITIONS[condition.condition] ?? inWords(condition.condition);
+  const key = conditionWords(condition.condition);
   const reason = condition.reason === null ? null : inWords(condition.reason);
   switch (condition.state) {
     case 'met':
@@ -281,6 +284,14 @@ export function whySummary(value: BoardTask): string {
   ].filter(Boolean);
   if (parts.length > 0) return parts.join(' · ');
   return gate ? 'all pass' : 'unknown';
+}
+
+/** The Latest submission header: its basis with ` · pending` and ` · voided` when they hold. */
+export function submissionSummary(submission: Exclude<BoardTask['submission'], undefined>) {
+  if (submission === null) return 'No submissions yet';
+  return [submission.basis, submission.pending && 'pending', submission.voided && 'voided']
+    .filter(Boolean)
+    .join(' · ');
 }
 
 const KIND_ORDER: readonly TaskLink['kind'][] = ['ticket', 'pr', 'session'];

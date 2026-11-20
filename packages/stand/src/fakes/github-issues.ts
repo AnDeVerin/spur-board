@@ -10,6 +10,17 @@ const PAGE_SIZE = 100;
 const REPO_ID_BASE = 100_000;
 // The headers the adapter sends, written out here on purpose, as the query shapes are.
 const HEADERS = { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' };
+/** The Status options of the stand's one GitHub Project, in the order GitHub lists them. */
+export const PROJECT_OPTIONS = ['Backlog', 'Ready', 'Done'] as const;
+
+/** An issue's item in the stand's GitHub Project; null when the issue is not in the Project. */
+type ProjectItem = { option: string | null; archived: boolean } | null;
+
+/** An open issue and its Project item, as the GraphQL fake answers `projectItems`. */
+export interface IssueProject {
+  number: number;
+  project: ProjectItem;
+}
 
 interface Issue {
   number: number;
@@ -19,6 +30,7 @@ interface Issue {
   labels: string[];
   milestone: string | null;
   updatedAt: string;
+  project: ProjectItem;
 }
 
 interface Repo {
@@ -41,6 +53,11 @@ const issueControlSchema = z.discriminatedUnion('verb', [
     ...target,
     verb: z.literal('issue-milestone'),
     milestone: z.string().min(1).nullable(),
+  }),
+  z.strictObject({
+    ...target,
+    verb: z.literal('issue-project-status'),
+    status: z.enum([...PROJECT_OPTIONS, 'none', 'archived', 'removed']),
   }),
 ]);
 const ISSUE_VERBS = new Set<string>(
@@ -90,11 +107,31 @@ function checkHeaders(request: FakeRequest): void {
     throw new FakeViolation('Expected a Bearer authorization header.');
 }
 
+/**
+ * The item after `project-status`: an option sets it, `none` clears the field, `archived` keeps
+ * the field and archives the item, and `removed` takes the issue out of the Project.
+ */
+function projectItem(item: ProjectItem, status: string): ProjectItem {
+  switch (status) {
+    case 'removed':
+      return null;
+    case 'none':
+      return { option: null, archived: false };
+    case 'archived':
+      return { option: item?.option ?? null, archived: true };
+    default:
+      return { option: status, archived: false };
+  }
+}
+
 /** Issues of the configured repositories, with the verbs that change them. */
 export function createGithubIssuesFake(options: {
   now: () => number;
   repos: readonly string[];
-}): FakeModule {
+}): FakeModule & {
+  /** The open issues of a repository with their Project items; an unknown one is a violation. */
+  issueProjects(owner: string, name: string): IssueProject[];
+} {
   const { now } = options;
   const repos = new Map<string, Repo>();
   const iso = (ms: number): string => new Date(ms).toISOString();
@@ -228,6 +265,13 @@ export function createGithubIssuesFake(options: {
     );
   }
 
+  function issueProjects(owner: string, name: string): IssueProject[] {
+    return [...repoByName(owner, name).issues.values()]
+      .filter((issue) => issue.state === 'open')
+      .sort((a, b) => a.number - b.number)
+      .map(({ number, project }) => ({ number, project: structuredClone(project) }));
+  }
+
   function control(verb: string, args: unknown): RouteResult | undefined {
     if (!ISSUE_VERBS.has(verb)) return undefined;
     const parsed = issueControlSchema.safeParse({ ...(args as object), verb });
@@ -251,6 +295,7 @@ export function createGithubIssuesFake(options: {
           labels: [],
           milestone: null,
           updatedAt: iso(now()),
+          project: null,
         };
         repo.issues.set(command.number, issue);
         return {
@@ -263,6 +308,11 @@ export function createGithubIssuesFake(options: {
       if (command.title !== undefined) issue.title = command.title;
     } else {
       if (issue === undefined) return { status: 404, body: { error: `No issue ${name}.` } };
+      // Only the Project item changes; the issue's updatedAt stays.
+      if (command.verb === 'issue-project-status') {
+        issue.project = projectItem(issue.project, command.status);
+        return { status: 200, body: { issue: name, project: issue.project } };
+      }
       switch (command.verb) {
         case 'issue-close':
           if (issue.state === 'closed')
@@ -292,6 +342,7 @@ export function createGithubIssuesFake(options: {
       return route(request.url);
     },
     control,
+    issueProjects,
     reset: fresh,
     state: () => structuredClone(repos),
     restore(state) {

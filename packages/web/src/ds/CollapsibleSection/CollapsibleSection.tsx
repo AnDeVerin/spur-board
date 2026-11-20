@@ -7,19 +7,22 @@ import styles from './CollapsibleSection.module.css';
  * A section with a sticky header: chevron, title, optional count and a summary shown open and
  * collapsed. The chevron button toggles the body (click, Enter, Space); a double click on the rest
  * of the header toggles it too. The section is a `quiet` container, so count, summary and chevron
- * brighten on hover or focus. Uncontrolled: `defaultOpen` sets the first state.
+ * brighten on hover or focus. Uncontrolled: `defaultOpen` sets the first state, and
+ * `onOpenChange` hears the new state once per toggle, never on render.
  */
 export function CollapsibleSection({
   title,
   count,
   summary,
   defaultOpen = true,
+  onOpenChange,
   children,
 }: {
   title: string;
   count?: number | undefined;
   summary?: ReactNode | undefined;
   defaultOpen?: boolean | undefined;
+  onOpenChange?: ((open: boolean) => void) | undefined;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -28,7 +31,9 @@ export function CollapsibleSection({
   const titleId = `${id}-title`;
   const bodyId = `${id}-body`;
   const toggle = () => {
-    setOpen((value) => !value);
+    const next = !open;
+    setOpen(next);
+    onOpenChange?.(next);
   };
   return (
     <section className={`${quiet} ${styles.root ?? ''}`}>

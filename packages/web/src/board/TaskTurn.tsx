@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import {
   Banner,
   Button,
-  CollapsibleSection,
   focusRing,
   FormRow,
   StatusDot,
@@ -15,6 +14,7 @@ import { ProblemError } from '../lib/api.ts';
 import type { BoardConfig, BoardData, BoardTask } from './data.ts';
 import type { BoardColumnConfig, BoardRow } from './model.ts';
 import { actorDisplayName, age } from './task-model.ts';
+import { TaskSection } from './TaskSection.tsx';
 import type { TurnIntent, TurnPhase } from './turn-intent.ts';
 import { useTurnReread } from './turn-reread.ts';
 import {
@@ -527,7 +527,7 @@ export function TaskTurn({
     .filter(Boolean)
     .join('; ');
   return (
-    <CollapsibleSection title="Turn" summary={summary}>
+    <TaskSection id="turn" title="Turn" summary={summary}>
       <div className={styles.turns} ref={turnsRef}>
         {bound === undefined
           ? open && openBox(open, true)
@@ -536,6 +536,6 @@ export function TaskTurn({
             : closedBox(bound)}
         {newer && openBox(newer, false)}
       </div>
-    </CollapsibleSection>
+    </TaskSection>
   );
 }

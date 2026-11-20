@@ -13,6 +13,7 @@ import {
   binaryRoutes,
   checksGateExample,
   formattedDocs,
+  readyMirrorExample,
   registeredCommands,
 } from './gen-docs.ts';
 
@@ -64,6 +65,31 @@ describe('generated public references', () => {
       'board rollback',
     ])
       expect(section?.split('\n## ')[0]).toContain(text);
+  });
+
+  it('the readyMirror example parses with a tracker source on ready-for-dev', () => {
+    const section = configuration.split(
+      '## Example: mirror a GitHub Project status to Ready for Dev',
+    )[1];
+    const block = section?.split('```yaml\n')[1]?.split('```')[0];
+    expect(block).toBe(readyMirrorExample);
+    const project = configSchema.parse(YAML.parse(block ?? '')).projects[0];
+    expect(project?.columns.find((c) => c.id === 'ready-for-dev')?.source).toMatchObject({
+      type: 'tracker',
+    });
+    for (const text of ['read:project', 'mirror_field_not_found', 'board rollback'])
+      expect(section?.split('\n## ')[0]).toContain(text);
+    const rows = configuration
+      .split('\n')
+      .filter((line) => line.startsWith('| `projects[].columns[].source'));
+    expect(rows.map((line) => line.split('|')[1]?.trim())).toEqual([
+      '`projects[].columns[].source (manual)`',
+      '`projects[].columns[].source (tracker)`',
+      '`projects[].columns[].source.type (tracker)`',
+      '`projects[].columns[].source.project (tracker)`',
+      '`projects[].columns[].source.field (tracker)`',
+      '`projects[].columns[].source.value (tracker)`',
+    ]);
   });
 
   it('the approvalWatch example parses', () => {

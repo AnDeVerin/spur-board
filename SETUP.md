@@ -116,7 +116,9 @@ SSO where applicable. A fine-grained personal access token can resolve the repos
 requests yet return `FORBIDDEN` for every `CheckRun` in `statusCheckRollup.contexts`, because it
 lacks Checks permission. A classic token without `read:org` can return `INSUFFICIENT_SCOPES` for
 a requested review team. A GitHub App with the needed permissions may be an alternative in a
-future release.
+future release. A `ready-for-dev` column that
+[mirrors a GitHub Project status](docs/configuration.md#example-mirror-a-github-project-status-to-ready-for-dev)
+also needs the `read:project` scope.
 
 Validate the file before starting the service:
 

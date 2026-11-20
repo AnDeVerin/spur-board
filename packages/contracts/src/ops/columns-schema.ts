@@ -197,7 +197,11 @@ export const columnsDescribeOutputSchema = z.strictObject({
                 .describe('Question and silent-executor escalation.'),
               movedBy: z
                 .strictObject({
-                  kind: z.enum(['manual', 'dispatcher']).describe('Current placement mechanism.'),
+                  kind: z
+                    .enum(['manual', 'dispatcher', 'mirror'])
+                    .describe(
+                      'Current placement mechanism; mirror: a GitHub Project field places tasks in ready-for-dev.',
+                    ),
                   text: z
                     .string()
                     .describe('How the column is entered, including shadow-mode qualification.'),

@@ -37,11 +37,11 @@ return context and thread details stay in task/inbox views. Top-level `daemon` g
 before the first; a read never samples, so an old `sampledAt` means sampling is stuck).
 `host.volumes` lists each distinct volume among `/`, the data directory and the temp directory,
 with its `mount`, least free space first; a volume that cannot be read is left out. `host.disk`
-is the first of them, the volume closest to running out. `services[]` gives one row per service (daemon, each chat gateway, then github, spur
-and jira) with `state` (healthy, degraded or failing), `since`, `lastGoodAt` and `reason`. The
+is the first of them, the volume closest to running out. `services[]` gives one row per service (daemon, each chat gateway, then github, github-project
+when a column mirrors a GitHub Project, spur and jira) with `state` (healthy, degraded or failing), `since`, `lastGoodAt` and `reason`. The
 daemon row turns degraded after 120 s without a completed tick; a gateway fails while it is
-down; github, spur and jira take their worst source among the `sources` you see, failing when
-blind and degraded when never completed, stale, warming up or waiting for the rate budget.
+down; github, github-project, spur and jira take their worst source among the `sources` you see,
+failing when blind or a mirror read failed and degraded when never completed, stale, warming up or waiting for the rate budget.
 `sources[].waitsForBudget` marks each source whose next regular poll the daemon put off for a
 rate limit: its last poll in this daemon run, complete or not, left a GitHub budget under
 `github.reserveRemaining`, failed as throttled, or failed in any other way while the last budget

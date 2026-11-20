@@ -34,6 +34,8 @@ const discoveryPage = (states: string): string =>
   `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} } } }`;
 const TREE = 'tree { entries { name type oid } }';
 const PR_COMMITS = `query PrCommits($owner: String!, $repo: String!, $number: Int!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequest(number: $number) { commits(last: 100) { totalCount pageInfo { hasPreviousPage } nodes { commit { oid ${TREE} parents(first: 2) { totalCount nodes { oid ${TREE} } } } } } } } }`;
+// The ready-for-dev mirror's read of a Project's Status and the Project items of open issues.
+const PROJECT_MIRROR = `query ProjectMirror($owner: String!, $repo: String!, $projectOwner: String!, $number: Int!, $field: String!) { ${RATE_LIMIT} repositoryOwner(login: $projectOwner) { ... on ProjectV2Owner { projectV2(number: $number) { id title field(name: $field) { __typename ... on ProjectV2SingleSelectField { id options { id name } } } } } } repository(owner: $owner, name: $repo) { issues(first: 100, states: [OPEN]) { pageInfo { hasNextPage } nodes { number projectItems(first: 20, includeArchived: true) { pageInfo { hasNextPage } nodes { isArchived project { id } fieldValueByName(name: $field) { __typename ... on ProjectV2ItemFieldSingleSelectValue { optionId } } } } } } } }`;
 const BASELINE = ` mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED], ${ORDER}) { nodes { updatedAt } }`;
 const KNOWN_DOCUMENTS = [
   prBatch('OPEN, MERGED, CLOSED', ''),
@@ -53,6 +55,7 @@ const KNOWN_DOCUMENTS = [
   discoveryPage('OPEN, MERGED, CLOSED'),
   discoveryPage('OPEN'),
   PR_COMMITS,
+  PROJECT_MIRROR,
 ];
 // Keep exact legacy shapes for the committed live recordings, which select neither the cost and
 // limit, a comment body, links and edits, a thread's id, outdated flag and inline comments, a

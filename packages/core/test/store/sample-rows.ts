@@ -290,6 +290,9 @@ export const sampleRows: SampleRows = {
     budget_limit: 5000,
     budget_reset_at: at,
     default_branch: null,
+    failure_code: null,
+    failure_message: null,
+    project_title: null,
   },
   source_miss: {
     source: 'github',

@@ -144,6 +144,7 @@ function start(
   options: {
     core?: FakeCoreOptions;
     reserveRemaining?: number;
+    defaultFailureCode?: 'mirror_read_failed';
     config?: typeof defaults;
     now?: () => number;
     onFailure?: (failure: PollFailure) => void;
@@ -163,7 +164,13 @@ function start(
     ...(options.pollPr === undefined ? {} : { pollPr: options.pollPr }),
   });
   const runner = startRunner({
-    entries: [{ adapter, reserveRemaining: options.reserveRemaining }],
+    entries: [
+      {
+        adapter,
+        reserveRemaining: options.reserveRemaining,
+        defaultFailureCode: options.defaultFailureCode,
+      },
+    ],
     core,
     config: options.config ?? defaults,
     now: options.now ?? (() => Date.now()),
@@ -174,6 +181,13 @@ function start(
   });
   runners.push(runner);
   return { core, adapter, runner, starts, last: () => core.states.at(-1)?.state, failures };
+}
+
+/** `values` with consecutive repeats dropped: a stale-deadline report repeats the failure. */
+function distinct<T>(values: readonly T[]): T[] {
+  return values.filter(
+    (value, index) => index === 0 || JSON.stringify(value) !== JSON.stringify(values[index - 1]),
+  );
 }
 
 function gaps(starts: readonly number[]): number[] {
@@ -193,13 +207,14 @@ afterEach(async () => {
 });
 
 describe('startAdapters', () => {
-  it('exports only startAdapters, the doctor link sample and rule read, the GitHub classifiers and the test fakes', () => {
+  it('exports only startAdapters, the doctor link sample, rule and Project reads, the GitHub classifiers and the test fakes', () => {
     expect(Object.keys(entry).sort()).toEqual([
       'checkAccessDenied',
       'classifyHttpFailure',
       'graphEnvelopeWire',
       'graphqlFailure',
       'readBranchRule',
+      'readProjectMirror',
       'sampleLinkRules',
       'startAdapters',
       'teamScopeDenied',
@@ -849,6 +864,142 @@ describe('budget', () => {
     await advanceTo(360_001);
     expect(board.issuesReports().filter((report) => report.state.blind)).toEqual([]);
   });
+
+  const mirroredColumns = [
+    { id: 'todo' },
+    { id: 'triage' },
+    {
+      id: 'ready-for-dev',
+      source: { type: 'tracker', project: 'acme/7', field: 'Status', value: 'Ready' },
+    },
+    { id: 'dev' },
+    { id: 'review' },
+    { id: 'ready-to-merge' },
+    { id: 'done' },
+  ];
+
+  it('holds the GitHub Project source at twice the reserve while the PR source keeps polling', async () => {
+    random(0);
+    const config = configSchema.parse({
+      projects: [
+        {
+          id: 'board',
+          tracker: { type: 'github-issues', repo: 'acme/board' },
+          repos: ['acme/web'],
+          operatorGithubLogin: 'octocat',
+          columns: mirroredColumns,
+        },
+      ],
+      operator: { slack: 'U0000000000' },
+      digest: { tz: 'UTC' },
+    });
+    // Remaining 1500 sits between the reserve (1000) and twice it.
+    expect(config.github.reserveRemaining).toBe(1000);
+    const times = { mirror: [] as number[], pr: [] as number[] };
+    const fetch = vi.fn<typeof globalThis.fetch>((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.href === 'https://api.github.com/graphql') {
+        const { query } = JSON.parse(init?.body as string) as { query: string };
+        if (query.startsWith('query ProjectMirror(')) {
+          times.mirror.push(elapsed());
+          return Promise.resolve(
+            Response.json({
+              data: {
+                rateLimit: { cost: 1, limit: 5000, remaining: 1500, resetAt: at(600_000) },
+                repositoryOwner: {
+                  projectV2: {
+                    id: 'PVT_7',
+                    title: 'Roadmap',
+                    field: {
+                      __typename: 'ProjectV2SingleSelectField',
+                      id: 'PVTSSF_7',
+                      options: [{ id: 'ready', name: 'Ready' }],
+                    },
+                  },
+                },
+                repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [] } },
+              },
+            }),
+          );
+        }
+        times.pr.push(elapsed());
+        return Promise.resolve(
+          Response.json({
+            data: {
+              rateLimit: { remaining: 4000, resetAt: at(3_600_000) },
+              repository: {
+                mergedBaseline: { nodes: [] },
+                pullRequests: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+              },
+            },
+          }),
+        );
+      }
+      if (url.href.startsWith('https://api.github.com/repos/acme/board/issues'))
+        return Promise.resolve(Response.json([]));
+      if (url.pathname.endsWith('/sessions/transitions'))
+        return Promise.resolve(
+          Response.json({ entries: [], nextCursor: 'synthetic-empty', hasMore: false }),
+        );
+      if (url.pathname.endsWith('/sessions')) return Promise.resolve(Response.json([]));
+      return Promise.resolve(new Response('', { status: 404 }));
+    });
+    const core = createFakeCore();
+    const runner = entry.startAdapters(config, core, {
+      secrets: { GITHUB_TOKEN: 'synthetic' },
+      fetch,
+      now: () => Date.now(),
+    });
+    runners.push(runner);
+    const mirror = 'github-project:board:acme/7';
+    await flush();
+    expect([...runner.budgetWaits]).toEqual([mirror]);
+    const delivered = core.observed.find((observed) => observed.source === mirror);
+    expect(delivered?.batch.budget).toEqual({ remaining: 1500, limit: 5000, resetAt: at(600_000) });
+    expect(delivered?.batch.mirror).toEqual({ title: 'Roadmap', readiness: [] });
+    await advanceTo(599_999);
+    expect(times.mirror).toEqual([0]);
+    expect(times.pr).toEqual(Array.from({ length: 10 }, (_, n) => n * I));
+    await advanceTo(600_000);
+    expect(times.mirror).toEqual([0, 600_000]);
+  });
+
+  it('reports a GitHub Project source without GITHUB_TOKEN blind with mirror_project_forbidden', async () => {
+    random(0);
+    const config = configSchema.parse({
+      projects: [
+        {
+          id: 'board',
+          tracker: { type: 'github-issues', repo: 'acme/board' },
+          repos: ['acme/web'],
+          operatorGithubLogin: 'octocat',
+          columns: mirroredColumns,
+        },
+      ],
+      operator: { slack: 'U0000000000' },
+      digest: { tz: 'UTC' },
+    });
+    const core = createFakeCore();
+    const runner = entry.startAdapters(config, core, {
+      fetch: vi.fn<typeof globalThis.fetch>(() =>
+        Promise.resolve(new Response('', { status: 404 })),
+      ),
+      now: () => Date.now(),
+    });
+    runners.push(runner);
+    await flush();
+    const reports = core.reports.filter(
+      (report) => report.source === 'github-project:board:acme/7',
+    );
+    expect(reports.at(-1)?.state).toEqual({
+      blind: { reason: 'config', message: 'GitHub credential is missing' },
+      failure: { code: 'mirror_project_forbidden', message: 'GitHub credential is missing' },
+      gone: [],
+    });
+    expect(
+      core.reports.filter((report) => report.state.failure !== undefined).map((r) => r.source),
+    ).toEqual(['github-project:board:acme/7']);
+  });
 });
 
 describe('auth and config errors', () => {
@@ -867,6 +1018,80 @@ describe('auth and config errors', () => {
       expect(last()).toEqual({ lastCompleteAt: at(1_800_000), gone: [] });
     },
   );
+
+  it('reports a coded failure in state and clears it on the next delivered batch', async () => {
+    random(0);
+    const { core, last } = start(
+      (ctx, n) =>
+        n === 0
+          ? Promise.reject(
+              new AdapterError('transient', 'Read did not fit one page', {
+                code: 'mirror_snapshot_incomplete',
+              }),
+            )
+          : n === 1
+            ? Promise.reject(
+                new AdapterError('config', 'No such field', { code: 'mirror_field_not_found' }),
+              )
+            : n === 2
+              ? Promise.resolve(batch())
+              : hang(ctx),
+      { defaultFailureCode: 'mirror_read_failed' },
+    );
+    await flush();
+    expect(last()).toEqual({
+      failure: { code: 'mirror_snapshot_incomplete', message: 'Read did not fit one page' },
+      gone: [],
+    });
+    await advanceTo(2_000_000);
+    expect(core.observed).toHaveLength(1);
+    expect(distinct(core.states.map(({ state }) => state.failure?.code))).toEqual([
+      'mirror_snapshot_incomplete',
+      'mirror_field_not_found',
+      undefined,
+    ]);
+    expect(core.observed[0]?.observation.state.failure).toBeUndefined();
+    // The hanging poll after it goes stale, still without a failure.
+    expect(last()?.failure).toBeUndefined();
+  });
+
+  it("gives an uncoded failure the entry's defaultFailureCode, including an invalid batch", async () => {
+    random(0);
+    const { core } = start(
+      (ctx, n) =>
+        n === 0
+          ? Promise.reject(new AdapterError('throttled', 'HTTP 429'))
+          : n === 1
+            ? Promise.reject(new Error('boom'))
+            : n === 2
+              ? Promise.resolve(batch({ source: 'another' }))
+              : hang(ctx),
+      { defaultFailureCode: 'mirror_read_failed' },
+    );
+    await advanceTo(2_000_000);
+    expect(core.observed).toEqual([]);
+    expect(distinct(core.reports.map(({ state }) => state.failure))).toEqual([
+      { code: 'mirror_read_failed', message: 'HTTP 429' },
+      { code: 'mirror_read_failed', message: 'The poll step failed' },
+      { code: 'mirror_read_failed', message: 'Invalid batch: names another source' },
+    ]);
+  });
+
+  it('an entry without defaultFailureCode never reports failure', async () => {
+    random(0);
+    const { core } = start((_, n) =>
+      n === 0
+        ? Promise.reject(new AdapterError('auth', 'bad token'))
+        : n === 1
+          ? Promise.reject(new Error('boom'))
+          : n === 2
+            ? Promise.resolve(batch({ source: 'another' }))
+            : Promise.reject(new AdapterError('transient', 'HTTP 502')),
+    );
+    await advanceTo(4_000_000);
+    expect(core.reports.length).toBeGreaterThan(0);
+    expect(core.states.filter(({ state }) => 'failure' in state)).toEqual([]);
+  });
 });
 
 describe('blind and completeness', () => {

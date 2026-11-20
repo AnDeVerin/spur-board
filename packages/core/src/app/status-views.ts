@@ -4,6 +4,8 @@ import {
   COLUMN_GROUPS,
   TODO_GROUP_COLUMN_IDS,
   COLUMNS,
+  MIRROR_FAILURE_CODES,
+  MIRROR_FAILURES,
   eventPayloadSchemas,
   type ActorId,
   type AddresseeRole,
@@ -12,9 +14,11 @@ import {
   type PrFacts,
   type SessionFacts,
 } from '@spur-board/contracts';
+import type { statusOutputSchema } from '@spur-board/contracts/browser';
+import type { z } from 'zod';
 import type { Store } from '../store/store.ts';
 import type { ApprovalView } from './approval-watch.ts';
-import { eventActor } from './board-utils.ts';
+import { eventActor, parseDefaultBranch, projectForSource } from './board-utils.ts';
 
 /** The column groups with their built-in columns in canonical order, the same for every project. */
 export function columnGroupViews() {
@@ -265,7 +269,7 @@ export async function readStatusColumnEntries(
           ))`,
           )
           .where(
-            sql<boolean>`(entry.kind in ('task_added', 'task_moved', 'task_manually_moved') or (entry.kind = 'task_corrected' and json_extract(entry.payload, '$.shadow') = 0))`,
+            sql<boolean>`(entry.kind in ('task_added', 'task_moved', 'task_manually_moved') or (entry.kind = 'task_mirror_moved' and json_extract(entry.payload, '$.shadow') is null) or (entry.kind = 'task_corrected' and json_extract(entry.payload, '$.shadow') = 0))`,
           )
           .groupBy('entry.task_id')
           .as('latest'),
@@ -278,7 +282,8 @@ export async function readStatusColumnEntries(
 export function sourceInterval(config: Config, source: string): number {
   if (source === 'spur') return config.adapters.spur.intervalMs;
   if (source.startsWith('jira:')) return config.adapters.jira.intervalMs;
-  if (source.startsWith('github-issues:')) return config.adapters.githubIssues.intervalMs;
+  if (source.startsWith('github-issues:') || source.startsWith('github-project:'))
+    return config.adapters.githubIssues.intervalMs;
   return config.adapters.github.intervalMs;
 }
 
@@ -326,4 +331,71 @@ export function orderTodoGroupRows(
       }
     }
   }
+}
+
+type SourceView = z.output<typeof statusOutputSchema>['sources'][number];
+
+/** A mirror source's stored failure; a code this version does not know reads as a failed read. */
+function storedFailure(row: Row<'source_state'> | undefined): SourceView['failure'] {
+  if (row?.failure_code == null) return null;
+  const code =
+    MIRROR_FAILURE_CODES.find((known) => known === row.failure_code) ?? 'mirror_read_failed';
+  const message = row.failure_message ?? '';
+  return { code, message: message === '' ? MIRROR_FAILURES[code].meaning : message };
+}
+
+/**
+ * One source's view in `status.get`, from its stored row and this run's maps. `config.get`
+ * builds a mirror's view through it, so both reads judge its health alike.
+ */
+export function sourceView(input: {
+  source: string;
+  row: Row<'source_state'> | undefined;
+  config: Config;
+  now: number;
+  points: ReadonlyMap<string, number>;
+  completeSince: ReadonlyMap<string, string>;
+  healthySince?: ReadonlyMap<string, string> | undefined;
+  budgetWaits?: ReadonlySet<string> | undefined;
+}): SourceView {
+  const { source, row, config, now } = input;
+  const last = row?.last_complete_at ?? null;
+  const blindReason: 'auth' | 'config' | 'stale' | null =
+    row?.blind_reason === 'auth' || row?.blind_reason === 'config' || row?.blind_reason === 'stale'
+      ? row.blind_reason
+      : null;
+  return {
+    source,
+    project: projectForSource(config, source)?.id ?? null,
+    ...(source.startsWith('github:') && {
+      pointsLastHour: input.points.get(source) ?? 0,
+      defaultBranch: parseDefaultBranch(row?.default_branch),
+    }),
+    ...(source.startsWith('github-project:') && {
+      failure: storedFailure(row),
+    }),
+    observedAt: row?.observed_at ?? null,
+    lastCompleteAt: last,
+    blindReason,
+    message: row?.blind_message ?? null,
+    budget:
+      row?.budget_remaining != null && row.budget_reset_at != null
+        ? {
+            remaining: row.budget_remaining,
+            limit: row.budget_limit,
+            resetAt: row.budget_reset_at,
+          }
+        : null,
+    // The runner's own pause, not the stored budget: an on-demand poll or an earlier daemon
+    // run may have stored a budget under the reserve that no regular poll of this run waits on.
+    waitsForBudget: input.budgetWaits?.has(source) ?? false,
+    stale:
+      last === null ||
+      now - Date.parse(last) > config.thresholds.staleMultiplier * sourceInterval(config, source),
+    healthySince: input.healthySince?.get(source) ?? null,
+    // `lastCompleteAt` is stored, but the runner does not reload it, so the first report or
+    // incomplete observe after a restart can clear it. `completeSince` holds only polls since
+    // this process started, so a source warms up until its first complete poll after a restart.
+    warmingUp: !input.completeSince.has(source),
+  };
 }

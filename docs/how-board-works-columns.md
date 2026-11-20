@@ -1,6 +1,6 @@
 # Columns and executors
 
-`board columns describe [--project <project>]` (`columns_describe` in MCP) reads
+`board columns describe [--project <project>]` (MCP `columns_describe`) reads
 column/exit/completion policy. Task facts: `board task <KEY> --why`.
 
 ## Columns and executors
@@ -15,11 +15,11 @@ Open PR/live worker skips the group to Dev. New/reopened tasks enter `todo`.
 
 Manual: operator-only; enabled Todo-group endpoints, else
 `move_outside_todo_group`; eligible unbanned open PRs (conflicts too) or live linked
-workers give `work_started`. CLI defaults to manual (`--manual`); MCP uses
-`task_move`, `mode: manual`; also operator web API.
+workers give `work_started`. CLI default: `--manual`; MCP: `task_move`,
+`mode: manual`; also operator web API.
 Both modes: real column, new visit at end (same-column too).
 Idle stays; only later reopen resets; work/completion follow facts. Ties: journal
-order; saved reverse-time/key sorts win. Require non-blank literal reason
+order; saved reverse-time/key sorts win. Need non-blank literal reason
 (max 20,000 UTF-16 units) and explicit non-blank key; retry identical input/key.
 Exact reason in events/move views; history normalizes whitespace to one line.
 
@@ -32,7 +32,7 @@ the dispatcher moves.
 | ----------------- | ------------------------------ | ---------------------------- | ------------------------------------------------------------- |
 | `todo`            | New/reopened; manual           | Dispatcher/operator          | `board move <task> todo --reason <text> --key <key>`          |
 | `triage`          | Manual                         | Operator                     | `board move <task> triage --reason <text> --key <key>`        |
-| `ready-for-dev`   | Manual                         | Operator                     | `board move <task> ready-for-dev --reason <text> --key <key>` |
+| `ready-for-dev`   | Manual or Project mirror       | Operator/mirror              | `board move <task> ready-for-dev --reason <text> --key <key>` |
 | `dev`             | Work start/gate failure/return | Dispatcher/executor/operator | `board move <task> dev --correct --reason <text>`             |
 | `review`          | Gates: internal review         | Dispatcher/operator          | `board move <task> review --correct --reason <text>`          |
 | `product-review`  | Gates: product review          | Dispatcher/operator          | `board move <task> product-review --correct --reason <text>`  |
@@ -41,7 +41,8 @@ the dispatcher moves.
 | `ready-to-merge`  | Gates: merge                   | Dispatcher/operator          | `board move <task> ready-to-merge --correct --reason <text>`  |
 | `done`            | Completion: PR/ticket facts    | Dispatcher                   | None (automatic)                                              |
 
-No mirroring config; reserved `column_mirrored` directs status to the named project.
+Mirror: `source` on `ready-for-dev`; `column_mirrored` refuses manual moves there.
+Each complete read moves idle tasks between it and `todo`, overriding `--correct`.
 `board config get`: `group: todo`; `board status`: `columnGroups`.
 
 Each column has one executor: `projects[].columns[].orchestrator`:
@@ -52,16 +53,16 @@ Each column has one executor: `projects[].columns[].orchestrator`:
 `orchestrator`.
 
 Top-level `spurProjects[].columns` fills `none` columns board-wide;
-`role: operator` there serves operatorless projects, one session acting in
+`role: operator` there serves operatorless projects, one session in
 each. A project-level binding wins.
 
 ## Gates and placement
 
-Facts (head, checks, reviews, comments, ticket, sessions) feed gates; two actions: move the task and open an executor turn (at most one
+Facts (head, checks, reviews, comments, ticket, sessions) feed gates; actions: move the task, open an executor turn (at most one
 per evaluation). Turns follow unmet entry gates, actionable post-submit failures,
 rerouting or Done wrap-up. Holds and existing turns can yield neither action.
 
-Dispatcher moves, executor turns and course checks need `projects[].dispatcher.mode: on`;
+Dispatcher moves, executor turns, course checks need `projects[].dispatcher.mode: on`;
 default is `shadow`: no doorbells or blocks.
 
 Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, failed gates return to the leftmost failing
@@ -70,7 +71,7 @@ mergeability and incomplete comment history are waits. Downstream handoff waits
 for settled prerequisites; Dev can receive a repair turn.
 
 Dev needs an open non-draft PR, passing checks, no conflict, handled
-feedback, comment history and current-head submit. Feedback excludes
+feedback, comment history, current-head submit. Feedback excludes
 bots, approvals and `projects[].operatorGithubLogin` (agents' account), so worker
 thread replies never count; others' posts do.
 The repo owner's and the human operator's own accounts count too, unless one is
@@ -86,7 +87,7 @@ A status comment whose last line is a hidden `board-reviewer-progress` or
 for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
-External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits of other worker columns. Fixed gate rules have no configuration switch
+External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse other worker columns' same-head submits. Gate rules have no switch
 except enabled columns, no-CI, checks gate, resolved threads and review rule
 (`approvalRule: github-rules`, `docs/configuration.md`).
 
@@ -94,7 +95,7 @@ except enabled columns, no-CI, checks gate, resolved threads and review rule
 `external-review`, enabled) moves the pending-CI wait to that column's exit. Red
 checks return the task to Dev from any column, after the submit of a taken turn;
 Ready to Merge needs green. Only right of `dev` a cancelled check counts as running
-for about two GitHub poll intervals. It takes effect after a restart.
+for about two GitHub poll intervals. Applies after a restart.
 
 `projects[].columns[].requireResolvedThreads` (default: `ready-to-merge` only)
 gates that column and those right of it: an unresolved review thread, outdated
@@ -106,10 +107,10 @@ approval's inline notes are threads; it still passes External Review.
 Review/Product Review mark lasts across visits on the current head. QA submissions
 also survive returns and corrections to Dev on the same head. Other visit
 submissions belong to one column visit; moving left clears them and those to the
-right. A different observed PR head permanently invalidates its internal Review,
+right. A different observed PR head permanently invalidates internal Review,
 Product Review and QA evidence, even if the head later returns.
 Operator correction into QA clears confirmed and pending QA evidence,
-keeping review marks. With passing upstream gates and a QA orchestrator or operator,
+keeping review marks; with passing upstream gates and a QA orchestrator or operator,
 this opens a fresh QA turn. Executor `none` keeps worker-column reuse: a valid Dev
 submit can satisfy QA after correction. Retained QA cannot supply Dev's submit
 requirement: submit the current Dev visit first.

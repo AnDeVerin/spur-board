@@ -14,6 +14,8 @@ export interface BoardColumn {
   group: BoardGroup | null;
   /** Executor line: kind, then the named Spur project when there is one. */
   executor: string;
+  /** `config.get` executor kind; the head picks its actor icon from it. */
+  kind: BoardColumnConfig['executor']['kind'];
   /** Rows of this column in `status.get` order, before `sortRows`; none makes it a spine. */
   rows: BoardRow[];
 }
@@ -29,7 +31,13 @@ export function boardColumns(
   const byId = new Map<string, BoardColumn>(
     columns.map((column) => [
       column.id,
-      { id: column.id, group: column.group ?? null, executor: executorLine(column), rows: [] },
+      {
+        id: column.id,
+        group: column.group ?? null,
+        executor: executorLine(column),
+        kind: column.executor.kind,
+        rows: [],
+      },
     ]),
   );
   for (const row of rows) byId.get(row.column)?.rows.push(row);

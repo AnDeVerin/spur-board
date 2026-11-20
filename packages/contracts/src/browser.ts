@@ -167,23 +167,25 @@ const serviceSchema = z
     service: z
       .string()
       .min(1)
-      .describe('daemon, github, jira, spur, or a chat gateway kind such as slack.'),
+      .describe(
+        'daemon, github, github-project, jira, spur, or a chat gateway kind such as slack.',
+      ),
     state: z
       .enum(['healthy', 'degraded', 'failing'])
       .describe(
-        'failing: a blind source or a gateway that is down; degraded: a source that never completed, is stale, warms up or waits for its rate budget, or a daemon with no completed board tick for over 120 seconds; else healthy. A source service takes its worst source.',
+        'failing: a blind source, a github-project source whose last poll failed, or a gateway that is down; degraded: a source that never completed, is stale, warms up or waits for its rate budget, or a daemon with no completed board tick for over 120 seconds; else healthy. A source service takes its worst source.',
       ),
     since: z.iso
       .datetime()
       .nullable()
       .describe(
-        'Healthy: since when the service has been usable in this daemon run. That is daemon.startedAt for the daemon, the latest healthySince of its sources for github, jira and spur, and for a gateway the end of its last recorded outage or daemon.startedAt, whichever is later. Failing gateway: when the outage started. Otherwise null.',
+        'Healthy: since when the service has been usable in this daemon run. That is daemon.startedAt for the daemon, the latest healthySince of its sources for github, github-project, jira and spur, and for a gateway the end of its last recorded outage or daemon.startedAt, whichever is later. Failing gateway: when the outage started. Otherwise null.',
       ),
     lastGoodAt: z.iso
       .datetime()
       .nullable()
       .describe(
-        'Last sign of work: the last completed board tick for the daemon, the oldest latest observation of its sources for github, jira and spur (null when one has none); null for a gateway.',
+        'Last sign of work: the last completed board tick for the daemon, the oldest latest observation of its sources for github, github-project, jira and spur (null when one has none); null for a gateway.',
       ),
     reason: z
       .string()
@@ -222,7 +224,7 @@ export const statusOutputSchema = z.strictObject({
   services: z
     .array(serviceSchema)
     .describe(
-      'One health row per service: daemon, each chat gateway, then github, spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up the sources listed, which cover every project the caller may see whatever project says.',
+      'One health row per service: daemon, each chat gateway, then github, github-project (only when a column mirrors a GitHub Project), spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up the sources listed, which cover every project the caller may see whatever project says.',
     ),
   transport: z
     .array(

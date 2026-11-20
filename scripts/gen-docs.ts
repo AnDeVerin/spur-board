@@ -23,6 +23,11 @@ export const approvalRuleExample = readFileSync(
   new URL('../packages/contracts/test/fixtures/approval-rule-project.yaml', import.meta.url),
   'utf8',
 );
+/** The example config of `## Example: mirror a GitHub Project status to Ready for Dev`. */
+export const readyMirrorExample = readFileSync(
+  new URL('../packages/contracts/test/fixtures/ready-mirror-project.yaml', import.meta.url),
+  'utf8',
+);
 /** The example config of `## Example: watch what changed after an approval`. */
 export const approvalWatchExample = readFileSync(
   new URL('../packages/contracts/test/fixtures/approval-watch-project.yaml', import.meta.url),
@@ -41,6 +46,7 @@ interface SchemaNode {
   required?: string[];
   items?: SchemaNode;
   oneOf?: SchemaNode[];
+  anyOf?: SchemaNode[];
   const?: string;
   enum?: string[];
   default?: unknown;
@@ -216,9 +222,10 @@ function constraints(node: SchemaNode): string {
 function schemaRows(root: SchemaNode): string[] {
   const rows: string[] = [];
   function visit(node: SchemaNode, path: string, required: boolean, variant = ''): void {
-    if (node.oneOf) {
-      for (const choice of node.oneOf) {
-        const label = choice.properties?.['type']?.const ?? 'variant';
+    const choices = node.oneOf ?? node.anyOf;
+    if (choices) {
+      for (const choice of choices) {
+        const label = choice.const ?? choice.properties?.['type']?.const ?? 'variant';
         visit(choice, path, required, label);
       }
       return;
@@ -309,6 +316,14 @@ export function renderConfigurationDocs(): string {
     '',
     '```yaml',
     approvalRuleExample.trimEnd(),
+    '```',
+    '',
+    '## Example: mirror a GitHub Project status to Ready for Dev',
+    '',
+    '`source` with `type: tracker` on the `ready-for-dev` column of a `github-issues` project makes the board place tasks between `todo` and `ready-for-dev` from a single-select field of a GitHub Project, such as Status = Ready. On every poll the board reads the Project, the field and its options, and the Project items of every open issue of `tracker.repo`, in one GraphQL request of about one rate-limit point; it never lists the items of the Project. An idle task in `todo` whose issue has the value moves to `ready-for-dev`; an idle task in `ready-for-dev` whose issue has another value, no value, has left the Project or is archived there moves back to `todo`. Each move is journaled as `task_mirror_moved`. In dispatcher shadow mode a shadow column in `todo` or `ready-for-dev` follows the same read even when the real column is already right, so a `--correct` of the shadow column does not outlast the next read; that shadow-only move keeps the visit and the turns of the real column, and its event carries `shadow: true`. A shadow column in `triage` or right of `ready-for-dev` stays. A task with an open PR or a live worker, a task in `triage`, and every column right of `ready-for-dev` are never touched. Manual moves into or out of `ready-for-dev` are refused with `column_mirrored`: change the status in the Project instead; `board move --correct` still works, and the next read applies the Project again. `GITHUB_TOKEN` needs the `read:project` scope (a fine-grained token: Projects read access for the Project owner). Only a complete read moves tasks: a failed or incomplete read freezes every position and reports one of the codes `mirror_project_forbidden`, `mirror_field_not_found`, `mirror_snapshot_incomplete`, `mirror_rate_limited` or `mirror_read_failed` (see `docs/errors.md`) on the `github-project` source until the next complete read. The mirror source pauses for budget at twice `github.reserveRemaining`, before the PR sources. `board doctor` checks the Project, the field and the option as `github.mirror`. Without the key, or with `source: manual`, the column is placed by hand as before. Remove the key before `board rollback` to a version without it.',
+    '',
+    '```yaml',
+    readyMirrorExample.trimEnd(),
     '```',
     '',
     '## Example: watch what changed after an approval',

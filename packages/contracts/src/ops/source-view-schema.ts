@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MIRROR_FAILURE_CODES } from '../adapters.ts';
 import { commitShaSchema, webUrl } from '../facts.ts';
 
 /** The stored colour of a repository's default-branch head, as status.get shows it. */
@@ -46,6 +47,16 @@ export const sourceViewSchema = z
       .nullable()
       .describe('Why this source is blind, or null when it is usable.'),
     message: z.string().nullable().describe('Short explanation of the source state.'),
+    failure: z
+      .strictObject({
+        code: z.enum(MIRROR_FAILURE_CODES).describe('Mirror failure code.'),
+        message: z.string().min(1).describe('What the last poll failed on.'),
+      })
+      .nullable()
+      .optional()
+      .describe(
+        'Why the last poll failed, or null after a delivered batch; present only on github-project: sources.',
+      ),
     budget: z
       .strictObject({
         remaining: z.int().nonnegative().describe('Requests or points the source still allowed.'),

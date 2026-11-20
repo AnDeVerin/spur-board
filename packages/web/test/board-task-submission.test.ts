@@ -2,10 +2,25 @@
 import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { daemon, deferred, envelope, hello, problem, taskGet } from './board-fixtures.ts';
-import { mount, mountEachTest, settle } from './board-harness.ts';
+import { mount, mountEachTest, press, settle } from './board-harness.ts';
 
 mountEachTest();
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+const header = () =>
+  [...(dialog()?.querySelectorAll('section') ?? [])]
+    .find((section) => section.querySelector('[id$="-title"]')?.textContent === 'Latest submission')
+    ?.querySelector('div');
+const chevron = () => {
+  const found = header()?.querySelector<HTMLElement>('button[aria-expanded]');
+  if (!found) throw new Error('no Latest submission section');
+  return found;
+};
+const body = () => {
+  const found = document.getElementById(chevron().getAttribute('aria-controls') ?? '');
+  if (!found) throw new Error('no Latest submission body');
+  return found;
+};
+const summary = () => header()?.lastElementChild?.textContent;
 
 describe('latest submission in Task Now', () => {
   it('inherits task loading, failure, retry and retained data with no extra read', async () => {
@@ -54,6 +69,7 @@ describe('latest submission in Task Now', () => {
     });
     await settle();
     expect(dialog()?.textContent).toContain('Retain this reason');
+    expect(summary()).toBe('skipped');
     expect(reads).toBe(beforeRetry + 1);
     d.routes['task.get'] = () => {
       reads++;
@@ -96,10 +112,20 @@ describe('latest submission in Task Now', () => {
       const text = dialog()?.textContent ?? '';
       if (basis === 'absent') expect(text).not.toContain('Latest submission');
       else {
+        expect(chevron().getAttribute('aria-expanded')).toBe('false');
+        expect(body().hidden).toBe(true);
+        expect(summary()).toBe(
+          basis === 'null' ? 'No submissions yet' : `${basis} · pending · voided`,
+        );
+        press(chevron(), 'click');
+        expect(chevron().getAttribute('aria-expanded')).toBe('true');
+        expect(body().hidden).toBe(false);
         expect(text.indexOf('Latest submission')).toBeGreaterThan(text.indexOf('Why it is here'));
         expect(text.indexOf('Latest submission')).toBeLessThan(text.indexOf('Blocks'));
-        if (basis === 'null') expect(text).toContain('No submissions yet');
+        if (basis === 'null') expect(body().textContent).toBe('No submissions yet');
         else {
+          expect(body().textContent).toContain(`Basis${basis}`);
+          expect(body().textContent).toContain('PendingYesVoidedYes');
           expect(text).toContain(reason);
           expect(text).toContain('b'.repeat(40));
           expect(text).toContain(`Basis${basis}`);

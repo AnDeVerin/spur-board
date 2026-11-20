@@ -8,7 +8,13 @@ import {
   sampleLinkRules,
   teamScopeDenied,
 } from '@spur-board/adapters';
-import { configSchema, doctorReportSchema, type ConfigInput } from '@spur-board/contracts';
+import {
+  DOCTOR_FIX_MAX,
+  MIRROR_FAILURES,
+  configSchema,
+  doctorReportSchema,
+  type ConfigInput,
+} from '@spur-board/contracts';
 import {
   createOperationRegistry,
   openStore,
@@ -55,7 +61,12 @@ function doctorContext(
     // Board projects and their Spur projects in place of the single `board` project.
     projects?: readonly {
       id: string;
-      columns?: { id: string; orchestrator?: string; approvalRule?: string }[];
+      columns?: {
+        id: string;
+        orchestrator?: string;
+        approvalRule?: string;
+        source?: { type: 'tracker'; project: string; field: string; value: string };
+      }[];
       spurProjects: readonly {
         name: string;
         role: 'worker' | 'operator' | 'curator' | 'orchestrator';
@@ -2263,5 +2274,148 @@ describe('daemon doctor github.review_rule', () => {
     const guide = readFileSync(new URL('../../../TROUBLESHOOTING.md', import.meta.url), 'utf8');
     const section = guide.split('## Doctor checks\n')[1]?.split('\n## ')[0] ?? '';
     expect(section).toMatch(/^### github\.review_rule$/m);
+  });
+});
+
+describe('daemon doctor github.mirror', () => {
+  const mirrorColumns = (ruled = false) => [
+    { id: 'todo' },
+    {
+      id: 'ready-for-dev',
+      source: { type: 'tracker' as const, project: 'acme/7', field: 'Status', value: 'Ready' },
+    },
+    { id: 'dev' },
+    ...(ruled ? [{ id: 'external-review', approvalRule: 'github-rules' }] : []),
+    { id: 'done' },
+  ];
+  const mirrorContext = (
+    options: { secrets?: Readonly<Record<string, string>>; ruled?: boolean } = {},
+  ) =>
+    doctorContext({
+      operator: true,
+      slack: false,
+      issues: true,
+      ...(options.secrets === undefined ? {} : { secrets: options.secrets }),
+      projects: [{ id: 'board', spurProjects: [], columns: mirrorColumns(options.ruled) }],
+    });
+  const isMirrorRead = (init?: RequestInit) =>
+    typeof init?.body === 'string' && init.body.includes('query ProjectMirror');
+  // Answers the mirror read with a project-mirror fixture of the adapter tests, as GitHub answers
+  // it, or never for `hang`; every other request goes to `doctorFetch`.
+  const mirrorFetch = (fixture: string): typeof fetch => {
+    const fallback = doctorFetch();
+    return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (!isMirrorRead(init)) return fallback(input, init);
+      if (fixture === 'hang') return new Promise<Response>(() => undefined);
+      const body = readFileSync(
+        new URL(
+          `../../adapters/test/github/fixtures/project-mirror/${fixture}.json`,
+          import.meta.url,
+        ),
+        'utf8',
+      );
+      return Promise.resolve(
+        new Response(body, { headers: { 'content-type': 'application/json' } }),
+      );
+    });
+  };
+  const checkOf = async (fetcher: typeof fetch, ctx = mirrorContext(), deadlineMs?: number) => {
+    const report = await runDaemonDoctor(
+      ctx,
+      '1.2.3',
+      fetcher,
+      deadlineMs === undefined ? {} : { deadlineMs },
+    );
+    expect(doctorReportSchema.parse(report)).toEqual(report);
+    const mirror = report.checks.find((check) => check.id === 'github.mirror');
+    if (mirror !== undefined) {
+      expect(mirror.blocking).toBe(false);
+      expect(mirror.fix?.length ?? 0).toBeLessThanOrEqual(DOCTOR_FIX_MAX);
+    }
+    return { mirror, ids: report.checks.map((check) => check.id) };
+  };
+
+  it('github.mirror passes on the recorded Project and names its title, field and option', async () => {
+    const fetcher = mirrorFetch('live-snapshot');
+    const { mirror } = await checkOf(fetcher);
+    expect(mirror).toEqual({
+      id: 'github.mirror',
+      status: 'pass',
+      blocking: false,
+      fix: 'board acme/7 "spur-board": field Status, option Ready.',
+    });
+    const read = vi.mocked(fetcher).mock.calls.find(([, init]) => isMirrorRead(init))?.[1]
+      ?.body as string;
+    expect(JSON.parse(read)).toMatchObject({
+      variables: { owner: 'example', repo: 'board', projectOwner: 'acme', number: 7 },
+    });
+  });
+
+  it('github.mirror warns with the token fix without GITHUB_TOKEN', async () => {
+    const fetcher = mirrorFetch('live-snapshot');
+    const { mirror } = await checkOf(fetcher, mirrorContext({ secrets: {} }));
+    expect(mirror).toMatchObject({ status: 'warning', blocking: false });
+    expect(mirror?.fix).toContain('GITHUB_TOKEN');
+    expect(mirror?.fix).toContain('read:project');
+    expect(vi.mocked(fetcher).mock.calls.some(([, init]) => isMirrorRead(init))).toBe(false);
+  });
+
+  it('github.mirror warns naming read:project when the token lacks the scope', async () => {
+    const { mirror } = await checkOf(mirrorFetch('scope-missing'));
+    expect(mirror).toMatchObject({ status: 'warning', blocking: false });
+    expect(mirror?.fix).toBe(
+      `board acme/7: mirror_project_forbidden. ${MIRROR_FAILURES.mirror_project_forbidden.fix}`,
+    );
+    expect(mirror?.fix).toContain('read:project');
+    // GitHub's error text never leaves the doctor.
+    expect(mirror?.fix).not.toContain('granted');
+  });
+
+  it('github.mirror keeps the code of a recorded Project not found through the deadline', async () => {
+    const { mirror } = await checkOf(mirrorFetch('live-project-not-found'));
+    expect(mirror).toMatchObject({ status: 'warning', blocking: false });
+    expect(mirror?.fix).toBe(
+      `board acme/7: mirror_project_forbidden. ${MIRROR_FAILURES.mirror_project_forbidden.fix}`,
+    );
+  });
+
+  it('github.mirror warns naming the field and option when the field is not found', async () => {
+    const { mirror } = await checkOf(mirrorFetch('live-field-not-found'));
+    expect(mirror).toMatchObject({ status: 'warning', blocking: false });
+    expect(mirror?.fix).toBe(
+      `board acme/7: mirror_field_not_found, field Status option Ready. ${MIRROR_FAILURES.mirror_field_not_found.fix}`,
+    );
+  });
+
+  it('github.mirror warns with the unread fix when the read never answers in time', async () => {
+    const { mirror } = await checkOf(mirrorFetch('hang'), mirrorContext(), 50);
+    expect(mirror).toMatchObject({ status: 'warning', blocking: false });
+    expect(mirror?.fix).toBe(
+      'board acme/7: could not read the Project. Rerun board doctor; if the GitHub Project still cannot be read in time, check the daemon log for the GitHub error.',
+    );
+    expect(mirror?.fix).not.toMatch(/mirror_/);
+  });
+
+  it('github.mirror is absent without a mirrored ready-for-dev column', async () => {
+    const fetcher = mirrorFetch('live-snapshot');
+    const { mirror } = await checkOf(
+      fetcher,
+      doctorContext({ operator: true, slack: false, issues: true }),
+    );
+    expect(mirror).toBeUndefined();
+    expect(vi.mocked(fetcher).mock.calls.some(([, init]) => isMirrorRead(init))).toBe(false);
+  });
+
+  it('github.mirror follows github.review_rule and the report stays within 30 checks', async () => {
+    const { ids } = await checkOf(mirrorFetch('live-snapshot'), mirrorContext({ ruled: true }));
+    expect(ids).toContain('github.review_rule');
+    expect(ids.indexOf('github.mirror')).toBe(ids.indexOf('github.review_rule') + 1);
+    expect(ids.length).toBeLessThanOrEqual(30);
+  });
+
+  it('documents github.mirror under Doctor checks', () => {
+    const guide = readFileSync(new URL('../../../TROUBLESHOOTING.md', import.meta.url), 'utf8');
+    const section = guide.split('## Doctor checks\n')[1]?.split('\n## ')[0] ?? '';
+    expect(section).toMatch(/^### github\.mirror$/m);
   });
 });

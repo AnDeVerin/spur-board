@@ -14,7 +14,7 @@ describe('how the Board works guide', () => {
     expect(rows.slice(2).join('\n'))
       .toBe(`todo|New/reopened; manual|Dispatcher/operator|board move <task> todo --reason <text> --key <key>
 triage|Manual|Operator|board move <task> triage --reason <text> --key <key>
-ready-for-dev|Manual|Operator|board move <task> ready-for-dev --reason <text> --key <key>
+ready-for-dev|Manual or Project mirror|Operator/mirror|board move <task> ready-for-dev --reason <text> --key <key>
 dev|Work start/gate failure/return|Dispatcher/executor/operator|board move <task> dev --correct --reason <text>
 review|Gates: internal review|Dispatcher/operator|board move <task> review --correct --reason <text>
 product-review|Gates: product review|Dispatcher/operator|board move <task> product-review --correct --reason <text>
@@ -51,7 +51,7 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
       clauses: [
         /default is `shadow`/,
         /Facts \(head, checks, reviews, comments, ticket, sessions\) feed gates/,
-        /two actions: move the task and open an executor turn/,
+        /actions: move the task, open an executor turn/,
         /at most one\s*per evaluation/,
         /Turns follow unmet entry gates, actionable post-submit failures,\s*rerouting or Done wrap-up/,
         /Holds and existing turns can yield neither action/,
@@ -73,12 +73,12 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
         /Executor `none` keeps worker-column reuse[\s\S]*submit can satisfy QA after correction/,
         /Retained QA cannot supply Dev's submit\s*requirement/,
         /Taken turns hold until submit, return or a new head/,
-        /Fixed gate rules have no configuration switch/,
-        /Fixed gate rules have no configuration switch\s*except enabled columns, no-CI, checks gate, resolved threads and review rule/,
+        /Gate rules have no switch/,
+        /Gate rules have no switch\s*except enabled columns, no-CI, checks gate, resolved threads and review rule/,
         /`projects\[\]\.checksGate` \(default `dev`/,
         /Red\s*checks return the task to Dev from any column, after the submit of a taken turn/,
         /Only right of `dev` a cancelled check counts as running\s*for about two GitHub poll intervals/,
-        /takes effect after a restart/,
+        /Applies after a restart/,
         /`projects\[\]\.columns\[\]\.requireResolvedThreads` \(default: `ready-to-merge` only\)\s*gates that column and those right of it/,
         /an unresolved review thread, outdated\s*or by anyone, returns the task to Dev, whose turn lists each thread link/,
         /worker fixes or answers, then resolves each; reviewers never do/,

@@ -8,7 +8,13 @@ import {
   type GateReason,
 } from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
-import { dispatch, dispatchHolds, returnCauses, turnReason } from '../../src/domain/dispatch.ts';
+import {
+  dispatch,
+  dispatchHolds,
+  mirrorPlacement,
+  returnCauses,
+  turnReason,
+} from '../../src/domain/dispatch.ts';
 import type { TaskGateFacts } from '../../src/domain/gates.ts';
 
 type Input = Parameters<typeof dispatch>[0];
@@ -942,4 +948,50 @@ describe('turnReason', () => {
   ])('%s', (_name, given, rerouted, expected) => {
     expect(turnReason(given, rerouted)).toEqual(expected);
   });
+});
+
+describe('mirrorPlacement', () => {
+  const READINESS = ['ready', 'not_ready', 'unknown'] as const;
+  const SHADOWS = [null, 'todo', 'triage', 'ready-for-dev', 'dev'] as const;
+  const cells = [false, true].flatMap((shadowMode) =>
+    COLUMN_IDS.flatMap((column) =>
+      SHADOWS.flatMap((shadowColumn) =>
+        [false, true].flatMap((workStarted) =>
+          READINESS.map((readiness) => ({
+            shadowMode,
+            column,
+            shadowColumn,
+            workStarted,
+            readiness,
+          })),
+        ),
+      ),
+    ),
+  );
+
+  it.each(cells)(
+    'shadowMode $shadowMode, $column, shadow $shadowColumn, workStarted $workStarted, $readiness',
+    (cell) => {
+      const { shadowMode, column, shadowColumn, workStarted, readiness } = cell;
+      const idle = !workStarted && readiness !== 'unknown';
+      const target = readiness === 'ready' ? 'ready-for-dev' : 'todo';
+      const inGroup = (id: ColumnId | null) => id === 'todo' || id === 'ready-for-dev';
+      // Real column: an idle todo or ready-for-dev task goes to the read's target.
+      const realMoves = idle && inGroup(column) && column !== target;
+      // Shadow column: todo or ready-for-dev follows the target; triage, dev and null stay,
+      // except that a null shadow takes the target when the real column moves in shadow mode.
+      const nextShadow =
+        shadowColumn === null
+          ? realMoves && shadowMode
+            ? target
+            : null
+          : inGroup(shadowColumn)
+            ? target
+            : shadowColumn;
+      const shadowMoves = idle && inGroup(column) && nextShadow !== shadowColumn;
+      const expected =
+        realMoves || shadowMoves ? { column: target, shadowColumn: nextShadow } : null;
+      expect(mirrorPlacement(cell)).toEqual(expected);
+    },
+  );
 });

@@ -2,6 +2,7 @@ import { configSchema, type Batch, type TicketFacts } from '@spur-board/contract
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createGithubIssuesAdapter } from '../../adapters/src/github/issues.ts';
 import type { Fakes } from '../src/fakes/fetch.ts';
+import { createGithubIssuesFake } from '../src/fakes/github-issues.ts';
 import { standConfig } from '../src/stand.ts';
 import {
   BOARD,
@@ -70,6 +71,11 @@ const keys = (batch: Batch): string[] => facts(batch).map(({ key }) => key);
 
 function ok(result: { status: number; body: unknown }): void {
   expect(result.status, JSON.stringify(result.body)).toBe(200);
+}
+
+/** A module verb that must answer 200. */
+function done(result: { status: number; body: unknown } | undefined): void {
+  expect(result?.status, JSON.stringify(result?.body)).toBe(200);
 }
 
 function get(path: string, headers: Record<string, string> = HEADERS, method = 'GET') {
@@ -152,6 +158,44 @@ describe('verbs', () => {
     expect(issue(fakes, 1, 'open', {}, 'stand-org/other').status).toBe(400);
     expect(issue(fakes, 1, 'open', { extra: true }).status).toBe(400);
     expect(issue(fakes, 1, 'label', { labels: [''] }).status).toBe(400);
+  });
+
+  it('project-status sets, clears, archives and removes the Project item of open issues', () => {
+    const module = createGithubIssuesFake({ now: () => NOW, repos: [BOARD] });
+    const set = (number: number, status: unknown) =>
+      module.control('issue-project-status', { repo: BOARD, number, status });
+    const items = () => module.issueProjects('stand-org', 'board');
+    expect(set(1, 'Ready')?.status).toBe(404);
+    for (const number of [1, 2, 3]) done(module.control('issue-open', { repo: BOARD, number }));
+    expect(items()).toEqual([1, 2, 3].map((number) => ({ number, project: null })));
+    expect(set(1, 'Ready')).toEqual({
+      status: 200,
+      body: { issue: `${BOARD}#1`, project: { option: 'Ready', archived: false } },
+    });
+    done(set(2, 'Backlog'));
+    done(set(3, 'none'));
+    expect(items()).toEqual([
+      { number: 1, project: { option: 'Ready', archived: false } },
+      { number: 2, project: { option: 'Backlog', archived: false } },
+      { number: 3, project: { option: null, archived: false } },
+    ]);
+    done(set(1, 'archived'));
+    done(set(2, 'removed'));
+    done(module.control('issue-close', { repo: BOARD, number: 3 }));
+    expect(items()).toEqual([
+      { number: 1, project: { option: 'Ready', archived: true } },
+      { number: 2, project: null },
+    ]);
+    for (const status of ['Blocked', 'ready', '', undefined])
+      expect(set(1, status)?.status).toBe(400);
+    expect(() => module.issueProjects('stand-org', 'other')).toThrow('Unknown repository');
+  });
+
+  it('project-status leaves the issue updatedAt as it was', async () => {
+    ok(issue(fakes, 1, 'open'));
+    const before = facts(await pollIssues());
+    ok(issue(fakes, 1, 'project-status', { status: 'Done' }));
+    expect(facts(await pollIssues())).toEqual(before);
   });
 
   it('moves updatedAt strictly forward under a fixed clock', () => {
@@ -270,5 +314,20 @@ describe('state and restore', () => {
     fakes.restore(state);
     expect(facts(await pollIssues())).toEqual(before);
     expect(issue(fakes, 1, 'open').status).toBe(409);
+  });
+
+  it('keeps the Project items, unaffected by later changes', () => {
+    const module = createGithubIssuesFake({ now: () => NOW, repos: [BOARD] });
+    done(module.control('issue-open', { repo: BOARD, number: 1 }));
+    done(module.control('issue-project-status', { repo: BOARD, number: 1, status: 'Ready' }));
+    const state = module.state();
+    done(module.control('issue-project-status', { repo: BOARD, number: 1, status: 'removed' }));
+
+    const restored = createGithubIssuesFake({ now: () => NOW, repos: [BOARD] });
+    restored.restore(state);
+    expect(restored.issueProjects('stand-org', 'board')).toEqual([
+      { number: 1, project: { option: 'Ready', archived: false } },
+    ]);
+    expect(module.issueProjects('stand-org', 'board')).toEqual([{ number: 1, project: null }]);
   });
 });

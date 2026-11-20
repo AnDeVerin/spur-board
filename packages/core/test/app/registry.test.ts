@@ -2029,7 +2029,9 @@ it.each([
                 : kind,
             name: binding === 'none' || binding === 'operator' ? null : name,
           },
-          ...(column.id === 'todo' || column.id === 'ready-for-dev' ? { group: 'todo' } : {}),
+          ...(column.id === 'todo' || column.id === 'ready-for-dev'
+            ? { group: 'todo', source: { kind: 'manual' } }
+            : {}),
           // A named orchestrator column shows its effective turn timings, here the defaults.
           ...(kind === 'orchestrator' || kind === 'curator'
             ? { quietTurnAfterMs: 1_800_000, noRecipientAfterMs: 600_000 }
@@ -2116,6 +2118,7 @@ it('allowlists effective configuration and applies status project visibility', a
             id: 'todo',
             executor: { kind: 'orchestrator', name: 'reviewer' },
             group: 'todo',
+            source: { kind: 'manual' },
             quietTurnAfterMs: 1_800_000,
             noRecipientAfterMs: 600_000,
           },
@@ -2771,4 +2774,184 @@ it('summarizes each observed PR without gates and exposes effective navigation b
     .where('source', '=', source)
     .execute();
   expect((await read()).tasks[0]?.prSummary?.every((pr) => pr.unconfirmed)).toBe(true);
+});
+
+it('reports a GitHub Project mirror in config.get, status.get and columns.describe by one health rule', async () => {
+  const mirrorConfig = configSchema.parse({
+    projects: [
+      {
+        id: 'beta',
+        tracker: { type: 'github-issues', repo: 'o/b', label: 'board' },
+        repos: ['o/b'],
+        operatorGithubLogin: 'operator',
+        spurProjects: [{ name: 'beta-worker', role: 'worker' }],
+        columns: [
+          { id: 'todo' },
+          {
+            id: 'ready-for-dev',
+            source: { type: 'tracker', project: 'acme/7', field: 'Status', value: 'Ready' },
+          },
+          { id: 'dev' },
+          { id: 'done' },
+        ],
+      },
+    ],
+    operator: { slack: 'operator' },
+    digest: { tz: 'UTC' },
+    thresholds: { staleMultiplier: 10 },
+  });
+  let now = Date.parse('2026-11-04T08:00:00.000Z');
+  const movingClock = { now: () => now };
+  const iso = () => new Date(now).toISOString();
+  const store = openTempStore('board-registry-mirror-').store;
+  stores.push(store);
+  const core = createObservationCore({ store, config: mirrorConfig, clock: movingClock });
+  const budgetWaits = new Set<string>();
+  const registry = createOperationRegistry({
+    config: mirrorConfig,
+    clock: movingClock,
+    completeSince: core.completeSince,
+    healthySince: core.healthySince,
+    budgetWaits: () => budgetWaits,
+  });
+  const query = createQuery({ store, config: mirrorConfig, clock: movingClock });
+  const mirror = 'github-project:beta:acme/7';
+  const status = () => query(registry['status.get'], {}, 'operator');
+  const service = async () =>
+    (await status()).services.find((entry) => entry.service === 'github-project');
+  const source = async () =>
+    (await query(registry['config.get'], {}, 'operator')).projects[0]?.columns.map(
+      (column) => column.source,
+    );
+  const observe = (id: string, mirrorRead?: { title: string }) =>
+    core.observe(id, {
+      batch: {
+        source: id,
+        observedAt: iso(),
+        complete: true,
+        items: [],
+        entities: [],
+        ...(mirrorRead === undefined ? {} : { mirror: { ...mirrorRead, readiness: [] } }),
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: iso(), gone: [] },
+      outcomes: [],
+    });
+  const MANUAL = { kind: 'manual' };
+  const shape = { kind: 'mirror', tracker: 'github-project', project: 'acme/7' };
+  const target = { field: 'Status', value: 'Ready' };
+
+  // Before the first read: named by the configured Project, degraded, never read.
+  expect(await source()).toEqual([
+    MANUAL,
+    { ...shape, name: 'acme/7', ...target, health: 'degraded', readAt: null },
+    undefined,
+    undefined,
+  ]);
+  expect(await service()).toEqual({
+    service: 'github-project',
+    state: 'degraded',
+    since: null,
+    lastGoodAt: null,
+    reason: `${mirror} warming up`,
+  });
+  // The board never waits on the mirror: warmingUp follows the other sources only.
+  for (const id of ['spur', 'github-issues:beta:o/b', 'github:beta:o/b']) await observe(id);
+  const before = await status();
+  expect(before.warmingUp).toBe(false);
+  expect(before.sources.map((entry) => entry.source)).toEqual([
+    'spur',
+    'github-issues:beta:o/b',
+    'github:beta:o/b',
+    mirror,
+  ]);
+  expect(before.sources.find((entry) => entry.source === mirror)).toMatchObject({
+    project: 'beta',
+    failure: null,
+  });
+  expect(before.sources.filter((entry) => 'failure' in entry).map((entry) => entry.source)).toEqual(
+    [mirror],
+  );
+
+  await observe(mirror, { title: 'Roadmap' });
+  const readAt = iso();
+  expect(await source()).toEqual([
+    MANUAL,
+    { ...shape, name: 'Roadmap', ...target, health: 'healthy', readAt },
+    undefined,
+    undefined,
+  ]);
+  expect(await service()).toEqual({
+    service: 'github-project',
+    state: 'healthy',
+    since: readAt,
+    lastGoodAt: readAt,
+    reason: null,
+  });
+
+  now += 30_000;
+  budgetWaits.add(mirror);
+  expect(await service()).toMatchObject({
+    state: 'degraded',
+    reason: `${mirror} waits for its rate budget`,
+  });
+  expect((await source())?.[1]).toMatchObject({ health: 'degraded' });
+
+  // A coded failure outranks the budget wait in both reads.
+  await core.reportSourceState(mirror, {
+    gone: [],
+    failure: { code: 'mirror_rate_limited', message: 'GitHub rate limit reached' },
+  });
+  expect(await service()).toMatchObject({
+    state: 'failing',
+    reason: `${mirror} failing (mirror_rate_limited): GitHub rate limit reached`,
+  });
+  expect((await source())?.[1]).toEqual({
+    ...shape,
+    name: 'Roadmap',
+    ...target,
+    health: 'failing',
+    readAt,
+    error: { code: 'mirror_rate_limited', message: 'GitHub rate limit reached' },
+  });
+  expect((await status()).sources.find((entry) => entry.source === mirror)?.failure).toEqual({
+    code: 'mirror_rate_limited',
+    message: 'GitHub rate limit reached',
+  });
+
+  // The next complete read clears the failure and keeps its title.
+  budgetWaits.delete(mirror);
+  await observe(mirror, { title: 'Roadmap' });
+  expect((await source())?.[1]).toEqual({
+    ...shape,
+    name: 'Roadmap',
+    ...target,
+    health: 'healthy',
+    readAt: iso(),
+  });
+
+  const described = await query(registry['columns.describe'], {}, 'operator');
+  const movedBy = described.projects[0]?.columns.map((column) => [column.id, column.movedBy.kind]);
+  expect(movedBy).toEqual([
+    ['todo', 'manual'],
+    ['ready-for-dev', 'mirror'],
+    ['dev', 'dispatcher'],
+    ['done', 'dispatcher'],
+  ]);
+  expect(described.projects[0]?.columns[1]?.movedBy.text).toContain('GitHub Project acme/7');
+});
+
+it('gives no source a failure key without a mirror', async () => {
+  const store = openTempStore('board-registry-no-mirror-').store;
+  stores.push(store);
+  const core = createObservationCore({ store, config, clock });
+  const registry = createOperationRegistry({ config, clock, completeSince: core.completeSince });
+  const result = await createQuery({ store, config, clock })(
+    registry['status.get'],
+    {},
+    'operator',
+  );
+  expect(result.sources.length).toBeGreaterThan(0);
+  expect(result.sources.filter((entry) => 'failure' in entry)).toEqual([]);
+  expect(result.services.map((entry) => entry.service)).not.toContain('github-project');
 });

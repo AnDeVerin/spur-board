@@ -1,5 +1,6 @@
 import {
   configBindings,
+  mirrorSourceId,
   prFactsSchema,
   prSourceId,
   sessionFactsSchema,
@@ -16,7 +17,7 @@ import type { z } from 'zod';
 import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
 import { approvalViews } from './approval-watch.ts';
-import { parseDefaultBranch, projectForSource } from './board-utils.ts';
+import { projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
 import { latestSubmissions } from './submissions.ts';
@@ -32,6 +33,7 @@ import {
   sessionView,
   summarizePr,
   sourceInterval,
+  sourceView,
 } from './status-views.ts';
 
 /** End reasons in the words of the "worker ended" item (`ENDED_WORKER_LABELS`, fromYou.ts). */
@@ -361,18 +363,23 @@ export async function getStatus(
       const { id, spurProject, branch, lifecycle, health } = facts;
       return { id, spurProject, branch, lifecycle, health };
     });
-  const sourceIds = (scope: readonly Config['projects'][number][]) =>
+  const sourceIds = (scope: readonly Config['projects'][number][], mirrors: boolean) =>
     new Set([
       'spur',
-      ...scope.flatMap((project) => [
-        trackerSourceId(project),
-        ...project.repos.map((repo) => prSourceId(project.id, repo)),
-      ]),
+      ...scope.flatMap((project) => {
+        const mirror = mirrors ? mirrorSourceId(project) : undefined;
+        return [
+          trackerSourceId(project),
+          ...project.repos.map((repo) => prSourceId(project.id, repo)),
+          ...(mirror === undefined ? [] : [mirror]),
+        ];
+      }),
     ]);
   // Items and warmingUp follow the requested projects; sources and services stay board-wide
   // (every project the caller may see), so the web bar shows every service whatever is chosen.
-  const required = sourceIds(projects);
-  const boardSources = sourceIds(visible);
+  // A GitHub Project mirror is listed and rolled into services, but the board never waits on it.
+  const required = sourceIds(projects, false);
+  const boardSources = sourceIds(visible, true);
   const costs = await store.db
     .selectFrom('source_cost')
     .select(['source', 'points'])
@@ -381,48 +388,18 @@ export async function getStatus(
     .execute();
   const points = new Map<string, number>();
   for (const cost of costs) points.set(cost.source, (points.get(cost.source) ?? 0) + cost.points);
-  const sources = [...boardSources].map((source) => {
-    const row = sourceById.get(source);
-    const last = row?.last_complete_at ?? null;
-    const blindReason: 'auth' | 'config' | 'stale' | null =
-      row?.blind_reason === 'auth' ||
-      row?.blind_reason === 'config' ||
-      row?.blind_reason === 'stale'
-        ? row.blind_reason
-        : null;
-    return {
+  const sources = [...boardSources].map((source) =>
+    sourceView({
       source,
-      project: projectForSource(config, source)?.id ?? null,
-      ...(source.startsWith('github:') && {
-        pointsLastHour: points.get(source) ?? 0,
-        defaultBranch: parseDefaultBranch(row?.default_branch),
-      }),
-      observedAt: row?.observed_at ?? null,
-      lastCompleteAt: last,
-      blindReason,
-      message: row?.blind_message ?? null,
-      budget:
-        row?.budget_remaining != null && row.budget_reset_at != null
-          ? {
-              remaining: row.budget_remaining,
-              limit: row.budget_limit,
-              resetAt: row.budget_reset_at,
-            }
-          : null,
-      // The runner's own pause, not the stored budget: an on-demand poll or an earlier daemon
-      // run may have stored a budget under the reserve that no regular poll of this run waits on.
-      waitsForBudget: deps.budgetWaits?.has(source) ?? false,
-      stale:
-        last === null ||
-        clock.now() - Date.parse(last) >
-          config.thresholds.staleMultiplier * sourceInterval(config, source),
-      healthySince: deps.healthySince?.get(source) ?? null,
-      // `lastCompleteAt` is stored, but the runner does not reload it, so the first report or
-      // incomplete observe after a restart can clear it. `completeSince` holds only polls since
-      // this process started, so a source warms up until its first complete poll after a restart.
-      warmingUp: !completeSince.has(source),
-    };
-  });
+      row: sourceById.get(source),
+      config,
+      now: clock.now(),
+      points,
+      completeSince,
+      healthySince: deps.healthySince,
+      budgetWaits: deps.budgetWaits,
+    }),
+  );
   const itemRows = await store.db
     .selectFrom('operator_item')
     .selectAll()

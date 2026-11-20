@@ -209,6 +209,19 @@ describe('catalog', () => {
         ".projects[].columns[].executor.kind",
         ".projects[].columns[].executor.name",
         ".projects[].columns[].group",
+        ".projects[].columns[].source",
+        ".projects[].columns[].source|0.kind",
+        ".projects[].columns[].source|1.kind",
+        ".projects[].columns[].source|1.tracker",
+        ".projects[].columns[].source|1.name",
+        ".projects[].columns[].source|1.project",
+        ".projects[].columns[].source|1.field",
+        ".projects[].columns[].source|1.value",
+        ".projects[].columns[].source|1.health",
+        ".projects[].columns[].source|1.readAt",
+        ".projects[].columns[].source|1.error",
+        ".projects[].columns[].source|1.error.code",
+        ".projects[].columns[].source|1.error.message",
         ".projects[].columns[].quietTurnAfterMs",
         ".projects[].columns[].noRecipientAfterMs",
         ".projects[].dispatcher",
@@ -895,6 +908,7 @@ describe('comment shape', () => {
           'lastDispatchAt',
           'lastGoodAt',
           'columnEnteredAt',
+          'readAt',
         ].some((name) => path.endsWith(name)) && !path.includes('.prSummary');
       expect(Array.isArray(node['anyOf']), path).toBe(nullable);
       const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];
@@ -925,10 +939,11 @@ describe('snapshot', () => {
     // and board-wide project, sources and services texts to status.get; the external_round kind
     // extends the task.history event kinds. #733 adds the review-rule gate reasons and condition
     // to task.get --why. The web Turn section then set web on inbox.ack, task.submit and
-    // task.return; their schemas, grants and errors are unchanged. #753 adds the optional
+    // task.return; their schemas, grants and errors are unchanged. #738 adds the mirror move kind
+    // and reason, sources[].failure and the github-project service texts. #753 adds the optional
     // approvals list to status.get prSummary and task.get PR links.
     expect(await catalogVersion(baseline)).toBe(
-      'aa79b36f1c110d47c4655547ddb4a5b77770791870872c3ea049d0d2b25d2340',
+      '34429ea415dd9966c0fd50bfec185b114cf3de701337770b4755c725e4da1e3b',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
