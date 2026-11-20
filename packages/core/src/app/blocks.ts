@@ -689,7 +689,7 @@ export async function closeBlockIfOpen(
  * done at `sha`: the turn's submit, once confirmed, answered it. A pending submit waits, so a
  * voided one leaves the block to the next submit.
  */
-export async function closeReturnBlock(
+export async function answerReturn(
   trx: Trx,
   task: Task,
   turn: Parameters<typeof openReturnBlock>[1],

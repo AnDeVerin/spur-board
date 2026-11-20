@@ -13,13 +13,7 @@ import { sql, type Selectable } from 'kysely';
 import type { TaskTable, TurnTable } from '../store/schema.ts';
 import { isOperator, type ResolvedTarget } from './authorize.ts';
 import { queueBlockOpen } from './block-thread.ts';
-import {
-  authorizationTarget,
-  blockView,
-  closeReturnBlock,
-  openBlock,
-  taskTarget,
-} from './blocks.ts';
+import { authorizationTarget, blockView, answerReturn, openBlock, taskTarget } from './blocks.ts';
 import { emit, moveViews, taskPr, taskView, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import { correctColumn, dispatchTasks, manuallyMoveColumn, moveLeft } from './dispatch.ts';
@@ -439,7 +433,7 @@ export function createTurnMutations(deps: {
       );
       // A confirmed submit answers the return that opened this visit; a pending one closes its
       // block when the dispatcher confirms it (`confirmSubmit`).
-      if (confirmed !== 'pending') await closeReturnBlock(trx, task, turn, ctx, input.sha);
+      if (confirmed !== 'pending') await answerReturn(trx, task, turn, ctx, input.sha);
       await closeTurns(trx, {
         taskId: task.id,
         reason: 'submitted',

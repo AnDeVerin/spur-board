@@ -47,7 +47,7 @@ import {
   shadowCourseCheck,
   uncounted,
 } from './course-check.ts';
-import { closeReturnBlock } from './blocks.ts';
+import { answerReturn } from './blocks.ts';
 import { withUnconfirmedCancels } from './cancelled-checks.ts';
 import { linkedSession } from './doorbells.ts';
 import { CommandError } from './commands.ts';
@@ -1251,13 +1251,7 @@ async function confirmSubmit(
     .orderBy('id', 'desc')
     .executeTakeFirst();
   if (turn !== undefined)
-    await closeReturnBlock(
-      trx,
-      task,
-      turn,
-      { actor: row.author, at: at.toISOString() },
-      pending.sha,
-    );
+    await answerReturn(trx, task, turn, { actor: row.author, at: at.toISOString() }, pending.sha);
 }
 
 /**
