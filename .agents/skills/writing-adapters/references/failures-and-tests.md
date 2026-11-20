@@ -19,6 +19,13 @@
   through unchanged. Spur keeps its own 5 s timer.
 - `schedule` (`packages/adapters/src/runner/runner.ts`) caps a poll wait at 2147483647 ms, the
   setTimeout limit; a longer one fires after 1 ms.
+- A source whose failure reaches the operator by code throws `AdapterError` with `code` from
+  `MIRROR_FAILURE_CODES` (`packages/contracts/src/adapters.ts`); `kind` still drives backoff.
+- Give such a source's runner entry `defaultFailureCode` (`startAdapters` in
+  `packages/adapters/src/index.ts`): an uncoded error or invalid batch then reports that code.
+  An entry without it reports a failure only for a coded error.
+- The runner puts the code and message in `SourceState.failure` and clears it after a delivered
+  batch; core stores it in `source_state`. Never infer the code from the message.
 - Runner coverage: `describe('batch validation')`, `describe('failures')`, `describe('retry')`,
   `describe('http failure classification')`, `describe('budget')`,
   `describe('auth and config errors')` and `describe('failure log')` in
@@ -30,3 +37,10 @@
   `packages/adapters/test/github/prBatch.test.ts` (`describe('GitHub PR batch')`).
 - Runner fakes: `createFakeCore` and `createFakeAdapter` from `@spur-board/adapters/testing`.
 - Per adapter, cover a happy batch, malformed wire, each failure kind, abort and budget.
+- Response fixtures in `test/github/fixtures/<topic>/` come in three kinds, and the test file's
+  header names each file's origin (`packages/adapters/test/github/projectMirror.test.ts`):
+  - live-recorded: `live-*.json`, one read-only call, scrubbed of logins and tokens, kept as
+    recorded;
+  - derived: a live recording with one named edit, for states the live data lacks;
+  - hand-authored: only for shapes no read-only call can produce (missing scope, rate limit),
+    following the vendor's documented error shape.
