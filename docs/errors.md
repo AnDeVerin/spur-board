@@ -1237,3 +1237,37 @@ Example:
   }
 }
 ```
+
+## Mirror failure codes
+
+A ready-for-dev column that mirrors a GitHub Project reports why its last read failed with one of these codes, in `status.get` sources and services, `config.get` `columns[].source.error` and `board doctor` `github.mirror`. They are not error responses: a failed read moves no task, and the next complete read applies again.
+
+### mirror_project_forbidden
+
+The GitHub Project was not found or is not readable with GITHUB_TOKEN: a wrong owner or number, a missing read:project scope, or no access to the Project.
+
+Fix: Check projects[].columns[].source.project against the Project URL and give GITHUB_TOKEN the read:project scope (a fine-grained token: Projects read access for the owner). Restart the daemon after changing config.yaml or secrets.env.
+
+### mirror_field_not_found
+
+The Project has no single-select field with the configured name, the field has no option with the configured value, or an open issue's item in the Project holds an option the field does not list.
+
+Fix: Set source.field to the name of a single-select field of the Project and source.value to one of its option names, letter case included, and restart the daemon; or set the field again on the named issue in the Project.
+
+### mirror_snapshot_incomplete
+
+The read did not fit one page: the tracker repository has more than 100 open issues, or an issue sits in more than 20 Projects.
+
+Fix: Close or move open issues until the repository has at most 100, or remove an issue from Projects it does not need; the mirror applies the next complete read.
+
+### mirror_rate_limited
+
+GitHub rate-limited the read; the board retries after the reset.
+
+Fix: Wait for the reset. If it repeats, lower the GraphQL load of other clients of the token or raise adapters.githubIssues.intervalMs.
+
+### mirror_read_failed
+
+The read failed for another reason: a network or server error, a malformed response, an open issue's item whose field value is not a single-select value, or a GraphQL error on the repository.
+
+Fix: Usually transient: the board retries on its next poll. If it persists, check the daemon log for the GitHub error.

@@ -11,6 +11,8 @@ import {
   ENTITY_STATUSES,
   type EntityStatus,
   type FactKind,
+  MIRROR_FAILURE_CODES,
+  MIRROR_FAILURES,
   POLL_PR_ERROR_KINDS,
   type PollPrError,
   type PollPrErrorKind,
@@ -312,6 +314,33 @@ describe('batch', () => {
     expect(rejects({ ...green, branch: '' })).toBe(true);
   });
 
+  it('keeps an optional mirror on a complete batch only, each task key once', () => {
+    const mirror = {
+      title: 'Roadmap',
+      readiness: [
+        { key: 'acme/web#1', state: 'ready' },
+        { key: 'acme/web#2', state: 'not_ready' },
+      ],
+    };
+    const rejects = (input: Record<string, unknown>): boolean =>
+      !batchSchema.safeParse(input).success;
+    expect(batchSchema.parse(batch({ mirror })).mirror).toEqual(mirror);
+    expect(batchSchema.parse(batch()).mirror).toBeUndefined();
+    expect(rejects(batch({ mirror, complete: false }))).toBe(true);
+    expect(
+      rejects(
+        batch({ mirror: { ...mirror, readiness: [mirror.readiness[0], mirror.readiness[0]] } }),
+      ),
+    ).toBe(true);
+    expect(
+      rejects(
+        batch({ mirror: { ...mirror, readiness: [{ key: 'acme/web#3', state: 'unknown' }] } }),
+      ),
+    ).toBe(true);
+    expect(rejects(batch({ mirror: { ...mirror, title: '' } }))).toBe(true);
+    expect(rejects(batch({ mirror: { ...mirror, projectId: 'PVT_1' } }))).toBe(true);
+  });
+
   it('describes every property', () => {
     const walked = walk(z.toJSONSchema(batchSchema, { io: 'output' }));
     expect(walked.undescribed).toEqual([]);
@@ -336,7 +365,18 @@ describe('AdapterError', () => {
   it('leaves retryAt and cause unset when not given', () => {
     const error = new AdapterError('auth', 'Token rejected');
     expect(error.retryAt).toBeUndefined();
+    expect(error.code).toBeUndefined();
     expect(error).not.toHaveProperty('cause');
+  });
+
+  it('carries a mirror failure code, each with a meaning and a fix', () => {
+    const error = new AdapterError('config', 'No field Status', { code: 'mirror_field_not_found' });
+    expect(error).toMatchObject({ kind: 'config', code: 'mirror_field_not_found' });
+    expect(Object.keys(MIRROR_FAILURES)).toEqual([...MIRROR_FAILURE_CODES]);
+    for (const { meaning, fix } of Object.values(MIRROR_FAILURES)) {
+      expect(meaning).not.toBe('');
+      expect(fix.length).toBeLessThanOrEqual(300);
+    }
   });
 });
 

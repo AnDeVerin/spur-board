@@ -56,6 +56,7 @@ import {
 } from './new-head.ts';
 import { questionToOperator } from './question-to-operator.ts';
 import { readmeBoard } from './readme-board.ts';
+import { readyMirror } from './ready-mirror.ts';
 import { dispatchApprovalWithNotes, dispatchUnresolvedThread } from './review-threads.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import {
@@ -220,6 +221,7 @@ export const SCENARIOS: readonly Scenario[] = [
   spurTurnStall,
   cardLong,
   readmeBoard,
+  readyMirror,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>

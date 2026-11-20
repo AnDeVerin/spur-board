@@ -4,18 +4,23 @@ import {
   graphEnvelopeWire,
   graphqlFailure,
   readBranchRule,
+  readProjectMirror,
   sampleLinkRules,
   teamScopeDenied,
 } from '@spur-board/adapters';
 import {
+  AdapterError,
   DOCTOR_FIX_MAX,
+  MIRROR_FAILURES,
   SLACK_BOT_SCOPES,
   apiBaseUrl,
   approvalRuleOf,
   configBindings,
+  readyMirrorOf,
   requiredSecretKeys,
-  type AdapterError,
   type Config,
+  type MirrorFailureCode,
+  type ReadyMirror,
   type DoctorCheck as Check,
   type DoctorReport,
 } from '@spur-board/contracts';
@@ -501,6 +506,123 @@ function reviewRuleCheck(outcomes: readonly RuleOutcome[] | null): Check {
   );
 }
 
+type MirrorRead = Awaited<ReturnType<typeof readProjectMirror>>;
+// One mirrored project's read: its result, the failure code it gave, or null when it timed out or
+// failed without a code.
+type MirrorOutcome = {
+  project: Project;
+  repo: string;
+  mirror: ReadyMirror;
+  read: { found: MirrorRead } | { code: MirrorFailureCode; message: string } | null;
+};
+const MIRROR_TOKEN_FIX =
+  'Add GITHUB_TOKEN with the read:project scope to secrets.env, then rerun board doctor to read the GitHub Project each ready-for-dev column mirrors.';
+const MIRROR_UNREAD_FIX =
+  'Rerun board doctor; if the GitHub Project still cannot be read in time, check the daemon log for the GitHub error.';
+
+/** The projects whose ready-for-dev column mirrors a GitHub Project, with their tracker repo. */
+function mirroredProjects(config: Config): Omit<MirrorOutcome, 'read'>[] {
+  return config.projects.flatMap((project) => {
+    const mirror = readyMirrorOf(project);
+    return mirror === undefined || project.tracker.type !== 'github-issues'
+      ? []
+      : [{ project, repo: project.tracker.repo, mirror }];
+  });
+}
+
+function readMirrors(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  deadlineMs: number,
+  token: string,
+): Promise<MirrorOutcome[]> {
+  return Promise.all(
+    mirroredProjects(ctx.config).map(async (entry) => ({
+      ...entry,
+      // A coded failure is kept as the value: deadlineCall turns a rejection into null.
+      read: await deadlineCall(
+        ctx,
+        deadlineMs,
+        'doctor.mirror',
+        'GitHub Project mirror read failed',
+        async (signal) => {
+          try {
+            return {
+              found: await readProjectMirror(
+                { repo: entry.repo, mirror: entry.mirror },
+                { token, now: () => ctx.clock.now(), fetch: fetcher, signal },
+              ),
+            };
+          } catch (error) {
+            if (!(error instanceof AdapterError) || error.code === undefined) throw error;
+            return { code: error.code, message: error.message };
+          }
+        },
+      ),
+    })),
+  );
+}
+
+// One mirror's finding; `cause` is the failure code or `unread`, null when it read.
+type MirrorSegment = LinkSegment & { cause: MirrorFailureCode | 'unread' | null };
+
+function mirrorSegment({ project, mirror, read }: MirrorOutcome): MirrorSegment {
+  const where = `${project.id} ${mirror.project}`;
+  if (read === null)
+    return {
+      problem: true,
+      unmatched: false,
+      cause: 'unread',
+      text: () => `${where}: could not read the Project`,
+    };
+  if ('code' in read) {
+    const detail =
+      read.code === 'mirror_field_not_found'
+        ? `, field ${mirror.field} option ${mirror.value}`
+        : '';
+    return {
+      problem: true,
+      unmatched: false,
+      cause: read.code,
+      text: () => `${where}: ${read.code}${detail}`,
+    };
+  }
+  // The title is the Project owner's own text; strip what could break the terminal.
+  const title = branchText(read.found.title);
+  return {
+    problem: false,
+    unmatched: false,
+    cause: null,
+    text: () => `${where} "${title}": field ${mirror.field}, option ${mirror.value}`,
+  };
+}
+
+// Absent without a mirrored ready-for-dev column; never blocking. The fix of the first problem's
+// cause follows the list; the other codes are named, each documented in docs/errors.md.
+function mirrorCheck(outcomes: readonly MirrorOutcome[] | null): Check {
+  const id = 'github.mirror';
+  if (outcomes === null) return warning(id, MIRROR_TOKEN_FIX);
+  const segments = outcomes.map(mirrorSegment);
+  const problems = segments.filter((segment) => segment.problem);
+  const first = problems[0]?.cause;
+  if (first === undefined || first === null)
+    return {
+      id,
+      status: 'pass',
+      blocking: false,
+      fix: fitFix(segments, '', `Read the GitHub Project of ${String(segments.length)} projects.`),
+    };
+  const tail = ` ${first === 'unread' ? MIRROR_UNREAD_FIX : MIRROR_FAILURES[first].fix}`;
+  return warning(
+    id,
+    fitFix(
+      [...problems, ...segments.filter((segment) => !segment.problem)],
+      tail,
+      `${String(problems.length)} mirrored GitHub Projects could not be read.${tail}`,
+    ),
+  );
+}
+
 const CURATOR_TAIL = 'Start a Spur session of each curator with no live session.';
 
 // Projects whose curator has no live session come first; never blocking.
@@ -795,6 +917,9 @@ export async function runDaemonDoctor(
   const ruleToken = secrets['GITHUB_TOKEN'];
   const reviewRules =
     ruled && ruleToken !== undefined ? readReviewRules(ctx, fetcher, deadlineMs, ruleToken) : null;
+  const mirrored = mirroredProjects(config).length > 0;
+  const mirrors =
+    mirrored && ruleToken !== undefined ? readMirrors(ctx, fetcher, deadlineMs, ruleToken) : null;
   const required = requiredSecretKeys(config);
   const missing = required.filter((name) => !secrets[name]);
   checks.push(
@@ -838,6 +963,7 @@ export async function runDaemonDoctor(
   checks.push(githubCheck(githubFindings));
   checks.push(linkRulesCheck(await linkSamples));
   if (ruled) checks.push(reviewRuleCheck(reviewRules === null ? null : await reviewRules));
+  if (mirrored) checks.push(mirrorCheck(mirrors === null ? null : await mirrors));
 
   // Same request the doorbell port makes, to a session that never exists, so no agent gets it.
   const probe = spurSendRequest(

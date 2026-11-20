@@ -1,0 +1,331 @@
+{
+  "data": {
+    "rateLimit": { "cost": 1, "limit": 5000, "remaining": 4872, "resetAt": "2026-11-20T10:56:53Z" },
+    "repositoryOwner": {
+      "projectV2": {
+        "id": "PVT_kwHOAdCPFc4Bp2FU",
+        "title": "spur-board",
+        "field": { "__typename": "ProjectV2Field" }
+      }
+    },
+    "repository": {
+      "issues": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 83,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 678,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 723,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 729,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 737,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 738,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 747,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 748,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 749,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 751,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 753,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 754,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 755,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 756,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 759,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 760,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 770,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 771,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 775,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 776,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 778,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 780,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 785,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          },
+          {
+            "number": 786,
+            "projectItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                {
+                  "isArchived": false,
+                  "project": { "id": "PVT_kwHOAdCPFc4Bp2FU" },
+                  "fieldValueByName": { "__typename": "ProjectV2ItemFieldTextValue" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

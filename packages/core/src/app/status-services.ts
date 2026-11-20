@@ -15,6 +15,7 @@ const DAEMON_STALL_MS = 2 * BOARD_TICK_MS;
 const SOURCE_SERVICES: Readonly<Record<string, string>> = {
   github: 'github',
   'github-issues': 'github',
+  'github-project': 'github-project',
   spur: 'spur',
   jira: 'jira',
 };
@@ -32,8 +33,11 @@ function pickTime(values: readonly (string | null)[], pick: 'latest' | 'oldest')
   return chosen;
 }
 
-/** One source's health: failing when blind, degraded while not fully usable, else healthy. */
-function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 'reason'> {
+/**
+ * One source's health: failing when blind or when its last poll failed with a code, degraded
+ * while not fully usable, else healthy. `config.get` reads a mirror's health through it too.
+ */
+export function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 'reason'> {
   if (source.blindReason !== null) {
     const message = source.message === null ? '' : `: ${source.message}`;
     return {
@@ -41,6 +45,12 @@ function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 'reason'> 
       reason: `${source.source} blind (${source.blindReason})${message}`,
     };
   }
+  // A coded failure froze a github-project mirror; it outranks a budget wait.
+  if (source.failure != null)
+    return {
+      state: 'failing',
+      reason: `${source.source} failing (${source.failure.code}): ${source.failure.message}`,
+    };
   const degraded = (reason: string) => ({ state: 'degraded' as const, reason });
   // A source the runner holds back from its regular polls because GitHub or Jira throttled it
   // (a budget under the reserve or a throttled response) names the wait first: while held back it
@@ -57,8 +67,8 @@ function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 'reason'> 
 }
 
 /**
- * One health row per service: the daemon, each gateway (board-wide), then github, spur and jira
- * rolled up from the given sources only.
+ * One health row per service: the daemon, each gateway (board-wide), then github,
+ * github-project, spur and jira rolled up from the given sources only.
  */
 export function services(input: {
   now: number;
@@ -103,7 +113,7 @@ export function services(input: {
           },
     );
   }
-  for (const service of ['github', 'spur', 'jira']) {
+  for (const service of ['github', 'github-project', 'spur', 'jira']) {
     const members = input.sources.filter(
       (source) => SOURCE_SERVICES[source.source.split(':')[0] ?? ''] === service,
     );

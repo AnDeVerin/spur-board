@@ -2349,6 +2349,50 @@ describe('task.move', () => {
         .execute();
     await expect(ctx.manual('ready-for-dev')).resolves.toMatchObject({ column: 'ready-for-dev' });
   });
+  const mirrorReady = (ctx: Awaited<ReturnType<typeof setup>>) => {
+    for (const column of ctx.config.projects[0]?.columns ?? []) {
+      if (column.id === 'triage') column.enabled = true;
+      if (column.id === 'ready-for-dev')
+        column.source = { type: 'tracker', project: 'acme/7', field: 'Status', value: 'Ready' };
+    }
+  };
+  it.each([
+    ['todo', 'ready-for-dev'],
+    ['triage', 'ready-for-dev'],
+    ['ready-for-dev', 'todo'],
+    ['ready-for-dev', 'triage'],
+  ] as const)(
+    'refuses column_mirrored from %s to %s with a mirrored ready-for-dev',
+    async (from, to) => {
+      // The open PR and worker stay linked: the mirror refusal comes before work_started.
+      const ctx = await setup({ column: from });
+      mirrorReady(ctx);
+      const before = await ctx.tables();
+      await expect(ctx.manual(to)).rejects.toMatchObject({
+        code: 'column_mirrored',
+        hint: 'Change the status of o/r#9 in GitHub Project acme/7 (Status) instead.',
+      });
+      expect(await ctx.tables()).toEqual(before);
+    },
+  );
+  it.each([
+    ['todo', 'triage'],
+    ['triage', 'todo'],
+  ] as const)('still moves %s to %s with a mirrored ready-for-dev', async (from, to) => {
+    const ctx = await setup({ column: from });
+    mirrorReady(ctx);
+    await ctx.store.db.deleteFrom('link').execute();
+    await expect(ctx.manual(to)).resolves.toMatchObject({ column: to });
+  });
+  it('still corrects into and out of a mirrored ready-for-dev', async () => {
+    const ctx = await setup({ column: 'todo', mode: 'on' });
+    mirrorReady(ctx);
+    await ctx.store.db.deleteFrom('link').execute();
+    await ctx.manual('ready-for-dev', 'Fix.', 'correct-1', 'operator', 'correct');
+    expect(await ctx.task()).toMatchObject({ column: 'ready-for-dev' });
+    await ctx.manual('todo', 'Back.', 'correct-2', 'operator', 'correct');
+    expect(await ctx.task()).toMatchObject({ column: 'todo' });
+  });
   it.each([WORKER_1, REV_1])('refuses manual moves by %s', async (actor) => {
     const ctx = await setup({ column: 'todo' });
     await expect(ctx.manual('ready-for-dev', 'Ready.', 'manual-1', actor)).rejects.toMatchObject({

@@ -10,6 +10,7 @@ import {
   type AdapterErrorKind,
   type Batch,
   type Config,
+  type MirrorFailureCode,
   type PollPrError,
   type PollContext,
   type PollPrResult,
@@ -67,6 +68,11 @@ interface RunnerEntry {
   repo?: string;
   /** Pause the source while its reported budget is below this. */
   reserveRemaining?: number | undefined;
+  /**
+   * Gives every failed poll a `SourceState.failure`: the error's own code, else this one. An
+   * entry without it reports a failure only for an error that carries a code.
+   */
+  defaultFailureCode?: MirrorFailureCode | undefined;
 }
 
 export interface AdapterRunner {
@@ -196,6 +202,7 @@ function runSource(
   let failures = 0;
   let lastCompleteMs: number | undefined;
   let errorBlind: Blind | undefined;
+  let errorFailure: SourceState['failure'];
   let counts: ReadonlyMap<string, number> = new Map();
   let hydrated = false;
   let gone: readonly GoneRef[] = [];
@@ -223,7 +230,19 @@ function runSource(
     return {
       ...(lastCompleteMs === undefined ? {} : { lastCompleteAt: iso(lastCompleteMs) }),
       ...(blind === undefined ? {} : { blind }),
+      ...(errorFailure === undefined ? {} : { failure: errorFailure }),
       gone,
+    };
+  }
+
+  /** The failure a failed poll reports: the error's code or the entry's default, else none. */
+  function failureOf(error: unknown, step: PollFailure['step']): SourceState['failure'] {
+    const coded = error instanceof AdapterError ? error.code : undefined;
+    const code = coded ?? entry.defaultFailureCode;
+    if (code === undefined) return undefined;
+    return {
+      code,
+      message: error instanceof AdapterError ? error.message : `The ${step} step failed`,
     };
   }
 
@@ -394,6 +413,7 @@ function runSource(
             message: issue.message,
           })),
         );
+        errorFailure = failureOf(error, 'batch');
         outcome = { kind: 'failed', error };
       } else {
         step = 'outcomes';
@@ -427,6 +447,7 @@ function runSource(
           gone = outcomes.gone;
           lastCompleteMs = proposedLastCompleteMs;
           errorBlind = undefined;
+          errorFailure = undefined;
           lastReported = JSON.stringify(proposedState);
         });
         reports = accepted.then(
@@ -446,6 +467,7 @@ function runSource(
       if (error instanceof AdapterError && (error.kind === 'auth' || error.kind === 'config')) {
         errorBlind = { reason: error.kind, message: error.message };
       }
+      errorFailure = failureOf(error, step);
       outcome = { kind: 'failed', error };
     }
     controller = undefined;

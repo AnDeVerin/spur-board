@@ -61,6 +61,7 @@ import { earliestTime, FINISHED_STATES } from './doorbells.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
 import {
+  applyMirror,
   dispatchDoneTickets,
   dispatchJournaled,
   dispatchMergedTickets,
@@ -199,6 +200,7 @@ async function sourceState(
   cursor?: string,
   budget?: Batch['budget'],
   defaultBranch?: Batch['defaultBranch'],
+  projectTitle?: string,
 ) {
   const branch = await nextDefaultBranch(trx, source, defaultBranch, observedAt);
   await trx
@@ -216,6 +218,9 @@ async function sourceState(
       budget_limit: budget?.limit ?? null,
       budget_reset_at: budget?.resetAt ?? null,
       default_branch: branch ?? null,
+      failure_code: state.failure?.code ?? null,
+      failure_message: state.failure?.message ?? null,
+      project_title: projectTitle ?? null,
     })
     .onConflict((oc) =>
       oc.column('source').doUpdateSet((eb) => ({
@@ -235,6 +240,10 @@ async function sourceState(
         budget_reset_at:
           budget === undefined ? eb.ref('source_state.budget_reset_at') : budget.resetAt,
         default_branch: branch ?? eb.ref('source_state.default_branch'),
+        // Each report states the source's failure now; none clears the stored one.
+        failure_code: state.failure?.code ?? null,
+        failure_message: state.failure?.message ?? null,
+        project_title: projectTitle ?? eb.ref('source_state.project_title'),
       })),
     )
     .execute();
@@ -1425,6 +1434,7 @@ export function createObservationCore(deps: {
           batch.cursor,
           batch.budget,
           batch.defaultBranch,
+          batch.mirror?.title,
         );
         await recordUsage(trx, source, batch.usage, now);
         for (const probe of batch.prProbes ?? []) {
@@ -1706,6 +1716,14 @@ export function createObservationCore(deps: {
           confirmedTasks.push(...links.map((link) => link.task_id));
         }
         if (confirmedTasks.length > 0) await dispatchTasks(trx, confirmedTasks, dispatchContext);
+        // Only a complete read places tasks; the mirror moves are journaled for the pass below.
+        if (observation.effectiveComplete && batch.mirror !== undefined)
+          await applyMirror(trx, {
+            source,
+            readiness: batch.mirror.readiness,
+            at: dispatchContext.at,
+            config,
+          });
         await dispatchJournaled(trx, dispatchContext);
         await reconcileItems(
           trx,

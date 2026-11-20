@@ -174,6 +174,19 @@ describe('catalog', () => {
         ".projects[].columns[].executor.kind",
         ".projects[].columns[].executor.name",
         ".projects[].columns[].group",
+        ".projects[].columns[].source",
+        ".projects[].columns[].source|0.kind",
+        ".projects[].columns[].source|1.kind",
+        ".projects[].columns[].source|1.tracker",
+        ".projects[].columns[].source|1.name",
+        ".projects[].columns[].source|1.project",
+        ".projects[].columns[].source|1.field",
+        ".projects[].columns[].source|1.value",
+        ".projects[].columns[].source|1.health",
+        ".projects[].columns[].source|1.readAt",
+        ".projects[].columns[].source|1.error",
+        ".projects[].columns[].source|1.error.code",
+        ".projects[].columns[].source|1.error.message",
         ".projects[].columns[].quietTurnAfterMs",
         ".projects[].columns[].noRecipientAfterMs",
         ".projects[].dispatcher",
@@ -860,6 +873,7 @@ describe('comment shape', () => {
           'lastDispatchAt',
           'lastGoodAt',
           'columnEnteredAt',
+          'readAt',
         ].some((name) => path.endsWith(name)) && !path.includes('.prSummary');
       expect(Array.isArray(node['anyOf']), path).toBe(nullable);
       const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];
@@ -890,10 +904,11 @@ describe('snapshot', () => {
     // and board-wide project, sources and services texts to status.get; the external_round kind
     // extends the task.history event kinds. #733 adds the review-rule gate reasons and condition
     // to task.get --why. The web Turn section then set web on inbox.ack, task.submit and
-    // task.return; their schemas, grants and errors are unchanged. #755 adds
+    // task.return; their schemas, grants and errors are unchanged. #738 adds the mirror move kind
+    // and reason, sources[].failure and the github-project service texts. #755 adds
     // tasks[].qaSubmission to status.get.
     expect(await catalogVersion(baseline)).toBe(
-      '06e50f1c8cd2f3f4fc9a92204aea2f4d30403eb6e8647a5efe1c2ec937530781',
+      'edde22604ecdf5af5f33eab2c39b258f6b64c5d952007120720906fcfdc7401f',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

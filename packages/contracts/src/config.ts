@@ -264,6 +264,28 @@ const columnId = z.enum(COLUMN_IDS, {
       : undefined,
 });
 
+/** A GitHub Project as `owner/number`, the owner's login and the Project number. */
+const githubProjectRef = z
+  .string()
+  .regex(/^[A-Za-z0-9-]+\/[1-9][0-9]*$/, 'Expected owner/number, such as example-org/3');
+
+const trackerColumnSource = z.strictObject({
+  type: z
+    .literal('tracker')
+    .describe(
+      'tracker: the board places idle Todo-group tasks between todo and ready-for-dev from the status of their issue in a GitHub Project, read on every poll with GITHUB_TOKEN (scope read:project). An issue whose field has the value moves to ready-for-dev; one that loses it, leaves the Project or is archived there moves back to todo. Tasks with started work, and triage, are never moved. Manual moves into or out of ready-for-dev are refused with column_mirrored. A failed or incomplete read moves nothing. Only on the ready-for-dev column of a github-issues project.',
+    ),
+  project: githubProjectRef.describe(
+    'The GitHub Project as owner/number: the user or organization login that owns it and its number from the Project URL.',
+  ),
+  field: nonEmpty.describe(
+    'Name of the single-select field of the Project to read, such as Status.',
+  ),
+  value: nonEmpty.describe(
+    'The option of field that places a task in ready-for-dev, such as Ready; matched to an option name exactly, letter case included.',
+  ),
+});
+
 const columnConfig = z.strictObject({
   id: columnId.describe('The built-in column this entry configures.'),
   enabled: z
@@ -322,6 +344,17 @@ const columnConfig = z.strictObject({
     .describe(
       "How long an untaken turn of this column may wait with no live session to ring before the board raises one operator item for the project and column, in milliseconds. The time runs from the later of the turn ring's creation and the moment the last session that could take it stopped being a recipient: the first of its end, leaving Spur's list or reaching a finished state (stopped, killed, errored or completed), so later changes in the same gap do not move it. Sessions that could take it are those of the column's Spur project and the task's linked orchestrator. Defaults to 600000 (10 minutes). Named orchestrator only: allowed on an enabled column whose orchestrator is a Spur project, set here or filled board-wide.",
     ),
+  source: z
+    .union([
+      z
+        .literal('manual')
+        .describe('manual: the operator moves tasks into and out of the column, the default.'),
+      trackerColumnSource,
+    ])
+    .optional()
+    .describe(
+      'Where ready-for-dev takes its tasks from: manual (the default), or a GitHub Project field mirrored by the board. Only on the ready-for-dev column.',
+    ),
 });
 
 /** The default of `projects[].columns[].noRecipientAfterMs`. */
@@ -342,6 +375,42 @@ export function approvalRuleOf(project: {
   return column?.enabled === true && column.approvalRule === 'github-rules'
     ? 'github-rules'
     : 'any-approval';
+}
+
+/** The GitHub Project status a project's ready-for-dev mirrors, with its owner and number. */
+export interface ReadyMirror {
+  /** The Project as configured, `owner/number`. */
+  project: string;
+  owner: string;
+  number: number;
+  field: string;
+  value: string;
+}
+
+/**
+ * The GitHub Project status a project's ready-for-dev column mirrors: set only when the column
+ * is enabled and sets a tracker source on a github-issues project, else undefined (manual).
+ */
+export function readyMirrorOf(project: {
+  tracker: { type: string };
+  columns: readonly Pick<ColumnConfig, 'id' | 'enabled' | 'source'>[];
+}): ReadyMirror | undefined {
+  const column = project.columns.find((entry) => entry.id === 'ready-for-dev');
+  const source = column?.source;
+  if (
+    column?.enabled !== true ||
+    typeof source !== 'object' ||
+    project.tracker.type !== 'github-issues'
+  )
+    return undefined;
+  const [owner = '', number = ''] = source.project.split('/');
+  return {
+    project: source.project,
+    owner,
+    number: Number(number),
+    field: source.field,
+    value: source.value,
+  };
 }
 
 /** Columns a task never leaves through the Dev gate, so they cannot require resolved threads. */
@@ -375,6 +444,21 @@ function checkBoard(items: readonly ColumnConfig[], ctx: z.RefinementCtx): void 
         code: 'custom',
         path: [i, 'approvalRule'],
         message: `Column ${JSON.stringify(item.id)} cannot set approvalRule: approvalRule is allowed only on the external-review column`,
+      });
+    }
+    if (item.source !== undefined && item.id !== 'ready-for-dev') {
+      ctx.addIssue({
+        code: 'custom',
+        path: [i, 'source'],
+        message: `Column ${JSON.stringify(item.id)} cannot set source: source is allowed only on the ready-for-dev column`,
+      });
+    }
+    if (item.id === 'ready-for-dev' && typeof item.source === 'object' && !item.enabled) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [i, 'source'],
+        message:
+          'Column "ready-for-dev" cannot mirror a GitHub Project while disabled: set enabled: true or remove source',
       });
     }
     if (item.requireResolvedThreads === true && NO_THREAD_GATE.has(item.id)) {
@@ -560,6 +644,14 @@ const projectSchema = z
         code: 'custom',
         path: ['columns', j, 'orchestrator'],
         message: `Unknown orchestrator ${JSON.stringify(orchestrator)}: use none, operator or a spurProjects name with role orchestrator or curator`,
+      });
+    });
+    project.columns.forEach(({ source }, j) => {
+      if (typeof source !== 'object' || project.tracker.type === 'github-issues') return;
+      ctx.addIssue({
+        code: 'custom',
+        path: ['columns', j, 'source'],
+        message: `source type tracker needs a github-issues project: tracker ${JSON.stringify(project.tracker.type)} has no GitHub Project to mirror`,
       });
     });
     const curator = project.spurProjects.find((p) => p.role === 'curator')?.name;
@@ -1401,7 +1493,8 @@ export const SECRET_ENV_KEYS = [
   {
     name: 'GITHUB_TOKEN',
     requiredWhen: 'always',
-    purpose: 'Read GitHub repositories and check runs.',
+    purpose:
+      'Read GitHub repositories and check runs; also read:project when a ready-for-dev column mirrors a GitHub Project.',
   },
   { name: 'JIRA_EMAIL', requiredWhen: 'jira', purpose: 'Jira account email.' },
   { name: 'JIRA_API_TOKEN', requiredWhen: 'jira', purpose: 'Jira API token.' },

@@ -1,5 +1,5 @@
 {
-  "version": "1919adfd3bf1932ed0628aa0334a08da12b4679119494a5bb1a8bba630f6d991",
+  "version": "439523d89f766349ccfeb689777c920eb68447f9efde2423832c8e4e0d31a789",
   "grants": [
     "operator",
     "project-agent",
@@ -1475,12 +1475,12 @@
                 "service": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "daemon, github, jira, spur, or a chat gateway kind such as slack."
+                  "description": "daemon, github, github-project, jira, spur, or a chat gateway kind such as slack."
                 },
                 "state": {
                   "type": "string",
                   "enum": ["healthy", "degraded", "failing"],
-                  "description": "failing: a blind source or a gateway that is down; degraded: a source that never completed, is stale, warms up or waits for its rate budget, or a daemon with no completed board tick for over 120 seconds; else healthy. A source service takes its worst source."
+                  "description": "failing: a blind source, a github-project source whose last poll failed, or a gateway that is down; degraded: a source that never completed, is stale, warms up or waits for its rate budget, or a daemon with no completed board tick for over 120 seconds; else healthy. A source service takes its worst source."
                 },
                 "since": {
                   "anyOf": [
@@ -1491,7 +1491,7 @@
                     },
                     { "type": "null" }
                   ],
-                  "description": "Healthy: since when the service has been usable in this daemon run. That is daemon.startedAt for the daemon, the latest healthySince of its sources for github, jira and spur, and for a gateway the end of its last recorded outage or daemon.startedAt, whichever is later. Failing gateway: when the outage started. Otherwise null."
+                  "description": "Healthy: since when the service has been usable in this daemon run. That is daemon.startedAt for the daemon, the latest healthySince of its sources for github, github-project, jira and spur, and for a gateway the end of its last recorded outage or daemon.startedAt, whichever is later. Failing gateway: when the outage started. Otherwise null."
                 },
                 "lastGoodAt": {
                   "anyOf": [
@@ -1502,7 +1502,7 @@
                     },
                     { "type": "null" }
                   ],
-                  "description": "Last sign of work: the last completed board tick for the daemon, the oldest latest observation of its sources for github, jira and spur (null when one has none); null for a gateway."
+                  "description": "Last sign of work: the last completed board tick for the daemon, the oldest latest observation of its sources for github, github-project, jira and spur (null when one has none); null for a gateway."
                 },
                 "reason": {
                   "description": "Why the service is not healthy, from its first worst source for github, jira and spur; null when healthy.",
@@ -1513,7 +1513,7 @@
               "additionalProperties": false,
               "description": "Health of one service."
             },
-            "description": "One health row per service: daemon, each chat gateway, then github, spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up the sources listed, which cover every project the caller may see whatever project says."
+            "description": "One health row per service: daemon, each chat gateway, then github, github-project (only when a column mirrors a GitHub Project), spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up the sources listed, which cover every project the caller may see whatever project says."
           },
           "transport": {
             "type": "array",
@@ -1609,6 +1609,35 @@
                 "message": {
                   "description": "Short explanation of the source state.",
                   "type": ["string", "null"]
+                },
+                "failure": {
+                  "description": "Why the last poll failed, or null after a delivered batch; present only on github-project: sources.",
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "mirror_project_forbidden",
+                            "mirror_field_not_found",
+                            "mirror_snapshot_incomplete",
+                            "mirror_rate_limited",
+                            "mirror_read_failed"
+                          ],
+                          "description": "Mirror failure code."
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "What the last poll failed on."
+                        }
+                      },
+                      "required": ["code", "message"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
                 },
                 "budget": {
                   "anyOf": [
@@ -5858,9 +5887,10 @@
                         "task_moved",
                         "task_shadow_moved",
                         "task_corrected",
-                        "task_manually_moved"
+                        "task_manually_moved",
+                        "task_mirror_moved"
                       ],
-                      "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement."
+                      "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement, task_mirror_moved is a placement between todo and ready-for-dev by the GitHub Project mirror."
                     },
                     "actor": {
                       "anyOf": [
@@ -5913,9 +5943,10 @@
                         "mode_changed",
                         "returned",
                         "corrected",
-                        "manual"
+                        "manual",
+                        "mirrored"
                       ],
-                      "description": "Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), or manual (operator Todo-group placement)."
+                      "description": "Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), manual (operator Todo-group placement), or mirrored (GitHub Project mirror)."
                     },
                     "gate": {
                       "type": "array",
@@ -5945,7 +5976,7 @@
                       "description": "The failing gate reasons of a gate_broken move; empty otherwise."
                     },
                     "text": {
-                      "description": "The block a return opened, or the literal reason for an operator correction or manual move; null otherwise.",
+                      "description": "The block a return opened, the literal reason for an operator correction or manual move, or the source id of a mirror move; null otherwise.",
                       "type": ["string", "null"]
                     }
                   },
@@ -6157,6 +6188,7 @@
                     "task_shadow_moved",
                     "task_corrected",
                     "task_manually_moved",
+                    "task_mirror_moved",
                     "external_round",
                     "dispatcher_mode_changed",
                     "turn_opened",
@@ -11376,9 +11408,10 @@
                     "task_moved",
                     "task_shadow_moved",
                     "task_corrected",
-                    "task_manually_moved"
+                    "task_manually_moved",
+                    "task_mirror_moved"
                   ],
-                  "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement."
+                  "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction, task_manually_moved is an operator Todo-group placement, task_mirror_moved is a placement between todo and ready-for-dev by the GitHub Project mirror."
                 },
                 "actor": {
                   "anyOf": [
@@ -11431,9 +11464,10 @@
                     "mode_changed",
                     "returned",
                     "corrected",
-                    "manual"
+                    "manual",
+                    "mirrored"
                   ],
-                  "description": "Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), or manual (operator Todo-group placement)."
+                  "description": "Why it moved: a dispatcher reason, returned (executor return), corrected (operator correction), manual (operator Todo-group placement), or mirrored (GitHub Project mirror)."
                 },
                 "gate": {
                   "type": "array",
@@ -11463,7 +11497,7 @@
                   "description": "The failing gate reasons of a gate_broken move; empty otherwise."
                 },
                 "text": {
-                  "description": "The block a return opened, or the literal reason for an operator correction or manual move; null otherwise.",
+                  "description": "The block a return opened, the literal reason for an operator correction or manual move, or the source id of a mirror move; null otherwise.",
                   "type": ["string", "null"]
                 }
               },
@@ -11589,6 +11623,109 @@
                         "description": "Column group; present only on Todo-group columns.",
                         "type": "string",
                         "enum": ["todo"]
+                      },
+                      "source": {
+                        "description": "Where the column takes its tasks from; present only on Todo-group columns.",
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "manual",
+                                "description": "manual: the operator places tasks in this column."
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "mirror",
+                                "description": "mirror: the board places tasks between todo and ready-for-dev from a GitHub Project field."
+                              },
+                              "tracker": {
+                                "type": "string",
+                                "const": "github-project",
+                                "description": "The mirrored tracker."
+                              },
+                              "name": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "Title of the GitHub Project from its last complete read, else project."
+                              },
+                              "project": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "The configured Project as owner/number."
+                              },
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "The configured single-select field."
+                              },
+                              "value": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "The configured option that places a task in ready-for-dev."
+                              },
+                              "health": {
+                                "type": "string",
+                                "enum": ["healthy", "degraded", "failing"],
+                                "description": "Health of the github-project source, by the rule of status.get services."
+                              },
+                              "readAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                  },
+                                  { "type": "null" }
+                                ],
+                                "description": "Poll start of the last complete read, or null before one."
+                              },
+                              "error": {
+                                "description": "Why the last read failed; positions stay as the last complete read left them. Absent after a complete read.",
+                                "type": "object",
+                                "properties": {
+                                  "code": {
+                                    "type": "string",
+                                    "enum": [
+                                      "mirror_project_forbidden",
+                                      "mirror_field_not_found",
+                                      "mirror_snapshot_incomplete",
+                                      "mirror_rate_limited",
+                                      "mirror_read_failed"
+                                    ],
+                                    "description": "Mirror failure code."
+                                  },
+                                  "message": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "What the last read failed on."
+                                  }
+                                },
+                                "required": ["code", "message"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "tracker",
+                              "name",
+                              "project",
+                              "field",
+                              "value",
+                              "health",
+                              "readAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
                       },
                       "quietTurnAfterMs": {
                         "description": "Effective quiet time of an orchestrator turn before its reminder, in milliseconds; present only on columns with a named orchestrator.",
@@ -12283,8 +12420,8 @@
                         "properties": {
                           "kind": {
                             "type": "string",
-                            "enum": ["manual", "dispatcher"],
-                            "description": "Current placement mechanism."
+                            "enum": ["manual", "dispatcher", "mirror"],
+                            "description": "Current placement mechanism; mirror: a GitHub Project field places tasks in ready-for-dev."
                           },
                           "text": {
                             "type": "string",

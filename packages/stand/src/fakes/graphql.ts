@@ -322,6 +322,19 @@ function isWireObject(value: Wire): value is WireObject {
   );
 }
 
+/** The objects implementing each interface a known shape names as a fragment's type condition. */
+const IMPLEMENTS: Readonly<Record<string, readonly string[]>> = {
+  ProjectV2Owner: ['Organization', 'User'],
+};
+
+/** Whether an object of `typename` matches a fragment on `type`, an object or interface type. */
+function matchesType(typename: Wire | undefined, type: string): boolean {
+  return (
+    typeof typename === 'string' &&
+    (typename === type || (IMPLEMENTS[type]?.includes(typename) ?? false))
+  );
+}
+
 /** Answers an operation by walking its selection set over plain wire objects. */
 export function project(
   operation: OperationDefinitionNode,
@@ -359,7 +372,7 @@ export function project(
         throw new FakeViolation('Fragment spreads are not part of any known shape.');
       if (selection.kind === Kind.INLINE_FRAGMENT) {
         const type = selection.typeCondition?.name.value;
-        if (type === undefined || value['__typename'] === type)
+        if (type === undefined || matchesType(value['__typename'], type))
           select(selection.selectionSet, value, path, out);
         continue;
       }

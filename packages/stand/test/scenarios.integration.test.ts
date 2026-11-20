@@ -300,6 +300,7 @@ describe('scenarios', () => {
       'spur-turn-stall',
       'card-long',
       'readme-board',
+      'ready-mirror',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -958,6 +959,46 @@ describe('each scenario', () => {
     expect(scheduled.items.filter((entry) => entry.text.startsWith(`${repo}: main`))).toEqual([]);
     expect(scheduled.handled).toHaveLength(green.handled.length);
     expect((await status(current())).items.map((item) => item.key)).not.toContain(key);
+  }, 60_000);
+
+  it('ready-mirror: the fake Project places tasks, and a Status change moves them on the next poll', async () => {
+    const manifest = await up({ scenario: 'ready-mirror' });
+    await ok(manifest, '/wait', SEED_WAIT);
+    const source = 'github-project:stand:stand-org/1';
+    const [ready, backlog, outside] = [
+      'stand-org/board#1',
+      'stand-org/board#2',
+      'stand-org/board#3',
+    ];
+    expect(manifest.scenario).toMatchObject({
+      tasks: { ready, backlog, outside },
+      sources: { mirror: source },
+    });
+    const columns = async () =>
+      Object.fromEntries((await status(current())).tasks.map((task) => [task.key, task.column]));
+    expect(await columns()).toMatchObject({
+      [ready]: 'ready-for-dev',
+      [backlog]: 'todo',
+      [outside]: 'todo',
+    });
+    const mirror = (await status(current())).sources.find((entry) => entry.source === source);
+    expect(mirror).toMatchObject({ project: 'stand', blindReason: null, failure: null });
+
+    const projectStatus = (number: number, value: string) =>
+      ok(current(), '/fake', {
+        system: 'github',
+        verb: 'issue-project-status',
+        args: { repo: 'stand-org/board', number, status: value },
+      });
+    await projectStatus(1, 'removed');
+    await projectStatus(2, 'Ready');
+    await ok(current(), '/poll');
+    expect(await columns()).toMatchObject({
+      [ready]: 'todo',
+      [backlog]: 'ready-for-dev',
+      [outside]: 'todo',
+    });
+    expect(await ok(current(), '/violations')).toEqual({ total: 0, items: [] });
   }, 60_000);
 
   it('columns-basic-jira: each column holds the stand-jira task the manifest names', async () => {

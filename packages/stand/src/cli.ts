@@ -139,6 +139,10 @@ const USAGE = `Usage: pnpm stand <command>
                                   open [--title t] (create, or reopen a closed issue), close,
                                   label [name...] (replaces the labels; none clears them) or
                                   milestone [title] (none clears it); --repo as for pr
+  fake github issue <n> project-status <Backlog|Ready|Done|none|archived|removed>
+                                  set the issue's Status in the fake GitHub Project stand-org/1;
+                                  none clears it, archived archives the item, removed takes the
+                                  issue out of the Project
   fake jira issue <KEY> [--status s] [--title t]
                                   create ticket KEY (at To Do), or change its status or title;
                                   statuses: To Do, Ready for Dev, In Progress, In Review, Done
@@ -201,7 +205,7 @@ const REVIEW_STATES = new Map([
   ['changes-requested', 'CHANGES_REQUESTED'],
   ['commented', 'COMMENTED'],
 ]);
-const FAKE_ISSUE_VERBS = ['open', 'close', 'label', 'milestone'];
+const FAKE_ISSUE_VERBS = ['open', 'close', 'label', 'milestone', 'project-status'];
 
 const out = (text: string): void => {
   process.stdout.write(text);
@@ -755,6 +759,12 @@ function issueBody(
   if (verb === 'milestone') {
     if (names.length > 1) throw new UsageError('milestone takes at most one title');
     return body({ milestone: names[0] ?? null });
+  }
+  if (verb === 'project-status') {
+    const [status] = names;
+    if (status === undefined || names.length > 1)
+      throw new UsageError('project-status takes exactly one status');
+    return body({ status });
   }
   if (names.length > 0) throw new UsageError(`${verb} takes no value`);
   return body(values.title === undefined ? {} : { title: values.title });

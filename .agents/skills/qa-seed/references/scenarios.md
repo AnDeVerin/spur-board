@@ -27,3 +27,7 @@
   `pnpm stand board move 'stand-org/board#5' dev --correct --reason qa` changes only its shadow
   column, and `status` shows `shadowDiffers: true`. The gates settle a forward move from the new
   column at once, so its shadow column can move on (`docs/cli.md`).
+- `ready-mirror` gives project `stand` To Do, Triage, Ready for Dev, Dev and Done, with Ready for
+  Dev mirroring `Status = Ready` of the fake Project `stand-org/1` through source
+  `github-project:stand:stand-org/1`. A manual move into or out of Ready for Dev is refused:
+  move a task with `fake github issue <n> project-status` and `poll`.
