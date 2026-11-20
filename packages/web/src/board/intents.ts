@@ -49,62 +49,71 @@ export class MovePendingError extends Error {
   }
 }
 
+type Run = { run: () => Promise<void> };
 interface HeldMove {
   from: string | undefined;
   column: string;
   reason: string;
   confirmed: boolean;
-  intent: { run: () => Promise<void> };
+  inner: Run;
 }
 
 /**
- * One move per task in flight, whichever form sends it: from the send until a read after the
- * daemon accepted shows the task out of its source part, or until the send fails. Meanwhile the
- * same part and reason get the held intent (its key), and any other move of the task is refused.
+ * One move per task in flight, whichever form sends it. Every send re-checks the hold: free, it
+ * takes it; held for the same part and reason, it joins the held send and its key; held for
+ * another, it is refused. A failed send frees the task. An accepted move frees it once every read
+ * that shows the task (`where`: its status row, its open task view) shows it out of the source
+ * part; `settle` checks that after each read.
  */
-export function createHeldMoves() {
+export function createHeldMoves(where: (task: string) => readonly string[]) {
   const held = new Map<string, HeldMove>();
+  /** Free each accepted move no read shows in its source part any more. */
+  const settle = () => {
+    for (const [task, entry] of held) {
+      if (entry.confirmed && where(task).every((column) => column !== entry.from))
+        held.delete(task);
+    }
+  };
+  const send = (task: string, entry: HeldMove) =>
+    entry.inner.run().then(
+      () => {
+        entry.confirmed = true;
+        // A read may have landed before the accept was seen.
+        settle();
+      },
+      (cause: unknown) => {
+        if (held.get(task) === entry) held.delete(task);
+        throw cause;
+      },
+    );
   return {
+    /** A form's intent for one part and reason; `from` reads the task's part at each send. */
     intent(
       task: string,
       column: string,
       reason: string,
-      from: string | undefined,
-      create: () => { run: () => Promise<void> },
-    ) {
-      const current = held.get(task);
-      if (current)
-        return current.column === column && current.reason === reason
-          ? current.intent
-          : { run: () => Promise.reject(new MovePendingError()) };
-      const inner = create();
-      const entry: HeldMove = {
-        from,
-        column,
-        reason,
-        confirmed: false,
-        intent: {
-          run: () =>
-            inner.run().then(
-              () => {
-                entry.confirmed = true;
-              },
-              (cause: unknown) => {
-                if (held.get(task) === entry) held.delete(task);
-                throw cause;
-              },
-            ),
+      from: () => string | undefined,
+      create: () => Run,
+    ): Run {
+      // This form's send, or the one it joined: a retry keeps that key.
+      let inner: Run | undefined;
+      return {
+        run: () => {
+          const current = held.get(task);
+          if (current) {
+            if (current.column !== column || current.reason !== reason)
+              return Promise.reject(new MovePendingError());
+            inner = current.inner;
+            return send(task, current);
+          }
+          inner ??= create();
+          const entry: HeldMove = { from: from(), column, reason, confirmed: false, inner };
+          held.set(task, entry);
+          return send(task, entry);
         },
       };
-      held.set(task, entry);
-      return entry.intent;
     },
-    /** A status read landed: release accepted moves whose task left its source part. */
-    settle(rows: readonly { key: string; column: string }[]) {
-      for (const [task, entry] of held) {
-        if (!entry.confirmed) continue;
-        if (rows.find((row) => row.key === task)?.column !== entry.from) held.delete(task);
-      }
-    },
+    /** A read landed. */
+    settle,
   };
 }

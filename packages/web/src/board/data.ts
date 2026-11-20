@@ -14,6 +14,7 @@ import { createTurnIntent } from './turn-intent.ts';
 import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
 
 export type BoardConfig = Output<'config.get'>;
+type ColumnId = BoardConfig['projects'][number]['columns'][number]['id'];
 type TurnWrite = Parameters<typeof createTurnIntent>[0]['write'];
 type BoardStatus = Output<'status.get'>;
 type BoardInbox = Output<'inbox.operator'>;
@@ -185,7 +186,7 @@ export function createBoardData(options: BoardDataOptions) {
       statusUnreadable = cause instanceof UnreadableAnswerError;
       settleRetry('chain', seq);
       update(value ? { status: value, lastGoodAt: options.now() } : {});
-      if (value) moves.settle(value.tasks);
+      if (value) moves.settle();
     },
   );
   const config = coordinateRead(
@@ -251,6 +252,7 @@ export function createBoardData(options: BoardDataOptions) {
       else if (result.kind === 'missing')
         update({ task: { key, state: 'missing', value: undefined, retrying: false } });
       else update({ task: { ...state.task, state: 'failed', retrying: false } });
+      moves.settle();
       for (const wait of refreshWaits) {
         if (wait.epoch === taskEpoch && taskRead > wait.after) {
           refreshWaits.delete(wait);
@@ -370,8 +372,13 @@ export function createBoardData(options: BoardDataOptions) {
     };
   };
 
-  const moves = createHeldMoves();
-  const rowOf = (key: string) => state.status?.tasks.find((row) => row.key === key);
+  // The parts the held reads show a task in: its status row, and its open task view.
+  const shownIn = (key: string) =>
+    [
+      state.status?.tasks.find((row) => row.key === key)?.column,
+      state.task?.value?.task.key === key ? state.task.value.task.column : undefined,
+    ].filter((column) => column !== undefined);
+  const moves = createHeldMoves(shownIn);
   const boardIntent = createBoardIntent(
     api,
     () => stopped || state.readFailed || state.stream === 'offline',
@@ -455,16 +462,17 @@ export function createBoardData(options: BoardDataOptions) {
      * shared by every form while the move is held (`createHeldMoves`). Refused as
      * `closeItemIntent` is; a confirmed move re-reads the board and the open task.
      */
-    moveIntent: (
-      task: string,
-      column: BoardConfig['projects'][number]['columns'][number]['id'],
-      reason: string,
-    ) =>
-      moves.intent(task, column, reason, rowOf(task)?.column, () =>
-        boardIntent('task.move', { mode: 'manual', task, column, reason }, () => {
-          status.refresh();
-          refreshTask();
-        }),
+    moveIntent: (task: string, column: ColumnId, reason: string) =>
+      moves.intent(
+        task,
+        column,
+        reason,
+        () => shownIn(task)[0],
+        () =>
+          boardIntent('task.move', { mode: 'manual', task, column, reason }, () => {
+            status.refresh();
+            refreshTask();
+          }),
       ),
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
     /**

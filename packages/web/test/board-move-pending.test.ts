@@ -2,7 +2,15 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import styles from '../src/board/Columns.module.css';
-import { deferred, envelope, taskGet, type Daemon } from './board-fixtures.ts';
+import {
+  deferred,
+  envelope,
+  failure,
+  row,
+  status,
+  taskGet,
+  type Daemon,
+} from './board-fixtures.ts';
 import { all, mountEachTest, one, press, settle } from './board-harness.ts';
 import {
   board,
@@ -10,6 +18,8 @@ import {
   KEY,
   link,
   part,
+  forms,
+  keysIn,
   ROWS,
   send,
   submit,
@@ -61,9 +71,102 @@ const sendInView = async (reason: string) => {
   submit(dialog());
   await settle();
 };
-const withTask = (d: Daemon) => {
-  d.routes['task.get'] = () =>
-    Promise.resolve(envelope(taskGet({ task: { ...taskGet().task, key: KEY, column: 'todo' } })));
+const viewOf = (task: Record<string, unknown> = {}) =>
+  envelope(taskGet({ task: { ...taskGet().task, key: KEY, column: 'todo', ...task } }));
+const withTask = (d: Daemon, task: Record<string, unknown> = {}) => {
+  d.routes['task.get'] = () => Promise.resolve(viewOf(task));
+};
+/** Chooses `part` in the open task view and sends `reason`. */
+const sendFromView = async (to: string, reason: string) => {
+  press(buttonIn(dialog(), `${to}…`), 'click');
+  type(field(dialog()), reason);
+  submit(dialog());
+  await settle();
+};
+const viewAlert = () => dialog().querySelector('[role="alert"]')?.textContent;
+const openView = async () => {
+  press(link(KEY), 'click');
+  await settle();
+};
+const MOVED = ROWS.map((task) =>
+  task.key === KEY ? row(KEY, 'triage', { columnEnteredAt: '2026-11-15T14:00:00.000Z' }) : task,
+);
+
+/**
+ * The hold's lifecycle: each row starts from a mounted board and returns the recorded bodies'
+ * keys it expects, in order.
+ */
+const LIFECYCLE: Record<string, () => Promise<{ keys: string[]; expected: string[] }>> = {
+  'a retry after a failure holds the task again': async () => {
+    const { d, moves } = await board(THREE, ROWS, withTask);
+    d.routes['task.move'] = failure;
+    choose('#1', 'Move to triage…');
+    sendOnCard('Groomed');
+    await settle();
+    d.routes['task.move'] = () => deferred().promise;
+    submit(one('main'));
+    await settle();
+    await openView();
+    await sendFromView('triage', 'Other');
+    expect(viewAlert()).toBe(PENDING);
+    const keys = moves.map((body) => body.key);
+    return { keys, expected: [keys[0] ?? 'card', keys[0] ?? 'card'] };
+  },
+  'a waiting form sends once the hold is free': async () => {
+    const held = deferred();
+    const { d, moves } = await board(THREE, ROWS, (daemon) => {
+      withTask(daemon);
+      daemon.routes['task.move'] = () => held.promise;
+    });
+    choose('#1', 'Move to triage…');
+    sendOnCard('Groomed');
+    await settle();
+    await openView();
+    await sendFromView('triage', 'Other');
+    expect(viewAlert()).toBe(PENDING);
+    d.routes['task.move'] = failure;
+    held.resolve(Response.json({ broken: true }, { status: 500 }));
+    await settle();
+    submit(dialog());
+    await settle();
+    expect(moves.map((body) => body.input['reason'])).toEqual(['Groomed', 'Other']);
+    const keys = moves.map((body) => body.key);
+    return { keys: [...new Set(keys)], expected: keys };
+  },
+  'a status read alone keeps the hold while the open view is stale': async () => {
+    history.replaceState(null, '', `/?open=${encodeURIComponent(KEY)}`);
+    const { d, moves } = await board(THREE, ROWS, withTask);
+    const read = deferred();
+    d.routes['status.get'] = () => read.promise;
+    d.routes['task.get'] = () => deferred().promise;
+    await sendFromView('triage', 'Groomed');
+    // The status read lands after the accept; the open view still reads the task in todo.
+    read.resolve(envelope(status(MOVED)));
+    await settle();
+    expect(keysIn('triage')).toContain(KEY);
+    press(buttonIn(dialog(), 'Cancel'), 'click');
+    await sendFromView('triage', 'Groomed');
+    const keys = moves.map((body) => body.key);
+    return { keys, expected: [keys[0] ?? 'view'] };
+  },
+  'a task of another project settles on its task view': async () => {
+    history.replaceState(null, '', `/?open=${encodeURIComponent(KEY)}`);
+    const { d, moves } = await board(
+      THREE,
+      ROWS.filter((task) => task.key !== KEY),
+      (daemon) => {
+        withTask(daemon, { project: 'b' });
+      },
+    );
+    withTask(d, { project: 'b', column: 'triage' });
+    await sendFromView('triage', 'Groomed');
+    expect(forms(dialog())).toHaveLength(0);
+    await sendFromView('ready-for-dev', 'Next');
+    expect(viewAlert()).toBeUndefined();
+    expect(moves.map((body) => body.input['column'])).toEqual(['triage', 'ready-for-dev']);
+    const keys = moves.map((body) => body.key);
+    return { keys: [...new Set(keys)], expected: keys };
+  },
 };
 
 const FIRST: Record<string, () => void> = {
@@ -88,6 +191,13 @@ const FIRST: Record<string, () => void> = {
     submit(one('main'));
   },
 };
+
+describe('move between Backlog parts: the hold of a move', () => {
+  it.each(Object.keys(LIFECYCLE))('%s', async (name) => {
+    const result = await LIFECYCLE[name]?.();
+    expect(result?.keys).toEqual(result?.expected);
+  });
+});
 
 describe('move between Backlog parts: one move per task in flight', () => {
   it.each(Object.keys(FIRST))(
