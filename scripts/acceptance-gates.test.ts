@@ -359,6 +359,28 @@ describe('acceptance-gates.ts CLI', () => {
         `## Acceptance gates\n\ntester: ${gate}\n\n## Acceptance gates\n\ndesigner: n/a\n\n<!--\n## Acceptance gates\n-->`,
       'more than one ## Acceptance gates section',
     ],
+    [
+      'a closed `## Acceptance gates ##` heading after a complete section',
+      (gate) => `${section(gate)}\n\n## Acceptance gates ##\n\ntester: n/a\ndesigner: n/a`,
+      'more than one ## Acceptance gates section',
+    ],
+    [
+      'a closed `## Acceptance gates ##` heading as the only one',
+      (gate) => `## Acceptance gates ##\n\ntester: ${gate}\ndesigner: n/a\n`,
+      null,
+    ],
+    ...[1, 2, 3].map((indent): [string, (gate: string) => string, null] => [
+      `a ${String(indent)}-space indented Risk heading after it`,
+      (gate) => `${section(gate)}\n\n${' '.repeat(indent)}## Risk\n\n- low`,
+      null,
+    ]),
+    ['a level 3 heading after it', (gate) => `${section(gate)}\n\n### Notes\n\nsome note`, null],
+    [
+      'a setext lookalike and a fenced heading besides the real section',
+      (gate) =>
+        `Acceptance gates\n---\n\n~~~\n## Acceptance gates\n~~~\n\n${section(gate)}\n\n## Risk\n\n- low`,
+      null,
+    ],
   ])('reads the section of a body with %s', (_name, text, problem) => {
     const { box, gate } = uiPr();
     box.merge();

@@ -60,9 +60,21 @@ export function parseGates(section: string): ParsedGates {
 }
 
 /**
- * Every `## Acceptance gates` section of a PR body (heading matched case-insensitively) as its
- * text, read in one pass with HTML comments removed. A heading inside a CommonMark code fence
- * does not count, and a section ends at the next `#` or `##` heading outside a fence.
+ * A CommonMark ATX heading: 0-3 spaces, 1-6 `#`, then a space or the line end, the text and an
+ * optional closing `#` run after a space. Returns its level and trimmed text, or null.
+ */
+function atxHeading(line: string): { level: number; text: string } | null {
+  const match = /^ {0,3}(#{1,6})(?:[ \t]+(.*))?$/.exec(line);
+  if (!match) return null;
+  const text = (match[2] ?? '').trim().replace(/(?:^|[ \t]+)#+$/, '');
+  return { level: (match[1] ?? '').length, text: text.trim() };
+}
+
+/**
+ * Every `## Acceptance gates` section of a PR body (heading text matched case-insensitively) as
+ * its text, read in one pass with HTML comments removed. A heading inside a CommonMark code fence
+ * does not count, and any ATX heading outside a fence ends a section. Setext headings and
+ * unclosed fences are not supported.
  */
 export function gateSections(body: string): string[] {
   const visible = body.replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?(?:-->|$)/g, '');
@@ -83,11 +95,14 @@ export function gateSections(body: string): string[] {
     } else if (run !== undefined) {
       fence = { char: run[0] ?? '', length: run.length };
       current?.push(line);
-    } else if (/^##[ \t]+acceptance gates[ \t]*$/i.test(line)) {
-      current = [];
-      sections.push(current);
-    } else if (/^#{1,2}[ \t]/.test(line)) current = null;
-    else current?.push(line);
+    } else {
+      const heading = atxHeading(line);
+      if (heading === null) current?.push(line);
+      else if (heading.level === 2 && heading.text.toLowerCase() === 'acceptance gates') {
+        current = [];
+        sections.push(current);
+      } else current = null;
+    }
   }
   return sections.map((lines) => lines.join('\n'));
 }
