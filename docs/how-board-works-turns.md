@@ -17,8 +17,7 @@ An unseen-head QA submit closes the turn while pending and gives no gate credit
 until confirmed. Confirmation survives upstream revalidation: completing Dev and
 reviews on that head needs no second QA submit. Confirmed QA survives same-head
 returns and corrections to Dev. Correction into QA clears even pending QA evidence:
-with upstream gates passing, a QA orchestrator or operator gets a fresh turn;
-executor `none` may instead reuse a valid worker submit without a new QA turn.
+with upstream gates passing, a QA orchestrator or operator gets a fresh turn.
 Retained QA cannot satisfy Dev: a return to Dev needs the current Dev visit's submit.
 
 Submissions declare provenance with `--basis tested|carried|skipped`; omitted means
@@ -57,7 +56,8 @@ act only on a current turn; reread after `turn_closed`.
 [Task history](how-board-works-history.md#task-history) lists journal events `turn_opened`,
 `turn_taken` and `turn_closed`: executor, taker, outcome.
 
-An operator takes over an open orchestrator turn, taken or not, with keyed
+An operator takes a turn addressed to it, or takes over an open orchestrator
+turn, taken or not, with keyed
 `board inbox ack <entries>`, then submits or returns it, or does both from the web
 [Turn](web-ui-task-turn.md) section. The earlier holder gets
 `not_turn_taker`, then `turn_closed`. The takeover is not sticky: the addressed

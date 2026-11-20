@@ -4,14 +4,13 @@ import {
   sessionFactsSchema,
   turnHandedSchema,
   type ActorId,
-  type AddresseeRole,
-  type ColumnId,
   type Config,
   type PrEntityRef,
 } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
+import { turnExecutor } from '../domain/dispatch.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import { isOperator } from './authorize.ts';
@@ -39,25 +38,13 @@ type CloseReason = NonNullable<Turn['closed_reason']>;
 
 const handedSchema = z.array(turnHandedSchema);
 
+export { turnExecutor };
+
 const turnItemKey = (turnId: number) => `turn:${String(turnId)}`;
 const turnRef = (turnId: number) => `T${String(turnId)}`;
 const taskProject = async (trx: Trx, id: number) =>
   (await trx.selectFrom('task').select('project').where('id', '=', id).executeTakeFirstOrThrow())
     .project;
-
-/**
- * Who executes a column's turn: its orchestrator project, the operator, or for a column with
- * no orchestrator the live worker, else the operator.
- */
-export function turnExecutor(
-  column: ColumnId,
-  columnOrchestrator: string,
-  hasLiveWorker: boolean,
-): AddresseeRole {
-  if (columnOrchestrator === 'operator') return 'operator';
-  if (columnOrchestrator === 'none') return hasLiveWorker ? 'worker' : 'operator';
-  return `orchestrator:${column}`;
-}
 
 /** A turn is open while its executor has taken it and it is not closed. */
 export function isTurnOpen(turn: Pick<Turn, 'acked_at' | 'closed_at'>): boolean {
@@ -172,10 +159,12 @@ export async function openTurn(
 }
 
 /**
- * Takes a turn for `actor`. False for a missing, closed, operator or taken worker turn. An
- * untaken turn needs its unread notification addressed to the actor; a taken orchestrator turn
- * may be taken over by whoever its notification is now addressed to. An operator on the task's
- * project may take any open orchestrator turn, taken or not. Others get `forbidden`.
+ * Takes a turn for `actor`. False for a missing, closed or taken worker turn. An untaken turn
+ * needs its unread notification addressed to the actor; a taken orchestrator turn may be taken
+ * over by whoever its notification is now addressed to. An operator on the task's project may
+ * take any open orchestrator turn, taken or not, and any turn addressed to the operator, taken or
+ * not, with no notification step; anyone else gets false for an operator turn. Others get
+ * `forbidden`.
  * Every take starts a new ownership episode: an unsent reminder of an earlier one is acked, so
  * `ringStillCurrent` drops its ring.
  */
@@ -185,11 +174,13 @@ export async function takeTurn(
 ): Promise<boolean> {
   const { turnId, actor, at, config } = input;
   const turn = await trx.selectFrom('turn').selectAll().where('id', '=', turnId).executeTakeFirst();
-  if (turn === undefined || turn.closed_at !== null || turn.role === 'operator') return false;
+  if (turn === undefined || turn.closed_at !== null) return false;
   const project = await taskProject(trx, turn.task_id);
   const orchestrated = parseAddressee(turn.role).kind === 'orchestrator';
   const takeover = orchestrated && isOperator(actor, config, project);
-  if (turn.acked_at === null) {
+  if (turn.role === 'operator') {
+    if (!isOperator(actor, config, project)) return false;
+  } else if (turn.acked_at === null) {
     if (!(await acknowledgeNotification(trx, { ...input, takeover }))) return false;
   } else if (!orchestrated) {
     return false;

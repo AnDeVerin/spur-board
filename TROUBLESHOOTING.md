@@ -419,7 +419,7 @@ no project, such as `board token list`, `board task add` with a key not yet on t
 retrying or closing an item of a task count as that task's project. Operations open
 only to project agents, such as `board ask`, still need the session's Spur project listed under
 that task's Board project. `board inbox ack` is also open to the operator; the operator token
-acks only orchestrator turns (`T<n>`). Linking a session to a task from its pull
+acks only turns (`T<n>`): orchestrator turns and turns addressed to the operator. Linking a session to a task from its pull
 request or branch needs its Spur project listed with `role: worker` under that task's Board
 project; a `board-worker` link label works from any Spur project.
 

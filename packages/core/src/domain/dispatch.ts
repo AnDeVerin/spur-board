@@ -3,6 +3,7 @@ import {
   COLUMN_IDS,
   GATE_REASONS,
   isTodoGroupColumn,
+  type AddresseeRole,
   type ColumnId,
   type GateReason,
   type MoveReason,
@@ -113,6 +114,46 @@ const indexOf = (column: ColumnId) => COLUMN_IDS.indexOf(column);
 
 function orchestratorOf(project: GateProject, column: ColumnId): string {
   return project.columns.find((c) => c.id === column)?.orchestrator ?? 'none';
+}
+
+/**
+ * Whether a column with orchestrator `none` goes to the operator, not the worker: Review, Product
+ * Review, QA and Ready to Merge. Dev and Done fall back to the worker, External Review waits with
+ * no turn and the Todo group opens none.
+ */
+export function operatorWhenUnbound(column: ColumnId): boolean {
+  return (
+    column === 'review' ||
+    column === 'product-review' ||
+    column === 'qa' ||
+    column === 'ready-to-merge'
+  );
+}
+
+/**
+ * Who executes a column's turn: its orchestrator project, the operator, or for a column with
+ * no orchestrator the operator in Review, Product Review, QA and Ready to Merge, elsewhere the
+ * live worker, else the operator.
+ */
+export function turnExecutor(
+  column: ColumnId,
+  columnOrchestrator: string,
+  hasLiveWorker: boolean,
+): AddresseeRole {
+  if (columnOrchestrator === 'operator') return 'operator';
+  if (columnOrchestrator !== 'none') return `orchestrator:${column}`;
+  return hasLiveWorker && !operatorWhenUnbound(column) ? 'worker' : 'operator';
+}
+
+/** The column's turns go to the operator: bound to `operator`, or unbound and operator-run. */
+function operatorExecutes(project: GateProject, column: ColumnId): boolean {
+  const executor = orchestratorOf(project, column);
+  return executor === 'operator' || (executor === 'none' && operatorWhenUnbound(column));
+}
+
+/** The column's turns go to the worker: unbound and not operator-run. */
+function workerExecutes(project: GateProject, column: ColumnId): boolean {
+  return orchestratorOf(project, column) === 'none' && !operatorWhenUnbound(column);
 }
 
 const groupOf = (column: ColumnId) => COLUMNS.find((c) => c.id === column)?.group ?? null;
@@ -235,8 +276,9 @@ export function dispatchHolds(input: DispatchInput): TaskHold[] {
 
 /**
  * Runs the dispatcher cascade from the task's column: each step moves the task or ends with at
- * most one turn for its column. A turn whose executor is the worker (a column with orchestrator
- * `none`) is deferred while Spur is blind.
+ * most one turn for its column. A turn whose executor is the worker (an unbound Dev or Done) is
+ * deferred while Spur is blind. A Ready to Merge run by the operator opens no turn after a submit
+ * while only the merge is missing.
  */
 export function dispatch(input: DispatchInput): DispatchResult {
   const moves: DispatchMove[] = [];
@@ -255,8 +297,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
     turn = NO_TURN;
   };
   const result = (next: DispatchTurn | null): DispatchResult => {
-    const deferred =
-      next !== null && input.spurBlind && orchestratorOf(project, next.column) === 'none';
+    const deferred = next !== null && input.spurBlind && workerExecutes(project, next.column);
     const opened = cycleHeld || deferred ? null : withThreads(next);
     // Only a Dev turn hands over feedback, and none from an incomplete history (applyOn).
     const handsOver =
@@ -332,11 +373,17 @@ export function dispatch(input: DispatchInput): DispatchResult {
         return result({ column, reasons, kind: 'entry' });
       case 'unclosed':
         return result(
-          turn.operatorUntaken && executor === 'none' && workerLive
+          turn.operatorUntaken && workerExecutes(project, column) && workerLive
             ? { column, reasons, kind: 'reroute' }
             : null,
         );
       case 'submitted':
+        if (
+          column === 'ready-to-merge' &&
+          operatorExecutes(project, column) &&
+          reasons.every((reason) => reason === 'not_merged')
+        )
+          return result(null);
         return result(
           reasons.some((reason) => !HOLD_ONLY.has(reason))
             ? { column, reasons, kind: 'after_submit' }

@@ -18,7 +18,7 @@ export const configViewSchema = z
                     kind: z
                       .enum(['dispatcher', 'worker', 'orchestrator', 'curator', 'operator'])
                       .describe(
-                        'Configured executor; worker falls back to operator without a live worker.',
+                        'Configured executor; worker falls back to operator without a live worker; unbound Review, Product Review, QA and Ready to Merge read operator.',
                       ),
                     name: z
                       .string()

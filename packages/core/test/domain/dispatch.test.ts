@@ -441,6 +441,48 @@ const cases: [string, Changes, Result][] = [
     nothing,
   ],
   [
+    'no reroute of an unbound Review',
+    {
+      column: 'review',
+      board: orchestrate(SB, 'review', 'none'),
+      turn: { visit: 'unclosed', operatorUntaken: true },
+    },
+    nothing,
+  ],
+  [
+    'no turn after a submit to an operator Ready to Merge while only the merge is missing',
+    {
+      column: 'ready-to-merge',
+      facts: { marks: [submit('dev'), mark('review'), mark('product-review')] },
+      turn: { visit: 'submitted' },
+    },
+    nothing,
+  ],
+  [
+    'no turn after a submit to an unbound Ready to Merge while only the merge is missing',
+    {
+      column: 'ready-to-merge',
+      board: orchestrate(SB, 'ready-to-merge', 'none'),
+      facts: { marks: [submit('dev'), mark('review'), mark('product-review')] },
+      turn: { visit: 'submitted' },
+    },
+    nothing,
+  ],
+  [
+    'after_submit for an orchestrator Ready to Merge while only the merge is missing',
+    {
+      column: 'ready-to-merge',
+      board: orchestrate(SB, 'ready-to-merge', 'closer'),
+      facts: { marks: [submit('dev'), mark('review'), mark('product-review')] },
+      turn: { visit: 'submitted' },
+    },
+    {
+      moves: [],
+      turn: turn('after_submit', 'ready-to-merge', 'not_merged'),
+      voids: 'ready-to-merge',
+    },
+  ],
+  [
     'External Review holds',
     {
       column: 'external-review',
@@ -677,6 +719,24 @@ describe('dispatch', () => {
     facts: { marks: [] },
   } as const;
 
+  it.each([
+    ['review', 'no_review_on_head'],
+    ['product-review', 'no_review_on_head'],
+    ['qa', 'no_submit_on_head'],
+    ['ready-to-merge', 'not_merged'],
+  ] as const)('Spur blind keeps an unbound %s turn', (column, reason) => {
+    const devAt = COLUMN_IDS.indexOf('dev');
+    const board = ALL.map((c) => ({
+      ...c,
+      orchestrator: 'none',
+      enabled: COLUMN_IDS.indexOf(c.id) <= devAt || c.id === column || c.id === 'done',
+    }));
+    expect(dispatch(input({ column, board, spurBlind: true }))).toEqual({
+      moves: [],
+      turn: turn('entry', column, reason),
+    });
+  });
+
   it.each(['todo', 'dev'] as const)('finishes an idle done ticket from %s', (column) => {
     const given = input({ ...idle, column });
     expect(dispatch(given)).toEqual({
@@ -804,7 +864,7 @@ describe('dispatch', () => {
 
 describe('dispatch with a checksGate', () => {
   const passed = {
-    marks: [submit('dev'), mark('review'), mark('product-review')],
+    marks: [submit('dev'), mark('review'), mark('product-review'), submit('qa')],
     externalReviewApproved: true,
   };
   const board = orchestrate(ALL, 'external-review', 'ext');

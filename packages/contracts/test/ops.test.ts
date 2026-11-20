@@ -972,9 +972,10 @@ describe('snapshot', () => {
     // tasks[].qaSubmission to status.get. #753 adds the optional approvals list to status.get
     // prSummary and task.get PR links. #737 adds task.order, tasks[].position, the
     // order_anchor_invalid code and the task_reordered kind; the task.order description
-    // names its one-placement and non-blank key rule.
+    // names its one-placement and non-blank key rule. #800 names the operator's take of a turn
+    // addressed to it in inbox.ack and the operator kind of unbound columns in config.get.
     expect(await catalogVersion(baseline)).toBe(
-      '71eed80ab701c6eb867ff07b3c50dd70fc341a2d6c72102a9529d5031f850d88',
+      'a1c574bbbce820038525a695e04c14024525de9ec660878994fbeed389aa838a',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

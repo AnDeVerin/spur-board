@@ -1431,7 +1431,7 @@ describe('turn refusals', () => {
   });
 
   it('polls nothing for a caller the grants deny', async () => {
-    const ctx = await setup({ reviewOrchestrator: 'none' });
+    const ctx = await setup({ column: 'dev' });
     expect((await ctx.openTurn()).role).toBe('worker');
     await ctx.ack(WORKER_1);
     await ctx.store.transaction(async (trx) => {
@@ -2452,12 +2452,9 @@ describe('task.move', () => {
         .select(['column', 'closed_reason'])
         .orderBy('id')
         .execute();
-      expect(turns.filter((turn) => turn.column === 'qa')).toHaveLength(
-        qaOrchestrator === 'none' ? 1 : 2,
-      );
-      expect((await ctx.task()).column).toBe(qaOrchestrator === 'none' ? 'ready-to-merge' : 'qa');
-      const actor =
-        qaOrchestrator === 'qa' ? QA_1 : qaOrchestrator === 'operator' ? 'operator' : WORKER_1;
+      expect(turns.filter((turn) => turn.column === 'qa')).toHaveLength(2);
+      expect((await ctx.task()).column).toBe('qa');
+      const actor = qaOrchestrator === 'qa' ? QA_1 : 'operator';
       await expect(ctx.submit(actor, A, 'late-after-correction')).rejects.toMatchObject({
         code: 'turn_closed',
       });
@@ -2908,7 +2905,7 @@ describe('operator takeover', () => {
     expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(held));
   });
 
-  it('keeps the bare operator to orchestrator turns', async () => {
+  it('keeps the bare operator to turns', async () => {
     const ctx = await taken();
     const notice = await ctx.turnNotice(1);
     const ring = `N${String(notice.id)}`;
@@ -2936,7 +2933,7 @@ describe('operator takeover', () => {
     });
     expect(await eventsSince(ctx, denied)).toEqual([]);
 
-    const worker = await setup({ reviewOrchestrator: 'none' });
+    const worker = await setup({ column: 'dev' });
     await worker.openTurn();
     expect((await worker.turn()).role).toBe('worker');
     const workerSeen = (await worker.events()).length;
@@ -2944,10 +2941,98 @@ describe('operator takeover', () => {
     expect(await eventsSince(worker, workerSeen)).toEqual([]);
     await worker.ack(WORKER_1);
     await expect(worker.ack('operator')).rejects.toMatchObject({ code: 'not_found' });
+  });
 
-    const own = await setup({ reviewOrchestrator: 'operator' });
-    await own.openTurn();
-    expect((await own.turn()).role).toBe('operator');
-    await expect(own.ack('operator')).rejects.toMatchObject({ code: 'not_found' });
+  describe('operator turns', () => {
+    const BINDINGS = ['none', 'operator'] as const;
+    const cases = BINDINGS.flatMap((binding) => OPERATORS.map((actor) => ({ binding, actor })));
+
+    it.each(cases)(
+      '$actor takes an untaken $binding Review operator turn and submits it with a basis',
+      async ({ binding, actor }) => {
+        const ctx = await setup({ reviewOrchestrator: binding });
+        await ctx.openTurn();
+        expect((await ctx.turn()).role).toBe('operator');
+        await expect(ctx.ack(actor)).resolves.toMatchObject({ acked: ['T1'] });
+        expect(await ctx.turn()).toMatchObject({ acked_by: actor, acked_at: AT });
+        expect(
+          await ctx.store.db
+            .selectFrom('event')
+            .select(['actor', 'actor_ref', 'payload'])
+            .where('kind', '=', 'turn_taken')
+            .execute(),
+        ).toEqual([{ ...actorOf(actor), payload: JSON.stringify({ turn: 'T1', taker: actor }) }]);
+        ctx.commits(A);
+        await expect(
+          ctx.submit(actor, A, 'op-submit', 'T1', { basis: 'skipped', reason: 'Checked by hand.' }),
+        ).resolves.toMatchObject({ turn: 'T1', status: 'confirmed' });
+        expect(await ctx.store.db.selectFrom('submission').selectAll().execute()).toMatchObject([
+          { author: actor, commit_sha: A, basis: 'skipped' },
+        ]);
+        expect(await closedRows(ctx)).toEqual([actorOf(actor)]);
+      },
+    );
+
+    it.each(BINDINGS)(
+      'lets the other operator re-take a taken %s operator turn',
+      async (binding) => {
+        const ctx = await setup({ reviewOrchestrator: binding });
+        await ctx.openTurn();
+        await ctx.ack('operator');
+        await expect(ctx.ack(OPS_1)).resolves.toMatchObject({ acked: ['T1'] });
+        expect((await ctx.turn()).acked_by).toBe(OPS_1);
+      },
+    );
+
+    it.each(cases)('$actor returns a $binding operator turn to Dev', async ({ binding, actor }) => {
+      const ctx = await setup({ reviewOrchestrator: binding });
+      await ctx.openTurn();
+      await ctx.ack(actor);
+      await expect(ctx.return(actor, 'op-return')).resolves.toMatchObject({
+        task: { key: 'o/r#9', column: 'dev' },
+        block: { id: 'B1', author: actor, addressee: 'worker' },
+      });
+      expect(await ctx.turn()).toMatchObject({ closed_reason: 'returned' });
+      expect(await closedRows(ctx)).toEqual([actorOf(actor)]);
+    });
+
+    it.each(OPERATORS)(
+      "passes an unbound Review on %s's submit, not on the worker's Dev submit",
+      async (actor) => {
+        const green = { name: 'ci', state: 'success' as const, completedAt: AT };
+        const ctx = await setup({
+          reviewOrchestrator: 'none',
+          mode: 'on',
+          complete: true,
+          pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
+        });
+        await ctx.submitted('dev', A, WORKER_1);
+        ctx.commits(A);
+        await ctx.openTurn();
+        expect((await ctx.turn()).role).toBe('operator');
+        await ctx.ack(actor);
+        await expect(ctx.submit(actor, A, 'op-submit')).resolves.toMatchObject({
+          status: 'confirmed',
+          task: { column: 'qa' },
+        });
+        const open = await ctx.store.db
+          .selectFrom('turn')
+          .select('role')
+          .where('closed_at', 'is', null)
+          .execute();
+        expect(open).toEqual([{ role: 'orchestrator:qa' }]);
+      },
+    );
+
+    it.each(BINDINGS)(
+      'refuses a worker ack of a %s operator turn with not_found',
+      async (binding) => {
+        const ctx = await setup({ reviewOrchestrator: binding });
+        await ctx.openTurn();
+        const unchanged = await ctx.tables();
+        await expect(ctx.ack(WORKER_1)).rejects.toMatchObject({ code: 'not_found' });
+        expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(unchanged));
+      },
+    );
   });
 });

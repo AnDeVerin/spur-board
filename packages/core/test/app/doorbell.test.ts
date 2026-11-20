@@ -3525,6 +3525,9 @@ describe('turns', () => {
     expect(turnExecutor('dev', 'operator', true)).toBe('operator');
     expect(turnExecutor('dev', 'none', true)).toBe('worker');
     expect(turnExecutor('dev', 'none', false)).toBe('operator');
+    expect(turnExecutor('done', 'none', true)).toBe('worker');
+    for (const column of ['review', 'product-review', 'qa', 'ready-to-merge'] as const)
+      expect(turnExecutor(column, 'none', true)).toBe('operator');
   });
 
   it('closes the turns of an archived task', async () => {

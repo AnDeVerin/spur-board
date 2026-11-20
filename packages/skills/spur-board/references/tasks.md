@@ -58,7 +58,7 @@ Other errors: `not_found`.
 Purpose: Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.
 Arguments: `<entries>`.
 Flags: `--key <key>`, `--json`.
-Use when: Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take over an open orchestrator turn, taken or not.
+Use when: Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take a turn addressed to the operator, or to take over an open orchestrator turn, taken or not.
 Avoid when: Use `board inbox` to inspect them first.
 Example: `board inbox ack C3@1 --key inbox-ack-PROJ-123-comment-revision-1432` — Acknowledge a comment revision.
 Other errors: `wrong_id_kind`, `not_found`, `stale_comment_revision`, `idempotency_key_mismatch`.

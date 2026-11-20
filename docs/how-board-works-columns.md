@@ -47,7 +47,8 @@ Each complete read moves idle tasks between it and `todo`, overriding `--correct
 `board config get`: `group: todo`; `board status`: `columnGroups`.
 
 Each column has one executor: `projects[].columns[].orchestrator`:
-`none` (live worker, else operator), `operator`, or project with role
+`none` (Dev, Done: live worker, else operator; External Review: no turn; others:
+operator), `operator`, or project with role
 `orchestrator` or `curator`. The worker owns the code and branch; others inspect/return, never push.
 
 `projects[].spurProjects[].role` accepts `worker`, `operator`, `curator` and
@@ -88,7 +89,7 @@ A status comment whose last line is a hidden `board-reviewer-progress` or
 for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
-External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse other worker columns' same-head submits. Gate rules have no switch
+External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. A submit counts only in its own column. After a submit, an operator Ready to Merge waits for the merge with no new turn. Gate rules have no switch
 except enabled columns, no-CI, checks gate, resolved threads and review rule
 (`approvalRule: github-rules`, `docs/configuration.md`).
 
@@ -111,9 +112,8 @@ submissions belong to one column visit; moving left clears them and those to the
 right. A different observed PR head permanently invalidates internal Review,
 Product Review and QA evidence, even if the head later returns.
 Operator correction into QA clears confirmed and pending QA evidence,
-keeping review marks; with passing upstream gates and a QA orchestrator or operator,
-this opens a fresh QA turn. Executor `none` keeps worker-column reuse: a valid Dev
-submit can satisfy QA after correction. Retained QA cannot supply Dev's submit
+keeping review marks; with passing upstream gates,
+this opens a fresh QA turn. Retained QA cannot supply Dev's submit
 requirement: submit the current Dev visit first.
 
 PR closed without merge with no open PR, or closed
