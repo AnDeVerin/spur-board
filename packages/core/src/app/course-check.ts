@@ -60,10 +60,10 @@ function counted(
 }
 
 /** The counter that takes every round caused by an external change request. */
-const EXTERNAL_COUNTER = 'external-review' satisfies ColumnId;
+export const EXTERNAL_COUNTER = 'external-review' satisfies ColumnId;
 
 /** Return causes that come from an external change request. */
-const EXTERNAL_CAUSES: readonly ReturnCause[] = ['external_comments', 'changes_requested'];
+export const EXTERNAL_CAUSES: readonly ReturnCause[] = ['external_comments', 'changes_requested'];
 
 /** The project's External Review column when it is enabled. */
 export const externalColumn = (project: Pick<Project, 'columns'>) =>

@@ -1,10 +1,12 @@
-import { prSourceId, type Config } from '@spur-board/contracts';
+import { COLUMN_IDS, prSourceId, type Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import type { Row } from '../store/schema.ts';
 import { emit, type Trx } from './board-utils.ts';
 import {
   courseCounter,
   type CourseReplay,
+  EXTERNAL_CAUSES,
+  EXTERNAL_COUNTER,
   externalColumn,
   externalRound,
   externalReviewer,
@@ -78,20 +80,23 @@ export async function recordExternalRounds(
   }
 }
 
+/** The columns a return from External Review can go to: every column left of it. */
+const LEFT_OF_EXTERNAL = COLUMN_IDS.slice(0, COLUMN_IDS.indexOf(EXTERNAL_COUNTER));
+
 /**
- * Whether the task's journal holds a round External Review's counter can take: an
- * `external_round`, a return for external feedback (`external_comments` or `changes_requested`
- * among its gate causes), or an executor return from External Review itself; every other return
- * stays on its own column. Without one the deferred raise reads no PR history. One row at most,
- * through the event task index.
+ * Whether the task's journal may hold a round External Review's counter takes (`courseCounter`):
+ * an `external_round`, a move whose gate holds an external cause (`EXTERNAL_CAUSES`) from any
+ * column, or any left move from External Review, whatever its cause. A superset of the counted
+ * entries: a move it lets through only costs a replay, and none it drops can count. Without one
+ * the deferred raise reads no PR history. One row at most, through the event task index.
  */
-async function mayCount(trx: Trx, taskId: number): Promise<boolean> {
+export async function mayCount(trx: Trx, taskId: number): Promise<boolean> {
   const row = await trx
     .selectFrom('event')
     .select('id')
     .where('task_id', '=', taskId)
     .where(
-      sql<boolean>`(kind = 'external_round' or (kind = 'task_moved' and (exists (select 1 from json_each(event.payload, '$.gate') where value in ('external_comments', 'changes_requested')) or (json_extract(payload, '$.from') = 'external-review' and json_extract(payload, '$.block') is not null))))`,
+      sql<boolean>`(kind = 'external_round' or (kind = 'task_moved' and (exists (select 1 from json_each(event.payload, '$.gate') where value in (select value from json_each(${JSON.stringify(EXTERNAL_CAUSES)}))) or (json_extract(payload, '$.from') = ${EXTERNAL_COUNTER} and json_extract(payload, '$.to') in (select value from json_each(${JSON.stringify(LEFT_OF_EXTERNAL)}))))))`,
     )
     .limit(1)
     .executeTakeFirst();

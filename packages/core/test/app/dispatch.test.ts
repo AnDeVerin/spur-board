@@ -29,6 +29,7 @@ import { registerTurnReminder, ringStillCurrent } from '../../src/app/doorbells.
 import { archiveTask } from '../../src/app/archive.ts';
 import { returnCounts } from '../../src/app/course-check.ts';
 import { dispatchTasks } from '../../src/app/dispatch.ts';
+import { mayCount } from '../../src/app/external-rounds.ts';
 import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { markTaskChanged } from '../../src/app/board-utils.ts';
@@ -79,6 +80,10 @@ type Options = {
   doneOrchestrator?: string;
   /** External Review's orchestrator, so it has an executor that can return the task. */
   externalOrchestrator?: string;
+  /** External Review's `requireResolvedThreads`; unset by default. */
+  externalThreads?: boolean;
+  /** External Review's cycle limit; the default applies when unset. */
+  externalCycleLimit?: number;
   /** The task's project left the config: the only project tracks another repo. */
   projectRemoved?: boolean;
   /** The project also tracks the repo `o/b`. */
@@ -197,6 +202,12 @@ function columnsOf(options: Options) {
             ...(options.externalOrchestrator === undefined
               ? {}
               : { orchestrator: options.externalOrchestrator }),
+            ...(options.externalThreads === undefined
+              ? {}
+              : { requireResolvedThreads: options.externalThreads }),
+            ...(options.externalCycleLimit === undefined
+              ? {}
+              : { cycleLimit: options.externalCycleLimit }),
             ...(options.externalCourseCheck === undefined
               ? {}
               : { courseCheck: options.externalCourseCheck }),
@@ -4267,15 +4278,34 @@ describe('external change-request rounds', () => {
       column: 'dev',
       checks: ['source:spur', 'course-check:1:external-review'],
     },
+    {
+      name: 'nothing completes after an unresolved thread returns the task from External Review',
+      start: async () => {
+        const ctx = await pastProductReview({
+          externalReview: true,
+          curator: true,
+          externalThreads: true,
+          externalCycleLimit: 1,
+          externalCourseCheck: 1,
+        });
+        expect((await ctx.task()).column).toBe('external-review');
+        await ctx.pr({ reviewThreads: [{ resolved: false }] });
+        return ctx;
+      },
+      finish: (ctx: Board) => ctx.tick(),
+      column: 'dev',
+      checks: ['course-check:1:external-review'],
+      limitKey: 'cycle-limit:1:external-review',
+    },
   ])(
     'completion wins over a deferred External Review check: $name',
-    async ({ start, finish, column, checks }) => {
+    async ({ start, finish, column, checks, limitKey = 'cycle-limit:1:review' }) => {
       const ctx = await start();
       expect((await ctx.task()).column).toBe('dev');
       const [limit] = (await itemsOf(ctx, 'cycle_limit')).filter(
         (item) => item.cleared_at === null,
       );
-      expect(limit?.item_key).toBe('cycle-limit:1:review');
+      expect(limit?.item_key).toBe(limitKey);
       expect(await itemsOf(ctx, 'course_check')).toEqual([]);
       await ctx.closeItem(`I${String(limit?.id)}`);
       expect(await itemsOf(ctx, 'course_check')).toEqual([]);
@@ -4446,6 +4476,86 @@ describe('external change-request rounds', () => {
         ),
       ).toEqual(returns === 0 ? [] : [[JSON.stringify(used)]]);
       expect(used).toHaveLength(returns);
+    },
+  );
+
+  it.each([
+    {
+      name: 'an external-comments return from Review',
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await externalReturn(ctx, A);
+        return ctx;
+      },
+      counts: true,
+    },
+    {
+      name: 'an unresolved-threads return from External Review',
+      start: async (options: Options) => {
+        const ctx = await pastProductReview(options);
+        await ctx.pr({ reviewThreads: [{ resolved: false }] });
+        expect((await ctx.moves()).at(-1)).toMatchObject({
+          from: 'external-review',
+          gate: ['unresolved_threads'],
+        });
+        return ctx;
+      },
+      counts: true,
+    },
+    {
+      name: 'an External Review executor return',
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await externalExecutorReturn(ctx);
+        return ctx;
+      },
+      counts: true,
+    },
+    {
+      name: 'a Review executor return',
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await cycle(ctx);
+        return ctx;
+      },
+      counts: false,
+    },
+    {
+      name: 'a no_submit_on_head return',
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await ctx.pr({ headSha: B });
+        expect((await ctx.moves()).at(-1)?.gate).toEqual(['no_submit_on_head']);
+        return ctx;
+      },
+      counts: false,
+    },
+    {
+      name: 'an external_round',
+      start: async (options: Options) => {
+        const ctx = await inDev(options);
+        await devRound(ctx, B);
+        return ctx;
+      },
+      counts: true,
+    },
+  ])(
+    "a replay runs exactly when External Review's counter takes an entry: $name",
+    async ({ start, counts }) => {
+      const options = {
+        externalReview: true,
+        curator: true,
+        externalOrchestrator: 'coord',
+        externalThreads: true,
+        cycleLimit: 10,
+        externalCycleLimit: 10,
+        externalCourseCheck: 10,
+      };
+      const ctx = await start(options);
+      expect((await ctx.task()).column).toBe('dev');
+      const { course } = await returnCounts(ctx.store.db, 1, 'external-review', project(options));
+      expect(course > 0).toBe(counts);
+      expect(await mayCount(ctx.store.db, 1)).toBe(counts);
     },
   );
 
