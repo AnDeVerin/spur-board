@@ -6,7 +6,7 @@ import type { Row } from '../store/schema.ts';
 import type { Trx } from './board-utils.ts';
 import type { ResolvedTarget } from './authorize.ts';
 import { closeBlockIfOpen, subjectTarget } from './blocks.ts';
-import { blockSubject, taskSubject, type BlockSubject } from './subject.ts';
+import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { restartNotification, ringCommentId } from './doorbells.ts';
 import { clearItem, dismissItem } from './feed.ts';
@@ -41,6 +41,7 @@ async function loadItem(
 /** The ids a delivery payload may carry; each payload kind has its own full schema. */
 const deliveryPayloadSchema = z.object({
   taskId: z.unknown().optional(),
+  blockId: z.unknown().optional(),
   notificationId: z.unknown().optional(),
 });
 
@@ -51,37 +52,65 @@ function deliveryId(item: Item): number | undefined {
     : undefined;
 }
 
+/** How an item finds its subject: a task directly, through a notification, comment or block. */
+interface SubjectRef {
+  task?: number;
+  notification?: number;
+  comment?: number;
+  block?: number;
+}
+
+/** How a failed delivery's outbox row finds its subject, from its payload or ring, if at all. */
+function deliveryRef(row: {
+  kind: string;
+  dedupe_key: string;
+  payload: string;
+}): SubjectRef | undefined {
+  const payload = parseJson(deliveryPayloadSchema, row.payload);
+  if (typeof payload.taskId === 'number') return { task: payload.taskId };
+  if (typeof payload.blockId === 'number') return { block: payload.blockId };
+  if (row.kind !== 'doorbell') return undefined;
+  if (typeof payload.notificationId === 'number') return { notification: payload.notificationId };
+  const comment = ringCommentId(row.dedupe_key);
+  return comment === undefined ? undefined : { comment };
+}
+
 /**
- * The task each failed delivery item's outbox row belongs to: the payload's task, else for a
- * doorbell its ring's (`ringTask`). Reads at most four statements, whatever the item count.
+ * What each item is about; `inbox.operator`, `status.get` and item actions all file an item by
+ * it. An item is its own task's; else a failed delivery's: its payload's task, the block it
+ * posts, or for a doorbell its ring's task; else the block it refers to (`itemBlockRef`). A block
+ * is its task's, or a project-level block its project's while the project is in config. An item
+ * missing from the map is a board item. Reads at most five statements, whatever the item count.
  */
-export async function deliveryOwners(
+export async function itemSubjects(
   trx: Trx,
   items: readonly Item[],
-): Promise<Map<number, Row<'task'>>> {
-  const owners = new Map<number, Row<'task'>>();
+  config: Config,
+): Promise<Map<number, BlockSubject>> {
   const outboxIds = items.flatMap((item) => deliveryId(item) ?? []);
-  if (outboxIds.length === 0) return owners;
-  const rows = await trx
-    .selectFrom('outbox')
-    .select(['id', 'kind', 'dedupe_key', 'payload'])
-    .where('id', 'in', outboxIds)
-    .execute();
-  // How each row finds its task: directly, through its notification or through its comment.
-  const refs = new Map<number, { task?: number; notification?: number; comment?: number }>();
-  for (const row of rows) {
-    const payload = parseJson(deliveryPayloadSchema, row.payload);
-    if (typeof payload.taskId === 'number') refs.set(row.id, { task: payload.taskId });
-    else if (row.kind !== 'doorbell') continue;
-    else if (typeof payload.notificationId === 'number')
-      refs.set(row.id, { notification: payload.notificationId });
-    else {
-      const comment = ringCommentId(row.dedupe_key);
-      if (comment !== undefined) refs.set(row.id, { comment });
-    }
+  const deliveries =
+    outboxIds.length === 0
+      ? []
+      : await trx
+          .selectFrom('outbox')
+          .select(['id', 'kind', 'dedupe_key', 'payload'])
+          .where('id', 'in', outboxIds)
+          .execute();
+  const deliveryRefs = new Map(deliveries.map((row) => [row.id, deliveryRef(row)]));
+  const refs = new Map<number, SubjectRef>();
+  for (const item of items) {
+    const outboxId = deliveryId(item);
+    const blockRef = itemBlockRef(item);
+    const ref =
+      item.task_id !== null
+        ? { task: item.task_id }
+        : ((outboxId === undefined ? undefined : deliveryRefs.get(outboxId)) ??
+          (blockRef === undefined ? {} : { block: blockRef }));
+    refs.set(item.id, ref);
   }
-  const ids = (pick: 'notification' | 'comment') =>
-    [...refs.values()].flatMap((ref) => ref[pick] ?? []);
+  const ids = (pick: 'notification' | 'comment' | 'block') => [
+    ...new Set([...refs.values()].flatMap((ref) => ref[pick] ?? [])),
+  ];
   const [notifications, comments] = await Promise.all(
     (['notification', 'comment'] as const).map((table) => {
       const wanted = ids(table);
@@ -90,78 +119,66 @@ export async function deliveryOwners(
         : trx.selectFrom(table).select(['id', 'task_id']).where('id', 'in', wanted).execute();
     }),
   );
+  const blockIds = ids('block');
+  const blocks =
+    blockIds.length === 0
+      ? []
+      : await trx
+          .selectFrom('block')
+          .select(['id', 'task_id', 'project'])
+          .where('id', 'in', blockIds)
+          .execute();
   const taskOf = {
     notification: new Map(notifications?.map((row) => [row.id, row.task_id])),
     comment: new Map(comments?.map((row) => [row.id, row.task_id])),
   };
-  const taskIds = new Map<number, number>();
-  for (const [outboxId, ref] of refs) {
+  const blockById = new Map(blocks.map((row) => [row.id, row]));
+  const configured = new Set(config.projects.map((project) => project.id));
+  // Each item's task id, or the project of its project-level block.
+  const resolved = new Map<number, { task: number } | { project: string }>();
+  for (const [itemId, ref] of refs) {
+    const block = ref.block === undefined ? undefined : blockById.get(ref.block);
     const taskId =
       ref.task ??
       (ref.notification === undefined ? undefined : taskOf.notification.get(ref.notification)) ??
-      (ref.comment === undefined ? undefined : taskOf.comment.get(ref.comment));
-    if (typeof taskId === 'number') taskIds.set(outboxId, taskId);
+      (ref.comment === undefined ? undefined : taskOf.comment.get(ref.comment)) ??
+      block?.task_id;
+    if (typeof taskId === 'number') resolved.set(itemId, { task: taskId });
+    else if (block?.project != null && configured.has(block.project))
+      resolved.set(itemId, { project: block.project });
   }
-  if (taskIds.size === 0) return owners;
-  const tasks = await trx
-    .selectFrom('task')
-    .selectAll()
-    .where('id', 'in', [...new Set(taskIds.values())])
-    .execute();
+  const taskIds = [
+    ...new Set([...resolved.values()].flatMap((entry) => ('task' in entry ? [entry.task] : []))),
+  ];
+  const tasks =
+    taskIds.length === 0
+      ? []
+      : await trx.selectFrom('task').selectAll().where('id', 'in', taskIds).execute();
   const taskById = new Map(tasks.map((task) => [task.id, task]));
-  for (const item of items) {
-    const outboxId = deliveryId(item);
-    const taskId = outboxId === undefined ? undefined : taskIds.get(outboxId);
-    const task = taskId === undefined ? undefined : taskById.get(taskId);
-    if (task !== undefined) owners.set(item.id, task);
+  const subjects = new Map<number, BlockSubject>();
+  for (const [itemId, entry] of resolved) {
+    if (!('task' in entry)) subjects.set(itemId, projectSubject(entry.project));
+    else {
+      const task = taskById.get(entry.task);
+      if (task !== undefined) subjects.set(itemId, taskSubject(task));
+    }
   }
-  return owners;
+  return subjects;
 }
 
-/** The task a `delivery:<outbox id>` item's row belongs to; the item itself has no task. */
-async function deliveryTask(trx: Trx, item: Item): Promise<Row<'task'> | undefined> {
-  return (await deliveryOwners(trx, [item])).get(item.id);
-}
-
-/** The task an item belongs to: its own, else its delivery's; undefined for a board item. */
-async function itemOwner(trx: Trx, item: Item): Promise<Row<'task'> | undefined> {
-  return item.task_id === null
-    ? deliveryTask(trx, item)
-    : trx.selectFrom('task').selectAll().where('id', '=', item.task_id).executeTakeFirst();
-}
-
-/**
- * What an item is about, as `inbox.operator` files it: its owning task (`itemOwner`), else the
- * block it refers to - that block's task, or a project-level block's project while the project
- * is in config. Undefined for a board item, including one whose project has left the config.
- */
-export async function itemSubject(
+/** One item's subject (`itemSubjects`); undefined for a board item. */
+async function itemSubject(
   trx: Trx,
   item: Item,
   config: Config,
 ): Promise<BlockSubject | undefined> {
-  const owner = await itemOwner(trx, item);
-  if (owner !== undefined) return taskSubject(owner);
-  const ref = itemBlockRef(item);
-  const block =
-    ref === undefined
-      ? undefined
-      : await trx
-          .selectFrom('block')
-          .select(['task_id', 'project'])
-          .where('id', '=', ref)
-          .executeTakeFirst();
-  if (block === undefined) return undefined;
-  if (block.task_id === null && !config.projects.some((entry) => entry.id === block.project)) {
-    return undefined;
-  }
-  return blockSubject(trx, block);
+  return (await itemSubjects(trx, [item], config)).get(item.id);
 }
 
 /**
- * An item is its subject's project's (`itemSubject`); a board item or an unknown ID has no
- * target, so only the token, the board-wide operator or a one-project board's operator may act
- * on it, and `run` raises the unknown ID.
+ * An item is its subject's project's (`itemSubjects`); a board item or an unknown ID has no
+ * target, so only the token, the board-wide operator or, without one, a one-project board's
+ * operator may act on it, and `run` raises the unknown ID.
  */
 async function itemTarget(
   trx: Trx,
@@ -258,7 +275,7 @@ export function createItemMutations(deps: {
       resolveTargets,
       async run(trx, input, ctx) {
         const { item, task } = await loadItem(trx, input.item);
-        const owner = task ?? (await deliveryTask(trx, item));
+        const owner = (await itemSubject(trx, item, deps.config))?.task;
         if (owner?.membership === 'archived') {
           throw new CommandError('task_archived', 'Add the task again before retrying its item.');
         }

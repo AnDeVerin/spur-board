@@ -1896,10 +1896,10 @@ it.each([
     ['delivery:1'],
   ],
   [
-    'the board-wide operator sees every item',
+    'the board-wide operator sees the items of the project it serves and the board',
     true,
     'agent:hq/s1',
-    ['delivery:1', 'delivery:2', 'delivery:3'],
+    ['delivery:2', 'delivery:3'],
   ],
   ['the token sees every item', true, 'operator', ['delivery:1', 'delivery:2', 'delivery:3']],
   ['a worker sees no delivery item', true, 'agent:first-worker/s1', []],

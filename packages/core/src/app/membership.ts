@@ -49,8 +49,8 @@ export function createMembershipMutations(config: Config): {
       id: 'task.add',
       // An existing key is its task's target; a new key is the project its tracker resolves to,
       // where `run` creates it. An unknown or ambiguous key has no project, so only the token,
-      // the board-wide operator or a one-project board's operator reach `run`, which raises the
-      // key's own error.
+      // the board-wide operator or, without one, a one-project board's operator reach `run`,
+      // which raises the key's own error.
       async resolveTargets(trx, input) {
         let canonical;
         try {

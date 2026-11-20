@@ -597,7 +597,7 @@ export const OPERATIONS = [
     web: true,
     kind: 'query',
     description:
-      "List what waits for the operator and what was handled in the last 24 hours; a project's own operator session sees only its operator projects, and _board entries go to the operator token, the board-wide operator, or a one-project board's operator.",
+      "List what waits for the operator and what was handled in the last 24 hours; a project's own operator session sees only its operator projects, and _board entries go to the operator token, the board-wide operator, or the operator of a one-project board without a board-wide operator.",
     mcp: {
       whenToUse:
         'As the operator, review every open operator item, block and turn across projects in one list.',

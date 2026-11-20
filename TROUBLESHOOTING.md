@@ -415,17 +415,21 @@ only on the Board project that lists it. A top-level `spurProjects` entry with `
 serves every Board project without its own operator. Operator commands that name no project, such
 as `board token list`, `board task add` with a key that matches no unique project tracker, and `board item retry`
 or `board item close` on an item of neither a task nor a project question, run only for the
-operator token, the board-wide operator, or, without one, the operator of a one-project Board.
+operator token, the board-wide operator, or the operator of a one-project Board without a
+board-wide operator.
 Before this rule, a project
 operator of a Board with several projects and no board-wide operator acted on every Board
 project; such a Board now refuses it with `forbidden` outside its own project. To keep one
 operator across projects, move its Spur project to top-level `spurProjects` with
 `role: operator` and remove it from `projects[].spurProjects`; a Spur project named `operator`
-or `none` is refused there, so rename it in Spur first. To keep separate operators, give each
+or `none` is refused there, so rename it in Spur first. A Board project that keeps its own
+operator binding is not served by the top-level operator, so also remove the local operator
+bindings from every Board project it should serve. To keep separate operators, give each
 Board project its own operator Spur project. Restoring an archived task and
 retrying or closing an item of a task count as that task's project; retrying or closing an item
-of a `board project ask` question counts as that question's project while it is in the config,
-as the operator inbox lists it. Operations open
+of a `board project ask` question, its failed post included, counts as that question's project
+while it is in the config. `board inbox operator` and `board status` list an item for the same
+operators that may retry or close it. Operations open
 only to project agents, such as `board ask`, still need the session's Spur project listed under
 that task's Board project. `board inbox ack` is also open to the operator; the operator token
 acks only orchestrator turns (`T<n>`). Linking a session to a task from its pull

@@ -946,7 +946,7 @@ describe('snapshot', () => {
     // prSummary and task.get PR links. #798 drops the other-project operator source from
     // status.get bindings and rewords the inbox.operator description.
     expect(await catalogVersion(baseline)).toBe(
-      '19f495235d5c65c0519bf4b9d4af6cb7ae3d44a2d246f38f172baec5fe8fc9ef',
+      '80ae9784d2ce3321e7674aca1b45155de8cfecf584ad7419e224a412a98f7b92',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
