@@ -13,6 +13,14 @@ import type { InProcessDaemon } from '@spur-board/daemon/in-process';
 import type { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
+import {
+  approvalMulti,
+  approvalRewritten,
+  approvalStale,
+  approvalStaleNoWatch,
+  approvalStaleQuiet,
+  approvalUncounted,
+} from './approval-freshness.ts';
 import { cardLong } from './card.ts';
 import { columnsBasic, columnsBasicJira, columnsUnknown } from './columns-basic.ts';
 import { dispatchCourseCheck, dispatchCourseCheckTo } from './course-check.ts';
@@ -144,8 +152,8 @@ export interface Scenario {
   summary: string;
   /**
    * Merged into the stand's config: `thresholds`, `adapters` and `slack` deep-merge, and `stand`
-   * replaces the `columns`, `dispatcher` and `spurProjects` of the `stand` project. Nothing else
-   * may change.
+   * replaces the `columns`, `dispatcher`, `spurProjects` and `approvalWatch` of the `stand`
+   * project. Nothing else may change.
    */
   config?: {
     thresholds?: Partial<Config['thresholds']>;
@@ -157,6 +165,8 @@ export interface Scenario {
       dispatcher?: { mode: 'shadow' | 'on' };
       /** The full list; the curator scenarios add `stand-curator` as the project's curator. */
       spurProjects?: Config['projects'][number]['spurProjects'];
+      /** The approval freshness scenarios watch `back/` and `front/`. */
+      approvalWatch?: Config['projects'][number]['approvalWatch'];
     };
   };
   seed(board: Board, fakes: ScenarioFakes, clock: { now(): number }): Promise<ScenarioEntities>;
@@ -215,6 +225,12 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchApprovalWithNotes,
   qaCarried,
   qaSkipped,
+  approvalStale,
+  approvalStaleQuiet,
+  approvalMulti,
+  approvalRewritten,
+  approvalUncounted,
+  approvalStaleNoWatch,
   spurTransitionsRapidRecovery,
   spurTransitionsCursorExpired,
   spurTransitionsKilledHolder,
