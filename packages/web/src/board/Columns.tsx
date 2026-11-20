@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import {
   Button,
   focusRing,
@@ -183,7 +183,10 @@ const cards = (rows: readonly BoardRow[], shared: Shared) =>
 /**
  * A column head: label, count, then the executor and the sort buttons. A group part's label is an
  * `h3` under the band's `h2`, and its second line names where its tasks come from. That line is
- * the trigger of the column help panel, which sits right after the head and follows it.
+ * the trigger of the column help panel, which sits right after the head and follows it. Focus
+ * moving anywhere outside the head and its panel closes the panel: a keyboard user tabbing to
+ * the Inbox button or to another column's trigger leaves no panel open behind them, so at most
+ * one panel is open and none stays over the Inbox.
  */
 function ColumnHead({
   column,
@@ -203,6 +206,7 @@ function ColumnHead({
   onHelpOpen: () => void;
 }) {
   const Label = part ? 'h3' : 'h2';
+  const scope = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
   const actor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -210,8 +214,20 @@ function ColumnHead({
   const tabsId = useId();
   const warn = noLiveSession(describedColumn(columns, column.id)?.column, part);
   const title = `How ${column.id} works: who acts and the rules`;
+  useEffect(() => {
+    if (!open) return;
+    // Leaving by Tab or Shift+Tab does not close a Popover, and Enter on the next control fires
+    // no outside mousedown: close on the focus move itself.
+    const leave = (event: FocusEvent) => {
+      if (event.target instanceof Node && !scope.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('focusin', leave);
+    return () => {
+      document.removeEventListener('focusin', leave);
+    };
+  }, [open]);
   return (
-    <>
+    <div ref={scope} className={styles.helpScope}>
       <div ref={head} className={classes(styles.head, quiet)}>
         <div className={styles.name}>
           <Label className={classes(styles.label, part ? styles.partLabel : undefined)}>
@@ -276,7 +292,7 @@ function ColumnHead({
           spurUiOrigin={spurUiOrigin}
         />
       </Popover>
-    </>
+    </div>
   );
 }
 

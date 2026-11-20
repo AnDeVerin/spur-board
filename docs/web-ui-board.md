@@ -55,8 +55,8 @@ Columns follow configuration order:
   only dims.
 - The executor line is a button with an icon for who moves a task here. It opens column help,
   **Who** first, then **Rules**, read from `columns.describe` on each open: a skeleton while it
-  reads, an error in the panel if it fails. Escape, an outside click, Close or a second click
-  close it. A column run by a Spur project (orchestrator or curator) with no live session turns
+  reads, an error in the panel if it fails. Escape, an outside click, Close, a second click or
+  focus leaving the head and panel close it, so one panel is open at most. A column run by a Spur project (orchestrator or curator) with no live session turns
   the line to the attention colour with ` · no live session`. Spines have no help; Backlog parts
   do.
 - An empty column collapses to a spine with its name and `0`.
