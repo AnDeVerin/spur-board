@@ -1,6 +1,7 @@
 // The task card as data: what a `status.get` row shows on the board, before any markup.
 import type { ChipTone, IconName, StatusDotTone } from '../ds/index.ts';
 import { safeExternalUrl, sessionLinkHref, ticketBrowseHref } from '../lib/links.ts';
+import { approvalChip, approvalSuffix, approvalSummary } from './approvals.ts';
 import { formatDataTime, type BoardRow } from './model.ts';
 
 type Turn = NonNullable<BoardRow['turn']>;
@@ -179,6 +180,18 @@ export function qaMarker(row: BoardRow): Marker | null {
   return null;
 }
 
+/**
+ * In Ready to Merge, a warn chip when any approval predates a watched change or a rewritten
+ * history: it names the watched entries or the rewrite. Changes requested and unconfirmed cells
+ * keep it; the cell shows only the quiet facts.
+ */
+function approvalMarker(row: BoardRow): Marker | null {
+  const approvals = displayedPr(row)?.summary?.approvals;
+  if (row.column !== 'ready-to-merge' || approvals === undefined) return null;
+  const chip = approvalChip(approvalSummary(approvals).worst);
+  return chip === null ? null : { tone: 'warn', icon: 'person', ...chip };
+}
+
 /** A session id longer than this is cut, with the full id in the tooltip. */
 const SESSION_CHARS = 20;
 
@@ -201,11 +214,12 @@ export function sessionChip(row: BoardRow, spurUiOrigin: string | null): Marker 
   };
 }
 
-/** Every marker in drawing order: QA, blocks, returned, draft, shadow, then the session chip. */
+/** Every marker in drawing order: approval, QA, blocks, returned, draft, shadow, then the session chip. */
 export function markers(row: BoardRow, spurUiOrigin: string | null): Marker[] {
   const draft: Marker | null =
     displayedPr(row)?.summary?.draft === true ? { tone: 'default', text: 'draft' } : null;
   return [
+    approvalMarker(row),
     qaMarker(row),
     ...blockMarkers(row.blocks),
     returnedMarker(row.returned),
@@ -223,6 +237,10 @@ interface PrCell {
   label: string;
   icons: IconName[];
   text: string;
+  /** A quiet fact after the text, such as `+3` commits since an approval. */
+  suffix?: string;
+  /** The cell's tooltip; the label carries the same words. */
+  title?: string;
 }
 
 export type PrStatus =
@@ -249,7 +267,26 @@ const MERGE: Record<PrSummary['mergeable'], PrCell> = {
   unknown: { tone: 'neutral', label: 'Merge: mergeability unknown', icons: ['merge'], text: '?' },
 };
 
-function prCells(pr: PrSummary): [PrCell, PrCell, PrCell, PrCell] {
+/**
+ * The reviews cell in Ready to Merge from the approval facts: every approval counted, the worst
+ * one's quiet suffix and tooltip, and the pending tone when it asks for a look.
+ */
+function approvalsCell(approvals: NonNullable<PrSummary['approvals']>): PrCell {
+  const { worst } = approvalSummary(approvals);
+  const suffix = worst === null ? null : approvalSuffix(worst);
+  const count = String(approvals.length);
+  return {
+    tone: worst?.loud === true ? 'pend' : 'ok',
+    label: suffix === null ? `Approvals: ${count}` : `Approvals: ${count}; ${suffix.title}`,
+    icons: ['person'],
+    text: count,
+    ...(suffix === null ? {} : { title: suffix.title }),
+    ...(suffix === null || suffix.text === '' ? {} : { suffix: suffix.text }),
+  };
+}
+
+/** The four cells; `deciding` (Ready to Merge) reads the approval facts into the reviews cell. */
+function prCells(pr: PrSummary, deciding: boolean): [PrCell, PrCell, PrCell, PrCell] {
   const { pass, fail, pending } = pr.checks;
   const total = pass + fail + pending;
   const checks: PrCell =
@@ -277,27 +314,33 @@ function prCells(pr: PrSummary): [PrCell, PrCell, PrCell, PrCell] {
         };
   const { approved, changesRequested } = pr.reviewsOnHead;
   const reviews: PrCell =
-    changesRequested.length > 0
-      ? {
-          tone: 'bad',
-          label: `Reviews on the head: ${String(changesRequested.length)} changes requested`,
-          icons: ['person'],
-          text: String(changesRequested.length),
-        }
-      : approved.length > 0
+    deciding &&
+    pr.approvals !== undefined &&
+    pr.approvals.length > 0 &&
+    changesRequested.length === 0
+      ? approvalsCell(pr.approvals)
+      : changesRequested.length > 0
         ? {
-            tone: 'ok',
-            label: `Reviews on the head: ${String(approved.length)} approved`,
+            tone: 'bad',
+            label: `Reviews on the head: ${String(changesRequested.length)} changes requested`,
             icons: ['person'],
-            text: String(approved.length),
+            text: String(changesRequested.length),
           }
-        : { tone: 'neutral', label: 'Reviews on the head: none', icons: ['person'], text: NONE };
+        : approved.length > 0
+          ? {
+              tone: 'ok',
+              label: `Reviews on the head: ${String(approved.length)} approved`,
+              icons: ['person'],
+              text: String(approved.length),
+            }
+          : { tone: 'neutral', label: 'Reviews on the head: none', icons: ['person'], text: NONE };
   const cells: [PrCell, PrCell, PrCell, PrCell] = [checks, merge, threads, reviews];
   if (!pr.unconfirmed) return cells;
   return cells.map((cell) => ({
     ...cell,
     tone: 'neutral' as const,
     label: `${cell.label}, not confirmed`,
+    ...(cell.title === undefined ? {} : { title: `${cell.title}, not confirmed` }),
   })) as [PrCell, PrCell, PrCell, PrCell];
 }
 
@@ -320,7 +363,12 @@ export function prStatus(row: BoardRow): PrStatus {
         };
   const { summary } = shown;
   if (summary === null) return { kind: 'unobserved', more };
-  return { kind: 'cells', cells: prCells(summary), unconfirmed: summary.unconfirmed, more };
+  return {
+    kind: 'cells',
+    cells: prCells(summary, row.column === 'ready-to-merge'),
+    unconfirmed: summary.unconfirmed,
+    more,
+  };
 }
 
 /** A link beside the card that opens in a new tab. */

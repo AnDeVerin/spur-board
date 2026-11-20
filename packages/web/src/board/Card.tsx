@@ -100,11 +100,13 @@ function PrArea({ status, id }: { status: PrStatus; id: string }) {
                 data-tone={cell.tone}
                 role="img"
                 aria-label={cell.label}
+                title={cell.title}
               >
                 {cell.icons.map((icon) => (
                   <Icon key={icon} name={icon} />
                 ))}
                 {cell.text}
+                {cell.suffix !== undefined && <span className={styles.suffix}>{cell.suffix}</span>}
               </span>
             ))}
           </div>

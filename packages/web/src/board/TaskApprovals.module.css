@@ -1,0 +1,42 @@
+/* The Approvals section: one row per approval, a row asking for a look tinted. */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+.row + .row {
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+}
+.row[data-loud] {
+  background: var(--color-fill-attention);
+}
+.who,
+.what {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+.author {
+  font-weight: var(--weight-medium);
+}
+.sha {
+  font: inherit;
+  color: var(--color-text-secondary);
+}
+.what {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+}
+/* The PR ref before each row when several PRs carry approvals; quiet brightens it. */
+.ref {
+  color: var(--color-text-tertiary);
+}

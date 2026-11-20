@@ -78,14 +78,19 @@ Columns follow configuration order:
     and green glyph with neutral text and border: passed, no conflicts or approved.
     `–`: nothing reported. `?`: mergeability unknown. All four
     grey: not confirmed, the GitHub source is stale or blind. Four `—`: linked, not observed yet.
-    `+N`: other pull requests. An open turn without one shows `no PR yet`.
+    `+N`: other pull requests. An open turn without one shows `no PR yet`. In Ready to Merge,
+    with approval facts and no changes requested, reviews counts every approval and adds a quiet
+    `+N` (commits since the approval) or `?` (not counted or not read yet), explained by its
+    tooltip; an approval before a watched change or a rewritten history turns it yellow.
   - Markers: `B<n> → you` for your block (`+N` for the others), the agents' block count, `returned`
     with its findings, `draft`, and in shadow mode the dispatcher's column. The agents' block count
     and overflow `+N` have a soft red fill and red block icon with neutral text and border;
-    `B<n> → you` keeps its attention styling. In Ready to Merge, when the QA column's latest
-    submission was carried or skipped and not voided, `QA carried` (tooltip: source commit and
-    reason) or a warn `QA skipped` (tooltip: reason) comes first; tested, none or no QA column adds
-    nothing.
+    `B<n> → you` keeps its attention styling. In Ready to Merge a warn approval chip comes first
+    when the cell turns yellow: `approved before` up to two entries then `+K` (all in its
+    tooltip), or `approval: history rewritten`; it also shows with changes requested or grey cells.
+    Next, when the QA column's latest submission was carried or skipped and not voided,
+    `QA carried` (tooltip: source commit and reason) or a warn `QA skipped` (tooltip: reason);
+    tested, none or no QA column adds nothing. See [Approvals](web-ui-task-approvals.md).
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
     on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
     without a turn. Ages stop while the data is stale.

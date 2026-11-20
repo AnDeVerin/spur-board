@@ -22,12 +22,15 @@ open-task `task.get`/`task.history` and `/v1/events`. The UI owns no data.
 - [Board](web-ui-board.md): the header, the inbox, the task columns and the Backlog group.
 - [Status bar and services](web-ui-status.md): service health and the services panel.
 - [Task view](web-ui-task-view.md): a card or `?open=<task key>` opens links, **Why it is here**,
-  **Blocks**, **Comments** and **History** (journal events with channel, e.g. `operator (web)`).
+  **Approvals**, **Blocks**, **Comments** and **History** (journal events with channel, e.g.
+  `operator (web)`).
 - [Task blocks and comments](web-ui-task-blocks.md): answers, follow-ups and comments in the task
   view.
 - [Turn](web-ui-task-turn.md): take an orchestrator turn and submit it or return it to Dev.
 - [Moving between Backlog parts](web-ui-board-move.md): the card menu, drop and task-view move
   with a reason.
+- [Approvals](web-ui-task-approvals.md): approval freshness in the task view and on the Ready to
+  Merge card.
 
 ## Live and stale states
 

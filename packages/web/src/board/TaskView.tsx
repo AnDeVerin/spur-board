@@ -17,6 +17,7 @@ import { TaskWrite } from './TaskWrite.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
 import { TaskMove } from './MoveForm.tsx';
 import { TaskTurn } from './TaskTurn.tsx';
+import { TaskApprovals } from './TaskApprovals.tsx';
 import { TaskSection, TaskSectionsProvider, type TaskSections } from './TaskSection.tsx';
 import { shortKey, type BoardColumnConfig } from './model.ts';
 import {
@@ -249,6 +250,7 @@ export function TaskView({
                     onStale={setTurnStale}
                   />
                 )}
+                {value !== undefined && <TaskApprovals links={value.links} />}
                 {value?.submission !== undefined && (
                   <TaskSection
                     id="submission"

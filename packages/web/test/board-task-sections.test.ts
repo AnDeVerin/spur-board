@@ -8,6 +8,7 @@ mountEachTest();
 const TITLES = {
   why: 'Why it is here',
   turn: 'Turn',
+  approvals: 'Approvals',
   submission: 'Latest submission',
   blocks: 'Blocks',
   comments: 'Comments',
@@ -17,6 +18,7 @@ const IDS = Object.keys(TITLES) as Id[];
 const DEFAULTS: Record<Id, boolean> = {
   why: true,
   turn: true,
+  approvals: true,
   submission: false,
   blocks: true,
   comments: true,
@@ -33,9 +35,21 @@ const submission = {
   pending: false,
   voided: false,
 };
-/** An orchestrator task with a turn and a submission, so all five sections show. */
+const links = [
+  {
+    kind: 'pr',
+    ref: 'ex/repo#7',
+    role: null,
+    state: 'open',
+    approvals: [{ author: 'dana', sha: 'a'.repeat(40), onHead: false }],
+  },
+];
+/** An orchestrator task with a turn, an approval and a submission, so all six sections show. */
 const answer = (key = 'ex/repo#7') =>
-  orchestratorTaskGet({}, { task: { ...taskGet().task, key, column: 'review' }, submission });
+  orchestratorTaskGet(
+    {},
+    { task: { ...taskGet().task, key, column: 'review' }, links, submission },
+  );
 
 const dialog = () => {
   const found = document.querySelector<HTMLElement>('[role="dialog"]');

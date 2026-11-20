@@ -1,5 +1,5 @@
 /** The task view sections whose open or closed state the browser keeps. */
-export type TaskSectionId = 'why' | 'turn' | 'submission' | 'blocks' | 'comments';
+export type TaskSectionId = 'why' | 'turn' | 'approvals' | 'submission' | 'blocks' | 'comments';
 
 /** One key per section for every task and project, like the column order keeps per column. */
 const sectionKey = (id: TaskSectionId) => `board-section:${id}`;

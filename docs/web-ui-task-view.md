@@ -75,20 +75,20 @@ worker.
 The section header sums up the failed and waiting conditions and the open blocks, or reads
 `all pass` or `unknown`.
 
-An open orchestrator turn has a **Turn** section; see [Turn](web-ui-task-turn.md).
+An open orchestrator turn has a **Turn** section ([Turn](web-ui-task-turn.md)), then an open PR
+with approvals an **Approvals** section ([Approvals](web-ui-task-approvals.md)).
 
 ## Latest submission
 
-After Turn (or Why it is here) and before Blocks, the **Latest submission** section shows the
-latest accepted submission. It starts closed; its header reads the basis, then ` · pending` and
-` · voided` when they hold (`tested · pending`), or `No submissions yet`. Open, it lists the
-column, UTC time, full submitted SHA, declared basis, applicable source and original tested SHA,
-literal reason, and pending and voided state. `tested` records provenance and does not mean
-checks passed; the latest row includes pending or voided submissions. An older server without
-this field omits the section. It shares the task's loading, retry and retained-data behavior;
-long SHAs and reasons wrap in Now and History. Normal submission history also shows basis,
-source, tested origin and reason while preserving head-confirmation wording; legacy submissions
-read as tested.
+Before Blocks, the **Latest submission** section shows the latest accepted submission. It starts
+closed; its header reads the basis, then ` · pending` and ` · voided` when they hold
+(`tested · pending`), or `No submissions yet`. Open, it lists the column, UTC time, full
+submitted SHA, declared basis, applicable source and original tested SHA, literal reason, and
+pending and voided state. `tested` records provenance and does not mean checks passed; the latest
+row includes pending or voided submissions. An older server without this field omits the
+section. Long SHAs and reasons wrap in Now and History. Normal submission history also shows
+basis, source, tested origin and reason while preserving head-confirmation wording; legacy
+submissions read as tested.
 
 ## Remembered sections
 

@@ -176,6 +176,13 @@
   background: var(--color-fill-attention);
   color: var(--color-status-attention);
 }
+/* A quiet fact after a cell's text, such as `+3` commits since an approval. */
+.suffix {
+  color: var(--color-text-tertiary);
+}
+.cell[data-tone='pend'] .suffix {
+  color: inherit;
+}
 .placeholder {
   display: flex;
   align-items: center;
