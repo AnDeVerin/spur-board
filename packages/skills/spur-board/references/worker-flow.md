@@ -6,10 +6,11 @@
 - Blocking: keyed `board ask <task> <text>`; keep its B<number> and wait for the
   doorbell. Update: keyed `board comment <task> <text>`.
 - A return to Dev: ack its Dev turn, read the reason in `board task <task>`, fix it, then
-  keyed `board submit <turn> <sha>`. Taking the turn reads the "back" code block; the submit,
-  of a new head or the same head as a reply, closes it `done` with the SHA.
-- Only for a code block whose Dev turn closed without a submit: fix it, then keyed
-  `board unblock <block> --done <ref>` with commit/PR link.
+  keyed `board submit <turn> <sha>`. Taking the turn reads the "back" code block; once the
+  Board confirms the submit, of a new head or the same head as a reply, it closes `done`.
+- A "back" block still open after its Dev turn closed (closed without a submit, or an
+  orchestrator ran the Dev turn): fix it, then keyed `board unblock <block> --done <ref>`
+  with commit/PR link.
 - Exit 3: not applied. Ask in your own session; when the Board returns, retry identically.
 - Exit 4: no Board config; report in your session; keep the key.
 - Exit 5 (unknown): retry up to 3 times in a minute, then ask in your own session.
