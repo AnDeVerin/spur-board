@@ -83,7 +83,8 @@ Fix or answer every open PR point once, with a reason for each rejection.
   tester PASS, a designer APPROVED or a `no UI change since <passed head>` line (else keep the
   last passed head or the placeholder), with `gh pr edit <N> --body-file`.
 - acceptance-gates fails, whatever the branch above decides -> rewrite both gate lines to the
-  current state (a SHA, or n/a when the gate no longer applies), even if no gate needs a rerun.
+  current state (the gate's last passed head, the template placeholder when it applies but has
+  none, or n/a when it no longer applies), even if no gate needs a rerun.
 - Report in the session, not on the PR: `Fixed: <thread or comment> - <sha>` and
   `Rejected: <thread or comment> - <reason>`, one line each, plus the checks run and their exit
   codes.
