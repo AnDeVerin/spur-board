@@ -1,5 +1,5 @@
 {
-  "version": "204256005fc832af09da5365e16078424a5a7636a9032d9d8fcf4fec87979a1d",
+  "version": "1e732d38ee52f51afe9c2ee04f3c5e3c30580bc221f97339d1cf90e698f7a0ec",
   "grants": [
     "operator",
     "project-agent",
@@ -11553,7 +11553,7 @@
     {
       "id": "task.order",
       "kind": "mutation",
-      "description": "Place a task before or after another task, or at the top or bottom of its column order.",
+      "description": "Place a task before or after another task, or at the top or bottom of its column order; exactly one placement (`--before`, `--after`, `--top` or `--bottom`) and a non-blank key are required, else `usage`.",
       "grants": [{ "grant": "operator" }],
       "preconditions": null,
       "errors": [

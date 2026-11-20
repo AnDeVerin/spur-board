@@ -1487,7 +1487,7 @@ export const OPERATIONS = [
     id: 'task.order',
     kind: 'mutation',
     description:
-      'Place a task before or after another task, or at the top or bottom of its column order.',
+      'Place a task before or after another task, or at the top or bottom of its column order; exactly one placement (`--before`, `--after`, `--top` or `--bottom`) and a non-blank key are required, else `usage`.',
     mcp: {
       whenToUse:
         'The operator wants a task earlier or later among the tasks of its column; pass an explicit key. Each column has one order for the whole board.',

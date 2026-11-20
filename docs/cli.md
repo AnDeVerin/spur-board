@@ -644,7 +644,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board order`
 
-Place a task before or after another task, or at the top or bottom of its column order.
+Place a task before or after another task, or at the top or bottom of its column order; exactly one placement (`--before`, `--after`, `--top` or `--bottom`) and a non-blank key are required, else `usage`.
 
 Arguments: `<task>`.
 

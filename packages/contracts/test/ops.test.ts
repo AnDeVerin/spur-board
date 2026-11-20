@@ -934,9 +934,10 @@ describe('snapshot', () => {
     // task.return; their schemas, grants and errors are unchanged. #738 adds the mirror move kind
     // and reason, sources[].failure and the github-project service texts. #755 adds
     // tasks[].qaSubmission to status.get. #737 adds task.order, tasks[].position, the
-    // order_anchor_invalid code and the task_reordered kind.
+    // order_anchor_invalid code and the task_reordered kind; the task.order description
+    // names its one-placement and non-blank key rule.
     expect(await catalogVersion(baseline)).toBe(
-      '8c4118e24178b7a23cc73cd7310f9e469ac260c9b49c311d8c5626d177dbd4f2',
+      'ffd93c96945a5daf2bf5d872035db9cb328bcc3fc632332be489fefc56120e8f',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
