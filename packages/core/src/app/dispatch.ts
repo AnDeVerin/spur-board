@@ -49,7 +49,7 @@ import {
   shadowCourseCheck,
   uncounted,
 } from './course-check.ts';
-import { recordExternalRounds } from './external-rounds.ts';
+import { raiseDeferredCourseCheck, recordExternalRounds } from './external-rounds.ts';
 import { withUnconfirmedCancels } from './cancelled-checks.ts';
 import { linkedSession } from './doorbells.ts';
 import { CommandError } from './commands.ts';
@@ -1260,8 +1260,7 @@ export async function dispatchTasks(
     const project = ctx.config.projects.find((entry) => entry.id === task.project);
     if (project === undefined) continue;
     const mode = project.dispatcher.mode;
-    if (mode === 'on')
-      await recordExternalRounds(trx, { task, project, config: ctx.config, at: ctx.at, blind });
+    if (mode === 'on') await recordExternalRounds(trx, { task, project, at: ctx.at, blind });
     const read = await readInput(trx, task, project, mode, blind, ctx.config, ctx);
     if (read === null) continue;
     // Before the merged-ticket hold: a merge settles the submit whatever the ticket says.
@@ -1269,7 +1268,16 @@ export async function dispatchTasks(
       await supersedeSubmit(trx, task, read.pending, ctx.at);
     if (read.ticketUnconfirmed) continue;
     if (read.pending?.state === 'confirmed') await confirmSubmit(trx, read.pending);
-    const result = dispatch(read.input);
+    let result = dispatch(read.input);
+    // External Review's deferred course check waits for this pass's decision: completion and every
+    // other move go first. Its hold then opens no turn in this pass.
+    if (
+      mode === 'on' &&
+      result.moves.length === 0 &&
+      !read.input.cycleHeld &&
+      (await raiseDeferredCourseCheck(trx, { task, project, config: ctx.config, at: ctx.at }))
+    )
+      result = dispatch({ ...read.input, cycleHeld: true });
     if (mode === 'shadow') await applyShadow(trx, task, project, result, ctx.at);
     else await applyOn(trx, task, read, result, ctx);
   }

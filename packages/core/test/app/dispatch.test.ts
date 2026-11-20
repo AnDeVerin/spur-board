@@ -4180,24 +4180,84 @@ describe('external change-request rounds', () => {
     },
   );
 
-  it('a merge seen with a deferred External Review check finishes the task without it', async () => {
-    const ctx = await inReview({
-      externalReview: true,
-      curator: true,
-      cycleLimit: 1,
-      externalCourseCheck: 1,
-    });
-    await externalReturn(ctx, A);
-    const [limit] = await itemsOf(ctx, 'cycle_limit');
-    expect(limit?.item_key).toBe('cycle-limit:1:review');
-    await ctx.closeItem(`I${String(limit?.id)}`);
-    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+  /** One external-comments return opens Review's cycle limit with External Review's check due. */
+  const deferredCheck = {
+    externalReview: true,
+    curator: true,
+    cycleLimit: 1,
+    externalCourseCheck: 1,
+  };
 
-    await ctx.pr({ state: 'merged' });
-    await ctx.ticket('closed');
-    expect((await ctx.task()).column).toBe('done');
-    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
-  });
+  /** A merged #7, the task back in Dev with an open follow-up #8 on C, then returned from Review. */
+  async function followUpReturned(): Promise<Board> {
+    const ctx = await pastProductReview(deferredCheck);
+    await ctx.pr({
+      state: 'merged',
+      mergedAt: new Date(Date.parse(ctx.at()) + 60_000).toISOString(),
+    });
+    await ctx.ticket();
+    await ctx.ticket();
+    expect((await ctx.task()).column).toBe('dev');
+    await ctx.ack(WORKER, (await ctx.openTurn())?.id ?? '');
+    await ctx.pr({ number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' });
+    await ctx.submit(WORKER, (await ctx.openTurn())?.id ?? '', C);
+    expect((await ctx.task()).column).toBe('review');
+    await externalReturn(ctx, C);
+    return ctx;
+  }
+
+  it.each([
+    {
+      name: 'the active PR merges',
+      start: async () => {
+        const ctx = await inReview(deferredCheck);
+        await externalReturn(ctx, A);
+        return ctx;
+      },
+      finish: async (ctx: Board) => {
+        await ctx.pr({ state: 'merged' });
+        await ctx.ticket('closed');
+      },
+      column: 'done',
+      checks: [],
+    },
+    {
+      name: 'an earlier PR merged and the ticket closes under an open follow-up',
+      start: followUpReturned,
+      finish: (ctx: Board) => ctx.ticket('closed'),
+      column: 'done',
+      checks: [],
+    },
+    {
+      name: 'nothing completes',
+      start: async () => {
+        const ctx = await inReview(deferredCheck);
+        await externalReturn(ctx, A);
+        return ctx;
+      },
+      finish: (ctx: Board) => ctx.tick(),
+      column: 'dev',
+      checks: ['course-check:1:external-review'],
+    },
+  ])(
+    'completion wins over a deferred External Review check: $name',
+    async ({ start, finish, column, checks }) => {
+      const ctx = await start();
+      expect((await ctx.task()).column).toBe('dev');
+      const [limit] = (await itemsOf(ctx, 'cycle_limit')).filter(
+        (item) => item.cleared_at === null,
+      );
+      expect(limit?.item_key).toBe('cycle-limit:1:review');
+      expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+      await ctx.closeItem(`I${String(limit?.id)}`);
+      expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+
+      await finish(ctx);
+      expect((await ctx.task()).column).toBe(column);
+      expect(await openKeys(ctx)).toEqual(checks);
+      if (column === 'dev') expect(await ctx.openTurn()).toBeNull();
+    },
+  );
 
   it('repeated change requests on one head count once', async () => {
     const ctx = await inDev({ externalReview: true, curator: true });

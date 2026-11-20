@@ -3,9 +3,7 @@ import type { Row } from '../store/schema.ts';
 import { emit, type Trx } from './board-utils.ts';
 import {
   courseCounter,
-  courseKeyPrefix,
   courseRounds,
-  cycleKeyPrefix,
   externalColumn,
   externalReviewer,
   prFacts,
@@ -24,30 +22,14 @@ type Project = Config['projects'][number];
  * one `external_round` for each external change request on the open PR that came after the task
  * entered Dev, on a head not yet counted under External Review: by an earlier round or by a
  * return counted there, resets ignored, and not while the PR's GitHub source is `blind` (no
- * complete poll since the start, or blind). Then, with the PR still open and no cycle-limit or
- * course-check item open, raises External Review's course check once its rounds since the last
- * check reach its `courseCheck`, returns alone included: a return that reached it while another
- * item was open.
+ * complete poll since the start, or blind).
  */
 export async function recordExternalRounds(
   trx: Trx,
-  input: {
-    task: Task;
-    project: Project;
-    config: Config;
-    at: Date;
-    blind: (source: string) => boolean;
-  },
+  input: { task: Task; project: Project; at: Date; blind: (source: string) => boolean },
 ): Promise<void> {
-  const { task, project, config, at, blind } = input;
-  const external = externalColumn(project);
-  if (
-    project.dispatcher.mode !== 'on' ||
-    task.column !== 'dev' ||
-    external === undefined ||
-    external.courseCheck <= 0
-  )
-    return;
+  const { task, project, at, blind } = input;
+  if (!counting(task, project)) return;
   const pr = await prFacts(trx, task.id);
   const requests =
     pr?.state === 'open'
@@ -85,25 +67,31 @@ export async function recordExternalRounds(
       }
     }
   }
-  // A merged or closed PR completes or leaves the task in this pass: completion goes first.
-  if (pr?.state !== 'open') return;
-  const open = await trx
-    .selectFrom('operator_item')
-    .select('id')
-    .where((eb) =>
-      eb.or([
-        eb('item_key', 'like', `${cycleKeyPrefix(task.id)}%`),
-        eb('item_key', 'like', `${courseKeyPrefix(task.id)}%`),
-      ]),
-    )
-    .where('cleared_at', 'is', null)
-    .executeTakeFirst();
-  if (open !== undefined) return;
-  await raiseCourseDue(trx, {
-    task,
-    project,
-    config,
-    at,
-    counter: courseCounter({ kind: 'external_round' }, project),
-  });
+}
+
+/** Whether External Review counts the task's Dev rounds: dispatcher on, in Dev, its check on. */
+function counting(task: Task, project: Project): boolean {
+  const external = externalColumn(project);
+  return (
+    project.dispatcher.mode === 'on' &&
+    task.column === 'dev' &&
+    external !== undefined &&
+    external.courseCheck > 0
+  );
+}
+
+/**
+ * Raises External Review's course check of a task in Dev once its rounds since the last check
+ * reach its `courseCheck`, returns alone included: a check a return reached while another item
+ * held the task. The dispatcher calls it only in a pass that leaves the task unheld in Dev, after
+ * its decision, so completion and every other move go first. Returns whether it raised.
+ */
+export async function raiseDeferredCourseCheck(
+  trx: Trx,
+  input: { task: Task; project: Project; config: Config; at: Date },
+): Promise<boolean> {
+  const { task, project, config, at } = input;
+  if (!counting(task, project)) return false;
+  const counter = courseCounter({ kind: 'external_round' }, project);
+  return (await raiseCourseDue(trx, { task, project, config, at, counter })) !== null;
 }
