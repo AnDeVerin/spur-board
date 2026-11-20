@@ -28,7 +28,7 @@ import {
 } from '../domain/blocks/blocks.ts';
 import { authorize, curatorProject, projectTarget, type ResolvedTarget } from './authorize.ts';
 import { authorRole, orchestrator, personaFor, queueBlockOpen } from './block-thread.ts';
-import { emit, taskUrl, type Trx } from './board-utils.ts';
+import { emit, openReturnBlock, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import {
   acknowledgeNotification,
@@ -684,6 +684,22 @@ export async function closeBlockIfOpen(
   await closeOpenBlock(trx, await blockSubject(trx, block), block, ctx, outcome, outcomeReason);
 }
 
+/**
+ * Closes the open `code` block of the return that opened `turn`'s visit (`openReturnBlock`) as
+ * done at `sha`: the turn's submit, once confirmed, answered it. A pending submit waits, so a
+ * voided one leaves the block to the next submit.
+ */
+export async function answerReturn(
+  trx: Trx,
+  task: Task,
+  turn: Parameters<typeof openReturnBlock>[1],
+  ctx: CommandContext,
+  sha: string,
+): Promise<void> {
+  const block = await openReturnBlock(trx, turn);
+  if (block !== undefined) await closeOpenBlock(trx, taskSubject(task), block, ctx, 'done', sha);
+}
+
 /** The thread messages that close an operator conversation, compared after trimming. */
 const CLOSE_COMMANDS: ReadonlySet<string> = new Set(['close', '✅', ':white_check_mark:']);
 
@@ -1256,15 +1272,33 @@ export function createBlockMutations(config: Config) {
     throw new CommandError('not_found', 'No unread block notification.');
   }
 
-  /** Takes a turn; a turn the caller took or was rung for before it closed is already handled. */
+  /**
+   * Takes a turn; a turn the caller took or was rung for before it closed is already handled.
+   * Taking the Dev turn of a return also reads the return's open `code` block
+   * (`openReturnBlock`), so its rings stop and it never raises `worker_not_reading`.
+   */
   async function ackTurn(trx: Trx, id: number, ctx: CommandContext): Promise<AckResult> {
-    const taken = await takeTurn(trx, {
-      turnId: id,
-      actor: ctx.actor,
-      at: new Date(ctx.at),
-      config,
-    });
-    if (taken) return 'acked';
+    const at = new Date(ctx.at);
+    const taken = await takeTurn(trx, { turnId: id, actor: ctx.actor, at, config });
+    if (taken) {
+      const turn = await trx
+        .selectFrom('turn')
+        .selectAll()
+        .where('id', '=', id)
+        .executeTakeFirstOrThrow();
+      const block = await openReturnBlock(trx, turn);
+      // The take already authorized the actor for this visit, so the block is read as a
+      // takeover even when its ring went to another linked session of the role.
+      if (block !== undefined)
+        await acknowledgeNotification(trx, {
+          blockId: block.id,
+          actor: ctx.actor,
+          at,
+          config,
+          takeover: true,
+        });
+      return 'acked';
+    }
     const turn = await trx.selectFrom('turn').selectAll().where('id', '=', id).executeTakeFirst();
     if (turn?.acked_by === ctx.actor) return 'handled';
     if (turn !== undefined && turn.closed_at !== null) {

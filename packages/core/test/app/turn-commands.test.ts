@@ -17,11 +17,13 @@ import {
   createObservationCore,
   createOperationRegistry,
   createQuery,
+  createSender,
   reconcileDueDoorbells,
   type Store,
 } from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { returnCounts } from '../../src/app/course-check.ts';
+import { dispatchPendingSubmits } from '../../src/app/dispatch.ts';
 import { closeTurns, openTurn, takeTurn } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
 
@@ -459,6 +461,29 @@ async function unlinkAll(ctx: Awaited<ReturnType<typeof setup>>) {
   await ctx.store.transaction(async (trx) => {
     await trx.updateTable('link').set({ banned: 1 }).where('entity', '=', 'pr').execute();
   });
+}
+
+/**
+ * Lifts `unlinkAll`, as when the board links the PR again, then runs the tick's pending-submit
+ * pass with GitHub and Spur complete since `AT`, which settles a pending submit.
+ */
+async function relinkAll(ctx: Awaited<ReturnType<typeof setup>>) {
+  await scanTransaction(
+    ctx.store,
+    ctx.config,
+    async (trx) => {
+      await trx.updateTable('link').set({ banned: 0 }).where('entity', '=', 'pr').execute();
+      await dispatchPendingSubmits(trx, {
+        config: ctx.config,
+        at: new Date(AT),
+        complete: new Map([
+          [SOURCE, AT],
+          ['spur', AT],
+        ]),
+      });
+    },
+    { now: () => Date.parse(AT) },
+  );
 }
 
 describe('task.submit', () => {
@@ -1448,6 +1473,208 @@ describe('task.return', () => {
     expect(ctx.calls).toHaveLength(0);
   });
 
+  /** A review turn on a board with the dispatcher on, returned to Dev by rev-1: T2, B1. */
+  async function returnedToDev() {
+    const green = { name: 'ci', state: 'success' as const, completedAt: AT };
+    const ctx = await taken({
+      mode: 'on',
+      complete: true,
+      pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
+    });
+    const clock = { now: () => Date.parse(AT) };
+    const registry = createOperationRegistry({
+      config: ctx.config,
+      clock,
+      completeSince: new Map(),
+    });
+    const apply = createApply({ store: ctx.store, clock, config: ctx.config });
+    await ctx.return(REV_1, 'return-1');
+    const block = () =>
+      ctx.store.db.selectFrom('block').selectAll().where('id', '=', 1).executeTakeFirstOrThrow();
+    const unblocked = async () =>
+      (await ctx.events()).filter((event) => event.kind === 'block_unblocked');
+    return { ctx, registry, apply, block, unblocked };
+  }
+
+  it('taking the Dev turn of a return reads its code block', async () => {
+    const { ctx } = await returnedToDev();
+    const sent: { session: string; text: string }[] = [];
+    let now = Date.parse(AT);
+    const sender = createSender({
+      store: ctx.store,
+      config: ctx.config,
+      spur: {
+        send(session, text) {
+          sent.push({ session, text });
+          return Promise.resolve();
+        },
+      },
+      now: () => new Date(now),
+      spaceIntervalMs: 0,
+    });
+    const blockNotice = await ctx.store.db
+      .selectFrom('notification')
+      .selectAll()
+      .where('kind', '=', 'block')
+      .where('block_id', '=', 1)
+      .executeTakeFirstOrThrow();
+    const turnNotice = await ctx.turnNotice(2);
+    await ctx.ring(AT);
+    await sender.tick();
+    const blockRings = () =>
+      sent.filter((entry) => entry.text.includes(`(N${String(blockNotice.id)}-`));
+    expect(blockRings()).toEqual([
+      {
+        session: 'worker-1',
+        text: `o/r#9 block B1: check board inbox (N${String(blockNotice.id)}-1)`,
+      },
+    ]);
+    const seen = (await ctx.events()).length;
+
+    await ctx.ack(WORKER_1, 'T2');
+
+    expect((await ctx.events()).slice(seen)).toEqual([
+      { kind: 'doorbell_read', payload: { doorbell: `N${String(turnNotice.id)}` } },
+      { kind: 'turn_taken', payload: { turn: 'T2', taker: WORKER_1 } },
+      { kind: 'doorbell_read', payload: { doorbell: `N${String(blockNotice.id)}` } },
+    ]);
+    for (const offset of [120_000, 420_000, 1_320_000, 2_220_000]) {
+      now = Date.parse(AT) + offset;
+      await ctx.ring(new Date(now).toISOString());
+      await sender.tick();
+    }
+    expect(blockRings()).toHaveLength(1);
+    expect(
+      await ctx.store.db
+        .selectFrom('notification')
+        .select('acked_at')
+        .where('id', '=', blockNotice.id)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ acked_at: AT });
+    expect(
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select('item_key')
+        .where('kind', '=', 'worker_not_reading')
+        .execute(),
+    ).toEqual([]);
+  });
+
+  it.each([
+    { name: 'a new head', head: B },
+    { name: 'the same head', head: A },
+  ])('a submit of $name on the returned Dev turn closes its code block', async ({ head }) => {
+    const { ctx, block, unblocked } = await returnedToDev();
+    await ctx.ack(WORKER_1, 'T2');
+    ctx.commits(head);
+
+    await expect(ctx.submit(WORKER_1, head, 'submit-t2', 'T2')).resolves.toMatchObject({
+      turn: 'T2',
+      sha: head,
+    });
+
+    expect(await block()).toMatchObject({
+      state: 'unblocked',
+      outcome: 'done',
+      outcome_reason: head,
+      unblocked_by: WORKER_1,
+      unblocked_at: AT,
+    });
+    expect(await unblocked()).toEqual([
+      { kind: 'block_unblocked', payload: { block: 'B1', outcome: 'done', reason: head } },
+    ]);
+  });
+
+  it('a pending submit the next head voids leaves the return block to the next submit', async () => {
+    const { ctx, block, unblocked } = await returnedToDev();
+    await unlinkAll(ctx);
+    await ctx.ack(WORKER_1, 'T2');
+    await expect(ctx.submit(WORKER_1, A, 'submit-a', 'T2')).resolves.toMatchObject({
+      status: 'pending',
+    });
+    expect(await block()).toMatchObject({ state: 'open', outcome: null });
+
+    // The PR linked again shows head B: the pending A fails and its turn is handed back.
+    await ctx.observe(B);
+    await relinkAll(ctx);
+    const voided = await ctx.store.db
+      .selectFrom('submission')
+      .select(['commit_sha', 'voided_at'])
+      .where('commit_sha', '=', A)
+      .executeTakeFirstOrThrow();
+    expect(voided.voided_at).not.toBeNull();
+    expect(await block()).toMatchObject({ state: 'open', outcome: null, outcome_reason: null });
+    const handBack = await ctx.store.db
+      .selectFrom('turn')
+      .select(['id', 'column', 'role'])
+      .where('closed_at', 'is', null)
+      .executeTakeFirstOrThrow();
+    expect(handBack).toMatchObject({ column: 'dev', role: 'worker' });
+
+    const turn = `T${String(handBack.id)}`;
+    await ctx.ack(WORKER_1, turn);
+    ctx.commits(B);
+    await expect(ctx.submit(WORKER_1, B, 'submit-b', turn)).resolves.toMatchObject({
+      status: 'confirmed',
+    });
+
+    expect(await block()).toMatchObject({
+      state: 'unblocked',
+      outcome: 'done',
+      outcome_reason: B,
+      unblocked_by: WORKER_1,
+    });
+    expect(await unblocked()).toEqual([
+      { kind: 'block_unblocked', payload: { block: 'B1', outcome: 'done', reason: B } },
+    ]);
+  });
+
+  it('a submit after a manual unblock of the return block keeps its ref', async () => {
+    const { ctx, registry, apply, block, unblocked } = await returnedToDev();
+    await ctx.ack(WORKER_1, 'T2');
+    await apply(
+      registry['block.unblock'],
+      { mode: 'done', block: 'B1', ref: 'o/r#7' },
+      WORKER_1,
+      'unblock-b1',
+    );
+    ctx.commits(B);
+
+    await expect(ctx.submit(WORKER_1, B, 'submit-b', 'T2')).resolves.toMatchObject({
+      turn: 'T2',
+      sha: B,
+    });
+
+    expect(await block()).toMatchObject({
+      state: 'unblocked',
+      outcome: 'done',
+      outcome_reason: 'o/r#7',
+    });
+    expect(await unblocked()).toEqual([
+      { kind: 'block_unblocked', payload: { block: 'B1', outcome: 'done', reason: 'o/r#7' } },
+    ]);
+  });
+
+  it('a return block escalated to the operator is neither read by the take nor closed by the submit', async () => {
+    const { ctx, registry, apply, block, unblocked } = await returnedToDev();
+    await apply(registry['block.escalate'], { block: 'B1' }, WORKER_1, 'esc-b1');
+    expect(await block()).toMatchObject({ state: 'open', addressee_role: 'operator' });
+    await ctx.ack(WORKER_1, 'T2');
+    ctx.commits(B);
+
+    await expect(ctx.submit(WORKER_1, B, 'submit-b', 'T2')).resolves.toMatchObject({
+      turn: 'T2',
+    });
+
+    expect(await block()).toMatchObject({
+      state: 'open',
+      addressee_role: 'operator',
+      outcome: null,
+      unblocked_by: null,
+    });
+    expect(await unblocked()).toEqual([]);
+  });
+
   it('voids visit submits and keeps review marks and QA on return to Dev', async () => {
     const green = { name: 'ci', state: 'success' as const, completedAt: AT };
     const ctx = await taken({
@@ -1602,6 +1829,30 @@ describe('task.return', () => {
     const pending = await submitted.row();
     expect(pending?.column).toBe('dev');
     expect(pending).not.toHaveProperty('returned');
+    // The return's code block waits for the pending submit, and closes with its head once a
+    // poll of the PR linked again confirms it.
+    const b1 = () =>
+      submitted.ctx.store.db
+        .selectFrom('block')
+        .select(['state', 'outcome', 'outcome_reason', 'unblocked_by'])
+        .where('id', '=', 1)
+        .executeTakeFirstOrThrow();
+    expect(await b1()).toEqual({
+      state: 'open',
+      outcome: null,
+      outcome_reason: null,
+      unblocked_by: null,
+    });
+    await relinkAll(submitted.ctx);
+    expect(
+      await submitted.ctx.store.db.selectFrom('submission').select('pending_until').execute(),
+    ).toEqual([{ pending_until: null }]);
+    expect(await b1()).toEqual({
+      state: 'unblocked',
+      outcome: 'done',
+      outcome_reason: A,
+      unblocked_by: WORKER_1,
+    });
 
     // Leaving Dev clears it, and a correction back into Dev does not bring it back.
     const moved = await returned();

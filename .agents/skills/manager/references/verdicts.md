@@ -32,16 +32,37 @@ Step numbers are the Loop steps in `references/gates.md`.
   diff reruns, in step order, `doc-reviewer`, then for a UI change `tester` (step 11) and
   `designer` (code), then `reviewer`; the gate that asked reruns in its place. Each rerun counts
   toward its cap; at the cap there is no rerun and the gate goes under Missing.
-- Final head of a `tester` or `designer` (code) verdict: an APPROVED review on `headRefOid`, no
-  open point -> fetch, check out `headRefOid`, `pnpm ci:status <N>` once. Exit not 0 -> mark the
-  verdict `older than <HEAD>`. Exit 0 and `git diff --name-only <verdict head>..HEAD` has a path
-  under `packages/web/` outside `test/`, `gallery/` and `kit/`; `docs/design-system-decisions.md`;
-  or, for an issue naming `design/prototypes/<slice>/`, that folder or the step 11 pairs file ->
-  each runs in step order from a worktree at HEAD, once per gate per task, outside its cap:
+- Final head of each `tester` or `designer` (code) gate whose modifier applies to the task at
+  HEAD, recorded verdict or not, whatever its `## Acceptance gates` line says (a stale `n/a` gets
+  the passed head or the placeholder; a gate whose modifier no longer applies gets `n/a`): no
+  open point, and an APPROVED review on `headRefOid` or an acceptance-gates-only failure ->
+  fetch, check out `headRefOid`, `pnpm ci:status <N>` once. Approved or not, go on only when it
+  exits 0 or shows an acceptance-gates-only failure; pending (exit 3) or another failure -> wait
+  for the next notification, and another failed job also marks the verdict `older than <HEAD>`
+  (an acceptance-gates-only failure never does). Acceptance-gates-only failure: `ci:status`
+  lists the acceptance-gates job as the only counted failed job, the ci run is completed, and
+  `gh run view <its ci run id> --log-failed` once shows `ci-ok: acceptance-gates failure FAIL`
+  and no other `ci-ok: ... FAIL` line except `ci-ok: FAIL`; otherwise wait for the next
+  notification. `ci:status` neither counts ci-ok nor prints its log, `--log-failed` prints nothing
+  for an unfinished run, and on a PR edit ci-ok also carries the reused code run's failures.
+  Otherwise, per gate, `<passed head>` is the head of its last tester PASS or designer APPROVED,
+  never a FAIL or CHANGES_REQUESTED head. No passed head, or
+  `git diff --no-renames --name-only <passed head>..HEAD` (as CI) has a path under
+  `packages/web/` outside `test/`, `gallery/` and `kit/`; `docs/design-system-decisions.md`; or,
+  for an issue naming `design/prototypes/<slice>/`, that folder or the step 11 pairs file -> that
+  gate runs, in step order, from a worktree at HEAD, once per gate per task, outside its cap:
   `<verdict> on <sha> (final head)`.
   FAIL or CHANGES_REQUESTED -> `developer`; reruns count toward the cap, recorded after the
   `(final head)` record; at it, Testing: `Missing: <gate> - verdict older than <sha>`. No such
-  path -> Testing: `no UI change since <verdict head>`.
+  path -> Testing: `no UI change since <passed head>`; never without a passed head.
+- After a final-head run with tester PASS or designer APPROVED, and after each
+  `no UI change since`, write that head into the PR body's `## Acceptance gates` (`gitflow`);
+  after FAIL or CHANGES_REQUESTED keep the gate's last passed head. `n/a` only for a gate this
+  task does not use; an applicable gate with no passed head keeps the template placeholder, not
+  `n/a`: CI stays red, Testing names it under Missing, and a human decides. The cap never
+  excuses the final-head run; CI acceptance-gates stays red until each gate's SHA has no UI diff
+  to the PR head. CI counts only the base paths above (`isUiPath`, `scripts/acceptance-gates.ts`;
+  change both together); the `design/prototypes/<slice>/` clause stays a manager check.
 - Close-out and `doc-reviewer`: a stale verdict reruns once only while under the cap. That run's
   DOCS_CHANGES_REQUESTED is `BLOCKED_DOCS` with its findings under Missing, no fix. At the cap ->
   `Missing: doc-reviewer - verdict older than <sha>`.

@@ -100,6 +100,24 @@ jobs:
       # Reads the PR description and author from the event payload; no token needed.
       - run: pnpm guardrails
 
+  # Fails a UI PR whose "## Acceptance gates" heads have a UI diff to the PR head. Reads the PR
+  # description from the event payload; full history so every gate head is present; no token.
+  acceptance-gates:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+      - run: node scripts/acceptance-gates.ts
+
   secrets:
     needs: reuse
     if: ${{ !cancelled() && needs.reuse.outputs.code-run == '' }}
@@ -336,6 +354,7 @@ jobs:
         changes,
         pr-title,
         guardrails,
+        acceptance-gates,
         secrets,
         workflows,
         quality,
