@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { KeyValueBox } from '../KeyValueBox/KeyValueBox.tsx';
 import { CollapsibleSection } from './CollapsibleSection.tsx';
 
@@ -47,6 +48,25 @@ export function Focused() {
       <CollapsibleSection title="Comments" count={4} summary="2 open">
         <p>Four comments, two of them still open.</p>
       </CollapsibleSection>
+    </div>
+  );
+}
+// Toggle it: the line below shows the last state the section reported.
+export function OnOpenChange() {
+  const [last, setLast] = useState<boolean | null>(null);
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+      <CollapsibleSection
+        title="Latest submission"
+        summary="skipped"
+        defaultOpen={false}
+        onOpenChange={setLast}
+      >
+        <p>The rows of the latest submission.</p>
+      </CollapsibleSection>
+      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
+        {`Last reported: ${last === null ? 'none' : last ? 'open' : 'closed'}`}
+      </p>
     </div>
   );
 }

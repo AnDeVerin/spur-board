@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CollapsibleSection, quiet, TabPanel, Tabs, type TabItem } from '../src/ds/index.ts';
 
 const examples: Record<string, Record<string, unknown>> = import.meta.glob(
@@ -58,7 +58,22 @@ describe('CollapsibleSection', () => {
       Object.keys(
         examples['../src/ds/CollapsibleSection/CollapsibleSection.examples.tsx'] ?? {},
       ).sort(),
-    ).toEqual(['Collapsed', 'Focused', 'Open', 'Sticky']);
+    ).toEqual(['Collapsed', 'Focused', 'OnOpenChange', 'Open', 'Sticky']);
+  });
+
+  it('does not report on render', () => {
+    const onOpenChange = vi.fn();
+    for (const defaultOpen of [true, false]) {
+      renderToStaticMarkup(
+        createElement(CollapsibleSection, {
+          title: 'Blocks',
+          children: 'Body text',
+          defaultOpen,
+          onOpenChange,
+        }),
+      );
+    }
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 });
 
