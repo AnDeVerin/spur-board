@@ -7,7 +7,7 @@
 // change both together. Imports only `node:` builtins and ./guardrails.ts, so the job skips
 // `pnpm install`.
 import { spawnSync } from 'node:child_process';
-import { escapeCommand, readPullRequest, sectionText } from './guardrails.ts';
+import { escapeCommand, readPullRequest } from './guardrails.ts';
 
 const GATES = ['tester', 'designer'] as const;
 
@@ -59,13 +59,37 @@ export function parseGates(section: string): ParsedGates {
   return errors.length === 0 ? { ok: true, gates } : { ok: false, errors };
 }
 
-/** `## Acceptance gates` headings outside HTML comments, matched as `sectionText` matches them. */
-function gateHeadings(body: string): number {
+/**
+ * Every `## Acceptance gates` section of a PR body (heading matched case-insensitively) as its
+ * text, read in one pass with HTML comments removed. A heading inside a CommonMark code fence
+ * does not count, and a section ends at the next `#` or `##` heading outside a fence.
+ */
+export function gateSections(body: string): string[] {
   const visible = body.replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?(?:-->|$)/g, '');
-  return visible
-    .split('\n')
-    .filter((line) => /^##[ \t]+(.*?)[ \t]*$/.exec(line)?.[1]?.toLowerCase() === 'acceptance gates')
-    .length;
+  const sections: string[][] = [];
+  let current: string[] | null = null;
+  // The open fence: its character and run length. Unclosed, it runs to the end.
+  let fence: { char: string; length: number } | null = null;
+  for (const line of visible.split('\n')) {
+    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      const closes =
+        run !== undefined &&
+        run[0] === fence.char &&
+        run.length >= fence.length &&
+        /^ {0,3}(?:`+|~+)[ \t]*$/.test(line);
+      if (closes) fence = null;
+      current?.push(line);
+    } else if (run !== undefined) {
+      fence = { char: run[0] ?? '', length: run.length };
+      current?.push(line);
+    } else if (/^##[ \t]+acceptance gates[ \t]*$/i.test(line)) {
+      current = [];
+      sections.push(current);
+    } else if (/^#{1,2}[ \t]/.test(line)) current = null;
+    else current?.push(line);
+  }
+  return sections.map((lines) => lines.join('\n'));
 }
 
 class UsageError extends Error {}
@@ -137,11 +161,11 @@ function run(argv: string[], env: NodeJS.ProcessEnv): number {
   }
   out(`PR head ${prHead}, ${String(changed.length)} UI file(s) changed`);
 
-  const body = request.body ?? '';
-  const parsed = parseGates(sectionText(body, 'acceptance gates'));
+  const sections = gateSections(request.body ?? '');
+  const parsed = parseGates(sections[0] ?? '');
   const problems: string[] = [];
   const passed: string[] = [];
-  if (gateHeadings(body) > 1) problems.push('more than one ## Acceptance gates section');
+  if (sections.length > 1) problems.push('more than one ## Acceptance gates section');
   else if (!parsed.ok) problems.push(...parsed.errors);
   else {
     for (const gate of GATES) {

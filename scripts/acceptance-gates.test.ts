@@ -5,8 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { isUiPath, parseGates } from './acceptance-gates.ts';
-import { sectionText } from './guardrails.ts';
+import { gateSections, isUiPath, parseGates } from './acceptance-gates.ts';
 
 const template = readFileSync(
   fileURLToPath(new URL('../.github/pull_request_template.md', import.meta.url)),
@@ -96,7 +95,7 @@ describe('parseGates', () => {
     ],
     [
       'the PR template placeholders',
-      sectionText(template, 'acceptance gates'),
+      gateSections(template)[0] ?? '',
       {
         ok: false,
         errors: [
@@ -328,30 +327,51 @@ describe('acceptance-gates.ts CLI', () => {
     }
   });
 
-  it('passes a body in template order with no Changed checks and the closing lines after it', () => {
+  const section = (gate: string) => `## Acceptance gates\n\ntester: ${gate}\ndesigner: n/a`;
+  it.each<[string, (gate: string) => string, string | null]>([
+    ['the section only', section, null],
+    [
+      'a fenced Acceptance gates example in Testing and the real section',
+      (gate) =>
+        `## Testing\n\n\`\`\`\n## Acceptance gates\ntester: n/a\n\`\`\`\n\n${section(gate)}\n\n## Risk\n\n- low`,
+      null,
+    ],
+    [
+      'no optional section after it, with Closes and a session marker after Risk',
+      (gate) =>
+        [
+          '## Description\n\n- x',
+          '## Testing\n\n- [x] ok',
+          section(gate),
+          '## Risk\n\n- low - docs',
+          'Closes #1\n\n[AI-generated, session: s-1]\n',
+        ].join('\n\n'),
+      null,
+    ],
+    [
+      'two real Acceptance gates headings',
+      (gate) => `${section(gate)}\n\n## Acceptance Gates\n\ntester: n/a\ndesigner: n/a`,
+      'more than one ## Acceptance gates section',
+    ],
+    [
+      'the gate lines split across two headings, a third in an HTML comment',
+      (gate) =>
+        `## Acceptance gates\n\ntester: ${gate}\n\n## Acceptance gates\n\ndesigner: n/a\n\n<!--\n## Acceptance gates\n-->`,
+      'more than one ## Acceptance gates section',
+    ],
+  ])('reads the section of a body with %s', (_name, text, problem) => {
     const { box, gate } = uiPr();
     box.merge();
-    const text = [
-      '## Description\n\n- x',
-      '## Testing\n\n- [x] ok',
-      `## Acceptance gates\n\ntester: ${gate}\ndesigner: n/a`,
-      '## Risk\n\n- low - docs',
-      'Closes #1\n\n[AI-generated, session: s-1]\n',
-    ].join('\n\n');
-    const result = box.run(text);
-    expect(result.status).toBe(0);
-    expect(last(result.stdout)).toBe(
-      `acceptance-gates: PASS (no UI change since tester ${gate}, designer n/a)`,
-    );
-  });
-
-  it('fails a body with more than one Acceptance gates section', () => {
-    const { box, gate } = uiPr();
-    box.merge();
-    const text = `## Acceptance gates\n\ntester: ${gate}\n\n## Acceptance Gates\n\ndesigner: ${gate}\n\n<!--\n## Acceptance gates\n-->\n\n## Risk\n\n- low`;
-    const result = box.run(text);
-    expect(result.status).toBe(1);
-    expect(errorLine(result.stdout)[0]).toContain('more than one ## Acceptance gates section');
+    const result = box.run(text(gate));
+    if (problem === null) {
+      expect(result.status).toBe(0);
+      expect(last(result.stdout)).toBe(
+        `acceptance-gates: PASS (no UI change since tester ${gate}, designer n/a)`,
+      );
+    } else {
+      expect(result.status).toBe(1);
+      expect(errorLine(result.stdout)[0]).toContain(problem);
+    }
   });
 
   it('fails a UI PR whose section holds a code fence, naming the line', () => {

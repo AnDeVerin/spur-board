@@ -371,12 +371,8 @@ export function reportFindings(files: FileChange[]): Finding[] {
     );
 }
 
-/**
- * The text of every `## <heading>` section (heading matched case-insensitively), with HTML
- * comments removed. A section ends at the next `#` or `##` heading outside a code fence.
- */
-export function sectionText(body: string, heading: string): string {
-  const wanted = heading.toLowerCase();
+/** The text of every `## Changed checks` section, with HTML comments removed. */
+function changedChecksText(body: string): string {
   const text = body.replace(/\r\n?/g, '\n');
   let visible = '';
   let from = 0;
@@ -408,7 +404,7 @@ export function sectionText(body: string, heading: string): string {
     } else if (run !== undefined) {
       fence = { char: run[0] ?? '', length: run.length };
       if (inSection) kept.push(line);
-    } else if (/^##[ \t]+(.*?)[ \t]*$/.exec(line)?.[1]?.toLowerCase() === wanted) inSection = true;
+    } else if (/^##[ \t]+changed checks[ \t]*$/i.test(line)) inSection = true;
     else if (/^#{1,2}[ \t]/.test(line)) inSection = false;
     else if (inSection) kept.push(line);
   }
@@ -430,7 +426,7 @@ function names(text: string, path: string): boolean {
 
 /** The paths the body's `## Changed checks` section does not name. */
 export function missingFromSection(body: string | null, paths: string[]): string[] {
-  const section = sectionText(body ?? '', 'changed checks');
+  const section = changedChecksText(body ?? '');
   return paths.filter((path) => !names(section, path));
 }
 
@@ -445,7 +441,7 @@ const PATH_LIKE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|json|ya?ml|md|snap|sh|toml)$
  */
 export function staleInSection(body: string | null, changedPaths: string[]): string[] {
   const stale = new Set<string>();
-  for (const line of sectionText(body ?? '', 'changed checks').split('\n')) {
+  for (const line of changedChecksText(body ?? '').split('\n')) {
     const item = LIST_ITEM.exec(line)?.[1];
     if (item === undefined) continue;
     const close = item.startsWith('`') ? item.indexOf('`', 1) : -1;
