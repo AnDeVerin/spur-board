@@ -467,8 +467,9 @@ export function createBoardData(options: BoardDataOptions) {
         column,
         reason,
         () => shownIn(task)[0],
-        () =>
-          boardIntent('task.move', { mode: 'manual', task, column, reason }, () => {
+        (accepted) =>
+          boardIntent('task.move', { mode: 'manual', task, column, reason }, (value) => {
+            accepted(value.from);
             status.refresh();
             refreshTask();
           }),

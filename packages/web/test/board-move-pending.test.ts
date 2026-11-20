@@ -150,6 +150,34 @@ const LIFECYCLE: Record<string, () => Promise<{ keys: string[]; expected: string
     const keys = moves.map((body) => body.key);
     return { keys, expected: [keys[0] ?? 'view'] };
   },
+  'a move back in one view, before the board row follows, still settles': async () => {
+    history.replaceState(null, '', `/?open=${encodeURIComponent(KEY)}`);
+    // The daemon moves the task and reads it where it is; the board row stays in todo.
+    let column = 'todo';
+    const { moves } = await board(THREE, ROWS, (daemon) => {
+      daemon.routes['task.get'] = () => Promise.resolve(viewOf({ column }));
+      daemon.routes['task.move'] = (input) => {
+        const from = column;
+        column = String(input['column']);
+        return Promise.resolve(
+          envelope({
+            task: { ...taskGet().task, key: KEY, column },
+            from,
+            to: column,
+            column,
+            settled: [],
+          }),
+        );
+      };
+    });
+    await sendFromView('triage', 'Groomed');
+    await sendFromView('todo', 'Back');
+    await sendFromView('ready-for-dev', 'Next');
+    expect(viewAlert()).toBeUndefined();
+    expect(moves.map((body) => body.input['column'])).toEqual(['triage', 'todo', 'ready-for-dev']);
+    const keys = moves.map((body) => body.key);
+    return { keys: [...new Set(keys)], expected: keys };
+  },
   'a task of another project settles on its task view': async () => {
     history.replaceState(null, '', `/?open=${encodeURIComponent(KEY)}`);
     const { d, moves } = await board(

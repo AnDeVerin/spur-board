@@ -1,4 +1,4 @@
-import { createMutationIntent, ProblemError, type createApi } from '../lib/api.ts';
+import { createMutationIntent, ProblemError, type createApi, type Output } from '../lib/api.ts';
 
 /** `closeItemIntent` or `moveIntent` refused to send because the board is unavailable. */
 export class BoardUnavailableError extends Error {
@@ -16,7 +16,7 @@ export function createBoardIntent(api: ReturnType<typeof createApi>, unavailable
   return <K extends 'item.close' | 'task.move'>(
     id: K,
     input: Parameters<typeof createMutationIntent<K>>[2],
-    onConfirm: () => void,
+    onConfirm: (value: Output<K>) => void,
   ) => {
     const intent = createMutationIntent(api, id, input);
     let pending: Promise<void> | undefined;
@@ -28,9 +28,9 @@ export function createBoardIntent(api: ReturnType<typeof createApi>, unavailable
         if (unavailable()) return Promise.reject(new BoardUnavailableError());
         pending = intent
           .run()
-          .then(() => {
+          .then((value) => {
             confirmed = true;
-            onConfirm();
+            onConfirm(value);
           })
           .finally(() => {
             pending = undefined;
@@ -119,10 +119,15 @@ export function createHeldMoves(api: ReturnType<typeof createApi>) {
       column: string,
       reason: string,
       from: () => string | undefined,
-      create: () => Run,
+      create: (accepted: (from: string) => void) => Run,
     ): Run {
       // This form's send, or the one it joined: a retry keeps that key.
       let inner: Run | undefined;
+      // An accepted move left the part the daemon names, which a stale row may not.
+      const accepted = (source: string) => {
+        const entry = held.get(task);
+        if (entry !== undefined && entry.inner === inner) entry.from = source;
+      };
       return {
         run: () => {
           const current = held.get(task);
@@ -134,7 +139,7 @@ export function createHeldMoves(api: ReturnType<typeof createApi>) {
             inner = current.inner;
             return send(task, current);
           }
-          inner ??= create();
+          inner ??= create(accepted);
           const entry: HeldMove = {
             from: from(),
             column,
