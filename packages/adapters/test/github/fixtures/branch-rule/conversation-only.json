@@ -1,0 +1,22 @@
+{
+  "data": {
+    "repository": {
+      "defaultBranchRef": {
+        "name": "main",
+        "refUpdateRule": {
+          "pattern": "main",
+          "requiredApprovingReviewCount": 0,
+          "requiresCodeOwnerReviews": false,
+          "requiresConversationResolution": true,
+          "requiredStatusCheckContexts": []
+        },
+        "rules": {
+          "nodes": [],
+          "pageInfo": {
+            "hasNextPage": false
+          }
+        }
+      }
+    }
+  }
+}

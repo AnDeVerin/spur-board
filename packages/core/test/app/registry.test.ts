@@ -154,6 +154,47 @@ it("describes external-comments returns under External Review's courseCheck 0", 
   expect(returns('review')).toContain("count toward External Review's courseCheck");
 });
 
+it.each([
+  ['dev', ['approved', 'review_rule_satisfied']],
+  ['external-review', ['checks_green', 'approved', 'review_rule_satisfied']],
+] as const)(
+  'describes the review rule at External Review under approvalRule github-rules, checksGate %s',
+  async (checksGate, conditions) => {
+    const ruled = configSchema.parse({
+      projects: [
+        {
+          id: 'first',
+          tracker: { type: 'github-issues', repo: 'o/first', label: 'board' },
+          repos: ['o/first'],
+          operatorGithubLogin: 'operator',
+          checksGate,
+          columns: [
+            { id: 'todo' },
+            { id: 'dev' },
+            { id: 'external-review', approvalRule: 'github-rules' },
+            { id: 'ready-to-merge' },
+            { id: 'done' },
+          ],
+        },
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    const store = openTempStore('board-column-policy-').store;
+    stores.push(store);
+    const registry = createOperationRegistry({ config: ruled, clock, completeSince: new Map() });
+    const query = createQuery({ store, config: ruled, clock });
+    const result = await query(registry['columns.describe'], {}, 'operator');
+    const columns = result.projects[0]?.columns;
+    const external = columns?.find((column) => column.id === 'external-review');
+    expect(external?.exit.conditions.map((condition) => condition.id)).toEqual(conditions);
+    expect(external?.exit.conditions.at(-1)?.text).toContain("GitHub's review rule");
+    expect(
+      columns?.find((column) => column.id === 'ready-to-merge')?.exit.conditions.map((c) => c.id),
+    ).toEqual(['threads_resolved', 'merged']);
+  },
+);
+
 it('uses effective bindings, project session selection, routing and configured timings', async () => {
   const store = openTempStore('board-column-routing-').store;
   stores.push(store);

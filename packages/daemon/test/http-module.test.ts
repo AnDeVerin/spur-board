@@ -55,7 +55,7 @@ function doctorContext(
     // Board projects and their Spur projects in place of the single `board` project.
     projects?: readonly {
       id: string;
-      columns?: { id: string; orchestrator: string }[];
+      columns?: { id: string; orchestrator?: string; approvalRule?: string }[];
       spurProjects: readonly {
         name: string;
         role: 'worker' | 'operator' | 'curator' | 'orchestrator';
@@ -2105,5 +2105,163 @@ describe('optional web module', () => {
     await web.start(controller.signal);
     expect(web.listening()).toBe(false);
     await web.stop();
+  });
+});
+
+describe('daemon doctor github.review_rule', () => {
+  const ruledColumns = [
+    { id: 'todo' },
+    { id: 'dev' },
+    { id: 'external-review', approvalRule: 'github-rules' },
+    { id: 'done' },
+  ];
+  const ruledContext = (secrets?: Readonly<Record<string, string>>, repos?: readonly string[]) =>
+    doctorContext({
+      operator: true,
+      slack: false,
+      ...(secrets === undefined ? {} : { secrets }),
+      ...(repos === undefined ? {} : { repos }),
+      projects: [{ id: 'board', spurProjects: [], columns: ruledColumns }],
+    });
+  // A branch-rule fixture recorded or written for the adapter tests, as GitHub answers it.
+  const fixture = (name: string): { data: { repository: unknown } } =>
+    JSON.parse(
+      readFileSync(
+        new URL(`../../adapters/test/github/fixtures/branch-rule/${name}.json`, import.meta.url),
+        'utf8',
+      ),
+    ) as { data: { repository: unknown } };
+  const isRuleRead = (init?: RequestInit) =>
+    typeof init?.body === 'string' && init.body.includes('query BranchRule');
+  // Answers the rule read with the fixture `answers` names, one for every repo or one per repo
+  // name, or a GraphQL error for `error`; every other request goes to `doctorFetch`.
+  const ruleFetch = (answers: string | Readonly<Record<string, string>>): typeof fetch => {
+    const fallback = doctorFetch();
+    return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (!isRuleRead(init)) return fallback(input, init);
+      const { repo } = (JSON.parse(init?.body as string) as { variables: { repo: string } })
+        .variables;
+      const answer = typeof answers === 'string' ? answers : (answers[repo] ?? 'error');
+      const rateLimit = { remaining: 4000, resetAt: '2026-11-04T09:00:00.000Z' };
+      if (answer === 'error')
+        return Promise.resolve(
+          Response.json({
+            data: { rateLimit, repository: { defaultBranchRef: null } },
+            errors: [{ message: 'secret-canary denied', type: 'FORBIDDEN', path: ['repository'] }],
+          }),
+        );
+      return Promise.resolve(
+        Response.json({ data: { rateLimit, repository: fixture(answer).data.repository } }),
+      );
+    });
+  };
+  const checkOf = async (fetcher: typeof fetch, ctx = ruledContext()) => {
+    const report = await runDaemonDoctor(ctx, '1.2.3', fetcher);
+    expect(doctorReportSchema.parse(report)).toEqual(report);
+    return {
+      rule: report.checks.find((check) => check.id === 'github.review_rule'),
+      credentials: report.checks.find((check) => check.id === 'github.credentials'),
+      ids: report.checks.map((check) => check.id),
+    };
+  };
+
+  it('github.review_rule passes on the recorded ruleset and names what it read', async () => {
+    const fetcher = ruleFetch('live-default-branch');
+    const { rule, ids } = await checkOf(fetcher);
+    expect(rule).toEqual({
+      id: 'github.review_rule',
+      status: 'pass',
+      blocking: false,
+      fix: 'board example/board@main: ruleset: 1 approvals, code owners no, resolved conversations yes, checks ci-ok.',
+    });
+    expect(ids.indexOf('github.review_rule')).toBe(ids.indexOf('link.rules') + 1);
+    const read = vi.mocked(fetcher).mock.calls.find(([, init]) => isRuleRead(init))?.[1]
+      ?.body as string;
+    expect(JSON.parse(read)).toMatchObject({ variables: { owner: 'example', repo: 'board' } });
+    expect(read).toContain('defaultBranchRef { name refUpdateRule {');
+    expect(read).toContain('rules(first: 100)');
+  });
+
+  it('github.review_rule passes naming branch protection', async () => {
+    expect((await checkOf(ruleFetch('branch-protection'))).rule).toMatchObject({
+      status: 'pass',
+      fix: 'board example/board@main: branch protection: 2 approvals, code owners yes, resolved conversations no, checks build, test.',
+    });
+  });
+
+  it('github.review_rule passes on a rule that requires only resolved conversations', async () => {
+    expect((await checkOf(ruleFetch('conversation-only'))).rule).toEqual({
+      id: 'github.review_rule',
+      status: 'pass',
+      blocking: false,
+      fix: 'board example/board@main: branch protection: 0 approvals, code owners no, resolved conversations yes, checks none.',
+    });
+  });
+
+  it('github.review_rule warns when the repo has no review rule', async () => {
+    const { rule } = await checkOf(ruleFetch('none'));
+    expect(rule).toMatchObject({ status: 'warning', blocking: false });
+    expect(rule?.fix).toBe(
+      'board example/board@main: no branch protection or ruleset, no review rule to follow. Require an approval or code owner review on the default branch, or remove approvalRule.',
+    );
+  });
+
+  it('github.review_rule warns with read advice when not every ruleset rule was read', async () => {
+    const { rule } = await checkOf(ruleFetch('truncated'));
+    expect(rule).toMatchObject({ status: 'warning', blocking: false });
+    expect(rule?.fix).toBe(
+      "board example/board@main: could not confirm all ruleset rules were read. Give the token read access to the default branch's branch protection and rulesets, then rerun board doctor.",
+    );
+  });
+
+  it('github.review_rule warns on a failed read and leaves github.credentials passing', async () => {
+    const { rule, credentials } = await checkOf(ruleFetch('error'));
+    expect(rule).toMatchObject({ status: 'warning', blocking: false });
+    // The rule is still in force, unread: the fix is access, never a weaker gate.
+    expect(rule?.fix).toBe(
+      "board example/board: could not read the review rule. Give the token read access to the default branch's branch protection and rulesets, then rerun board doctor.",
+    );
+    expect(rule?.fix).not.toContain('secret-canary');
+    expect(credentials).toMatchObject({ status: 'pass' });
+  });
+
+  it('github.review_rule keeps approvalRule when another repo of the project is unread', async () => {
+    const { rule } = await checkOf(
+      ruleFetch({ a: 'none', b: 'error' }),
+      ruledContext(undefined, ['o/a', 'o/b']),
+    );
+    expect(rule).toMatchObject({ status: 'warning', blocking: false });
+    // Removing the shared approvalRule would also turn off the gate of the unread repo.
+    expect(rule?.fix).toBe(
+      "board o/a@main: no branch protection or ruleset, no review rule to follow. board o/b: could not read the review rule. Require an approval or code owner review on the default branch. Give the token read access to the default branch's branch protection and rulesets, then rerun board doctor.",
+    );
+  });
+
+  it('github.review_rule keeps approvalRule when another repo of the project follows a rule', async () => {
+    const { rule } = await checkOf(
+      ruleFetch({ a: 'none', b: 'branch-protection' }),
+      ruledContext(undefined, ['o/a', 'o/b']),
+    );
+    expect(rule).toMatchObject({ status: 'warning', blocking: false });
+    // Removing the shared approvalRule would also turn off the gate the other repo's rule keeps.
+    expect(rule?.fix).toBe(
+      'board o/a@main: no branch protection or ruleset, no review rule to follow. board o/b@main: branch protection: 2 approvals, code owners yes, resolved conversations no, checks build, test. Require an approval or code owner review on the default branch.',
+    );
+  });
+
+  it('github.review_rule warns without a GitHub token and is absent without github-rules', async () => {
+    const { rule } = await checkOf(ruleFetch('none'), ruledContext({}));
+    expect(rule).toMatchObject({ status: 'warning', blocking: false });
+    expect(rule?.fix).toContain('GITHUB_TOKEN');
+    const fetcher = ruleFetch('live-default-branch');
+    const plain = await checkOf(fetcher, doctorContext({ operator: true, slack: false }));
+    expect(plain.rule).toBeUndefined();
+    expect(vi.mocked(fetcher).mock.calls.some(([, init]) => isRuleRead(init))).toBe(false);
+  });
+
+  it('documents github.review_rule under Doctor checks', () => {
+    const guide = readFileSync(new URL('../../../TROUBLESHOOTING.md', import.meta.url), 'utf8');
+    const section = guide.split('## Doctor checks\n')[1]?.split('\n## ')[0] ?? '';
+    expect(section).toMatch(/^### github\.review_rule$/m);
   });
 });

@@ -1,5 +1,5 @@
 {
-  "version": "ecc0202bc8ce8f2667bec005aa01cf32b80ec884dc88d4ff16e046c50fc231a2",
+  "version": "4b99a29fb0bcc9e003dd15caac1e197afc584777a20a4c37d3f5c54f73836089",
   "grants": [
     "operator",
     "project-agent",
@@ -5425,6 +5425,7 @@
                               "submit_on_head",
                               "review_on_head",
                               "approved",
+                              "review_rule_satisfied",
                               "merged"
                             ],
                             "description": "Exit condition of the column."
@@ -5452,6 +5453,10 @@
                                   "no_submit_on_head",
                                   "no_review_on_head",
                                   "not_approved",
+                                  "changes_requested",
+                                  "review_rule_blocked",
+                                  "merge_state_unknown",
+                                  "review_rule_unreadable",
                                   "not_merged"
                                 ]
                               },
@@ -5848,6 +5853,10 @@
                           "no_submit_on_head",
                           "no_review_on_head",
                           "not_approved",
+                          "changes_requested",
+                          "review_rule_blocked",
+                          "merge_state_unknown",
+                          "review_rule_unreadable",
                           "not_merged"
                         ]
                       },
@@ -5865,7 +5874,7 @@
                 "description": "The last 5 column moves, oldest first."
               },
               "waiting": {
-                "description": "Facts the task waits for that GitHub has not settled yet, plus red checks the task returns to Dev on when the project checksGate is not dev; absent when none.",
+                "description": "Facts the task waits for that GitHub has not settled yet, plus red checks the task returns to Dev on when the project checksGate is not dev, and the GitHub review rule waits under approvalRule github-rules; absent when none.",
                 "minItems": 1,
                 "type": "array",
                 "items": {
@@ -5887,9 +5896,13 @@
                         "no_submit_on_head",
                         "no_review_on_head",
                         "not_approved",
+                        "changes_requested",
+                        "review_rule_blocked",
+                        "merge_state_unknown",
+                        "review_rule_unreadable",
                         "not_merged"
                       ],
-                      "description": "The gate reason that waits on the fact; checks_red only when the project checksGate is not dev."
+                      "description": "The gate reason that waits on the fact; checks_red only when the project checksGate is not dev, and review_rule_blocked, changes_requested, merge_state_unknown and review_rule_unreadable only when External Review sets approvalRule github-rules."
                     },
                     "head": {
                       "type": "string",
@@ -5898,7 +5911,7 @@
                     },
                     "text": {
                       "type": "string",
-                      "description": "The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red."
+                      "description": "The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red. Under approvalRule github-rules, review_rule_blocked reads merge blocked by the GitHub review rule, changes_requested reads changes requested, merge_state_unknown reads GitHub has not computed the merge state yet, and review_rule_unreadable reads the GitHub review rule for the base branch could not be read, none with the sha."
                     }
                   },
                   "required": ["reason", "head", "text"],
@@ -11358,6 +11371,10 @@
                       "no_submit_on_head",
                       "no_review_on_head",
                       "not_approved",
+                      "changes_requested",
+                      "review_rule_blocked",
+                      "merge_state_unknown",
+                      "review_rule_unreadable",
                       "not_merged"
                     ]
                   },
@@ -11823,6 +11840,7 @@
                                     "submit_on_head",
                                     "review_on_head",
                                     "approved",
+                                    "review_rule_satisfied",
                                     "merged",
                                     "work_started"
                                   ],

@@ -876,9 +876,10 @@ describe('snapshot', () => {
     // Manual moves extend task.move, move views, schema metadata and the error catalog. #761
     // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
     // and board-wide project, sources and services texts to status.get; the external_round kind
-    // extends the task.history event kinds.
+    // extends the task.history event kinds. #733 adds the review-rule gate reasons and condition
+    // to task.get --why.
     expect(await catalogVersion(baseline)).toBe(
-      '5cdd45b9c04911a7c1afee0027fd27d0bf2939aa9f10e817b906c1852da8e86c',
+      '3145178bab73649dad884fa944d560542526c7acc68e793ec61f5c08977851dc',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
