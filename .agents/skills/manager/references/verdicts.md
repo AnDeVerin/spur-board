@@ -32,8 +32,9 @@ Step numbers are the Loop steps in `references/gates.md`.
   diff reruns, in step order, `doc-reviewer`, then for a UI change `tester` (step 11) and
   `designer` (code), then `reviewer`; the gate that asked reruns in its place. Each rerun counts
   toward its cap; at the cap there is no rerun and the gate goes under Missing.
-- Final head of each `tester` or `designer` (code) gate whose modifier applies to the task,
-  recorded verdict or not: no open point, and an APPROVED review on `headRefOid` or an
+- Final head of each `tester` or `designer` (code) gate whose modifier applies to the task at
+  HEAD, recorded verdict or not, whatever its `## Acceptance gates` line says (a stale `n/a` gets
+  the passed head or the placeholder): no open point, and an APPROVED review on `headRefOid` or an
   acceptance-gates-only failure -> fetch, check out `headRefOid`, `pnpm ci:status <N>` once. Exit
   not 0 with another failed job -> mark the verdict `older than <HEAD>`; an acceptance-gates-only
   failure never does. Acceptance-gates-only failure: `ci:status` lists the acceptance-gates job

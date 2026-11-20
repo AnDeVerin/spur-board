@@ -63,8 +63,9 @@ Fix or answer every open PR point once, with a reason for each rejection.
 
 - A later review or comment notification -> run the collection again from step 1; the head and
   the set of open threads have changed.
-- No open point, a `tester` or `designer` (code) gate that applies to the task (its line in
-  `## Acceptance gates` is not `n/a`), recorded verdict or not, and either an APPROVED review on
+- No open point, a `tester` or `designer` (code) gate whose modifier in
+  `.agents/skills/manager/SKILL.md` applies at HEAD (visible web UI change: both; a diff under
+  `packages/web/src/ds/`: `designer`), whatever its body line says, and either an APPROVED review on
   `headRefOid` or an acceptance-gates-only failure -> apply `Final head` in
   `.agents/skills/manager/references/verdicts.md`, with the handoffs of
   `.agents/skills/manager/references/runtime.md`. Acceptance-gates-only failure:
