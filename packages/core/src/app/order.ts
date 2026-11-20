@@ -10,7 +10,11 @@ async function taskByKey(trx: Trx, key: string) {
   return trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
 }
 
-/** The anchor task of a before or after placement; anything but another live task of the column is refused. */
+/**
+ * The anchor task of a before or after placement, looked up in the task's own project only, so a
+ * refusal never tells a per-project operator about another project's task. Anything but another
+ * live task of the column is refused.
+ */
 async function anchorTask(
   trx: Trx,
   config: Config,
@@ -25,7 +29,12 @@ async function anchorTask(
       throw new CommandError('order_anchor_invalid', `No task has the key ${key}; ${PICK_ANOTHER}`);
     throw error;
   }
-  const anchor = await taskByKey(trx, stored);
+  const anchor = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('key', '=', stored)
+    .where('project', '=', task.project)
+    .executeTakeFirst();
   if (anchor === undefined)
     throw new CommandError('order_anchor_invalid', `No task has the key ${key}; ${PICK_ANOTHER}`);
   if (anchor.id === task.id)
@@ -38,10 +47,10 @@ async function anchorTask(
       'order_anchor_invalid',
       `Task ${anchor.key} is archived; ${PICK_ANOTHER}`,
     );
-  if (anchor.project !== task.project || anchor.column !== task.column)
+  if (anchor.column !== task.column)
     throw new CommandError(
       'order_anchor_invalid',
-      `Task ${anchor.key} is in ${anchor.project} ${anchor.column}, not ${task.project} ${task.column}; ${PICK_ANOTHER}`,
+      `Task ${anchor.key} is in ${anchor.column}, not ${task.column}; ${PICK_ANOTHER}`,
     );
   return anchor;
 }

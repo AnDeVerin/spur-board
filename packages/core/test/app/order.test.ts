@@ -285,19 +285,31 @@ describe('task.order refusals', () => {
     const ctx = await setup();
     await ctx.insert('o/r#5', 'triage');
     await ctx.insert('o/s#1', 'todo', { project: 'other' });
+    await ctx.insert('o/s#2', 'todo', { project: 'other' });
+    await ctx.apply(ctx.registry['task.archive'], { task: 'o/s#2' }, 'operator', 'archive-s2');
     await ctx.insert('o/r#6', 'todo');
     await ctx.apply(ctx.registry['task.archive'], { task: 'o/r#6' }, 'operator', 'archive-6');
     return ctx;
   }
 
   it.each([
-    { name: 'the task itself', anchor: 'o/r#2' },
-    { name: 'an unknown task', anchor: 'o/r#99' },
-    { name: 'an unresolvable short key', anchor: 'nope#1' },
-    { name: 'an archived task', anchor: 'o/r#6' },
-    { name: 'a task in another column', anchor: 'o/r#5' },
-    { name: 'a task in another project', anchor: 'o/s#1' },
-  ])('refuses an anchor that is $name without writes', async ({ anchor }) => {
+    { name: 'the task itself', anchor: 'o/r#2', hint: 'The anchor is the task itself' },
+    { name: 'an unknown task', anchor: 'o/r#99', hint: 'No task has the key o/r#99' },
+    { name: 'an unresolvable short key', anchor: 'nope#1', hint: 'No task has the key nope#1' },
+    { name: 'an archived task', anchor: 'o/r#6', hint: 'Task o/r#6 is archived' },
+    {
+      name: 'a task in another column',
+      anchor: 'o/r#5',
+      hint: 'Task o/r#5 is in triage, not todo',
+    },
+    // Another project's task reads as missing, so the refusal reveals nothing about it.
+    { name: 'a task in another project', anchor: 'o/s#1', hint: 'No task has the key o/s#1' },
+    {
+      name: 'an archived task in another project',
+      anchor: 'o/s#2',
+      hint: 'No task has the key o/s#2',
+    },
+  ])('refuses an anchor that is $name without writes', async ({ anchor, hint }) => {
     const ctx = await refusalBoard();
     const before = await ctx.tables();
     for (const mode of ['before', 'after'] as const) {
@@ -308,7 +320,9 @@ describe('task.order refusals', () => {
       expect(error).toBeInstanceOf(CommandError);
       if (!(error instanceof CommandError)) continue;
       expect(error.code).toBe('order_anchor_invalid');
-      expect(error.hint).toContain('--top or --bottom');
+      expect(error.hint).toBe(
+        `${hint}; name another task of its column, or use --top or --bottom.`,
+      );
     }
     expect(await ctx.tables()).toEqual(before);
   });
