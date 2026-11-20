@@ -1250,7 +1250,7 @@ Fix: Check projects[].columns[].source.project against the Project URL and give 
 
 ### mirror_field_not_found
 
-The Project has no single-select field with the configured name, or the field has no option with the configured value.
+The Project has no single-select field with the configured name, the field has no option with the configured value, or an open issue's item in the Project holds an option the field does not list.
 
 Fix: Set source.field to the name of a single-select field of the Project and source.value to one of its option names, letter case included, and restart the daemon; or add the option to the field in the Project.
 
@@ -1268,6 +1268,6 @@ Fix: Wait for the reset. If it repeats, lower the GraphQL load of other clients 
 
 ### mirror_read_failed
 
-The read failed for another reason: a network or server error, a malformed response or a GraphQL error on the repository.
+The read failed for another reason: a network or server error, a malformed response, an open issue's item whose field value is not a single-select value, or a GraphQL error on the repository.
 
 Fix: Usually transient: the board retries on its next poll. If it persists, check the daemon log for the GitHub error.

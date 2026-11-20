@@ -6,8 +6,10 @@
 // - Derived from `live-snapshot` by one edit: `cleared` (#729's fieldValueByName -> null),
 //   `removed` (#729's projectItems.nodes -> []), `archived` (#729's item isArchived -> true),
 //   `other-project` (#729's item project.id -> another id), `empty-project` (every
-//   projectItems.nodes -> []), `issues-next-page` (issues.pageInfo.hasNextPage -> true) and
-//   `items-next-page` (#83's projectItems.pageInfo.hasNextPage -> true).
+//   projectItems.nodes -> []), `issues-next-page` (issues.pageInfo.hasNextPage -> true),
+//   `items-next-page` (#83's projectItems.pageInfo.hasNextPage -> true), `unknown-option` (#729's
+//   optionId -> an id the field does not list) and `wrong-value-type` (#729's
+//   fieldValueByName.__typename -> ProjectV2ItemFieldTextValue).
 // - Hand-authored, because no read-only call with a token holding the project scope produces
 //   them: `scope-missing` (INSUFFICIENT_SCOPES at [repositoryOwner, projectV2]), `rate-limited`
 //   (RATE_LIMITED) and `item-error` (FORBIDDEN at one issue's projectItems). The HTTP 502 and the
@@ -170,6 +172,37 @@ describe('GitHub Project mirror', () => {
       expectFailure(await rejection(fixture(name)), 'config', 'mirror_field_not_found');
     },
   );
+
+  it('rejects an item whose option the field does not list with mirror_field_not_found', async () => {
+    expectFailure(await rejection(fixture('unknown-option')), 'config', 'mirror_field_not_found');
+  });
+
+  it('rejects an item whose value is not a single-select value with mirror_read_failed', async () => {
+    expectFailure(await rejection(fixture('wrong-value-type')), 'transient', 'mirror_read_failed');
+  });
+
+  it.each([
+    ['archived', 'isArchived', true],
+    ['of another Project', 'project', { id: 'PVT_other' }],
+  ])('does not check the value of an item %s', async (_name, key, value) => {
+    for (const name of ['unknown-option', 'wrong-value-type']) {
+      const body = fixture(name);
+      const issues = (
+        body['data'] as {
+          repository: {
+            issues: { nodes: { number: number; projectItems: { nodes: Body[] } }[] };
+          };
+        }
+      ).repository.issues.nodes;
+      const item = issues.find((issue) => issue.number === 729)?.projectItems.nodes[0];
+      if (item === undefined) throw new Error('fixture lost the item of #729');
+      item[key] = value;
+      const batch = await adapter(answering(body).fetcher).poll(context());
+      const states = new Map(batch.mirror?.readiness.map((entry) => [entry.key, entry.state]));
+      expect(states.get(READY)).toBe('not_ready');
+      expect(states.size).toBe(24);
+    }
+  });
 
   it.each([['issues-next-page'], ['items-next-page']])(
     'rejects %s with mirror_snapshot_incomplete',

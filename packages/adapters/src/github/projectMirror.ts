@@ -23,6 +23,7 @@ export const PROJECT_MIRROR_QUERY =
 
 const MALFORMED = 'Malformed GitHub Project response';
 const SINGLE_SELECT = 'ProjectV2SingleSelectField';
+const SINGLE_SELECT_VALUE = 'ProjectV2ItemFieldSingleSelectValue';
 const pageWire = z.object({ hasNextPage: z.boolean() });
 const ownerWire = z
   .object({
@@ -190,13 +191,22 @@ async function readMirrorWith(
       if (items === null || items.nodes.includes(null))
         throw failure('transient', 'mirror_read_failed', 'GitHub Project items were not returned');
       if (items.pageInfo.hasNextPage) incomplete = true;
-      const ready = items.nodes.some(
-        (item) =>
-          item !== null &&
-          item.project.id === project.id &&
-          !item.isArchived &&
-          item.fieldValueByName?.optionId === optionId,
-      );
+      let ready = false;
+      for (const item of items.nodes) {
+        // Archived items and items of other Projects are never read, so never checked.
+        if (item === null || item.project.id !== project.id || item.isArchived) continue;
+        const value = item.fieldValueByName;
+        // A null value is a cleared field: not ready. Any other value must be a known option.
+        if (value === null) continue;
+        if (value.__typename !== SINGLE_SELECT_VALUE)
+          throw failure(
+            'transient',
+            'mirror_read_failed',
+            'GitHub Project item value is not a single-select value',
+          );
+        if (!options?.some((option) => option.id === value.optionId)) throw fieldNotFound(target);
+        if (value.optionId === optionId) ready = true;
+      }
       readiness.push({
         key: `${target.repo}#${String(issue.number)}`,
         state: ready ? 'ready' : 'not_ready',
