@@ -222,7 +222,7 @@ export const statusOutputSchema = z.strictObject({
   services: z
     .array(serviceSchema)
     .describe(
-      'One health row per service: daemon, each chat gateway, then github, spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up the sources listed, which cover every project the caller may see whatever project says.',
+      'One health row per service: daemon, each chat gateway, then github, github-project (only when a column mirrors a GitHub Project), spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up the sources listed, which cover every project the caller may see whatever project says.',
     ),
   transport: z
     .array(

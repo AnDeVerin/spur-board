@@ -1,5 +1,5 @@
 {
-  "version": "4ef74bf51592f79b5fb640065db9f8ad386ceaecbf6952c7e5d28a149f1ae104",
+  "version": "dc4ff32e85760a4e40f0f3857cdd72002709fafd5ff03c7982d8d0d9338eee28",
   "grants": [
     "operator",
     "project-agent",
@@ -1513,7 +1513,7 @@
               "additionalProperties": false,
               "description": "Health of one service."
             },
-            "description": "One health row per service: daemon, each chat gateway, then github, spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up the sources listed, which cover every project the caller may see whatever project says."
+            "description": "One health row per service: daemon, each chat gateway, then github, github-project (only when a column mirrors a GitHub Project), spur and jira when sources lists one. Daemon and gateway rows are board-wide; source services roll up the sources listed, which cover every project the caller may see whatever project says."
           },
           "transport": {
             "type": "array",

@@ -893,7 +893,7 @@ describe('snapshot', () => {
     // review-rule gate reasons and condition to task.get --why. #738 adds the mirror move kind
     // and reason, sources[].failure and the github-project service texts.
     expect(await catalogVersion(baseline)).toBe(
-      '6b5496de8c0d31b56655ef0721bd22decd7d246848c1043e545d2840e86b3e16',
+      'b12ee84c06d12dc7246a579025816488bfee5b8f445dc9e705d7e874e4c876a2',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
