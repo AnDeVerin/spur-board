@@ -240,7 +240,7 @@ describe('Popover placement', () => {
     // the window counts as shown, and as the most recently opened shown surface it closes first.
     const offscreen = createElement(
       'div',
-      { style: { position: 'fixed', left: '-9999px' } },
+      { id: 'offscreen', style: { position: 'fixed', left: '-9999px' } },
       createElement(HoverMenu<'a'>, {
         label: 'Sort',
         icon: 'sun',
@@ -253,7 +253,20 @@ describe('Popover placement', () => {
     render(createElement(Harness, { initial: true }));
     await shown();
     render(createElement(Harness, { initial: true, after: offscreen }));
-    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    // The registered root and its menu get a real box wholly left of the 1024x768 window, so an
+    // in-view check on either would flip this result.
+    const root = document.getElementById('offscreen')?.firstElementChild;
+    const list = document.querySelector('[role="menu"]');
+    if (!root || !list) throw new Error('no open menu');
+    root.id = 'menu-root';
+    list.id = 'menu-list';
+    stubAnchorRect({ left: -9999, right: -9919, top: 300, bottom: 328 }, 'menu-root');
+    stubAnchorRect({ left: -10119, right: -9919, top: 328, bottom: 400 }, 'menu-list');
+    for (const element of [root, list]) {
+      const box = element.getBoundingClientRect();
+      expect(box.width * box.height, element.id).toBeGreaterThan(0);
+      expect(box.right, element.id).toBeLessThan(0);
+    }
     expect(document.activeElement).toBe(document.body);
     key('Escape');
     expect(document.querySelector('[role="menu"]')).toBeNull();
