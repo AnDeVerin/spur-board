@@ -17,13 +17,19 @@ export function githubFakes(now: () => number = () => NOW): Fakes {
   });
 }
 
-/** Both GitHub fakes, in the stand's order. */
+/** Both GitHub fakes, in the stand's order and wired as the stand wires them. */
 export function issueFakes(now: () => number = () => NOW): Fakes {
+  let issues: ReturnType<typeof createGithubIssuesFake> | undefined;
   return createFakes({
     now,
     modules: [
-      (clock) => createGithubPrFake({ now: clock, repos: [BOARD, SERVICE] }),
-      (clock) => createGithubIssuesFake({ now: clock, repos: [BOARD, SERVICE] }),
+      (clock) =>
+        createGithubPrFake({
+          now: clock,
+          repos: [BOARD, SERVICE],
+          issueProjects: (owner, name) => issues?.issueProjects(owner, name) ?? [],
+        }),
+      (clock) => (issues = createGithubIssuesFake({ now: clock, repos: [BOARD, SERVICE] })),
     ],
   });
 }

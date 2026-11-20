@@ -143,6 +143,48 @@ describe('stand fake spur', () => {
   });
 });
 
+describe('stand fake github issue project-status', () => {
+  it('sends one status to the issue fake', async () => {
+    const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
+    const result = await runCli([
+      'fake',
+      'github',
+      'issue',
+      '2',
+      'project-status',
+      'Ready',
+      '--home',
+      dir,
+    ]);
+    expect(result.code, result.stderr).toBe(0);
+    expect(fake).toHaveBeenCalledExactlyOnceWith({
+      system: 'github',
+      verb: 'issue-project-status',
+      args: { repo: 'stand-org/board', number: 2, status: 'Ready' },
+    });
+  });
+
+  it.each([
+    ['no status', []],
+    ['two statuses', ['Ready', 'Done']],
+    ['a title', ['Ready', '--title', 't']],
+  ])('exits 2 on %s without calling the stand', async (_name, extra) => {
+    const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
+    const result = await runCli([
+      'fake',
+      'github',
+      'issue',
+      '2',
+      'project-status',
+      ...extra,
+      '--home',
+      dir,
+    ]);
+    expect(result.code).toBe(2);
+    expect(fake).not.toHaveBeenCalled();
+  });
+});
+
 describe('stand clock', () => {
   it('sends the shift in milliseconds and exits 0', async () => {
     const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });

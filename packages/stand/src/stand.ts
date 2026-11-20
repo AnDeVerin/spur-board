@@ -638,6 +638,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   // Only grows, also across reset and seed, so the stand clock never moves backward.
   let offsetMs = 0;
   const clock = { now: () => base.now() + offsetMs };
+  // The GraphQL fake answers each issue's Project item from the GitHub Issues fake built with it.
+  let issues: ReturnType<typeof createGithubIssuesFake> | undefined;
   // Outlives every daemon of this stand; a reset clears its state, not the object.
   const fakes = createFakes({
     now: () => clock.now(),
@@ -646,16 +648,17 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         createGithubPrFake({
           now,
           repos: options.githubRepos ?? parsedConfig.projects.flatMap(({ repos }) => repos),
+          issueProjects: (owner, name) => issues?.issueProjects(owner, name) ?? [],
         }),
       (now) =>
-        createGithubIssuesFake({
+        (issues = createGithubIssuesFake({
           now,
           repos:
             options.githubRepos ??
             parsedConfig.projects.flatMap(({ tracker }) =>
               tracker.type === 'github-issues' ? [tracker.repo] : [],
             ),
-        }),
+        })),
       ...parsedConfig.projects.flatMap(({ tracker }) =>
         tracker.type === 'jira' ? [(now: () => number) => createJiraFake({ now, tracker })] : [],
       ),

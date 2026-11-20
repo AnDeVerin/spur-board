@@ -11,7 +11,9 @@ import {
   type Seed,
   type Verb,
 } from './github-pr-control.ts';
+import type { IssueProject } from './github-issues.ts';
 import { KNOWN_SHAPES } from './github-pr-shapes.ts';
+import { projectIssuesView, projectOwnerView } from './github-project.ts';
 import {
   canonicalize,
   createRequestLog,
@@ -75,6 +77,8 @@ function pageBack(connection: string, items: readonly Wire[], args: Args): WireO
 export function createGithubPrFake(options: {
   now: () => number;
   repos: readonly string[];
+  /** The open issues of a repository with their Project items, from the GitHub Issues fake. */
+  issueProjects?: (owner: string, name: string) => readonly IssueProject[];
 }): FakeModule {
   const { now } = options;
   const repos = new Set(options.repos.map((repo) => repo.toLowerCase()));
@@ -368,6 +372,7 @@ export function createGithubPrFake(options: {
                 },
               },
             },
+      issues: (args: Args) => projectIssuesView(repo, args, options.issueProjects),
       // Newest first, which the adapter's scan relies on to stop at its cursor.
       pullRequests: (args: Args) => {
         const states = args['states'] as readonly string[];
@@ -492,6 +497,7 @@ export function createGithubPrFake(options: {
           resetAt: iso(now() + 3_600_000),
         },
         repository: (args: Args) => repositoryView(args['owner'], args['name']),
+        repositoryOwner: (args: Args) => projectOwnerView(args['login']),
       };
       const answer = () => {
         const { data, errors } = project(operation, variables, root);

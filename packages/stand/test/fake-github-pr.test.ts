@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { sourceCursorSchema, type PrFacts } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as client from '../../adapters/src/github/client.ts';
@@ -8,6 +9,10 @@ import {
   pageQuery,
   stateQuery,
 } from '../../adapters/src/github/client.ts';
+import {
+  PROJECT_MIRROR_QUERY,
+  readProjectMirror,
+} from '../../adapters/src/github/projectMirror.ts';
 import type { Fakes } from '../src/fakes/fetch.ts';
 import { isKnownShape } from '../src/fakes/github-pr-shapes.ts';
 import {
@@ -15,6 +20,8 @@ import {
   fakeFetch,
   githubFakes,
   GRAPHQL,
+  issue,
+  issueFakes,
   NOW,
   pollContext,
   pollRepo,
@@ -1018,5 +1025,136 @@ describe('state probes and reopen', () => {
     expect(pr(fakes, 7, 'reopen').status).toBe(409);
     const cursor = sourceCursorSchema.parse('2025-01-01T00:00:00.000Z');
     expect(factsOf(await pollRepo(fakes, BOARD, pollContext({ cursor })), 7).state).toBe('merged');
+  });
+});
+
+describe('ProjectMirror', () => {
+  const MIRROR = { owner: 'stand-org', number: 1, field: 'Status', value: 'Ready' };
+  const LIVE = new URL(
+    '../../adapters/test/github/fixtures/project-mirror/live-snapshot.json',
+    import.meta.url,
+  );
+  const variables = (extra: Record<string, unknown> = {}) => ({
+    owner: 'stand-org',
+    repo: 'board',
+    projectOwner: 'stand-org',
+    number: 1,
+    field: 'Status',
+    ...extra,
+  });
+  interface Answer {
+    data: { repositoryOwner: { projectV2: { field: unknown } | null } | null; repository: unknown };
+    errors?: { type: string; path: unknown[]; message: string }[];
+  }
+  const ask = async (extra: Record<string, unknown> = {}): Promise<Answer> => {
+    const response = await postQuery(fakeFetch(fakes), PROJECT_MIRROR_QUERY, variables(extra));
+    expect(response.status).toBe(200);
+    return (await response.json()) as Answer;
+  };
+  /** Every key path of a response, with list indexes collapsed, as the shape to compare. */
+  const keyPaths = (value: unknown, path = ''): string[] => {
+    if (Array.isArray(value))
+      return [...new Set(value.flatMap((item) => keyPaths(item, `${path}[]`)))];
+    if (value === null || typeof value !== 'object') return [path];
+    return Object.entries(value).flatMap(([key, child]) => keyPaths(child, `${path}.${key}`));
+  };
+  const read = () =>
+    readProjectMirror(
+      { repo: BOARD, mirror: MIRROR },
+      {
+        token: 'dummy',
+        now: () => NOW,
+        fetch: fakeFetch(fakes),
+        signal: new AbortController().signal,
+      },
+    );
+  const states = async () =>
+    Object.fromEntries((await read()).readiness.map(({ key, state }) => [key, state]));
+
+  beforeEach(() => {
+    fakes = issueFakes();
+    for (const number of [1, 2]) expect(issue(fakes, number, 'open').status).toBe(200);
+    expect(issue(fakes, 1, 'project-status', { status: 'Ready' }).status).toBe(200);
+    expect(issue(fakes, 2, 'project-status', { status: 'Backlog' }).status).toBe(200);
+  });
+
+  it('knows the adapter document', () => {
+    expect(isKnownShape(PROJECT_MIRROR_QUERY)).toBe(true);
+  });
+
+  it('answers with the key paths of the live recording', async () => {
+    const live: unknown = JSON.parse(readFileSync(LIVE, 'utf8'));
+    expect(new Set(keyPaths(await ask()))).toEqual(new Set(keyPaths(live)));
+  });
+
+  it('matches the ProjectV2Owner fragment on the Organization stand-org', async () => {
+    const { data, errors } = await ask();
+    expect(errors).toBeUndefined();
+    expect(data.repositoryOwner?.projectV2).toMatchObject({
+      id: 'PVT_stand_1',
+      title: 'Stand roadmap',
+    });
+  });
+
+  it('answers another Project number with NOT_FOUND at the live path', async () => {
+    const { data, errors } = await ask({ number: 2 });
+    expect(data.repositoryOwner).toEqual({ projectV2: null });
+    expect(errors).toEqual([
+      {
+        type: 'NOT_FOUND',
+        path: ['repositoryOwner', 'projectV2'],
+        message: 'Could not resolve to a ProjectV2 with the number 2.',
+      },
+    ]);
+    await expect(
+      readProjectMirror(
+        { repo: BOARD, mirror: { ...MIRROR, number: 2 } },
+        {
+          token: 'dummy',
+          now: () => NOW,
+          fetch: fakeFetch(fakes),
+          signal: new AbortController().signal,
+        },
+      ),
+    ).rejects.toMatchObject({ kind: 'auth', code: 'mirror_project_forbidden' });
+  });
+
+  it('answers another field name with NOT_FOUND at the live path and no item values', async () => {
+    const { data, errors } = await ask({ field: 'NoSuchField' });
+    expect(data.repositoryOwner?.projectV2?.field).toBeNull();
+    expect(errors).toEqual([
+      {
+        type: 'NOT_FOUND',
+        path: ['repositoryOwner', 'projectV2', 'field'],
+        message:
+          'Could not resolve to a Unions::ProjectV2FieldConfiguration with the name NoSuchField',
+      },
+    ]);
+    expect(JSON.stringify(data.repository)).not.toContain('optionId');
+  });
+
+  it('gives the real reader each issue-fake status: Ready in, every other path out', async () => {
+    const one = `${BOARD}#1`;
+    const two = `${BOARD}#2`;
+    expect((await read()).title).toBe('Stand roadmap');
+    expect(await states()).toEqual({ [one]: 'ready', [two]: 'not_ready' });
+    for (const status of ['Backlog', 'Done', 'none', 'archived', 'removed']) {
+      expect(issue(fakes, 1, 'project-status', { status: 'Ready' }).status).toBe(200);
+      expect(issue(fakes, 1, 'project-status', { status }).status).toBe(200);
+      expect(await states(), status).toEqual({ [one]: 'not_ready', [two]: 'not_ready' });
+    }
+    expect(issue(fakes, 2, 'project-status', { status: 'Ready' }).status).toBe(200);
+    expect(issue(fakes, 1, 'close').status).toBe(200);
+    expect(await states()).toEqual({ [two]: 'ready' });
+  });
+
+  it('logs the read with its synthetic cost', async () => {
+    await read();
+    const { requests } = fakes.control({ system: 'github', verb: 'inspect', args: {} }).body as {
+      requests: { operation: string; repo: string; numbers: number[]; points?: number }[];
+    };
+    expect(requests).toEqual([
+      expect.objectContaining({ operation: 'ProjectMirror', repo: BOARD, numbers: [1], points: 1 }),
+    ]);
   });
 });

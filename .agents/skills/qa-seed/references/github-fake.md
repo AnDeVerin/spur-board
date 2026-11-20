@@ -10,6 +10,10 @@
   `fake github issue <n> close`.
 - `fake github pr <n> edit <index>` edits comment `<index>` (0 is the oldest) at the stand clock;
   the PR's `updatedAt` stays, so only the index `edited` alias shows it.
+- `fake github issue <n> project-status <Backlog|Ready|Done|none|archived|removed>` sets the
+  issue's Status in the one fake GitHub Project, `stand-org/1` ("Stand roadmap", field `Status`);
+  `none` clears the field, `archived` archives the item, `removed` takes the issue out; follow it
+  with `pnpm stand poll`. Another Project number or field name answers `NOT_FOUND`, as on GitHub.
 - `fake github inspect` prints the last 500 GraphQL requests the fake answered: `seq`, operation,
   repo and PR numbers; `reset` clears them. Each `pnpm stand poll` restarts the adapters, so
   in-memory adapter state such as the PR cache starts empty on that poll.
