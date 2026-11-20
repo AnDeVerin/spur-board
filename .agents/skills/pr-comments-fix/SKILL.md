@@ -81,9 +81,9 @@ Fix or answer every open PR point once, with a reason for each rejection.
   unfinished run, and on a PR edit `ci-ok` also carries the reused code run's failures. Write
   each verdict and line it gives into Testing, and into `## Acceptance gates` only the head of a
   tester PASS, a designer APPROVED or a `no UI change since <passed head>` line (else keep the
-  last passed head or the placeholder), with `gh pr edit <N> --body-file`. When acceptance-gates
-  fails, rewrite both gate lines to the current state (a SHA, or n/a when the gate no longer
-  applies), even if no gate needs a rerun.
+  last passed head or the placeholder), with `gh pr edit <N> --body-file`.
+- acceptance-gates fails, whatever the branch above decides -> rewrite both gate lines to the
+  current state (a SHA, or n/a when the gate no longer applies), even if no gate needs a rerun.
 - Report in the session, not on the PR: `Fixed: <thread or comment> - <sha>` and
   `Rejected: <thread or comment> - <reason>`, one line each, plus the checks run and their exit
   codes.
