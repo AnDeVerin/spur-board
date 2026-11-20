@@ -13,9 +13,11 @@
   `board unblock <block> --done <commit/PR link>`.
 - A "back" block still open after your Dev turn closed (no submit, or one a merge at another
   head superseded, which opens no turn): take a later Dev turn of that visit and submit as
-  above. While `board task <task> --why` lists the `ticket_unconfirmed` hold, the Board can
-  still open that turn: wait. Once the hold clears and no later Dev turn of that visit opens,
-  fix it, then close it with `--done` as above.
+  above. While `board task <task> --why` lists any `holds` (`ticket_unconfirmed`,
+  `github_blind` and others), the Board can still open that turn: wait. Only when none is
+  listed and no later Dev turn of that visit opened, fix it, then close it with `--done` as
+  above. A hold that does not clear (a ticket left unconfirmed): keyed `board ask <task> <text>`
+  for the operator to check it instead of closing by hand.
 - Exit 3: not applied. Ask in your own session; when the Board returns, retry identically.
 - Exit 4: no Board config; report in your session; keep the key.
 - Exit 5 (unknown): retry up to 3 times in a minute, then ask in your own session.

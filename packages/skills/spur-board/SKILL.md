@@ -46,8 +46,10 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
   runs Dev): ack the block on its doorbell, then keyed `board unblock <block> --done <ref>` once
   the fix is in. Still open after your Dev turn closed (no submit, or one a merge at another head
   superseded, which opens no turn): take a later Dev turn of that visit and submit. While
-  `board task <task> --why` lists `ticket_unconfirmed`, wait; once it clears and no later Dev
-  turn of that visit opens, close the block with `--done` as above.
+  `board task <task> --why` lists any `holds`, the Board can still open that turn: wait. Close
+  with `--done` as above only when none is listed and no later Dev turn of that visit opened. A
+  hold that does not clear (a ticket left unconfirmed): keyed `board ask <task> <text>` for the
+  operator to check it, not a close by hand.
 
 ## Board commands
 
