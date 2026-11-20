@@ -1278,12 +1278,17 @@ export async function dispatchTasks(
     if (read.pending?.state === 'confirmed') await confirmSubmit(trx, read.pending);
     let result = dispatch(read.input);
     // External Review's deferred course check waits for a final decision of this pass: completion
-    // and every other move go first, and a held pass (blind GitHub or Spur, a pending submit, an
-    // open item) decides nothing yet. Its hold then opens no turn in this pass.
+    // and every other move go first, and a held pass (blind GitHub, a pending submit, an open
+    // item) decides nothing yet. Spur blindness holds it only as it holds the Dev turn: `dispatch`
+    // defers a turn of a column without an orchestrator (the worker's) while Spur is blind. Its
+    // hold then opens no turn in this pass.
+    const devWaitsForSpur =
+      (project.columns.find((column) => column.id === 'dev')?.orchestrator ?? 'none') === 'none';
     if (
       mode === 'on' &&
       result.moves.length === 0 &&
-      dispatchHolds(read.input).length === 0 &&
+      dispatchHolds({ ...read.input, spurBlind: devWaitsForSpur && read.input.spurBlind })
+        .length === 0 &&
       (await raiseDeferredCourseCheck(trx, {
         task,
         project,

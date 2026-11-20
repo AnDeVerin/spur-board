@@ -4246,6 +4246,27 @@ describe('external change-request rounds', () => {
       column: 'dev',
       checks: ['course-check:1:external-review'],
     },
+    {
+      name: 'nothing completes while Spur is blind and a Dev orchestrator works Dev',
+      start: async () => {
+        const ctx = await started({ ...deferredCheck, devOrchestrator: 'coord' });
+        const dev = await ctx.openTurn();
+        await ctx.ack(COORD, dev?.id ?? '');
+        await ctx.pr();
+        await ctx.submit(COORD, dev?.id ?? '', A);
+        expect((await ctx.task()).column).toBe('review');
+        await externalReturn(ctx, A);
+        return ctx;
+      },
+      // A Dev orchestrator's turn does not wait for Spur, so neither does the course check.
+      finish: async (ctx: Board) => {
+        await ctx.blind('spur', true);
+        await ctx.tick();
+        expect((await ctx.why()).holds).toContain('spur_blind');
+      },
+      column: 'dev',
+      checks: ['source:spur', 'course-check:1:external-review'],
+    },
   ])(
     'completion wins over a deferred External Review check: $name',
     async ({ start, finish, column, checks }) => {
@@ -4310,6 +4331,21 @@ describe('external change-request rounds', () => {
 
   it.each([
     {
+      name: 'a new head returns the task with no submit on it',
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await ctx.pr({ headSha: B });
+        expect((await ctx.moves()).at(-1)).toMatchObject({
+          from: 'review',
+          to: 'dev',
+          gate: ['no_submit_on_head'],
+        });
+        return ctx;
+      },
+      returns: 0,
+      reads: 0,
+    },
+    {
       name: 'snapshots, no change request and no return',
       start: async (options: Options) => {
         const ctx = await inDev(options);
@@ -4320,7 +4356,7 @@ describe('external change-request rounds', () => {
       reads: 0,
     },
     {
-      name: 'snapshots and no External Review return',
+      name: 'snapshots and a Review executor return',
       start: async (options: Options) => {
         const ctx = await inReview(options);
         await cycle(ctx);
@@ -4328,7 +4364,7 @@ describe('external change-request rounds', () => {
         return ctx;
       },
       returns: 0,
-      reads: 1,
+      reads: 0,
     },
     {
       name: 'four External Review returns',
@@ -4403,7 +4439,7 @@ describe('external change-request rounds', () => {
         ),
       );
       expect(facts).toHaveLength(reads);
-      const feedback = queries.filter((query) => query.sql.includes('json_each'));
+      const feedback = queries.filter((query) => query.sql.includes('json_group_array'));
       expect(
         feedback.map((query) =>
           query.parameters.filter((value) => typeof value === 'string' && value.startsWith('[')),

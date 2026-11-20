@@ -79,9 +79,11 @@ export async function recordExternalRounds(
 }
 
 /**
- * Whether the task's journal holds a round that can count: an `external_round`, or a move whose
- * reason a counted return can have (`gate_broken`, or none for an executor return). Without one
- * the deferred raise reads no PR history. One row at most, through the event task index.
+ * Whether the task's journal holds a round External Review's counter can take: an
+ * `external_round`, a return for external feedback (`external_comments` or `changes_requested`
+ * among its gate causes), or an executor return from External Review itself; every other return
+ * stays on its own column. Without one the deferred raise reads no PR history. One row at most,
+ * through the event task index.
  */
 async function mayCount(trx: Trx, taskId: number): Promise<boolean> {
   const row = await trx
@@ -89,7 +91,7 @@ async function mayCount(trx: Trx, taskId: number): Promise<boolean> {
     .select('id')
     .where('task_id', '=', taskId)
     .where(
-      sql<boolean>`(kind = 'external_round' or (kind = 'task_moved' and coalesce(json_extract(payload, '$.reason'), '') not in ('gate_passed', 'merged', 'ticket_done_no_pr', 'ticket_reopened', 'mode_changed')))`,
+      sql<boolean>`(kind = 'external_round' or (kind = 'task_moved' and (exists (select 1 from json_each(event.payload, '$.gate') where value in ('external_comments', 'changes_requested')) or (json_extract(payload, '$.from') = 'external-review' and json_extract(payload, '$.block') is not null))))`,
     )
     .limit(1)
     .executeTakeFirst();
