@@ -159,6 +159,26 @@ function shadowMarker(row: BoardRow): Marker | null {
   };
 }
 
+/**
+ * In Ready to Merge, the QA column's latest submission when it was not tested: `QA carried` with
+ * the source commit and reason, or a warn `QA skipped` with the reason. Pending and voided rows
+ * count by their basis.
+ */
+export function qaMarker(row: BoardRow): Marker | null {
+  const qa = row.qaSubmission;
+  if (row.column !== 'ready-to-merge' || qa === undefined || qa === null) return null;
+  const reason = qa.reason === null ? '' : `: ${qa.reason}`;
+  if (qa.basis === 'carried')
+    return {
+      tone: 'default',
+      text: 'QA carried',
+      title: `Verdict carried${qa.from === null ? '' : ` from ${qa.from}`}${reason}`,
+    };
+  if (qa.basis === 'skipped')
+    return { tone: 'warn', text: 'QA skipped', title: `QA skipped${reason}` };
+  return null;
+}
+
 /** A session id longer than this is cut, with the full id in the tooltip. */
 const SESSION_CHARS = 20;
 
@@ -181,11 +201,12 @@ export function sessionChip(row: BoardRow, spurUiOrigin: string | null): Marker 
   };
 }
 
-/** Every marker in drawing order: blocks, returned, draft, shadow, then the session chip. */
+/** Every marker in drawing order: QA, blocks, returned, draft, shadow, then the session chip. */
 export function markers(row: BoardRow, spurUiOrigin: string | null): Marker[] {
   const draft: Marker | null =
     displayedPr(row)?.summary?.draft === true ? { tone: 'default', text: 'draft' } : null;
   return [
+    qaMarker(row),
     ...blockMarkers(row.blocks),
     returnedMarker(row.returned),
     draft,
