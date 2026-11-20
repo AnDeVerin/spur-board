@@ -627,8 +627,8 @@ export async function reconcileItems(
             ...(storedMerge === null ? {} : { mergedAt: storedMerge }),
           });
     const closure = prClosed.get(taskId);
-    const followUpClosed =
-      closure?.held === false &&
+    // The tracker evidence a closure lift needs, raised or held.
+    const seenOpen =
       project !== undefined &&
       seenOpenSince(
         project,
@@ -637,6 +637,7 @@ export async function reconcileItems(
         task.manual_include === 1,
         Date.parse(mergedAt.get(taskId) ?? ''),
       );
+    const followUpClosed = closure?.held === false && seenOpen;
     state.hasMergedPr =
       at === null ||
       project === undefined ||
@@ -646,7 +647,8 @@ export async function reconcileItems(
     // No ticket status in the text: the item fingerprint hashes it, and a move between two
     // non-done statuses must not raise the item again.
     if (judgement === 'reopened') reopened.set(taskId, `; PR ${ref} merged, ticket reopened`);
-    if (state.hasMergedPr && judgement !== 'done' && closure?.held === true) liftHeld.add(taskId);
+    // A held lift keeps its alerts only while the tracker still sees the ticket open.
+    if (state.hasMergedPr && seenOpen && closure?.held === true) liftHeld.add(taskId);
   }
   const heldKeys: string[] = [];
   for (const task of tasks) {

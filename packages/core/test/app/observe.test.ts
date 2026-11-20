@@ -4081,6 +4081,7 @@ describe('anomaly blocks', () => {
       closedDuringTrackerOutage: followUpOpen,
       unlinkDuringTrackerOutage: async (b: Board) => histories.followUpClosed(b),
       blindThenLiveWorker: followUpOpen,
+      blindThenLeftFilter: followUpOpen,
       blindAfterDismissed: followUpOpen,
       /** #7 closed, #8 linked and merged, then #7 reopened as the only open PR and closed again. */
       reopenedClosed: async (b: Board) => {
@@ -4257,6 +4258,17 @@ describe('anomaly blocks', () => {
         now += 1_000;
         await spur(b, [JSON.parse(detail) as SessionFacts, session('worker-2', 'working')]);
       },
+      // In the GitHub outage the tracker sees the ticket, a filter task here, leave the filter.
+      blindThenLeftFilter: async (b, last, ticket) => {
+        await finals.blindAfterRaised?.(b, last, ticket);
+        await b.store.db.updateTable('task').set({ manual_include: 0 }).execute();
+        const { detail } = await b.store.db
+          .selectFrom('ticket_snapshot')
+          .select('detail')
+          .executeTakeFirstOrThrow();
+        now += 1_000;
+        await ticket('open', (JSON.parse(detail) as { updatedAt: string }).updatedAt);
+      },
       blindAfterDismissed: async (b, last, ticket) => {
         await finals.closeFresh?.(b, last, ticket);
         const item = await b.store.db
@@ -4325,6 +4337,7 @@ describe('anomaly blocks', () => {
       ['closedDuringTrackerOutage', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['unlinkDuringTrackerOutage', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['blindThenLiveWorker', 'untouched', ['pr-closed'], null, UNCONFIRMED],
+      ['blindThenLeftFilter', 'untouched', [], null, UNCONFIRMED],
       // Seen open past the interval only: the merged PR stops counting, with no reopen named.
       ['legacyMerged', 'changed', [ENDED], NO_PR, { pr: null, mergedOpen: 7, unconfirmed: false }],
       // The dismissed pr-closed item is cleared; its block stays open, as for any dismissal.
