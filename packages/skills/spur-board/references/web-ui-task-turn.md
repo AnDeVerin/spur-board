@@ -68,8 +68,11 @@ above the button; the fields keep their text. The banner stays while you edit an
 next send and on Cancel. An unchanged resend uses the same keys, so a write that landed is never
 applied twice; an edited one is a new write with a new key. After `not_turn_taker` the next send
 takes the turn again with a new key. A refusal after the ack leaves the operator holding the turn,
-and the read that follows shows it in the hold line and the header. Until the read after a take,
-submit or return answers (a take, submit or return whose answer was lost, or did not come in 15 seconds, counts as sent; a resend asks again with the same key), the section names no holder and disables its buttons: it shows
+and the read that follows shows it in the hold line and the header. A take, submit or return
+whose answer was lost, or did not come in 15 seconds, may have landed: Cancel works at once, and
+a resend asks again under the same key, so it is safe. Until the read after a take, submit or
+return answers, the section names no holder, and **Submit…**, **Return to dev…** and the form's
+send stay locked; it shows
 `Refreshing the turn…` while that read runs and
 `Could not refresh the turn. Reload to see who holds it.` when it fails or has not answered in 15
 seconds, and Cancel focuses that line; when the line goes, focus moves to the first enabled
