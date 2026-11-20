@@ -230,7 +230,8 @@ export async function courseRounds(
               'bots',
             ),
           ])
-          .where('id', 'in', used)
+          // One JSON array binds every id, whatever SQLite's variable limit.
+          .where(sql<boolean>`id in (select value from json_each(${JSON.stringify(used)}))`)
           .execute();
   /** The head of the latest external change request in facts row `id` made after `since`. */
   const reviewedHead = (id: number, since: number) => {

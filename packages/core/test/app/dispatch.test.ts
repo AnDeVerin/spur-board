@@ -4342,9 +4342,10 @@ describe('external change-request rounds', () => {
       };
       const ctx = await start(options);
       expect((await ctx.task()).column).toBe('dev');
-      expect(
-        (await returnCounts(ctx.store.db, 1, 'external-review', project(options))).course,
-      ).toBe(returns);
+      expect(await returnCounts(ctx.store.db, 1, 'external-review', project(options))).toEqual({
+        cycle: 0,
+        course: returns,
+      });
       // The facts row each return's change request is read from: the PR's last before it.
       const journal = await ctx.store.db
         .selectFrom('event')
@@ -4391,8 +4392,10 @@ describe('external change-request rounds', () => {
       expect(facts).toHaveLength(1);
       const feedback = queries.filter((query) => query.sql.includes('json_each'));
       expect(
-        feedback.map((query) => query.parameters.filter((value) => typeof value === 'number')),
-      ).toEqual(returns === 0 ? [] : [used]);
+        feedback.map((query) =>
+          query.parameters.filter((value) => typeof value === 'string' && value.startsWith('[')),
+        ),
+      ).toEqual(returns === 0 ? [] : [[JSON.stringify(used)]]);
       expect(used).toHaveLength(returns);
     },
   );
