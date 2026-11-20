@@ -62,7 +62,10 @@ Columns follow configuration order:
 - An empty column collapses to a spine with its name and `0`.
 - Two or three adjacent Todo-group columns (`todo`, `triage`, `ready-for-dev`) sit under one
   `Backlog` band with their total count; `todo` alone stays a plain column. Each part's head
-  reads `manual` instead of the executor. The band's caret toggle folds the group into one
+  reads `manual` instead of the executor, or `mirror · <Project>` with a mirror icon when a
+  GitHub Project places its tasks; its Who tab names the Project, field and last read. A mirror
+  that cannot be read is frozen: ` · frozen` on the line, a warning dot on the band and a notice
+  above the part's cards ([mirrored part](web-ui-board-move.md#mirrored-part)). The band's caret toggle folds the group into one
   column with a section per part (`empty` when it has no tasks) and unfolds it back into
   columns. The browser keeps the fold per project; a fold reads nothing from the daemon.
 - A Backlog card moves to another part of its band with a reason: see

@@ -9,8 +9,9 @@ import {
   type IconName,
 } from '../ds/index.ts';
 import { sessionLinkHref } from '../lib/links.ts';
+import { age } from './card.ts';
 import type { BoardColumns, ColumnsState } from './columns-data.ts';
-import type { BoardColumn } from './model.ts';
+import { frozenDetail, type BoardColumn, type MirrorSource } from './model.ts';
 import { conditionWords } from './task-model.ts';
 import styles from './ColumnHelp.module.css';
 
@@ -43,8 +44,16 @@ export function useHelpScope(open: boolean, setOpen: (open: boolean) => void) {
   return scope;
 }
 
-/** Who moves a task here: a group part is filled by hand, else the executor kind decides. */
-export function actorIcon(kind: BoardColumn['kind'], part: boolean): IconName {
+/**
+ * Who moves a task here: a mirrored part is filled from its tracker, any other group part by
+ * hand, else the executor kind decides.
+ */
+export function actorIcon(
+  kind: BoardColumn['kind'],
+  part: boolean,
+  source: BoardColumn['source'],
+): IconName {
+  if (part && source.kind === 'mirror') return 'mirror';
   if (part || kind === 'operator') return 'person';
   return kind === 'dispatcher' ? 'dispatcher' : 'agent';
 }
@@ -100,13 +109,33 @@ function SessionLink({ session, spurUiOrigin }: { session: Session; spurUiOrigin
   );
 }
 
+/** The read state of a mirror: when it last read, or the frozen Banner when it fails. */
+function MirrorState({ mirror, now }: { mirror: MirrorSource; now: number | undefined }) {
+  if (mirror.health === 'failing')
+    return (
+      <Banner variant="warning" icon="pulse" detail={frozenDetail(mirror)}>
+        Not readable: frozen
+      </Banner>
+    );
+  return (
+    <p className={classes(styles.text, styles.live)}>
+      <StatusDot tone={mirror.health === 'healthy' ? 'ok' : 'warn'} />
+      {mirror.readAt === null ? 'no complete read yet' : `read ${age(mirror.readAt, now)} ago`}
+    </p>
+  );
+}
+
 function WhoHelp({
   column,
   part,
+  source,
+  now,
   spurUiOrigin,
 }: {
   column: DescribedColumn;
   part: boolean;
+  source: BoardColumn['source'];
+  now: number | undefined;
   spurUiOrigin: string | null;
 }) {
   if (part)
@@ -114,7 +143,15 @@ function WhoHelp({
       <Part title="Moves tasks here">
         <p className={styles.text}>
           <b>{column.movedBy.kind}</b>
+          {source.kind === 'mirror' && (
+            <>
+              {' · GitHub Project '}
+              <b>{source.name}</b>
+              {` · ${source.field}`}
+            </>
+          )}
         </p>
+        {source.kind === 'mirror' && <MirrorState mirror={source} now={now} />}
         <p className={styles.text}>{column.movedBy.text}</p>
       </Part>
     );
@@ -254,6 +291,7 @@ export function ColumnHelp({
   tab,
   tabsId,
   columns,
+  now,
   spurUiOrigin,
 }: {
   column: BoardColumn;
@@ -261,6 +299,8 @@ export function ColumnHelp({
   tab: HelpTab;
   tabsId: string;
   columns: ColumnsState | undefined;
+  /** The time of the last good read: a mirror's read age counts to it. */
+  now: number | undefined;
   spurUiOrigin: string | null;
 }) {
   const help = columns?.help;
@@ -286,7 +326,15 @@ export function ColumnHelp({
       </div>
     );
   else if (tab === 'who')
-    body = <WhoHelp column={described.column} part={part} spurUiOrigin={spurUiOrigin} />;
+    body = (
+      <WhoHelp
+        column={described.column}
+        part={part}
+        source={column.source}
+        now={now}
+        spurUiOrigin={spurUiOrigin}
+      />
+    );
   else body = <RulesHelp project={described.project} column={described.column} />;
   return (
     <TabPanel tabsId={tabsId} value={tab}>

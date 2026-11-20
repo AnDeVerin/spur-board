@@ -7,6 +7,9 @@ export type BoardColumnConfig = BoardProject['columns'][number];
 export type BoardRow = Output<'status.get'>['tasks'][number];
 type BoardSource = Output<'status.get'>['sources'][number];
 type BoardGroup = NonNullable<BoardColumnConfig['group']>;
+type PartSource = NonNullable<BoardColumnConfig['source']>;
+/** A part the board fills from a GitHub Project field. */
+export type MirrorSource = Extract<PartSource, { kind: 'mirror' }>;
 
 export interface BoardColumn {
   id: BoardColumnConfig['id'];
@@ -18,7 +21,11 @@ export interface BoardColumn {
   kind: BoardColumnConfig['executor']['kind'];
   /** Rows of this column in `status.get` order, before `sortRows`; none makes it a spine. */
   rows: BoardRow[];
+  /** `config.get` source of a Todo-group column; manual when the config view has none. */
+  source: PartSource;
 }
+
+const MANUAL: PartSource = { kind: 'manual' };
 
 const executorLine = ({ executor }: BoardColumnConfig) =>
   executor.name === null ? executor.kind : `${executor.kind} ${executor.name}`;
@@ -37,6 +44,7 @@ export function boardColumns(
         executor: executorLine(column),
         kind: column.executor.kind,
         rows: [],
+        source: column.source ?? MANUAL,
       },
     ]),
   );
@@ -46,11 +54,41 @@ export function boardColumns(
 
 const GROUP_LABELS: Record<BoardGroup, string> = { todo: 'Backlog' };
 
+/** Where a group part's tasks come from, on the second line of its head. */
+export const partSource = ({ source }: Pick<BoardColumn, 'source'>) =>
+  source.kind === 'mirror' ? `mirror · ${source.name}` : 'manual';
+
+/** The mirror of a part whose last read failed: its tasks stay where they were until it reads. */
+export const mirrorFrozen = ({ source }: Pick<BoardColumn, 'source'>): MirrorSource | undefined =>
+  source.kind === 'mirror' && source.health === 'failing' ? source : undefined;
+
+/** The cause line of a frozen mirror: why the read failed, its last complete read, the outcome. */
+export function frozenDetail(mirror: MirrorSource): string {
+  const cause =
+    mirror.error === undefined ? 'The last read did not complete.' : `${mirror.error.message}.`;
+  const read =
+    mirror.readAt === null
+      ? 'No complete read yet.'
+      : `Last complete read ${formatDataTime(Date.parse(mirror.readAt))}.`;
+  return `${cause} ${read} Tasks stay where they were.`;
+}
+
 /**
- * Where a group part's tasks come from, on the second line of its head. Every part is filled by
- * hand today; the mirror UI (issue 751) reads it from the config view.
+ * Why a move from part `from` to part `to` is refused: either end is a mirrored part, whose tasks
+ * move only in the tracker. The text follows the `column_mirrored` hint; undefined when allowed.
  */
-export const PART_SOURCE = 'manual';
+export function mirrorRefusal(
+  parts: readonly { id: string; source?: PartSource | undefined }[],
+  from: string,
+  to: string,
+): string | undefined {
+  for (const id of [to, from]) {
+    const source = parts.find((part) => part.id === id)?.source;
+    if (source?.kind === 'mirror')
+      return `${id} mirrors GitHub Project "${source.name}". Change the task status there instead.`;
+  }
+  return undefined;
+}
 
 /** One board item: a plain column, or a group band over its parts. */
 type BoardItem =
@@ -150,7 +188,15 @@ const sinceText = (source: BoardSource) =>
     ? 'has never completed a poll'
     : `has not answered since ${formatDataTime(Date.parse(source.lastCompleteAt))}`;
 
-/** Blind or stale sources of the chosen project and the shared spur; other projects' are left out. */
+/** A mirror source its Backlog part shows as frozen, so the top banner leaves it out. */
+const frozenMirror = (source: BoardSource) =>
+  source.source.startsWith('github-project:') &&
+  (source.blindReason !== null || source.failure != null);
+
+/**
+ * Blind or stale sources of the chosen project and the shared spur; other projects' are left out,
+ * and so is a frozen mirror, which its part names instead.
+ */
 function blindBanner(
   sources: readonly BoardSource[],
   project: string | undefined,
@@ -158,6 +204,7 @@ function blindBanner(
   const blind = sources.filter(
     (source) =>
       (source.project === null || source.project === project) &&
+      !frozenMirror(source) &&
       (source.blindReason !== null || (source.stale && !source.warmingUp)),
   );
   const [first] = blind;

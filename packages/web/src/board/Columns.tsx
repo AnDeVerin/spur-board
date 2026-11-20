@@ -1,29 +1,14 @@
 import { useId, useRef, useState, type ReactNode } from 'react';
-import {
-  Button,
-  focusRing,
-  Icon,
-  Popover,
-  quiet,
-  Skeleton,
-  Tabs,
-  TextToggle,
-} from '../ds/index.ts';
+import { Button, focusRing, Icon, quiet, Skeleton, StatusDot, TextToggle } from '../ds/index.ts';
 import { age } from './card.ts';
-import {
-  actorIcon,
-  ColumnHelp,
-  describedColumn,
-  noLiveSession,
-  useHelpScope,
-  type HelpTab,
-} from './ColumnHelp.tsx';
+import { ColumnHead, MirrorNotice } from './ColumnHead.tsx';
 import type { ColumnsState } from './columns-data.ts';
 import {
   boardLayout,
   matchesFilter,
+  mirrorFrozen,
   openHref,
-  PART_SOURCE,
+  partSource,
   shortKey,
   sortRows,
   type BoardColumn,
@@ -31,7 +16,6 @@ import {
   type ColumnSort,
 } from './model.ts';
 import { Card, open } from './Card.tsx';
-import { SortControl } from './SortControl.tsx';
 import type { BoardData } from './data.ts';
 import { bandProps, useBand, zone, type Band } from './MoveForm.tsx';
 import styles from './Columns.module.css';
@@ -106,11 +90,6 @@ interface Shared {
   onHelpOpen: () => void;
 }
 
-const HELP_TABS = [
-  { value: 'who', label: 'Who' },
-  { value: 'rules', label: 'Rules' },
-];
-
 /** A column's order, read once from `sorts` and stored on each change. */
 function useSort(id: string, sorts: ColumnSorts) {
   const [sort, setSort] = useState(() => sorts.get(id));
@@ -121,11 +100,16 @@ function useSort(id: string, sorts: ColumnSorts) {
   return [sort, change] as const;
 }
 
-/** The first line of a zone while a card hovers over it. */
-const dropNote = (band: Band | undefined, part: ColumnId) =>
-  band?.dropping(part) === true && (
-    <p className={styles.dropNote}>Drop to move to {part}. A reason is asked.</p>
+/** The first line of a zone while a card hovers over it: the move it takes, or why it refuses. */
+function dropNote(band: Band | undefined, part: ColumnId) {
+  const refusal = band?.refusal(part);
+  if (refusal !== undefined) return <p className={styles.dropNote}>{refusal}</p>;
+  return (
+    band?.dropping(part) === true && (
+      <p className={styles.dropNote}>Drop to move to {part}. A reason is asked.</p>
+    )
   );
+}
 
 const cards = (rows: readonly BoardRow[], shared: Shared, band?: Band, part?: ColumnId) =>
   rows.map((row) => (
@@ -141,108 +125,6 @@ const cards = (rows: readonly BoardRow[], shared: Shared, band?: Band, part?: Co
     />
   ));
 
-/**
- * A column head: label, count, then the executor and the sort buttons. A group part's label is an
- * `h3` under the band's `h2`, and its second line names where its tasks come from. That line is
- * the trigger of the column help panel, which sits right after the head and follows it. Focus
- * moving anywhere outside the head and its panel closes the panel: a keyboard user tabbing to
- * the Inbox button or to another column's trigger leaves no panel open behind them, so at most
- * one panel is open and none stays over the Inbox.
- */
-function ColumnHead({
-  column,
-  part,
-  sort,
-  onSort,
-  columns,
-  spurUiOrigin,
-  onHelpOpen,
-}: {
-  column: BoardColumn;
-  part: boolean;
-  sort: ColumnSort;
-  onSort: (sort: ColumnSort) => void;
-  columns: ColumnsState | undefined;
-  spurUiOrigin: string | null;
-  onHelpOpen: () => void;
-}) {
-  const Label = part ? 'h3' : 'h2';
-  const head = useRef<HTMLDivElement>(null);
-  const actor = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const scope = useHelpScope(open, setOpen);
-  const [tab, setTab] = useState<HelpTab>('who');
-  const tabsId = useId();
-  const warn = noLiveSession(describedColumn(columns, column.id)?.column, part);
-  const title = `How ${column.id} works: who acts and the rules`;
-  return (
-    <div ref={scope} className={styles.helpScope}>
-      <div ref={head} className={classes(styles.head, quiet)}>
-        <div className={styles.name}>
-          <Label className={classes(styles.label, part ? styles.partLabel : undefined)}>
-            {column.id}
-          </Label>
-          <span className={styles.count}>{column.rows.length}</span>
-        </div>
-        <div className={styles.exec}>
-          <button
-            ref={actor}
-            type="button"
-            className={classes(styles.actor, focusRing)}
-            aria-haspopup="dialog"
-            aria-expanded={open}
-            title={warn ? `${title} · no live session` : title}
-            data-warn={warn ? '' : undefined}
-            onClick={() => {
-              if (open) {
-                setOpen(false);
-                return;
-              }
-              setTab('who');
-              setOpen(true);
-              onHelpOpen();
-            }}
-          >
-            <Icon name={actorIcon(column.kind, part)} />
-            <span className={styles.execText}>{part ? PART_SOURCE : column.executor}</span>
-            {warn && <span className={styles.execWarn}> · no live session</span>}
-          </button>
-          {column.rows.length > 0 && <SortControl id={column.id} sort={sort} onChange={onSort} />}
-        </div>
-      </div>
-      <Popover
-        open={open}
-        onClose={() => {
-          setOpen(false);
-        }}
-        anchor={head}
-        trigger={actor}
-        title={column.id}
-        actions={
-          <Tabs
-            id={tabsId}
-            label="Column help"
-            tabs={HELP_TABS}
-            value={tab}
-            onChange={(value) => {
-              setTab(value === 'rules' ? 'rules' : 'who');
-            }}
-          />
-        }
-      >
-        <ColumnHelp
-          column={column}
-          part={part}
-          tab={tab}
-          tabsId={tabsId}
-          columns={columns}
-          spurUiOrigin={spurUiOrigin}
-        />
-      </Popover>
-    </div>
-  );
-}
-
 function Column({
   column,
   part = false,
@@ -251,13 +133,17 @@ function Column({
 }: { column: BoardColumn; part?: boolean; band?: Band | undefined } & Shared) {
   const [sort, setSort] = useSort(column.id, shared.sorts);
   const { filter, stale, now, onOpen } = shared;
-  if (column.rows.length === 0) {
+  // A frozen part keeps its head and notice even with no tasks.
+  if (column.rows.length === 0 && !(part && mirrorFrozen(column))) {
     const Name = part ? 'h3' : 'h2';
     return (
       <section
         className={classes(styles.spine, quiet)}
         data-stale={stale ? '' : undefined}
-        title={`${column.id}: empty · ${part ? PART_SOURCE : column.executor}`}
+        title={
+          band?.refusal(column.id) ??
+          `${column.id}: empty · ${part ? partSource(column) : column.executor}`
+        }
         {...zone(band, column.id)}
       >
         <span className={styles.count}>0</span>
@@ -274,9 +160,11 @@ function Column({
         sort={sort}
         onSort={setSort}
         columns={shared.columns}
+        now={now}
         spurUiOrigin={shared.spurUiOrigin}
         onHelpOpen={shared.onHelpOpen}
       />
+      {part && <MirrorNotice column={column} />}
       {column.id === 'done' ? (
         <ul className={classes(styles.body, styles.done, quiet)}>
           {rows.map((row) => (
@@ -319,9 +207,11 @@ function GroupSection({ column, band, ...shared }: { column: BoardColumn; band: 
         sort={sort}
         onSort={setSort}
         columns={shared.columns}
+        now={shared.now}
         spurUiOrigin={shared.spurUiOrigin}
         onHelpOpen={shared.onHelpOpen}
       />
+      <MirrorNotice column={column} />
       {dropNote(band, column.id)}
       {column.rows.length === 0 ? (
         <p className={classes(styles.groupEmpty, quiet)}>empty</p>
@@ -359,6 +249,7 @@ function ColumnGroup({
   const titleId = useId();
   const total = parts.reduce((sum, part) => sum + part.rows.length, 0);
   const band = useBand(parts, root, moveIntent, moveUnavailable);
+  const frozen = parts.some((part) => mirrorFrozen(part) !== undefined);
   return (
     <section
       ref={root}
@@ -379,6 +270,12 @@ function ColumnGroup({
             <span className={classes(styles.label, styles.groupName)}>{label}</span>
           </TextToggle>
         </h2>
+        {frozen && (
+          <span className={styles.groupWarn} title="A mirror is not readable">
+            <StatusDot tone="warn" />
+            <span className={styles.hidden}>mirror frozen</span>
+          </span>
+        )}
         <span className={styles.count}>{total}</span>
       </div>
       {folded ? (

@@ -18,7 +18,8 @@
   max-width: var(--size-measure);
 }
 
-/* The task view's `Move to` row: the label, then one button per other part. */
+/* The task view's `Move to` row: the label, then one button per other part, then why a part
+   refuses the move. */
 .row {
   display: flex;
   flex-wrap: wrap;
@@ -29,5 +30,9 @@
   font-size: var(--text-micro);
   text-transform: uppercase;
   letter-spacing: var(--tracking-label);
+  color: var(--color-text-tertiary);
+}
+.note {
+  font-size: var(--text-small);
   color: var(--color-text-tertiary);
 }

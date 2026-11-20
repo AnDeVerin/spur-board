@@ -1,5 +1,6 @@
-// Shared by the move tests: board-move.test.ts and board-move-drop.test.ts. A Backlog of three
-// parts with #1 in todo and #2 in triage; ready-for-dev is empty.
+// Shared by the move tests, board-move.test.ts and board-move-drop.test.ts, and the mirror tests in
+// board-mirror.test.ts. A Backlog of three parts with #1 in todo and #2 in triage; ready-for-dev
+// is empty, or holds #4 when mirrored.
 import { act } from 'react';
 import { config, daemon, row, type Daemon } from './board-fixtures.ts';
 import { all, container, mount, one, serve, settle } from './board-harness.ts';
@@ -11,11 +12,26 @@ export const configColumn = (id: string, grouped = false, kind = 'dispatcher') =
   ...(grouped ? { group: 'todo' } : {}),
 });
 /** The fixture config with project `a` on columns `a` and project `b` on `b`. */
-const configWith = (a: ReturnType<typeof configColumn>[], b = a) => ({
+const configWith = (a: (ReturnType<typeof configColumn> & { source?: unknown })[], b = a) => ({
   ...config,
   projects: config.projects.map((entry, index) => ({ ...entry, columns: index === 0 ? a : b })),
 });
 export const KEY = 'ex/repo#1';
+/**
+ * A `config.get` column source of a part mirrored from GitHub Project `ex/1` (title Roadmap),
+ * healthy and last read at 13:42 18/11/26; `extra` sets health, readAt or error.
+ */
+const mirrorSource = (extra: Record<string, unknown> = {}) => ({
+  kind: 'mirror',
+  tracker: 'github-project',
+  name: 'Roadmap',
+  project: 'ex/1',
+  field: 'Status',
+  value: 'Ready',
+  health: 'healthy',
+  readAt: '2026-11-18T13:42:00.000Z',
+  ...extra,
+});
 export const THREE = configWith([
   configColumn('todo', true),
   configColumn('triage', true),
@@ -23,6 +39,19 @@ export const THREE = configWith([
   configColumn('dev', false, 'worker'),
   configColumn('done'),
 ]);
+/** `THREE` with ready-for-dev mirrored from GitHub Project Roadmap; `extra` sets its state. */
+export const mirrored = (extra: Record<string, unknown> = {}) =>
+  configWith([
+    configColumn('todo', true),
+    configColumn('triage', true),
+    { ...configColumn('ready-for-dev', true), source: mirrorSource(extra) },
+    configColumn('dev', false, 'worker'),
+    configColumn('done'),
+  ]);
+export const MIRRORED = mirrored();
+/** The refusal of a move into or out of the mirrored ready-for-dev. */
+export const REFUSAL =
+  'ready-for-dev mirrors GitHub Project "Roadmap". Change the task status there instead.';
 export const ALONE = configWith([
   configColumn('todo', true),
   configColumn('dev', false, 'worker'),
@@ -33,6 +62,8 @@ export const ROWS = [
   row(KEY, 'todo', { columnEnteredAt: '2026-11-15T11:00:00.000Z' }),
   row('ex/repo#3', 'dev'),
 ];
+/** `ROWS` with #4 in the mirrored ready-for-dev. */
+export const MIRRORED_ROWS = [...ROWS, row('ex/repo#4', 'ready-for-dev')];
 interface MoveBody {
   input: Record<string, unknown>;
   key: string;
