@@ -1,5 +1,5 @@
 {
-  "version": "8dc107a468cc8f1c7196b513e3eaaafd36312f9e569694d3f6c98e991ae6866a",
+  "version": "da06c6ff847d473733e32671b9f17a7bb1c3f2f591dcea7fb6d413bc3a2c2f04",
   "grants": [
     "operator",
     "project-agent",
@@ -7377,7 +7377,7 @@
         "destructive": true
       },
       "slack": null,
-      "web": null,
+      "web": true,
       "examples": [
         {
           "summary": "Acknowledge a comment revision",
@@ -10503,7 +10503,7 @@
         "destructive": true
       },
       "slack": null,
-      "web": null,
+      "web": true,
       "examples": [
         {
           "summary": "Submit the pull request head",
@@ -10724,7 +10724,7 @@
         "destructive": true
       },
       "slack": null,
-      "web": null,
+      "web": true,
       "examples": [
         {
           "summary": "Return a reviewed task to Dev",

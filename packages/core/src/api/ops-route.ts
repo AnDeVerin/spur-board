@@ -68,6 +68,8 @@ export function createOpsRoute(
   > & {
     identify: (request: FastifyRequest) => Promise<IdentifiedCaller>;
     allow?: (operation: Operation) => boolean;
+    /** Operations this listener runs only with a client idempotency key, so a retry cannot apply twice. */
+    requireKey?: (operation: Operation) => boolean;
   },
   callers = new WeakMap<object, IdentifiedCaller>(),
 ): void {
@@ -97,6 +99,12 @@ export function createOpsRoute(
         throw new CommandError('forbidden', 'This operation is not available on the web.');
       }
       const body = inputBody(request.body);
+      if (options.requireKey?.(operation) === true && (body.key ?? '').trim() === '') {
+        throw new CommandError(
+          'usage',
+          'Send a non-blank idempotency key with this write; a retry sends the same key.',
+        );
+      }
       const parsed = operation.input.safeParse(body.input);
       if (!parsed.success) {
         throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
