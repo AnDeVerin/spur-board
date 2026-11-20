@@ -66,6 +66,7 @@ describe('Turn section after a write', () => {
       | 'submit stalls'
       | 'return stalls'
       | 'close ok'
+      | 'return ok'
       | 'turn_closed';
     /** How the read after the write goes, for the title. */
     read: string;
@@ -87,6 +88,8 @@ describe('Turn section after a write', () => {
     resend?: true;
     /** After the answered resend the read opens T6, whose new form must start editable. */
     reopen?: true;
+    /** The pending read outlasts its deadline before `answer` arrives. */
+    lapses?: true;
   };
   it.each<Row>([
     {
@@ -254,10 +257,25 @@ describe('Turn section after a write', () => {
       read: 'fails',
       after: 'fail',
       shows: 'T5 submitted. The task is in review.',
-      header: 'T5 submitted',
+      header: 'T5 · could not refresh',
       holder: false,
       hold: false,
+      plain: STALE,
       sendOff: null,
+    },
+    {
+      write: 'return ok',
+      read: 'stalls past the deadline, then answers',
+      after: 'pending',
+      lapses: true,
+      shows: 'T5 returned to dev. The task is in dev.',
+      header: 'T5 · could not refresh',
+      holder: false,
+      hold: false,
+      plain: STALE,
+      sendOff: null,
+      answer: closedBy('dev'),
+      answered: 'T5 returned',
     },
     {
       write: 'turn_closed',
@@ -274,10 +292,25 @@ describe('Turn section after a write', () => {
       read: 'fails',
       after: 'fail',
       shows: 'T5 was closed',
-      header: 'T5 closed',
+      header: 'T5 · could not refresh',
       holder: false,
       hold: false,
+      plain: STALE,
       sendOff: true,
+    },
+    {
+      write: 'turn_closed',
+      read: 'stalls past the deadline, then answers',
+      after: 'pending',
+      lapses: true,
+      shows: 'T5 was closed',
+      header: 'T5 · could not refresh',
+      holder: false,
+      hold: false,
+      plain: STALE,
+      sendOff: true,
+      answer: closedBy('qa'),
+      answered: 'T5 closed by qa-1',
     },
   ])(
     'after $write and a read that $read, claims the holder only from a read',
@@ -295,6 +328,7 @@ describe('Turn section after a write', () => {
       older,
       resend,
       reopen,
+      lapses,
     }) => {
       const { d, writes } = await open();
       // The write that may have landed but never answers, and the first request's signal: the
@@ -341,14 +375,20 @@ describe('Turn section after a write', () => {
             : after === 'stall'
               ? never
               : () => Promise.resolve(envelope(after));
-      if (write === 'return stalls') {
+      if (write === 'return stalls' || write === 'return ok') {
         await click('Return to dev…');
         type(reason(), 'Handle the empty list.');
       } else await click('Submit…');
-      const stalls = after === 'stall' || older !== undefined || stalled !== undefined;
+      const stalls =
+        after === 'stall' || older !== undefined || stalled !== undefined || lapses === true;
       if (stalls) vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       await send();
       if (stalls) {
+        if (lapses === true) {
+          // Until the deadline the read is pending, the closed turn's box included.
+          expect(text()).toContain(REFRESHING);
+          expect(summary()).toBe('T5 · refreshing');
+        }
         if (stalled !== undefined) {
           // Just before the deadline the stalled request still runs.
           await act(() => vi.advanceTimersByTimeAsync(14_999));
@@ -423,7 +463,9 @@ describe('Turn section after a write', () => {
         }
         return;
       }
-      if (plain !== undefined) {
+      // The write closed T5: its box shows the line under the closed line or the notice.
+      const closes = write === 'close ok' || write === 'return ok' || write === 'turn_closed';
+      if (plain !== undefined && !closes) {
         // Both opening actions are off then, so Cancel focuses the plain line, with the ring.
         await click('Cancel');
         expect(document.activeElement?.textContent).toBe(plain);
@@ -434,6 +476,12 @@ describe('Turn section after a write', () => {
         // the newer turn's when the read closed T5 and opened T6.
         late.resolve(envelope(answer));
         await settle();
+        expect(text()).not.toContain(plain);
+        if (closes) {
+          expect(summary()).toBe(answered);
+          if (shows !== undefined) expect(text()).toContain(shows);
+          return;
+        }
         const submits = buttons().filter((entry) => entry.textContent === 'Submit…');
         expect(document.activeElement).toBe(submits.at(-1));
         expect(submits.at(-1)?.disabled).toBe(false);

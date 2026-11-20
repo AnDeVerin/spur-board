@@ -75,11 +75,11 @@ its form as sent, read-only, with
 `The earlier send may still land; send it again to settle it, or Cancel.`: the send resends that
 input until it gets an answer, and Cancel drops it. Until the read after a take, submit or
 return answers, the section names no holder (**Why it is here** reads `holder unknown` too), and
-**Submit…**, **Return to dev…** and the form's send stay locked; it shows
-`Refreshing the turn…` while that read runs and
+**Submit…**, **Return to dev…** and the form's send stay locked; it shows, under a turn that
+write closed too, `Refreshing the turn…` while that read runs and
 `Could not refresh the turn. Reload to see who holds it.` when it fails or has not answered in 15
-seconds, and Cancel focuses that line; when the line goes, focus moves to the first enabled
-button. After a failure, press **Retry** when the task's error banner offers it: it reads the
+seconds. Cancel on an open turn focuses that line; when the line goes, focus moves to the first
+enabled button. After a failure, press **Retry** when the task's error banner offers it: it reads the
 task again and keeps an open form. Otherwise reload the page. The line after your own close
 keeps the column from the write's answer then.
 

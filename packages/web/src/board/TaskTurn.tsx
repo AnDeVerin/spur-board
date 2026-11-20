@@ -349,6 +349,13 @@ export function TaskTurn({
       )}
     </span>
   );
+  // The plain line of a pending or failed re-read. One box renders it, so its ref is set once:
+  // the bound turn's, or the newer turn's when one shows.
+  const staleLine = stale && (
+    <p {...plainLine} tabIndex={-1} className={`${styles.note ?? ''} ${focusRing}`}>
+      {reread === 'pending' ? REFRESHING : STALE}
+    </p>
+  );
   const openBox = (turn: Turn, primary: boolean) => {
     const formOpen = primary && form !== undefined;
     const earlierForm = !primary && form !== undefined;
@@ -364,11 +371,7 @@ export function TaskTurn({
           !formOpen &&
             triggers(turn, blocked !== undefined || inFlight || earlierForm || stale, primary),
         )}
-        {stale && (
-          <p {...plainLine} tabIndex={-1} className={`${styles.note ?? ''} ${focusRing}`}>
-            {reread === 'pending' ? REFRESHING : STALE}
-          </p>
-        )}
+        {staleLine}
         {!stale && turn.taken?.by === 'operator' && (
           <p className={styles.note}>
             You hold {turn.id}; the orchestrator cannot submit or return it until you finish or it
@@ -477,40 +480,39 @@ export function TaskTurn({
       </form>
     );
   };
-  const closedBox = (entry: Bound) => {
-    const { turn, own } = entry;
-    return (
-      <div className={styles.turn} key={turn.id}>
-        {line(turn, 'closed', own === undefined && triggers(turn, true, true))}
-        {own !== undefined ? (
-          <p
-            role="status"
-            tabIndex={-1}
-            ref={statusRef}
-            className={`${styles.status ?? ''} ${focusRing}`}
-          >
-            {`${turn.id} ${own.outcome === 'submitted' ? 'submitted' : 'returned to dev'}. The task is in ${value.turn?.id === turn.id ? own.column : value.task.column}.`}
-          </p>
-        ) : (
-          <div ref={noticeRef} tabIndex={-1} className={focusRing}>
-            <Banner variant="info" icon="check" detail={closedDetail(record, now)}>
-              {closedNotice(turn.id, closer, outcome)}
-            </Banner>
-          </div>
-        )}
-        {form !== undefined && formElement(turn)}
-      </div>
-    );
-  };
+  const closedBox = ({ turn, own }: Bound) => (
+    <div className={styles.turn} key={turn.id}>
+      {line(turn, 'closed', own === undefined && triggers(turn, true, true))}
+      {own !== undefined ? (
+        <p
+          role="status"
+          tabIndex={-1}
+          ref={statusRef}
+          className={`${styles.status ?? ''} ${focusRing}`}
+        >
+          {`${turn.id} ${own.outcome === 'submitted' ? 'submitted' : 'returned to dev'}. The task is in ${value.turn?.id === turn.id ? own.column : value.task.column}.`}
+        </p>
+      ) : (
+        <div ref={noticeRef} tabIndex={-1} className={focusRing}>
+          <Banner variant="info" icon="check" detail={closedDetail(record, now)}>
+            {closedNotice(turn.id, closer, outcome)}
+          </Banner>
+        </div>
+      )}
+      {newer === undefined && staleLine}
+      {form !== undefined && formElement(turn)}
+    </div>
+  );
 
-  // While the re-read failed, an open turn's summary names no holder either.
+  // While the re-read is pending or failed, an open turn's summary names no holder either, and a
+  // closed bound turn's says the same unless a newer turn's does.
   const openText = (turn: Turn) =>
     reread === undefined
       ? openSummary(turn)
       : `${turn.id} · ${reread === 'pending' ? 'refreshing' : 'could not refresh'}`;
   const summary = [
     bound
-      ? stale && boundOpen && !inFlight && bound.own === undefined
+      ? stale && !inFlight && newer === undefined
         ? openText(bound.turn)
         : boundSummary(bound.turn.id, {
             inFlight,
