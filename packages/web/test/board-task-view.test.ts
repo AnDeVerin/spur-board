@@ -76,6 +76,9 @@ async function settle() {
   });
 }
 const taskCalls = () => calls.filter(({ path }) => path === '/v1/ops/task.get');
+const taskReads = () => taskCalls().map(({ input }) => input);
+/** The `task.get` input the task view reads `task` with. */
+const read = (task: string) => ({ task, why: true, detail: true });
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
 const inDialog = (selector: string) => {
   const found = dialog()?.querySelector<HTMLElement>(selector);
@@ -235,9 +238,7 @@ describe('task view', () => {
     mount(daemon());
     await settle();
     expect(dialog()).not.toBeNull();
-    expect(taskCalls().map(({ input }) => input)).toEqual([
-      { task: decodeURIComponent(url.slice('/?open='.length)), why: true },
-    ]);
+    expect(taskReads()).toEqual([read(decodeURIComponent(url.slice('/?open='.length)))]);
     key('Escape');
     await settle();
     expect(document.activeElement).toBe(card());
@@ -248,7 +249,7 @@ describe('task view', () => {
     mount(daemon(), true);
     await settle();
     expect(dialog()).not.toBeNull();
-    expect(taskCalls().map(({ input }) => input)).toEqual([{ task: 'ex/repo#7', why: true }]);
+    expect(taskReads()).toEqual([read('ex/repo#7')]);
   });
 
   it('an unknown key and a non-task key show "Task not found."; close leaves focus on body', async () => {
@@ -379,9 +380,7 @@ describe('task view', () => {
     const before = calls.length;
     click(card());
     await settle();
-    expect(calls.slice(before)).toEqual([
-      { path: '/v1/ops/task.get', input: { task: 'ex/repo#7', why: true } },
-    ]);
+    expect(calls.slice(before)).toEqual([{ path: '/v1/ops/task.get', input: read('ex/repo#7') }]);
   });
 
   it('Tab from Close visits the body, the panel, the PR link, the chevron and the Now tab', async () => {

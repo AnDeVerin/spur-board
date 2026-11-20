@@ -17,8 +17,16 @@ import { TaskBlock } from './TaskBlock.tsx';
 import { TaskWrite } from './TaskWrite.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
 import { TaskMove } from './MoveForm.tsx';
+import { TaskTurn } from './TaskTurn.tsx';
 import { shortKey, type BoardColumnConfig } from './model.ts';
-import { age, linkChips, timeInColumn, whyRows, whySummary } from './task-model.ts';
+import {
+  actorDisplayName,
+  age,
+  linkChips,
+  timeInColumn,
+  whyRows,
+  whySummary,
+} from './task-model.ts';
 import styles from './TaskView.module.css';
 import cardStyles from './Card.module.css';
 import type { BoardRow } from './model.ts';
@@ -58,6 +66,8 @@ export function TaskView({
   answerIntent,
   followUpIntent,
   commentIntent,
+  submitTurnIntent,
+  returnTurnIntent,
   drafts,
   refreshTask,
   moveIntent,
@@ -72,6 +82,8 @@ export function TaskView({
   answerIntent: BoardData['answerIntent'];
   followUpIntent: BoardData['followUpIntent'];
   commentIntent: BoardData['commentIntent'];
+  submitTurnIntent: BoardData['submitTurnIntent'];
+  returnTurnIntent: BoardData['returnTurnIntent'];
   drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
   moveIntent: BoardData['moveIntent'];
@@ -96,6 +108,8 @@ export function TaskView({
   onRetryHistory: () => void;
 }) {
   const [tab, setTab] = useState('now');
+  // The Turn section's re-read after a write has not answered: Why names no holder either.
+  const [turnStale, setTurnStale] = useState(false);
   const historyShown = tab === 'history';
   useEffect(() => {
     if (!historyShown) return;
@@ -213,8 +227,22 @@ export function TaskView({
               </div>
               {value !== undefined && (
                 <CollapsibleSection title="Why it is here" summary={whySummary(value)}>
-                  <KeyValueBox rows={whyRows(value, columns, now)} />
+                  <KeyValueBox rows={whyRows(value, columns, now, turnStale)} />
                 </CollapsibleSection>
+              )}
+              {value !== undefined && (
+                <TaskTurn
+                  value={value}
+                  taskKey={task.key}
+                  row={row}
+                  columns={columns}
+                  config={config}
+                  now={now}
+                  unavailable={unavailable}
+                  submitTurnIntent={submitTurnIntent}
+                  returnTurnIntent={returnTurnIntent}
+                  onStale={setTurnStale}
+                />
               )}
               {value?.submission !== undefined && (
                 <div className={`${quiet} ${styles.submission ?? ''}`}>
@@ -307,15 +335,7 @@ function TaskDiscussion({
   drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
 }) {
-  const name = (actor: string) => {
-    if (actor === 'operator') return 'you';
-    if (!actor.startsWith('agent:')) return actor;
-    const [project, ...session] = actor.slice(6).split('/');
-    const binding = config?.projects
-      .flatMap((entry) => entry.spurProjects)
-      .find((entry) => entry.name === project);
-    return `${binding?.displayName ?? project ?? actor} / ${session.join('/')}`;
-  };
+  const name = (actor: string) => actorDisplayName(actor, config);
   const blocks = [...value.blocks].sort(
     (a, b) => Number(b.state === 'open') - Number(a.state === 'open'),
   );

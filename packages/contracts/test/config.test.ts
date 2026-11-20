@@ -8,6 +8,7 @@ import {
   resolveWebOrigin,
   RESERVED_PROJECT,
   type Config,
+  approvalRuleOf,
   configBindings,
   configJsonSchema,
   columnTurnTimings,
@@ -220,6 +221,49 @@ describe('fixtures', () => {
   it('parses the checks gate fixture with External Review as the green checks column', () => {
     const config = configSchema.parse(readFixture('checks-gate-project.yaml'));
     expect(config.projects[0]?.checksGate).toBe('external-review');
+  });
+
+  it('approvalRule: parses the approval rule fixture with github-rules on External Review', () => {
+    const config = configSchema.parse(readFixture('approval-rule-project.yaml'));
+    const project = config.projects[0];
+    expect(project?.columns.find((c) => c.id === 'external-review')?.approvalRule).toBe(
+      'github-rules',
+    );
+    expect(project === undefined ? undefined : approvalRuleOf(project)).toBe('github-rules');
+  });
+
+  it.each(['any-approval', 'github-rules'] as const)(
+    'approvalRule: accepts %s on external-review',
+    (approvalRule) => {
+      const config = configSchema.parse(
+        validConfig({
+          columns: [
+            ...columns('todo', 'dev'),
+            { id: 'external-review', approvalRule },
+            ...columns('done'),
+          ],
+        }),
+      );
+      const project = config.projects[0];
+      expect(project?.columns[2]?.approvalRule).toBe(approvalRule);
+      expect(project === undefined ? undefined : approvalRuleOf(project)).toBe(approvalRule);
+    },
+  );
+
+  it('approvalRule: any-approval without the key, on a disabled column and without External Review', () => {
+    const parse = (external: Record<string, unknown>[]) =>
+      configSchema.parse(
+        validConfig({ columns: [...columns('todo', 'dev'), ...external, ...columns('done')] }),
+      ).projects[0];
+    const plain = parse([{ id: 'external-review' }]);
+    expect(plain?.columns[2]).not.toHaveProperty('approvalRule');
+    for (const project of [
+      plain,
+      parse([{ id: 'external-review', enabled: false, approvalRule: 'github-rules' }]),
+      parse([]),
+      configSchema.parse(validConfig()).projects[0],
+    ])
+      expect(project === undefined ? undefined : approvalRuleOf(project)).toBe('any-approval');
   });
 
   it('parses the QA turn timings fixture and resolves the column timings', () => {
@@ -840,6 +884,42 @@ describe('invalid configs', () => {
       }),
       'Column "triage" cannot require resolved threads: set it on a column from dev to ready-to-merge',
       'projects[0].columns[1].requireResolvedThreads',
+    ],
+    [
+      'approvalRule on review',
+      validConfig({
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', approvalRule: 'github-rules' },
+          ...columns('done'),
+        ],
+      }),
+      'Column "review" cannot set approvalRule: approvalRule is allowed only on the external-review column',
+      'projects[0].columns[2].approvalRule',
+    ],
+    [
+      'approvalRule on qa',
+      validConfig({
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'qa', approvalRule: 'any-approval' },
+          ...columns('done'),
+        ],
+      }),
+      'Column "qa" cannot set approvalRule: approvalRule is allowed only on the external-review column',
+      'projects[0].columns[2].approvalRule',
+    ],
+    [
+      'unknown approvalRule on external-review',
+      validConfig({
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'external-review', approvalRule: 'two-approvals' },
+          ...columns('done'),
+        ],
+      }),
+      'Invalid option',
+      'projects[0].columns[2].approvalRule',
     ],
     [
       'built-in columns out of order',

@@ -1,8 +1,9 @@
 # Optional browser access
 
 Web is off by default. Enable it only on a private network limited to the operator's devices.
-Anyone reaching the port can run web-bound reads and the four writes, `comment.add`,
-`block.answer`, `block.followup` and `item.close`, as operator without a token. Browser Host/Origin checks do not authenticate
+Anyone reaching the port can run web-bound reads and the eight writes, `comment.add`,
+`block.answer`, `block.followup`, `item.close`, `task.move`, `inbox.ack`, `task.submit` and
+`task.return`, as operator without a token. Browser Host/Origin checks do not authenticate
 network members or local OS users.
 
 Set `web.port` and `web.publicOrigin` together in config.yaml:

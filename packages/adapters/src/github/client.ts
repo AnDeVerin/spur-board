@@ -18,6 +18,12 @@ export function deniedReference(error: GraphError): boolean {
     error.path?.includes('closingIssuesReferences') === true
   );
 }
+// A denied base branch rule of a PR (`baseRef` and below) leaves the PR's other fields readable.
+export function deniedBranchRule(error: GraphError): boolean {
+  return (
+    (error.type === 'FORBIDDEN' || error.type === 'NOT_FOUND') && error.path?.[2] === 'baseRef'
+  );
+}
 // GraphQL errors are classified before `data` is read: a denied root arrives as null.
 export const graphEnvelopeWire = z.object({
   errors: z.array(graphErrorWire).optional(),
@@ -66,13 +72,22 @@ const THREAD_FIELDS =
   'id isResolved isOutdated comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } }';
 const CLOSING_FIELDS =
   'nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor }';
+// A base branch's review rule as `branchRuleWire` (branchRule.ts) parses it: its branch protection
+// and the first 100 rules of the rulesets that apply to it. A branch with more rules reads as a
+// rule the token could not read (`branchRuleOf`), since a rule past the page may be the one that
+// holds the merge.
+export const BRANCH_RULE_FIELDS =
+  'refUpdateRule { pattern requiredApprovingReviewCount requiresCodeOwnerReviews requiresConversationResolution requiredStatusCheckContexts } rules(first: 100) { nodes { type parameters { __typename ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview requiredReviewThreadResolution } ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } } } pageInfo { hasNextPage } }';
 // `closing` adds the issues a PR closes; only the tracker repo of a github-issues project
-// whose `link.sources` lists `closing` selects them.
+// whose `link.sources` lists `closing` selects them. `reviewRule` adds GitHub's review decision
+// and the base branch's review rule; only a source of a project whose External Review sets
+// `approvalRule: github-rules` selects them.
 const prFields = (
   number: number,
   closing = false,
+  reviewRule = false,
 ): string => `id number url title updatedAt mergedAt closedAt state isDraft mergeable mergeStateStatus
- author { login } headRefName headRefOid
+ author { login } headRefName headRefOid${reviewRule ? `\n reviewDecision baseRef { ${BRANCH_RULE_FIELDS} }` : ''}
  statusCheckRollup { contexts(first: 100) { nodes {
  ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } } isRequired(pullRequestNumber: ${String(number)}) }
  ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${String(number)}) }
@@ -121,11 +136,17 @@ export function discoveryQuery(bootstrap = false): string {
 export function stateQuery(numbers: readonly number[]): string {
   return `query PrStates($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, () => 'number state')} }`;
 }
-export function indexQuery(numbers: readonly number[]): string {
-  return `query PrIndex($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, () => INDEX_FIELDS)} }`;
+// `reviewRule` adds GitHub's review decision to the index, so a change of it forces a full read.
+export function indexQuery(numbers: readonly number[], reviewRule = false): string {
+  const fields = reviewRule ? `${INDEX_FIELDS} reviewDecision` : INDEX_FIELDS;
+  return `query PrIndex($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, () => fields)} }`;
 }
-export function detailQuery(numbers: readonly number[], closing = false): string {
-  return `query PrDetails($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, (number) => prFields(number, closing))} }`;
+export function detailQuery(
+  numbers: readonly number[],
+  closing = false,
+  reviewRule = false,
+): string {
+  return `query PrDetails($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, (number) => prFields(number, closing, reviewRule))} }`;
 }
 export function pageQuery(
   connection:

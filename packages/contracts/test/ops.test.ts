@@ -110,7 +110,7 @@ describe('catalog', () => {
     if (!isObject(property)) throw new Error('Missing column entry schema');
     expect(property['description']).toContain('original add');
   });
-  it('defaults web off and exposes exactly the screen reads and five operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and eight operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
@@ -121,6 +121,7 @@ describe('catalog', () => {
       'columns.describe',
       'comment.add',
       'config.get',
+      'inbox.ack',
       'inbox.get',
       'inbox.operator',
       'item.close',
@@ -128,12 +129,23 @@ describe('catalog', () => {
       'task.get',
       'task.history',
       'task.move',
+      'task.return',
+      'task.submit',
     ]);
     expect(
       OPERATIONS.filter((op) => op.kind === 'mutation' && op.web !== null)
         .map((op) => op.id)
         .sort(),
-    ).toEqual(['block.answer', 'block.followup', 'comment.add', 'item.close', 'task.move']);
+    ).toEqual([
+      'block.answer',
+      'block.followup',
+      'comment.add',
+      'inbox.ack',
+      'item.close',
+      'task.move',
+      'task.return',
+      'task.submit',
+    ]);
     expect(OPERATIONS.find((op) => op.id === 'schema.get')?.web).toBeNull();
     expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
       true,
@@ -869,15 +881,17 @@ describe('comment shape', () => {
 });
 
 describe('snapshot', () => {
-  it('pins the catalog excluding columns.describe after adding manual moves', async () => {
+  it('pins the catalog excluding columns.describe after opening the Turn writes to the web', async () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
     // Manual moves extend task.move, move views, schema metadata and the error catalog. #761
     // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
-    // and board-wide project, sources and services texts to status.get.
+    // and board-wide project, sources and services texts to status.get. #733 adds the
+    // review-rule gate reasons and condition to task.get --why. The web Turn section then set
+    // web on inbox.ack, task.submit and task.return; their schemas, grants and errors are unchanged.
     expect(await catalogVersion(baseline)).toBe(
-      'cbfe1de19b2b5c8d08c2c4dbe412b5e0f2881a7923e0a791b76a1cdb2c0f5b89',
+      'e056a85238a847bb152d15a23c98e51b672af33c45f4081c896b3a6229f1341b',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

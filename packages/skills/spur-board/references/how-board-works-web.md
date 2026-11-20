@@ -7,7 +7,8 @@ assets, health and catalog operations whose `web` binding is enabled. It uses th
 authorization, idempotency and operation hooks as the agent API, with the operator caller.
 Effective project configuration is available through `config.get`.
 Enabled writes are `comment.add`, `block.answer`, `block.followup`, `item.close` and
-`task.move`. The shell moves a task between Backlog parts through `task.move` from the card
+`task.move`, plus `inbox.ack`, `task.submit` and `task.return` from the task view's Turn
+section. The shell moves a task between Backlog parts through `task.move` from the card
 menu, a drop on another part or the task view.
 Token and skill routes stay on the agent API. The web listener is off by default
 and a failed bind does not stop the agent API.
@@ -26,12 +27,13 @@ update.
 
 The private web package builds the Board screen for one chosen project; the
 [web UI](web-ui.md) guide describes what it shows and its states. It reads `config.get`,
-`status.get` with detail for the chosen project, whose sources and services cover every project, whatever project is chosen, `inbox.operator` and `task.get` with `why` for
-the open task, and `task.history` while History shows. A card click or the address `?open=<task key>` opens the
+`status.get` with detail for the chosen project, whose sources and services cover every project, whatever project is chosen, `inbox.operator` and `task.get` with `why` and
+`detail` for the open task, and `task.history` while History shows. A card click or the address `?open=<task key>` opens the
 [task view](web-ui-task-view.md) with its "Why it is here", Blocks and Comments sections and History tab.
 The task view can answer open operator questions through `block.answer`, follow up on answered
 ones through `block.followup` and add task comments
-through `comment.add`. The operator inbox can close an active item through `item.close`, and the Board and task view
+through `comment.add`. Its [Turn](web-ui-task-turn.md) section takes an open orchestrator turn
+through `inbox.ack` and closes it through `task.submit` or `task.return`. The operator inbox can close an active item through `item.close`, and the Board and task view
 move a task between Backlog parts with a reason through `task.move`; other actions stay in the CLI, MCP and Slack. Failed sends preserve
 drafts, and confirmed writes refresh authoritative task data. While the daemon or live updates
 are unavailable, the forms are disabled with a reason and retain their drafts.

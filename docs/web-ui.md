@@ -1,7 +1,8 @@
 # Web UI
 
 View the Board and freshness, answer operator questions, follow up on them, comment, close
-an operator inbox item and move a task between Backlog parts.
+an operator inbox item, submit or return an orchestrator turn, and move a task between Backlog
+parts.
 Archived tasks are read-only; other actions use CLI, MCP or Slack.
 
 ## Opening it
@@ -23,6 +24,7 @@ Reads: `config.get`, chosen-project `status.get`, `inbox.operator`, open-task `t
   **Blocks**, **Comments** and **History** (journal events with channel, e.g. `operator (web)`).
 - [Task blocks and comments](web-ui-task-blocks.md): answers, follow-ups and comments in the task
   view.
+- [Turn](web-ui-task-turn.md): take an orchestrator turn and submit it or return it to Dev.
 
 ## Live and stale states
 
@@ -46,7 +48,7 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
   down. A failed request on either read still shows daemon down.
 - **Updated**: a daemon on another version answered. The page reloads itself with the same
   address and brings back unsent answer, follow-up and comment text; it waits up to 15 seconds
-  for a send in progress first. When it cannot (it already reloaded once for that version and
+  for an answer, follow-up or comment send in progress first, not for a Turn send. When it cannot (it already reloaded once for that version and
   still runs the older page, a send is still in progress after 15 seconds, or session storage
   fails), an error banner with **Reload** names the version and the columns dim; without session
   storage it warns that unsent text is lost. A **Reload** or **Retry now** that cannot save unsent

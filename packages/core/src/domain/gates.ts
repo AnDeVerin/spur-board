@@ -1,5 +1,6 @@
 import {
   COLUMN_IDS,
+  approvalRuleOf,
   isTodoGroupColumn,
   type CheckGateColumn,
   type CheckState,
@@ -31,6 +32,22 @@ export interface TaskGateFacts {
   > | null;
   /** Whether the external reviewers approved the pull request. */
   externalReviewApproved: boolean;
+  /**
+   * What External Review reads under `approvalRule: github-rules`, absent otherwise: an external
+   * approval, changes requested by a reviewer or by GitHub's review verdict, and the review rule
+   * decision on the current head (`undecided` when GitHub has not given one).
+   */
+  reviewRule?: {
+    approved: boolean;
+    changesRequested: boolean;
+    decision:
+      | 'satisfied'
+      | 'blocked'
+      | 'checks_pending'
+      | 'unresolved_threads'
+      | 'unreadable'
+      | 'undecided';
+  };
   /** Whether the external comment history was read to the end. */
   commentHistory: 'complete' | 'incomplete';
   /** External comments nobody has handled yet, external changes requested included. */
@@ -47,7 +64,7 @@ export interface TaskGateFacts {
 
 type GateColumn = Pick<
   Config['projects'][number]['columns'][number],
-  'id' | 'enabled' | 'orchestrator' | 'requireResolvedThreads'
+  'id' | 'enabled' | 'orchestrator' | 'requireResolvedThreads' | 'approvalRule'
 >;
 
 /**
@@ -68,6 +85,8 @@ const HOLD_ONLY_REASONS = [
   'mergeable_unknown',
   'checks_pending',
   'comment_history_incomplete',
+  'merge_state_unknown',
+  'review_rule_unreadable',
 ] as const satisfies readonly GateReason[];
 
 /** A gate reason that holds dispatch without failing the gate. */
@@ -81,10 +100,11 @@ export const HOLD_ONLY: ReadonlySet<GateReason> = new Set(HOLD_ONLY_REASONS);
  *
  * The caller rule: when `column` is the column asked for, the task waits there. When `column` is
  * left of it, the task returns there only if `reasons` holds a reason other than
- * `mergeable_unknown`, `checks_pending` or `comment_history_incomplete`; with only those, it waits
- * in its column. These three are hold-only: they mean a fact is not known yet (GitHub has not
- * computed mergeability, the checks on head have not finished, or the comment history was not
- * read to the end), and waiting resolves them.
+ * `mergeable_unknown`, `checks_pending`, `comment_history_incomplete`, `merge_state_unknown` or
+ * `review_rule_unreadable`; with only those, it waits in its column. These five are hold-only: they
+ * mean a fact is not known yet (GitHub has not computed mergeability, the checks on head have not
+ * finished, the comment history was not read to the end, GitHub has not decided its review rule
+ * on the head, or the token could not read the base branch's rule), and waiting resolves them.
  *
  * `checksWaivedBy` names the config key that passed Dev's check condition: it is present exactly
  * when Dev was evaluated and its check condition passed only because the PR's repo is in
@@ -201,7 +221,7 @@ function devReasons(
 ): GateReason[] {
   const opening = CONDITION_DEFINITIONS.pr_open.reasons(facts, project, 'dev', waived);
   if (opening.length > 0) return opening;
-  return columnConditions('dev', project.checksGate).flatMap((id) =>
+  return columnConditions('dev', project).flatMap((id) =>
     id === 'threads_resolved' && !threads
       ? []
       : CONDITION_DEFINITIONS[id].reasons(facts, project, 'dev', waived),
@@ -235,9 +255,14 @@ function columnCondition(
 ): GateReason[] {
   if (column === 'dev') return devReasons(facts, project, waived, threads);
   if (isTodoGroupColumn(column)) return [];
-  return columnConditions(column, project.checksGate).flatMap((id) =>
-    CONDITION_DEFINITIONS[id].reasons(facts, project, column, waived),
-  );
+  // Under github-rules a pending required check can fail both checks green and the review rule.
+  return [
+    ...new Set(
+      columnConditions(column, project).flatMap((id) =>
+        CONDITION_DEFINITIONS[id].reasons(facts, project, column, waived),
+      ),
+    ),
+  ];
 }
 
 interface ConditionDefinition {
@@ -303,13 +328,38 @@ const CONDITION_DEFINITIONS: Record<GateCondition, ConditionDefinition> = {
   },
   approved: {
     text: 'Approved by an external reviewer.',
-    reasons: (facts) => (facts.externalReviewApproved ? [] : ['not_approved']),
+    reasons: ({ externalReviewApproved, reviewRule }) =>
+      reviewRule?.changesRequested === true
+        ? ['changes_requested']
+        : (reviewRule?.approved ?? externalReviewApproved)
+          ? []
+          : ['not_approved'],
+  },
+  review_rule_satisfied: {
+    text: "GitHub's review rule for the base branch, from branch protection and rulesets, is satisfied on the current PR head: a required check completed, or, when none is required, every check except skipped ones green and at least one (no checks at all also counts); no changes requested, GitHub's review decision counting only once the merge state is computed; and the merge not blocked. A required check, one GitHub marks required or a context the rule lists, that is pending or missing holds the head on CI unless the merge state is clean, unstable or has hooks; only a run GitHub marks required completes a listed context.",
+    reasons: ({ reviewRule }) =>
+      reviewRule === undefined || reviewRule.changesRequested
+        ? []
+        : [...RULE_REASONS[reviewRule.decision]],
   },
   merged: {
     text: 'The pull request is merged.',
     reasons: (facts) => (facts.pr?.state === 'merged' ? [] : ['not_merged']),
   },
 };
+
+/** The review rule reason of each decision; changes requested fails `approved` instead. */
+const RULE_REASONS = {
+  satisfied: [],
+  blocked: ['review_rule_blocked'],
+  checks_pending: ['checks_pending'],
+  unresolved_threads: ['unresolved_threads'],
+  unreadable: ['review_rule_unreadable'],
+  undecided: ['merge_state_unknown'],
+} as const satisfies Record<
+  NonNullable<TaskGateFacts['reviewRule']>['decision'],
+  readonly GateReason[]
+>;
 
 /** Effective ownership differs from legacy task explanations: thread failures still name Dev. */
 export function describeConditions(
@@ -324,7 +374,7 @@ export function describeConditions(
       },
     ];
   const from = threadsFrom(project);
-  const ids = columnConditions(column, project.checksGate).filter(
+  const ids = columnConditions(column, project).filter(
     (id) => id !== 'threads_resolved' || from === column,
   );
   if (from === column && column !== 'dev') {
@@ -385,10 +435,21 @@ const COLUMN_CONDITIONS = {
 } as const satisfies Record<Exclude<ColumnId, TodoGroupColumnId>, readonly GateCondition[]>;
 
 /**
- * The exit conditions of `column` under `checksGate`: with a gate right of Dev, Dev requires
- * checks not red, and the gate column requires checks green before its own conditions.
+ * The exit conditions of `column` in `project`: with a `checksGate` right of Dev, Dev requires
+ * checks not red, and the gate column requires checks green before its own conditions. Under
+ * `approvalRule: github-rules`, External Review also requires the review rule satisfied.
  */
 function columnConditions(
+  column: Exclude<ColumnId, TodoGroupColumnId>,
+  project: GateProject,
+): readonly GateCondition[] {
+  const conditions = checkConditions(column, project.checksGate);
+  return column === 'external-review' && approvalRuleOf(project) === 'github-rules'
+    ? [...conditions, 'review_rule_satisfied']
+    : conditions;
+}
+
+function checkConditions(
   column: Exclude<ColumnId, TodoGroupColumnId>,
   checksGate: CheckGateColumn,
 ): readonly GateCondition[] {
@@ -403,7 +464,8 @@ function columnConditions(
 
 /**
  * The condition a gate reason fails in `column`: with a gate right of Dev, red checks fail Dev's
- * checks not red, and every other check reason fails checks green.
+ * checks not red, and every other check reason fails checks green. External Review under
+ * github-rules reads each condition's own reasons instead (`explainGates`).
  */
 function conditionOf(
   reason: GateReason,
@@ -429,6 +491,10 @@ const CONDITION_OF = {
   no_submit_on_head: 'submit_on_head',
   no_review_on_head: 'review_on_head',
   not_approved: 'approved',
+  changes_requested: 'approved',
+  review_rule_blocked: 'review_rule_satisfied',
+  merge_state_unknown: 'review_rule_satisfied',
+  review_rule_unreadable: 'review_rule_satisfied',
   not_merged: 'merged',
 } as const satisfies Record<GateReason, GateCondition>;
 
@@ -472,10 +538,18 @@ export function explainGates(
     const gate = evaluateGate(column, facts, project);
     const blockedIn = gate.ok ? null : gate.column;
     const stopped = reasons.some((reason) => STOPS_DEV.has(reason));
-    const own = isTodoGroupColumn(column) ? [] : columnConditions(column, project.checksGate);
+    const own = isTodoGroupColumn(column) ? [] : columnConditions(column, project);
+    // Under github-rules External Review's conditions can share a pending check: each shows the
+    // reasons its own rule gives, so a required check only the review rule waits for shows there.
+    const direct = own.includes('review_rule_satisfied');
     const conditions = own.map((condition): ConditionExplanation => {
+      const mine = direct
+        ? CONDITION_DEFINITIONS[condition].reasons(facts, project, column, waived)
+        : [];
       const reason =
-        reasons.find((r) => conditionOf(r, column, project.checksGate) === condition) ?? null;
+        reasons.find((r) =>
+          direct ? mine.includes(r) : conditionOf(r, column, project.checksGate) === condition,
+        ) ?? null;
       if (reason === null) return { condition, state: stopped ? 'unchecked' : 'met', reason: null };
       return { condition, state: HOLD_ONLY.has(reason) ? 'waiting' : 'failed', reason };
     });

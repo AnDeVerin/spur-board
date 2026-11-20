@@ -87,7 +87,8 @@ for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
 External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits of other worker columns. Fixed gate rules have no configuration switch
-except enabled columns, no-CI, checks gate and resolved threads.
+except enabled columns, no-CI, checks gate, resolved threads and review rule
+(`approvalRule: github-rules`, `docs/configuration.md`).
 
 `projects[].checksGate` (default `dev`; `review`, `product-review` or
 `external-review`, enabled) moves the pending-CI wait to that column's exit. Red
@@ -106,12 +107,12 @@ Review/Product Review mark lasts across visits on the current head. QA submissio
 also survive returns and corrections to Dev on the same head. Other visit
 submissions belong to one column visit; moving left clears them and those to the
 right. A different observed PR head permanently invalidates its internal Review,
-Product Review and QA evidence, even if the head later returns to that commit.
-Explicit operator correction into QA clears confirmed and pending QA evidence,
+Product Review and QA evidence, even if the head later returns.
+Operator correction into QA clears confirmed and pending QA evidence,
 keeping review marks. With passing upstream gates and a QA orchestrator or operator,
 this opens a fresh QA turn. Executor `none` keeps worker-column reuse: a valid Dev
 submit can satisfy QA after correction. Retained QA cannot supply Dev's submit
-requirement: after returning to Dev, submit the current Dev visit before advancing.
+requirement: submit the current Dev visit first.
 
 PR closed without merge with no open PR, or closed
 ticket with live work and no merged PR. `board status` lists them as operator block threads.

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
 import {
   AdapterError,
   DEFAULT_LINK,
@@ -20,7 +21,13 @@ import {
 import { githubSources } from '../../src/github/index.ts';
 import { CLOSED_REFRESH_MS, OPEN_REFRESH_MS } from '../../src/github/prIndex.ts';
 import { sampleLinkRules } from '../../src/github/linkSample.ts';
-import { normalizePr, ticketKeys, type KeyRule } from '../../src/github/prBatch.ts';
+import { branchRuleOf, branchRuleWire } from '../../src/github/branchRule.ts';
+import {
+  normalizePr,
+  normalizeReviewRule,
+  ticketKeys,
+  type KeyRule,
+} from '../../src/github/prBatch.ts';
 
 const sha = 'a'.repeat(40);
 const demoKeys: KeyRule = { type: 'prefixes', prefixes: ['DEMO'] };
@@ -3493,5 +3500,332 @@ describe('persisted terminal PR policy', () => {
       await expect(
         source.pollPr?.(ref, { signal: new AbortController().signal }),
       ).rejects.toMatchObject({ usage: { points: 4 } });
+  });
+});
+
+describe('approvalRule github-rules', () => {
+  const fixtures = (dir: string) => {
+    const url = new URL(`fixtures/${dir}/`, import.meta.url);
+    return readdirSync(url)
+      .filter((name) => name.endsWith('.json'))
+      .sort()
+      .map((name) => ({
+        name: name.replace(/\.json$/, ''),
+        value: JSON.parse(readFileSync(new URL(name, url), 'utf8')) as Record<string, unknown>,
+      }));
+  };
+  const issuesRule: KeyRule = { type: 'prefixes', prefixes: [] };
+  const ruled = (approvalRule?: 'any-approval' | 'github-rules') =>
+    configSchema.parse({
+      projects: [
+        {
+          id: 'demo',
+          tracker: { type: 'github-issues', repo: 'demo/widgets', label: 'board' },
+          repos: ['demo/widgets'],
+          operatorGithubLogin: 'operator',
+          columns: [
+            { id: 'todo' },
+            { id: 'dev' },
+            { id: 'external-review', ...(approvalRule === undefined ? {} : { approvalRule }) },
+            { id: 'done' },
+          ],
+        },
+      ],
+      operator: { slack: 'U123' },
+      digest: { tz: 'UTC' },
+    });
+  const connections = (query: string) => (query.match(/\((?:first|last): /g) ?? []).length;
+
+  it('normalizes each review-rule fixture', () => {
+    const cases = fixtures('review-rule');
+    expect(cases.map((entry) => entry.name)).toEqual([
+      'behind',
+      'blocked-code-owner',
+      'changes-requested-rerequested',
+      'changes-requested',
+      'conflicting',
+      'draft',
+      'new-head',
+      'no-required-checks',
+      'required-check-absent',
+      'ruleset-only',
+      'satisfied',
+      'unknown',
+      'unresolved-threads',
+    ]);
+    for (const { name, value } of cases) {
+      expect(normalizePr('o/r', value['response'], issuesRule, true), name).toMatchObject(
+        value['facts'] as object,
+      );
+      expect(normalizeReviewRule(value['response']), name).toEqual(value['reviewRule']);
+    }
+  });
+
+  it('merges branch protection and rulesets of each branch-rule fixture', () => {
+    const rule = (name: string) => {
+      const entry = fixtures('branch-rule').find((fixture) => fixture.name === name);
+      const data = entry?.value['data'] as { repository: { defaultBranchRef: unknown } };
+      return branchRuleOf(branchRuleWire.parse(data.repository.defaultBranchRef));
+    };
+    // Recorded once, read-only, from a repository whose default branch has rulesets only.
+    expect(rule('live-default-branch')).toEqual({
+      sources: ['ruleset'],
+      approvals: 1,
+      codeOwners: false,
+      conversationResolution: true,
+      requiredChecks: ['ci-ok'],
+    });
+    expect(rule('branch-protection')).toEqual({
+      sources: ['branch-protection'],
+      approvals: 2,
+      codeOwners: true,
+      conversationResolution: false,
+      requiredChecks: ['build', 'test'],
+    });
+    const none = {
+      sources: [],
+      approvals: null,
+      codeOwners: false,
+      conversationResolution: false,
+      requiredChecks: [],
+    };
+    expect(rule('none')).toEqual(none);
+    expect(branchRuleOf(null)).toEqual(none);
+    // Rules past the one page read may require a check or a review: unreadable, not partial.
+    expect(rule('truncated')).toBeNull();
+    const truncated = fixtures('branch-rule').find((fixture) => fixture.name === 'truncated');
+    const data = truncated?.value['data'] as { repository: { defaultBranchRef: unknown } };
+    expect(
+      normalizeReviewRule({
+        ...wire(),
+        reviewDecision: 'APPROVED',
+        baseRef: data.repository.defaultBranchRef,
+      }),
+    ).toEqual({ reviewDecision: 'approved', rule: null });
+    expect(branchRuleOf({ rules: { nodes: [], pageInfo: { hasNextPage: false } } })).toEqual(none);
+    // No rulesets at all reads as none; rules without pageInfo may run past the page read.
+    expect(branchRuleOf({ rules: null })).toEqual(none);
+    expect(branchRuleOf({ refUpdateRule: null })).toEqual(none);
+    expect(branchRuleOf({ rules: { nodes: [] } })).toBeNull();
+    expect(branchRuleOf({ rules: { nodes: [], pageInfo: null } })).toBeNull();
+    expect(
+      branchRuleOf({
+        refUpdateRule: {
+          requiredApprovingReviewCount: 1,
+          requiredStatusCheckContexts: ['ci', null],
+        },
+        rules: {
+          nodes: [
+            null,
+            {
+              type: 'PULL_REQUEST',
+              parameters: {
+                __typename: 'PullRequestParameters',
+                requiredApprovingReviewCount: 3,
+                requireCodeOwnerReview: true,
+              },
+            },
+            {
+              type: 'REQUIRED_STATUS_CHECKS',
+              parameters: {
+                __typename: 'RequiredStatusChecksParameters',
+                requiredStatusChecks: [{ context: 'ci' }, { context: 'e2e' }],
+              },
+            },
+          ],
+          pageInfo: { hasNextPage: false },
+        },
+      }),
+    ).toEqual({
+      sources: ['branch-protection', 'ruleset'],
+      approvals: 3,
+      codeOwners: true,
+      conversationResolution: false,
+      requiredChecks: ['ci', 'e2e'],
+    });
+  });
+
+  it('keeps the default queries byte-identical and selects the rule only with the flag', () => {
+    for (const query of [detailQuery([7]), detailQuery([7], true), indexQuery([7])]) {
+      expect(query).not.toContain('reviewDecision');
+      expect(query).not.toContain('baseRef');
+    }
+    expect(detailQuery([7], false, false)).toBe(detailQuery([7]));
+    expect(indexQuery([7], false)).toBe(indexQuery([7]));
+    expect(detailQuery([7], false, true)).toContain('reviewDecision baseRef { refUpdateRule {');
+    expect(detailQuery([7], false, true)).toContain('rules(first: 100)');
+    expect(detailQuery([7], false, true)).toContain('} pageInfo { hasNextPage } }');
+    expect(indexQuery([7], true)).toContain('reviewDecision');
+    expect(indexQuery([7], true)).not.toContain('baseRef');
+  });
+
+  it('github-rules connection budget: the index adds none, the detail one per PR', () => {
+    const fifty = Array.from({ length: 50 }, (_, i) => i + 1);
+    const ten = fifty.slice(0, 10);
+    expect(connections(indexQuery(fifty))).toBe(6 * 50);
+    expect(connections(indexQuery(fifty, true))).toBe(connections(indexQuery(fifty)));
+    expect(connections(detailQuery(ten, false, true))).toBe(connections(detailQuery(ten)) + 10);
+  });
+
+  it.each([undefined, 'any-approval'] as const)(
+    'approvalRule %s: the source sends the default queries and items carry no review rule',
+    async (approvalRule) => {
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        response({
+          repository: { pullRequests: conn([]) },
+          pr0: {
+            pullRequest: {
+              ...wire(),
+              reviewDecision: 'APPROVED',
+              baseRef: { refUpdateRule: null },
+            },
+          },
+        }),
+      );
+      const batch = await adapter(fetcher, ruled(approvalRule)).poll(context());
+      expect(batch.items).toHaveLength(1);
+      expect(batch.items[0]).not.toHaveProperty('reviewRule');
+      // A github-issues tracker repo also reads the issues each PR closes.
+      expect(detailsSent(fetcher)).toBe(detailQuery([7], true));
+    },
+  );
+
+  it('approvalRule github-rules: a denied branch rule keeps the PR facts and sends the rule unreadable', async () => {
+    const detail = readFileSync(
+      new URL('fixtures/branch-rule/denied-pr-detail.json', import.meta.url),
+      'utf8',
+    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation((_input, init) =>
+        Promise.resolve(
+          operationOf(queryOf(init)) === 'PrDetails'
+            ? new Response(detail, { status: 200 })
+            : response({ repository: { pullRequests: conn([]) } }),
+        ),
+      );
+    const batch = await adapter(fetcher, ruled('github-rules')).poll(context());
+    expect(batchSchema.parse(batch)).toEqual(batch);
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+    expect(batch.items).toEqual([
+      {
+        kind: 'pr',
+        facts: expect.objectContaining({ number: 7, mergeState: 'clean' }) as unknown,
+        reviewRule: { reviewDecision: 'approved', rule: null },
+      },
+    ]);
+    // Any other error under the PR still drops it.
+    const other = JSON.parse(detail) as { errors: { type: string }[] };
+    for (const entry of other.errors) entry.type = 'INTERNAL';
+    fetcher.mockImplementation((_input, init) =>
+      Promise.resolve(
+        operationOf(queryOf(init)) === 'PrDetails'
+          ? new Response(JSON.stringify(other), { status: 200 })
+          : response({ repository: { pullRequests: conn([]) } }),
+      ),
+    );
+    const failed = await adapter(fetcher, ruled('github-rules')).poll(context());
+    expect(failed.items).toEqual([]);
+    expect(failed.complete).toBe(false);
+  });
+
+  it('approvalRule github-rules: a full read carries the review rule and a reuse sends it again', async () => {
+    let t = Date.parse('2026-01-02T00:00:00.000Z');
+    const pr = {
+      ...wire(),
+      mergeable: 'MERGEABLE',
+      reviewDecision: 'REVIEW_REQUIRED',
+      baseRef: {
+        refUpdateRule: { requiredApprovingReviewCount: 1, requiredStatusCheckContexts: ['build'] },
+        rules: { nodes: [], pageInfo: { hasNextPage: false } },
+      },
+      reviewThreads: conn([{ isResolved: true }]),
+      statusCheckRollup: {
+        contexts: conn([
+          {
+            __typename: 'CheckRun',
+            name: 'build',
+            status: 'COMPLETED',
+            conclusion: 'SUCCESS',
+            completedAt: '2026-01-01T00:00:00.000Z',
+            isRequired: true,
+          },
+        ]),
+      },
+    };
+    const index = {
+      number: 7,
+      updatedAt: time,
+      state: 'OPEN',
+      isDraft: false,
+      mergeable: 'MERGEABLE',
+      mergeStateStatus: 'BLOCKED',
+      headRefOid: sha,
+      reviewDecision: 'REVIEW_REQUIRED',
+      statusCheckRollup: {
+        state: 'SUCCESS',
+        contexts: {
+          totalCount: 1,
+          nodes: [
+            {
+              __typename: 'CheckRun',
+              name: 'build',
+              status: 'COMPLETED',
+              conclusion: 'SUCCESS',
+              completedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+      reviews: { totalCount: 1, nodes: [{ id: 'PRR_1', state: 'APPROVED', lastEditedAt: null }] },
+      reviewThreads: { totalCount: 1, nodes: [{ isResolved: true }] },
+      reviewRequests: {
+        totalCount: 1,
+        nodes: [
+          { requestedReviewer: { __typename: 'User', login: 'reviewer' }, asCodeOwner: true },
+        ],
+      },
+      comments: { totalCount: 0, nodes: [] },
+      edited: { nodes: [] },
+    };
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+      const query = queryOf(init);
+      const operation = operationOf(query);
+      if (operation === 'PrIndex')
+        return Promise.resolve(response({ pr0: { pullRequest: index } }));
+      if (operation === 'PrDetails') return Promise.resolve(response({ pr0: { pullRequest: pr } }));
+      return Promise.resolve(response({ repository: { pullRequests: conn([]) } }));
+    });
+    const source = adapter(fetcher, ruled('github-rules'), 0, () => t);
+    const first = await source.poll(context());
+    expect(batchSchema.parse(first)).toEqual(first);
+    expect(first.items[0]).toMatchObject({
+      kind: 'pr',
+      reviewRule: {
+        reviewDecision: 'review_required',
+        rule: {
+          sources: ['branch-protection'],
+          approvals: 1,
+          codeOwners: false,
+          conversationResolution: false,
+          requiredChecks: ['build'],
+        },
+      },
+    });
+    expect(sentQueries(fetcher, 'PrDetails')[0]).toBe(detailQuery([7], true, true));
+    expect(sentQueries(fetcher, 'PrIndex')[0]).toBe(indexQuery([7], true));
+    t += 60_000;
+    // The index shows the PR unchanged, so its facts and review rule are reused without a full read.
+    const second = await source.poll(context());
+    expect(sentQueries(fetcher, 'PrDetails')).toHaveLength(1);
+    expect(second.items).toEqual([first.items[0]]);
+    // A new review decision changes the index fingerprint and forces a full read.
+    index.reviewDecision = 'APPROVED';
+    pr.reviewDecision = 'APPROVED';
+    t += 60_000;
+    const third = await source.poll(context());
+    expect(sentQueries(fetcher, 'PrDetails')).toHaveLength(2);
+    expect(third.items[0]).toMatchObject({ reviewRule: { reviewDecision: 'approved' } });
   });
 });

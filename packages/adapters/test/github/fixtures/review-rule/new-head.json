@@ -1,0 +1,109 @@
+{
+  "response": {
+    "id": "PR_7",
+    "number": 7,
+    "url": "https://github.com/o/r/pull/7",
+    "title": "o/r#9 work",
+    "updatedAt": "2026-11-04T08:00:00Z",
+    "mergedAt": null,
+    "closedAt": null,
+    "state": "OPEN",
+    "isDraft": false,
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "BLOCKED",
+    "author": {
+      "login": "agent-bot"
+    },
+    "headRefName": "o-9-work",
+    "headRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "reviewDecision": null,
+    "baseRef": {
+      "refUpdateRule": {
+        "pattern": "main",
+        "requiredApprovingReviewCount": 1,
+        "requiresCodeOwnerReviews": false,
+        "requiresConversationResolution": false,
+        "requiredStatusCheckContexts": ["ci"]
+      },
+      "rules": {
+        "nodes": [],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      }
+    },
+    "statusCheckRollup": {
+      "contexts": {
+        "nodes": [
+          {
+            "__typename": "CheckRun",
+            "name": "ci",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "startedAt": "2026-11-04T08:00:00Z",
+            "completedAt": "2026-11-04T08:00:00Z",
+            "checkSuite": {
+              "createdAt": "2026-11-04T08:00:00Z",
+              "workflowRun": {
+                "workflow": {
+                  "id": "W_1"
+                }
+              },
+              "app": {
+                "id": "A_1"
+              }
+            },
+            "isRequired": true
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false,
+          "endCursor": null
+        }
+      }
+    },
+    "reviews": {
+      "nodes": [],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    },
+    "comments": {
+      "nodes": [],
+      "pageInfo": {
+        "hasPreviousPage": false,
+        "startCursor": null
+      }
+    },
+    "reviewThreads": {
+      "nodes": [],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    },
+    "reviewRequests": {
+      "nodes": [],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    }
+  },
+  "reviewRule": {
+    "reviewDecision": null,
+    "rule": {
+      "sources": ["branch-protection"],
+      "approvals": 1,
+      "codeOwners": false,
+      "conversationResolution": false,
+      "requiredChecks": ["ci"]
+    }
+  },
+  "facts": {
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "mergeState": "blocked",
+    "reviews": []
+  }
+}
