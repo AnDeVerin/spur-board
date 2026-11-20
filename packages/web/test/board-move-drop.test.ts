@@ -5,6 +5,7 @@ import styles from '../src/board/Columns.module.css';
 import { all, mountEachTest, one, press, remount } from './board-harness.ts';
 import {
   board,
+  field,
   form,
   forms,
   KEY,
@@ -15,6 +16,7 @@ import {
   part,
   REFUSAL,
   ROWS,
+  type,
   wrap,
 } from './board-move-helpers.ts';
 
@@ -138,14 +140,14 @@ describe('move between Backlog parts: a drop', () => {
 
   it('a drag into or out of a mirrored part is refused and marked', async () => {
     const { moves } = await board(MIRRORED, MIRRORED_ROWS);
-    // Into it: the zone is marked refused with the refusal as its note, and takes no drop.
+    // Into it: the zone is marked refused, the refusal as its note; a drop is cancelled, no form.
     drag(link(KEY), 'dragstart');
     const target = body('ready-for-dev');
     expect(drag(target, 'dragover').defaultPrevented).toBe(false);
     expect(target.getAttribute('data-drop')).toBe('refused');
     expect(target.firstElementChild?.textContent).toBe(REFUSAL);
     expect(marked()).toEqual([target]);
-    expect(drag(target, 'drop').defaultPrevented).toBe(false);
+    expect(drag(target, 'drop').defaultPrevented).toBe(true);
     expect(forms()).toHaveLength(0);
     // todo to triage still takes the drop.
     expect(drag(body('triage'), 'dragover').defaultPrevented).toBe(true);
@@ -185,6 +187,26 @@ describe('move between Backlog parts: a drop', () => {
     expect(spine.title).toBe(REFUSAL);
     drag(spine, 'drop');
     expect(forms()).toHaveLength(0);
+  });
+
+  it('a refused drop on an open reason field cancels the native drop', async () => {
+    const { moves } = await board(MIRRORED, MIRRORED_ROWS);
+    drag(link(KEY), 'dragstart');
+    drag(body('triage'), 'dragover');
+    drag(body('triage'), 'drop');
+    drag(link(KEY), 'dragend');
+    const reason = field();
+    type(reason, 'Needs triage');
+    // A mirrored card dropped on the field: refused, and the browser inserts nothing.
+    drag(link('ex/repo#4'), 'dragstart');
+    expect(drag(reason, 'dragover').defaultPrevented).toBe(false);
+    expect(body('todo').getAttribute('data-drop')).toBe('refused');
+    expect(drag(reason, 'drop').defaultPrevented).toBe(true);
+    drag(link('ex/repo#4'), 'dragend');
+    expect(field()).toBe(reason);
+    expect(reason.value).toBe('Needs triage');
+    expect(forms()).toHaveLength(1);
+    expect(moves).toEqual([]);
   });
 
   it('the highlight clears on dragend with no drop', async () => {

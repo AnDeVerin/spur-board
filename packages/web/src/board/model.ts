@@ -222,32 +222,16 @@ const sinceText = (source: BoardSource) =>
     : `has not answered since ${formatDataTime(Date.parse(source.lastCompleteAt))}`;
 
 /**
- * The source of the chosen project's mirror when its Backlog part shows the frozen notice. With
- * no tasks the board shows its empty message instead of columns, so no notice names it.
- */
-function noticedMirror(snapshot: BoardSnapshot): string | undefined {
-  if (snapshot.status === undefined || snapshot.status.tasks.length === 0) return undefined;
-  for (const column of chosenProject(snapshot)?.columns ?? []) {
-    const mirror =
-      column.group === undefined ? undefined : mirrorFrozen({ source: column.source ?? MANUAL });
-    if (mirror !== undefined) return mirrorSourceId(snapshot.project, mirror);
-  }
-  return undefined;
-}
-
-/**
- * Blind or stale sources of the chosen project and the shared spur; other projects' are left out,
- * and so is the source `noticed`, which a frozen Backlog notice names instead.
+ * Blind or stale sources of the chosen project and the shared spur; other projects' are left out.
+ * A frozen mirror is named here too, as its Backlog notice can be offscreen.
  */
 function blindBanner(
   sources: readonly BoardSource[],
   project: string | undefined,
-  noticed: string | undefined,
 ): BoardBanner | undefined {
   const blind = sources.filter(
     (source) =>
       (source.project === null || source.project === project) &&
-      source.source !== noticed &&
       (source.blindReason !== null || (source.stale && !source.warmingUp)),
   );
   const [first] = blind;
@@ -313,11 +297,7 @@ export function banners(snapshot: BoardSnapshot): BoardBanner[] {
     });
   else if (snapshot.stream === 'offline')
     list.push({ variant: 'error', icon: 'x', text: 'Live updates are lost.', detail: data });
-  const blind = blindBanner(
-    snapshot.status?.sources ?? [],
-    snapshot.project,
-    noticedMirror(snapshot),
-  );
+  const blind = blindBanner(snapshot.status?.sources ?? [], snapshot.project);
   if (blind) list.push(blind);
   if (chosenProject(snapshot)?.dispatcher.mode === 'shadow')
     list.push({

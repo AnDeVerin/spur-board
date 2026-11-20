@@ -220,7 +220,7 @@ describe('mirrored Backlog part in column help', () => {
 });
 
 describe('mirrored Backlog part and the top banner', () => {
-  it('a frozen GitHub Project mirror raises no top banner while its notice shows; a stale one, an empty project and other blind sources do', async () => {
+  it('a blind or failing GitHub Project mirror raises the top banner as other sources do', async () => {
     const LAST = '2026-11-15T14:40:00.000Z';
     const mirror = (extra: Record<string, unknown>) =>
       source('github-project:a:ex/1', { lastCompleteAt: LAST, ...extra });
@@ -242,13 +242,18 @@ describe('mirrored Backlog part and the top banner', () => {
         .filter((banner) => banner.closest('main') === null)
         .map((banner) => banner.textContent);
     };
-    expect(await warnings([mirror({ blindReason: 'auth', stale: true })])).toEqual([]);
-    expect(await warnings([mirror({ failure: failed, stale: true })])).toEqual([]);
+    // The Backlog notice can be offscreen at 375 px, so the banner names the mirror too.
+    expect(await warnings([mirror({ blindReason: 'auth', stale: true })])).toEqual([
+      said('github-project:a:ex/1'),
+    ]);
+    expect(await warnings([mirror({ failure: failed, stale: true })])).toEqual([
+      said('github-project:a:ex/1'),
+    ]);
     // A stale mirror that is not blind is degraded, not frozen.
     expect(
       await warnings([mirror({ stale: true })], MIRRORED_ROWS, { health: 'degraded' }),
     ).toEqual([said('github-project:a:ex/1')]);
-    // No tasks: the board shows its empty message, so no notice names the frozen mirror.
+    // No tasks: the board shows its empty message instead of the notice; the banner stays.
     expect(await warnings([mirror({ blindReason: 'stale', stale: true })], [])).toEqual([
       said('github-project:a:ex/1'),
     ]);
@@ -260,7 +265,11 @@ describe('mirrored Backlog part and the top banner', () => {
         mirror({ blindReason: 'auth', failure: failed }),
         source('jira:a', { blindReason: 'auth', lastCompleteAt: LAST }),
       ]),
-    ).toEqual([said('jira:a')]);
+    ).toEqual([
+      '2 sources have not answered: github-project:a:ex/1, jira:a.' +
+        'The oldest answer is from 14:40 15/11/26.',
+    ]);
+    // A failed read alone, not yet blind or stale, raises no banner, as for any source.
     expect(
       await warnings([
         mirror({ failure: failed }),

@@ -303,7 +303,7 @@ export function useBand(
 /**
  * The drop zone props of a part: it takes only a card of its band from another part. A drop
  * opens the reason form under the card, which stays in its part until the daemon accepts. A move
- * into or out of a mirrored part is refused: the zone is marked but takes no drop.
+ * into or out of a mirrored part is refused: the zone is marked and its drop opens nothing.
  */
 export function zone(band: Band | undefined, part: ColumnId) {
   if (band === undefined) return {};
@@ -329,8 +329,10 @@ export function zone(band: Band | undefined, part: ColumnId) {
     },
     onDrop: (event: DragEvent) => {
       const { drag } = band;
-      if (drag === null || drag.from === part || refused()) return;
+      if (drag === null || drag.from === part) return;
+      // A refused drop still cancels the native one: on a reason field it would insert the link.
       event.preventDefault();
+      if (refused()) return;
       band.setDrag(null);
       band.setOver(null);
       band.setMoving({ key: drag.key, from: drag.from, to: part, sent: false, draft: newDraft() });

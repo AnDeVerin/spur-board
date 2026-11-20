@@ -42,8 +42,8 @@ warning notice above the cards, folded or not, reads `Mirror not readable: froze
 cause and `Last complete read <time>` (`No complete read yet.` before one). The cause is the
 failure of the last read, else why the source is blind, such as
 `No complete observation in 3 poll intervals`, then `Polls wait for the GitHub rate budget.`
-while polling waits for it. An empty frozen part stays a column for the notice, and the top
-banner leaves the mirror out; it names it while the project has no tasks, as no columns show
-then. Its Who tab shows the same; a readable mirror shows `read <age> ago`. A degraded
-one adds an amber dot and `degraded · ` before it, or
-`waiting for the GitHub rate budget · ` while polling waits for the budget.
+while polling waits for it. An empty frozen part stays a column for the notice. The Who tab of
+the part shows the same; a readable mirror shows `read <age> ago`. A degraded one adds an amber
+dot and `degraded · ` before it, or `waiting for the GitHub rate budget · ` while polling waits
+for the budget. The top warning names a blind mirror too, as the notice can be off screen on a
+narrow window.
