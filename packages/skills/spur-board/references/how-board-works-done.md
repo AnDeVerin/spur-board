@@ -22,6 +22,24 @@ round. A pending submit still holds the task. Open conflict PR links count as wo
 in flight. The move reason is `ticket_done_no_pr`; an effective merged PR keeps reason `merged`.
 Reopening a ticket finished without a PR returns the task to To Do.
 
+## Merged PR alerts
+
+A worker that completed with its ticket not done, no live worker and no open PR raises its
+worker-end alert (`anomaly`, or `worker_ended` while it still holds a turn, and its `health:` item
+in the [inbox](how-board-works-inbox.md)) once a complete Spur poll and complete PR polls follow
+its end. A merged PR suppresses the alert while the ticket is not done, unless one of these holds:
+
+- the ticket changed in any way (status, label, comment) at or after the newest eligible merge
+  while in the tracker filter or manually included; when no merged PR has a stored merge time, it
+  was seen open at or past the judged PR's last update plus the tracker interval;
+- a linked PR closed unmerged at or after the newest merge opened its closed-without-merge block,
+  once complete PR polls follow the close and the ticket is seen not done one tracker interval
+  after the newest merge.
+
+A merged PR linked as a conflict never counts. The alert text says
+`PR <repo>#<n> merged, ticket reopened` after such a ticket change (not when no merged PR has a
+stored merge time), else `no PR`.
+
 ## Done wrap-up
 
 Entering Done opens one wrap-up turn (`done: wrap up`) for the live worker, or for the Done

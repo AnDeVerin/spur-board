@@ -3,6 +3,7 @@ import {
   COLUMN_IDS,
   TODO_GROUP_COLUMN_IDS,
   DISPATCHER_MODES,
+  approvalRuleOf,
   isExternalAuthor,
   parseActorId,
   prSourceId,
@@ -49,7 +50,10 @@ import {
   shadowCourseCheck,
   uncounted,
 } from './course-check.ts';
+import { answerReturn } from './blocks.ts';
 import { withUnconfirmedCancels } from './cancelled-checks.ts';
+import { externalReviews } from '../domain/review-rule.ts';
+import { storedReviewRule } from './review-rule.ts';
 import { linkedSession } from './doorbells.ts';
 import { CommandError } from './commands.ts';
 import { raiseCycleLimit } from './fromYou.ts';
@@ -488,13 +492,7 @@ export async function blindSources(trx: Trx, complete: ReadonlyMap<string, strin
 
 /** Whether the external reviewers approved: one approval, and no changes requested by one. */
 function externalApproval(pr: PrFacts, agentLogin: string): boolean {
-  const external = (login: string) =>
-    login.toLowerCase() !== agentLogin.toLowerCase() &&
-    !(pr.feedback ?? []).some(
-      (entry) =>
-        entry.author?.type === 'bot' && entry.author.login.toLowerCase() === login.toLowerCase(),
-    );
-  const reviews = pr.reviews.filter((review) => external(review.reviewer));
+  const reviews = externalReviews(pr, agentLogin);
   return (
     reviews.some((review) => review.state === 'approved') &&
     !reviews.some((review) => review.state === 'changes_requested')
@@ -1008,6 +1006,20 @@ export async function readInput(
   const handed = pr?.feedbackComplete === true ? unhandled : [];
   const column = mode === 'shadow' ? (task.shadow_column ?? task.column) : task.column;
   const unclosed = last?.closed_at === null ? last : undefined;
+  const gatePr =
+    pr !== null && pr.state === 'open' && project.checksGate !== 'dev'
+      ? await withUnconfirmedCancels(trx, prSourceId(project.id, pr.repo), pr)
+      : pr;
+  // Under github-rules the review rule comes only from the project's own source row on the head.
+  const reviewRule =
+    gatePr !== null && approvalRuleOf(project) === 'github-rules'
+      ? await storedReviewRule(
+          trx,
+          prSourceId(project.id, gatePr.repo),
+          gatePr,
+          project.operatorGithubLogin,
+        )
+      : undefined;
   const held =
     mode === 'on' &&
     (await trx
@@ -1030,11 +1042,9 @@ export async function readInput(
         checksGate: project.checksGate,
       },
       facts: {
-        pr:
-          pr !== null && pr.state === 'open' && project.checksGate !== 'dev'
-            ? await withUnconfirmedCancels(trx, prSourceId(project.id, pr.repo), pr)
-            : pr,
+        pr: gatePr,
         externalReviewApproved: pr !== null && externalApproval(pr, project.operatorGithubLogin),
+        ...(reviewRule === undefined ? {} : { reviewRule }),
         commentHistory: pr?.feedbackComplete === true ? 'complete' : 'incomplete',
         unhandledExternalComments: unhandled.length,
         unresolvedThreads:
@@ -1218,12 +1228,17 @@ async function supersedeSubmit(
   });
 }
 
-/** Counts a pending submit a poll confirmed: from its receipt time, on the linked PR. */
+/**
+ * Counts a pending submit a poll confirmed: from its receipt time, on the linked PR. The turn it
+ * closed answered its visit's return, so the return's code block closes at the confirmed head.
+ */
 async function confirmSubmit(
   trx: Trx,
+  task: Task,
   pending: Extract<PendingSubmit, { state: 'confirmed' }>,
+  at: Date,
 ): Promise<void> {
-  await trx
+  const row = await trx
     .updateTable('submission')
     .set((eb) => ({
       pending_until: null,
@@ -1231,7 +1246,20 @@ async function confirmSubmit(
       pr_number: eb.fn.coalesce('pr_number', eb.val(pending.pr.number)),
     }))
     .where('id', '=', pending.id)
-    .execute();
+    .returning(['column', 'epoch', 'author'])
+    .executeTakeFirstOrThrow();
+  const turn = await trx
+    .selectFrom('turn')
+    .select(['task_id', 'column', 'epoch', 'role'])
+    .where('task_id', '=', task.id)
+    .where('column', '=', row.column)
+    .where('epoch', '=', row.epoch)
+    .where('acked_by', '=', row.author)
+    .where('closed_reason', '=', 'submitted')
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+  if (turn !== undefined)
+    await answerReturn(trx, task, turn, { actor: row.author, at: at.toISOString() }, pending.sha);
 }
 
 /**
@@ -1258,7 +1286,7 @@ export async function dispatchTasks(
     if (read.pending?.state === 'superseded')
       await supersedeSubmit(trx, task, read.pending, ctx.at);
     if (read.ticketUnconfirmed) continue;
-    if (read.pending?.state === 'confirmed') await confirmSubmit(trx, read.pending);
+    if (read.pending?.state === 'confirmed') await confirmSubmit(trx, task, read.pending, ctx.at);
     const result = dispatch(read.input);
     if (mode === 'shadow') await applyShadow(trx, task, project, result, ctx.at);
     else await applyOn(trx, task, read, result, ctx);

@@ -203,6 +203,8 @@ export const BLOCK_KEY = 'block:';
 export const CONVERSATION_KEY = 'conversation:';
 /** The item of a named-orchestrator column whose untaken turns have no live session to ring. */
 export const NO_SESSION_KEY = 'no-session:';
+/** The item of a github-rules task whose PR head GitHub has left undecided in External Review. */
+export const REVIEW_RULE_KEY = 'review-rule:';
 
 /** The block an item is about: its ledger block, else the block its key names. */
 export function itemBlockRef(item: {

@@ -3,6 +3,7 @@ import {
   classifyHttpFailure,
   graphEnvelopeWire,
   graphqlFailure,
+  readBranchRule,
   sampleLinkRules,
   teamScopeDenied,
 } from '@spur-board/adapters';
@@ -10,6 +11,7 @@ import {
   DOCTOR_FIX_MAX,
   SLACK_BOT_SCOPES,
   apiBaseUrl,
+  approvalRuleOf,
   configBindings,
   requiredSecretKeys,
   type AdapterError,
@@ -360,6 +362,145 @@ function linkRulesCheck(outcomes: readonly LinkOutcome[] | null): Check {
   );
 }
 
+type BranchRule = Awaited<ReturnType<typeof readBranchRule>>;
+// One github-rules project repo's read: `found` null when the repo has no default branch.
+type RuleOutcome = { project: Project; repo: string; read: { found: BranchRule } | null };
+const REVIEW_RULE_TOKEN_FIX =
+  'Add GITHUB_TOKEN to secrets.env, then rerun board doctor to read the review rule of each approvalRule github-rules repo.';
+const REVIEW_RULE_ADD_TAIL = ' Require an approval or code owner review on the default branch';
+// Removing approvalRule turns off the gate of every repo of the project, ruled and unread ones too.
+const REVIEW_RULE_REMOVE_TAIL = ', or remove approvalRule';
+// A failed read leaves the rule in force, unread: the fix is access, not a weaker gate.
+const REVIEW_RULE_READ_TAIL =
+  " Give the token read access to the default branch's branch protection and rulesets, then rerun board doctor.";
+
+/** The repos of the projects whose External Review sets `approvalRule: github-rules`. */
+function ruledRepos(config: Config): { project: Project; repo: string }[] {
+  return config.projects.flatMap((project) =>
+    approvalRuleOf(project) === 'github-rules'
+      ? project.repos.map((repo) => ({ project, repo }))
+      : [],
+  );
+}
+
+function readReviewRules(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  deadlineMs: number,
+  token: string,
+): Promise<RuleOutcome[]> {
+  return Promise.all(
+    ruledRepos(ctx.config).map(async ({ project, repo }) => ({
+      project,
+      repo,
+      read: await deadlineCall(
+        ctx,
+        deadlineMs,
+        'doctor.review_rule',
+        'GitHub review rule read failed',
+        async (signal) => ({
+          found: await readBranchRule(repo, {
+            token,
+            now: () => ctx.clock.now(),
+            fetch: fetcher,
+            signal,
+          }),
+        }),
+      ),
+    })),
+  );
+}
+
+const yesNo = (value: boolean): string => (value ? 'yes' : 'no');
+const RULE_SOURCE_TEXT = {
+  'branch-protection': 'branch protection',
+  ruleset: 'ruleset',
+} as const;
+
+// One repo's review rule finding; `cause` picks the remediation of a problem.
+type RuleSegment = LinkSegment & {
+  project: string;
+  cause: 'unfollowed' | 'unread' | null;
+};
+
+function ruleSegment({ project, repo, read }: RuleOutcome): RuleSegment {
+  const problem = (text: string, cause: 'unfollowed' | 'unread'): RuleSegment => ({
+    problem: true,
+    unmatched: false,
+    project: project.id,
+    cause,
+    text: () => `${project.id} ${repo}: ${text}`,
+  });
+  if (read === null) return problem('could not read the review rule', 'unread');
+  if (read.found === null) return problem('no default branch', 'unfollowed');
+  const { branch, rule } = read.found;
+  const where = `${project.id} ${repo}@${branchText(branch)}`;
+  const unfollowed = (text: string): RuleSegment => ({
+    problem: true,
+    unmatched: false,
+    project: project.id,
+    cause: 'unfollowed',
+    text: () => `${where}: ${text}, no review rule to follow`,
+  });
+  // A null rule is a rules page past the first or without pageInfo: a rule may be in force,
+  // partly or wholly unread.
+  if (rule === null)
+    return {
+      problem: true,
+      unmatched: false,
+      project: project.id,
+      cause: 'unread',
+      text: () => `${where}: could not confirm all ruleset rules were read`,
+    };
+  if (rule.sources.length === 0) return unfollowed('no branch protection or ruleset');
+  const sources = rule.sources.map((source) => RULE_SOURCE_TEXT[source]).join(' and ');
+  const checks = rule.requiredChecks.length === 0 ? 'none' : rule.requiredChecks.join(', ');
+  const summary = `${sources}: ${String(rule.approvals ?? 0)} approvals, code owners ${yesNo(rule.codeOwners)}, resolved conversations ${yesNo(rule.conversationResolution)}, checks ${checks}`;
+  if ((rule.approvals ?? 0) === 0 && !rule.codeOwners && !rule.conversationResolution)
+    return unfollowed(summary);
+  return {
+    problem: false,
+    unmatched: false,
+    project: project.id,
+    cause: null,
+    text: () => `${where}: ${summary}`,
+  };
+}
+
+// Absent without a github-rules project; never blocking.
+function reviewRuleCheck(outcomes: readonly RuleOutcome[] | null): Check {
+  const id = 'github.review_rule';
+  if (outcomes === null) return warning(id, REVIEW_RULE_TOKEN_FIX);
+  const segments = outcomes.map(ruleSegment);
+  const problems = segments.filter((segment) => segment.problem);
+  if (problems.length === 0)
+    return {
+      id,
+      status: 'pass',
+      blocking: false,
+      fix: fitFix(segments, '', `Read the review rule of ${String(segments.length)} repos.`),
+    };
+  const has = (cause: RuleSegment['cause']) => problems.some((segment) => segment.cause === cause);
+  // Removal is advised only while every repo of each project with a repo lacking a rule lacks one
+  // too: a rule left unread or in force still gates its repo through the shared column key.
+  const gatedIn = new Set(
+    segments.filter((segment) => segment.cause !== 'unfollowed').map((segment) => segment.project),
+  );
+  const removable = problems.every(
+    (segment) => segment.cause !== 'unfollowed' || !gatedIn.has(segment.project),
+  );
+  const addTail = `${REVIEW_RULE_ADD_TAIL}${removable ? REVIEW_RULE_REMOVE_TAIL : ''}.`;
+  const tail = `${has('unfollowed') ? addTail : ''}${has('unread') ? REVIEW_RULE_READ_TAIL : ''}`;
+  return warning(
+    id,
+    fitFix(
+      [...problems, ...segments.filter((segment) => !segment.problem)],
+      tail,
+      `${String(problems.length)} repos have no review rule to follow or could not be read.${tail}`,
+    ),
+  );
+}
+
 const CURATOR_TAIL = 'Start a Spur session of each curator with no live session.';
 
 // Projects whose curator has no live session come first; never blocking.
@@ -648,8 +789,12 @@ export async function runDaemonDoctor(
   const slackConfigured = Boolean(
     config.slack.channels.feed || config.slack.channels.orchestrators,
   );
-  // Started first so the link samples run alongside the credential probes.
+  // Started first so the link samples and rule reads run alongside the credential probes.
   const linkSamples = sampleLinks(ctx, fetcher, deadlineMs, secrets['GITHUB_TOKEN']);
+  const ruled = ruledRepos(config).length > 0;
+  const ruleToken = secrets['GITHUB_TOKEN'];
+  const reviewRules =
+    ruled && ruleToken !== undefined ? readReviewRules(ctx, fetcher, deadlineMs, ruleToken) : null;
   const required = requiredSecretKeys(config);
   const missing = required.filter((name) => !secrets[name]);
   checks.push(
@@ -692,6 +837,7 @@ export async function runDaemonDoctor(
         );
   checks.push(githubCheck(githubFindings));
   checks.push(linkRulesCheck(await linkSamples));
+  if (ruled) checks.push(reviewRuleCheck(reviewRules === null ? null : await reviewRules));
 
   // Same request the doorbell port makes, to a session that never exists, so no agent gets it.
   const probe = spurSendRequest(

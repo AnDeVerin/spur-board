@@ -41,7 +41,15 @@ function codeJobs(
   overrides: Record<string, string | null> = {},
   revision: string | null = MERGE,
 ): RunJob[] {
-  const names = ['changes', 'pr-title', 'guardrails', 'secrets', 'workflows', 'quality'];
+  const names = [
+    'changes',
+    'pr-title',
+    'guardrails',
+    'acceptance-gates',
+    'secrets',
+    'workflows',
+    'quality',
+  ];
   const legs = ['test', 'stand', 'package-smoke'].flatMap((id) => [`${id} (24)`, `${id} (26)`]);
   const jobs = [...names, ...legs, 'release-build', 'release-smoke', 'ci-ok'].map((name) =>
     job(name, /^(workflows|release)/.test(name) ? 'skipped' : 'success'),
@@ -61,7 +69,7 @@ function codeJobs(
 function editJobs(): RunJob[] {
   return ['reuse', ...CODE_JOBS, 'release-build', 'release-smoke']
     .map((name) => job(name, name === 'reuse' ? 'success' : 'skipped'))
-    .concat([job('pr-title'), job('guardrails'), job('ci-ok', '')]);
+    .concat([job('pr-title'), job('guardrails'), job('acceptance-gates'), job('ci-ok', '')]);
 }
 
 type Needs = Record<string, { result: string; outputs?: Record<string, string> }>;
@@ -71,7 +79,7 @@ function editNeeds(codeRun: string, code = 'skipped', overrides: Record<string, 
   const needs: Needs = { reuse: { result: 'success', outputs: { 'code-run': codeRun } } };
   for (const id of CODE_JOBS) needs[id] = { result: code };
   needs['release-build'] = needs['release-smoke'] = { result: 'skipped' };
-  needs['pr-title'] = needs['guardrails'] = { result: 'success' };
+  needs['pr-title'] = needs['guardrails'] = needs['acceptance-gates'] = { result: 'success' };
   for (const [id, result] of Object.entries(overrides)) needs[id] = { ...needs[id], result };
   return needs;
 }
@@ -108,7 +116,14 @@ describe('reuse gating in ci.yml', () => {
 
   it('gates every code job on reuse, directly or through changes, and never cancels an edit', () => {
     // A new job that does not read the title or body must be gated and join CODE_JOBS.
-    const notCode = new Set(['reuse', 'pr-title', 'guardrails', 'ci-ok', 'release']);
+    const notCode = new Set([
+      'reuse',
+      'pr-title',
+      'guardrails',
+      'acceptance-gates',
+      'ci-ok',
+      'release',
+    ]);
     for (const id of ['release-build', 'release-smoke']) notCode.add(id);
     const codeJobIds = jobIdsFromWorkflow(workflow).filter((id) => !notCode.has(id));
     expect(codeJobIds).toEqual([...CODE_JOBS]);
@@ -128,7 +143,7 @@ describe('reuse gating in ci.yml', () => {
     );
     expect(checkout).toBeGreaterThanOrEqual(0);
     expect(revision).toBeGreaterThan(checkout);
-    for (const id of ['pr-title', 'guardrails', 'ci-ok']) {
+    for (const id of ['pr-title', 'guardrails', 'acceptance-gates', 'ci-ok']) {
       expect(jobs[id]?.if ?? '', id).not.toContain('reuse');
     }
     expect(parsed.concurrency['cancel-in-progress']).toBe(
@@ -171,6 +186,8 @@ describe('decideCiOk on an edit', () => {
     ['pr-title', 'skipped'],
     ['guardrails', 'failure'],
     ['guardrails', 'skipped'],
+    ['acceptance-gates', 'failure'],
+    ['acceptance-gates', 'skipped'],
     ['reuse', 'skipped'],
     ['reuse', 'failure'],
   ])('fails when this run has %s %s', (id, result) => {
@@ -211,13 +228,16 @@ describe('decideCiOk on an edit', () => {
 });
 
 describe('judgeCodeRun', () => {
-  it('passes a code run whose own guardrails and ci-ok failed', () => {
-    const verdict = judgeCodeRun(7, codeJobs({ guardrails: 'failure', 'ci-ok': 'failure' }), MERGE);
+  it('passes a code run whose own guardrails, acceptance-gates and ci-ok failed', () => {
+    const own = { guardrails: 'failure', 'acceptance-gates': 'failure', 'ci-ok': 'failure' };
+    const verdict = judgeCodeRun(7, codeJobs(own), MERGE);
     expect(verdict.ok).toBe(true);
     expect(verdict.lines).toContain(`ci-ok: code run 7 tested ${MERGE} ok`);
     expect(verdict.lines).toContain('ci-ok: code run 7 test (24) success ok');
     expect(verdict.lines).toContain('ci-ok: code run 7 workflows skipped ok');
-    expect(verdict.lines.join('\n')).not.toMatch(/guardrails|pr-title|ci-ok success|release/);
+    expect(verdict.lines.join('\n')).not.toMatch(
+      /guardrails|acceptance-gates|pr-title|ci-ok success|release/,
+    );
   });
 
   it('accepts bare skipped workflows and package-smoke', () => {

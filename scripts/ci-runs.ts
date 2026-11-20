@@ -156,8 +156,8 @@ function testedRevision(jobs: RunJob[], revision: string): boolean {
 /**
  * Judges the code jobs of a run. Every job of a `CODE_JOBS` id must succeed; a
  * `CONDITIONAL_SKIPS` id may instead be one bare skipped job. A missing id fails, and so does a
- * run that did not record `revision`. The run's own `pr-title`, `guardrails`, `ci-ok` and release
- * jobs are not read.
+ * run that did not record `revision`. The run's own `pr-title`, `guardrails`, `acceptance-gates`,
+ * `ci-ok` and release jobs are not read.
  */
 export function judgeCodeRun(id: number, jobs: RunJob[], revision: string): CodeRun {
   const lines: string[] = [];

@@ -21,6 +21,8 @@
   a file it reports, each added, changed or deleted test file included, and warns on a named path
   the PR does not change (`scripts/guardrails.ts`, `scripts/guardrails.test.ts`,
   `describe('guardrails.ts CLI',`).
+- CI `acceptance-gates` fails a UI PR whose `## Acceptance gates` heads have a UI diff to the PR
+  head (`scripts/acceptance-gates.ts`, `describe('acceptance-gates.ts CLI',`).
 - Locally, `pnpm guardrails <base>` compares committed HEAD with its merge base and ignores
   uncommitted changes: after merging `main`, run it once the merge commit exists
   (`scripts/guardrails.ts`).
