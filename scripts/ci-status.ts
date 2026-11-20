@@ -145,10 +145,16 @@ export function parseFailedLog(text: string): Map<string, Map<string, string[]>>
   return jobs;
 }
 
-/** The local command that reproduces a failed step. Step names in ci.yml are the commands. */
+/**
+ * The local command that reproduces a failed step. Step names in ci.yml are the commands; a
+ * `check:full --only` list with `lint` gets the heap its CI step sets in `env`.
+ */
 export function reproFor(job: string, step: string): string {
   const pnpm = /^Run (pnpm \S.*)$/.exec(step);
-  if (pnpm?.[1] !== undefined) return pnpm[1];
+  if (pnpm?.[1] !== undefined) {
+    const lint = /^pnpm check:full --only \S*\blint\b/.test(pnpm[1]);
+    return lint ? `NODE_OPTIONS=--max-old-space-size=8192 ${pnpm[1]}` : pnpm[1];
+  }
   if (job === 'secrets') return 'GITLEAKS_LOG_OPTS=origin/main..HEAD sh scripts/gitleaks.sh';
   if (job === 'pr-title') return 'no local command - edit the PR title';
   return 'no local command - read the log above';
