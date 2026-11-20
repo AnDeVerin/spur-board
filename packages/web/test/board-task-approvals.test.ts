@@ -2,7 +2,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { Chip, type ChipTone } from '../src/ds/index.ts';
+import { Chip, quiet, type ChipTone } from '../src/ds/index.ts';
 import { daemon, envelope, taskGet } from './board-fixtures.ts';
 import { mount, mountEachTest, settle } from './board-harness.ts';
 
@@ -15,6 +15,8 @@ const chipClass = (tone: ChipTone, wrap = false) =>
 /** Changed-entry chips wrap, so a long path name stays inside the row. */
 const WATCHED = [chipClass('warn', true), 'Changed since the approval; watched'];
 const NOT_WATCHED = [chipClass('ghost', true), 'Changed since the approval; not watched'];
+/** A loud row is not quiet, so a not watched chip there takes the default tone, not ghost. */
+const NOT_WATCHED_LOUD = [chipClass('default', true), 'Changed since the approval; not watched'];
 
 const sha = (char: string) => char.repeat(40);
 const counted = (commitsAfter: number, changedAfter: string[], watchedAfter: string[]) => ({
@@ -107,7 +109,7 @@ describe('approvals in Task Now', () => {
         ),
       ),
     ).toEqual([
-      [WATCHED, WATCHED, NOT_WATCHED],
+      [WATCHED, WATCHED, NOT_WATCHED_LOUD],
       [NOT_WATCHED],
       [],
       [[chipClass('warn')]],
@@ -126,6 +128,10 @@ describe('approvals in Task Now', () => {
       false,
       false,
     ]);
+    // Loud rows read at full brightness at rest; the others brighten on hover.
+    expect(rows().map((row) => row.classList.contains(quiet))).toEqual(
+      rows().map((row) => !row.hasAttribute('data-loud')),
+    );
     expect(section()?.querySelector('[class*="ref"]')).toBeNull();
     expect(titles().indexOf('Approvals')).toBe(titles().indexOf('Why it is here') + 1);
     expect(titles().indexOf('Latest submission')).toBe(titles().indexOf('Approvals') + 1);

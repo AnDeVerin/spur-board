@@ -72,6 +72,16 @@ function cssRules(css: string): { selector: string; body: string }[] {
     (match) => ({ selector: (match[1] ?? '').trim(), body: match[2] ?? '' }),
   );
 }
+/** The token the first of `selectors` in `file` binds to `property`; '' when none binds one. */
+function bound(file: string, property: string, ...selectors: string[]): string {
+  const rules = cssRules(read(file));
+  const pattern = new RegExp(`(?<![\\w-])${property}: var\\((--[\\w-]+)\\);`);
+  for (const selector of selectors) {
+    const token = rules.find((rule) => rule.selector === selector)?.body.match(pattern)?.[1];
+    if (token !== undefined) return token;
+  }
+  return '';
+}
 const ring = 'var(--width-ring) solid var(--color-status-working)';
 // Text fields show focus with their border; the transparent outline is for forced colours mode.
 const forcedColoursRing = 'var(--width-ring) solid transparent';
@@ -142,6 +152,47 @@ describe('web design assets and policy', () => {
       const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
       expect(ratio, label ?? token).toBeGreaterThanOrEqual(4.5);
     }
+  });
+  // Board text on tone fills (#754): the card status cells on the card, and the text of a tinted
+  // Approvals row in the task view. A new tone or text part is one row of the table.
+  const card = 'src/board/Card.module.css';
+  const approvals = 'src/board/TaskApprovals.module.css';
+  const cellTone = (tone: string) => `.cell[data-tone='${tone}']`;
+  const tonePairs: [label: string, text: string, fill: string, base: string][] = [
+    ...['neutral', 'ok', 'pend', 'bad'].flatMap((tone) => {
+      const fill = bound(card, 'background', cellTone(tone));
+      return [
+        [`card ${tone} cell`, bound(card, 'color', cellTone(tone), '.cell'), fill],
+        [`card ${tone} cell suffix`, bound(card, 'color', '.suffix'), fill],
+      ].map(([label = '', text = '', on = '']) => [label, text, on, '--color-bg-elevated']);
+    }),
+    // A loud row is not quiet: its text reads the same at rest as on hover.
+    ...[
+      ['what', bound(approvals, 'color', '.what')],
+      ['sha', bound(approvals, 'color', '.sha')],
+      ['PR ref', bound(approvals, 'color', '.row[data-loud] .ref', '.ref')],
+      ['not watched entry chip', bound('src/ds/Chip/Chip.module.css', 'color', '.chip')],
+      // The author and the icon inherit the task view's primary text.
+      ['author', '--color-text-primary'],
+    ].map(([label = '', text = '']): [string, string, string, string] => [
+      `loud approvals row ${label}`,
+      text,
+      bound(approvals, 'background', '.row[data-loud]'),
+      '--color-bg-base',
+    ]),
+  ];
+  it.each(
+    Object.entries({ dark, light }).flatMap(([name, theme]) =>
+      tonePairs.map((pair) => [name, ...pair, theme] as const),
+    ),
+  )('%s %s text meets 4.5:1 on its fill', (_name, _label, text, fill, base, theme) => {
+    expect(text, 'text token').not.toBe('');
+    const under = rgb(theme[base] ?? '');
+    const [r = 0, g = 0, b = 0, alpha = 1] = fill === '' ? under : rgb(theme[fill] ?? '');
+    // Composite in sRGB, retaining fractional channels before luminance conversion.
+    const background = under.map((v, i) => ([r, g, b][i] ?? 0) * alpha + v * (1 - alpha));
+    const [x, y] = [luminance(theme[text] ?? ''), luminance(background)];
+    expect((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toBeGreaterThanOrEqual(4.5);
   });
   it('rejects raw color literals outside the token file, including negative fixtures', () => {
     for (const invalid of ['color: #abc;', 'color: #123456;', 'rgb(0, 0, 0)', 'rgba(1,2,3,.5)'])

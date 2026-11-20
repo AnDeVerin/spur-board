@@ -33,8 +33,10 @@ tooltip) and what changed since:
 
 Watched entries are the project's `approvalWatch` (see the configuration reference); without the
 key every changed entry counts as watched. A row asks for a look, and takes the attention tint,
-when a watched entry changed after the approval or the history was rewritten after it. With two
-or more PR links carrying approvals, each row starts with its PR ref.
+when a watched entry changed after the approval or the history was rewritten after it. Its text
+reads at full brightness at rest, so a `not watched` entry there takes a plain chip rather than
+the ghost chip. Other rows read muted until hovered. With two or more PR links carrying
+approvals, each row starts with its PR ref.
 
 ## On the card
 

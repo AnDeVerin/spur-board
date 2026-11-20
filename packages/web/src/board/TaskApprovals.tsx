@@ -14,7 +14,7 @@ import styles from './TaskApprovals.module.css';
 
 /** What changed since an approval: on the head, the commits and entries, or why not counted. */
 function What({ state }: { state: ApprovalState }) {
-  const { approval, kind } = state;
+  const { approval, kind, loud } = state;
   switch (kind) {
     case 'fresh':
       return 'on the head';
@@ -23,7 +23,9 @@ function What({ state }: { state: ApprovalState }) {
     case 'stale': {
       const watched = new Set(approval.watchedAfter ?? []);
       const changed = approval.changedAfter ?? [];
-      // Each group says in words whether its entries are watched; the chip tone repeats it.
+      // Each group says in words whether its entries are watched; the chip tone repeats it. A
+      // loud row is not quiet, so its not watched chips take the default tone, not the tertiary
+      // ghost, to stay readable on the tint at rest.
       const groups = [true, false]
         .map((isWatched) => ({
           isWatched,
@@ -40,7 +42,7 @@ function What({ state }: { state: ApprovalState }) {
               {entries.map((entry) => (
                 <Chip
                   key={entry}
-                  tone={isWatched ? 'warn' : 'ghost'}
+                  tone={isWatched ? 'warn' : loud ? 'default' : 'ghost'}
                   title={changedTitle(isWatched)}
                   wrap
                 >
@@ -65,8 +67,9 @@ function What({ state }: { state: ApprovalState }) {
 
 /**
  * The Approvals section: one row per latest approval of every open PR link, in link order, with
- * its reviewer, commit and what changed since; a row asking for a look is tinted. With two or
- * more PR links carrying approvals each row starts with its PR ref. None without approvals.
+ * its reviewer, commit and what changed since; a row asking for a look is tinted and not quiet,
+ * so its text reads the same at rest as on hover. With two or more PR links carrying approvals
+ * each row starts with its PR ref. None without approvals.
  */
 export function TaskApprovals({ links }: { links: BoardTask['links'] }) {
   const prs = links.filter(
@@ -82,7 +85,7 @@ export function TaskApprovals({ links }: { links: BoardTask['links'] }) {
         {rows.map(({ ref, state }) => (
           <li
             key={`${ref} ${state.approval.author}`}
-            className={`${styles.row ?? ''} ${quiet}`}
+            className={state.loud ? styles.row : `${styles.row ?? ''} ${quiet}`}
             data-loud={state.loud ? '' : undefined}
           >
             <span className={styles.who}>

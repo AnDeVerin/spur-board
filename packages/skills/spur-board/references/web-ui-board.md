@@ -74,8 +74,9 @@ Columns follow configuration order:
     card. Sessions need `web.spurUiOrigin`; otherwise a `session <id>` chip truncates at 20 characters.
     Jira links use `ticketBrowseBase` plus the key; other tickets and PRs use observed URLs.
   - Four cells for the first pull request: checks, merge, resolved threads, reviews on the head.
-    Red: failed, conflicting or changes requested. Yellow: pending or unresolved. Soft green fill
-    and green glyph with neutral text and border: passed, no conflicts or approved.
+    Red: failed, conflicting or changes requested. Soft fill and glyph in the status colour with
+    neutral text and border: yellow for pending or unresolved, green for passed, no conflicts or
+    approved.
     `–`: nothing reported. `?`: mergeability unknown. All four
     grey: not confirmed, the GitHub source is stale or blind. Four `—`: linked, not observed yet.
     `+N`: other pull requests. An open turn without one shows `no PR yet`. In Ready to Merge,

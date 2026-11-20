@@ -36,7 +36,11 @@
   margin-left: auto;
   color: var(--color-text-secondary);
 }
-/* The PR ref before each row when several PRs carry approvals; quiet brightens it. */
+/* The PR ref before each row when several PRs carry approvals; quiet brightens it. A loud row is
+   not quiet, and tertiary falls below 4.5:1 on its fill, so there the ref reads secondary. */
 .ref {
   color: var(--color-text-tertiary);
+}
+.row[data-loud] .ref {
+  color: var(--color-text-secondary);
 }
