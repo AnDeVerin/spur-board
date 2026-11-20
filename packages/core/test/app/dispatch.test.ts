@@ -4255,6 +4255,8 @@ describe('external change-request rounds', () => {
       await finish(ctx);
       expect((await ctx.task()).column).toBe(column);
       expect(await openKeys(ctx)).toEqual(checks);
+      // Cleared ones included: completion raises no check at all.
+      if (column === 'done') expect(await itemsOf(ctx, 'course_check')).toEqual([]);
       if (column === 'dev') expect(await ctx.openTurn()).toBeNull();
     },
   );
@@ -4295,6 +4297,7 @@ describe('external change-request rounds', () => {
       await fresh(ctx);
       expect((await ctx.task()).column).toBe(column);
       expect(await openKeys(ctx)).toEqual(checks);
+      if (column === 'done') expect(await itemsOf(ctx, 'course_check')).toEqual([]);
     },
   );
 
