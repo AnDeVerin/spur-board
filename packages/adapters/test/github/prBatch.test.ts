@@ -14,6 +14,7 @@ import {
 } from '@spur-board/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  GithubClient,
   detailQuery,
   discoveryQuery,
   indexQuery,
@@ -4177,6 +4178,15 @@ describe('approval watch', () => {
     expect(batch.entities).toEqual([{ ref: refOf(7), status: 'ok' }]);
     expect(batch.items).toHaveLength(1);
     expect(pairsOf(batch)).toEqual(pairs === 'cached' ? run.loaded.pairs : undefined);
+  });
+  it('classifies a 502 cut off after the headers as transient on a required read', async () => {
+    const client = new GithubClient(
+      'token',
+      Date.now,
+      vi.fn(() => Promise.resolve(cutOff())),
+    );
+    const read = client.query(detailQuery([7]), {}, new AbortController().signal);
+    await expect(read).rejects.toMatchObject({ kind: 'transient' });
   });
   it('omits pairs on a failed or malformed commits read and keeps the batch complete', async () => {
     for (const answer of [() => failure(503), () => json({ data: { rateLimit: {}, x: 1 } })]) {
