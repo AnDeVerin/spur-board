@@ -241,6 +241,7 @@ export class GithubClient {
     query: string,
     variables: Record<string, string | number>,
     signal: AbortSignal,
+    timeoutMs?: number,
   ): Promise<ResponseData> {
     const { response, body } = await withTimeout(
       signal,
@@ -275,6 +276,7 @@ export class GithubClient {
         }
         return { response, body };
       },
+      timeoutMs,
     );
     // Capture a valid reported cost before classifying GraphQL errors or parsing PR facts.
     const cost = z

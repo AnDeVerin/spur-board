@@ -87,8 +87,21 @@ const DETAIL_CHUNK = 10;
 const MAX_FAILED_REQUESTS = 8;
 // The commits read of the approval watch stops below this many times `github.reserveRemaining`.
 const APPROVAL_RESERVE_FACTOR = 3;
-// How long a head whose commits read came back unreadable waits before one more read.
+// How long a head whose commits read came back unreadable waits before one more read; also how
+// long the approval watch pauses after an `auth` failure of one of its reads.
 const UNREADABLE_RETRY_MS = 900_000;
+// The approval watch reads last, on the queue that `pollPr` waits on under a 10 s deadline
+// (`board task --refresh`, a manual link). None of its reads starts once 2 s passed since its
+// first, and each times out after 4 s, so it holds the queue at most 6 s past the detail reads
+// and leaves an on-demand read at least 4 s. A commits read of 7 commits takes about 1 s.
+const APPROVAL_PASS_MS = 2_000;
+const APPROVAL_REQUEST_MS = 4_000;
+// How long the approval watch pauses after GitHub throttled one of its reads with no retry time.
+const APPROVAL_THROTTLE_MS = 60_000;
+/** Until when a source's approval-watch reads wait after GitHub throttled or refused one. */
+interface PairPause {
+  until?: number;
+}
 /** The approval pairs read for a PR's head, by approved commit; never a `rate_limit` pair. */
 interface CachedPairs {
   head: string;
@@ -136,6 +149,8 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       // Per source: the approval pairs of each requested open PR's head, keyed by number. Kept in
       // memory only; `pollPr` neither reads nor changes it.
       const pairCache = new Map<number, CachedPairs>();
+      // Per source: the pause of its approval-watch reads after a throttled or refused one.
+      const pairPause: PairPause = {};
       async function withUsage(signal: AbortSignal, read: () => Promise<Batch>): Promise<Batch> {
         try {
           const batch = await read();
@@ -172,6 +187,7 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
                 reserveRemaining: config.github.reserveRemaining,
                 cache,
                 pairCache,
+                pairPause,
                 reviewRule,
               }),
             ),
@@ -575,13 +591,15 @@ interface RequestScope {
   requests: Requests;
 }
 /**
- * Sends one request. A transient failure (5xx, a cut-off body, a timeout) is counted and returns
- * undefined; an abort, `throttled`, `auth`, `config` or any other error rejects the poll.
+ * Sends one request, timed out after `timeoutMs` when given (30 s otherwise). A transient failure
+ * (5xx, a cut-off body, a timeout) is counted and returns undefined; an abort, `throttled`, `auth`,
+ * `config` or any other error rejects the poll.
  */
 async function attempt(
   scope: RequestScope,
   query: string,
   variables: Record<string, string | number> = {},
+  timeoutMs?: number,
 ): Promise<ResponseData | undefined> {
   const { requests, signal } = scope;
   // Read through a function: the flag can change while the request is in flight.
@@ -592,6 +610,7 @@ async function attempt(
       query,
       { owner: scope.owner, repo: scope.name, ...variables },
       signal,
+      timeoutMs,
     );
     requests.succeeded += 1;
     return response;
@@ -743,6 +762,7 @@ interface PollArgs {
   reserveRemaining: number;
   cache: Map<number, CachedPr>;
   pairCache: Map<number, CachedPairs>;
+  pairPause: PairPause;
   reviewRule: boolean;
 }
 async function pollRepository({
@@ -756,6 +776,7 @@ async function pollRepository({
   reserveRemaining,
   cache,
   pairCache,
+  pairPause,
   reviewRule,
 }: PollArgs): Promise<Batch> {
   const observedAt = sourceCursorSchema.parse(new Date(now()).toISOString());
@@ -927,6 +948,7 @@ async function pollRepository({
     byNumber,
     fullRead: new Set(changed),
     pairCache,
+    pause: pairPause,
     reserveRemaining,
     now,
   });
@@ -965,17 +987,49 @@ interface PairArgs {
   /** The PRs read in full this poll: a retarget moves `updatedAt`, so it forces a full read. */
   fullRead: ReadonlySet<number>;
   pairCache: Map<number, CachedPairs>;
+  pause: PairPause;
   reserveRemaining: number;
   now: () => number;
 }
+type PairRead = (
+  query: string,
+  variables?: Record<string, string | number>,
+) => Promise<ResponseData | undefined>;
+/**
+ * Sends one approval-watch read, or none (undefined) at the failure cap, past
+ * `APPROVAL_PASS_MS` or while paused. A transient failure returns undefined as `attempt` does;
+ * `throttled` or `auth` pauses the source's approval-watch reads and returns undefined too, so the
+ * poll keeps its batch. An abort or any other error rejects the poll.
+ */
+function pairReader(scope: RequestScope, pause: PairPause, now: () => number): PairRead {
+  const started = now();
+  return async (query, variables = {}) => {
+    const paused = pause.until !== undefined && now() < pause.until;
+    if (paused || scope.requests.failed >= MAX_FAILED_REQUESTS) return undefined;
+    if (now() - started >= APPROVAL_PASS_MS) return undefined;
+    try {
+      return await attempt(scope, query, variables, APPROVAL_REQUEST_MS);
+    } catch (error) {
+      if (scope.signal.aborted || !(error instanceof AdapterError)) throw error;
+      if (error.kind === 'throttled')
+        pause.until = error.retryAt?.getTime() ?? now() + APPROVAL_THROTTLE_MS;
+      else if (error.kind === 'auth') pause.until = now() + UNREADABLE_RETRY_MS;
+      else throw error;
+      return undefined;
+    }
+  };
+}
 const baseWire = z.object({ pullRequest: z.object({ baseRefName: z.string() }) });
+/** Whether the budget is below `APPROVAL_RESERVE_FACTOR` times the reserve. */
+const pairBudgetLow = (acc: Accumulator, reserveRemaining: number): boolean =>
+  acc.budget !== undefined && acc.budget.remaining < APPROVAL_RESERVE_FACTOR * reserveRemaining;
 /**
  * Drops the cached pairs of each PR read in full this poll whose base branch is no longer the one
  * its commits read named, so the pass reads its commits again. One aliased request for them all;
  * a failed or unanswered alias keeps the pairs.
  */
 async function checkBases(
-  scope: RequestScope,
+  read: PairRead,
   acc: Accumulator,
   { byNumber, fullRead, pairCache, reserveRemaining }: PairArgs,
 ): Promise<void> {
@@ -986,8 +1040,8 @@ async function checkBases(
     const known = entry?.head === headSha && entry.base !== undefined && entry.pairs.size > 0;
     return byNumber.has(number) && fullRead.has(number) && known ? [number] : [];
   });
-  if (numbers.length === 0 || !mayReadPairs(scope, acc, reserveRemaining)) return;
-  const response = await attempt(scope, basesQuery(numbers));
+  if (numbers.length === 0 || pairBudgetLow(acc, reserveRemaining)) return;
+  const response = await read(basesQuery(numbers));
   if (response === undefined) return;
   acc.budget = response.budget;
   if (unscoped(response.errors, aliasesOf(numbers))) return;
@@ -999,17 +1053,10 @@ async function checkBases(
       pairCache.delete(number);
   }
 }
-/** Whether the poll may send one more approval-watch read: below the failure cap and budget. */
-function mayReadPairs(scope: RequestScope, acc: Accumulator, reserveRemaining: number): boolean {
-  return (
-    scope.requests.failed < MAX_FAILED_REQUESTS &&
-    (acc.budget === undefined || acc.budget.remaining >= APPROVAL_RESERVE_FACTOR * reserveRemaining)
-  );
-}
 /**
  * Adds `approvalPairs` to each requested open PR item with an approval off its head, after every
  * detail read. A pair missing from `pairCache` costs one commits read per PR, unless the head is
- * in its unreadable wait, the poll is at its failure cap (left out) or the budget is below
+ * in its unreadable wait or `pairReader` sends nothing (left out), or the budget is below
  * `APPROVAL_RESERVE_FACTOR` times the reserve (sent as `rate_limit`, not cached). A failed or
  * unreadable read leaves the PR's missing pairs out and keeps the batch complete. A PR read in
  * full whose base branch changed reads its pairs again (`checkBases`).
@@ -1020,7 +1067,8 @@ async function readApprovalPairs(
   args: PairArgs,
 ): Promise<void> {
   const { byNumber, pairCache, reserveRemaining, now } = args;
-  await checkBases(scope, acc, args);
+  const read = pairReader(scope, args.pause, now);
+  await checkBases(read, acc, args);
   for (const [i, item] of acc.items.entries()) {
     if (item.kind !== 'pr' || !byNumber.has(item.facts.number)) continue;
     const { facts } = item;
@@ -1036,21 +1084,22 @@ async function readApprovalPairs(
     const approved = offHeadApprovals(facts);
     const cached = entry.pairs;
     const missing = approved.filter((sha) => !cached.has(sha));
-    let limited = false;
     const waiting = entry.unreadableUntil !== undefined && now() < entry.unreadableUntil;
-    if (missing.length > 0 && !waiting && scope.requests.failed < MAX_FAILED_REQUESTS) {
-      if (!mayReadPairs(scope, acc, reserveRemaining)) limited = true;
-      else {
-        const response = await attempt(scope, commitsQuery(), { number: facts.number });
-        if (response !== undefined) {
-          acc.budget = response.budget;
-          const read = approvalPairs(facts, response);
-          if (read === 'unreadable') entry.unreadableUntil = now() + UNREADABLE_RETRY_MS;
-          else {
-            delete entry.unreadableUntil;
-            entry.base = read.base;
-            for (const pair of read.pairs) cached.set(pair.approvedSha, pair);
-          }
+    const limited =
+      missing.length > 0 &&
+      !waiting &&
+      scope.requests.failed < MAX_FAILED_REQUESTS &&
+      pairBudgetLow(acc, reserveRemaining);
+    if (missing.length > 0 && !waiting && !limited) {
+      const response = await read(commitsQuery(), { number: facts.number });
+      if (response !== undefined) {
+        acc.budget = response.budget;
+        const pairs = approvalPairs(facts, response);
+        if (pairs === 'unreadable') entry.unreadableUntil = now() + UNREADABLE_RETRY_MS;
+        else {
+          delete entry.unreadableUntil;
+          entry.base = pairs.base;
+          for (const pair of pairs.pairs) cached.set(pair.approvedSha, pair);
         }
       }
     }

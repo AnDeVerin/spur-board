@@ -2499,10 +2499,16 @@ const prNumbers = (query: string): number[] =>
 type Operation =
   'PrBatch' | 'PrIndex' | 'PrDetails' | 'PrPage' | 'DiscoveryPage' | 'PrCommits' | 'PrBases';
 /** A fetch that answers each request by its operation name and the PR numbers it names. */
-function byOperation(answer: (operation: Operation, numbers: number[]) => Response) {
+function byOperation(
+  answer: (
+    operation: Operation,
+    numbers: number[],
+    init: RequestInit | undefined,
+  ) => Response | Promise<Response>,
+) {
   return vi.fn<typeof fetch>((_input, init) => {
     const query = queryOf(init);
-    return Promise.resolve(answer(operationOf(query) as Operation, prNumbers(query)));
+    return Promise.resolve(answer(operationOf(query) as Operation, prNumbers(query), init));
   });
 }
 /** The PR numbers of each request of one operation, in the order they were sent. */
@@ -3843,10 +3849,10 @@ describe('approval watch', () => {
     return structuredClone(entry.value) as Fixture;
   };
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-  /** The index alias of a fixture's PR, unchanged while its detail is. */
-  const indexOf = (detail: Record<string, unknown>) => {
+  /** The index alias of PR `number` on a fixture's detail, unchanged while the detail is. */
+  const indexOf = (detail: Record<string, unknown>, number: number) => {
     const reviews = (detail['reviews'] as { nodes: { id: string }[] }).nodes;
-    return indexPr(7, {
+    return indexPr(number, {
       updatedAt: detail['updatedAt'],
       state: detail['state'],
       headRefOid: detail['headRefOid'],
@@ -3868,25 +3874,29 @@ describe('approval watch', () => {
     const loaded = fixture(name);
     const state = {
       detail: loaded.detail,
-      commits: (): Response => json(loaded.commits),
+      // The commits answer; `init` carries the request signal for an answer that hangs.
+      commits: (() => json(loaded.commits)) as (init?: RequestInit) => Response | Promise<Response>,
       detailStatus: 200,
       remaining: 4321,
       discovered: [] as Json[],
       base: 'main',
     };
     const rate = () => ({ remaining: state.remaining, resetAt: '2026-01-03T00:00:00.000Z' });
-    const fetcher = byOperation((operation, numbers) => {
+    const fetcher = byOperation((operation, numbers, init) => {
       if (operation === 'PrBatch') return discoveryAnswer(state.discovered);
       if (operation === 'PrIndex')
-        return response({ ...aliased(numbers, () => indexOf(state.detail)), rateLimit: rate() });
+        return response({
+          ...aliased(numbers, (number) => indexOf(state.detail, number)),
+          rateLimit: rate(),
+        });
       if (operation === 'PrDetails')
         return state.detailStatus === 200
           ? response({
-              ...aliased(numbers, () => ({ pullRequest: state.detail })),
+              ...aliased(numbers, (number) => ({ pullRequest: { ...state.detail, number } })),
               rateLimit: rate(),
             })
           : failure(state.detailStatus);
-      if (operation === 'PrCommits') return state.commits();
+      if (operation === 'PrCommits') return state.commits(init);
       if (operation === 'PrBases')
         return response({
           ...aliased(numbers, () => ({ pullRequest: { baseRefName: state.base } })),
@@ -4217,5 +4227,86 @@ describe('approval watch', () => {
     expect(run.sent('PrBases')).toBe(0);
     expect(run.sent('PrCommits')).toBe(0);
     expect(pairsOf(reused)).toEqual(run.loaded.pairs);
+  });
+  it.each<[string, () => Response, number]>([
+    [
+      'an HTTP 429 with retry-after',
+      () => new Response('slow down', { status: 429, headers: { 'retry-after': '120' } }),
+      2 * MINUTE,
+    ],
+    [
+      'a GraphQL rate limit with no retry time',
+      () =>
+        json({
+          data: watchedCommits(),
+          errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }],
+        }),
+      MINUTE,
+    ],
+    ['an HTTP 401', () => failure(401), 15 * MINUTE],
+  ])('keeps the batch and pauses approval-watch reads after %s', async (_name, answer, pauseMs) => {
+    const run = scenario('watched-changed');
+    run.state.commits = answer;
+    const first = await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(first.complete).toBe(true);
+    expect(first.entities).toEqual([{ ref: refOf(7), status: 'ok' }]);
+    expect(first.items).toHaveLength(1);
+    expect(pairsOf(first)).toBeUndefined();
+    run.state.commits = () => json(run.loaded.commits);
+    run.advance(pauseMs - 1);
+    const paused = await run.poll();
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(pairsOf(paused)).toBeUndefined();
+    run.advance(1);
+    const resumed = await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(pairsOf(resumed)).toEqual(run.loaded.pairs);
+  });
+  const pairsFor = (batch: { items: unknown[] }, number: number) =>
+    (
+      batch.items.find(
+        (item) => (item as { facts: { number: number } }).facts.number === number,
+      ) as { approvalPairs?: unknown } | undefined
+    )?.approvalPairs;
+  it('starts no approval-watch read 2 s after its first and reads the rest next poll', async () => {
+    const run = scenario('watched-changed');
+    const answer = run.state.commits;
+    run.state.commits = () => {
+      run.advance(2_000);
+      return answer();
+    };
+    const both = [refOf(7), refOf(8)];
+    const first = await run.poll(both);
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(first.complete).toBe(true);
+    expect(pairsFor(first, 7)).toEqual(run.loaded.pairs);
+    expect(pairsFor(first, 8)).toBeUndefined();
+    run.advance(MINUTE);
+    const second = await run.poll(both);
+    // Only PR 8 still misses its pairs.
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(pairsFor(second, 7)).toEqual(run.loaded.pairs);
+    expect(pairsFor(second, 8)).toEqual(run.loaded.pairs);
+  });
+  it('times a commits read out after 4 s and keeps the batch', async () => {
+    vi.useFakeTimers();
+    try {
+      const run = scenario('watched-changed');
+      run.state.commits = (init) => hanging('https://api.github.com/graphql', init);
+      const poll = run.poll();
+      const state = settle(poll);
+      await vi.advanceTimersByTimeAsync(3_999);
+      expect(state.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(state.settled).toBe(true);
+      const batch = await poll;
+      expect(batch.complete).toBe(true);
+      expect(batch.items).toHaveLength(1);
+      expect(pairsOf(batch)).toBeUndefined();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
