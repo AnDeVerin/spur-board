@@ -65,6 +65,8 @@ Columns follow configuration order:
   reads `manual` instead of the executor. The band's caret toggle folds the group into one
   column with a section per part (`empty` when it has no tasks) and unfolds it back into
   columns. The browser keeps the fold per project; a fold reads nothing from the daemon.
+- A Backlog card moves to another part of its band with a reason: see
+  [moving between Backlog parts](web-ui-board-move.md).
 - `done` lists every done task in a compact scrolling list, each with its time in the column.
 - A card opens the task view on click or Enter, a new tab on a modified click. It shows the short
   key (full key on hover) and its time in the column, the ticket title, then:
@@ -80,7 +82,10 @@ Columns follow configuration order:
   - Markers: `B<n> → you` for your block (`+N` for the others), the agents' block count, `returned`
     with its findings, `draft`, and in shadow mode the dispatcher's column. The agents' block count
     and overflow `+N` have a soft red fill and red block icon with neutral text and border;
-    `B<n> → you` keeps its attention styling.
+    `B<n> → you` keeps its attention styling. In Ready to Merge, when the QA column's latest
+    submission was carried or skipped and not voided, `QA carried` (tooltip: source commit and
+    reason) or a warn `QA skipped` (tooltip: reason) comes first; tested, none or no QA column adds
+    nothing.
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
     on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
     without a turn. Ages stop while the data is stale.

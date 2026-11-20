@@ -292,6 +292,8 @@ describe('scenarios', () => {
       'dispatch-reviewer-status-comment',
       'dispatch-unresolved-thread',
       'dispatch-approval-with-notes',
+      'qa-carried',
+      'qa-skipped',
       'spur-transitions-rapid-recovery',
       'spur-transitions-cursor-expired',
       'spur-transitions-killed-holder',

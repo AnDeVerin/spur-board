@@ -31,7 +31,12 @@ import {
   type ColumnSort,
 } from './model.ts';
 import { Card, open } from './Card.tsx';
+import { SortControl } from './SortControl.tsx';
+import type { BoardData } from './data.ts';
+import { bandProps, useBand, zone, type Band } from './MoveForm.tsx';
 import styles from './Columns.module.css';
+
+type ColumnId = BoardColumn['id'];
 
 /** What the board area shows; a first-load failure shows nothing here, only its banner. */
 export type ColumnsView =
@@ -53,58 +58,6 @@ export interface ColumnSorts {
 export interface ColumnFolds {
   get: (group: string) => boolean;
   set: (group: string, folded: boolean) => void;
-}
-
-const SORT_HINT: Record<ColumnSort, string> = {
-  'entered-asc': 'Longest in the column first',
-  'entered-desc': 'Newest in the column first',
-  'key-asc': 'Lowest key first',
-  'key-desc': 'Highest key first',
-};
-
-/** Two quiet buttons in a column head: the field, T time in the column or K key, and the direction. */
-function SortControl({
-  id,
-  sort,
-  onChange,
-}: {
-  id: string;
-  sort: ColumnSort;
-  onChange: (sort: ColumnSort) => void;
-}) {
-  const byKey = sort.startsWith('key');
-  const asc = sort.endsWith('-asc');
-  const direction = asc ? 'asc' : 'desc';
-  return (
-    <div role="group" aria-label={`Sort ${id}`} className={styles.sort}>
-      <button
-        type="button"
-        className={classes(styles.sortButton, focusRing)}
-        aria-label={byKey ? 'Sorted by key' : 'Sorted by time in the column'}
-        title={
-          byKey
-            ? 'K: sorted by key. Click for T, time in the column.'
-            : 'T: sorted by time in the column. Click for K, key.'
-        }
-        onClick={() => {
-          onChange(byKey ? `entered-${direction}` : `key-${direction}`);
-        }}
-      >
-        {byKey ? 'K' : 'T'}
-      </button>
-      <button
-        type="button"
-        className={classes(styles.sortButton, focusRing)}
-        aria-label={SORT_HINT[sort]}
-        title={`${SORT_HINT[sort]}. Click to reverse.`}
-        onClick={() => {
-          onChange(`${byKey ? 'key' : 'entered'}-${asc ? 'desc' : 'asc'}`);
-        }}
-      >
-        {asc ? '↑' : '↓'}
-      </button>
-    </div>
-  );
 }
 
 /** A done row: a link to `?open=<key>`, dimmed, never removed, when the filter misses. */
@@ -168,7 +121,13 @@ function useSort(id: string, sorts: ColumnSorts) {
   return [sort, change] as const;
 }
 
-const cards = (rows: readonly BoardRow[], shared: Shared) =>
+/** The first line of a zone while a card hovers over it. */
+const dropNote = (band: Band | undefined, part: ColumnId) =>
+  band?.dropping(part) === true && (
+    <p className={styles.dropNote}>Drop to move to {part}. A reason is asked.</p>
+  );
+
+const cards = (rows: readonly BoardRow[], shared: Shared, band?: Band, part?: ColumnId) =>
   rows.map((row) => (
     <Card
       key={row.key}
@@ -178,6 +137,7 @@ const cards = (rows: readonly BoardRow[], shared: Shared) =>
       spurUiOrigin={shared.spurUiOrigin}
       ticketBrowseBase={shared.ticketBrowseBase}
       onOpen={shared.onOpen}
+      {...(band && part !== undefined ? bandProps(row, band, part) : {})}
     />
   ));
 
@@ -286,8 +246,9 @@ function ColumnHead({
 function Column({
   column,
   part = false,
+  band,
   ...shared
-}: { column: BoardColumn; part?: boolean } & Shared) {
+}: { column: BoardColumn; part?: boolean; band?: Band | undefined } & Shared) {
   const [sort, setSort] = useSort(column.id, shared.sorts);
   const { filter, stale, now, onOpen } = shared;
   if (column.rows.length === 0) {
@@ -297,6 +258,7 @@ function Column({
         className={classes(styles.spine, quiet)}
         data-stale={stale ? '' : undefined}
         title={`${column.id}: empty · ${part ? PART_SOURCE : column.executor}`}
+        {...zone(band, column.id)}
       >
         <span className={styles.count}>0</span>
         <Name className={classes(styles.label, styles.spineName)}>{column.id}</Name>
@@ -333,17 +295,24 @@ function Column({
           ))}
         </ul>
       ) : (
-        <div className={styles.body}>{cards(rows, shared)}</div>
+        <div className={styles.body} {...zone(band, column.id)}>
+          {dropNote(band, column.id)}
+          {cards(rows, shared, band, column.id)}
+        </div>
       )}
     </section>
   );
 }
 
 /** One part of a folded group: its head, then its cards or the word empty. */
-function GroupSection({ column, ...shared }: { column: BoardColumn } & Shared) {
+function GroupSection({ column, band, ...shared }: { column: BoardColumn; band: Band } & Shared) {
   const [sort, setSort] = useSort(column.id, shared.sorts);
   return (
-    <section className={styles.groupSection} data-stale={shared.stale ? '' : undefined}>
+    <section
+      className={styles.groupSection}
+      data-stale={shared.stale ? '' : undefined}
+      {...zone(band, column.id)}
+    >
       <ColumnHead
         column={column}
         part
@@ -353,10 +322,13 @@ function GroupSection({ column, ...shared }: { column: BoardColumn } & Shared) {
         spurUiOrigin={shared.spurUiOrigin}
         onHelpOpen={shared.onHelpOpen}
       />
+      {dropNote(band, column.id)}
       {column.rows.length === 0 ? (
         <p className={classes(styles.groupEmpty, quiet)}>empty</p>
       ) : (
-        <div className={styles.groupCards}>{cards(sortRows(column.rows, sort), shared)}</div>
+        <div className={styles.groupCards}>
+          {cards(sortRows(column.rows, sort), shared, band, column.id)}
+        </div>
       )}
     </section>
   );
@@ -371,13 +343,25 @@ function ColumnGroup({
   label,
   parts,
   folds,
+  moveIntent,
+  moveUnavailable,
   ...shared
-}: { id: string; label: string; parts: readonly BoardColumn[]; folds: ColumnFolds } & Shared) {
+}: {
+  id: string;
+  label: string;
+  parts: readonly BoardColumn[];
+  folds: ColumnFolds;
+  moveIntent: BoardData['moveIntent'];
+  moveUnavailable: string | undefined;
+} & Shared) {
   const [folded, setFolded] = useState(() => folds.get(id));
+  const root = useRef<HTMLElement>(null);
   const titleId = useId();
   const total = parts.reduce((sum, part) => sum + part.rows.length, 0);
+  const band = useBand(parts, root, moveIntent, moveUnavailable);
   return (
     <section
+      ref={root}
       className={styles.group}
       aria-labelledby={titleId}
       data-folded={folded ? '' : undefined}
@@ -400,13 +384,13 @@ function ColumnGroup({
       {folded ? (
         <div className={styles.stack}>
           {parts.map((part) => (
-            <GroupSection key={part.id} column={part} {...shared} />
+            <GroupSection key={part.id} column={part} band={band} {...shared} />
           ))}
         </div>
       ) : (
         <div className={styles.parts}>
           {parts.map((part) => (
-            <Column key={part.id} column={part} part {...shared} />
+            <Column key={part.id} column={part} part band={band} {...shared} />
           ))}
         </div>
       )}
@@ -428,6 +412,8 @@ export function Columns({
   spurUiOrigin,
   ticketBrowseBase,
   onOpen,
+  moveIntent,
+  moveUnavailable,
   columns,
   onHelpOpen,
 }: {
@@ -444,6 +430,10 @@ export function Columns({
   ticketBrowseBase: string | null;
   /** A card asks to open its task. */
   onOpen: (key: string) => void;
+  /** Moves a task between the parts of the Backlog band. */
+  moveIntent: BoardData['moveIntent'];
+  /** Why moves cannot be sent now; undefined while they can. */
+  moveUnavailable: string | undefined;
   /** `columns.describe` of the shown project. */
   columns: ColumnsState | undefined;
   /** A column help panel opened. */
@@ -503,6 +493,8 @@ export function Columns({
                 label={item.label}
                 parts={item.parts}
                 folds={folds}
+                moveIntent={moveIntent}
+                moveUnavailable={moveUnavailable}
                 {...shared}
               />
             ) : (

@@ -835,6 +835,30 @@ describe('QA evidence across visits', () => {
     await ctx.tick();
     expect((await ctx.task()).column).toBe('ready-to-merge');
     expect((await ctx.turns()).filter((turn) => turn.column === 'qa')).toHaveLength(1);
+    const row = await ctx.status();
+    expect(row.qaSubmission).toMatchObject({ column: 'qa', basis: 'tested', voided: false });
+    expect(row.submission?.column).toBe('dev');
+  });
+
+  it.each([true, false])('qaSubmission follows an enabled QA column: %s', async (qa) => {
+    const ctx = await started({ qa });
+    await ctx.store.db
+      .insertInto('submission')
+      .values({
+        task_id: (await ctx.task()).id,
+        column: 'qa',
+        epoch: 0,
+        commit_sha: A,
+        author: COORD,
+        submitted_at: ctx.at(),
+        note: null,
+        basis: 'skipped',
+        basis_reason: 'Docs only',
+      })
+      .execute();
+    expect((await ctx.status()).qaSubmission).toEqual(
+      qa ? expect.objectContaining({ column: 'qa', basis: 'skipped', reason: 'Docs only' }) : null,
+    );
   });
 
   it.each([A, B])(
@@ -2864,6 +2888,7 @@ describe('shadow mode', () => {
       shadowColumn: 'todo',
       shadowDiffers: false,
       submission: null,
+      qaSubmission: null,
       state: 'ticket open',
       prCount: 0,
       sessionCount: 0,
@@ -2898,6 +2923,7 @@ describe('shadow mode', () => {
         pending: false,
         voided: false,
       },
+      qaSubmission: null,
       state: 'ticket open; PRs 1 open; sessions 1 working',
       prCount: 1,
       sessionCount: 1,
@@ -5042,6 +5068,7 @@ describe('mode switch', () => {
       'column',
       'membership',
       'submission',
+      'qaSubmission',
       'columnEnteredAt',
       'state',
       'prCount',
@@ -5054,6 +5081,7 @@ describe('mode switch', () => {
     ]);
     expect(row).toEqual({
       submission: null,
+      qaSubmission: null,
       key: KEY,
       project: 'proj',
       column: 'dev',

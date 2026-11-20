@@ -31,14 +31,8 @@ import { columnsDescribeOutputSchema } from './columns-schema.ts';
 import { BLOCK_TYPES, TOKEN_STATUSES } from '../enums.ts';
 import { blockIdSchema, commentIdSchema, taskKeyInputSchema, taskKeySchema } from '../ids.ts';
 import { defineOperation } from './define.ts';
-import {
-  SCHEMA_ROLES,
-  blockViewSchema,
-  commentSchema,
-  schemaGetOutputSchema,
-  taskViewSchema,
-  taskWhySchema,
-} from './schemas.ts';
+import { SCHEMA_ROLES, schemaGetOutputSchema } from './schema-get-schema.ts';
+import { blockViewSchema, commentSchema, taskViewSchema, taskWhySchema } from './schemas.ts';
 import { type turnHandedSchema, turnViewSchema } from './turn-schemas.ts';
 
 /** Longest free text an input takes: comments, questions, answers and reasons. */

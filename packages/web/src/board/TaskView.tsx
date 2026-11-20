@@ -15,6 +15,7 @@ import type { BoardConfig, BoardData, BoardTask, HistoryState, TaskState } from 
 import { TaskBlock } from './TaskBlock.tsx';
 import { TaskWrite } from './TaskWrite.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
+import { TaskMove } from './MoveForm.tsx';
 import { TaskTurn } from './TaskTurn.tsx';
 import { TaskSection, TaskSectionsProvider, type TaskSections } from './TaskSection.tsx';
 import { shortKey, type BoardColumnConfig } from './model.ts';
@@ -71,6 +72,8 @@ export function TaskView({
   returnTurnIntent,
   drafts,
   refreshTask,
+  moveIntent,
+  moveUnavailable,
   sections,
 }: {
   task: TaskState;
@@ -86,6 +89,9 @@ export function TaskView({
   returnTurnIntent: BoardData['returnTurnIntent'];
   drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
+  moveIntent: BoardData['moveIntent'];
+  /** Why moves cannot be sent now; undefined while they can. */
+  moveUnavailable: string | undefined;
   sections: TaskSections;
   title: TaskTitle;
   row: BoardRow | undefined;
@@ -136,6 +142,13 @@ export function TaskView({
   const failed = task.state === 'failed' || task.retrying;
   const chips =
     value === undefined ? [] : linkChips(value.links, key, spurUiOrigin, ticketBrowseBase, row);
+  // Another Backlog part to move an active Backlog task to; Todo-group columns are adjacent.
+  const parts = columns.filter(({ group }) => group === 'todo').map(({ id }) => id);
+  const from = value?.task.column;
+  const moves =
+    from !== undefined && value?.task.membership !== 'archived' && parts.includes(from)
+      ? parts.filter((part) => part !== from)
+      : [];
   return (
     <TaskSectionsProvider value={sections}>
       <Modal
@@ -206,6 +219,16 @@ export function TaskView({
                           )}
                         </div>
                       )}
+                  {value !== undefined && from !== undefined && moves.length > 0 && (
+                    <TaskMove
+                      taskKey={value.task.key}
+                      name={shortKey(key)}
+                      from={from}
+                      parts={moves}
+                      moveIntent={moveIntent}
+                      unavailable={moveUnavailable}
+                    />
+                  )}
                 </div>
                 {value !== undefined && (
                   <TaskSection id="why" title="Why it is here" summary={whySummary(value)}>

@@ -585,6 +585,39 @@ describe('task.submit', () => {
     },
   );
 
+  it.each(['tested', 'carried', 'skipped'] as const)(
+    'exposes the QA submit with basis %s as qaSubmission past a later Dev row',
+    async (basis) => {
+      const ctx = await setup({ column: 'qa' });
+      await ctx.openTurn();
+      await ctx.ack(QA_1);
+      if (basis === 'carried') await ctx.submitted('dev', A, WORKER_1);
+      ctx.commits(B);
+      const reason = basis === 'tested' ? null : `QA ${basis}`;
+      await ctx.submit(QA_1, B, 'qa-basis', 'T1', {
+        basis,
+        ...(basis === 'carried' ? { from: A } : {}),
+        ...(reason === null ? {} : { reason }),
+      });
+      const expected = {
+        column: 'qa',
+        sha: B,
+        at: AT,
+        basis,
+        from: basis === 'carried' ? A : null,
+        testedOrigin: basis === 'carried' ? A : null,
+        reason,
+        pending: false,
+        voided: false,
+      };
+      const row = async () => (await ctx.status()).tasks.find((task) => task.key === 'o/r#9');
+      expect((await row())?.qaSubmission).toEqual(expected);
+      await ctx.submitted('dev', B, WORKER_1);
+      expect((await row())?.submission?.column).toBe('dev');
+      expect((await row())?.qaSubmission).toEqual(expected);
+    },
+  );
+
   it('resolves carry chains to a legacy tested row', async () => {
     const ctx = await taken();
     await ctx.submitted('dev', A, WORKER_1);

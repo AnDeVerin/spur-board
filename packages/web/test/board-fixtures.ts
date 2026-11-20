@@ -14,14 +14,15 @@ type OpId =
   | 'columns.describe'
   | 'inbox.ack'
   | 'task.submit'
-  | 'task.return';
+  | 'task.return'
+  | 'task.move';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
 export const failure = () => Promise.resolve(Response.json({ broken: true }, { status: 500 }));
 export const never = () => new Promise<Response>(() => undefined);
-/** A daemon problem answer with its stable code. */
-export const problem = (code: string, status = 404) =>
+/** A daemon problem answer with its stable code and the hint the daemon sent. */
+export const problem = (code: string, status = 404, hint = 'hint') =>
   Promise.resolve(
     Response.json(
       {
@@ -31,7 +32,7 @@ export const problem = (code: string, status = 404) =>
         code,
         requestId: 'r1',
         message: code,
-        hint: 'hint',
+        hint,
         docs: `docs/errors.md#${code}`,
         context: {},
         recovery: { action: 'Check', sideEffects: 'none', maxRetries: 0, retryTiming: 'Never' },
@@ -392,6 +393,16 @@ export function daemon(tasks: unknown[] = ROWS) {
     'block.followup': () =>
       Promise.resolve(envelope({ comment: comment({ id: 'C9', block: 'B12' }) })),
     'task.history': () => Promise.resolve(envelope(taskHistory())),
+    'task.move': (input) =>
+      Promise.resolve(
+        envelope({
+          task: { ...taskGet().task, key: input['task'], column: input['column'] },
+          from: 'todo',
+          to: input['column'],
+          column: input['column'],
+          settled: [],
+        }),
+      ),
     'columns.describe': () => Promise.resolve(envelope({ projects: [] })),
     'inbox.ack': (input) =>
       Promise.resolve(

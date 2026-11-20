@@ -5,6 +5,7 @@ import {
   blockMarkers,
   markers,
   prStatus,
+  qaMarker,
   quickLinks,
   returnedMarker,
   sessionChip,
@@ -393,5 +394,77 @@ describe('task card', () => {
     expect('crew-ada-0123456789…').toHaveLength(20);
     expect(sessionChip(card(), null)).toBeNull();
     expect(sessionChip(card(), SPUR)).toBeNull();
+  });
+
+  describe('QA marker', () => {
+    const SHA = 'a'.repeat(40);
+    const qa = (extra: Record<string, unknown> = {}) => ({
+      column: 'qa',
+      sha: 'b'.repeat(40),
+      at: '2026-11-15T14:00:00.000Z',
+      basis: 'tested',
+      from: null,
+      testedOrigin: null,
+      reason: null,
+      pending: false,
+      voided: false,
+      ...extra,
+    });
+    const ready = (extra: Record<string, unknown>, column = 'ready-to-merge') =>
+      typed(row('ex/repo#7', column, extra));
+    const carried = qa({ basis: 'carried', from: SHA, testedOrigin: SHA, reason: 'Same tree' });
+    const skipped = qa({ basis: 'skipped', reason: 'Docs only' });
+
+    it.each([
+      ['tested', qa(), null],
+      ['carried', carried, ['default', 'QA carried', `Verdict carried from ${SHA}: Same tree`]],
+      ['skipped', skipped, ['warn', 'QA skipped', 'QA skipped: Docs only']],
+    ] as const)('in Ready to Merge, %s gives %j', (_basis, qaSubmission, expected) => {
+      const marker = qaMarker(ready({ qaSubmission }));
+      expect(marker === null ? null : [marker.tone, marker.text, marker.title]).toEqual(expected);
+      expect(markers(ready({ qaSubmission }), null)[0] ?? null).toEqual(marker);
+    });
+
+    it.each([
+      [qa({ basis: 'carried', from: SHA, reason: 'R' }), `Verdict carried from ${SHA}: R`],
+      [qa({ basis: 'carried', from: SHA }), `Verdict carried from ${SHA}`],
+      [qa({ basis: 'carried', reason: 'R' }), 'Verdict carried: R'],
+      [qa({ basis: 'carried' }), 'Verdict carried'],
+      [qa({ basis: 'skipped', reason: 'R' }), 'QA skipped: R'],
+      [qa({ basis: 'skipped' }), 'QA skipped'],
+    ])('tooltip %#: %s', (qaSubmission, title) => {
+      expect(qaMarker(ready({ qaSubmission }))?.title).toBe(title);
+    });
+
+    it('shows pending rows by their basis and voided rows not at all', () => {
+      for (const confirmed of [carried, skipped]) {
+        expect(qaMarker(ready({ qaSubmission: { ...confirmed, pending: true } }))).toEqual(
+          qaMarker(ready({ qaSubmission: confirmed })),
+        );
+        expect(qaMarker(ready({ qaSubmission: confirmed }))).not.toBeNull();
+        expect(qaMarker(ready({ qaSubmission: { ...confirmed, voided: true } }))).toBeNull();
+      }
+    });
+
+    it('shows nothing without a QA submission, outside Ready to Merge, or for another column', () => {
+      expect(qaMarker(ready({}))).toBeNull();
+      expect(qaMarker(ready({ qaSubmission: null }))).toBeNull();
+      expect(
+        qaMarker(ready({ submission: { ...skipped, column: 'review' }, qaSubmission: null })),
+      ).toBeNull();
+      for (const column of ['qa', 'dev'])
+        expect(qaMarker(ready({ qaSubmission: carried }, column))).toBeNull();
+    });
+
+    it('draws the QA chip before the blocks', () => {
+      const texts = markers(
+        ready({
+          qaSubmission: skipped,
+          blocks: [{ id: 'B5', addressee: 'operator', session: null }],
+        }),
+        null,
+      ).map(({ text }) => text);
+      expect(texts).toEqual(['QA skipped', 'B5 → you']);
+    });
   });
 });

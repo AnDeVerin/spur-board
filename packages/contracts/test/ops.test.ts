@@ -16,7 +16,8 @@ import {
 import { browserOperations } from '../src/browser.ts';
 import { inboxEntrySchema, inboxHandledSchema } from '../src/ops/inbox-schemas.ts';
 import { defineOperation } from '../src/ops/define.ts';
-import { SCHEMA_ROLES, linkViewSchema, statusTaskSchema } from '../src/ops/schemas.ts';
+import { SCHEMA_ROLES } from '../src/ops/schema-get-schema.ts';
+import { linkViewSchema, statusTaskSchema } from '../src/ops/schemas.ts';
 import { catalogSnapshotBody, catalogVersion } from '../src/ops/snapshot.ts';
 import { type JsonObject, isObject, walk } from './json-schema-walk.ts';
 
@@ -940,10 +941,11 @@ describe('snapshot', () => {
     // extends the task.history event kinds. #733 adds the review-rule gate reasons and condition
     // to task.get --why. The web Turn section then set web on inbox.ack, task.submit and
     // task.return; their schemas, grants and errors are unchanged. #738 adds the mirror move kind
-    // and reason, sources[].failure and the github-project service texts. #753 adds the optional
-    // approvals list to status.get prSummary and task.get PR links.
+    // and reason, sources[].failure and the github-project service texts. #755 adds
+    // tasks[].qaSubmission to status.get. #753 adds the optional approvals list to status.get
+    // prSummary and task.get PR links.
     expect(await catalogVersion(baseline)).toBe(
-      '34429ea415dd9966c0fd50bfec185b114cf3de701337770b4755c725e4da1e3b',
+      '0a9694e3810ea0338feea329f6fc1086d2807ed70183a4c80c2736ffa880d5f1',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

@@ -20,7 +20,7 @@ import { approvalViews } from './approval-watch.ts';
 import { projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
-import { latestSubmissions } from './submissions.ts';
+import { latestQaSubmissions, latestSubmissions } from './submissions.ts';
 import { readOutageEnds, services } from './status-services.ts';
 import {
   columnGroupViews,
@@ -156,6 +156,7 @@ export async function getStatus(
   orderTodoGroupRows(rows, entries, projects);
   const tasks = [];
   const submissions = await latestSubmissions(store.db, rows);
+  const qaSubmissions = await latestQaSubmissions(store.db, rows, { projects });
   for (const task of rows) {
     if (!projectIds.has(task.project)) continue;
     const ticket = await store.db
@@ -239,6 +240,7 @@ export async function getStatus(
     tasks.push({
       key: task.key,
       submission: submissions.get(task.id) ?? null,
+      qaSubmission: qaSubmissions.get(task.id) ?? null,
       project: task.project,
       column: task.column,
       columnEnteredAt: columnEntries.get(task.id) ?? task.created_at,

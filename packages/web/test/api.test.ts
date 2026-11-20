@@ -123,7 +123,11 @@ describe('browser API', () => {
       {},
     ).catch((error: unknown) => error);
     expect(thrown).toBeInstanceOf(ProblemError);
-    expect(thrown).toMatchObject({ code: 'forbidden', message: 'Access denied' });
+    expect(thrown).toMatchObject({
+      code: 'forbidden',
+      message: 'Access denied',
+      hint: 'Check identity',
+    });
     await expect(
       createApi(() =>
         Promise.resolve(Response.json({ ...problem, code: 'invented' }, { status: 403 })),

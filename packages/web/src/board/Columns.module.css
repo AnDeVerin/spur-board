@@ -312,3 +312,23 @@
   font-weight: var(--weight-bold);
   color: var(--color-text-primary);
 }
+
+/* A part that takes the card in the hand from another part of its band. Screen CSS draws no
+   outline (only the ds focus ring is one), so a dashed border marks it; the negative margin keeps
+   the content and the next part in place. The spine has its dashed border already. */
+.body[data-drop='part'],
+.groupSection[data-drop='part'] {
+  margin: calc(-1 * var(--size-hairline));
+  border: var(--size-hairline) dashed var(--color-status-working);
+  background: var(--color-fill-working);
+}
+.spine[data-drop='part'] {
+  border-color: var(--color-status-working);
+  background: var(--color-fill-working);
+}
+.dropNote {
+  flex: none;
+  margin: 0;
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
