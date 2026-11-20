@@ -62,10 +62,8 @@ const APP_FILES = [
   'icons/icon-512.png',
   'icons/icon-512-maskable.png',
 ] as const;
-const APP_FILE =
-  'manifest[.]webmanifest|favicon[.]svg|favicon-32[.]png|apple-touch-icon[.]png|icons/icon-(?:192|512|512-maskable)[.]png';
 const WEB_FILE = new RegExp(
-  `^(?:index[.]html|${APP_FILE}|assets/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}[.](?:js|css|woff2))$`,
+  `^(?:index[.]html|${APP_FILES.join('|').replaceAll('.', '[.]')}|assets/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}[.](?:js|css|woff2))$`,
 );
 
 /** The icon `src` values of a web app manifest; throws on invalid JSON or no `icons` array. */

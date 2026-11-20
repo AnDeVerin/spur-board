@@ -14,7 +14,7 @@ interface Colour {
   readonly channels: readonly [number, number, number];
 }
 
-export interface Tokens {
+interface Tokens {
   readonly dark: { readonly bgBase: Colour; readonly textPrimary: Colour };
   readonly light: { readonly bgBase: Colour };
   readonly strokeIcon: number;
