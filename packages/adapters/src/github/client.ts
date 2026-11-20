@@ -173,6 +173,21 @@ export function pageQuery(
         : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? REVIEW_FIELDS : connection === 'reviewThreads' ? THREAD_FIELDS : REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }`;
   return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }
+// A tree's top-level entries; the approval watch compares a commit's with its first parent's.
+// `mode` shows a change that keeps the blob, such as `chmod +x` on a root script.
+const TREE_FIELDS = 'tree { entries { name type mode oid } }';
+// The PR's last 100 commits with their parents and root trees (`approvalWatch.ts`). The list
+// leaves out base-branch history, so a merge from the base names a parent outside it, whose
+// tree is selected inline here. Every parent is selected, so an octopus merge loses none. The
+// list depends on the base branch, so the read also names it.
+export function commitsQuery(): string {
+  return `query PrCommits($owner: String!, $repo: String!, $number: Int!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { baseRefName commits(last: 100) { totalCount pageInfo { hasPreviousPage } nodes { commit { oid ${TREE_FIELDS} parents(first: 100) { totalCount nodes { oid ${TREE_FIELDS} } } } } } } } }`;
+}
+// The base branch of each PR; the approval watch compares it with the base its commits read
+// named, since a retarget changes the commits list without changing the head.
+export function basesQuery(numbers: readonly number[]): string {
+  return `query PrBases($owner: String!, $repo: String!) { rateLimit { cost limit remaining resetAt } ${aliases(numbers, () => 'baseRefName')} }`;
+}
 
 /**
  * The failure that GraphQL `errors` mean for the whole request, in rule order: a rate limit is
@@ -226,6 +241,7 @@ export class GithubClient {
     query: string,
     variables: Record<string, string | number>,
     signal: AbortSignal,
+    timeoutMs?: number,
   ): Promise<ResponseData> {
     const { response, body } = await withTimeout(
       signal,
@@ -247,11 +263,20 @@ export class GithubClient {
           if (timed.aborted) throw cause;
           throw new AdapterError('transient', 'GitHub request failed', { cause });
         }
-        if (!response.ok)
+        if (!response.ok) {
+          // A body cut off after the headers is a network failure like the fetch itself.
+          let text: string;
+          try {
+            text = await response.text();
+          } catch (cause) {
+            if (timed.aborted) throw cause;
+            throw new AdapterError('transient', 'GitHub request failed', { cause });
+          }
           throw classifyHttpFailure(
-            { status: response.status, headers: response.headers, body: await response.text() },
+            { status: response.status, headers: response.headers, body: text },
             this.now(),
           );
+        }
         let body: unknown;
         try {
           body = await response.json();
@@ -260,6 +285,7 @@ export class GithubClient {
         }
         return { response, body };
       },
+      timeoutMs,
     );
     // Capture a valid reported cost before classifying GraphQL errors or parsing PR facts.
     const cost = z

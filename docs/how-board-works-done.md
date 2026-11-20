@@ -37,9 +37,14 @@ of these holds:
   was seen open at or past the judged PR's last update plus the tracker interval;
 - a linked PR closed unmerged at or after the newest merge opened its closed-without-merge block,
   once complete PR polls follow the close and the ticket, in the tracker filter or manually
-  included, is seen not done one tracker interval after the newest merge.
+  included, is seen not done one tracker interval after the newest merge. After a merge, that
+  block itself waits for the same sighting, so a ticket the merge edits and closes within the
+  interval raises nothing.
 
-A merged PR linked as a conflict never counts. The alert text says
+A merged PR linked as a conflict counts here like an active one, unless an active link of the
+task merged too: then only the active merges count for the ticket change, as for the dispatcher.
+The newest merge of the closed-without-merge block and its interval is always that of any link
+kind, so a conflict merge after an active one supersedes the closes before it. The alert text says
 `PR <repo>#<n> merged, ticket reopened` after such a ticket change (not when no merged PR has a
 stored merge time), else `no PR`.
 

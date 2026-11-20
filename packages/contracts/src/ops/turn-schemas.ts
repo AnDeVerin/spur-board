@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import { ADDRESSEE_ROLES, COLUMN_IDS, SUBMISSION_BASES, TURN_OUTCOMES } from '../enums.ts';
 import {
+  APPROVAL_NOT_COUNTED,
   FEEDBACK_KINDS,
   prFactsSchema,
   commitShaSchema,
@@ -180,6 +181,38 @@ export const latestSubmissionSchema = submissionViewSchema
 
 const summaryCount = (what: string) => z.int().min(0).describe(what);
 
+const topLevelEntries = (what: string) =>
+  z
+    .array(z.string().describe('A top-level entry: name/ for a directory, a bare name for a file.'))
+    .optional()
+    .describe(what);
+
+/** One latest approval of an open pull request and what changed after it. */
+export const approvalViewSchema = z
+  .strictObject({
+    author: prFactsSchema.shape.reviews.element.shape.reviewer,
+    sha: commitShaSchema.describe('Commit the approval was given on.'),
+    onHead: z.boolean().describe('Whether the approval was given on the current head.'),
+    commitsAfter: summaryCount(
+      'Single-parent commits after the approval up to the head; merges, base-branch merges included, are left out. Absent when not counted or not read yet.',
+    ).optional(),
+    changedAfter: topLevelEntries(
+      'Every top-level entry those commits changed, sorted. Absent when not counted or not read yet.',
+    ),
+    watchedAfter: topLevelEntries(
+      "The part of changedAfter that matches the project's approvalWatch; all of changedAfter without the key. Absent when not counted or not read yet.",
+    ),
+    notCounted: z
+      .enum(APPROVAL_NOT_COUNTED)
+      .optional()
+      .describe(
+        'Why the commits were not counted: history_rewritten (the approved commit is not in the head history), rate_limit (waiting for GitHub budget) or pr_too_large (more than 100 commits). Absent when counted or not read yet.',
+      ),
+  })
+  .describe(
+    'A latest approval. commitsAfter, changedAfter and watchedAfter come together; notCounted replaces them; none of them means not read yet. A hint, never a gate.',
+  );
+
 export const prSummarySchema = z
   .strictObject({
     repo: prFactsSchema.shape.repo,
@@ -213,5 +246,11 @@ export const prSummarySchema = z
     unconfirmed: z
       .boolean()
       .describe('Observation is stale or its supporting source is blind or missing.'),
+    approvals: z
+      .array(approvalViewSchema)
+      .optional()
+      .describe(
+        'Latest approvals in review order with what changed after each; present only for an open pull request with at least one approval.',
+      ),
   })
   .describe('Compact observed pull request facts.');

@@ -17,6 +17,7 @@ import {
 import type { statusOutputSchema } from '@spur-board/contracts/browser';
 import type { z } from 'zod';
 import type { Store } from '../store/store.ts';
+import type { ApprovalView } from './approval-watch.ts';
 import { eventActor, parseDefaultBranch, projectForSource } from './board-utils.ts';
 
 /** The column groups with their built-in columns in canonical order, the same for every project. */
@@ -27,8 +28,13 @@ export function columnGroupViews() {
   }));
 }
 
-/** Factual PR rollup; the caller owns snapshot freshness and all reads. */
-export function summarizePr(fact: PrFacts, factAt: string, unconfirmed: boolean) {
+/** Factual PR rollup; the caller owns snapshot freshness and all reads, `approvals` included. */
+export function summarizePr(
+  fact: PrFacts,
+  factAt: string,
+  unconfirmed: boolean,
+  approvals: ApprovalView[],
+) {
   const checks = fact.requiredChecks.length > 0 ? fact.requiredChecks : fact.checks;
   return {
     repo: fact.repo,
@@ -59,6 +65,7 @@ export function summarizePr(fact: PrFacts, factAt: string, unconfirmed: boolean)
     draft: fact.draft,
     factAt,
     unconfirmed,
+    ...(approvals.length === 0 ? {} : { approvals }),
   };
 }
 

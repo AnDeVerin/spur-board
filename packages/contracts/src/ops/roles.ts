@@ -1,5 +1,5 @@
 import { type Grant, type Operation } from './define.ts';
-import { SCHEMA_ROLES } from './schemas.ts';
+import { SCHEMA_ROLES } from './schema-get-schema.ts';
 
 export type SchemaRole = (typeof SCHEMA_ROLES)[number];
 

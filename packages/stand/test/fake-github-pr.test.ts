@@ -3,6 +3,8 @@ import { sourceCursorSchema, type PrFacts } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as client from '../../adapters/src/github/client.ts';
 import {
+  basesQuery,
+  commitsQuery,
   detailQuery,
   discoveryQuery,
   indexQuery,
@@ -75,7 +77,23 @@ describe('adapter queries', () => {
       Object.keys(client)
         .filter((name) => name.endsWith('Query'))
         .sort(),
-    ).toEqual(['detailQuery', 'discoveryQuery', 'indexQuery', 'pageQuery', 'stateQuery']);
+    ).toEqual([
+      'basesQuery',
+      'commitsQuery',
+      'detailQuery',
+      'discoveryQuery',
+      'indexQuery',
+      'pageQuery',
+      'stateQuery',
+    ]);
+  });
+
+  it('knows PrCommits', () => {
+    expect(isKnownShape(commitsQuery())).toBe(true);
+  });
+
+  it('knows PrBases', () => {
+    for (const numbers of numberSets) expect(isKnownShape(basesQuery(numbers))).toBe(true);
   });
 
   it.each(booleans)('knows PrBatch for bootstrap %s', (bootstrap) => {
@@ -875,6 +893,140 @@ describe('default branch', () => {
       expect(legacy).not.toContain('defaultBranchRef');
       expect(isKnownShape(legacy.replace('cost limit remaining', 'remaining'))).toBe(true);
     }
+  });
+});
+
+describe('commits', () => {
+  const C1 = '1'.repeat(40);
+  const C2 = '2'.repeat(40);
+  const C3 = '3'.repeat(40);
+  const BASE = 'b'.repeat(40);
+  const seeded = {
+    headRefOid: C2,
+    commits: [
+      { oid: C1, parents: [BASE], changed: ['back/'] },
+      { oid: C2, parents: [C1], changed: ['back/', 'package.json'] },
+    ],
+    reviews: [
+      {
+        author: { __typename: 'User', login: 'alice' },
+        state: 'APPROVED',
+        commit: { oid: C1 },
+        submittedAt: AT,
+      },
+    ],
+  };
+  type Entry = { name: string; type: string; mode: number; oid: string };
+  type Node = {
+    commit: {
+      oid: string;
+      tree: { entries: Entry[] };
+      parents: { totalCount: number; nodes: { oid: string; tree: { entries: Entry[] } }[] };
+    };
+  };
+  async function commitsOf(number = 1) {
+    const response = await postQuery(fakeFetch(fakes), commitsQuery(), {
+      owner: 'stand-org',
+      repo: 'board',
+      number,
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      data: {
+        repository: {
+          pullRequest: {
+            commits: { totalCount: number; pageInfo: { hasPreviousPage: boolean }; nodes: Node[] };
+          };
+        };
+      };
+    };
+    return body.data.repository.pullRequest.commits;
+  }
+  const differing = (a: Entry[], b: Entry[]) =>
+    a
+      .filter((entry) => b.find((other) => other.name === entry.name)?.oid !== entry.oid)
+      .map((entry) => (entry.type === 'tree' ? `${entry.name}/` : entry.name))
+      .sort();
+
+  it('answers PrCommits from seeded commits', async () => {
+    created(1, seeded);
+    const commits = await commitsOf();
+    expect(commits.totalCount).toBe(2);
+    expect(commits.pageInfo.hasPreviousPage).toBe(false);
+    const [first, second] = commits.nodes;
+    expect(first?.commit.oid).toBe(C1);
+    expect(first?.commit.parents).toMatchObject({ totalCount: 1, nodes: [{ oid: BASE }] });
+    // Git's modes as GraphQL numbers: 040000 for a tree, 100644 for a file.
+    expect(first?.commit.tree.entries.map(({ name, type, mode }) => [name, type, mode])).toEqual(
+      expect.arrayContaining([
+        ['README.md', 'blob', 0o100644],
+        ['back', 'tree', 0o40000],
+        ['package.json', 'blob', 0o100644],
+      ]),
+    );
+    // Each commit's tree differs from its first parent's exactly at the entries it lists.
+    const base = first?.commit.parents.nodes[0]?.tree.entries ?? [];
+    expect(differing(first?.commit.tree.entries ?? [], base)).toEqual(['back/']);
+    const parent = second?.commit.parents.nodes[0];
+    expect(parent?.oid).toBe(C1);
+    expect(differing(second?.commit.tree.entries ?? [], parent?.tree.entries ?? [])).toEqual([
+      'back/',
+      'package.json',
+    ]);
+    // A push appends a commit on the old head that changes nothing.
+    expect(pr(fakes, 1, 'push', { sha: C3 }).status).toBe(200);
+    const pushed = await commitsOf();
+    expect(pushed.totalCount).toBe(3);
+    const last = pushed.nodes.at(-1)?.commit;
+    expect(last?.oid).toBe(C3);
+    expect(last?.parents.nodes.map(({ oid }) => oid)).toEqual([C2]);
+    expect(differing(last?.tree.entries ?? [], last?.parents.nodes[0]?.tree.entries ?? [])).toEqual(
+      [],
+    );
+  });
+
+  it('defaults to one commit at the head and refuses seeded commits that end elsewhere', async () => {
+    created(2, { headRefOid: C3 });
+    const commits = await commitsOf(2);
+    expect(commits.nodes.map(({ commit }) => commit.oid)).toEqual([C3]);
+    expect(commits.nodes[0]?.commit.parents.totalCount).toBe(1);
+    const wrong = pr(fakes, 3, 'create', { seed: { ...seeded, headRefOid: C3 } });
+    expect(wrong.status).toBe(400);
+  });
+
+  it('answers PrBases with each PR base branch, main unless seeded', async () => {
+    created(1, seeded);
+    created(2, { baseRefName: 'release' });
+    const response = await postQuery(fakeFetch(fakes), basesQuery([1, 2]), {
+      owner: 'stand-org',
+      repo: 'board',
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { data: Record<string, unknown> };
+    expect(body.data['pr0']).toEqual({ pullRequest: { baseRefName: 'main' } });
+    expect(body.data['pr1']).toEqual({ pullRequest: { baseRefName: 'release' } });
+  });
+
+  it('the real adapter reads approvalPairs for a requested PR from the fake', async () => {
+    created(1, seeded);
+    const ref = { kind: 'pr' as const, repo: BOARD, number: 1 };
+    const context = pollContext({ observe: { prs: [ref], tickets: [], sessions: [] } });
+    const batch = await pollRepo(fakes, BOARD, context);
+    expect(batch.complete).toBe(true);
+    expect(batch.items[0]).toMatchObject({
+      approvalPairs: [
+        { approvedSha: C1, headSha: C2, commitsAfter: 1, changed: ['back/', 'package.json'] },
+      ],
+    });
+    expect(pr(fakes, 1, 'approve').status).toBe(200);
+    expect(pr(fakes, 1, 'push', { sha: C3 }).status).toBe(200);
+    const pushed = await pollRepo(fakes, BOARD, context);
+    expect(pushed.items[0]).toMatchObject({
+      approvalPairs: [
+        { approvedSha: C1, headSha: C3, commitsAfter: 2, changed: ['back/', 'package.json'] },
+        { approvedSha: C2, headSha: C3, commitsAfter: 1, changed: [] },
+      ],
+    });
   });
 });
 

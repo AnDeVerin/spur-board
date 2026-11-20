@@ -2710,6 +2710,18 @@ it('summarizes each observed PR without gates and exposes effective navigation b
     })
     .execute();
   const result = await read();
+  // The older approval has no stored pair yet: it shows no counts (not read yet).
+  const approvals = [
+    {
+      author: 'approved',
+      sha: head,
+      onHead: true,
+      commitsAfter: 0,
+      changedAfter: [],
+      watchedAfter: [],
+    },
+    { author: 'old', sha: oldHead, onHead: false },
+  ];
   expect(result.tasks[0]?.prSummary).toEqual([
     {
       repo: 'o/first',
@@ -2721,6 +2733,7 @@ it('summarizes each observed PR without gates and exposes effective navigation b
       draft: true,
       factAt: at,
       unconfirmed: false,
+      approvals,
     },
     {
       repo: 'o/first',
@@ -2732,6 +2745,7 @@ it('summarizes each observed PR without gates and exposes effective navigation b
       draft: true,
       factAt: at,
       unconfirmed: false,
+      approvals,
     },
   ]);
   expect(result.tasks[0]?.links).toEqual({

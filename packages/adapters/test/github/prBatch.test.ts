@@ -9,9 +9,12 @@ import {
   prFactsSchema,
   sourceCursorSchema,
   type Adapter,
+  type Batch,
+  type PollContext,
 } from '@spur-board/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  GithubClient,
   detailQuery,
   discoveryQuery,
   indexQuery,
@@ -2496,12 +2499,19 @@ describe('PR feedback', () => {
 
 const prNumbers = (query: string): number[] =>
   [...query.matchAll(/pullRequest\(number: (\d+)\)/g)].map((match) => Number(match[1]));
-type Operation = 'PrBatch' | 'PrIndex' | 'PrDetails' | 'PrPage' | 'DiscoveryPage';
+type Operation =
+  'PrBatch' | 'PrIndex' | 'PrDetails' | 'PrPage' | 'DiscoveryPage' | 'PrCommits' | 'PrBases';
 /** A fetch that answers each request by its operation name and the PR numbers it names. */
-function byOperation(answer: (operation: Operation, numbers: number[]) => Response) {
+function byOperation(
+  answer: (
+    operation: Operation,
+    numbers: number[],
+    init: RequestInit | undefined,
+  ) => Response | Promise<Response>,
+) {
   return vi.fn<typeof fetch>((_input, init) => {
     const query = queryOf(init);
-    return Promise.resolve(answer(operationOf(query) as Operation, prNumbers(query)));
+    return Promise.resolve(answer(operationOf(query) as Operation, prNumbers(query), init));
   });
 }
 /** The PR numbers of each request of one operation, in the order they were sent. */
@@ -3503,17 +3513,18 @@ describe('persisted terminal PR policy', () => {
   });
 });
 
+const fixtures = (dir: string) => {
+  const url = new URL(`fixtures/${dir}/`, import.meta.url);
+  return readdirSync(url)
+    .filter((name) => name.endsWith('.json'))
+    .sort()
+    .map((name) => ({
+      name: name.replace(/\.json$/, ''),
+      value: JSON.parse(readFileSync(new URL(name, url), 'utf8')) as Record<string, unknown>,
+    }));
+};
+
 describe('approvalRule github-rules', () => {
-  const fixtures = (dir: string) => {
-    const url = new URL(`fixtures/${dir}/`, import.meta.url);
-    return readdirSync(url)
-      .filter((name) => name.endsWith('.json'))
-      .sort()
-      .map((name) => ({
-        name: name.replace(/\.json$/, ''),
-        value: JSON.parse(readFileSync(new URL(name, url), 'utf8')) as Record<string, unknown>,
-      }));
-  };
   const issuesRule: KeyRule = { type: 'prefixes', prefixes: [] };
   const ruled = (approvalRule?: 'any-approval' | 'github-rules') =>
     configSchema.parse({
@@ -3827,5 +3838,589 @@ describe('approvalRule github-rules', () => {
     const third = await source.poll(context());
     expect(sentQueries(fetcher, 'PrDetails')).toHaveLength(2);
     expect(third.items[0]).toMatchObject({ reviewRule: { reviewDecision: 'approved' } });
+  });
+});
+
+describe('approval watch', () => {
+  const cursor = '2026-01-01T00:00:00.000Z';
+  const MINUTE = 60_000;
+  type Fixture = { detail: Record<string, unknown>; commits?: unknown; pairs: unknown[] | null };
+  const watched = fixtures('approval-watch');
+  const fixture = (name: string): Fixture => {
+    const entry = watched.find((candidate) => candidate.name === name);
+    if (entry === undefined) throw new Error(`Missing fixture ${name}`);
+    return structuredClone(entry.value) as Fixture;
+  };
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+  /** The index alias of PR `number` on a fixture's detail, unchanged while the detail is. */
+  const indexOf = (detail: Record<string, unknown>, number: number) => {
+    const reviews = (detail['reviews'] as { nodes: { id: string }[] }).nodes;
+    return indexPr(number, {
+      updatedAt: detail['updatedAt'],
+      state: detail['state'],
+      headRefOid: detail['headRefOid'],
+      statusCheckRollup: null,
+      reviews: {
+        totalCount: reviews.length,
+        nodes: reviews.map(({ id }) => ({ id, state: 'APPROVED', lastEditedAt: null })),
+      },
+      reviewThreads: { totalCount: 0, nodes: [] },
+      reviewRequests: { totalCount: 0, nodes: [] },
+    });
+  };
+  /**
+   * One source on fixture `name`, polled again and again: each answer can change between polls,
+   * and `sent(operation)` counts the requests of the last poll.
+   */
+  function scenario(name: string) {
+    let t = Date.parse('2026-01-02T00:00:00.000Z');
+    const loaded = fixture(name);
+    const state = {
+      detail: loaded.detail,
+      // The commits answer; `init` carries the request signal for an answer that hangs.
+      commits: (() => json(loaded.commits)) as (init?: RequestInit) => Response | Promise<Response>,
+      detailStatus: 200,
+      remaining: 4321,
+      discovered: [] as Json[],
+      base: 'main',
+      // A `PrBases` answer in place of the one built from `base`.
+      bases: undefined as (() => Response) | undefined,
+    };
+    const rate = () => ({ remaining: state.remaining, resetAt: '2026-01-03T00:00:00.000Z' });
+    const fetcher = byOperation((operation, numbers, init) => {
+      if (operation === 'PrBatch') return discoveryAnswer(state.discovered);
+      if (operation === 'PrIndex')
+        return response({
+          ...aliased(numbers, (number) => indexOf(state.detail, number)),
+          rateLimit: rate(),
+        });
+      if (operation === 'PrDetails')
+        return state.detailStatus === 200
+          ? response({
+              ...aliased(numbers, (number) => ({ pullRequest: { ...state.detail, number } })),
+              rateLimit: rate(),
+            })
+          : failure(state.detailStatus);
+      if (operation === 'PrCommits') return state.commits(init);
+      if (operation === 'PrBases' && state.bases !== undefined) return state.bases();
+      if (operation === 'PrBases')
+        return response({
+          ...aliased(numbers, () => ({ pullRequest: { baseRefName: state.base } })),
+          rateLimit: rate(),
+        });
+      return failure();
+    });
+    const source = adapter(fetcher, config(), 0, () => t);
+    return {
+      loaded,
+      state,
+      source,
+      advance: (ms: number) => {
+        t += ms;
+      },
+      poll: (prs = [refOf(7)], extra: Partial<PollContext> = {}) => {
+        fetcher.mockClear();
+        return source.poll({ ...context(prs, cursor), ...extra });
+      },
+      sent: (operation: Operation) => numbersSent(fetcher, operation).length,
+    };
+  }
+  const pairsOf = (batch: { items: unknown[] }) =>
+    (batch.items[0] as { approvalPairs?: unknown } | undefined)?.approvalPairs;
+
+  it('has a fixture for each case', () => {
+    expect(watched.map((entry) => entry.name)).toEqual([
+      'approved-on-base',
+      'base-merge-cli-14450',
+      'head-missing',
+      'mode-change',
+      'octopus',
+      'on-head',
+      'rebased',
+      'root-file',
+      'too-large',
+      'two-approvals',
+      'unwatched-only',
+      'watched-changed',
+    ]);
+  });
+  it('reads no commits for an approval on the head', async () => {
+    const run = scenario('on-head');
+    const batch = await run.poll();
+    expect(run.sent('PrDetails')).toBe(1);
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(batch.items[0]).not.toHaveProperty('approvalPairs');
+  });
+  it.each([
+    ['counts commits and top-level entries after an older approval', 'watched-changed'],
+    ['reports unwatched entries', 'unwatched-only'],
+    ['lists a changed root file bare and a directory with a slash', 'root-file'],
+    ['answers two approvals on different commits from one commits read', 'two-approvals'],
+    ['marks an approval rewritten away history_rewritten', 'rebased'],
+    // Each change and each ancestor a walk of oids alone, or of two parents, would miss.
+    ['lists a root script whose mode alone changed', 'mode-change'],
+    [
+      'counts after an approved commit that landed on the base, outside the list',
+      'approved-on-base',
+    ],
+    ['walks every parent of an octopus merge', 'octopus'],
+  ])('%s', async (_title, name) => {
+    const run = scenario(name);
+    const batch = await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(batchSchema.parse(batch)).toEqual(batch);
+    expect(batch.complete).toBe(true);
+    expect(pairsOf(batch)).toEqual(run.loaded.pairs);
+  });
+  it('leaves base-branch merges out of commits and entries', async () => {
+    // A live read-only capture of cli/cli#14450, approved before its two merges from trunk.
+    const run = scenario('base-merge-cli-14450');
+    const batch = await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(pairsOf(batch)).toEqual(run.loaded.pairs);
+    const [pair] = run.loaded.pairs as { commitsAfter: number; changed: string[] }[];
+    // Four commits follow the approval; the two merges count for neither commits nor entries.
+    expect(pair?.commitsAfter).toBe(2);
+    for (const merged of ['.github/', 'README.md', 'acceptance/', 'skills/', 'CLAUDE.md', 'docs/'])
+      expect(pair?.changed).not.toContain(merged);
+  });
+  it('marks a PR with more than 100 commits pr_too_large', async () => {
+    const run = scenario('too-large');
+    const commits = (run.loaded.commits as { data: { repository: unknown } }).data.repository as {
+      pullRequest: { commits: { totalCount: number; nodes: { commit: { oid: string } }[] } };
+    };
+    expect(commits.pullRequest.commits.totalCount).toBe(101);
+    // The head is not listed either: the overflow decides first.
+    expect(commits.pullRequest.commits.nodes.map((node) => node.commit.oid)).not.toContain(
+      run.state.detail['headRefOid'],
+    );
+    const batch = await run.poll();
+    expect(pairsOf(batch)).toEqual(run.loaded.pairs);
+  });
+  const watchedCommits = () =>
+    (fixture('watched-changed').commits as { data: Record<string, unknown> }).data;
+  /** The watched-changed commits with the head's parents cut to none of its one. */
+  const truncatedParents = () => {
+    const commits = fixture('watched-changed').commits as {
+      data: {
+        repository: {
+          pullRequest: { commits: { nodes: { commit: { parents: { nodes: unknown[] } } }[] } };
+        };
+      };
+    };
+    const head = commits.data.repository.pullRequest.commits.nodes.at(-1);
+    if (head !== undefined) head.commit.parents.nodes = [];
+    return json(commits);
+  };
+  it.each<[string, () => Response]>([
+    ['head-missing', () => json(fixture('head-missing').commits)],
+    ['a commit with fewer parents listed than its totalCount', truncatedParents],
+    [
+      'a NOT_FOUND error on the pull request',
+      () =>
+        json({
+          data: { rateLimit: watchedCommits()['rateLimit'], repository: { pullRequest: null } },
+          errors: [
+            { type: 'NOT_FOUND', path: ['repository', 'pullRequest'], message: 'Not found' },
+          ],
+        }),
+    ],
+    [
+      'an error without a path',
+      () => json({ data: watchedCommits(), errors: [{ type: 'SOMETHING', message: 'x' }] }),
+    ],
+    [
+      'a malformed commits list',
+      () =>
+        json({
+          data: {
+            rateLimit: watchedCommits()['rateLimit'],
+            repository: {
+              pullRequest: {
+                commits: { totalCount: 2, pageInfo: { hasPreviousPage: false }, nodes: 'x' },
+              },
+            },
+          },
+        }),
+    ],
+  ])(
+    'sends no second PrCommits within 15 minutes after an unreadable read: %s',
+    async (_n, answer) => {
+      const run = scenario('watched-changed');
+      run.state.commits = answer;
+      const first = await run.poll();
+      expect(run.sent('PrCommits')).toBe(1);
+      expect(first.complete).toBe(true);
+      expect(first.items).toHaveLength(1);
+      expect(pairsOf(first)).toBeUndefined();
+      run.advance(14 * MINUTE);
+      const waiting = await run.poll();
+      expect(run.sent('PrDetails')).toBe(0);
+      expect(run.sent('PrCommits')).toBe(0);
+      expect(pairsOf(waiting)).toBeUndefined();
+      run.advance(MINUTE);
+      await run.poll();
+      expect(run.sent('PrCommits')).toBe(1);
+    },
+  );
+  it.each<[string, () => Response]>([
+    ['502', () => failure(502)],
+    ['a non-JSON body', () => new Response('not json', { status: 200 })],
+    ['no rateLimit', () => json({ data: { repository: watchedCommits()['repository'] } })],
+  ])('retries a transient commits failure on the next poll: %s', async (_name, answer) => {
+    const run = scenario('watched-changed');
+    run.state.commits = answer;
+    const first = await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(first.complete).toBe(true);
+    expect(pairsOf(first)).toBeUndefined();
+    run.advance(MINUTE);
+    const second = await run.poll();
+    expect(run.sent('PrDetails')).toBe(0);
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(second.complete).toBe(true);
+  });
+  const cutOff = () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.error(new TypeError('terminated'));
+        },
+      }),
+      { status: 502 },
+    );
+  // Approval history is best effort: no error of its reads costs the batch, and an on-demand
+  // read waiting on the queue cuts the pass short instead of waiting for it.
+  it.each<[string, (run: ReturnType<typeof scenario>) => Promise<Batch>, 'none' | 'cached']>([
+    [
+      'a PrCommits 502 whose body is cut off after the headers',
+      (run) => {
+        run.state.commits = cutOff;
+        return run.poll();
+      },
+      'none',
+    ],
+    [
+      'a PrCommits fetch that rejects',
+      (run) => {
+        run.state.commits = () => Promise.reject(new TypeError('fetch failed'));
+        return run.poll();
+      },
+      'none',
+    ],
+    [
+      'a PrBases 502 whose body is cut off after the headers',
+      async (run) => {
+        await run.poll();
+        // A full read with cached pairs checks the base.
+        run.state.detail = { ...run.state.detail, updatedAt: '2026-01-05T00:00:00Z' };
+        run.state.bases = cutOff;
+        run.advance(MINUTE);
+        const batch = await run.poll();
+        expect(run.sent('PrBases')).toBe(1);
+        return batch;
+      },
+      'cached',
+    ],
+    [
+      'a PrCommits answer whose rateLimit.resetAt is not a datetime',
+      (run) => {
+        run.state.commits = () =>
+          json({ data: { ...watchedCommits(), rateLimit: { remaining: 4000, resetAt: 'soon' } } });
+        return run.poll();
+      },
+      'cached',
+    ],
+    [
+      'a PrBases answer whose rateLimit.resetAt is not a datetime',
+      async (run) => {
+        await run.poll();
+        run.state.detail = { ...run.state.detail, updatedAt: '2026-01-05T00:00:00Z' };
+        run.state.bases = () =>
+          response({
+            ...aliased([7], () => ({ pullRequest: { baseRefName: run.state.base } })),
+            rateLimit: { remaining: 4000, resetAt: 'soon' },
+          });
+        run.advance(MINUTE);
+        const batch = await run.poll();
+        expect(run.sent('PrBases')).toBe(1);
+        return batch;
+      },
+      'cached',
+    ],
+    [
+      'an on-demand read queued while the PrCommits read is in flight',
+      async (run) => {
+        vi.useFakeTimers();
+        try {
+          const waiting = new AbortController();
+          run.state.commits = (init) => hanging('https://api.github.com/graphql', init);
+          const poll = run.poll([refOf(7)], { optionalSignal: waiting.signal });
+          const state = settle(poll);
+          await vi.advanceTimersByTimeAsync(0);
+          expect(run.sent('PrCommits')).toBe(1);
+          waiting.abort();
+          // Well inside the 4 s request timeout: the pass does not wait for the read.
+          await vi.advanceTimersByTimeAsync(0);
+          expect(state.settled).toBe(true);
+          return await poll;
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+      'none',
+    ],
+  ])('keeps the batch after %s', async (_name, read, pairs) => {
+    const run = scenario('watched-changed');
+    const batch = await read(run);
+    expect(batchSchema.parse(batch)).toEqual(batch);
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref: refOf(7), status: 'ok' }]);
+    expect(batch.items).toHaveLength(1);
+    expect(pairsOf(batch)).toEqual(pairs === 'cached' ? run.loaded.pairs : undefined);
+  });
+  it('classifies a 502 cut off after the headers as transient on a required read', async () => {
+    const client = new GithubClient(
+      'token',
+      Date.now,
+      vi.fn(() => Promise.resolve(cutOff())),
+    );
+    const read = client.query(detailQuery([7]), {}, new AbortController().signal);
+    await expect(read).rejects.toMatchObject({ kind: 'transient' });
+  });
+  it('omits pairs on a failed or malformed commits read and keeps the batch complete', async () => {
+    for (const answer of [() => failure(503), () => json({ data: { rateLimit: {}, x: 1 } })]) {
+      const run = scenario('watched-changed');
+      run.state.commits = answer;
+      const batch = await run.poll();
+      expect(batchSchema.parse(batch)).toEqual(batch);
+      expect(batch.complete).toBe(true);
+      expect(batch.entities).toEqual([{ ref: refOf(7), status: 'ok' }]);
+      expect(batch.items).toHaveLength(1);
+      expect(pairsOf(batch)).toBeUndefined();
+    }
+  });
+  it('sends cached pairs again on the reuse path without a second commits read', async () => {
+    const run = scenario('watched-changed');
+    const first = await run.poll();
+    run.advance(MINUTE);
+    const second = await run.poll();
+    expect(run.sent('PrDetails')).toBe(0);
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(pairsOf(second)).toEqual(pairsOf(first));
+    expect(pairsOf(second)).toEqual(run.loaded.pairs);
+  });
+  it('pollPr sends no PrCommits and no approvalPairs', async () => {
+    const run = scenario('watched-changed');
+    await run.poll();
+    const one = await run.source.pollPr?.(refOf(7), { signal: new AbortController().signal });
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(one?.items[0]).not.toHaveProperty('approvalPairs');
+    // The next poll reads the PR in full again, and its pairs still come from the pair cache.
+    const next = await run.poll();
+    expect(run.sent('PrDetails')).toBe(1);
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(pairsOf(next)).toEqual(run.loaded.pairs);
+  });
+  it('sends no PrCommits for a discovered PR core does not request', async () => {
+    const run = scenario('watched-changed');
+    run.state.discovered = [operatorNode(7)];
+    const batch = await run.poll([]);
+    expect(run.sent('PrDetails')).toBe(1);
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(batch.items).toHaveLength(1);
+    expect(pairsOf(batch)).toBeUndefined();
+  });
+  it('stops below three times the reserve with rate_limit and reads on reuse when the budget returns', async () => {
+    const run = scenario('watched-changed');
+    // Above the 1000 reserve, so the detail read runs; below 3000, so the commits read waits.
+    run.state.remaining = 2999;
+    const low = await run.poll();
+    expect(run.sent('PrDetails')).toBe(1);
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(low.complete).toBe(true);
+    const { approvedSha, headSha } =
+      (run.loaded.pairs as { approvedSha: string; headSha: string }[])[0] ?? {};
+    expect(pairsOf(low)).toEqual([{ approvedSha, headSha, notCounted: 'rate_limit' }]);
+    run.state.remaining = 3000;
+    run.advance(MINUTE);
+    const back = await run.poll();
+    expect(run.sent('PrDetails')).toBe(0);
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(pairsOf(back)).toEqual(run.loaded.pairs);
+  });
+  it.each([
+    ['fails', (run: ReturnType<typeof scenario>) => (run.state.detailStatus = 502)],
+    ['is deferred', (run: ReturnType<typeof scenario>) => (run.state.remaining = 999)],
+  ])('keeps cached pairs when the detail read %s', async (_name, block) => {
+    const run = scenario('watched-changed');
+    await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    // A changed index forces a full read, which this poll does not get.
+    run.state.detail = { ...run.state.detail, updatedAt: '2026-01-05T00:00:00Z' };
+    block(run);
+    run.advance(MINUTE);
+    const blocked = await run.poll();
+    expect(blocked.items).toEqual([]);
+    expect(run.sent('PrCommits')).toBe(0);
+    run.state.detailStatus = 200;
+    run.state.remaining = 4321;
+    run.advance(MINUTE);
+    const read = await run.poll();
+    expect(run.sent('PrDetails')).toBe(1);
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(pairsOf(read)).toEqual(run.loaded.pairs);
+  });
+  it('drops cached pairs on a new head, a closed PR or an unlinked PR', async () => {
+    const run = scenario('watched-changed');
+    const initial = run.state.detail;
+    await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    // A new head: its pairs are read afresh.
+    run.state.detail = { ...initial, headRefOid: 'c'.repeat(40) };
+    run.advance(MINUTE);
+    await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    // Closed: no read, and the pairs go; reopened, they are read again.
+    run.state.detail = { ...initial, state: 'CLOSED', closedAt: time };
+    run.advance(MINUTE);
+    const closed = await run.poll();
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(pairsOf(closed)).toBeUndefined();
+    run.state.detail = initial;
+    run.advance(MINUTE);
+    await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    // No longer requested: no read; requested again, the pairs are read again.
+    run.advance(MINUTE);
+    await run.poll([]);
+    expect(run.sent('PrCommits')).toBe(0);
+    run.advance(MINUTE);
+    const relinked = await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(pairsOf(relinked)).toEqual(run.loaded.pairs);
+  });
+  it('reads the pairs again after a retarget and keeps them while the base stays', async () => {
+    const run = scenario('watched-changed');
+    type Commits = {
+      data: {
+        repository: { pullRequest: { baseRefName: string; commits: { totalCount: number } } };
+      };
+    };
+    const onMain = run.loaded.commits as Commits;
+    const large = structuredClone(onMain);
+    large.data.repository.pullRequest.commits.totalCount = 105;
+    run.state.commits = () => json(large);
+    const first = await run.poll();
+    const { approvedSha, headSha } =
+      (run.loaded.pairs as { approvedSha: string; headSha: string }[])[0] ?? {};
+    expect(pairsOf(first)).toEqual([{ approvedSha, headSha, notCounted: 'pr_too_large' }]);
+    const initial = run.state.detail;
+    // A full read with the base unchanged checks the base and keeps the pairs.
+    run.state.detail = { ...initial, updatedAt: '2026-01-05T00:00:00Z' };
+    run.advance(MINUTE);
+    const same = await run.poll();
+    expect(run.sent('PrDetails')).toBe(1);
+    expect(run.sent('PrBases')).toBe(1);
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(pairsOf(same)).toEqual(pairsOf(first));
+    // Retargeted with the head and the approval kept: the shorter list is read again.
+    const onRelease = structuredClone(onMain);
+    onRelease.data.repository.pullRequest.baseRefName = 'release';
+    run.state.detail = { ...initial, updatedAt: '2026-01-06T00:00:00Z' };
+    run.state.base = 'release';
+    run.state.commits = () => json(onRelease);
+    run.advance(MINUTE);
+    const retargeted = await run.poll();
+    expect(run.sent('PrBases')).toBe(1);
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(pairsOf(retargeted)).toEqual(run.loaded.pairs);
+    // A reused poll checks nothing.
+    run.advance(MINUTE);
+    const reused = await run.poll();
+    expect(run.sent('PrBases')).toBe(0);
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(pairsOf(reused)).toEqual(run.loaded.pairs);
+  });
+  it.each<[string, () => Response, number]>([
+    [
+      'an HTTP 429 with retry-after',
+      () => new Response('slow down', { status: 429, headers: { 'retry-after': '120' } }),
+      2 * MINUTE,
+    ],
+    [
+      'a GraphQL rate limit with no retry time',
+      () =>
+        json({
+          data: watchedCommits(),
+          errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }],
+        }),
+      MINUTE,
+    ],
+    ['an HTTP 401', () => failure(401), 15 * MINUTE],
+  ])('keeps the batch and pauses approval-watch reads after %s', async (_name, answer, pauseMs) => {
+    const run = scenario('watched-changed');
+    run.state.commits = answer;
+    const first = await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(first.complete).toBe(true);
+    expect(first.entities).toEqual([{ ref: refOf(7), status: 'ok' }]);
+    expect(first.items).toHaveLength(1);
+    expect(pairsOf(first)).toBeUndefined();
+    run.state.commits = () => json(run.loaded.commits);
+    run.advance(pauseMs - 1);
+    const paused = await run.poll();
+    expect(run.sent('PrCommits')).toBe(0);
+    expect(pairsOf(paused)).toBeUndefined();
+    run.advance(1);
+    const resumed = await run.poll();
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(pairsOf(resumed)).toEqual(run.loaded.pairs);
+  });
+  const pairsFor = (batch: { items: unknown[] }, number: number) =>
+    (
+      batch.items.find(
+        (item) => (item as { facts: { number: number } }).facts.number === number,
+      ) as { approvalPairs?: unknown } | undefined
+    )?.approvalPairs;
+  it('starts no approval-watch read 2 s after its first and reads the rest next poll', async () => {
+    const run = scenario('watched-changed');
+    const answer = run.state.commits;
+    run.state.commits = () => {
+      run.advance(2_000);
+      return answer();
+    };
+    const both = [refOf(7), refOf(8)];
+    const first = await run.poll(both);
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(first.complete).toBe(true);
+    expect(pairsFor(first, 7)).toEqual(run.loaded.pairs);
+    expect(pairsFor(first, 8)).toBeUndefined();
+    run.advance(MINUTE);
+    const second = await run.poll(both);
+    // Only PR 8 still misses its pairs.
+    expect(run.sent('PrCommits')).toBe(1);
+    expect(pairsFor(second, 7)).toEqual(run.loaded.pairs);
+    expect(pairsFor(second, 8)).toEqual(run.loaded.pairs);
+  });
+  it('times a commits read out after 4 s and keeps the batch', async () => {
+    vi.useFakeTimers();
+    try {
+      const run = scenario('watched-changed');
+      run.state.commits = (init) => hanging('https://api.github.com/graphql', init);
+      const poll = run.poll();
+      const state = settle(poll);
+      await vi.advanceTimersByTimeAsync(3_999);
+      expect(state.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(state.settled).toBe(true);
+      const batch = await poll;
+      expect(batch.complete).toBe(true);
+      expect(batch.items).toHaveLength(1);
+      expect(pairsOf(batch)).toBeUndefined();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

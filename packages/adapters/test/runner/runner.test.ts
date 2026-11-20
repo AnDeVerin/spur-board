@@ -1775,6 +1775,58 @@ describe('on-demand PR poll', () => {
     expect(result).toMatchObject({ ok: true, value: { status: 'ok', observedAt: at(I / 2) } });
   });
 
+  it.each([
+    ['the poll in flight when an on-demand call queues', false],
+    ['a poll that starts with an on-demand call queued behind it', true],
+  ])('cuts short the optional reads of %s', async (_name, behindQueuedPoll) => {
+    random(0);
+    const signals: AbortSignal[] = [];
+    /** Whether each regular poll's optional signal was already aborted when the poll started. */
+    const startedAborted: boolean[] = [];
+    const first = deferred<Batch>();
+    // The regular poll's optional reads run until an on-demand call aborts them.
+    const { adapter, runner } = start(
+      (ctx) => {
+        const optional = ctx.optionalSignal;
+        if (optional === undefined) return Promise.reject(new Error('no optional signal'));
+        signals.push(optional);
+        startedAborted.push(optional.aborted);
+        if (optional.aborted) return Promise.resolve(batch());
+        return new Promise((resolve) => {
+          optional.addEventListener('abort', () => {
+            resolve(batch());
+          });
+        });
+      },
+      {
+        pollPr: () =>
+          behindQueuedPoll && adapter.prRequests.length === 1
+            ? first.promise
+            : Promise.resolve(demandOk()),
+      },
+    );
+    await advanceTo(I / 4);
+    expect(signals.map((signal) => signal.aborted)).toEqual([false]);
+    const call = request(runner);
+    await flush();
+    expect(signals.map((signal) => signal.aborted)).toEqual([true]);
+    if (behindQueuedPoll) {
+      // The next timer poll queues behind the first call, and a second call behind that poll.
+      await advanceTo(I / 4 + I + 1);
+      const second = request(runner);
+      await flush();
+      first.resolve(demandOk());
+      await call.result;
+      await flush();
+      expect(startedAborted).toEqual([false, true]);
+      await expect(second.result).resolves.toMatchObject({ ok: true });
+      expect(adapter.prRequests).toHaveLength(2);
+      return;
+    }
+    await expect(call.result).resolves.toMatchObject({ ok: true });
+    expect(adapter.prRequests).toHaveLength(1);
+  });
+
   it('a timer poll waits for the on-demand call', async () => {
     random(0);
     const onDemand = deferred<Batch>();

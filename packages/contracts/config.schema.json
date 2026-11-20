@@ -122,6 +122,16 @@
             "type": "string",
             "enum": ["dev", "review", "product-review", "external-review"]
           },
+          "approvalWatch": {
+            "description": "Top-level directories and root files whose change after an approval the board points out. For each approval of an open PR given on an older commit than the head, board status and board task list every top-level entry changed by the commits after it in changedAfter, and the entries that match this list in watchedAfter. Without the key every changed top-level entry counts as watched. A hint only: no gate, move or turn reads it. The daemon reads the key at start, so a change takes effect after a restart.",
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[^/\\s]+\\/?$",
+              "description": "One top-level directory (back/) or root file (package.json) of the repository. The trailing / is optional: back/ and back each match a directory or a file named back. Case-sensitive."
+            }
+          },
           "link": {
             "description": "How a project links a PR to its task. A github-issues project reads an issue number from PRs in tracker.repo; a Jira project reads an issue key with one of tracker.projectKeys from PRs in repos. Left at the defaults, a Jira project links every tracker.projectKeys key (such as PROJ-12, any letter case) in the PR title or head branch. Set the sources and patterns to the branch and PR title naming rules of the repos. The board does not enforce those rules; the repo enforces them through its CI title check and its agents' skills. board doctor compares these rules with recent PRs by operatorGithubLogin.",
             "default": {},

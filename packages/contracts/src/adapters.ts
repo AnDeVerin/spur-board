@@ -5,6 +5,7 @@ import { readyMirrorOf, type Config } from './config.ts';
 import type { Result } from './errors.ts';
 import {
   commitShaSchema,
+  prApprovalPairSchema,
   prFactsSchema,
   prRefSchema,
   prReviewRuleSchema,
@@ -86,6 +87,12 @@ export const batchItemSchema = z.discriminatedUnion('kind', [
       .optional()
       .describe(
         "GitHub's review verdict and the base branch's review rule from this full read, sent only for a project whose External Review sets approvalRule github-rules; omitted says nothing new.",
+      ),
+    approvalPairs: z
+      .array(prApprovalPairSchema)
+      .optional()
+      .describe(
+        'What changed after each approval not on the head, for a requested open PR; omitted says nothing new. A hint for status views, never a gate input.',
       ),
   }),
   z.strictObject({
@@ -358,6 +365,11 @@ export interface PollContext {
     | undefined;
   /** Aborted when core stops the poll (A7). */
   signal: AbortSignal;
+  /**
+   * Aborted when an on-demand read waits for this poll: the adapter ends its optional reads
+   * (approval history), its own in flight included, and returns the batch it has. Absent: never.
+   */
+  optionalSignal?: AbortSignal;
 }
 
 /** Source id of the PR poll of one project repo: `github:<project>:<repo lowercased>`. */

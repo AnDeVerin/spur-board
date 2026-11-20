@@ -1,0 +1,12 @@
+projects:
+  - id: web
+    tracker:
+      type: github-issues
+      repo: example-org/web
+    repos: [example-org/web]
+    operatorGithubLogin: octocat
+    approvalWatch: [back/, front/, package.json]
+operator:
+  slack: U0000000000
+digest:
+  tz: UTC

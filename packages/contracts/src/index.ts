@@ -107,6 +107,7 @@ export { OPERATIONS, type OperationId } from './ops/catalog.ts';
 export { roleCanUseOperation, type SchemaRole } from './ops/roles.ts';
 export { buildCatalogSnapshot } from './ops/snapshot.ts';
 export {
+  APPROVAL_NOT_COUNTED,
   AUTHOR_TYPES,
   CHECK_STATES,
   FACT_NAMES,
@@ -125,6 +126,7 @@ export {
   isKnownSessionHealth,
   isKnownSessionStatus,
   parseRingMarker,
+  prApprovalPairSchema,
   prFactsSchema,
   prRefSchema,
   prReviewRuleSchema,
@@ -134,6 +136,7 @@ export {
   ticketFactsSchema,
   unknownSessionHealthSchema,
   unknownSessionStatusSchema,
+  type ApprovalNotCounted,
   type AuthorType,
   type CheckState,
   type FeedbackKind,
@@ -141,6 +144,7 @@ export {
   type FactName,
   type MergeState,
   type MergeableState,
+  type PrApprovalPair,
   type PrFacts,
   type PrFeedback,
   type PrRef,

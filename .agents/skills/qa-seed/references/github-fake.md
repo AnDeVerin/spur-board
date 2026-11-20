@@ -10,6 +10,15 @@
   `fake github issue <n> close`.
 - `fake github pr <n> edit <index>` edits comment `<index>` (0 is the oldest) at the stand clock;
   the PR's `updatedAt` stays, so only the index `edited` alias shows it.
+- `fake github pr <n> create --seed` takes `commits`: `[{oid, parents, changed}]`, oldest first,
+  the last `oid` equal to `headRefOid` or `create` answers 400. `changed` names the top-level
+  entries a commit changes, `name/` for a directory; a parent not listed is base history. Without
+  `commits` the PR has one commit at its head. `push <sha>` appends a commit on the old head that
+  changes nothing. Tree entry modes are git's, as numbers: 16384 (`040000`) for a directory,
+  33188 (`100644`) for a file.
+- `create --seed` takes `baseRefName`, `main` by default, which `PrCommits` and `PrBases` answer.
+- A PR's commits are read only once core requests it: a PR created after its issue is only
+  discovered on the first poll, so poll twice before reading its `approvals`.
 - `fake github issue <n> project-status <Backlog|Ready|Done|none|archived|removed>` sets the
   issue's Status in the one fake GitHub Project, `stand-org/1` ("Stand roadmap", field `Status`);
   `none` clears the field, `archived` archives the item, `removed` takes the issue out; follow it
