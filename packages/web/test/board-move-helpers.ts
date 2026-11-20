@@ -1,9 +1,20 @@
 // Shared by the move tests: board-move.test.ts and board-move-drop.test.ts. A Backlog of three
 // parts with #1 in todo and #2 in triage; ready-for-dev is empty.
 import { act } from 'react';
-import { configColumn, configWith, daemon, row, type Daemon } from './board-fixtures.ts';
+import { config, daemon, row, type Daemon } from './board-fixtures.ts';
 import { all, container, mount, one, serve, settle } from './board-harness.ts';
 
+/** A config column; Todo-group columns carry `group: 'todo'` as `config.get` sets it. */
+export const configColumn = (id: string, grouped = false, kind = 'dispatcher') => ({
+  id,
+  executor: { kind, name: null },
+  ...(grouped ? { group: 'todo' } : {}),
+});
+/** The fixture config with project `a` on columns `a` and project `b` on `b`. */
+const configWith = (a: ReturnType<typeof configColumn>[], b = a) => ({
+  ...config,
+  projects: config.projects.map((entry, index) => ({ ...entry, columns: index === 0 ? a : b })),
+});
 export const KEY = 'ex/repo#1';
 export const THREE = configWith([
   configColumn('todo', true),
@@ -63,8 +74,10 @@ export const wrap = (key: string) => {
 };
 /** The section of Backlog part `id`, a column or a folded section, found by its `h3`. */
 export const part = (id: string) => {
-  const found = all('main section').find(
-    (section) => section.querySelector(':scope > div > div > h3, :scope > h3')?.textContent === id,
+  const found = all('main section').find((section) =>
+    [...section.querySelectorAll('h3')].some(
+      (title) => title.textContent === id && title.closest('section') === section,
+    ),
   );
   if (!found) throw new Error(`no part ${id}`);
   return found;

@@ -185,7 +185,7 @@ describe('board task cards', () => {
     );
   });
 
-  it('rendering cards requests only the four paths', async () => {
+  it('rendering cards requests only the five paths', async () => {
     const d = daemon();
     serve(d, linkedRows(), withSpur);
     const paths = new Set<string>();
@@ -199,6 +199,7 @@ describe('board task cards', () => {
     expect(all('main a[target]')).toHaveLength(3);
     expect([...paths].sort()).toEqual([
       '/v1/events',
+      '/v1/ops/columns.describe',
       '/v1/ops/config.get',
       '/v1/ops/inbox.operator',
       '/v1/ops/status.get',

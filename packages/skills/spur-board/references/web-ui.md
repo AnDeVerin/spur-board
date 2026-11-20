@@ -12,19 +12,20 @@ Enable the optional web listener with `web.port` and `web.publicOrigin` per
 then open `web.publicOrigin`. For 503 `UI is not built`, follow
 [Building the web UI](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#building-the-web-ui).
 
-Reads: `config.get`, chosen-project `status.get`, `inbox.operator`, open-task `task.get`/`task.history` and
-`/v1/events`. The UI owns no data.
+Reads: `config.get`, chosen-project `status.get` and `columns.describe`, `inbox.operator`,
+open-task `task.get`/`task.history` and `/v1/events`. The UI owns no data.
 
 ## Screens
 
-- [Board](web-ui-board.md): the header, the inbox, the task columns and the Backlog group, with
-  the move between its parts.
+- [Board](web-ui-board.md): the header, the inbox, the task columns and the Backlog group.
 - [Status bar and services](web-ui-status.md): service health and the services panel.
 - [Task view](web-ui-task-view.md): a card or `?open=<task key>` opens links, **Why it is here**,
   **Blocks**, **Comments** and **History** (journal events with channel, e.g. `operator (web)`).
 - [Task blocks and comments](web-ui-task-blocks.md): answers, follow-ups and comments in the task
   view.
 - [Turn](web-ui-task-turn.md): take an orchestrator turn and submit it or return it to Dev.
+- [Moving between Backlog parts](web-ui-board-move.md): the card menu, drop and task-view move
+  with a reason.
 
 ## Live and stale states
 
@@ -33,7 +34,7 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
 - **Loading**: skeleton columns, the inbox count `–`, and the switcher disabled until config
   answers.
 - **Live**: the indicator reads `live`. The stream tells the UI which projects changed; a change in
-  the chosen project rereads its config and status, and any change rereads the inbox. A
+  the chosen project rereads its config, status and column policy, and any change rereads the inbox. A
   changed journal head or daemon instance on reconnect, a `reset` and the 30-second status frame
   reread everything.
 - **Empty**: a project with no tasks shows a message instead of columns.

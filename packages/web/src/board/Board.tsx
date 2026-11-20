@@ -246,6 +246,10 @@ export function Board({ data }: { data: BoardData }) {
           }}
           moveIntent={data.moveIntent}
           moveUnavailable={unavailable(snapshot, MOVES)}
+          columns={snapshot.columns}
+          onHelpOpen={() => {
+            data.readColumns();
+          }}
         />
       </main>
       {inboxOpen && (

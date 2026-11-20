@@ -490,6 +490,7 @@ describe('board screen', () => {
       button('inbox'),
       button('Retry now'),
       ...all('main section').flatMap((section) => [
+        ...section.querySelectorAll('button[aria-haspopup="dialog"]'),
         ...section.querySelectorAll('[role="group"] button'),
         ...section.querySelectorAll('a'),
       ]),

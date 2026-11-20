@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createBoardData, type BoardData } from '../src/board/data.ts';
 
-type OpId = 'config.get' | 'status.get' | 'inbox.operator';
+type OpId = 'config.get' | 'status.get' | 'inbox.operator' | 'columns.describe';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
@@ -73,13 +73,14 @@ function deferred() {
   });
   return { promise, resolve };
 }
-/** Fake daemon: the three reads by route, and an event stream the test writes to. */
+/** Fake daemon: the four reads by route, and an event stream the test writes to. */
 function daemon() {
   const calls: { path: string; input: Record<string, unknown> }[] = [];
   const routes: Record<OpId, Route> = {
     'config.get': () => Promise.resolve(envelope(config('a', 'b'))),
     'status.get': (input) => Promise.resolve(envelope(status(String(input['project'])))),
     'inbox.operator': () => Promise.resolve(envelope(inbox(2))),
+    'columns.describe': () => Promise.resolve(envelope({ projects: [] })),
   };
   let stream!: ReadableStreamDefaultController<Uint8Array>;
   let streamFails = false;
@@ -139,6 +140,7 @@ const settle = async () => {
   for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
 };
 const hello = (instance = 'one') => `event: hello\ndata: {"head":1,"instance":"${instance}"}\n\n`;
+const ALL_FOUR = ['columns.describe', 'config.get', 'inbox.operator', 'status.get'];
 const started: BoardData[] = [];
 function start(
   d: ReturnType<typeof daemon>,
@@ -307,11 +309,11 @@ describe('board data', () => {
     await settle();
     await vi.advanceTimersByTimeAsync(400);
     await settle();
-    expect(d.reads().sort()).toEqual(['config.get', 'inbox.operator', 'status.get']);
+    expect(d.reads().sort()).toEqual(ALL_FOUR);
     expect(d.reads().indexOf('status.get')).toBeGreaterThan(d.reads().indexOf('config.get'));
   });
 
-  it('changed hello and reset re-read all three', async () => {
+  it('changed hello and reset re-read all four', async () => {
     const d = daemon();
     start(d);
     await settle();
@@ -323,11 +325,11 @@ describe('board data', () => {
     expect(d.reads()).toEqual([]);
     d.send(hello('two'));
     await settle();
-    expect(d.reads().sort()).toEqual(['config.get', 'inbox.operator', 'status.get']);
+    expect(d.reads().sort()).toEqual(ALL_FOUR);
     d.calls.length = 0;
     d.send('event: reset\ndata: {}\n\n');
     await settle();
-    expect(d.reads().sort()).toEqual(['config.get', 'inbox.operator', 'status.get']);
+    expect(d.reads().sort()).toEqual(ALL_FOUR);
   });
 
   it('keeps the last inbox and no read failure when only the inbox fails', async () => {
@@ -425,7 +427,7 @@ describe('board data', () => {
     // The same hello: the stream asks for no refresh, the controller re-reads on its own.
     d.send(hello());
     await settle();
-    expect(d.reads().sort()).toEqual(['config.get', 'inbox.operator', 'status.get']);
+    expect(d.reads().sort()).toEqual(ALL_FOUR);
     expect(data.snapshot().readFailed).toBe(false);
   });
 
@@ -469,7 +471,7 @@ describe('board data', () => {
     expect(d.count('events')).toBe(2);
   });
 
-  it('fetches only the four paths', async () => {
+  it('fetches only the five paths', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const d = daemon();
     const data = start(d);
@@ -484,7 +486,13 @@ describe('board data', () => {
     data.choose('b');
     await settle();
     expect(new Set(d.calls.map(({ path }) => path))).toEqual(
-      new Set(['/v1/ops/config.get', '/v1/ops/status.get', '/v1/ops/inbox.operator', '/v1/events']),
+      new Set([
+        '/v1/ops/config.get',
+        '/v1/ops/status.get',
+        '/v1/ops/inbox.operator',
+        '/v1/ops/columns.describe',
+        '/v1/events',
+      ]),
     );
   });
 

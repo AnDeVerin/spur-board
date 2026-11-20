@@ -53,36 +53,20 @@ Columns follow configuration order:
   longest in the column first; `K ↑` the lowest key, numbers compared as numbers. Rows without a
   time go last. The browser keeps the order per project and column. Spines have none; the filter
   only dims.
+- The executor line is a button with an icon for who moves a task here. It opens column help,
+  **Who** first, then **Rules**, read from `columns.describe` on each open: a skeleton while it
+  reads, an error in the panel if it fails. Escape, an outside click, Close, a second click or
+  focus leaving the head and panel close it, so one panel is open at most. A column run by a Spur project (orchestrator or curator) with no live session turns
+  the line to the attention colour with ` · no live session`. Spines have no help; Backlog parts
+  do.
 - An empty column collapses to a spine with its name and `0`.
 - Two or three adjacent Todo-group columns (`todo`, `triage`, `ready-for-dev`) sit under one
   `Backlog` band with their total count; `todo` alone stays a plain column. Each part's head
   reads `manual` instead of the executor. The band's caret toggle folds the group into one
   column with a section per part (`empty` when it has no tasks) and unfolds it back into
   columns. The browser keeps the fold per project; a fold reads nothing from the daemon.
-- A card in a Backlog part moves to another part of its band with a reason, sent as one
-  `task.move` (`manual`):
-  - Its `⋯` menu (`Move <short key>`), the last of its links, lists `Move to <part>…` for each
-    other part. A tap or click opens it pinned with focus on the first item.
-  - Dragging the card onto another part's cards, empty spine or folded section marks that part
-    and, except on a spine, reads `Drop to move to <part>. A reason is asked.`; its own part,
-    other columns and drags from elsewhere take nothing.
-  - The task view's `Move to` row ([task view](web-ui-task-view.md)) does the same.
-
-  Each opens the form `Move <short key> to <part>: reason`, focused, with `Move to <part>` and
-  Cancel: under the card from the menu or a drop, in the task view from its row. The send stays
-  disabled until the reason has text; it says when over 20,000 characters. Nothing moves before
-  the daemon accepts: the send then reads `Moving` until a read shows the task in the target part,
-  then the form closes. The move starts a new column visit at the end of the part; where the card
-  shows follows the part's sort (last under the default `T ↑`). On the Board the moved card takes
-  focus; in the task view the first part button does. A refusal shows the daemon's hint under the
-  field and keeps the reason; any other failure reads
-  `Could not move the task. Send again to retry.`. A resend of the same reason reuses its
-  idempotency key, so it never moves twice; an edited reason is a new move. Until a task read
-  shows the outcome, another form for the task with the same part and reason joins it; any other
-  reads `This task is already being moved. Wait until the Board shows it.`. While the daemon or
-  live updates are unavailable the send is disabled and the hint adds why, then
-  `Moves cannot be sent.`. Cancel always closes it.
-
+- A Backlog card moves to another part of its band with a reason: see
+  [moving between Backlog parts](web-ui-board-move.md).
 - `done` lists every done task in a compact scrolling list, each with its time in the column.
 - A card opens the task view on click or Enter, a new tab on a modified click. It shows the short
   key (full key on hover) and its time in the column, the ticket title, then:

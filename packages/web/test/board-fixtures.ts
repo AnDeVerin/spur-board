@@ -11,6 +11,7 @@ type OpId =
   | 'block.followup'
   | 'comment.add'
   | 'item.close'
+  | 'columns.describe'
   | 'inbox.ack'
   | 'task.submit'
   | 'task.return'
@@ -58,12 +59,6 @@ const project = (id: string, mode: 'on' | 'shadow', columns: ReturnType<typeof c
   ticketBrowseBase: null as string | null,
   checksGate: 'dev' as const,
 });
-/** A config column; Todo-group columns carry `group: 'todo'` as `config.get` sets it. */
-export const configColumn = (id: string, grouped = false, kind = 'dispatcher') => ({
-  id,
-  executor: { kind, name: null },
-  ...(grouped ? { group: 'todo' } : {}),
-});
 export const config = {
   projects: [
     project('a', 'on', [
@@ -76,11 +71,6 @@ export const config = {
   ],
   web: { publicOrigin: null, spurUiOrigin: null },
 };
-/** The fixture config with project `a` on columns `a` and project `b` on `b`. */
-export const configWith = (a: ReturnType<typeof configColumn>[], b = a) => ({
-  ...config,
-  projects: config.projects.map((entry, index) => ({ ...entry, columns: index === 0 ? a : b })),
-});
 const ticket = (key: string, title: string) => ({
   trackerId: 'gh',
   id: key,
@@ -385,6 +375,8 @@ export const taskHistory = (
   ],
 ) => ({ task: taskGet().task, events });
 
+export { policy, policyColumn } from './board-policy-fixtures.ts';
+
 /** Fake daemon: the reads and writes by route and an event stream the test writes to. */
 export function daemon(tasks: unknown[] = ROWS) {
   const routes: Record<OpId, Route> = {
@@ -411,6 +403,7 @@ export function daemon(tasks: unknown[] = ROWS) {
           settled: [],
         }),
       ),
+    'columns.describe': () => Promise.resolve(envelope({ projects: [] })),
     'inbox.ack': (input) =>
       Promise.resolve(
         envelope({ acked: (input['entries'] as { id: string }[]).map((entry) => entry.id) }),

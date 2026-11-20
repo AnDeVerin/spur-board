@@ -107,7 +107,11 @@ describe('move between Backlog parts: a drop', () => {
     drag(link(KEY), 'dragstart');
     expect(drag(body('todo'), 'dragover').defaultPrevented).toBe(false);
     const dev = all('main section')
-      .find((section) => section.querySelector(':scope > div > div > h2')?.textContent === 'dev')
+      .find((section) =>
+        [...section.querySelectorAll('h2')].some(
+          (title) => title.textContent === 'dev' && title.closest('section') === section,
+        ),
+      )
       ?.querySelector(css('body'));
     if (!dev) throw new Error('no dev body');
     expect(drag(dev, 'dragover').defaultPrevented).toBe(false);

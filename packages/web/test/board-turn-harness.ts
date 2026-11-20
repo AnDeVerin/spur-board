@@ -77,7 +77,8 @@ export async function open(
     ...d,
     fetcher: (url, init) => {
       const path = url instanceof Request ? url.url : url.toString();
-      if (path.startsWith('/v1/ops/') && !path.endsWith('.get') && !path.endsWith('.operator')) {
+      const read = ['.get', '.operator', '.describe'].some((suffix) => path.endsWith(suffix));
+      if (path.startsWith('/v1/ops/') && !read) {
         const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
           input: Record<string, unknown>;
           key?: string;
