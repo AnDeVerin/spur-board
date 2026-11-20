@@ -52,8 +52,11 @@ export function assembleSkills(
   }
 }
 
-/** The favicon, app icons and manifest the web build emits (`packages/web/build/app-icons.ts`). */
-const APP_FILES = [
+/**
+ * The favicon, app icons and manifest the web build emits (`packages/web/build/app-icons.ts`):
+ * the index links the root files, the manifest lists the `icons/` files.
+ */
+export const APP_FILES = [
   'manifest.webmanifest',
   'favicon.svg',
   'favicon-32.png',

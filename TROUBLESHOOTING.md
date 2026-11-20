@@ -563,11 +563,14 @@ JS/CSS/font, the top-level `OFL.txt`, the manifest link in the index, and the we
 favicons and app icons, including every icon the manifest lists; a missing asset fails the
 installed smoke test. A “UI is not built” 503 from the configured web listener calls for
 rebuilding/reinstalling those assets and restarting the daemon. Installed smoke checks that the
-actual web listener serves `/` and a referenced asset with HTTP 200. It also fetches the
-manifest, every icon it lists and every linked favicon and touch icon, and checks the status,
-the content type and the bytes. "Installed web index references no manifest." means the
-installed `index.html` has no manifest link; "Installed web app file ... did not match ..."
-names the file the listener served wrong. Rebuild and reinstall the package in both cases.
+actual web listener serves `/` and a referenced asset with HTTP 200. It requires the index to
+link exactly the manifest, the SVG and 32px favicons and the touch icon, and the manifest to list
+exactly the 192, 512 and 512 maskable icons. It fetches each one and checks the status, the media
+type (parameters such as `charset` aside) and the bytes. "Installed web index references no
+manifest." means the installed `index.html` has no manifest link; "Installed web index links ...,
+expected ..." and "Installed web manifest icons are ..., expected ..." name a missing or extra
+app file; "Installed web app file ... did not match ..." names the file the listener served
+wrong. Rebuild and reinstall the package in each case.
 
 ### Live updates stuck on reconnecting
 
