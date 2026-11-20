@@ -155,6 +155,30 @@ describe('approval freshness on a Ready to Merge card', () => {
     expect(chip(target)).toEqual(expected);
   });
 
+  it.each([
+    [
+      'two long entries',
+      ['deployment-config/', 'integration-tests/'],
+      'deployment-config/ integration-tests/',
+    ],
+    [
+      'one entry without a break',
+      ['a-very-long-top-level-directory-name/'],
+      'a-very-long-top-level-directory-name/',
+    ],
+    [
+      'long entries past the cap',
+      ['deployment-config/', 'integration-tests/', 'web/'],
+      'deployment-config/ integration-tests/ +1',
+    ],
+  ])('a loud chip over %s wraps and names each entry in full', (_, entries, names) => {
+    const [first] = markers(
+      card([approval('dana', { commitsAfter: 1, changedAfter: entries, watchedAfter: entries })]),
+      null,
+    );
+    expect([first?.text, first?.wrap]).toEqual([`approved before ${names}`, true]);
+  });
+
   it('any approval asking for a look sets the tone and the chip, in either order', () => {
     for (const approvals of [
       [staleQuiet, staleWatched],

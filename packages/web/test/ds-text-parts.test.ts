@@ -204,6 +204,18 @@ describe('TextToggle', () => {
   });
 });
 
+describe('Chip wrap', () => {
+  it('adds one class only when asked; by default a chip stays on one line', () => {
+    const classes = (wrap?: boolean) =>
+      /^<span class="([^"]+)">/
+        .exec(renderToStaticMarkup(createElement(Chip, { tone: 'warn', wrap, children: 'x' })))?.[1]
+        ?.split(' ');
+    expect(classes()).toHaveLength(2);
+    expect(classes(false)).toEqual(classes());
+    expect(classes(true)).toEqual([...(classes() ?? []), expect.any(String)]);
+  });
+});
+
 describe('Chip tints', () => {
   it('add one tone class to the default chip', () => {
     for (const tone of ['ready', 'error'] as const) {

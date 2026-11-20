@@ -407,6 +407,7 @@ describe('Chip', () => {
       'You',
       'Ghost',
       'Titled',
+      'Wrapping',
       'Link',
       'LinkFocused',
       'ReadyTint',

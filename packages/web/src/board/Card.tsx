@@ -219,7 +219,7 @@ export function Card({
               // A space between chips keeps the words apart in the description; flex drops it.
               <Fragment key={marker.text}>
                 {index > 0 && ' '}
-                <Chip tone={marker.tone} title={marker.title}>
+                <Chip tone={marker.tone} title={marker.title} wrap={marker.wrap}>
                   {marker.icon && <Icon name={marker.icon} />}
                   {marker.text}
                 </Chip>

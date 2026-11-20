@@ -34,8 +34,10 @@ const description = (card: HTMLElement) =>
       return target.getAttribute('aria-label') ?? target.textContent;
     })
     .join(' | ');
-const chipClass = (tone: ChipTone) =>
-  /class="([^"]*)"/.exec(renderToStaticMarkup(createElement(Chip, { tone, children: 'x' })))?.[1];
+const chipClass = (tone: ChipTone, wrap = false) =>
+  /class="([^"]*)"/.exec(
+    renderToStaticMarkup(createElement(Chip, { tone, wrap, children: 'x' })),
+  )?.[1];
 /** `config` with an operator Ready to Merge column in the first project. */
 function readyToMergeConfig() {
   const [first, ...rest] = config.projects;
@@ -278,7 +280,7 @@ describe('board task cards', () => {
     const chip = [...card('ex/repo#7').querySelectorAll('span')].find(
       (span) => span.textContent === 'approved before back/ front/',
     );
-    expect(chip?.className).toBe(chipClass('warn'));
+    expect(chip?.className).toBe(chipClass('warn', true));
     expect(chip?.title).toBe(`dana approved ${sha}; 3 commits since changed back/, front/.`);
     expect(description(card('ex/repo#7'))).toContain(`Approvals: 1; ${staleTitle}`);
     expect(description(card('ex/repo#7'))).toContain('approved before back/ front/');

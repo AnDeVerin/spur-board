@@ -9,6 +9,12 @@
   color: var(--color-text-secondary);
   white-space: nowrap;
 }
+/* Opt-in: long text breaks within the container, anywhere if a word has no break. */
+.wrap {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .warn {
   color: var(--color-status-attention);
   border-color: var(--color-status-attention);

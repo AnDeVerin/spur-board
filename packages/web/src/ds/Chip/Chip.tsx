@@ -13,22 +13,30 @@ export type ChipTone = 'default' | 'warn' | 'you' | 'ghost' | 'ready' | 'error';
  * With `href` it is an external link that opens in a new tab (`rel="noopener noreferrer"`),
  * brightens on hover and takes the ds focus ring; pass only a URL already checked as http(s).
  * `label` is its accessible name: start it with the visible text, e.g. `PR #12, acme/app`.
- * Without `href` the chip is a plain `span` and `label` is ignored.
+ * Without `href` the chip is a plain `span` and `label` is ignored. `wrap` lets long text, such
+ * as a path name, break onto more lines within its container instead of running past it; by
+ * default a chip stays on one line.
  */
 export function Chip({
   tone = 'default',
   title,
   href,
   label,
+  wrap = false,
   children,
 }: {
   tone?: ChipTone;
   title?: string | undefined;
   href?: string | undefined;
   label?: string | undefined;
+  wrap?: boolean | undefined;
   children: ReactNode;
 }) {
-  const className = [styles.chip, tone === 'default' ? undefined : styles[tone]]
+  const className = [
+    styles.chip,
+    tone === 'default' ? undefined : styles[tone],
+    wrap ? styles.wrap : undefined,
+  ]
     .filter(Boolean)
     .join(' ');
   if (href === undefined)

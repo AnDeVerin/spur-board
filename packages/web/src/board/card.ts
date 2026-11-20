@@ -105,6 +105,8 @@ export interface Marker {
   icon?: IconName;
   text: string;
   title?: string;
+  /** Long text, such as path names, wraps within the card instead of running past it. */
+  wrap?: boolean;
 }
 
 /** The operator's first open block as `B<n> → you`, the rest as `+N`; agent blocks as a count. */
@@ -189,7 +191,7 @@ function approvalMarker(row: BoardRow): Marker | null {
   const approvals = displayedPr(row)?.summary?.approvals;
   if (row.column !== 'ready-to-merge' || approvals === undefined) return null;
   const chip = approvalChip(approvalSummary(approvals).worst);
-  return chip === null ? null : { tone: 'warn', icon: 'person', ...chip };
+  return chip === null ? null : { tone: 'warn', icon: 'person', wrap: true, ...chip };
 }
 
 /** A session id longer than this is cut, with the full id in the tooltip. */
