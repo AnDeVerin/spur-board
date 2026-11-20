@@ -19,7 +19,8 @@ rule names another. A PR changing a practice named here updates this skill.
 - Implement `Adapter` and keep A1-A10 in its TSDoc in `packages/contracts/src/adapters.ts`;
   `describe('no wire formats')` in `packages/contracts/test/adapters.test.ts` checks A1.
 - Imports: `adapterBoundaryPatterns` and `siblingPattern` in `eslint.config.js`.
-- Honour `PollContext.signal` (A7): rethrow the abort and return no batch.
+- Honour `PollContext.signal` (A7): rethrow the abort and return no batch. On
+  `PollContext.optionalSignal`, end optional reads and return the batch (`references/pr-cache.md`).
 - Network calls go only through the injected fetch, never the global `fetch`. Pass
   `options.fetch` (`StartAdaptersOptions.fetch` in `packages/adapters/src/index.ts`) to the
   client, as `githubSources` does in `packages/adapters/src/github/index.ts`.

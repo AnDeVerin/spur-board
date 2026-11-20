@@ -53,5 +53,8 @@ Read with `references/github-responses.md`, PR poll chunks and index.
   each out at `APPROVAL_REQUEST_MS` (4 s), so `pollPr` (10 s deadline, same queue) waits at most
   6 s on it. `throttled` pauses the source's reads (`pairPause`) until `retryAt`, else for
   `APPROVAL_THROTTLE_MS` (1 minute); `auth` for 15 minutes. Unread PRs leave pairs out.
+- On-demand first: the runner aborts `PollContext.optionalSignal` when `pollPr` queues behind
+  the poll in flight. `pairReader` then cuts its read in flight short and sends no more, so the
+  poll returns its batch and `pollPr` starts without waiting for approval history.
 - `pollPr` reads no commits, sends no `approvalPairs` and leaves the pair cache as it was.
 - Tests: `describe('approval watch')` in `packages/adapters/test/github/prBatch.test.ts`.
