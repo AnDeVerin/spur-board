@@ -1,0 +1,267 @@
+{
+  "data": {
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4713,
+      "resetAt": "2026-11-20T10:24:48Z"
+    },
+    "repositoryOwner": {
+      "projectV2": {
+        "id": "PVT_kwHOAdCPFc4Bp2FU",
+        "title": "spur-board",
+        "field": {
+          "__typename": "ProjectV2SingleSelectField",
+          "id": "PVTSSF_lAHOAdCPFc4Bp2FUzhoPzAs",
+          "options": [
+            {
+              "id": "f75ad846",
+              "name": "Backlog"
+            },
+            {
+              "id": "f6b1ecef",
+              "name": "Ready"
+            },
+            {
+              "id": "47fc9ee4",
+              "name": "In progress"
+            },
+            {
+              "id": "fbaed029",
+              "name": "In review"
+            },
+            {
+              "id": "98236657",
+              "name": "Done"
+            }
+          ]
+        }
+      }
+    },
+    "repository": {
+      "issues": {
+        "pageInfo": {
+          "hasNextPage": false
+        },
+        "nodes": [
+          {
+            "number": 83,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 678,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 723,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 729,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 737,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 738,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 747,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 748,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 749,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 751,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 753,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 754,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 755,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 756,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 759,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 760,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 770,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 771,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 775,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 776,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 778,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 780,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 785,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          },
+          {
+            "number": 786,
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,14 +1,18 @@
 // The adapters package: starts the runner that polls every source and reports to core.
 import {
   AdapterError,
+  mirrorSourceId,
   prSourceId,
+  readyMirrorOf,
   trackerSourceId,
   type Adapter,
   type AdapterCore,
   type Config,
+  type MirrorFailureCode,
 } from '@spur-board/contracts';
 import { githubSources } from './github/index.ts';
 import { createGithubIssuesAdapter } from './github/issues.ts';
+import { createGithubProjectAdapter } from './github/projectMirror.ts';
 import { createJiraAdapter } from './jira/jira.ts';
 import { startRunner, type PollFailure, type StartedRunner } from './runner/runner.ts';
 import { createSpurAdapter, type SpurNotice } from './spur/spur.ts';
@@ -17,6 +21,7 @@ export type { AdapterCore, SourceState } from '@spur-board/contracts';
 export type { AdapterRunner, PollFailure, StartedRunner } from './runner/runner.ts';
 export { sampleLinkRules } from './github/linkSample.ts';
 export { readBranchRule } from './github/branchRule.ts';
+export { readProjectMirror } from './github/projectMirror.ts';
 // Board doctor classifies its own GitHub probes with the same rules as the PR source.
 export { classifyHttpFailure } from './runner/http.ts';
 export {
@@ -38,11 +43,17 @@ export interface StartAdaptersOptions {
   jiraSearchMethod?: 'GET';
 }
 
-function blindSource(id: string, intervalMs: number, message: string): Adapter {
+function blindSource(
+  id: string,
+  intervalMs: number,
+  message: string,
+  code?: MirrorFailureCode,
+): Adapter {
   return {
     id,
     intervalMs,
-    poll: () => Promise.reject(new AdapterError('config', message)),
+    poll: () =>
+      Promise.reject(new AdapterError('config', message, code === undefined ? {} : { code })),
   };
 }
 
@@ -54,7 +65,12 @@ export function startAdapters(
 ): StartedRunner {
   const secrets = options.secrets ?? {};
   const githubToken = secrets['GITHUB_TOKEN'];
-  const entries: { adapter: Adapter; reserveRemaining?: number; repo?: string }[] = [];
+  const entries: {
+    adapter: Adapter;
+    reserveRemaining?: number;
+    repo?: string;
+    defaultFailureCode?: MirrorFailureCode;
+  }[] = [];
   for (const project of config.projects) {
     if (project.tracker.type === 'jira') {
       const tracker = project.tracker;
@@ -94,6 +110,30 @@ export function startAdapters(
           : blindSource(id, intervalMs, 'GitHub credential is missing'),
         reserveRemaining: config.github.reserveRemaining,
       });
+      const mirror = readyMirrorOf(project);
+      const mirrorId = mirrorSourceId(project);
+      if (mirror !== undefined && mirrorId !== undefined)
+        entries.push({
+          adapter: githubToken
+            ? createGithubProjectAdapter({
+                id: mirrorId,
+                repo: project.tracker.repo,
+                mirror,
+                token: githubToken,
+                now: options.now,
+                intervalMs,
+                ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+              })
+            : blindSource(
+                mirrorId,
+                intervalMs,
+                'GitHub credential is missing',
+                'mirror_project_forbidden',
+              ),
+          // Twice the reserve, so the mirror freezes before PR detail reads defer for budget.
+          reserveRemaining: 2 * config.github.reserveRemaining,
+          defaultFailureCode: 'mirror_read_failed',
+        });
     }
   }
   if (githubToken) {
