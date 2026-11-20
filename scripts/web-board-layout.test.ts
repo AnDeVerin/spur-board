@@ -56,8 +56,6 @@ it('keeps the header, its project list, status bar, columns, side panel, modal a
     sides(inset('top'), sideMax(space, 'right'), '0', sideMax(space, 'left'));
   const bar = (space: string) =>
     sides('0', sideMax(space, 'right'), inset('bottom'), sideMax(space, 'left'));
-  const columns = (space: string) =>
-    sides(`var(${space})`, sideMax(space, 'right'), `var(${space})`, sideMax(space, 'left'));
   const all = sides(inset('top'), inset('right'), inset('bottom'), inset('left'));
   expect(declarations('board/Header.module.css', '.header', false)).toMatchObject({
     height: `calc(var(--size-header) + ${inset('top')})`,
@@ -71,15 +69,15 @@ it('keeps the header, its project list, status bar, columns, side panel, modal a
     padding: bar('--space-6'),
   });
   expect(declarations('board/StatusBar.module.css', '.bar', true).padding).toBe(bar('--space-3'));
-  expect(declarations('board/Board.module.css', '.main', false).padding).toBe(
-    sides(
-      'var(--space-4)',
-      sideMax('--space-6', 'right'),
-      'var(--space-4)',
-      sideMax('--space-6', 'left'),
-    ),
-  );
-  expect(declarations('board/Board.module.css', '.main', true).padding).toBe(columns('--space-3'));
+  // The scrollport itself is inset, so it clips at the notch; its padding stays the tokens.
+  expect(declarations('board/Board.module.css', '.main', false)).toMatchObject({
+    'margin-left': inset('left'),
+    'margin-right': inset('right'),
+    padding: 'var(--space-4) var(--space-6)',
+  });
+  expect(declarations('board/Board.module.css', '.main', true)).toEqual({
+    padding: 'var(--space-3)',
+  });
   const panel = 'ds/SidePanel/SidePanel.module.css';
   expect(declarations(panel, '.root', false).inset).toBe(
     sides(
