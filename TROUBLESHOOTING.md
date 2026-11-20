@@ -284,11 +284,11 @@ undecided in External Review, and the task's `--why` shows it as `review_rule_un
 while this check passes. With no review rule to follow, add a required approval or code owner review
 to the default branch, or remove `approvalRule` from the column. When the read fails, give the token
 read access to the branch protection and rulesets of every base branch, the same advice Doctor gives
-when it could not confirm all ruleset rules were read; the rule still applies, so removing
-`approvalRule` would only weaken the gate. Doctor therefore leaves out the removal advice while a
-project with a repo that has no review rule to follow also has a repo whose rule is in force or
-could not be read in full: removing `approvalRule` from the column would turn off the gate of that
-repo too.
+when it could not confirm all ruleset rules were read; a rule may still apply (Doctor cannot confirm
+one exists when GitHub's answer has no `pageInfo`), so removing `approvalRule` could weaken the
+gate. Doctor therefore leaves out the removal advice while a project with a repo that has no review
+rule to follow also has a repo whose rule is in force or could not be read in full: removing
+`approvalRule` from the column would turn off the gate of that repo too.
 
 ### spur.api
 

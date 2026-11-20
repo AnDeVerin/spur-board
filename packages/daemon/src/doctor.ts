@@ -442,7 +442,8 @@ function ruleSegment({ project, repo, read }: RuleOutcome): RuleSegment {
     cause: 'unfollowed',
     text: () => `${where}: ${text}, no review rule to follow`,
   });
-  // A null rule is a rules page past the first or without pageInfo: in force, partly unread.
+  // A null rule is a rules page past the first or without pageInfo: a rule may be in force,
+  // partly or wholly unread.
   if (rule === null)
     return {
       problem: true,
