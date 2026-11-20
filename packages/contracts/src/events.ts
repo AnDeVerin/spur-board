@@ -40,6 +40,7 @@ export const EVENT_KINDS = [
   'task_corrected',
   'task_manually_moved',
   'task_mirror_moved',
+  'task_reordered',
   'external_round',
   'dispatcher_mode_changed',
   'turn_opened',
@@ -211,6 +212,8 @@ export const eventPayloadSchemas = {
     /** Only the shadow column moved; `from` and `to` are shadow positions. */
     shadow: z.literal(true).optional(),
   }),
+  /** An operator moved the task inside its column order; `from` and `to` are 1-based places. */
+  task_reordered: z.looseObject({ column: z.enum(COLUMN_IDS), from: N, to: N }),
   /** An external change request on a new PR head while the task is in Dev: one course-check round. */
   external_round: z.looseObject({ repo: S, pr: N, head: S, reviewer: S }),
   task_corrected: z.looseObject({

@@ -54,6 +54,7 @@ describe('error catalog', () => {
       ['move_outside_todo_group', 409, 1],
       ['work_started', 409, 1],
       ['column_mirrored', 409, 1],
+      ['order_anchor_invalid', 409, 1],
       ['task_archived', 409, 1],
       ['link_conflict', 409, 1],
       ['retry_not_applicable', 409, 1],

@@ -1,5 +1,5 @@
 {
-  "version": "439523d89f766349ccfeb689777c920eb68447f9efde2423832c8e4e0d31a789",
+  "version": "204256005fc832af09da5365e16078424a5a7636a9032d9d8fcf4fec87979a1d",
   "grants": [
     "operator",
     "project-agent",
@@ -551,6 +551,35 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#column_mirrored",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "order_anchor_invalid": {
+      "status": 409,
+      "exit": 1,
+      "message": "The order anchor must be another live task in the same column.",
+      "hint": "Pick another task from the same column in `board status`, or use `--top` or `--bottom`.",
+      "recovery": {
+        "action": "Pick another task from the same column, or place the task at the top or bottom.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#order_anchor_invalid",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1163,6 +1192,7 @@
                 "project": "web",
                 "column": "dev",
                 "membership": "active",
+                "position": 1,
                 "columnEnteredAt": "2026-01-05T09:30:00.000Z",
                 "state": "ticket not observed",
                 "prCount": 0,
@@ -1225,6 +1255,7 @@
                 "project": "web",
                 "column": "dev",
                 "membership": "active",
+                "position": 1,
                 "columnEnteredAt": "2026-01-05T09:30:00.000Z",
                 "state": "ticket not observed",
                 "prCount": 0,
@@ -1984,6 +2015,12 @@
                     { "type": "null" }
                   ],
                   "description": "Time the task entered its current real column, ISO 8601 UTC; latest real move or correction, falling back to the original add time, or null if neither is known."
+                },
+                "position": {
+                  "description": "1-based place in the column order; new arrivals go last; absent on older servers.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
                 },
                 "shadowColumn": {
                   "description": "Column the dispatcher works from in shadow mode: where the board would have the task. Present only while the project dispatcher is in shadow mode.",
@@ -6189,6 +6226,7 @@
                     "task_corrected",
                     "task_manually_moved",
                     "task_mirror_moved",
+                    "task_reordered",
                     "external_round",
                     "dispatcher_mode_changed",
                     "turn_opened",
@@ -11509,6 +11547,243 @@
           }
         },
         "required": ["task", "from", "to", "column", "settled"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "task.order",
+      "kind": "mutation",
+      "description": "Place a task before or after another task, or at the top or bottom of its column order.",
+      "grants": [{ "grant": "operator" }],
+      "preconditions": null,
+      "errors": [
+        "usage",
+        "wrong_id_kind",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "order_anchor_invalid",
+        "task_archived",
+        "idempotency_key_mismatch",
+        "identity_unavailable",
+        "starting",
+        "stopping"
+      ],
+      "explicitKeyModes": ["before", "after", "top", "bottom"],
+      "cli": {
+        "command": "order",
+        "args": ["task"],
+        "modes": [
+          { "mode": "before", "flag": "--before", "value": "anchor" },
+          { "mode": "after", "flag": "--after", "value": "anchor" },
+          { "mode": "top", "flag": "--top", "value": null },
+          { "mode": "bottom", "flag": "--bottom", "value": null }
+        ],
+        "key": "--key"
+      },
+      "mcp": {
+        "name": "task_order",
+        "key": "idempotencyKey",
+        "whenToUse": "The operator wants a task earlier or later among the tasks of its column; pass an explicit key. Each column has one order for the whole board.",
+        "whenNotToUse": "Use task_move to change the column.",
+        "destructive": true
+      },
+      "slack": null,
+      "web": true,
+      "examples": [
+        {
+          "summary": "Place a task directly before another task of its column",
+          "input": { "mode": "before", "task": "PROJ-123", "anchor": "PROJ-120" },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "dev",
+              "membership": "active"
+            },
+            "position": 2,
+            "previous": "PROJ-118",
+            "next": "PROJ-120"
+          }
+        },
+        {
+          "summary": "Place a task first in its column",
+          "input": { "mode": "top", "task": "PROJ-123" },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "dev",
+              "membership": "active"
+            },
+            "position": 1,
+            "previous": null,
+            "next": "PROJ-118"
+          }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "before",
+                "description": "Place the task directly before the anchor task."
+              },
+              "task": {
+                "type": "string",
+                "maxLength": 300,
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "anchor": {
+                "type": "string",
+                "maxLength": 300,
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Another live task of the same column; the task goes directly before it in mode before, after it in mode after."
+              }
+            },
+            "required": ["mode", "task", "anchor"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "after",
+                "description": "Place the task directly after the anchor task."
+              },
+              "task": {
+                "type": "string",
+                "maxLength": 300,
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "anchor": {
+                "type": "string",
+                "maxLength": 300,
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Another live task of the same column; the task goes directly before it in mode before, after it in mode after."
+              }
+            },
+            "required": ["mode", "task", "anchor"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "top",
+                "description": "Place the task first in its column order."
+              },
+              "task": {
+                "type": "string",
+                "maxLength": 300,
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              }
+            },
+            "required": ["mode", "task"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "bottom",
+                "description": "Place the task last in its column order."
+              },
+              "task": {
+                "type": "string",
+                "maxLength": 300,
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              }
+            },
+            "required": ["mode", "task"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "project": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Project the task belongs to."
+              },
+              "column": {
+                "type": "string",
+                "enum": [
+                  "todo",
+                  "triage",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done"
+                ],
+                "description": "Board column the task is in."
+              },
+              "membership": {
+                "type": "string",
+                "enum": ["active", "out_of_filter", "archived"],
+                "description": "Whether the task is on the board, outside the tracker filter, or archived."
+              }
+            },
+            "required": ["key", "project", "column", "membership"],
+            "additionalProperties": false,
+            "description": "A task on the board."
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "1-based place of the task in its column order after the call."
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              { "type": "null" }
+            ],
+            "description": "Task directly before it in the column order; null when it is first."
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              { "type": "null" }
+            ],
+            "description": "Task directly after it in the column order; null when it is last."
+          }
+        },
+        "required": ["task", "position", "previous", "next"],
         "additionalProperties": false
       }
     },

@@ -712,6 +712,76 @@ describe('catalog commands', () => {
     expect(sent).toBe(false);
   });
 
+  it.each([
+    { extra: ['--key', 'order-1'] },
+    { extra: ['--top', '--bottom', '--key', 'order-1'] },
+    { extra: ['--before', 'PROJ-120', '--top', '--key', 'order-1'] },
+    { extra: ['--top'] },
+    { extra: ['--before', 'PROJ-120', '--key', '  '] },
+  ])('refuses order placement and key misuse locally: $extra', async ({ extra }) => {
+    const output = capture();
+    let sent = false;
+    const code = await runCli(['order', 'PROJ-123', ...extra], {
+      io: output.io,
+      env: {},
+      sendOperation: () => {
+        sent = true;
+        throw new Error('Unexpected send');
+      },
+    });
+    expect(code).toBe(2);
+    expect(sent).toBe(false);
+  });
+
+  it('sends one order placement per flag with its anchor and prints position and neighbours', async () => {
+    const order = OPERATIONS.find((op) => op.id === 'task.order');
+    if (!order) throw new Error('Missing order operation.');
+    const calls: { id: string; input: unknown; key: string | undefined }[] = [];
+    const url = await fakeServer((id, input, key) => {
+      calls.push({ id, input, key });
+      return order.examples[0].output;
+    });
+    for (const flags of [
+      ['--before', 'PROJ-120'],
+      ['--after', 'PROJ-120'],
+      ['--top'],
+      ['--bottom'],
+    ]) {
+      const output = capture();
+      expect(
+        await runCli(['order', 'PROJ-123', ...flags, '--key', 'order-1', '--json'], {
+          env: env(url),
+          io: output.io,
+        }),
+      ).toBe(0);
+      expect(JSON.parse(output.stdout)).toEqual(order.examples[0].output);
+    }
+    expect(calls).toEqual([
+      {
+        id: 'task.order',
+        input: { mode: 'before', task: 'PROJ-123', anchor: 'PROJ-120' },
+        key: 'order-1',
+      },
+      {
+        id: 'task.order',
+        input: { mode: 'after', task: 'PROJ-123', anchor: 'PROJ-120' },
+        key: 'order-1',
+      },
+      { id: 'task.order', input: { mode: 'top', task: 'PROJ-123' }, key: 'order-1' },
+      { id: 'task.order', input: { mode: 'bottom', task: 'PROJ-123' }, key: 'order-1' },
+    ]);
+  });
+
+  it('prints position on every board status --json row', async () => {
+    const status = OPERATIONS.find((op) => op.id === 'status.get');
+    if (!status) throw new Error('Missing status operation.');
+    const url = await fakeServer(() => status.examples[0].output);
+    const output = capture();
+    expect(await runCli(['status', '--json'], { env: env(url), io: output.io })).toBe(0);
+    const tasks = (JSON.parse(output.stdout) as { tasks: { position?: number }[] }).tasks;
+    expect(tasks.map((task) => task.position)).toEqual([1]);
+  });
+
   it.each(['submit_basis_invalid', 'submit_source_not_tested'] as const)(
     'reports %s with guidance and refuses malformed basis locally',
     async (code) => {
@@ -1049,7 +1119,7 @@ describe('catalog commands', () => {
     const output = capture(true);
     expect(await runCli(['status'], { env: env(url), io: output.io })).toBe(0);
     expect(output.stdout).toContain(
-      '    column: todo\n    membership: active\n    columnEnteredAt: 2026-01-05T09:30:00.000Z\n    shadowColumn: review\n    shadowDiffers: true\n',
+      '    column: todo\n    membership: active\n    columnEnteredAt: 2026-01-05T09:30:00.000Z\n    position: 1\n    shadowColumn: review\n    shadowDiffers: true\n',
     );
   });
 
@@ -1102,6 +1172,7 @@ describe('catalog commands', () => {
           column: dev
           membership: active
           columnEnteredAt: 2026-01-05T09:30:00.000Z
+          position: 1
           state: ticket not observed
           prCount: 0
           sessionCount: 0

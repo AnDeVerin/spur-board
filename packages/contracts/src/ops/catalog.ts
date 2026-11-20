@@ -1,4 +1,9 @@
-import { taskMoveInputSchema, taskMoveOutputSchema } from './move-schemas.ts';
+import {
+  taskMoveInputSchema,
+  taskMoveOutputSchema,
+  taskOrderInputSchema,
+  taskOrderOutputSchema,
+} from './move-schemas.ts';
 import {
   statusInputSchema,
   statusOutputSchema,
@@ -321,6 +326,7 @@ export const OPERATIONS = [
           tasks: [
             {
               ...task,
+              position: 1,
               columnEnteredAt: at,
               state: 'ticket not observed',
               prCount: 0,
@@ -363,6 +369,7 @@ export const OPERATIONS = [
           tasks: [
             {
               ...task,
+              position: 1,
               columnEnteredAt: at,
               state: 'ticket not observed',
               prCount: 0,
@@ -1473,6 +1480,46 @@ export const OPERATIONS = [
             },
           ],
         },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'task.order',
+    kind: 'mutation',
+    description:
+      'Place a task before or after another task, or at the top or bottom of its column order.',
+    mcp: {
+      whenToUse:
+        'The operator wants a task earlier or later among the tasks of its column; pass an explicit key. Each column has one order for the whole board.',
+      whenNotToUse: 'Use task_move to change the column.',
+    },
+    input: taskOrderInputSchema,
+    output: taskOrderOutputSchema,
+    explicitKeyModes: ['before', 'after', 'top', 'bottom'],
+    web: true,
+    grants: operatorOnly,
+    errors: ['wrong_id_kind', 'not_found', 'task_archived', 'order_anchor_invalid'],
+    cli: {
+      command: 'order',
+      args: ['task'],
+      modes: [
+        { mode: 'before', flag: '--before', value: 'anchor' },
+        { mode: 'after', flag: '--after', value: 'anchor' },
+        { mode: 'top', flag: '--top', value: null },
+        { mode: 'bottom', flag: '--bottom', value: null },
+      ],
+    },
+    slack: null,
+    examples: [
+      {
+        summary: 'Place a task directly before another task of its column',
+        input: { mode: 'before', task: 'PROJ-123', anchor: 'PROJ-120' },
+        output: { task, position: 2, previous: 'PROJ-118', next: 'PROJ-120' },
+      },
+      {
+        summary: 'Place a task first in its column',
+        input: { mode: 'top', task: 'PROJ-123' },
+        output: { task, position: 1, previous: null, next: 'PROJ-118' },
       },
     ],
   }),

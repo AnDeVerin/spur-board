@@ -159,6 +159,11 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
     kind: 'task_mirror_moved',
     payload: { from: 'todo', to: 'ready-for-dev', source: 'github-project:web:example-org/3' },
   },
+  task_reordered: {
+    ...base,
+    kind: 'task_reordered',
+    payload: { column: 'ready-for-dev', from: 3, to: 1 },
+  },
   external_round: {
     ...base,
     kind: 'external_round',
@@ -254,8 +259,8 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
 };
 
 describe('event kinds', () => {
-  it('has a payload schema for each of the 48 kinds', () => {
-    expect(EVENT_KINDS).toHaveLength(48);
+  it('has a payload schema for each of the 49 kinds', () => {
+    expect(EVENT_KINDS).toHaveLength(49);
     expect(Object.keys(eventPayloadSchemas).sort()).toEqual([...EVENT_KINDS].sort());
   });
 

@@ -122,3 +122,52 @@ it('manually moves as operator with an explicit key, exact reason and web proven
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it('reorders as operator with an explicit key and web provenance', async () => {
+  const { app, store, root } = await setup();
+  try {
+    for (const [id, key] of [
+      [1, 'o/r#101'],
+      [2, 'o/r#102'],
+    ] as const)
+      await store.db
+        .insertInto('task')
+        .values({
+          ...sampleRows.task,
+          id,
+          key,
+          tracker_id: key,
+          membership: 'active',
+          archive_reason: null,
+          column: 'todo',
+        })
+        .execute();
+    const input = { mode: 'top', task: 'o/r#102' };
+    for (const key of [undefined, '', '   ']) {
+      const response = await app.inject({
+        ...post('task.order', input),
+        payload: JSON.stringify({ input, ...(key === undefined ? {} : { key }) }),
+      });
+      expect(response.statusCode).toBe(400);
+    }
+    const response = await app.inject({
+      ...post('task.order', input),
+      payload: JSON.stringify({ input, key: 'web-order' }),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      value: { position: 1, previous: null, next: 'o/r#101' },
+    });
+    const event = await store.db
+      .selectFrom('event')
+      .selectAll()
+      .where('kind', '=', 'task_reordered')
+      .executeTakeFirstOrThrow();
+    expect(event).toMatchObject({ actor: 'operator', via: 'web', request_id: 'web-order' });
+    expect(JSON.parse(event.payload)).toEqual({ column: 'todo', from: 2, to: 1 });
+  } finally {
+    await app.close();
+    await store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

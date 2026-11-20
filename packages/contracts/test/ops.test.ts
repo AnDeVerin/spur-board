@@ -110,7 +110,7 @@ describe('catalog', () => {
     if (!isObject(property)) throw new Error('Missing column entry schema');
     expect(property['description']).toContain('original add');
   });
-  it('defaults web off and exposes exactly the screen reads and eight operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and nine operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
@@ -129,6 +129,7 @@ describe('catalog', () => {
       'task.get',
       'task.history',
       'task.move',
+      'task.order',
       'task.return',
       'task.submit',
     ]);
@@ -143,6 +144,7 @@ describe('catalog', () => {
       'inbox.ack',
       'item.close',
       'task.move',
+      'task.order',
       'task.return',
       'task.submit',
     ]);
@@ -612,6 +614,30 @@ describe('catalog', () => {
     ).toBe(true);
   });
 
+  it('task.order binds --before/--after <anchor> | --top | --bottom', () => {
+    const order = OPERATIONS.find((op) => op.id === 'task.order');
+    if (order === undefined) throw new Error('Missing task.order');
+    expect(order.cli).toEqual({
+      command: 'order',
+      args: ['task'],
+      modes: [
+        { mode: 'before', flag: '--before', value: 'anchor' },
+        { mode: 'after', flag: '--after', value: 'anchor' },
+        { mode: 'top', flag: '--top', value: null },
+        { mode: 'bottom', flag: '--bottom', value: null },
+      ],
+      key: '--key',
+    });
+    expect(order.cli.defaultMode).toBeUndefined();
+    expect(order.explicitKeyModes).toEqual(['before', 'after', 'top', 'bottom']);
+    expect(order.input.safeParse({ mode: 'before', task: 'A-1', anchor: 'A-2' }).success).toBe(
+      true,
+    );
+    expect(order.input.safeParse({ mode: 'after', task: 'A-1' }).success).toBe(false);
+    expect(order.input.safeParse({ mode: 'top', task: 'A-1', anchor: 'A-2' }).success).toBe(false);
+    expect(order.input.safeParse({ mode: 'bottom', task: 'A-1' }).success).toBe(true);
+  });
+
   it('requires an exact revision when acknowledging a comment', () => {
     const ack = OPERATIONS.find((op) => op.id === 'inbox.ack');
     expect(ack?.input.safeParse({ entries: [{ id: 'C3', revision: 2 }] }).success).toBe(true);
@@ -747,6 +773,7 @@ describe('grants', () => {
         'column_mirrored',
       ],
     ],
+    ['task.order', 'mutation', [operator], null, [...archived, 'order_anchor_invalid']],
     ['config.get', 'query', [operator, projectAgent], null, ['not_found']],
     ['columns.describe', 'query', [operator, projectAgent], null, ['not_found']],
   ];
@@ -762,7 +789,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 29 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 30 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -783,7 +810,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(29);
+    expect(OPERATIONS).toHaveLength(30);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {
@@ -906,9 +933,10 @@ describe('snapshot', () => {
     // to task.get --why. The web Turn section then set web on inbox.ack, task.submit and
     // task.return; their schemas, grants and errors are unchanged. #738 adds the mirror move kind
     // and reason, sources[].failure and the github-project service texts. #755 adds
-    // tasks[].qaSubmission to status.get.
+    // tasks[].qaSubmission to status.get. #737 adds task.order, tasks[].position, the
+    // order_anchor_invalid code and the task_reordered kind.
     expect(await catalogVersion(baseline)).toBe(
-      'edde22604ecdf5af5f33eab2c39b258f6b64c5d952007120720906fcfdc7401f',
+      '8c4118e24178b7a23cc73cd7310f9e469ac260c9b49c311d8c5626d177dbd4f2',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

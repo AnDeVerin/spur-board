@@ -642,6 +642,25 @@ Example: `board move PROJ-123 ready-for-dev --manual --reason "Ready for the nex
 
 Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `move_not_allowed` (exit 1: Read why with `board task <KEY> --why`; pick an enabled column, and unlink a merged pull request with `board unlink` first.); `move_outside_todo_group` (exit 1: Pick an enabled Todo-group column; use `board move --correct` to correct a wrong column.); `work_started` (exit 1: Read `board task <KEY> --why`; resolve the open pull request or live worker before moving idle work.); `column_mirrored` (exit 1: Change the task status in the named project tracker instead.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.).
 
+### `board order`
+
+Place a task before or after another task, or at the top or bottom of its column order.
+
+Arguments: `<task>`.
+
+Flags:
+
+`--before <anchor>` — Another live task of the same column; the task goes directly before it in mode before, after it in mode after.
+`--after <anchor>` — Another live task of the same column; the task goes directly before it in mode before, after it in mode after.
+`--top` — Place the task first in its column order.
+`--bottom` — Place the task last in its column order.
+`--key <key>` — Idempotency key for this action.
+`--json` — Print JSON output or a JSON error.
+
+Example: `board order PROJ-123 --before PROJ-120 --key order-PROJ-123-example-1432`
+
+Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `order_anchor_invalid` (exit 1: Pick another task from the same column in `board status`, or use `--top` or `--bottom`.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.).
+
 ### `board config get`
 
 Show effective project columns, executors, Spur bindings and web origins.

@@ -168,6 +168,11 @@ const submissionViewSchema = z
   })
   .describe('Latest accepted submission by row order, including pending and voided submissions.');
 export type SubmissionView = z.output<typeof submissionViewSchema>;
+export const columnPositionSchema = z
+  .int()
+  .min(1)
+  .optional()
+  .describe('1-based place in the column order; new arrivals go last; absent on older servers.');
 export const latestSubmissionSchema = submissionViewSchema
   .nullable()
   .optional()

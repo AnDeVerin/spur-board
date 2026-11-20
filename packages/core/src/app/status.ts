@@ -241,6 +241,7 @@ export async function getStatus(
       qaSubmission: qaSubmissions.get(task.id) ?? null,
       project: task.project,
       column: task.column,
+      position: task.position,
       columnEnteredAt: columnEntries.get(task.id) ?? task.created_at,
       membership: task.membership,
       ...(project?.dispatcher.mode === 'shadow'

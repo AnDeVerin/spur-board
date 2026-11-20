@@ -94,6 +94,7 @@ const SERVER_EXITS = {
   move_outside_todo_group: { exit: 1, code: 'move_outside_todo_group' },
   work_started: { exit: 1, code: 'work_started' },
   column_mirrored: { exit: 1, code: 'column_mirrored' },
+  order_anchor_invalid: { exit: 1, code: 'order_anchor_invalid' },
   task_archived: { exit: 1, code: 'task_archived' },
   link_conflict: { exit: 1, code: 'link_conflict' },
   retry_not_applicable: { exit: 1, code: 'retry_not_applicable' },
