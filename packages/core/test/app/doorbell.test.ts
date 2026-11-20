@@ -2783,6 +2783,25 @@ describe('turns', () => {
     await step(ctx);
   }
 
+  it('a code block without a return keeps ringing after the worker takes a Dev turn', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await workerBlock(ctx.store);
+    expect((await open(ctx)).role).toBe('worker');
+    await ctx.apply(ctx.ops.ack, T1, worker, 'ack-t1');
+    await exhaust(ctx);
+    const blockRings = ctx.sent.filter((entry) => /\(N1-\d\)$/.test(entry.text));
+    expect(blockRings.map((entry) => entry.session)).toEqual(['worker-1', 'worker-1', 'worker-1']);
+    expect(blockRings.map((entry) => entry.text)).toEqual(
+      [1, 2, 3].map((ring) => expect.stringContaining(`(N1-${String(ring)})`) as unknown),
+    );
+    expect(await items(ctx)).toEqual([
+      expect.objectContaining({
+        kind: 'worker_not_reading',
+        item_key: 'worker_not_reading:block:1:worker',
+      }),
+    ]);
+  });
+
   it('holds the first ring of a turn its own recipient opened and sends none once acked', async () => {
     const ctx = await setup({ config: policyBoard('none') });
     await open(ctx, 'Review the PR', worker);

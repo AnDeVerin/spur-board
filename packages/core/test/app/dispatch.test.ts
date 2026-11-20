@@ -3446,7 +3446,10 @@ describe('course check', () => {
     });
     expect(block.reason).toContain('course check: 3 returns to Dev from review');
     expect(block.reason).toContain('by rev/rev-1 on');
-    expect(block.reason).toContain('on aaaaaaa: Handle the empty list.');
+    // The submits that answered the first two returns closed their blocks; only the third stays.
+    expect(block.reason).toContain('on ccccccc (current head): Handle the empty list.');
+    expect(block.reason).not.toContain('on aaaaaaa');
+    expect(block.reason).not.toContain('on bbbbbbb');
     expect(block.reason).toContain('PR: https://github.com/o/r/pull/7');
     expect(block.reason).toContain('Issue: https://github.com/o/r/issues/9');
     expect(block.reason).toContain('If returns keep hitting the same mechanism');

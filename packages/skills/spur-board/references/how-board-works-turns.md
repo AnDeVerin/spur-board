@@ -48,6 +48,7 @@ The Dev turn hands the comments, beside a return's `code` block.
 Each handed entry has its `url`, `editedAt` once edited, and a review's inline
 `comments` with `url` and `threadId`. Turns of a Dev visit opened by a return
 show `returned`: who, from, the turn, the `code` block and the verbatim reason.
+Taking that turn reads its block; the turn's submit closes the block `done` with the SHA.
 
 Closed turns receive no further Board sends; Obsolete queued rings are dropped;
 a message already accepted by Spur cannot be retracted. Check `board inbox` and
