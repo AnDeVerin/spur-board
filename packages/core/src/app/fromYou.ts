@@ -672,7 +672,9 @@ export async function reconcileItems(
       ticket !== undefined &&
       ticketDone(project, ticket.status) &&
       (state.hasOpenPr || liveSessionTasks.has(String(task.id))) &&
-      !state.hasMergedPr;
+      // A merge of any link state, a conflict link's included, may be what closed the ticket.
+      !state.hasMergedPr &&
+      !prs.some((pr) => pr.task_id === task.id && pr.state === 'merged');
     if (task.membership === 'out_of_filter' && !closedWhileLive)
       candidates.push({
         key: `filter:${String(task.id)}`,

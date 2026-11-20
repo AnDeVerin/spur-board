@@ -4005,6 +4005,16 @@ describe('anomaly blocks', () => {
         await prs(b, [seven, eight]);
         return [seven, eight];
       },
+      /** #7 open, #8 linked as a conflict beside it, then #8 merged while #7 stays open. */
+      conflictMergedOpen: async (b: Board) => {
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [pr(7, 'open'), pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [pr(7, 'open'), eight]);
+        return [pr(7, 'open'), eight];
+      },
       /** #8 merged, follow-up #9 closed unmerged, then the first-linked #7 reopened and merged last. */
       supersededClose: async (b: Board) => {
         const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
@@ -4326,6 +4336,14 @@ describe('anomaly blocks', () => {
         ['pr-closed', ENDED],
         NO_PR,
         { pr: 'closed', mergedOpen: null, unconfirmed: false },
+      ],
+      // The conflict-linked merge closed the ticket while #7 is open: no ticket-closed block.
+      [
+        'conflictMergedOpen',
+        'done',
+        [],
+        null,
+        { pr: 'open', mergedOpen: null, unconfirmed: false },
       ],
       ['supersededClose', 'untouched', [], null, UNCONFIRMED],
       ['reopenedClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
