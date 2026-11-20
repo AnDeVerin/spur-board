@@ -531,9 +531,11 @@ export async function reconcileItems(
   const mergedAt = new Map<number, string | null>();
   // Each task's newest stored merge time (`newestMergeAt`): a ticket edited before it waits.
   const newestMerge = new Map<number, string | null>();
-  // Each task's merged PR as the dispatcher judges it (`taskMergedPr`): the newest eligible link;
-  // `at` is null when its detail is unreadable. A merged conflict link counts as an active one, as
-  // in 0.127.0, unless an active link merged too: then the active merges decide, as in dispatch.
+  // Each task's merged PR as the inbox judges it: the newest eligible merged link; `at` is null
+  // when its detail is unreadable. A merged conflict link counts as an active one, as in 0.127.0,
+  // unless an active link merged too: then the active merges decide, as the dispatcher's
+  // `taskMergedPr` does. When only a conflict link merged, the inbox judges a PR the dispatcher,
+  // which reads active links only, does not pick.
   const judged = new Map<
     number,
     { id: number; facts: ReturnType<typeof parsePr>; at: string | null; ref: string }

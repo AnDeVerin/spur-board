@@ -4568,6 +4568,44 @@ describe('anomaly blocks', () => {
       await prs(b, [seven, eight]);
       await none();
     };
+    /**
+     * Case C with active links only: #7 merges, follow-up #8, linked active as no open PR was
+     * active, closes unmerged after the ticket edit inside the merge's grace. No block in the
+     * grace; the ticket seen still open one interval later raises the PR-closed item.
+     */
+    const caseCActive: Scenario = async (b, ticket) => {
+      const none = async () => {
+        expect((await surface(b)).blocks).toEqual([]);
+      };
+      await prs(b, [pr(7, 'open')]);
+      now += 1_000;
+      const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [seven]);
+      now += 1_000;
+      await prs(b, [seven, pr(8, 'open')]);
+      const kinds = await b.store.db
+        .selectFrom('link')
+        .select(['number', 'pr_state'])
+        .where('entity', '=', 'pr')
+        .orderBy('number')
+        .execute();
+      expect(kinds).toEqual([
+        { number: 7, pr_state: 'active' },
+        { number: 8, pr_state: 'active' },
+      ]);
+      now += 1_000;
+      await ticket('open');
+      await none();
+      now += 1_000;
+      const eight = { ...pr(8, 'closed'), updatedAt: iso(), closedAt: iso() };
+      await prs(b, [seven, eight]);
+      now += 1_000;
+      await prs(b, [seven, eight]);
+      await none();
+      await seeAgain(b, ticket);
+      now += 1_000;
+      await prs(b, [seven, eight]);
+    };
     it.each([
       ...(['worker-end', 'ticket-closed'] as const).flatMap((check) =>
         (['active', 'conflict'] as const).flatMap((kind) =>
@@ -4584,6 +4622,11 @@ describe('anomaly blocks', () => {
       ['case A: conflict merge beside an open PR, ticket done', caseA, []],
       ['case B: active PR closed unmerged, conflict merge, ticket done', caseB, []],
       ['case C: redundant PR closed and ticket edited, done in the merge grace', caseC, []],
+      [
+        'case C, active links: follow-up closed and ticket edited, open past the merge grace',
+        caseCActive,
+        ['pr-closed'],
+      ],
     ] as const)(
       'counts a conflict link as an active one for merged and remaining PRs: %s',
       async (_name, scenario, ledger) => {
