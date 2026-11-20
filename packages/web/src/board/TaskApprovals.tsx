@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { Chip, Icon, quiet } from '../ds/index.ts';
 import {
   approvalState,
@@ -20,20 +21,33 @@ function What({ state }: { state: ApprovalState }) {
     case 'unread':
       return 'not read yet';
     case 'stale': {
-      const changed = approval.changedAfter ?? [];
       const watched = new Set(approval.watchedAfter ?? []);
+      const changed = approval.changedAfter ?? [];
+      // Each group says in words whether its entries are watched; the chip tone repeats it.
+      const groups = [true, false]
+        .map((isWatched) => ({
+          isWatched,
+          entries: changed.filter((entry) => watched.has(entry) === isWatched),
+        }))
+        .filter(({ entries }) => entries.length > 0);
       return (
         <>
           {plural(approval.commitsAfter ?? 0, 'commit')} since
-          {changed.length > 0 && ' · changed '}
-          {changed.map((entry) => (
-            <Chip
-              key={entry}
-              tone={watched.has(entry) ? 'warn' : 'ghost'}
-              title={changedTitle(watched.has(entry))}
-            >
-              {entry}
-            </Chip>
+          {groups.length > 0 && ' · changed:'}
+          {groups.map(({ isWatched, entries }, index) => (
+            <Fragment key={String(isWatched)}>
+              {`${index > 0 ? ' ·' : ''} ${isWatched ? 'watched' : 'not watched'} `}
+              {entries.map((entry) => (
+                <Chip
+                  key={entry}
+                  tone={isWatched ? 'warn' : 'ghost'}
+                  title={changedTitle(isWatched)}
+                  wrap
+                >
+                  {entry}
+                </Chip>
+              ))}
+            </Fragment>
           ))}
         </>
       );

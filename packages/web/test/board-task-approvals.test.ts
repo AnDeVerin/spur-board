@@ -8,10 +8,13 @@ import { mount, mountEachTest, settle } from './board-harness.ts';
 
 mountEachTest();
 
-const chipClass = (tone: ChipTone) =>
-  /class="([^"]*)"/.exec(renderToStaticMarkup(createElement(Chip, { tone, children: 'x' })))?.[1];
-const WATCHED = [chipClass('warn'), 'Changed since the approval; watched'];
-const NOT_WATCHED = [chipClass('ghost'), 'Changed since the approval; not watched'];
+const chipClass = (tone: ChipTone, wrap = false) =>
+  /class="([^"]*)"/.exec(
+    renderToStaticMarkup(createElement(Chip, { tone, wrap, children: 'x' })),
+  )?.[1];
+/** Changed-entry chips wrap, so a long path name stays inside the row. */
+const WATCHED = [chipClass('warn', true), 'Changed since the approval; watched'];
+const NOT_WATCHED = [chipClass('ghost', true), 'Changed since the approval; not watched'];
 
 const sha = (char: string) => char.repeat(40);
 const counted = (commitsAfter: number, changedAfter: string[], watchedAfter: string[]) => ({
@@ -88,8 +91,8 @@ describe('approvals in Task Now', () => {
       APPROVALS.map((approval) => approval.sha),
     );
     expect(rows().map((row) => what(row)?.textContent)).toEqual([
-      '3 commits since · changed back/docs/front/',
-      '2 commits since · changed docs/',
+      '3 commits since · changed: watched back/front/ · not watched docs/',
+      '2 commits since · changed: not watched docs/',
       'on the head',
       'not counted history rewritten after the approval',
       'not counted the PR is too large to compare',
@@ -104,7 +107,7 @@ describe('approvals in Task Now', () => {
         ),
       ),
     ).toEqual([
-      [WATCHED, NOT_WATCHED, WATCHED],
+      [WATCHED, WATCHED, NOT_WATCHED],
       [NOT_WATCHED],
       [],
       [[chipClass('warn')]],

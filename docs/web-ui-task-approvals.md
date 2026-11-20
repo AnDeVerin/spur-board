@@ -17,10 +17,13 @@ Each row reads the reviewer, the first 7 characters of the approved commit (the 
 tooltip) and what changed since:
 
 - `on the head` for an approval on the current head.
-- `N commits since`, then ` · changed` and one chip per top-level entry those commits changed.
-  A watched entry has a warn chip (tooltip `Changed since the approval; watched`), any other a
-  ghost chip (tooltip `Changed since the approval; not watched`). After merges only, the row
-  reads `0 commits since` with no chip: merge commits, base-branch merges included, add neither
+- `N commits since`, then ` · changed:` and the top-level entries those commits changed, in up
+  to two groups that say it in words: `watched` with a warn chip per entry (tooltip
+  `Changed since the approval; watched`), then `not watched` with a ghost chip per entry (tooltip
+  `Changed since the approval; not watched`), e.g.
+  `3 commits since · changed: watched back/ front/ · not watched docs/`. An empty group is left
+  out, and a long entry name wraps within the row. After merges only, the row reads
+  `0 commits since` with no chip: merge commits, base-branch merges included, add neither
   commits nor entries.
 - A `not counted` chip and the reason when the commits could not be counted:
   `history rewritten after the approval` (a rebase or force-push; a warn chip),
@@ -41,7 +44,7 @@ a watched change, then other commits since, then uncounted or unread, then the h
 adds a quiet `+N` (commits since that approval, `+0` after merges only) or `?` (not counted or
 not read yet), explained by its tooltip; on the head it adds nothing. When any approval asks for
 a look, the cell turns yellow and a warn chip comes first among the markers: `approved before`
-and up to two watched entries, then `+K` for the rest (the tooltip names the reviewer, the commit
+and up to two watched entries, wrapping within the card when long, then `+K` for the rest (the tooltip names the reviewer, the commit
 and every watched entry), or `approval: history rewritten`. Changes requested keep the cell as
 before and the chip still shows; when the facts are not confirmed the cells turn grey and the
 chip stays.
