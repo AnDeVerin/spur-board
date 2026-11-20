@@ -8,6 +8,10 @@
   (`packages/core/test/store/copy.test.ts`, `describe('copyDatabase')`).
 - A change `ALTER TABLE` cannot make is a table rebuild in the same file. The runner turns
   foreign keys off and runs `foreign_key_check` before `COMMIT`.
+- `task` carries the column position triggers from
+  `packages/core/src/store/migrations/0029_task_position.sql`; a rebuild of `task` drops them and
+  must recreate both (`packages/core/test/store/migrations.test.ts`, "creates every table and
+  index from an empty file").
 - New tables are `STRICT` and follow the header of
   `packages/core/src/store/migrations/0001_init.sql`: timestamps as ISO-8601 UTC text, JSON as
   text checked by zod, flags as `CHECK (x IN (0, 1))` because SQLite bindings reject JS booleans.
