@@ -20,8 +20,9 @@
       var(--size-hairline)
   );
   /* The edges placement keeps inside the window, top, right, bottom and left. Popover.tsx reads
-     them back resolved from the computed scroll-padding (a custom property keeps max() and env()
-     unresolved); the panel is no scroll container, so the padding has no effect of its own. */
+     them back resolved from the computed scroll-padding (a custom property keeps the max and the
+     inset unresolved); the panel is no scroll container, so the padding has no effect of its
+     own. */
   scroll-padding: var(--space-2) var(--popover-edge-right) var(--popover-edge-bottom)
     var(--popover-edge-left);
   position: fixed;
