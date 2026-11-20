@@ -344,21 +344,27 @@ describe('installPackage tarball argument', () => {
   });
 });
 
+const manifestLink = '<link rel="manifest" href="/manifest.webmanifest">';
+const webManifest = JSON.stringify({ icons: [{ src: '/icons/icon-192.png' }] });
+
 describe('installed web smoke', () => {
   it.each([
     'index.html',
     'assets/app-abcdefgh.js',
     'assets/app-abcdefgh.css',
     'assets/font-abcdefgh.woff2',
+    'manifest.webmanifest',
+    'icons/icon-192.png',
     '../OFL.txt',
   ])('rejects missing %s', (missing) => {
     const root = mkdtempSync(join(tmpdir(), 'board-smoke-web-'));
     const web = join(root, 'web');
     mkdirSync(join(web, 'assets'), { recursive: true });
+    mkdirSync(join(web, 'icons'));
     writeFileSync(join(root, 'OFL.txt'), 'license');
     writeFileSync(
       join(web, 'index.html'),
-      '<script src="/assets/app-abcdefgh.js"></script><link href="/assets/app-abcdefgh.css">',
+      `<script src="/assets/app-abcdefgh.js"></script><link href="/assets/app-abcdefgh.css">${manifestLink}`,
     );
     writeFileSync(join(web, 'assets/app-abcdefgh.js'), 'app');
     writeFileSync(
@@ -366,6 +372,8 @@ describe('installed web smoke', () => {
       '@font-face {src:url(./font-abcdefgh.woff2)}',
     );
     writeFileSync(join(web, 'assets/font-abcdefgh.woff2'), 'font');
+    writeFileSync(join(web, 'manifest.webmanifest'), webManifest);
+    writeFileSync(join(web, 'icons/icon-192.png'), 'png');
     expect(() => {
       verifyWebAssets(web, join(root, 'OFL.txt'));
     }).not.toThrow();
@@ -376,69 +384,112 @@ describe('installed web smoke', () => {
   });
 });
 
+/** An installed web root with one script, the manifest, one manifest icon and the SVG favicon. */
+function servedWeb(index: string) {
+  const web = mkdtempSync(join(tmpdir(), 'board-served-web-'));
+  mkdirSync(join(web, 'assets'));
+  mkdirSync(join(web, 'icons'));
+  const files: Record<string, readonly [string, string]> = {
+    '/assets/main-abcdefgh.js': ['console.log("ready");', 'text/javascript; charset=utf-8'],
+    '/manifest.webmanifest': [webManifest, 'application/manifest+json'],
+    '/icons/icon-192.png': ['png-192', 'image/png'],
+    '/favicon.svg': ['<svg/>', 'image/svg+xml'],
+  };
+  writeFileSync(join(web, 'index.html'), index);
+  for (const [path, [body]] of Object.entries(files)) writeFileSync(join(web, path), body);
+  return { web, files };
+}
+const servedIndex = `<script src="/assets/main-abcdefgh.js"></script>${manifestLink}<link rel="icon" href="/favicon.svg" type="image/svg+xml">`;
+
 describe('installed web HTTP smoke', () => {
-  it.each(['healthy', 'page-status', 'asset-status', 'page-body', 'asset-body'])(
-    'requires actual HTTP 200 and installed bytes: %s',
-    async (mode) => {
-      const web = mkdtempSync(join(tmpdir(), 'board-served-web-'));
-      mkdirSync(join(web, 'assets'));
-      const index = '<script src="/assets/main-abcdefgh.js"></script>';
-      const asset = 'console.log("ready");';
-      writeFileSync(join(web, 'index.html'), index);
-      writeFileSync(join(web, 'assets/main-abcdefgh.js'), asset);
-      const calls: string[] = [];
-      const fetcher: typeof fetch = (url, init) => {
-        calls.push(typeof url === 'string' ? url : url instanceof URL ? url.href : url.url);
-        expect(init?.signal).toBeInstanceOf(AbortSignal);
-        const page = url === 'http://127.0.0.1:4789/';
+  it.each([
+    'healthy',
+    'page-status',
+    'asset-status',
+    'page-body',
+    'asset-body',
+    'manifest-type',
+    'icon-status',
+    'icon-body',
+    'favicon-type',
+  ])('requires actual HTTP 200, the type and installed bytes: %s', async (mode) => {
+    const { web, files } = servedWeb(servedIndex);
+    const calls: string[] = [];
+    const fetcher: typeof fetch = (url, init) => {
+      const href = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+      calls.push(href);
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      const path = href.slice('http://127.0.0.1:4789'.length);
+      if (path === '/')
         return Promise.resolve(
-          new Response(
-            page
-              ? mode === 'page-body'
-                ? 'wrong page'
-                : index
-              : mode === 'asset-body'
-                ? index
-                : asset,
-            {
-              status: page
-                ? mode === 'page-status'
-                  ? 503
-                  : 200
-                : mode === 'asset-status'
-                  ? 404
-                  : 200,
-            },
-          ),
+          new Response(mode === 'page-body' ? 'wrong page' : servedIndex, {
+            status: mode === 'page-status' ? 503 : 200,
+          }),
         );
-      };
-      const result = verifyServedWeb(web, 'http://127.0.0.1:4789', '0.1.0', fetcher);
-      if (mode === 'healthy') {
-        await expect(result).resolves.toBeUndefined();
-        expect(calls).toEqual([
-          'http://127.0.0.1:4789/',
-          'http://127.0.0.1:4789/assets/main-abcdefgh.js',
-        ]);
-      } else await expect(result).rejects.toThrow(/HTTP 200/);
-    },
-  );
+      const [body = '', type = ''] = files[path] ?? [];
+      const wrong =
+        (mode === 'asset-body' && path.startsWith('/assets/')) ||
+        (mode === 'icon-body' && path === '/icons/icon-192.png');
+      const missing =
+        (mode === 'asset-status' && path.startsWith('/assets/')) ||
+        (mode === 'icon-status' && path === '/icons/icon-192.png');
+      const typed =
+        (mode === 'manifest-type' && path === '/manifest.webmanifest') ||
+        (mode === 'favicon-type' && path === '/favicon.svg')
+          ? 'text/html; charset=utf-8'
+          : type;
+      return Promise.resolve(
+        new Response(wrong ? servedIndex : body, {
+          status: missing ? 404 : 200,
+          headers: { 'content-type': typed },
+        }),
+      );
+    };
+    const result = verifyServedWeb(web, 'http://127.0.0.1:4789', '0.1.0', fetcher);
+    if (mode === 'healthy') {
+      await expect(result).resolves.toBeUndefined();
+      expect(calls).toEqual([
+        'http://127.0.0.1:4789/',
+        'http://127.0.0.1:4789/assets/main-abcdefgh.js',
+        'http://127.0.0.1:4789/manifest.webmanifest',
+        'http://127.0.0.1:4789/icons/icon-192.png',
+        'http://127.0.0.1:4789/favicon.svg',
+      ]);
+    } else await expect(result).rejects.toThrow(/HTTP 200/);
+  });
+
+  it('requires the index to link the manifest', async () => {
+    const index = '<script src="/assets/main-abcdefgh.js"></script>';
+    const { web } = servedWeb(index);
+    const fetcher: typeof fetch = (url) =>
+      Promise.resolve(
+        new Response(url === 'http://127.0.0.1:4789/' ? index : 'console.log("ready");'),
+      );
+    await expect(verifyServedWeb(web, 'http://127.0.0.1:4789', '0.1.0', fetcher)).rejects.toThrow(
+      'Installed web index references no manifest.',
+    );
+  });
 
   it.each(['stamped', 'unstamped', 'other-version'])(
     'expects the version meta after <head>: %s',
     async (mode) => {
-      const web = mkdtempSync(join(tmpdir(), 'board-served-web-'));
-      mkdirSync(join(web, 'assets'));
-      const index = '<html><head></head><script src="/assets/main-abcdefgh.js"></script></html>';
-      const asset = 'console.log("ready");';
-      writeFileSync(join(web, 'index.html'), index);
-      writeFileSync(join(web, 'assets/main-abcdefgh.js'), asset);
+      const index = `<html><head></head>${servedIndex}</html>`;
+      const { web, files } = servedWeb(index);
       const meta = (version: string) => `<meta name="board-version" content="${version}">`;
       const page =
         mode === 'unstamped'
           ? index
           : index.replace('<head>', `<head>${meta(mode === 'stamped' ? '0.1.0' : '0.2.0')}`);
-      const fetcher: typeof fetch = (url) =>
-        Promise.resolve(new Response(url === 'http://127.0.0.1:4789/' ? page : asset));
+      const fetcher: typeof fetch = (url) => {
+        const href = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+        const path = href.slice('http://127.0.0.1:4789'.length);
+        const [body = '', type = ''] = files[path] ?? [];
+        return Promise.resolve(
+          path === '/'
+            ? new Response(page)
+            : new Response(body, { headers: { 'content-type': type } }),
+        );
+      };
       const result = verifyServedWeb(web, 'http://127.0.0.1:4789', '0.1.0', fetcher);
       if (mode === 'stamped') await expect(result).resolves.toBeUndefined();
       else await expect(result).rejects.toThrow(/HTTP 200/);

@@ -52,7 +52,43 @@ export function assembleSkills(
   }
 }
 
-/** Verify the installed web graph, including CSS font references. */
+/** The favicon, app icons and manifest the web build emits (`packages/web/build/app-icons.ts`). */
+const APP_FILES = [
+  'manifest.webmanifest',
+  'favicon.svg',
+  'favicon-32.png',
+  'apple-touch-icon.png',
+  'icons/icon-192.png',
+  'icons/icon-512.png',
+  'icons/icon-512-maskable.png',
+] as const;
+const APP_FILE =
+  'manifest[.]webmanifest|favicon[.]svg|favicon-32[.]png|apple-touch-icon[.]png|icons/icon-(?:192|512|512-maskable)[.]png';
+const WEB_FILE = new RegExp(
+  `^(?:index[.]html|${APP_FILE}|assets/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}[.](?:js|css|woff2))$`,
+);
+
+/** The icon `src` values of a web app manifest; throws on invalid JSON or no `icons` array. */
+export function manifestIcons(source: string): string[] {
+  const manifest: unknown = JSON.parse(source);
+  const icons =
+    typeof manifest === 'object' && manifest !== null && 'icons' in manifest
+      ? manifest.icons
+      : undefined;
+  if (!Array.isArray(icons)) throw new Error('Web app manifest has no icons array.');
+  return icons.map((icon: unknown) => {
+    if (
+      typeof icon !== 'object' ||
+      icon === null ||
+      !('src' in icon) ||
+      typeof icon.src !== 'string'
+    )
+      throw new Error('Web app manifest icon has no src.');
+    return icon.src;
+  });
+}
+
+/** Verify the installed web graph, including CSS font and manifest icon references. */
 export function verifyWebAssets(webRoot: string, license: string): void {
   if (!existsSync(license)) throw new Error('Web font license OFL.txt is missing.');
   const pending = ['index.html'];
@@ -60,12 +96,14 @@ export function verifyWebAssets(webRoot: string, license: string): void {
   for (const file of pending) {
     if (seen.has(file)) continue;
     seen.add(file);
-    if (
-      !/^(?:index[.]html|assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}[.](?:js|css|woff2))$/.test(file)
-    )
-      throw new Error(`Unexpected web reference: ${file}`);
+    if (!WEB_FILE.test(file)) throw new Error(`Unexpected web reference: ${file}`);
     const path = join(webRoot, file);
     if (!existsSync(path)) throw new Error(`Missing web asset: ${file}`);
+    if (file === 'manifest.webmanifest') {
+      for (const icon of manifestIcons(readFileSync(path, 'utf8')))
+        pending.push(icon.startsWith('/') ? icon.slice(1) : icon);
+      continue;
+    }
     if (!/[.](html|css)$/.test(file)) continue;
     const source = readFileSync(path, 'utf8');
     const references =
@@ -89,6 +127,8 @@ export function verifyWebAssets(webRoot: string, license: string): void {
     ![...seen].some((file) => file.endsWith('.woff2'))
   )
     throw new Error('Web output must reference JS, CSS and local fonts.');
+  if (!seen.has('manifest.webmanifest'))
+    throw new Error('Web output must reference the web app manifest manifest.webmanifest.');
 }
 
 /** Copy only after the CLI clean build, replacing any old web assets. */
@@ -153,6 +193,7 @@ export function validateTarball(entries: readonly string[], manifest: PackageMan
     'package/LICENSE',
     'package/OFL.txt',
     'package/dist/web/index.html',
+    ...APP_FILES.map((file) => `package/dist/web/${file}`),
     'package/package.json',
     'package/skills/spur-board/SKILL.md',
     'package/skills/setup/SKILL.md',
@@ -171,10 +212,7 @@ export function validateTarball(entries: readonly string[], manifest: PackageMan
     }
     const runtime =
       /^package\/dist\/(?:bin|cli|client|daemon|mcp|chunk-[A-Za-z0-9_-]{8})\.mjs$/.test(entry);
-    const web =
-      /^package\/dist\/web\/(?:index[.]html|assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}[.](?:js|css|woff2))$/.test(
-        entry,
-      );
+    const web = entry.startsWith('package/dist/web/') && WEB_FILE.test(entry.slice(17));
     const migration = /^package\/dist\/migrations\/\d{4}_[a-z0-9_]+\.sql$/.test(entry);
     if (
       entry !== 'package/package.json' &&

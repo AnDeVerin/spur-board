@@ -1,4 +1,4 @@
-import { verifyWebAssets } from './package.ts';
+import { manifestIcons, verifyWebAssets } from './package.ts';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import {
   existsSync,
@@ -387,6 +387,34 @@ export async function verifyServedWeb(
     !Buffer.from(await response.arrayBuffer()).equals(readFileSync(join(webRoot, asset.slice(1))))
   )
     throw new Error('Installed referenced web asset did not match with HTTP 200.');
+  const linked = (rel: string) =>
+    [...index.matchAll(/<link\b[^>]*>/gi)].flatMap((tag) => {
+      if (!new RegExp(`\\brel=["']${rel}["']`, 'i').test(tag[0])) return [];
+      const href = /\bhref=["']([^"']+)["']/i.exec(tag[0])?.[1];
+      return href === undefined ? [] : [href];
+    });
+  const manifest = linked('manifest')[0];
+  if (manifest === undefined) throw new Error('Installed web index references no manifest.');
+  const appFiles = new Set([
+    manifest,
+    ...manifestIcons(readFileSync(join(webRoot, manifest.slice(1)), 'utf8')),
+    ...linked('icon'),
+    ...linked('apple-touch-icon'),
+  ]);
+  for (const path of appFiles) {
+    const type = path.endsWith('.webmanifest')
+      ? 'application/manifest+json'
+      : path.endsWith('.svg')
+        ? 'image/svg+xml'
+        : 'image/png';
+    const file = await fetcher(`${origin}${path}`, { signal: AbortSignal.timeout(5000) });
+    if (
+      file.status !== 200 ||
+      !(file.headers.get('content-type') ?? '').startsWith(type) ||
+      !Buffer.from(await file.arrayBuffer()).equals(readFileSync(join(webRoot, path.slice(1))))
+    )
+      throw new Error(`Installed web app file ${path} did not match with HTTP 200 and ${type}.`);
+  }
 }
 
 interface SmokeContext {
