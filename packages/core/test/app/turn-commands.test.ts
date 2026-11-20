@@ -23,6 +23,7 @@ import {
 } from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { returnCounts } from '../../src/app/course-check.ts';
+import { dispatchPendingSubmits } from '../../src/app/dispatch.ts';
 import { closeTurns, openTurn, takeTurn } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
 
@@ -460,6 +461,29 @@ async function unlinkAll(ctx: Awaited<ReturnType<typeof setup>>) {
   await ctx.store.transaction(async (trx) => {
     await trx.updateTable('link').set({ banned: 1 }).where('entity', '=', 'pr').execute();
   });
+}
+
+/**
+ * Lifts `unlinkAll`, as when the board links the PR again, then runs the tick's pending-submit
+ * pass with GitHub and Spur complete since `AT`, which settles a pending submit.
+ */
+async function relinkAll(ctx: Awaited<ReturnType<typeof setup>>) {
+  await scanTransaction(
+    ctx.store,
+    ctx.config,
+    async (trx) => {
+      await trx.updateTable('link').set({ banned: 0 }).where('entity', '=', 'pr').execute();
+      await dispatchPendingSubmits(trx, {
+        config: ctx.config,
+        at: new Date(AT),
+        complete: new Map([
+          [SOURCE, AT],
+          ['spur', AT],
+        ]),
+      });
+    },
+    { now: () => Date.parse(AT) },
+  );
 }
 
 describe('task.submit', () => {
@@ -1547,6 +1571,50 @@ describe('task.return', () => {
     ]);
   });
 
+  it('a pending submit the next head voids leaves the return block to the next submit', async () => {
+    const { ctx, block, unblocked } = await returnedToDev();
+    await unlinkAll(ctx);
+    await ctx.ack(WORKER_1, 'T2');
+    await expect(ctx.submit(WORKER_1, A, 'submit-a', 'T2')).resolves.toMatchObject({
+      status: 'pending',
+    });
+    expect(await block()).toMatchObject({ state: 'open', outcome: null });
+
+    // The PR linked again shows head B: the pending A fails and its turn is handed back.
+    await ctx.observe(B);
+    await relinkAll(ctx);
+    const voided = await ctx.store.db
+      .selectFrom('submission')
+      .select(['commit_sha', 'voided_at'])
+      .where('commit_sha', '=', A)
+      .executeTakeFirstOrThrow();
+    expect(voided.voided_at).not.toBeNull();
+    expect(await block()).toMatchObject({ state: 'open', outcome: null, outcome_reason: null });
+    const handBack = await ctx.store.db
+      .selectFrom('turn')
+      .select(['id', 'column', 'role'])
+      .where('closed_at', 'is', null)
+      .executeTakeFirstOrThrow();
+    expect(handBack).toMatchObject({ column: 'dev', role: 'worker' });
+
+    const turn = `T${String(handBack.id)}`;
+    await ctx.ack(WORKER_1, turn);
+    ctx.commits(B);
+    await expect(ctx.submit(WORKER_1, B, 'submit-b', turn)).resolves.toMatchObject({
+      status: 'confirmed',
+    });
+
+    expect(await block()).toMatchObject({
+      state: 'unblocked',
+      outcome: 'done',
+      outcome_reason: B,
+      unblocked_by: WORKER_1,
+    });
+    expect(await unblocked()).toEqual([
+      { kind: 'block_unblocked', payload: { block: 'B1', outcome: 'done', reason: B } },
+    ]);
+  });
+
   it('a submit after a manual unblock of the return block keeps its ref', async () => {
     const { ctx, registry, apply, block, unblocked } = await returnedToDev();
     await ctx.ack(WORKER_1, 'T2');
@@ -1747,14 +1815,30 @@ describe('task.return', () => {
     const pending = await submitted.row();
     expect(pending?.column).toBe('dev');
     expect(pending).not.toHaveProperty('returned');
-    // A pending submit answers the return too: its code block closes with the submitted head.
-    expect(
-      await submitted.ctx.store.db
+    // The return's code block waits for the pending submit, and closes with its head once a
+    // poll of the PR linked again confirms it.
+    const b1 = () =>
+      submitted.ctx.store.db
         .selectFrom('block')
-        .select(['state', 'outcome', 'outcome_reason'])
+        .select(['state', 'outcome', 'outcome_reason', 'unblocked_by'])
         .where('id', '=', 1)
-        .executeTakeFirstOrThrow(),
-    ).toEqual({ state: 'unblocked', outcome: 'done', outcome_reason: A });
+        .executeTakeFirstOrThrow();
+    expect(await b1()).toEqual({
+      state: 'open',
+      outcome: null,
+      outcome_reason: null,
+      unblocked_by: null,
+    });
+    await relinkAll(submitted.ctx);
+    expect(
+      await submitted.ctx.store.db.selectFrom('submission').select('pending_until').execute(),
+    ).toEqual([{ pending_until: null }]);
+    expect(await b1()).toEqual({
+      state: 'unblocked',
+      outcome: 'done',
+      outcome_reason: A,
+      unblocked_by: WORKER_1,
+    });
 
     // Leaving Dev clears it, and a correction back into Dev does not bring it back.
     const moved = await returned();

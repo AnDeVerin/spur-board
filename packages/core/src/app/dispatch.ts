@@ -47,6 +47,7 @@ import {
   shadowCourseCheck,
   uncounted,
 } from './course-check.ts';
+import { closeReturnBlock } from './blocks.ts';
 import { withUnconfirmedCancels } from './cancelled-checks.ts';
 import { linkedSession } from './doorbells.ts';
 import { CommandError } from './commands.ts';
@@ -1219,12 +1220,17 @@ async function supersedeSubmit(
   });
 }
 
-/** Counts a pending submit a poll confirmed: from its receipt time, on the linked PR. */
+/**
+ * Counts a pending submit a poll confirmed: from its receipt time, on the linked PR. The turn it
+ * closed answered its visit's return, so the return's code block closes at the confirmed head.
+ */
 async function confirmSubmit(
   trx: Trx,
+  task: Task,
   pending: Extract<PendingSubmit, { state: 'confirmed' }>,
+  at: Date,
 ): Promise<void> {
-  await trx
+  const row = await trx
     .updateTable('submission')
     .set((eb) => ({
       pending_until: null,
@@ -1232,7 +1238,26 @@ async function confirmSubmit(
       pr_number: eb.fn.coalesce('pr_number', eb.val(pending.pr.number)),
     }))
     .where('id', '=', pending.id)
-    .execute();
+    .returning(['column', 'epoch', 'author'])
+    .executeTakeFirstOrThrow();
+  const turn = await trx
+    .selectFrom('turn')
+    .select(['task_id', 'column', 'epoch', 'role'])
+    .where('task_id', '=', task.id)
+    .where('column', '=', row.column)
+    .where('epoch', '=', row.epoch)
+    .where('acked_by', '=', row.author)
+    .where('closed_reason', '=', 'submitted')
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+  if (turn !== undefined)
+    await closeReturnBlock(
+      trx,
+      task,
+      turn,
+      { actor: row.author, at: at.toISOString() },
+      pending.sha,
+    );
 }
 
 /**
@@ -1259,7 +1284,7 @@ export async function dispatchTasks(
     if (read.pending?.state === 'superseded')
       await supersedeSubmit(trx, task, read.pending, ctx.at);
     if (read.ticketUnconfirmed) continue;
-    if (read.pending?.state === 'confirmed') await confirmSubmit(trx, read.pending);
+    if (read.pending?.state === 'confirmed') await confirmSubmit(trx, task, read.pending, ctx.at);
     const result = dispatch(read.input);
     if (mode === 'shadow') await applyShadow(trx, task, project, result, ctx.at);
     else await applyOn(trx, task, read, result, ctx);
