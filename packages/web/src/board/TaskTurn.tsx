@@ -98,7 +98,9 @@ export function TaskTurn({
   const [reason, setReason] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
   const [refusal, setRefusal] = useState<string>();
-  const [unsettled, setUnsettled] = useState(false); // A close got no answer: input kept as sent.
+  // The intent whose close got no answer: its form keeps the input as sent. A new form or Cancel
+  // drops the intent, and with it the lock.
+  const [unsettledBy, setUnsettled] = useState<TurnIntent>();
   const [phase, setPhase] = useState<TurnPhase | 'idle'>('idle');
   const intent = useRef<{ signature: string; value: TurnIntent }>(undefined);
   const mounted = useRef(true);
@@ -161,6 +163,7 @@ export function TaskTurn({
         ? undefined
         : UNAVAILABLE;
   const sendOff = closed || blocked !== undefined || stale;
+  const unsettled = unsettledBy !== undefined && unsettledBy === intent.current?.value;
   const fieldsOff = inFlight || sendOff || unsettled;
   /** An open turn other than the bound one: the next turn a close opened. */
   const newer =
@@ -229,7 +232,6 @@ export function TaskTurn({
     setForm(undefined);
     setErrors({});
     setRefusal(undefined);
-    setUnsettled(false);
     intent.current = undefined;
   };
   const send = (event: { preventDefault: () => void }) => {
@@ -302,7 +304,7 @@ export function TaskTurn({
           setRefusal(
             cause instanceof Error ? cause.message : 'Could not close the turn. Try again.',
           );
-          setUnsettled(closing && !(cause instanceof ProblemError));
+          setUnsettled(closing && !(cause instanceof ProblemError) ? sent : undefined);
           // The take landed (or was already held) before the close was refused, or the take got
           // no server answer and may have landed: the read then says who holds the turn.
           if (closing || (taking && !(cause instanceof ProblemError))) watch(sent.refresh());

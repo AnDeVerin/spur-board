@@ -20,6 +20,7 @@ import {
   turnSection,
   button,
   buttons,
+  confirmation,
   choose,
   commit,
   reason,
@@ -84,6 +85,8 @@ describe('Turn section after a write', () => {
     older?: ReturnType<typeof orchestratorTaskGet>;
     /** Answer the read without Cancel, then send again: the take asks with the same key. */
     resend?: true;
+    /** After the answered resend the read opens T6, whose new form must start editable. */
+    reopen?: true;
   };
   it.each<Row>([
     {
@@ -156,6 +159,20 @@ describe('Turn section after a write', () => {
       answer: held,
       answered: 'T5 · refused, you hold it',
       resend: true,
+    },
+    {
+      write: 'submit stalls',
+      read: 'is pending, then the resend opens T6',
+      after: 'pending',
+      header: 'T5 · refreshing',
+      holder: false,
+      hold: false,
+      plain: REFRESHING,
+      sendOff: true,
+      answer: held,
+      answered: 'T5 · refused, you hold it',
+      resend: true,
+      reopen: true,
     },
     {
       write: 'return stalls',
@@ -277,6 +294,7 @@ describe('Turn section after a write', () => {
       answered,
       older,
       resend,
+      reopen,
     }) => {
       const { d, writes } = await open();
       // The write that may have landed but never answers, and the first request's signal: the
@@ -376,6 +394,16 @@ describe('Turn section after a write', () => {
           }
         }
         if (stalled !== undefined && answering !== undefined) d.routes[stalled] = answering;
+        if (reopen === true)
+          d.routes['task.get'] = () =>
+            Promise.resolve(
+              envelope(
+                orchestratorTaskGet(
+                  { id: 'T6', at: AT },
+                  { turns: [closedTurn('submitted', 'operator')] },
+                ),
+              ),
+            );
         await send();
         // The stalled write is asked again with the same body and key: a replay if it had landed.
         const asked = writes().filter((call) => call.op === stalled);
@@ -386,6 +414,13 @@ describe('Turn section after a write', () => {
           expect(text()).toContain(
             stalled === 'task.submit' ? 'T5 submitted.' : 'T5 returned to dev.',
           );
+        if (reopen === true) {
+          // The settled close left no lock behind: T6's new form is editable.
+          await click('Submit…');
+          expect(commit().disabled).toBe(false);
+          expect(text()).not.toContain(UNSETTLED);
+          expect(confirmation().primary?.disabled).toBe(false);
+        }
         return;
       }
       if (plain !== undefined) {
