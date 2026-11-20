@@ -1,4 +1,4 @@
-import { createMutationIntent, ProblemError, type createApi } from '../lib/api.ts';
+import { ProblemError, type createApi, type createMutationIntent } from '../lib/api.ts';
 import { REREAD_LIMIT_MS } from './turn-model.ts';
 
 /** The step a turn write is on: taking the turn through `inbox.ack`, then closing it. */
@@ -13,13 +13,16 @@ type TurnWrite =
   | { id: 'task.submit'; input: Parameters<typeof createMutationIntent<'task.submit'>>[2] }
   | { id: 'task.return'; input: Parameters<typeof createMutationIntent<'task.return'>>[2] };
 
+/** The writes a turn intent sends; each keeps its own idempotency key. */
+type Write = 'inbox.ack' | 'task.submit' | 'task.return';
+
 /**
- * Take turn `turn` with `inbox.ack`, then close it with the write; each step owns one idempotent
- * intent, so an unchanged resend reuses both keys. A confirmed ack is not sent again, nor one for a
- * turn `held` says the operator already holds, except after `not_turn_taker`: someone took the
- * turn back, so the next run takes it again with a new key. The take has `REREAD_LIMIT_MS` to
- * answer: past it the run fails as a take with an unknown outcome, ignores any late answer, and a
- * resend asks again with the same key, so a take that landed replays.
+ * Take turn `turn` with `inbox.ack`, then close it with the write; each write keeps one idempotency
+ * key, so an unchanged resend reuses both. A confirmed ack is not sent again, nor one for a turn
+ * `held` says the operator already holds, except after `not_turn_taker`: someone took the turn
+ * back, so the next run takes it again with a new key. Every write has `REREAD_LIMIT_MS` to answer:
+ * past it the request is aborted, a late answer is ignored, and the run fails with an unknown
+ * outcome; a resend asks again with the same key, so a write that landed replays.
  * `refused` names why the board cannot send now; `refresh` re-reads the task the write was for and
  * answers whether that read succeeded.
  */
@@ -32,38 +35,39 @@ export function createTurnIntent(options: {
   refresh: () => Promise<boolean>;
 }) {
   const { api, turn, write } = options;
-  let takeKey = crypto.randomUUID();
-  /** One take request under the kept key, aborted once it outlasts the deadline. */
-  const take = async () => {
+  const keys: Record<Write, string> = {
+    'inbox.ack': crypto.randomUUID(),
+    'task.submit': crypto.randomUUID(),
+    'task.return': crypto.randomUUID(),
+  };
+  /** One request of `id` under its kept key, aborted once it outlasts the deadline. */
+  const bounded = async <T>(id: Write, send: (key: string, signal: AbortSignal) => Promise<T>) => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         controller.abort();
-        reject(new Error('Taking the turn got no answer in time; its outcome is unknown.'));
+        reject(new Error('The turn write got no answer in time; its outcome is unknown.'));
       }, REREAD_LIMIT_MS);
     });
-    const asked = api(
-      'inbox.ack',
-      { entries: [{ id: turn }] },
-      {
-        key: takeKey,
-        signal: controller.signal,
-      },
-    );
+    const asked = send(keys[id], controller.signal);
     // A late answer after the deadline settles nothing.
     asked.catch(() => undefined);
     try {
-      await Promise.race([asked, late]);
+      return await Promise.race([asked, late]);
     } finally {
       clearTimeout(timer);
     }
   };
-  let taken = options.held;
-  const close =
+  const take = () =>
+    bounded('inbox.ack', (key, signal) =>
+      api('inbox.ack', { entries: [{ id: turn }] }, { key, signal }),
+    );
+  const close = () =>
     write.id === 'task.submit'
-      ? createMutationIntent(api, 'task.submit', write.input)
-      : createMutationIntent(api, 'task.return', write.input);
+      ? bounded(write.id, (key, signal) => api('task.submit', write.input, { key, signal }))
+      : bounded(write.id, (key, signal) => api('task.return', write.input, { key, signal }));
+  let taken = options.held;
   let pending: Promise<TurnClosed> | undefined;
   let confirmed: TurnClosed | undefined;
   const run = async (onPhase: (phase: TurnPhase) => void): Promise<TurnClosed> => {
@@ -74,13 +78,13 @@ export function createTurnIntent(options: {
     }
     onPhase('closing');
     try {
-      const result = await close.run();
+      const result = await close();
       confirmed = { column: result.task.column, refresh: options.refresh() };
       return confirmed;
     } catch (error) {
       if (error instanceof ProblemError && error.code === 'not_turn_taker') {
         taken = false;
-        takeKey = crypto.randomUUID();
+        keys['inbox.ack'] = crypto.randomUUID();
       }
       throw error;
     }

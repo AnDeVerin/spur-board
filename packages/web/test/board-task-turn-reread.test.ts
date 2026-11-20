@@ -20,6 +20,8 @@ import {
   turnSection,
   button,
   buttons,
+  reason,
+  type,
   text,
   summary,
   send,
@@ -52,6 +54,8 @@ describe('Turn section after a write', () => {
       | 'take refused'
       | 'take unanswered'
       | 'take stalls'
+      | 'submit stalls'
+      | 'return stalls'
       | 'close ok'
       | 'turn_closed';
     /** How the read after the write goes, for the title. */
@@ -121,6 +125,32 @@ describe('Turn section after a write', () => {
     },
     {
       write: 'take stalls',
+      read: 'is pending',
+      after: 'pending',
+      header: 'T5 · refreshing',
+      holder: false,
+      hold: false,
+      plain: REFRESHING,
+      sendOff: true,
+      answer: held,
+      answered: 'T5 · refused, you hold it',
+      resend: true,
+    },
+    {
+      write: 'submit stalls',
+      read: 'is pending',
+      after: 'pending',
+      header: 'T5 · refreshing',
+      holder: false,
+      hold: false,
+      plain: REFRESHING,
+      sendOff: true,
+      answer: held,
+      answered: 'T5 · refused, you hold it',
+      resend: true,
+    },
+    {
+      write: 'return stalls',
       read: 'is pending',
       after: 'pending',
       header: 'T5 · refreshing',
@@ -241,16 +271,24 @@ describe('Turn section after a write', () => {
       resend,
     }) => {
       const { d, writes } = await open();
-      const acked = d.routes['inbox.ack'];
-      // The ack may have landed, but its answer never comes.
-      // The first take request's signal: the deadline must abort it, not only stop waiting.
-      let takeSignal: AbortSignal | undefined;
-      if (write === 'take stalls') {
-        d.routes['inbox.ack'] = never;
+      // The write that may have landed but never answers, and the first request's signal: the
+      // deadline must abort it, not only stop waiting.
+      const stalled = (
+        {
+          'take stalls': 'inbox.ack',
+          'submit stalls': 'task.submit',
+          'return stalls': 'task.return',
+        } as const
+      )[write as 'take stalls' | 'submit stalls' | 'return stalls'] as
+        'inbox.ack' | 'task.submit' | 'task.return' | undefined;
+      const answering = stalled === undefined ? undefined : d.routes[stalled];
+      let stalledSignal: AbortSignal | undefined;
+      if (stalled !== undefined) {
+        d.routes[stalled] = never;
         const fetcher = d.fetcher;
         d.fetcher = (url, init) => {
           const path = url instanceof Request ? url.url : url.toString();
-          if (path.endsWith('/inbox.ack')) takeSignal ??= init?.signal ?? undefined;
+          if (path.endsWith(`/${stalled}`)) stalledSignal ??= init?.signal ?? undefined;
           return fetcher(url, init);
         };
       }
@@ -277,20 +315,23 @@ describe('Turn section after a write', () => {
             : after === 'stall'
               ? never
               : () => Promise.resolve(envelope(after));
-      await click('Submit…');
-      const stalls = after === 'stall' || older !== undefined || write === 'take stalls';
+      if (write === 'return stalls') {
+        await click('Return to dev…');
+        type(reason(), 'Handle the empty list.');
+      } else await click('Submit…');
+      const stalls = after === 'stall' || older !== undefined || stalled !== undefined;
       if (stalls) vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       await send();
       if (stalls) {
-        if (write === 'take stalls') {
-          // Just before the deadline the take request still runs.
+        if (stalled !== undefined) {
+          // Just before the deadline the stalled request still runs.
           await act(() => vi.advanceTimersByTimeAsync(14_999));
-          expect(takeSignal?.aborted).toBe(false);
+          expect(stalledSignal?.aborted).toBe(false);
         }
         // The keyed re-read has not answered: past its deadline the section gives up on it.
-        await act(() => vi.advanceTimersByTimeAsync(write === 'take stalls' ? 1 : 15_000));
+        await act(() => vi.advanceTimersByTimeAsync(stalled === undefined ? 15_000 : 1));
         await settle();
-        if (write === 'take stalls') expect(takeSignal?.aborted).toBe(true);
+        if (stalled !== undefined) expect(stalledSignal?.aborted).toBe(true);
       }
       if (older !== undefined) {
         // The older read answers now; it says nothing about the write, so nothing unlocks.
@@ -311,11 +352,12 @@ describe('Turn section after a write', () => {
         late.resolve(envelope(answer));
         await settle();
         expect(summary()).toBe(answered);
-        d.routes['inbox.ack'] = acked;
+        if (stalled !== undefined && answering !== undefined) d.routes[stalled] = answering;
         await send();
-        const acks = writes().filter((call) => call.op === 'inbox.ack');
-        expect(acks).toHaveLength(2);
-        expect(acks[1]?.key).toBe(acks[0]?.key);
+        // The stalled write is asked again under the same key: a replay if it had landed.
+        const asked = writes().filter((call) => call.op === stalled);
+        expect(asked).toHaveLength(2);
+        expect(asked[1]?.key).toBe(asked[0]?.key);
         return;
       }
       if (plain !== undefined) {
