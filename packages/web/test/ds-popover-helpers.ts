@@ -4,8 +4,9 @@ import { afterEach, beforeEach, vi } from 'vitest';
 import { HoverMenu, Modal, Popover, type HoverMenuItem } from '../src/ds/index.ts';
 import { dialogs } from './ds-layers-helpers.ts';
 
-// Shared by ds-popover.test.ts: the Popover harness, a Modal host, a HoverMenu, the anchor and
-// scroller box stubs, and the placement the popover wrote.
+// Shared by ds-popover.test.ts and ds-popover-placement.test.ts: the Popover harness, a Modal
+// host, a HoverMenu, the element box and panel size stubs, the gap tokens, fake observers, and
+// the placement the popover wrote.
 
 const items: readonly HoverMenuItem<'a' | 'b'>[] = [
   { value: 'a', label: 'First' },
@@ -127,38 +128,44 @@ export const mouse = (type: 'mousedown', target: Element) => {
 };
 
 export type Rect = { left: number; right: number; top: number; bottom: number };
-let rect: Rect = { left: 100, right: 420, top: 20, bottom: 40 };
+const anchorDefault: Rect = { left: 100, right: 420, top: 20, bottom: 40 };
+// Boxes by element id; `anchor` defaults to `anchorDefault`, any other element has an empty box.
+const rects = new Map<string, Rect>();
 // The box of `#scroller` when a test makes it clip, else none.
 let scrollerRect: Rect | undefined;
-export const stubAnchorRect = (next: Rect) => {
-  rect = next;
+export const stubAnchorRect = (next: Rect, id = 'anchor') => {
+  rects.set(id, next);
 };
 const domRect = ({ left, right, top, bottom }: Rect) => {
   const box = { left, right, top, bottom, x: left, y: top, width: right - left };
   return { ...box, height: bottom - top, toJSON: () => box };
 };
+const empty: Rect = { left: 0, right: 0, top: 0, bottom: 0 };
 /**
- * Stubs the anchor's box and a 1024x768 window: happy-dom reports `clientWidth` and
- * `clientHeight` 0. The popover reads only the anchor's box and those of its clipping ancestors.
+ * Stubs the element boxes and a 1024x768 window: happy-dom reports `clientWidth` and
+ * `clientHeight` 0. An element's box is the one stubbed for its id (`#anchor` has a default, a
+ * clipping `#scroller` its area), else empty, so the panel's offset parent adds nothing.
  */
-export const anchorRect = () => {
+const anchorRect = () => {
   for (const [name, value] of [
     ['clientWidth', 1024],
     ['clientHeight', 768],
   ] as const)
     Object.defineProperty(document.documentElement, name, { configurable: true, get: () => value });
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-    return domRect(this.id === 'scroller' && scrollerRect ? scrollerRect : rect);
+    if (this.id === 'scroller' && scrollerRect) return domRect(scrollerRect);
+    return domRect(rects.get(this.id) ?? (this.id === 'anchor' ? anchorDefault : empty));
   });
 };
 /**
  * Makes `#scroller` clip both axes to `area` (its padding box: no border here), or stop, and
  * gives it `position`.
  */
-export const clip = (area: Rect | undefined, position = '') => {
-  scrollerRect = area;
-  const scroller = document.getElementById('scroller');
-  if (!scroller) throw new Error('no scroller');
+export const clip = (area: Rect | undefined, position = '', id = 'scroller') => {
+  if (id === 'scroller') scrollerRect = area;
+  else if (area) rects.set(id, area);
+  const scroller = document.getElementById(id);
+  if (!scroller) throw new Error(`no ${id}`);
   scroller.style.position = position;
   scroller.style.overflowX = area ? 'auto' : '';
   scroller.style.overflowY = area ? 'auto' : '';
@@ -168,35 +175,76 @@ export const clip = (area: Rect | undefined, position = '') => {
   ] as const)
     Object.defineProperty(scroller, name, { configurable: true, get: () => value });
 };
-/** The anchor box the popover wrote: its four edges, and the side it left the view by. */
+
+/**
+ * The panel's size as a browser would lay it out: `width` and the content `height`, capped by the
+ * CSS `max-height` (the room placement wrote as `--popover-available`, floored at `least`). A
+ * panel under `[data-away]` is not rendered and has no box.
+ */
+const panelSize = { width: 320, height: 200, least: 120 };
+const isPanel = (element: HTMLElement) =>
+  element.getAttribute('role') === 'dialog' && !element.hasAttribute('aria-modal');
+const offsets = (['offsetWidth', 'offsetHeight'] as const).map(
+  (name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)] as const,
+);
+const stubPanelBox = () => {
+  for (const [name, original] of offsets)
+    Object.defineProperty(HTMLElement.prototype, name, {
+      configurable: true,
+      get(this: HTMLElement): number {
+        if (!isPanel(this)) return Number(original?.get?.call(this) ?? 0);
+        if (this.closest('[data-away]')) return 0;
+        if (name === 'offsetWidth') return panelSize.width;
+        const available = parseFloat(this.style.getPropertyValue('--popover-available'));
+        const cap = Math.max(panelSize.least, Number.isNaN(available) ? Infinity : available);
+        return Math.min(panelSize.height, cap);
+      },
+    });
+};
+
+/**
+ * The gap tokens as `tokens.css` sets them on `:root`. happy-dom does not inherit custom
+ * properties into `getComputedStyle`, so a computed style falls back to them, as in a browser.
+ */
+export const gaps: Record<string, string> = { '--space-1': '4px', '--space-2': '8px' };
+const inheritGaps = () => {
+  const original = window.getComputedStyle.bind(window);
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
+    const style = original(element, pseudo);
+    return new Proxy(style, {
+      get(target, property) {
+        if (property === 'getPropertyValue')
+          return (name: string) => target.getPropertyValue(name) || (gaps[name] ?? '');
+        const value: unknown = Reflect.get(target, property);
+        return typeof value === 'function'
+          ? (value as (...args: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    });
+  });
+};
+
+/** The position the popover wrote and its `data-away`. */
 export const placement = () => {
   const style = opened().style;
-  return {
-    left: style.getPropertyValue('--popover-left'),
-    // No CSS reads the anchor's right edge: the in-view test uses it, nothing writes it.
-    right: style.getPropertyValue('--popover-right'),
-    top: style.getPropertyValue('--popover-anchor-top'),
-    bottom: style.getPropertyValue('--popover-top'),
-    away: opened().getAttribute('data-away'),
-  };
+  return { left: style.left, top: style.top, away: opened().getAttribute('data-away') };
 };
-export const box = (
-  left: number,
-  right: number,
-  top: number,
-  bottom: number,
-  away: string | null,
-) => ({
+export const box = (left: number, top: number, away: string | null = null) => ({
   left: `${String(left)}px`,
-  // The right edge decides `away` (passed for the row to read as the anchor's box) but is not
-  // written.
-  right: '',
   top: `${String(top)}px`,
-  bottom: `${String(bottom)}px`,
   away,
 });
 
-/** Stubs the window and the anchor box before each test, and restores them after it. */
+/** Lets placement results, effects and observer callbacks settle. */
+export const flush = async () => {
+  await act(async () => {
+    for (let index = 0; index < 3; index++)
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+  });
+};
+
 /**
  * Emulates a browser that does not focus an element it does not render: one inside a popover
  * hidden by `data-away`. happy-dom would focus it.
@@ -222,7 +270,7 @@ export function Closing({ attached }: { attached: boolean }) {
     attached && createElement('div', { id: 'anchor', ref: anchor }),
     createElement(Popover, {
       open,
-      // Unmounts the panel synchronously, inside the frame that closes it.
+      // Unmounts the panel synchronously, inside the update that closes it.
       onClose: () => {
         flushSync(() => {
           setOpen(false);
@@ -237,43 +285,83 @@ export function Closing({ attached }: { attached: boolean }) {
 }
 
 /**
- * A scroll of `#scroller` (window when there is none); a scroll does not bubble, and the popover
- * hears it on window, capturing.
+ * A scroll of the window, and of `#scroller` when it clips: `autoUpdate` listens on the anchor's
+ * and the panel's scrolling ancestors. Then the placement settles.
  */
-export const scrolled = () => {
+export const scrolled = async () => {
   act(() => {
-    (document.getElementById('scroller') ?? window).dispatchEvent(new Event('scroll'));
+    const scroller = document.getElementById('scroller');
+    if (scroller?.style.overflowX) scroller.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('scroll'));
   });
+  await flush();
 };
 
-/** Queues animation frames instead of running them; `frame()` runs the queued ones once. */
-export const stubFrames = () => {
-  const frames = new Map<number, FrameRequestCallback>();
-  let next = 0;
-  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
-    frames.set(++next, callback);
-    return next;
+type Observed = { callback: (entries: unknown[]) => void; targets: Set<Element> };
+/** The observers placement created, with their callbacks and current targets. */
+export const observers = { intersection: [] as Observed[], resize: [] as Observed[] };
+/**
+ * Fake observers that keep their callbacks and targets: happy-dom's never call back, so a layout
+ * shift or a resize happens only when a test fires one.
+ */
+export const stubObservers = () => {
+  const fake = (list: Observed[]) =>
+    class {
+      observed: Observed;
+      constructor(callback: Observed['callback']) {
+        this.observed = { callback, targets: new Set() };
+        list.push(this.observed);
+      }
+      observe(target: Element) {
+        this.observed.targets.add(target);
+      }
+      unobserve(target: Element) {
+        this.observed.targets.delete(target);
+      }
+      disconnect() {
+        this.observed.targets.clear();
+      }
+      takeRecords() {
+        return [];
+      }
+    };
+  observers.intersection = [];
+  observers.resize = [];
+  vi.stubGlobal('IntersectionObserver', fake(observers.intersection));
+  vi.stubGlobal('ResizeObserver', fake(observers.resize));
+};
+/** Fires every live IntersectionObserver for its targets, fully visible, then settles. */
+export const intersect = async () => {
+  act(() => {
+    for (const { callback, targets } of observers.intersection)
+      if (targets.size > 0)
+        callback([...targets].map((target) => ({ target, intersectionRatio: 1 })));
   });
-  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
-    frames.delete(id);
+  await flush();
+};
+/** Fires every ResizeObserver watching `target` with one entry for it, then settles. */
+export const resized = async (target: Element) => {
+  act(() => {
+    for (const { callback, targets } of observers.resize)
+      if (targets.has(target)) callback([{ target }]);
   });
-  const frame = () => {
-    const queued = [...frames.values()];
-    frames.clear();
-    act(() => {
-      for (const callback of queued) callback(0);
-    });
-  };
-  return { frames, frame };
+  await flush();
 };
 
 export function stubEachTest(): void {
   // A shown panel by default: without a window size happy-dom gives an empty view, which hides it.
-  beforeEach(anchorRect);
+  beforeEach(() => {
+    anchorRect();
+    stubPanelBox();
+    inheritGaps();
+  });
   afterEach(() => {
     Reflect.deleteProperty(document.documentElement, 'clientWidth');
     Reflect.deleteProperty(document.documentElement, 'clientHeight');
-    rect = { left: 100, right: 420, top: 20, bottom: 40 };
+    for (const [name, original] of offsets)
+      if (original) Object.defineProperty(HTMLElement.prototype, name, original);
+    rects.clear();
     scrollerRect = undefined;
+    vi.unstubAllGlobals();
   });
 }

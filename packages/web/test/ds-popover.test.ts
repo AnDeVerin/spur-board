@@ -12,13 +12,12 @@ import {
   render,
 } from './ds-layers-helpers.ts';
 import {
-  Closing,
   Harness,
   ModalHost,
   type Rect,
-  anchorRect,
   box,
   clip,
+  flush,
   menu,
   mouse,
   opened,
@@ -28,7 +27,6 @@ import {
   scrolled,
   stubAnchorRect,
   stubEachTest,
-  stubFrames,
 } from './ds-popover-helpers.ts';
 
 mountEachTest();
@@ -42,11 +40,16 @@ const popoverExamples: Record<string, Record<string, ComponentType>> = import.me
 stubEachTest();
 
 describe('Popover', () => {
-  it('opens labelled, header in order, focus to Close from a focused trigger, none from body', () => {
+  it('opens labelled, header in order, focus to Close from a focused trigger, none from body', async () => {
     render(createElement(Harness));
     expect(popover()).toBeUndefined();
     press(button('Help'));
     const dialog = opened();
+    // Not drawn and focus held on the opener until the first placement result.
+    expect(dialog.getAttribute('data-away')).toBe('pending');
+    expect(document.activeElement).toBe(button('Help'));
+    await flush();
+    expect(dialog.hasAttribute('data-away')).toBe(false);
     expect(dialog.hasAttribute('aria-modal')).toBe(false);
     const title = document.getElementById(dialog.getAttribute('aria-labelledby') ?? '');
     expect(title?.textContent).toBe('Review');
@@ -66,7 +69,8 @@ describe('Popover', () => {
     });
     render(createElement(Fragment, null));
     render(createElement(Harness, { initial: true }));
-    expect(popover()).toBeDefined();
+    await flush();
+    expect(opened().hasAttribute('data-away')).toBe(false);
     expect(document.activeElement).toBe(document.body);
   });
 
@@ -82,7 +86,7 @@ describe('Popover', () => {
     expect(popover()).toBeUndefined();
   });
 
-  it('returns focus to its trigger without scrolling, however it opened and closed', () => {
+  it('returns focus to its trigger without scrolling, however it opened and closed', async () => {
     const other = createElement('button', { type: 'button' }, 'Other');
     const focus = vi.spyOn(HTMLElement.prototype, 'focus');
     // keyboard: the trigger holds focus; pointer: Safari leaves focus on body; unrelated: Safari
@@ -98,6 +102,7 @@ describe('Popover', () => {
             if (opening === 'unrelated') button('Other').focus();
             button('Help').click();
           });
+          await flush();
           const close = button('Close', opened());
           // Focus moves to Close only when something held focus, and without scrolling.
           expect(document.activeElement, row).toBe(opening === 'pointer' ? document.body : close);
@@ -119,31 +124,32 @@ describe('Popover', () => {
         }
   });
 
-  it('moves focus to the trigger while hidden and back when shown, unless focus moved on', () => {
+  it('moves focus to the trigger while hidden and back when shown, unless focus moved on', async () => {
     refuseHiddenFocus();
     const control = createElement('button', { type: 'button' }, 'Body control');
     const other = createElement('button', { type: 'button' }, 'Other');
-    const scroll = (left: number) => {
+    const scroll = async (left: number) => {
       stubAnchorRect({ left, right: left + 320, top: 20, bottom: 40 });
-      scrolled();
+      await scrolled();
     };
     // stay: the anchor scrolls out and back; movedOn: the user focuses Other meanwhile.
     for (const how of ['stay', 'movedOn'] as const) {
       render(createElement(Fragment, null));
       render(createElement(Harness, { children: control, after: other }));
       press(button('Help'));
+      await flush();
       act(() => {
         button('Body control', opened()).focus();
       });
       // The anchor scrolls wholly out: the panel hides, and focus goes to the trigger first.
-      scroll(-400);
-      expect(opened().getAttribute('data-away')).toBe('left');
+      await scroll(-400);
+      expect(opened().getAttribute('data-away')).toBe('hidden');
       expect(document.activeElement).toBe(button('Help'));
       if (how === 'movedOn')
         act(() => {
           button('Other').focus();
         });
-      scroll(100);
+      await scroll(100);
       expect(opened().hasAttribute('data-away')).toBe(false);
       expect(document.activeElement, how).toBe(
         how === 'movedOn' ? button('Other') : button('Body control', opened()),
@@ -151,7 +157,7 @@ describe('Popover', () => {
     }
   });
 
-  it('closes once when its anchor unmounts, is replaced under the same ref, or is disconnected', () => {
+  it('closes once when its anchor unmounts, is replaced under the same ref, or is disconnected', async () => {
     const control = createElement('button', { type: 'button' }, 'Body control');
     for (const how of ['unmounts', 'replaced', 'disconnected'] as const) {
       const onClose = vi.fn();
@@ -165,15 +171,17 @@ describe('Popover', () => {
         });
       render(createElement(Fragment, null));
       render(harness(false));
+      await flush();
       act(() => {
         button('Body control', opened()).focus();
       });
       // The column re-renders under the panel, or its element leaves the document while the ref
-      // still holds it; the next placements find it gone.
+      // still holds it, with no re-render: the commit or the DOM change finds it gone.
       const anchor = document.getElementById('anchor');
       if (how === 'disconnected') anchor?.remove();
-      render(harness(true));
-      for (let index = 0; index < 2; index++) scrolled();
+      else render(harness(true));
+      await flush();
+      for (let index = 0; index < 2; index++) await scrolled();
       expect(onClose, how).toHaveBeenCalledTimes(1);
       expect(popover(), how).toBeUndefined();
       // The popover moved no focus: the removed control's focus fell to body.
@@ -183,11 +191,12 @@ describe('Popover', () => {
     }
   });
 
-  it('stays hidden until its anchor attaches', () => {
+  it('stays hidden until its anchor attaches', async () => {
     const onClose = vi.fn();
     // unmounted: the anchor element is not rendered yet; detached: the ref already holds an
     // element that is not in the document yet.
     const element = document.createElement('div');
+    element.id = 'anchor';
     const held = { current: element };
     const props = { open: true, onClose, anchor: held, trigger: held, title: 'T', children: 'B' };
     for (const how of ['unmounted', 'detached'] as const) {
@@ -197,31 +206,23 @@ describe('Popover', () => {
           ? createElement(Harness, { initial: true, attached: false, onClose })
           : createElement(Popover, props),
       );
-      for (let index = 0; index < 2; index++) scrolled();
+      for (let index = 0; index < 2; index++) await scrolled();
       expect(opened().getAttribute('data-away'), how).toBe('pending');
       expect(onClose, how).not.toHaveBeenCalled();
+      // A re-render, or a DOM append with no event at all.
       if (how === 'unmounted') render(createElement(Harness, { initial: true, onClose }));
       else document.body.append(element);
-      scrolled();
-      expect(placement(), how).toEqual(box(100, 420, 20, 40, null));
+      await flush();
+      expect(placement(), how).toEqual(box(100, 44));
     }
     element.remove();
   });
 
-  it('a close that unmounts the panel inside a frame leaves no frame scheduled', () => {
-    const { frames, frame } = stubFrames();
-    render(createElement(Closing, { attached: true }));
-    render(createElement(Closing, { attached: false }));
-    expect(frames.size).toBe(1);
-    frame();
-    expect(popover()).toBeUndefined();
-    expect(frames.size).toBe(0);
-  });
-
-  it('a mousedown outside closes; inside the panel or the anchor, or a pointerdown alone, does not', () => {
+  it('a mousedown outside closes; inside the panel or the anchor, or a pointerdown alone, does not', async () => {
     const onClose = vi.fn();
     render(createElement(Harness, { onClose }));
     press(button('Help'));
+    await flush();
     mouse('mousedown', opened().lastElementChild as Element);
     mouse('mousedown', button('Help'));
     act(() => {
@@ -258,108 +259,95 @@ describe('Popover', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('follows a layout change each frame, writes only a change, and stops on close', () => {
-    const { frames, frame } = stubFrames();
-    anchorRect();
-    render(createElement(Harness, { initial: true }));
-    expect(frames.size).toBe(1);
-    // A column before it expands: the anchor moves with no scroll or resize.
-    stubAnchorRect({ left: 400, right: 720, top: 20, bottom: 40 });
-    frame();
-    expect(placement()).toEqual(box(400, 720, 20, 40, null));
-    const write = vi.spyOn(opened().style, 'setProperty');
-    frame();
-    expect(write).not.toHaveBeenCalled();
-    expect(frames.size).toBe(1);
-    // Segmented tabs wrap: the header grows, and the least height follows it.
-    const header = opened().firstElementChild as HTMLElement;
-    Object.defineProperty(header, 'offsetHeight', { configurable: true, get: () => 66 });
-    frame();
-    expect(opened().style.getPropertyValue('--popover-header')).toBe('66px');
+  it('follows the anchor on nested scroll and resize', async () => {
+    // A scroller that clips around the anchor before the open, so autoUpdate listens on it.
+    render(createElement(Harness));
+    clip({ left: 0, right: 1024, top: 0, bottom: 768 });
     press(button('Help'));
-    expect(popover()).toBeUndefined();
-    expect(frames.size).toBe(0);
-  });
-
-  it('follows the anchor on nested scroll and resize', () => {
-    anchorRect();
-    render(createElement(Harness, { initial: true }));
-    expect(placement()).toEqual(box(100, 420, 20, 40, null));
+    await flush();
+    expect(placement()).toEqual(box(100, 44));
     stubAnchorRect({ left: 60, right: 380, top: 10, bottom: 30 });
-    scrolled();
-    expect(placement()).toEqual(box(60, 380, 10, 30, null));
+    act(() => {
+      document.getElementById('scroller')?.dispatchEvent(new Event('scroll'));
+    });
+    await flush();
+    expect(placement()).toEqual(box(60, 34));
     stubAnchorRect({ left: 200, right: 520, top: 50, bottom: 70 });
     act(() => {
       window.dispatchEvent(new Event('resize'));
     });
-    expect(placement()).toEqual(box(200, 520, 50, 70, null));
+    await flush();
+    expect(placement()).toEqual(box(200, 74));
   });
-
-  it('is in view only while the anchor meets the window and every clipping ancestor', () => {
-    anchorRect();
+  it('is in view only while the anchor meets the window and every clipping ancestor', async () => {
     render(createElement(Harness, { initial: true }));
     const scroller: Rect = { left: 200, right: 800, top: 0, bottom: 600 };
     // Wholly right of the window: its cut with the window is empty.
     const beyond: Rect = { left: 1100, right: 1500, top: 0, bottom: 600 };
-    // Anchor edges, the clipping scroller if any, the side `data-away` names (null: in view), and
-    // the layout: in flow, a fixed anchor, an absolute one with the scroller static or positioned.
-    // An anchor narrower than the panel leaves by the left too: the CSS then puts the panel's
-    // right edge at or left of the anchor's (web-popover.test.ts).
+    // Anchor edges, the clipping scroller if any, `data-away` (null: in view), and the layout: in
+    // flow, a fixed anchor, an absolute one with the scroller static or positioned. An edge
+    // exactly on the window edge is out of view.
     const positions = {
       flow: ['', ''],
       fixed: ['fixed', ''],
-      absolute: ['absolute', ''],
+      // happy-dom computes an unset position as '', a browser as 'static'.
+      absolute: ['absolute', 'static'],
       positioned: ['absolute', 'relative'],
     } as const;
     for (const [left, right, top, bottom, area, away, layout] of [
-      [-400, -20, 20, 40, undefined, 'left', 'flow'],
-      [-300, -20, 20, 40, undefined, 'left', 'flow'],
-      [-249, 0, 20, 40, undefined, 'left', 'flow'],
-      [1024, 1344, 20, 40, undefined, 'right', 'flow'],
-      [100, 420, -21, -1, undefined, 'top', 'flow'],
-      [100, 420, -20, 0, undefined, 'top', 'flow'],
-      [100, 420, 768, 788, undefined, 'bottom', 'flow'],
-      [100, 420, 769, 789, undefined, 'bottom', 'flow'],
-      [-100, 200, 20, 40, scroller, 'left', 'flow'],
-      [800, 1000, 20, 40, scroller, 'right', 'flow'],
-      [300, 620, -40, 0, scroller, 'top', 'flow'],
-      [300, 620, 600, 620, scroller, 'bottom', 'flow'],
+      [-400, -20, 20, 40, undefined, 'hidden', 'flow'],
+      [-300, -20, 20, 40, undefined, 'hidden', 'flow'],
+      [-249, 0, 20, 40, undefined, 'hidden', 'flow'],
+      [1024, 1344, 20, 40, undefined, 'hidden', 'flow'],
+      [100, 420, -21, -1, undefined, 'hidden', 'flow'],
+      [100, 420, -20, 0, undefined, 'hidden', 'flow'],
+      [100, 420, 768, 788, undefined, 'hidden', 'flow'],
+      [100, 420, 769, 789, undefined, 'hidden', 'flow'],
+      [-100, 200, 20, 40, scroller, 'hidden', 'flow'],
+      [800, 1000, 20, 40, scroller, 'hidden', 'flow'],
+      [300, 620, -40, 0, scroller, 'hidden', 'flow'],
+      [300, 620, 600, 620, scroller, 'hidden', 'flow'],
       [100, 420, 20, 40, undefined, null, 'flow'],
       [1000, 1320, 20, 40, undefined, null, 'flow'],
       [-300, 20, 20, 40, undefined, null, 'flow'],
       [100, 420, -19, 1, undefined, null, 'flow'],
       [100, 420, 767, 787, undefined, null, 'flow'],
       [150, 470, 590, 610, scroller, null, 'flow'],
-      // A wide anchor spanning both window edges, in an empty visible area.
-      [-100, 1200, 20, 40, beyond, 'empty', 'flow'],
+      // A wide anchor spanning both edges of an empty visible area counts as in view: floating-ui
+      // does not test the cut for being empty (the limit in the Popover doc comment).
+      [-100, 1200, 20, 40, beyond, null, 'flow'],
       // The scroller is not on the anchor's containing-block chain: it does not clip.
       [-100, 180, 20, 40, scroller, null, 'fixed'],
       [-100, 180, 20, 40, scroller, null, 'absolute'],
-      [-100, 180, 20, 40, scroller, 'left', 'positioned'],
+      [-100, 180, 20, 40, scroller, 'hidden', 'positioned'],
     ] as const) {
       const [anchorPosition, scrollerPosition] = positions[layout];
       clip(area, scrollerPosition);
       document.getElementById('anchor')?.style.setProperty('position', anchorPosition);
       stubAnchorRect({ left, right, top, bottom });
-      scrolled();
-      expect(placement(), JSON.stringify({ left, right, top, bottom, area, layout })).toEqual(
-        box(left, right, top, bottom, away),
-      );
+      await scrolled();
+      const row = JSON.stringify({ left, right, top, bottom, area, layout });
+      expect(opened().getAttribute('data-away'), row).toBe(away);
     }
   });
 
-  it('reads the current anchor and trigger, a trigger outside the anchor, after a swap', () => {
+  it('reads the current anchor and trigger, a trigger outside the anchor, after a swap', async () => {
     const onClose = vi.fn();
     // Anchors One and Two, each with its trigger outside it, Help one and Help two.
     function Swap({ second }: { second: boolean }) {
       const refs = [useRef<HTMLButtonElement>(null), useRef<HTMLButtonElement>(null)] as const;
       const triggers = [useRef<HTMLButtonElement>(null), useRef<HTMLButtonElement>(null)] as const;
       const names = ['One', 'Two', 'Help one', 'Help two'];
+      const ids = ['one', 'two', undefined, undefined];
       return createElement(
         Fragment,
         null,
         [...refs, ...triggers].map((ref, index) =>
-          createElement('button', { key: index, type: 'button', ref }, names[index]),
+          createElement(
+            'button',
+            { key: index, id: ids[index], type: 'button', ref },
+            names[index],
+          ),
         ),
         createElement(Popover, {
           open: true,
@@ -371,8 +359,15 @@ describe('Popover', () => {
         }),
       );
     }
+    stubAnchorRect({ left: 10, right: 90, top: 20, bottom: 40 }, 'one');
+    stubAnchorRect({ left: 500, right: 580, top: 60, bottom: 80 }, 'two');
     render(createElement(Swap, { second: false }));
+    await flush();
+    expect(placement()).toEqual(box(10, 44));
     render(createElement(Swap, { second: true }));
+    await flush();
+    // Placement follows anchor Two.
+    expect(placement()).toEqual(box(500, 84));
     // The current anchor and the current trigger are not outside; the old ones are.
     for (const [name, closes] of [
       ['Two', 0],
@@ -391,8 +386,7 @@ describe('Popover', () => {
     expect(document.activeElement).toBe(button('Help two'));
   });
 
-  it('measures on open as a child of its anchor, whose ref attaches after its layout effect', () => {
-    anchorRect();
+  it('measures on open as a child of its anchor, whose ref attaches after its layout effect', async () => {
     function Inside() {
       const anchor = useRef<HTMLDivElement>(null);
       return createElement(
@@ -415,12 +409,13 @@ describe('Popover', () => {
     });
     refuseHiddenFocus();
     render([opener, createElement(Inside, { key: 'inside' })]);
-    expect(placement()).toEqual(box(100, 420, 20, 40, null));
+    await flush();
+    expect(placement()).toEqual(box(100, 44));
     // Something held focus at open: the move to Close waits until the panel is shown.
     expect(document.activeElement).toBe(button('Close', opened()));
   });
 
-  it('with focus on body, Escape returns focus to the trigger only from a shown panel', () => {
+  it('with focus on body, Escape returns focus to the trigger only from a shown panel', async () => {
     // A hidden panel (its anchor scrolled out) closes and leaves focus where it was: on body.
     for (const [left, shown] of [
       [100, true],
@@ -430,6 +425,7 @@ describe('Popover', () => {
       const onClose = vi.fn();
       render(createElement(Fragment, null));
       render(createElement(Harness, { initial: true, onClose }));
+      await flush();
       expect(opened().hasAttribute('data-away')).toBe(!shown);
       key('Escape');
       expect(onClose).toHaveBeenCalledTimes(1);
@@ -437,8 +433,7 @@ describe('Popover', () => {
     }
   });
 
-  it('with focus on body, Escape closes the most recent shown surface, else a hidden one', () => {
-    anchorRect();
+  it('with focus on body, Escape closes the most recent shown surface, else a hidden one', async () => {
     // The hidden popover opens last: an ancestor clips its anchor away (happy-dom gives the clip
     // no width, so the visible area is empty).
     const clipped = { overflowX: 'hidden', overflowY: 'hidden' } as const;
@@ -450,6 +445,7 @@ describe('Popover', () => {
       );
       render(createElement(Fragment, null));
       render([shown && createElement(Harness, { key: 'shown', initial: true }), hidden]);
+      await flush();
       const away = () => dialogs().map((dialog) => dialog.hasAttribute('data-away'));
       expect(away()).toEqual(shown ? [false, true] : [true]);
       key('Escape');
@@ -457,9 +453,10 @@ describe('Popover', () => {
     }
   });
 
-  it('a HoverMenu and a Popover: Escape closes the focused one, else the most recent', () => {
+  it('a HoverMenu and a Popover: Escape closes the focused one, else the most recent', async () => {
     render(createElement(Harness, { after: menu('Sort') }));
     press(button('Help'));
+    await flush();
     press(button('Sort'));
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
     // Focus back in the popover: it closes first, though the menu opened later.
@@ -474,6 +471,7 @@ describe('Popover', () => {
 
     // With focus on body, the most recently opened closes first.
     press(button('Help'));
+    await flush();
     press(button('Sort'));
     act(() => {
       (document.activeElement as HTMLElement | null)?.blur();
@@ -485,9 +483,10 @@ describe('Popover', () => {
     expect(popover()).toBeUndefined();
   });
 
-  it('a HoverMenu inside a Popover: Escape closes the menu, then the Popover', () => {
+  it('a HoverMenu inside a Popover: Escape closes the menu, then the Popover', async () => {
     render(createElement(Harness, { children: menu('Sort') }));
     press(button('Help'));
+    await flush();
     press(button('Sort', opened()));
     const items = opened().querySelector('[role="menu"]');
     expect(items?.contains(document.activeElement)).toBe(true);
@@ -524,10 +523,11 @@ describe('Popover', () => {
     expect(popover()).toBeUndefined();
   });
 
-  it('a handled or composing Escape leaves it open', () => {
+  it('a handled or composing Escape leaves it open', async () => {
     const onClose = vi.fn();
     render(createElement(Harness, { onClose }));
     press(button('Help'));
+    await flush();
     key('Escape', { isComposing: true });
     const close = button('Close', opened());
     close.addEventListener('keydown', (event) => {
@@ -538,10 +538,10 @@ describe('Popover', () => {
     expect(popover()).toBeDefined();
   });
 
-  it('has five examples; only Open and FollowsColumn start open', () => {
+  it('has six examples; only Open and FollowsColumn start open', () => {
     const module = popoverExamples['../src/ds/Popover/Popover.examples.tsx'] ?? {};
     expect(Object.keys(module).sort()).toEqual(
-      ['Closed', 'FollowsColumn', 'LongContent', 'Open', 'WindowEdge'].sort(),
+      ['Closed', 'FlipsAbove', 'FollowsColumn', 'LongContent', 'Open', 'WindowEdge'].sort(),
     );
     for (const [name, Example] of Object.entries(module)) {
       render(createElement(Fragment, null));
