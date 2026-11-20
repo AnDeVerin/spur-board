@@ -49,8 +49,9 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
   `board task <task> --why` lists any `holds`, the Board can still open that turn: wait. Close
   with `--done` as above only when none is listed and no later Dev turn of that visit opened. A
   hold that does not clear (a ticket left unconfirmed): keyed `board ask <task> <text>` naming the
-  hold, not a close by hand. It goes to the column orchestrator, else curator, else operator, who
-  checks the hold or escalates it with keyed `board escalate <block>`.
+  hold, not a close by hand. The Board routes it as any question
+  ([how the Board works](references/how-board-works.md)); its recipient checks the hold or
+  escalates it, up to the operator.
 
 ## Board commands
 
