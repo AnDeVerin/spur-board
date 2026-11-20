@@ -57,15 +57,15 @@ export interface Verdict {
   lines: string[];
 }
 
-const PR_ONLY = new Set(['pr-title', 'guardrails']);
+const PR_ONLY = new Set(['pr-title', 'guardrails', 'acceptance-gates']);
 const PR_SKIPPED = new Set(['release-build', 'release-smoke']);
 
 /**
- * Passes only when every job succeeded. Accepted skips: `pr-title` and `guardrails` outside pull
- * requests, `release-build` and `release-smoke` on pull requests, `reuse` outside PR edits,
- * `workflows` when `github=false`, and PR package smoke when `package=false`. On a PR edit whose
- * `reuse` succeeded with `codeRun.id` as its `code-run` output, the `CODE_JOBS` may skip and
- * `codeRun`, the judged reused run, must pass.
+ * Passes only when every job succeeded. Accepted skips: `pr-title`, `guardrails` and
+ * `acceptance-gates` outside pull requests, `release-build` and `release-smoke` on pull requests,
+ * `reuse` outside PR edits, `workflows` when `github=false`, and PR package smoke when
+ * `package=false`. On a PR edit whose `reuse` succeeded with `codeRun.id` as its `code-run`
+ * output, the `CODE_JOBS` may skip and `codeRun`, the judged reused run, must pass.
  */
 export function decideCiOk(input: {
   needs: Record<string, NeededJob>;

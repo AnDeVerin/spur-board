@@ -1,0 +1,25 @@
+{
+  "data": {
+    "repository": {
+      "defaultBranchRef": {
+        "name": "main",
+        "refUpdateRule": null,
+        "rules": {
+          "nodes": [
+            {
+              "type": "DELETION",
+              "parameters": null
+            },
+            {
+              "type": "NON_FAST_FORWARD",
+              "parameters": null
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": false
+          }
+        }
+      }
+    }
+  }
+}

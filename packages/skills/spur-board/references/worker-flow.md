@@ -5,8 +5,19 @@
   `board link`. URL from the key: `o/r#12` is `https://github.com/o/r/issues/12`.
 - Blocking: keyed `board ask <task> <text>`; keep its B<number> and wait for the
   doorbell. Update: keyed `board comment <task> <text>`.
-- For a "back" code block to you, read `board task <task>` for the reason, fix it,
-  then keyed `board unblock <block> --done <ref>` with commit/PR link.
+- A return to Dev: ack its Dev turn, read the reason in `board task <task>`, fix it, then
+  keyed `board submit <turn> <sha>`. The take reads the "back" code block; your confirmed
+  submit closes it `done`, no unblock.
+- Close a "back" block by hand: keyed `board unblock <block> --done <commit/PR link>` once the
+  fix is in, only if `board task <task>` shows it open with `addressee` worker, and that
+  submit left it open or you have no Dev turn (an orchestrator or operator runs Dev). Ack it
+  when you read it in `board inbox`; `not_found` means no notification, no ack. If the ack
+  answers `forbidden` (the block's ring is assigned to another worker, or you authored the
+  block), skip the ack: close it with `--done` if it is yours to close, otherwise leave it to
+  the worker it rings. While `board task <task> --why` lists `submit_pending` or another hold,
+  wait. A hold that does not clear: keyed `board ask <task> <text>` naming it; its recipient
+  checks or escalates it with keyed `board escalate <block>`, up to the operator
+  ([Blocks and escalation](how-board-works-blocks.md)).
 - Exit 3: not applied. Ask in your own session; when the Board returns, retry identically.
 - Exit 4: no Board config; report in your session; keep the key.
 - Exit 5 (unknown): retry up to 3 times in a minute, then ask in your own session.

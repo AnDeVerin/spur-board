@@ -74,7 +74,7 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
         /Retained QA cannot supply Dev's submit\s*requirement/,
         /Taken turns hold until submit, return or a new head/,
         /Fixed gate rules have no configuration switch/,
-        /Fixed gate rules have no configuration switch\s*except enabled columns, no-CI, checks gate and resolved threads/,
+        /Fixed gate rules have no configuration switch\s*except enabled columns, no-CI, checks gate, resolved threads and review rule/,
         /`projects\[\]\.checksGate` \(default `dev`/,
         /Red\s*checks return the task to Dev from any column, after the submit of a taken turn/,
         /Only right of `dev` a cancelled check counts as running\s*for about two GitHub poll intervals/,
@@ -361,6 +361,7 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
       'filter:',
       'health:',
       'no-session:',
+      'review-rule:',
     ];
     expect([...new Set(rows.map((row) => row.kind))].sort()).toEqual([...ITEM_KINDS].sort());
     for (const kind of ITEM_KINDS) {
@@ -380,9 +381,8 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
     }
     const action = (kind: string, prefix?: string) =>
       rows.find((row) => row.kind === kind && row.prefix === prefix)?.cells[2] ?? '';
-    const hidden = 'not listed: shown as its block';
-    expect(action('cycle_limit')).toBe(hidden);
-    expect(action('board_observation', 'operator-block:')).toBe(hidden);
+    expect(action('cycle_limit')).toBe('not listed: shown as its block');
+    expect(action('board_observation', 'operator-block:')).toBe('not listed: shown as its block');
     expect(action('anomaly')).toMatch(
       /; listed only when addressed to the curator; otherwise shown as its block$/,
     );

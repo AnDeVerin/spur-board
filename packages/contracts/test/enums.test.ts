@@ -173,6 +173,7 @@ it('lists gate conditions and their states', () => {
     'submit_on_head',
     'review_on_head',
     'approved',
+    'review_rule_satisfied',
     'merged',
   ]);
   expect(GATE_CONDITION_STATES).toEqual(['met', 'failed', 'waiting', 'unchecked']);

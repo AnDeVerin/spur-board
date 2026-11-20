@@ -885,11 +885,13 @@ describe('snapshot', () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
-    // #761 added sources[].project, sources[].waitsForBudget (the runner's rate limit pause) and
-    // board-wide project, sources and services texts to status.get. The web Turn section then set
+    // Manual moves extend task.move, move views, schema metadata and the error catalog. #761
+    // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
+    // and board-wide project, sources and services texts to status.get. #733 adds the
+    // review-rule gate reasons and condition to task.get --why. The web Turn section then set
     // web on inbox.ack, task.submit and task.return; their schemas, grants and errors are unchanged.
     expect(await catalogVersion(baseline)).toBe(
-      '1d541ff9ffd5d2a04a4a74806c277be0a89d61b7db8e5a49c2369eb9f75668ec',
+      'e056a85238a847bb152d15a23c98e51b672af33c45f4081c896b3a6229f1341b',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

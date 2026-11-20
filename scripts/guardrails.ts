@@ -533,12 +533,12 @@ function git(cwd: string, args: string[]): string {
 const DIFF = ['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames'];
 const OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
-interface PullRequest {
+export interface PullRequest {
   body: string | null;
   user: { login: string; type: string };
 }
 
-function readPullRequest(path: string | undefined): PullRequest {
+export function readPullRequest(path: string | undefined): PullRequest {
   if (path === undefined || path === '') throw new Error('GITHUB_EVENT_PATH is not set');
   let event: unknown;
   try {

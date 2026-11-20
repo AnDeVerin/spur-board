@@ -12,6 +12,7 @@ const JOB_IDS = [
   'changes',
   'pr-title',
   'guardrails',
+  'acceptance-gates',
   'secrets',
   'workflows',
   'quality',
@@ -28,6 +29,7 @@ function allSuccess(): Record<string, { result: string; outputs?: Record<string,
     changes: { result: 'success', outputs: { github: 'true', package: 'true' } },
     'pr-title': { result: 'success' },
     guardrails: { result: 'success' },
+    'acceptance-gates': { result: 'success' },
     secrets: { result: 'success' },
     workflows: { result: 'success' },
     quality: { result: 'success' },
@@ -46,6 +48,7 @@ function decide(
   return decideCiOk({ needs: { ...allSuccess(), ...overrides }, event, jobIds: JOB_IDS });
 }
 
+const PR_ONLY_IDS = ['pr-title', 'guardrails', 'acceptance-gates'];
 const docsChange = { changes: { result: 'success', outputs: { github: 'false' } } };
 
 describe('decideCiOk', () => {
@@ -122,7 +125,7 @@ describe('decideCiOk', () => {
     expect(decide({ ...docsChange, [id]: { result: 'skipped' } }).ok).toBe(false);
   });
 
-  it.each(['pr-title', 'guardrails'])('accepts a skipped %s only outside pull requests', (id) => {
+  it.each(PR_ONLY_IDS)('accepts a skipped %s only outside pull requests', (id) => {
     expect(decide({ [id]: { result: 'skipped' } }, 'pull_request').ok).toBe(false);
     expect(decide({ [id]: { result: 'skipped' } }, 'push').ok).toBe(true);
     expect(decide({ [id]: { result: 'skipped' } }, 'workflow_dispatch').ok).toBe(true);

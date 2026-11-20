@@ -41,6 +41,15 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
 - On doorbell, read `board inbox` and the addressed C<number>@<revision> comment or B<number>
   block. Once handled, ack its revision, ID or ring N<number>-<ring> with keyed
   `board inbox ack <entries>`. Keyed `board answer` handles its block; no ack follows.
+- A return: ack its Dev turn, fix and submit; the take reads its `code` block, your confirmed
+  submit closes it; no unblock. Keyed `board unblock <block> --done <ref>` after the fix only
+  if `board task <task>` shows it open with `addressee` worker, after your submit if a Dev
+  turn is yours. Ack it when you read it in `board inbox`; `not_found`: none due. If the ack
+  answers `forbidden` (the block's ring is assigned to another worker, or you authored the
+  block), skip the ack: close it with `--done` if it is yours to close, otherwise leave it to
+  the worker it rings. While `board task <task> --why` lists `submit_pending` or another hold,
+  wait. A hold that does not clear: keyed `board ask <task> <text>` naming it; its recipient
+  checks or escalates it, up to the operator ([how the Board works](references/how-board-works.md)).
 
 ## Board commands
 
