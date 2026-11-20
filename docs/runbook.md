@@ -203,8 +203,8 @@ web:
 The daemon binds this separate listener to `127.0.0.1`; `{port}` resolves to the actual port.
 Configure the private-network reverse proxy to preserve `Host` and use the exact public origin.
 Anyone who reaches it can use the web-bound reads and `comment.add` / `block.answer` /
-`block.followup` / `item.close` / `task.move` / `inbox.ack` / `task.submit` / `task.return` as
-operator without a token. Host/Origin guards protect against foreign browser pages, not network members
+`block.followup` / `item.close` / `task.move` / `task.order` / `inbox.ack` / `task.submit` /
+`task.return` as operator without a token. Host/Origin guards protect against foreign browser pages, not network members
 or local users; keep the network limited to the operator's devices. See [Security](../SECURITY.md).
 
 The shell gets live updates from `GET /v1/events` on the same listener. Turn response buffering
