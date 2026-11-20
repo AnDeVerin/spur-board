@@ -3,8 +3,9 @@ import type { Row } from '../store/schema.ts';
 import { emit, type Trx } from './board-utils.ts';
 import {
   courseCounter,
-  courseRounds,
+  type CourseReplay,
   externalColumn,
+  externalRound,
   externalReviewer,
   prFacts,
   raiseCourseDue,
@@ -26,7 +27,13 @@ type Project = Config['projects'][number];
  */
 export async function recordExternalRounds(
   trx: Trx,
-  input: { task: Task; project: Project; at: Date; blind: (source: string) => boolean },
+  input: {
+    task: Task;
+    project: Project;
+    at: Date;
+    blind: (source: string) => boolean;
+    replay: () => Promise<CourseReplay>;
+  },
 ): Promise<void> {
   const { task, project, at, blind } = input;
   if (!counting(task, project)) return;
@@ -40,7 +47,8 @@ export async function recordExternalRounds(
         )
       : [];
   if (pr !== null && requests.length > 0 && !blind(prSourceId(project.id, pr.repo))) {
-    const { externalHeads: counted } = await courseRounds(trx, task.id, project);
+    const replay = await input.replay();
+    const counted = replay.externalHeads;
     const fresh = requests.filter((review) => !counted.has(review.commitSha.toLowerCase()));
     if (fresh.length > 0) {
       const [entry] = await readStatusColumnEntries(trx, new Set([task.project]), task.id);
@@ -62,6 +70,8 @@ export async function recordExternalRounds(
           head,
           reviewer: review.reviewer,
         });
+        // The newest journal entry: the replay this pass reuses ends with it.
+        replay.course.push(externalRound({ reviewer: review.reviewer, head }, project));
       }
     }
   }
@@ -86,10 +96,17 @@ function counting(task: Task, project: Project): boolean {
  */
 export async function raiseDeferredCourseCheck(
   trx: Trx,
-  input: { task: Task; project: Project; config: Config; at: Date },
+  input: {
+    task: Task;
+    project: Project;
+    config: Config;
+    at: Date;
+    replay: () => Promise<CourseReplay>;
+  },
 ): Promise<boolean> {
   const { task, project, config, at } = input;
   if (!counting(task, project)) return false;
   const counter = courseCounter({ kind: 'external_round' }, project);
-  return (await raiseCourseDue(trx, { task, project, config, at, counter })) !== null;
+  const replay = await input.replay();
+  return (await raiseCourseDue(trx, { task, project, config, at, counter, replay })) !== null;
 }

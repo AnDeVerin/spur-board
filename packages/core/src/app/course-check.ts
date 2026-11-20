@@ -7,6 +7,7 @@ import {
   type GateReason,
   type MoveReason,
   type PrFacts,
+  prFactsSchema,
 } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { returnCauses } from '../domain/dispatch.ts';
@@ -99,6 +100,11 @@ type Round =
 /** A course log in journal order: the counted rounds and the resets of each counter. */
 type CourseLog = (Round | { kind: 'reset'; counter: ColumnId })[];
 
+/** A task's journal replayed once: its cycle events, course log and External Review's heads. */
+export type CourseReplay = { cycle: CycleEvent[]; course: CourseLog; externalHeads: Set<string> };
+
+const reviewsSchema = prFactsSchema.shape.reviews;
+
 /**
  * The task's journal replayed for its counts, in journal order: the cycle events, and the
  * course rounds with the resets of each counter. A return is resolved against the PR active
@@ -114,7 +120,7 @@ export async function courseRounds(
   trx: Trx,
   taskId: number,
   project: Pick<Project, 'columns' | 'operatorGithubLogin'>,
-): Promise<{ cycle: CycleEvent[]; course: CourseLog; externalHeads: Set<string> }> {
+): Promise<CourseReplay> {
   const prefixes = { cycle: cycleKeyPrefix(taskId), course: courseKeyPrefix(taskId) };
   const items = await trx
     .selectFrom('operator_item')
@@ -135,74 +141,68 @@ export async function courseRounds(
       ];
     }),
   );
-  // One `at` is shared by a whole transaction, so the journal order is the event id.
+  // One `at` is shared by a whole transaction, so the journal order is the event id. A PR facts
+  // row brings only the fields the replay reads: its PR, state, head, reviews and bot logins.
+  const facts = (path: string) => sql<string | null>`json_extract(payload, ${'$.facts.' + path})`;
   const rows = await trx
     .selectFrom('event')
-    .select(['id', 'at', 'kind', 'payload'])
-    .where('task_id', '=', taskId)
-    .where('kind', 'in', ['task_moved', 'from_you_cleared', 'external_round'])
-    .orderBy('id')
-    .execute();
-  const facts = await trx
-    .selectFrom('event')
-    .select((eb) => [
+    .select([
       'id',
-      eb.fn<string>('json_extract', ['payload', sql.lit('$.facts.repo')]).as('repo'),
-      eb.fn<number>('json_extract', ['payload', sql.lit('$.facts.number')]).as('number'),
-      eb.fn<string>('json_extract', ['payload', sql.lit('$.facts.state')]).as('state'),
-      eb.fn<string>('json_extract', ['payload', sql.lit('$.facts.headSha')]).as('head'),
+      'at',
+      'kind',
+      sql<string>`case when kind = 'pr_facts_changed' then '' else payload end`.as('payload'),
+      facts('repo').as('repo'),
+      sql<number | null>`json_extract(payload, '$.facts.number')`.as('number'),
+      facts('state').as('state'),
+      facts('headSha').as('head'),
+      facts('reviews').as('reviews'),
+      sql<string>`(select json_group_array(lower(json_extract(value, '$.author.login'))) from json_each(event.payload, '$.facts.feedback') where json_extract(value, '$.author.type') = 'bot')`.as(
+        'bots',
+      ),
     ])
     .where('task_id', '=', taskId)
-    .where('kind', '=', 'pr_facts_changed')
+    .where('kind', 'in', ['task_moved', 'from_you_cleared', 'external_round', 'pr_facts_changed'])
     .orderBy('id')
     .execute();
-  /** The PR active at event `id`: the newest open one, by first facts, in the facts before it. */
-  const prAt = (id: number) => {
-    const seen = new Map<string, (typeof facts)[number] & { first: number }>();
-    for (const row of facts.filter((entry) => entry.id < id)) {
-      const key = `${row.repo.toLowerCase()}#${String(row.number)}`;
-      seen.set(key, { ...row, first: seen.get(key)?.first ?? row.id });
-    }
-    return [...seen.values()]
+  /** Each PR's latest facts so far, with the id of its first facts row. */
+  const prs = new Map<string, (typeof rows)[number] & { first: number }>();
+  /** The PR active now: the newest open one by first facts. */
+  const active = () =>
+    [...prs.values()]
       .filter((entry) => entry.state === 'open')
       .sort((left, right) => right.first - left.first)[0];
-  };
-  const reviewedHead = async (id: number, since: number, pr: { repo: string; number: number }) => {
-    const row = await trx
-      .selectFrom('event')
-      .select('payload')
-      .where('task_id', '=', taskId)
-      .where('kind', '=', 'pr_facts_changed')
-      .where(sql<boolean>`json_extract(payload, '$.facts.number') = ${pr.number}`)
-      .where(sql<boolean>`lower(json_extract(payload, '$.facts.repo')) = ${pr.repo.toLowerCase()}`)
-      .where('id', '<', id)
-      .orderBy('id', 'desc')
-      .executeTakeFirst();
-    const seen = eventPayloadSchemas.pr_facts_changed.safeParse(JSON.parse(row?.payload ?? 'null'));
-    if (!seen.success) return null;
-    const latest = seen.data.facts.reviews
+  /** The head of the PR's latest external change request made after `since`, or null. */
+  const reviewedHead = (pr: (typeof rows)[number], since: number) => {
+    const reviews = reviewsSchema.safeParse(JSON.parse(pr.reviews ?? 'null'));
+    const bots = new Set(JSON.parse(pr.bots) as string[]);
+    if (!reviews.success) return null;
+    const latest = reviews.data
       .filter(
         (review) =>
           review.state === 'changes_requested' &&
           Date.parse(review.submittedAt) > since &&
-          externalReviewer(seen.data.facts, project.operatorGithubLogin, review.reviewer),
+          review.reviewer.toLowerCase() !== project.operatorGithubLogin.toLowerCase() &&
+          !bots.has(review.reviewer.toLowerCase()),
       )
       .sort((left, right) => Date.parse(right.submittedAt) - Date.parse(left.submittedAt))[0];
     return latest?.commitSha.toLowerCase() ?? null;
   };
-  const cycle: CycleEvent[] = [];
-  const course: CourseLog = [];
-  const externalHeads = new Set<string>();
+  const replay: CourseReplay = { cycle: [], course: [], externalHeads: new Set<string>() };
+  const { cycle, course } = replay;
   let enteredAt = Number.NEGATIVE_INFINITY;
   const count = (round: Round, external: boolean) => {
     if (external && round.head !== null) {
-      if (externalHeads.has(round.head)) return;
-      externalHeads.add(round.head);
+      if (replay.externalHeads.has(round.head)) return;
+      replay.externalHeads.add(round.head);
     }
     course.push(round);
   };
   for (const row of rows) {
-    if (row.kind === 'from_you_cleared') {
+    if (row.kind === 'pr_facts_changed') {
+      if (row.repo === null || row.number === null) continue;
+      const key = `${row.repo.toLowerCase()}#${String(row.number)}`;
+      prs.set(key, { ...row, first: prs.get(key)?.first ?? row.id });
+    } else if (row.kind === 'from_you_cleared') {
       const cleared = eventPayloadSchemas.from_you_cleared.safeParse(JSON.parse(row.payload));
       const reset = cleared.success ? resetOf.get(cleared.data.item) : undefined;
       if (reset === undefined || !isColumn(reset.column)) continue;
@@ -210,16 +210,7 @@ export async function courseRounds(
       else course.push({ kind: 'reset', counter: reset.column });
     } else if (row.kind === 'external_round') {
       const round = eventPayloadSchemas.external_round.safeParse(JSON.parse(row.payload));
-      if (round.success)
-        count(
-          {
-            kind: 'external_round',
-            counter: courseCounter({ kind: 'external_round' }, project),
-            reviewer: round.data.reviewer,
-            head: round.data.head.toLowerCase(),
-          },
-          true,
-        );
+      if (round.success) count(externalRound(round.data, project), true);
     } else if (row.kind === 'task_moved') {
       const since = enteredAt;
       enteredAt = Date.parse(row.at);
@@ -230,11 +221,11 @@ export async function courseRounds(
       if (countCycles([event], event.column, Infinity).count === 0) continue;
       const counter = courseCounter(event, project);
       const external = counter === EXTERNAL_COUNTER && externalCause(event.causes);
-      const pr = prAt(row.id);
+      const pr = active();
       const head =
         pr === undefined
           ? null
-          : ((external ? await reviewedHead(row.id, since, pr) : null) ?? pr.head.toLowerCase());
+          : ((external ? reviewedHead(pr, since) : null) ?? pr.head?.toLowerCase() ?? null);
       const cause = event.causes.includes('executor')
         ? 'executor'
         : external
@@ -243,8 +234,19 @@ export async function courseRounds(
       count({ kind: 'return', counter, from: event.column, head, cause }, external);
     }
   }
-  return { cycle, course, externalHeads };
+  return replay;
 }
+
+/** An `external_round` as the round it counts. */
+export const externalRound = (
+  round: { reviewer: string; head: string },
+  project: Pick<Project, 'columns'>,
+): Round => ({
+  kind: 'external_round',
+  counter: courseCounter({ kind: 'external_round' }, project),
+  reviewer: round.reviewer,
+  head: round.head.toLowerCase(),
+});
 
 /** The rounds counted under `counter` since the last close of its course-check item. */
 function roundsSince(course: CourseLog, counter: ColumnId): Round[] {
@@ -268,11 +270,25 @@ export async function returnCounts(
   column: ColumnId,
   project: Pick<Project, 'columns' | 'operatorGithubLogin'>,
 ): Promise<{ cycle: number; course: number }> {
-  const { cycle, course } = await courseRounds(trx, taskId, project);
+  return countsFrom(await courseRounds(trx, taskId, project), column);
+}
+
+/** `returnCounts` of `column` from a replay already read. */
+export function countsFrom(replay: CourseReplay, column: ColumnId) {
   return {
-    cycle: countCycles(cycle, column, Infinity).count,
-    course: roundsSince(course, column).length,
+    cycle: countCycles(replay.cycle, column, Infinity).count,
+    course: roundsSince(replay.course, column).length,
   };
+}
+
+/** The task's replay, read on first use and reused for the rest of one dispatcher pass. */
+export function replayOnce(
+  trx: Trx,
+  taskId: number,
+  project: Pick<Project, 'columns' | 'operatorGithubLogin'>,
+): () => Promise<CourseReplay> {
+  let replay: Promise<CourseReplay> | undefined;
+  return () => (replay ??= courseRounds(trx, taskId, project));
 }
 
 /**
@@ -288,14 +304,17 @@ export async function raiseCourseDue(
     config: Config;
     at: Date;
     counter: ColumnId;
+    /** The task's replay when the caller already read it. */
+    replay?: CourseReplay;
   },
 ): Promise<Row<'operator_item'> | null> {
   const { task, project, config, at, counter } = input;
   const threshold = project.columns.find((column) => column.id === counter)?.courseCheck ?? 0;
   if (threshold <= 0) return null;
-  const rounds = roundsSince((await courseRounds(trx, task.id, project)).course, counter);
-  if (rounds.length < threshold) return null;
-  return raiseCourseCheck(trx, { task, column: counter, count: rounds.length, at, config });
+  const replay = input.replay ?? (await courseRounds(trx, task.id, project));
+  const count = roundsSince(replay.course, counter).length;
+  if (count < threshold) return null;
+  return raiseCourseCheck(trx, { task, column: counter, count, at, config, replay });
 }
 
 /** Whether a reviewer is external: not the agent login and not a bot that left feedback. */
@@ -317,7 +336,14 @@ export function externalReviewer(pr: PrFacts, agentLogin: string, login: string)
  */
 export async function raiseCourseCheck(
   trx: Trx,
-  input: { task: Task; column: ColumnId; count: number; at: Date; config: Config },
+  input: {
+    task: Task;
+    column: ColumnId;
+    count: number;
+    at: Date;
+    config: Config;
+    replay?: CourseReplay;
+  },
 ): Promise<Row<'operator_item'>> {
   const { task, column, count, at, config } = input;
   const itemKey = `${courseKeyPrefix(task.id)}${column}`;
@@ -331,7 +357,7 @@ export async function raiseCourseCheck(
   const url = taskUrl(task, config);
   const block = await openSystemBlock(trx, {
     task,
-    reason: await courseSummary(trx, task, column, count, url, config),
+    reason: await courseSummary(trx, task, { column, count, url, config, replay: input.replay }),
     at: at.toISOString(),
     config,
     addressee: courseAddressee(config, task.project, column),
@@ -393,11 +419,15 @@ const countOf = (n: number, [one, many]: readonly [string, string]) =>
 async function courseSummary(
   trx: Trx,
   task: Task,
-  column: ColumnId,
-  count: number,
-  url: string,
-  config: Config,
+  input: {
+    column: ColumnId;
+    count: number;
+    url: string;
+    config: Config;
+    replay: CourseReplay | undefined;
+  },
 ): Promise<string> {
+  const { column, count, url, config } = input;
   const pr = await prFacts(trx, task.id);
   const current = pr?.headSha.toLowerCase();
   const short = (sha: string) =>
@@ -406,7 +436,8 @@ async function courseSummary(
     columns: [],
     operatorGithubLogin: '',
   };
-  const rounds = roundsSince((await courseRounds(trx, task.id, project)).course, column);
+  const replay = input.replay ?? (await courseRounds(trx, task.id, project));
+  const rounds = roundsSince(replay.course, column);
   const external = column === EXTERNAL_COUNTER;
   const kinds = rounds.map((round) => (round.kind === 'external_round' ? 'request' : round.cause));
   const split = Object.entries(ROUND_KINDS)

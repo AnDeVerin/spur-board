@@ -42,11 +42,13 @@ import {
   type Trx,
 } from './board-utils.ts';
 import {
+  countsFrom,
   courseCounter,
   courseKeyPrefix,
+  courseRounds,
   cycleKeyPrefix,
   raiseCourseDue,
-  returnCounts,
+  replayOnce,
   shadowCourseCheck,
   uncounted,
 } from './course-check.ts';
@@ -258,7 +260,8 @@ export async function moveLeft(
   const column = project?.columns.find((entry) => entry.id === task.column);
   if (project?.dispatcher.mode !== 'on' || column === undefined || uncounted(reason))
     return { task: moved, limitReached: false };
-  const counts = await returnCounts(trx, task.id, task.column, project);
+  const replay = await courseRounds(trx, task.id, project);
+  const counts = countsFrom(replay, task.column);
   if (counts.cycle >= column.cycleLimit) {
     await raiseCycleLimit(trx, { task: moved, column: task.column, at, config });
     return { task: moved, limitReached: true };
@@ -276,6 +279,7 @@ export async function moveLeft(
       },
       project,
     ),
+    replay,
   });
   return { task: moved, limitReached: course !== null };
 }
@@ -1261,7 +1265,10 @@ export async function dispatchTasks(
     const project = ctx.config.projects.find((entry) => entry.id === task.project);
     if (project === undefined) continue;
     const mode = project.dispatcher.mode;
-    if (mode === 'on') await recordExternalRounds(trx, { task, project, at: ctx.at, blind });
+    // One replay of the task's course journal serves the recording, the dedupe and the threshold.
+    const replay = replayOnce(trx, task.id, project);
+    if (mode === 'on')
+      await recordExternalRounds(trx, { task, project, at: ctx.at, blind, replay });
     const read = await readInput(trx, task, project, mode, blind, ctx.config, ctx);
     if (read === null) continue;
     // Before the merged-ticket hold: a merge settles the submit whatever the ticket says.
@@ -1277,7 +1284,13 @@ export async function dispatchTasks(
       mode === 'on' &&
       result.moves.length === 0 &&
       dispatchHolds(read.input).length === 0 &&
-      (await raiseDeferredCourseCheck(trx, { task, project, config: ctx.config, at: ctx.at }))
+      (await raiseDeferredCourseCheck(trx, {
+        task,
+        project,
+        config: ctx.config,
+        at: ctx.at,
+        replay,
+      }))
     )
       result = dispatch({ ...read.input, cycleHeld: true });
     if (mode === 'shadow') await applyShadow(trx, task, project, result, ctx.at);

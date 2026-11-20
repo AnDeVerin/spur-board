@@ -13,7 +13,7 @@ import {
   type SessionFacts,
   type TicketFacts,
 } from '@spur-board/contracts';
-import { sql } from 'kysely';
+import { Kysely, sql, SqliteDialect, type CompiledQuery } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createApply,
@@ -23,14 +23,16 @@ import {
   reconcileDueDoorbells,
   tickBoard,
   type Store,
+  type Tables,
 } from '../../src/index.ts';
 import { registerTurnReminder, ringStillCurrent } from '../../src/app/doorbells.ts';
 import { archiveTask } from '../../src/app/archive.ts';
 import { returnCounts } from '../../src/app/course-check.ts';
+import { dispatchTasks } from '../../src/app/dispatch.ts';
 import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { markTaskChanged } from '../../src/app/board-utils.ts';
-import { openTempStore } from '../support/store.ts';
+import { openTempStore, rawDatabase } from '../support/store.ts';
 
 // The dispatcher end to end through the observation core, the registry and the tick, on an
 // sb-like board: review by `rev`, product review by `coord`, ready to merge by the operator.
@@ -290,7 +292,7 @@ function board(options: Options = {}) {
   let config = boardConfig(options);
   let now = BASE;
   const clock = { now: () => (options.movingClock === true ? ++now : now) };
-  const store = openTempStore('board-dispatch-').store;
+  const { store, file } = openTempStore('board-dispatch-');
   stores.push(store);
   let core = createObservationCore({ store, config, clock });
   let current: PrFacts | null = null;
@@ -343,6 +345,11 @@ function board(options: Options = {}) {
   };
   const ctx = {
     store,
+    /** The store's database file, for a second connection. */
+    file,
+    /** The sources' last complete polls, as the tick passes them to the dispatcher. */
+    complete: () => core.completeSince,
+    config: () => config,
     at: () => new Date(now).toISOString(),
     /** A daemon restart on the same store: a fresh core and registry, perhaps a new config. */
     restart(next: Options = options) {
@@ -4300,6 +4307,52 @@ describe('external change-request rounds', () => {
       if (column === 'done') expect(await itemsOf(ctx, 'course_check')).toEqual([]);
     },
   );
+
+  it("a dispatcher pass reads the task's course journal once", async () => {
+    const options = {
+      externalReview: true,
+      curator: true,
+      cycleLimit: 10,
+      externalCourseCheck: 10,
+    };
+    const ctx = await inReview(options);
+    await externalReturn(ctx, A);
+    for (const head of [B, C, D]) {
+      await resubmit(ctx, head);
+      await externalReturn(ctx, head);
+    }
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await returnCounts(ctx.store.db, 1, 'external-review', project(options))).toEqual({
+      cycle: 0,
+      course: 4,
+    });
+
+    const queries: CompiledQuery[] = [];
+    const logged = new Kysely<Tables>({
+      dialect: new SqliteDialect({ database: rawDatabase(ctx.file) }),
+      log: (event) => {
+        queries.push(event.query);
+      },
+    });
+    try {
+      await logged.transaction().execute((trx) =>
+        dispatchTasks(trx, [1], {
+          config: ctx.config(),
+          at: new Date(ctx.at()),
+          complete: ctx.complete(),
+        }),
+      );
+    } finally {
+      await logged.destroy();
+    }
+    // The PR facts of four returns and every poll come in one read, with the moves and rounds.
+    const facts = queries.filter((query) =>
+      [query.sql, ...query.parameters.map(String)].some((text) =>
+        text.includes('pr_facts_changed'),
+      ),
+    );
+    expect(facts).toHaveLength(1);
+  });
 
   it('repeated change requests on one head count once', async () => {
     const ctx = await inDev({ externalReview: true, curator: true });
