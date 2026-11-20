@@ -37,7 +37,9 @@ import { parseJson, toJson, type WarnSkipped } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import { closeBlockIfOpen, openSystemBlock } from './blocks.ts';
 import {
+  latest,
   mergedTicket,
+  seenOpenSince,
   parseDefaultBranch,
   parsePr,
   pastReopenFloor,
@@ -74,9 +76,9 @@ const stallObservationSchema = z.object({
 });
 
 const ENDED_WORKER_LABELS: Partial<Record<SessionHealthFlagKind, string>> = {
-  worker_completed: 'worker ended (completed), no PR',
-  worker_killed: 'worker ended (killed), no PR',
-  worker_vanished: 'worker vanished, no PR',
+  worker_completed: 'worker ended (completed)',
+  worker_killed: 'worker ended (killed)',
+  worker_vanished: 'worker vanished',
 };
 
 /** Health flags only the operator can resolve; each opens an operator block. */
@@ -489,9 +491,11 @@ export async function reconcileItems(
         .onRef('pr_snapshot.number', '=', 'link.number'),
     )
     .select([
+      'link.id',
       'link.task_id',
       'link.repo',
       'link.number',
+      'link.pr_state',
       'pr_snapshot.state',
       'pr_snapshot.source',
       'pr_snapshot.observed_at',
@@ -517,77 +521,145 @@ export async function reconcileItems(
         project !== undefined && ticket !== undefined && ticketDone(project, ticket.status),
     };
   }
+  // When a closed PR closed. Facts stored by an earlier version carry no close time; their last
+  // change stands in for it.
+  const closeTime = (pr: (typeof prs)[number]) => {
+    const facts = pr.detail === null ? null : parseJson(prFactsSchema, pr.detail);
+    return facts === null ? NaN : Date.parse(facts.closedAt ?? facts.updatedAt);
+  };
   // Each task's newest merge time; null when no merged PR's detail is readable.
   const mergedAt = new Map<number, string | null>();
+  // Each task's newest stored merge time (`newestMergeAt`): a ticket edited before it waits.
+  const newestMerge = new Map<number, string | null>();
+  // Each task's merged PR as the dispatcher judges it (`taskMergedPr`): the newest eligible link;
+  // `at` is null when its detail is unreadable. A conflict link never counts as the task's PR.
+  const judged = new Map<
+    number,
+    { id: number; facts: ReturnType<typeof parsePr>; at: string | null; ref: string }
+  >();
   for (const pr of prs) {
     const state = taskPrs[String(pr.task_id)];
     if (state === undefined) continue;
     if (pr.state === 'open') state.hasOpenPr = true;
-    if (pr.state !== 'merged') continue;
+    if (pr.state !== 'merged' || pr.pr_state !== 'active') continue;
     const facts = parsePr(pr.detail ?? undefined);
     const at = facts === null ? null : (facts.mergedAt ?? facts.updatedAt);
     const newest = mergedAt.get(pr.task_id) ?? null;
     if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest)))
       mergedAt.set(pr.task_id, at);
-  }
-  for (const [taskId, at] of mergedAt) {
-    const state = taskPrs[String(taskId)];
-    const task = taskById.get(taskId);
-    if (state === undefined || task === undefined) continue;
-    const project = config.projects.find((entry) => entry.id === task.project);
-    // A merged PR counts as finished work unless the ticket was seen open after it: a split task
-    // back in Dev is watched like any task without a PR.
-    state.hasMergedPr =
-      at === null ||
-      project === undefined ||
-      mergedTicket(
-        project,
-        config,
-        tickets.find((entry) => entry.task_id === taskId),
-        task.manual_include === 1,
+    newestMerge.set(pr.task_id, latest([newestMerge.get(pr.task_id), facts?.mergedAt]));
+    const current = judged.get(pr.task_id);
+    if (current === undefined || pr.id > current.id)
+      judged.set(pr.task_id, {
+        id: pr.id,
+        facts,
         at,
-      ) !== 'open';
+        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
+      });
   }
-  const heldKeys: string[] = [];
+  // Each task's pr-closed item when it has no open PR: its PRs closed unmerged, less those closed
+  // before the newest merge, which superseded them. It is held until every repo completed a poll
+  // since the last close, so a replacement PR is seen first. A raised one also ends the merged
+  // PR's suppression below, so the two always agree.
+  const prClosed = new Map<
+    number,
+    { held: true; key: string } | { held: false; item: ItemCandidate; closedAt: number }
+  >();
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
-    if (state === undefined || state.hasOpenPr || state.hasMergedPr) continue;
-    // A PR closed before the task's newest merge was superseded by it. Facts stored by an earlier
-    // version carry no close time; their last change stands in for it.
+    if (state === undefined || state.hasOpenPr) continue;
     const mergedSince = Date.parse(mergedAt.get(task.id) ?? '');
     const closed = prs
       .filter((pr) => pr.task_id === task.id && pr.state === 'closed')
-      .map((pr) => {
-        const facts = pr.detail === null ? null : parseJson(prFactsSchema, pr.detail);
-        return {
-          ...pr,
-          ref: `${pr.repo ?? ''}#${String(pr.number)}`,
-          closedAt: facts === null ? NaN : Date.parse(facts.closedAt ?? facts.updatedAt),
-        };
-      })
+      .map((pr) => ({
+        ...pr,
+        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
+        closedAt: closeTime(pr),
+      }))
       .filter((pr) => !(pr.closedAt < mergedSince))
       .sort((left, right) => left.ref.localeCompare(right.ref));
     const first = closed[0];
     if (first === undefined) continue;
-    // A replacement PR counts only once every repo completed a poll since the last close.
     const closedAt = Math.max(...closed.map((pr) => pr.closedAt));
     const key = `pr-closed:${String(task.id)}`;
     if (state.prCompleteAt === null || !(state.prCompleteAt >= closedAt)) {
-      heldKeys.push(key);
+      prClosed.set(task.id, { held: true, key });
       continue;
     }
     const refs = closed.map((pr) => pr.ref);
     // Projects sharing a repo overwrite the snapshot's source, so the task's own repo source names it.
-    candidates.push({
-      key,
-      kind: 'anomaly',
-      taskId: task.id,
-      summary: `${task.key}: linked pull request ${refs.join(', ')} closed without merge, no open PR`,
-      factAt: first.observed_at,
-      source: prSourceId(task.project, first.repo ?? ''),
-      priority: 4,
-      revision: refs.join(','),
+    prClosed.set(task.id, {
+      held: false,
+      closedAt,
+      item: {
+        key,
+        kind: 'anomaly',
+        taskId: task.id,
+        summary: `${task.key}: linked pull request ${refs.join(', ')} closed without merge, no open PR`,
+        factAt: first.observed_at,
+        source: prSourceId(task.project, first.repo ?? ''),
+        priority: 4,
+        revision: refs.join(','),
+      },
     });
+  }
+  // Tasks whose ticket reopened after the judged merge, with the clause their worker-end item names.
+  const reopened = new Map<number, string>();
+  // Tasks whose merged PR suppresses alerts only while their pr-closed item is held, as when a repo
+  // is blind: their shown alerts hold as they are, and nothing new is raised.
+  const liftHeld = new Set<number>();
+  for (const [taskId, { facts, at, ref }] of judged) {
+    const state = taskPrs[String(taskId)];
+    const task = taskById.get(taskId);
+    if (state === undefined || task === undefined) continue;
+    const project = config.projects.find((entry) => entry.id === task.project);
+    // A merged PR counts as finished work unless the ticket changed after it and is not done: a
+    // split task back in Dev is watched like any task without a PR. A raised pr-closed item also
+    // ends it once the ticket is seen still not done one tracker interval after the newest merge,
+    // the grace in which a close the merge triggers may still be polled.
+    const ticket = tickets.find((entry) => entry.task_id === taskId);
+    // The newest stored merge decides; without one, the PR's interval fallback (`mergedTicket`).
+    const storedMerge = latest([facts?.mergedAt, newestMerge.get(taskId)]);
+    const judgement =
+      facts === null || project === undefined
+        ? 'unconfirmed'
+        : mergedTicket(project, config, ticket, task.manual_include === 1, {
+            ...facts,
+            ...(storedMerge === null ? {} : { mergedAt: storedMerge }),
+          });
+    const closure = prClosed.get(taskId);
+    // The tracker evidence a closure lift needs, raised or held.
+    const seenOpen =
+      project !== undefined &&
+      seenOpenSince(
+        project,
+        config,
+        ticket,
+        task.manual_include === 1,
+        Date.parse(mergedAt.get(taskId) ?? ''),
+      );
+    const followUpClosed = closure?.held === false && seenOpen;
+    state.hasMergedPr =
+      at === null ||
+      project === undefined ||
+      (judgement !== 'reopened' &&
+        judgement !== 'open' &&
+        (judgement === 'done' || !followUpClosed));
+    // No ticket status in the text: the item fingerprint hashes it, and a move between two
+    // non-done statuses must not raise the item again.
+    if (judgement === 'reopened') reopened.set(taskId, `; PR ${ref} merged, ticket reopened`);
+    // A held lift keeps its alerts only while the tracker still sees the ticket open.
+    if (state.hasMergedPr && seenOpen && closure?.held === true) liftHeld.add(taskId);
+  }
+  const heldKeys: string[] = [];
+  for (const task of tasks) {
+    const closure = prClosed.get(task.id);
+    if (closure === undefined) continue;
+    const key = closure.held ? closure.key : closure.item.key;
+    if (taskPrs[String(task.id)]?.hasMergedPr !== false) {
+      if (liftHeld.has(task.id)) heldKeys.push(key);
+    } else if (closure.held) heldKeys.push(key);
+    else candidates.push(closure.item);
   }
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
@@ -600,7 +672,9 @@ export async function reconcileItems(
       ticket !== undefined &&
       ticketDone(project, ticket.status) &&
       (state.hasOpenPr || liveSessionTasks.has(String(task.id))) &&
-      !state.hasMergedPr;
+      // A merge of any link state, a conflict link's included, may be what closed the ticket.
+      !state.hasMergedPr &&
+      !prs.some((pr) => pr.task_id === task.id && pr.state === 'merged');
     if (task.membership === 'out_of_filter' && !closedWhileLive)
       candidates.push({
         key: `filter:${String(task.id)}`,
@@ -830,6 +904,27 @@ export async function reconcileItems(
     now,
     episode: previousEpisode === undefined ? null : parseJson(episodeSchema, previousEpisode.value),
   });
+  // While a held pr-closed item keeps the merged PR suppressing, the ended-worker items the task
+  // would show without that suppression hold as they are; health decides the other conditions.
+  if (liftHeld.size > 0) {
+    const lifted = evaluateSessionHealth({
+      sessions: subjects,
+      tasks: Object.fromEntries(
+        Object.entries(taskPrs).map(([id, state]) => [
+          id,
+          liftHeld.has(Number(id)) ? { ...state, hasMergedPr: false } : state,
+        ]),
+      ),
+      spur: { blind: spurBlind, observationComplete: spurComplete },
+      config: config.health,
+      now,
+      episode:
+        previousEpisode === undefined ? null : parseJson(episodeSchema, previousEpisode.value),
+    });
+    for (const flag of [...lifted.flags, ...lifted.held])
+      if (liftHeld.has(Number(flag.taskId)) && ENDED_WORKER_LABELS[flag.kind] !== undefined)
+        heldKeys.push(healthKey(Number(flag.taskId), flag));
+  }
   await trx
     .insertInto('meta')
     .values({ key: 'host_load_episode', value: toJson(episodeSchema, health.episode) })
@@ -872,7 +967,15 @@ export async function reconcileItems(
             ? 'worker_ended'
             : 'board_observation',
       taskId: task.id,
-      summary: `${task.key}: ${endedLabel ?? flag.kind.replaceAll('_', ' ')} (${flag.sessionId})`,
+      summary: `${task.key}: ${
+        endedLabel === undefined
+          ? flag.kind.replaceAll('_', ' ')
+          : `${endedLabel}${reopened.get(task.id) ?? ', no PR'}`
+      } (${flag.sessionId})`,
+      // The text an earlier version showed, so a dismissal holds when the PR clause changes.
+      ...(endedLabel === undefined
+        ? {}
+        : { hashedSummary: `${task.key}: ${endedLabel}, no PR (${flag.sessionId})` }),
       // An ended worker's "no PR" holds while Spur keeps completing polls.
       factAt:
         endedLabel === undefined
@@ -1007,11 +1110,30 @@ export async function reconcileItems(
       await clearReconciled(trx, old, new Date(now));
     if (dismissal?.fingerprint === hash) continue;
     if (kept) {
-      if (old.fact_at !== candidate.factAt || old.source !== candidate.source)
+      // A hashed summary keeps the item while its shown text changes: show the current text.
+      if (
+        old.fact_at !== candidate.factAt ||
+        old.source !== candidate.source ||
+        old.text !== candidate.summary
+      )
         await trx
           .updateTable('operator_item')
-          .set({ fact_at: candidate.factAt, source: candidate.source })
+          .set({ fact_at: candidate.factAt, source: candidate.source, text: candidate.summary })
           .where('id', '=', old.id)
+          .execute();
+      // Its open block shows the same text in the inbox; the refresh notifies no one.
+      const task = candidate.taskId === null ? undefined : taskById.get(candidate.taskId);
+      if (
+        candidate.hashedSummary !== undefined &&
+        old.text !== candidate.summary &&
+        old.block_id !== null &&
+        task !== undefined
+      )
+        await trx
+          .updateTable('block')
+          .set({ reason: blockReason(task, candidate.summary) })
+          .where('id', '=', old.block_id)
+          .where('state', '=', 'open')
           .execute();
       continue;
     }
@@ -1058,6 +1180,12 @@ function prCompleteAt(
  * Raises a ledger item with the operator block it stands for. An active item of the key is
  * returned as it is, so a repeated raise opens no second block.
  */
+/** The reason of an item's block: the item text without its task key prefix. */
+function blockReason(task: Row<'task'>, text: string): string {
+  const prefix = `${task.key}: `;
+  return text.startsWith(prefix) ? text.slice(prefix.length) : text;
+}
+
 async function raiseAnomaly(
   trx: Trx,
   config: Config,
@@ -1072,14 +1200,13 @@ async function raiseAnomaly(
     .where('cleared_at', 'is', null)
     .executeTakeFirst();
   if (active !== undefined) return active;
-  const prefix = `${task.key}: `;
   const toCurator =
     input.itemKey.startsWith('turn-stall:') &&
     curatorProject(config, task.project) !== null &&
     (await curatorSession(trx, config, task.project))?.id !== executorId;
   const block = await openSystemBlock(trx, {
     task,
-    reason: input.text.startsWith(prefix) ? input.text.slice(prefix.length) : input.text,
+    reason: blockReason(task, input.text),
     at: input.at.toISOString(),
     config,
     ...(toCurator ? { addressee: 'curator' as const } : {}),

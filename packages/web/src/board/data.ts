@@ -10,6 +10,7 @@ import {
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 import { createColumnView } from './column-view.ts';
 import { createColumnsRead, type ColumnsState } from './columns-data.ts';
+import { createSectionStore } from './sections.ts';
 import { createTurnIntent } from './turn-intent.ts';
 import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
 
@@ -568,6 +569,7 @@ export function createBoardData(options: BoardDataOptions) {
       columns.open();
     },
     ...createColumnView(options.storage),
+    ...createSectionStore(options.storage),
     /** Unsent text of the task view writers, kept across a reload after a board update. */
     drafts: check.drafts,
     /**

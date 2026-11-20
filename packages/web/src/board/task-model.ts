@@ -286,6 +286,14 @@ export function whySummary(value: BoardTask): string {
   return gate ? 'all pass' : 'unknown';
 }
 
+/** The Latest submission header: its basis with ` · pending` and ` · voided` when they hold. */
+export function submissionSummary(submission: Exclude<BoardTask['submission'], undefined>) {
+  if (submission === null) return 'No submissions yet';
+  return [submission.basis, submission.pending && 'pending', submission.voided && 'voided']
+    .filter(Boolean)
+    .join(' · ');
+}
+
 const KIND_ORDER: readonly TaskLink['kind'][] = ['ticket', 'pr', 'session'];
 
 function linkChip(

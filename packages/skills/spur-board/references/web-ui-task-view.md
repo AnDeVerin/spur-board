@@ -78,15 +78,22 @@ An open orchestrator turn has a **Turn** section; see [Turn](web-ui-task-turn.md
 
 ## Latest submission
 
-After Why it is here and before discussion, Now shows the latest accepted
-submission: column, UTC time, full submitted SHA, declared basis, applicable source
-and original tested SHA, literal reason, and explicit pending and voided state.
-`tested` records provenance and does not mean checks passed. The latest row includes
-pending or voided submissions. No submissions reads `No submissions yet`; an older
-server without this field omits the block. The block shares the task's loading,
-retry and retained-data behavior. Long SHAs and reasons wrap in Now and History.
-Normal submission history also shows basis, source, tested origin and reason while
-preserving head-confirmation wording; legacy submissions read as tested.
+After Turn (or Why it is here) and before Blocks, the **Latest submission** section shows the
+latest accepted submission. It starts closed; its header reads the basis, then ` · pending` and
+` · voided` when they hold (`tested · pending`), or `No submissions yet`. Open, it lists the
+column, UTC time, full submitted SHA, declared basis, applicable source and original tested SHA,
+literal reason, and pending and voided state. `tested` records provenance and does not mean
+checks passed; the latest row includes pending or voided submissions. An older server without
+this field omits the section. It shares the task's loading, retry and retained-data behavior;
+long SHAs and reasons wrap in Now and History. Normal submission history also shows basis,
+source, tested origin and reason while preserving head-confirmation wording; legacy submissions
+read as tested.
+
+## Remembered sections
+
+Each section of Now keeps its open or closed state in this browser, for every task and project
+and after a reload. Without browser storage the defaults apply: all open except Latest
+submission.
 
 ## Blocks and comments
 
