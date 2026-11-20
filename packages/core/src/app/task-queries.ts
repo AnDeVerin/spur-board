@@ -12,7 +12,8 @@ import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../d
 import type { CommentTable, TaskTable } from '../store/schema.ts';
 import { authorize, projectTarget } from './authorize.ts';
 import { blockView, commentView, subjectTarget, taskBlockViews, taskTarget } from './blocks.ts';
-import { linkView, moveViews, taskView, type Trx } from './board-utils.ts';
+import { approvalViews } from './approval-watch.ts';
+import { linkView, moveViews, parsePr, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
 import { blindSources, readInput } from './dispatch.ts';
@@ -270,12 +271,20 @@ export function createTaskQueries(deps: {
               .onRef('pr_snapshot.number', '=', 'link.number'),
           )
           .selectAll('link')
-          .select('pr_snapshot.state')
+          .select(['pr_snapshot.state', 'pr_snapshot.detail'])
           .where('link.task_id', '=', task.id)
           .where('link.banned', '=', 0)
           .orderBy('link.id')
           .execute(),
       ]);
+      const watch = config.projects.find((entry) => entry.id === task.project)?.approvalWatch;
+      const approvals = new Map<number, Awaited<ReturnType<typeof approvalViews>>>();
+      for (const link of links) {
+        const fact = link.entity === 'pr' ? parsePr(link.detail ?? undefined) : null;
+        if (fact === null) continue;
+        const views = await approvalViews(trx, fact, watch);
+        if (views.length > 0) approvals.set(link.id, views);
+      }
       const subject = taskSubject(task);
       return {
         sessions: await taskSessions(trx, task.id),
@@ -284,7 +293,12 @@ export function createTaskQueries(deps: {
         ...(await taskTurns(trx, task, input.detail === true)),
         links: links.map(({ state, ...link }) => {
           const observed = PR_STATES.find((value) => value === state);
-          return { ...linkView(link), ...(observed === undefined ? {} : { state: observed }) };
+          const views = approvals.get(link.id);
+          return {
+            ...linkView(link),
+            ...(observed === undefined ? {} : { state: observed }),
+            ...(views === undefined ? {} : { approvals: views }),
+          };
         }),
         blocks,
         comments: withoutBlockOpenings(comments, blocks).map((comment) =>

@@ -335,6 +335,26 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
     expect(index.slice(start, end < 0 ? undefined : end)).toContain("each project's `checksGate`");
   });
 
+  it('describes approvals in the prSummary paragraph', () => {
+    const index = readFileSync(
+      new URL('../../../docs/how-board-works.md', import.meta.url),
+      'utf8',
+    );
+    const start = index.indexOf('`prSummary` is an array');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = index.indexOf('\n\n', start);
+    const paragraph = index.slice(start, end < 0 ? undefined : end);
+    for (const clause of [
+      'for gate explanations.',
+      'approvals',
+      'changedAfter',
+      'watchedAfter',
+      'approvalWatch',
+      'notCounted',
+    ])
+      expect(paragraph).toContain(clause);
+  });
+
   it('lists every item kind in the operator inbox table', () => {
     const guide = readFileSync(
       new URL('../../../docs/how-board-works-inbox.md', import.meta.url),

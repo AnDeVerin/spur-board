@@ -72,6 +72,7 @@ import {
 import { closeTurns, rerouteDemotedWorkerTurn } from './turns.ts';
 import { countCancelledChecks } from './cancelled-checks.ts';
 import { recordReviewRule } from './review-rule.ts';
+import { recordApprovalPairs } from './approval-watch.ts';
 
 function refKey(ref: EntityRef): string {
   switch (ref.kind) {
@@ -1535,6 +1536,7 @@ export function createObservationCore(deps: {
             )
               confirmedCancels.push(item.facts);
             await holdContinuation(trx, source, item);
+            await recordApprovalPairs(trx, item.facts, item.approvalPairs);
           } else
             await session(
               trx,
