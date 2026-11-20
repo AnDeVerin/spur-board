@@ -489,8 +489,8 @@ export async function applyMirror(
     .orderBy('id')
     .execute();
   for (const task of tasks) {
-    const state = readiness.get(task.key) ?? 'unknown';
-    if (state === 'unknown') continue;
+    const state = readiness.get(task.key);
+    if (state === undefined) continue;
     const to = mirrorTarget({
       column: task.column,
       workStarted: await workStartedOn(trx, task.id),

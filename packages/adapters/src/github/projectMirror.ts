@@ -232,9 +232,8 @@ export function readProjectMirror(
     fetch: fetcher,
     signal,
   }: { token: string; now: () => number; fetch?: typeof fetch; signal: AbortSignal },
-  cachedOptionId?: string,
 ): Promise<MirrorRead> {
-  return readMirrorWith(new GithubClient(token, now, fetcher), target, signal, cachedOptionId);
+  return readMirrorWith(new GithubClient(token, now, fetcher), target, signal);
 }
 
 interface GithubProjectOptions extends MirrorTarget {
