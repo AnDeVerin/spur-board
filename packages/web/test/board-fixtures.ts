@@ -10,7 +10,8 @@ type OpId =
   | 'block.answer'
   | 'block.followup'
   | 'comment.add'
-  | 'item.close';
+  | 'item.close'
+  | 'columns.describe';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
@@ -349,7 +350,50 @@ export const taskHistory = (
   ],
 ) => ({ task: taskGet().task, events });
 
-/** Fake daemon: the five reads by route and an event stream the test writes to. */
+/**
+ * One `columns.describe` column: a dispatcher column with no rules, no returns and no limits,
+ * unless `extra` says otherwise. A plain object of the column shape; only `policy` parses.
+ */
+export const policyColumn = (id: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  name: id,
+  exit: { to: null, conditions: [] },
+  returns: [],
+  limits: null,
+  executor: {
+    kind: 'dispatcher',
+    project: null,
+    role: null,
+    displayName: null,
+    session: null,
+    text: 'The dispatcher moves the task when the rules hold; nobody takes a turn.',
+  },
+  escalation: { chain: [], noRecipient: null, silent: null },
+  movedBy: { kind: 'dispatcher', text: 'The dispatcher moves tasks in when the rules hold.' },
+  ...extra,
+});
+/** A parsed `columns.describe` answer naming one project and its columns. */
+export const policy = (
+  projectId: string,
+  columns: unknown[],
+  extra: Record<string, unknown> = {},
+) =>
+  browserOperations['columns.describe'].output.parse({
+    projects: [
+      {
+        id: projectId,
+        dispatcher: { mode: 'on' },
+        checksGate: 'dev',
+        reposWithoutCi: [],
+        resolvedThreadsFrom: null,
+        completion: { to: 'done', text: 'A merged PR with a done ticket completes the task.' },
+        columns,
+        ...extra,
+      },
+    ],
+  });
+
+/** Fake daemon: the reads and writes by route and an event stream the test writes to. */
 export function daemon(tasks: unknown[] = ROWS) {
   const routes: Record<OpId, Route> = {
     'config.get': () => Promise.resolve(envelope(config)),
@@ -365,6 +409,7 @@ export function daemon(tasks: unknown[] = ROWS) {
     'block.followup': () =>
       Promise.resolve(envelope({ comment: comment({ id: 'C9', block: 'B12' }) })),
     'task.history': () => Promise.resolve(envelope(taskHistory())),
+    'columns.describe': () => Promise.resolve(envelope({ projects: [] })),
     'item.close': (input) =>
       Promise.resolve(
         envelope({

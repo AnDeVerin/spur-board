@@ -11,8 +11,8 @@ Enable the optional web listener with `web.port` and `web.publicOrigin` per
 then open `web.publicOrigin`. For 503 `UI is not built`, follow
 [Building the web UI](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#building-the-web-ui).
 
-Reads: `config.get`, chosen-project `status.get`, `inbox.operator`, open-task `task.get`/`task.history` and
-`/v1/events`. The UI owns no data.
+Reads: `config.get`, chosen-project `status.get` and `columns.describe`, `inbox.operator`,
+open-task `task.get`/`task.history` and `/v1/events`. The UI owns no data.
 
 ## Screens
 
@@ -30,7 +30,7 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
 - **Loading**: skeleton columns, the inbox count `–`, and the switcher disabled until config
   answers.
 - **Live**: the indicator reads `live`. The stream tells the UI which projects changed; a change in
-  the chosen project rereads its config and status, and any change rereads the inbox. A
+  the chosen project rereads its config, status and column policy, and any change rereads the inbox. A
   changed journal head or daemon instance on reconnect, a `reset` and the 30-second status frame
   reread everything.
 - **Empty**: a project with no tasks shows a message instead of columns.

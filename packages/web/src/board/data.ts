@@ -8,6 +8,7 @@ import {
   type Output,
 } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
+import { createColumnsRead, type ColumnsState } from './columns-data.ts';
 import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
 import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
 
@@ -93,6 +94,8 @@ export interface BoardSnapshot {
   task: TaskState | undefined;
   /** History of the open task; undefined until `showHistory` first reads it. */
   history: HistoryState | undefined;
+  /** Column policy of the chosen project; its failures never set `readFailed`. Absent until read. */
+  columns?: ColumnsState | undefined;
 }
 
 interface BoardDataOptions {
@@ -133,6 +136,7 @@ export function createBoardData(options: BoardDataOptions) {
     retrying: false,
     task: undefined,
     history: undefined,
+    columns: undefined,
   };
   let preferred: string | null = null;
   try {
@@ -192,6 +196,13 @@ export function createBoardData(options: BoardDataOptions) {
       update(value ? { status: value, lastGoodAt: options.now() } : {});
     },
   );
+  const columns = createColumnsRead(api, {
+    project: () => state.project,
+    columns: () => state.columns,
+    publish: (value) => {
+      update({ columns: value });
+    },
+  });
   const config = coordinateRead(
     (signal) => {
       configIssued = ++issued;
@@ -205,12 +216,21 @@ export function createBoardData(options: BoardDataOptions) {
       if (project !== state.project) {
         statusFailed = false;
         statusUnreadable = false;
-        Object.assign(patch, { project, status: undefined, lastGoodAt: undefined });
+        columns.reset();
+        Object.assign(patch, {
+          project,
+          status: undefined,
+          lastGoodAt: undefined,
+          columns: undefined,
+        });
       }
       // `status.get` throws for an unknown project, so it takes the project from config.
       if (project === undefined) settleRetry('chain', configIssued);
       update(patch);
-      if (project !== undefined) status.refresh();
+      if (project !== undefined) {
+        status.refresh();
+        columns.refresh();
+      }
     },
   );
   const inbox = coordinateRead(
@@ -395,6 +415,7 @@ export function createBoardData(options: BoardDataOptions) {
       refreshWaits.clear();
       stream?.stop();
       status.dispose();
+      columns.dispose();
       config.dispose();
       inbox.dispose();
       task.dispose();
@@ -503,8 +524,17 @@ export function createBoardData(options: BoardDataOptions) {
       statusFailed = false;
       configUnreadable = false;
       statusUnreadable = false;
-      update({ project, status: undefined, lastGoodAt: undefined });
+      columns.reset();
+      update({ project, status: undefined, lastGoodAt: undefined, columns: undefined });
       status.refresh();
+      columns.refresh();
+    },
+    /**
+     * A column help panel opened: read `columns.describe` again. `columns.help` is `loading` until
+     * a read issued after this call settles; the last good answer stays meanwhile.
+     */
+    readColumns() {
+      columns.open();
     },
     /** The stored order of a column; `T ↑` when none is stored, it is unknown or storage fails. */
     columnSort(project: string, column: string): ColumnSort {

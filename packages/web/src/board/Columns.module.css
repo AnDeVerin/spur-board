@@ -45,6 +45,29 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* The executor line is the column help trigger: its icon and text, quiet until hovered or open;
+   the attention colour, set last, wins while a bound executor has no live session. */
+.actor {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  text-align: left;
+  cursor: pointer;
+}
+.actor:hover,
+.actor[aria-expanded='true'] {
+  color: var(--color-text-primary);
+}
+.actor[data-warn] {
+  color: var(--color-status-attention);
+}
 .sort {
   flex: none;
   display: inline-flex;

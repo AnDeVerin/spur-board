@@ -279,7 +279,9 @@ describe('column sort', () => {
     await settle();
     const dev = section('dev');
     const [field, direction] = sortButtons('dev');
+    const actor = dev.querySelector('button[aria-haspopup="dialog"]');
     expect([...dev.querySelectorAll('button, a[href]')]).toEqual([
+      actor,
       field,
       direction,
       ...dev.querySelectorAll('a[href]'),
@@ -287,7 +289,9 @@ describe('column sort', () => {
     const heading = dev.querySelector('h2');
     if (!heading || !field) throw new Error('no heading');
     expect(heading.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect([field, direction].every((item) => item?.classList.contains(focusRing))).toBe(true);
+    expect([actor, field, direction].every((item) => item?.classList.contains(focusRing))).toBe(
+      true,
+    );
   });
 
   it('reorders one column, stores its order and restores it per project and column', async () => {

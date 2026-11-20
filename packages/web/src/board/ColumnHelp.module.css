@@ -1,0 +1,82 @@
+/* The column help panel body: sections split by a subtle hairline, as the prototype's help. */
+.part {
+  padding-top: var(--space-2);
+}
+.part + .part {
+  margin-top: var(--space-2);
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+}
+.part > * + * {
+  margin-top: var(--space-1);
+}
+/* A micro uppercase label; the weight is the body's, not the h4 bold. */
+.title {
+  margin: 0;
+  font-size: var(--text-micro);
+  font-weight: inherit;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--color-text-tertiary);
+}
+.text {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+.text b {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+.list {
+  margin: 0;
+  padding-left: var(--space-6);
+  color: var(--color-text-primary);
+}
+.list li {
+  padding: var(--space-0-25) 0;
+}
+.list li::marker {
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+.label,
+.muted {
+  display: block;
+}
+.muted {
+  color: var(--color-text-secondary);
+}
+.live {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+.session {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+  background: var(--color-fill-working);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+.session svg {
+  color: var(--color-status-working);
+}
+.chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.arrow {
+  color: var(--color-text-tertiary);
+}
+/* The Skeleton or error Banner sits where the first section would. */
+.state {
+  padding-top: var(--space-2);
+}

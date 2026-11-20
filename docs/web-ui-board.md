@@ -53,6 +53,11 @@ Columns follow configuration order:
   longest in the column first; `K ↑` the lowest key, numbers compared as numbers. Rows without a
   time go last. The browser keeps the order per project and column. Spines have none; the filter
   only dims.
+- The executor line is a button with an icon for who moves a task here. It opens column help,
+  **Who** first, then **Rules**, read from `columns.describe` on each open: a skeleton while it
+  reads, an error in the panel if it fails. Escape, an outside click, Close or a second click
+  close it. A bound orchestrator with no live session turns the line to the attention colour with
+  ` · no live session`. Spines have no help; Backlog parts do.
 - An empty column collapses to a spine with its name and `0`.
 - Two or three adjacent Todo-group columns (`todo`, `triage`, `ready-for-dev`) sit under one
   `Backlog` band with their total count; `todo` alone stays a plain column. Each part's head
