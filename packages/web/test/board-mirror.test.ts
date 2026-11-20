@@ -158,10 +158,19 @@ describe('mirrored Backlog part in column help', () => {
     expect(moves().querySelector('[role="status"]')).toBeNull();
     // A degraded mirror warns but is not frozen.
     await openWho({ health: 'degraded', readAt: null });
-    expect(lines()[1]?.textContent).toBe('no complete read yet');
+    expect(lines()[1]?.textContent).toBe('degraded · no complete read yet');
     expect(lines()[1]?.querySelector('[aria-hidden="true"]')?.outerHTML).toBe(
       renderToStaticMarkup(createElement(StatusDot, { tone: 'warn' })),
     );
+    expect(moves().querySelector('[role="status"]')).toBeNull();
+    // A degraded mirror after a good read says so in words, not only by the dot.
+    await openWho({ health: 'degraded' });
+    expect(lines()[1]?.textContent).toBe('degraded · read 3m ago');
+    // Paused for the GitHub rate budget, it names the wait.
+    await openWho({ health: 'degraded' }, [
+      source('github-project:a:ex/1', { waitsForBudget: true }),
+    ]);
+    expect(lines()[1]?.textContent).toBe('waiting for the GitHub rate budget · read 3m ago');
     expect(moves().querySelector('[role="status"]')).toBeNull();
     await openWho(FROZEN);
     expect(moves().querySelector('[role="status"]')?.textContent).toBe(

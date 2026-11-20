@@ -44,5 +44,6 @@ failure of the last read, else why the source is blind, such as
 `No complete observation in 3 poll intervals`, then `Polls wait for the GitHub rate budget.`
 while polling waits for it. An empty frozen part stays a column for the notice, and the top
 banner leaves the mirror out; it names it while the project has no tasks, as no columns show
-then. Its Who tab shows the same; a readable mirror shows `read <age> ago`, amber
-while it is degraded.
+then. Its Who tab shows the same; a readable mirror shows `read <age> ago`. A degraded
+one adds an amber dot and `degraded · ` before it, or
+`waiting for the GitHub rate budget · ` while polling waits for the budget.

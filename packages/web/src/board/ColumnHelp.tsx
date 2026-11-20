@@ -109,7 +109,10 @@ function SessionLink({ session, spurUiOrigin }: { session: Session; spurUiOrigin
   );
 }
 
-/** The read state of a mirror: when it last read, or the frozen Banner when it fails. */
+/**
+ * The read state of a mirror: when it last read, after a status word while degraded, or the
+ * frozen Banner when it fails.
+ */
 function MirrorState({
   mirror,
   read,
@@ -125,10 +128,14 @@ function MirrorState({
         Not readable: frozen
       </Banner>
     );
+  const healthy = mirror.health === 'healthy';
+  const state =
+    mirror.readAt === null ? 'no complete read yet' : `read ${age(mirror.readAt, now)} ago`;
+  const word = read?.waitsForBudget === true ? 'waiting for the GitHub rate budget' : 'degraded';
   return (
     <p className={classes(styles.text, styles.live)}>
-      <StatusDot tone={mirror.health === 'healthy' ? 'ok' : 'warn'} />
-      {mirror.readAt === null ? 'no complete read yet' : `read ${age(mirror.readAt, now)} ago`}
+      <StatusDot tone={healthy ? 'ok' : 'warn'} />
+      {healthy ? state : `${word} · ${state}`}
     </p>
   );
 }
