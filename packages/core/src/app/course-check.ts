@@ -142,7 +142,8 @@ export async function courseRounds(
     }),
   );
   // One `at` is shared by a whole transaction, so the journal order is the event id. A PR facts
-  // row brings only the fields the replay reads: its PR, state, head, reviews and bot logins.
+  // row brings only its PR, state and head; the reviews and bot logins of the few rows an
+  // External Review return needs come in a second read.
   const facts = (path: string) => sql<string | null>`json_extract(payload, ${'$.facts.' + path})`;
   const rows = await trx
     .selectFrom('event')
@@ -155,10 +156,6 @@ export async function courseRounds(
       sql<number | null>`json_extract(payload, '$.facts.number')`.as('number'),
       facts('state').as('state'),
       facts('headSha').as('head'),
-      facts('reviews').as('reviews'),
-      sql<string>`(select json_group_array(lower(json_extract(value, '$.author.login'))) from json_each(event.payload, '$.facts.feedback') where json_extract(value, '$.author.type') = 'bot')`.as(
-        'bots',
-      ),
     ])
     .where('task_id', '=', taskId)
     .where('kind', 'in', ['task_moved', 'from_you_cleared', 'external_round', 'pr_facts_changed'])
@@ -171,11 +168,76 @@ export async function courseRounds(
     [...prs.values()]
       .filter((entry) => entry.state === 'open')
       .sort((left, right) => right.first - left.first)[0];
-  /** The head of the PR's latest external change request made after `since`, or null. */
-  const reviewedHead = (pr: (typeof rows)[number], since: number) => {
-    const reviews = reviewsSchema.safeParse(JSON.parse(pr.reviews ?? 'null'));
-    const bots = new Set(JSON.parse(pr.bots) as string[]);
-    if (!reviews.success) return null;
+  const replay: CourseReplay = { cycle: [], course: [], externalHeads: new Set<string>() };
+  /**
+   * The course entries in journal order; a return for external feedback names the facts row of
+   * its PR and the visit start, to take the head of the change request it came from.
+   */
+  const queue: {
+    entry: CourseLog[number];
+    external: boolean;
+    reviewed?: { id: number; since: number };
+  }[] = [];
+  let enteredAt = Number.NEGATIVE_INFINITY;
+  for (const row of rows) {
+    if (row.kind === 'pr_facts_changed') {
+      if (row.repo === null || row.number === null) continue;
+      const key = `${row.repo.toLowerCase()}#${String(row.number)}`;
+      prs.set(key, { ...row, first: prs.get(key)?.first ?? row.id });
+    } else if (row.kind === 'from_you_cleared') {
+      const cleared = eventPayloadSchemas.from_you_cleared.safeParse(JSON.parse(row.payload));
+      const reset = cleared.success ? resetOf.get(cleared.data.item) : undefined;
+      if (reset === undefined || !isColumn(reset.column)) continue;
+      if (reset.count === 'cycle') replay.cycle.push({ kind: 'limit_reset', column: reset.column });
+      else queue.push({ entry: { kind: 'reset', counter: reset.column }, external: false });
+    } else if (row.kind === 'external_round') {
+      const round = eventPayloadSchemas.external_round.safeParse(JSON.parse(row.payload));
+      if (round.success) queue.push({ entry: externalRound(round.data, project), external: true });
+    } else if (row.kind === 'task_moved') {
+      const since = enteredAt;
+      enteredAt = Date.parse(row.at);
+      const moved = eventPayloadSchemas.task_moved.safeParse(JSON.parse(row.payload));
+      const event = moved.success ? counted(moved.data, moved.data.block !== undefined) : null;
+      if (event?.kind !== 'return') continue;
+      replay.cycle.push(event);
+      if (countCycles([event], event.column, Infinity).count === 0) continue;
+      const counter = courseCounter(event, project);
+      const external = counter === EXTERNAL_COUNTER && externalCause(event.causes);
+      const pr = active();
+      const cause = event.causes.includes('executor')
+        ? 'executor'
+        : external
+          ? 'external'
+          : 'other';
+      const head = pr?.head?.toLowerCase() ?? null;
+      queue.push({
+        entry: { kind: 'return', counter, from: event.column, head, cause },
+        external,
+        ...(external && pr !== undefined ? { reviewed: { id: pr.id, since } } : {}),
+      });
+    }
+  }
+  const used = [...new Set(queue.flatMap(({ reviewed }) => (reviewed ? [reviewed.id] : [])))];
+  const reviewed =
+    used.length === 0
+      ? []
+      : await trx
+          .selectFrom('event')
+          .select([
+            'id',
+            facts('reviews').as('reviews'),
+            sql<string>`(select json_group_array(lower(json_extract(value, '$.author.login'))) from json_each(event.payload, '$.facts.feedback') where json_extract(value, '$.author.type') = 'bot')`.as(
+              'bots',
+            ),
+          ])
+          .where('id', 'in', used)
+          .execute();
+  /** The head of the latest external change request in facts row `id` made after `since`. */
+  const reviewedHead = (id: number, since: number) => {
+    const row = reviewed.find((entry) => entry.id === id);
+    const reviews = reviewsSchema.safeParse(JSON.parse(row?.reviews ?? 'null'));
+    if (row === undefined || !reviews.success) return null;
+    const bots = new Set(JSON.parse(row.bots) as string[]);
     const latest = reviews.data
       .filter(
         (review) =>
@@ -187,52 +249,14 @@ export async function courseRounds(
       .sort((left, right) => Date.parse(right.submittedAt) - Date.parse(left.submittedAt))[0];
     return latest?.commitSha.toLowerCase() ?? null;
   };
-  const replay: CourseReplay = { cycle: [], course: [], externalHeads: new Set<string>() };
-  const { cycle, course } = replay;
-  let enteredAt = Number.NEGATIVE_INFINITY;
-  const count = (round: Round, external: boolean) => {
-    if (external && round.head !== null) {
-      if (replay.externalHeads.has(round.head)) return;
+  for (const { entry, external, reviewed: lookup } of queue) {
+    const head = lookup === undefined ? null : reviewedHead(lookup.id, lookup.since);
+    const round = head === null || entry.kind !== 'return' ? entry : { ...entry, head };
+    if (external && round.kind !== 'reset' && round.head !== null) {
+      if (replay.externalHeads.has(round.head)) continue;
       replay.externalHeads.add(round.head);
     }
-    course.push(round);
-  };
-  for (const row of rows) {
-    if (row.kind === 'pr_facts_changed') {
-      if (row.repo === null || row.number === null) continue;
-      const key = `${row.repo.toLowerCase()}#${String(row.number)}`;
-      prs.set(key, { ...row, first: prs.get(key)?.first ?? row.id });
-    } else if (row.kind === 'from_you_cleared') {
-      const cleared = eventPayloadSchemas.from_you_cleared.safeParse(JSON.parse(row.payload));
-      const reset = cleared.success ? resetOf.get(cleared.data.item) : undefined;
-      if (reset === undefined || !isColumn(reset.column)) continue;
-      if (reset.count === 'cycle') cycle.push({ kind: 'limit_reset', column: reset.column });
-      else course.push({ kind: 'reset', counter: reset.column });
-    } else if (row.kind === 'external_round') {
-      const round = eventPayloadSchemas.external_round.safeParse(JSON.parse(row.payload));
-      if (round.success) count(externalRound(round.data, project), true);
-    } else if (row.kind === 'task_moved') {
-      const since = enteredAt;
-      enteredAt = Date.parse(row.at);
-      const moved = eventPayloadSchemas.task_moved.safeParse(JSON.parse(row.payload));
-      const event = moved.success ? counted(moved.data, moved.data.block !== undefined) : null;
-      if (event?.kind !== 'return') continue;
-      cycle.push(event);
-      if (countCycles([event], event.column, Infinity).count === 0) continue;
-      const counter = courseCounter(event, project);
-      const external = counter === EXTERNAL_COUNTER && externalCause(event.causes);
-      const pr = active();
-      const head =
-        pr === undefined
-          ? null
-          : ((external ? reviewedHead(pr, since) : null) ?? pr.head?.toLowerCase() ?? null);
-      const cause = event.causes.includes('executor')
-        ? 'executor'
-        : external
-          ? 'external'
-          : 'other';
-      count({ kind: 'return', counter, from: event.column, head, cause }, external);
-    }
+    replay.course.push(round);
   }
   return replay;
 }

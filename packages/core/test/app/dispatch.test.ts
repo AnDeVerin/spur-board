@@ -4308,51 +4308,94 @@ describe('external change-request rounds', () => {
     },
   );
 
-  it("a dispatcher pass reads the task's course journal once", async () => {
-    const options = {
-      externalReview: true,
-      curator: true,
-      cycleLimit: 10,
-      externalCourseCheck: 10,
-    };
-    const ctx = await inReview(options);
-    await externalReturn(ctx, A);
-    for (const head of [B, C, D]) {
-      await resubmit(ctx, head);
-      await externalReturn(ctx, head);
-    }
-    expect((await ctx.task()).column).toBe('dev');
-    expect(await returnCounts(ctx.store.db, 1, 'external-review', project(options))).toEqual({
-      cycle: 0,
-      course: 4,
-    });
-
-    const queries: CompiledQuery[] = [];
-    const logged = new Kysely<Tables>({
-      dialect: new SqliteDialect({ database: rawDatabase(ctx.file) }),
-      log: (event) => {
-        queries.push(event.query);
+  it.each([
+    {
+      name: 'snapshots and no External Review return',
+      start: async (options: Options) => {
+        const ctx = await inDev(options);
+        for (const head of [B, C, D]) await ctx.pr({ headSha: head });
+        return ctx;
       },
-    });
-    try {
-      await logged.transaction().execute((trx) =>
-        dispatchTasks(trx, [1], {
-          config: ctx.config(),
-          at: new Date(ctx.at()),
-          complete: ctx.complete(),
-        }),
+      returns: 0,
+    },
+    {
+      name: 'four External Review returns',
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await externalReturn(ctx, A);
+        for (const head of [B, C, D]) {
+          await resubmit(ctx, head);
+          await externalReturn(ctx, head);
+        }
+        return ctx;
+      },
+      returns: 4,
+    },
+  ])(
+    "a dispatcher pass reads the task's course journal once: $name",
+    async ({ start, returns }) => {
+      const options = {
+        externalReview: true,
+        curator: true,
+        cycleLimit: 10,
+        externalCourseCheck: 10,
+      };
+      const ctx = await start(options);
+      expect((await ctx.task()).column).toBe('dev');
+      expect(
+        (await returnCounts(ctx.store.db, 1, 'external-review', project(options))).course,
+      ).toBe(returns);
+      // The facts row each return's change request is read from: the PR's last before it.
+      const journal = await ctx.store.db
+        .selectFrom('event')
+        .select(['id', 'kind', 'payload'])
+        .where('task_id', '=', 1)
+        .where('kind', 'in', ['pr_facts_changed', 'task_moved'])
+        .orderBy('id')
+        .execute();
+      const used = journal.flatMap<number>((row, index) =>
+        row.kind === 'task_moved' && row.payload.includes('"to":"dev"') && index > 0
+          ? journal
+              .slice(0, index)
+              .filter((entry) => entry.kind === 'pr_facts_changed')
+              .slice(-1)
+              .map((entry) => entry.id)
+          : [],
       );
-    } finally {
-      await logged.destroy();
-    }
-    // The PR facts of four returns and every poll come in one read, with the moves and rounds.
-    const facts = queries.filter((query) =>
-      [query.sql, ...query.parameters.map(String)].some((text) =>
-        text.includes('pr_facts_changed'),
-      ),
-    );
-    expect(facts).toHaveLength(1);
-  });
+
+      const queries: CompiledQuery[] = [];
+      const logged = new Kysely<Tables>({
+        dialect: new SqliteDialect({ database: rawDatabase(ctx.file) }),
+        log: (event) => {
+          queries.push(event.query);
+        },
+      });
+      try {
+        await logged.transaction().execute((trx) =>
+          dispatchTasks(trx, [1], {
+            config: ctx.config(),
+            at: new Date(ctx.at()),
+            complete: ctx.complete(),
+          }),
+        );
+      } finally {
+        await logged.destroy();
+      }
+      // The moves, rounds and every poll's PR facts come in one read; feedback and reviews only
+      // for the facts rows an External Review return uses, and not at all without one.
+      const facts = queries.filter((query) =>
+        [query.sql, ...query.parameters.map(String)].some((text) =>
+          text.includes('pr_facts_changed'),
+        ),
+      );
+      expect(facts).toHaveLength(1);
+      const feedback = queries.filter((query) => query.sql.includes('json_each'));
+      expect(
+        feedback.map((query) => query.parameters.filter((value) => typeof value === 'number')),
+      ).toEqual(returns === 0 ? [] : [used]);
+      expect(used).toHaveLength(returns);
+    },
+  );
 
   it('repeated change requests on one head count once', async () => {
     const ctx = await inDev({ externalReview: true, curator: true });
