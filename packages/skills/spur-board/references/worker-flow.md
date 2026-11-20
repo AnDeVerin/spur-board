@@ -6,15 +6,14 @@
 - Blocking: keyed `board ask <task> <text>`; keep its B<number> and wait for the
   doorbell. Update: keyed `board comment <task> <text>`.
 - A return to Dev: ack its Dev turn, read the reason in `board task <task>`, fix it, then
-  keyed `board submit <turn> <sha>`. Taking the turn reads the "back" code block; the Board's
-  confirmed submit closes it `done`.
-- A "back" block addressed to you that `board task <task>` still shows open while you work on
-  it without a Dev turn you took (an orchestrator or the operator runs Dev), or after you took
-  or submitted one: ack it, then once the fix is in keyed
-  `board unblock <block> --done <commit/PR link>`. A redundant ack is a no-op. While
-  `board task <task> --why` lists `submit_pending` or another hold, wait. A hold that does not
-  clear: keyed `board ask <task> <text>` naming it; its recipient checks it or escalates it with
-  keyed `board escalate <block>`, up to the operator
+  keyed `board submit <turn> <sha>`. The take reads the "back" code block; your confirmed
+  submit closes it `done`, no unblock.
+- Close a "back" block by hand: keyed `board unblock <block> --done <commit/PR link>` once the
+  fix is in, only if `board task <task>` still shows it open after that submit, or you have no
+  Dev turn to submit (an orchestrator or operator runs Dev). Ack it only if its doorbell rang;
+  a block that never rang needs no ack. While `board task <task> --why` lists `submit_pending`
+  or another hold, wait. A hold that does not clear: keyed `board ask <task> <text>` naming it;
+  its recipient checks or escalates it with keyed `board escalate <block>`, up to the operator
   ([Blocks and escalation](how-board-works-blocks.md)).
 - Exit 3: not applied. Ask in your own session; when the Board returns, retry identically.
 - Exit 4: no Board config; report in your session; keep the key.
