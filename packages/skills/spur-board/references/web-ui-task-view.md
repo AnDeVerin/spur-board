@@ -1,8 +1,8 @@
 # Web UI: task view
 
 The task view of the [web UI](web-ui.md) shows one task in a dialog over the columns; on a
-narrow screen it fills the screen. It reads `task.get` with `why` for the open task, `task.history` while History shows and, like
-the rest of the UI, refreshes from the event stream. It also offers the three writes below.
+narrow screen it fills the screen. It reads `task.get` with `why` and `detail` for the open task, `task.history` while History shows and, like
+the rest of the UI, refreshes from the event stream. It also offers the writes below.
 
 ## Opening it
 
@@ -73,6 +73,8 @@ worker.
 
 The section header sums up the failed and waiting conditions and the open blocks, or reads
 `all pass` or `unknown`.
+
+An open orchestrator turn has a **Turn** section; see [Turn](web-ui-task-turn.md).
 
 ## Latest submission
 

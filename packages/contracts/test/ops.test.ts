@@ -110,7 +110,7 @@ describe('catalog', () => {
     if (!isObject(property)) throw new Error('Missing column entry schema');
     expect(property['description']).toContain('original add');
   });
-  it('defaults web off and exposes exactly the screen reads and five operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and eight operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
@@ -121,6 +121,7 @@ describe('catalog', () => {
       'columns.describe',
       'comment.add',
       'config.get',
+      'inbox.ack',
       'inbox.get',
       'inbox.operator',
       'item.close',
@@ -128,12 +129,23 @@ describe('catalog', () => {
       'task.get',
       'task.history',
       'task.move',
+      'task.return',
+      'task.submit',
     ]);
     expect(
       OPERATIONS.filter((op) => op.kind === 'mutation' && op.web !== null)
         .map((op) => op.id)
         .sort(),
-    ).toEqual(['block.answer', 'block.followup', 'comment.add', 'item.close', 'task.move']);
+    ).toEqual([
+      'block.answer',
+      'block.followup',
+      'comment.add',
+      'inbox.ack',
+      'item.close',
+      'task.move',
+      'task.return',
+      'task.submit',
+    ]);
     expect(OPERATIONS.find((op) => op.id === 'schema.get')?.web).toBeNull();
     expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
       true,
@@ -877,9 +889,10 @@ describe('snapshot', () => {
     // then added sources[].project, sources[].waitsForBudget (the runner's rate limit pause)
     // and board-wide project, sources and services texts to status.get; the external_round kind
     // extends the task.history event kinds. #733 adds the review-rule gate reasons and condition
-    // to task.get --why.
+    // to task.get --why. The web Turn section then set web on inbox.ack, task.submit and
+    // task.return; their schemas, grants and errors are unchanged.
     expect(await catalogVersion(baseline)).toBe(
-      '3145178bab73649dad884fa944d560542526c7acc68e793ec61f5c08977851dc',
+      'dd3ffb9970512221f72dfd10dad8c50a98480192d9c3c363797f8ceed9fc580f',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
