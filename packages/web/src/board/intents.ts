@@ -97,8 +97,12 @@ export function createHeldMoves(api: ReturnType<typeof createApi>) {
         check(task, entry);
       },
       (cause: unknown) => {
-        // A refusal, or a send the board never made, moved nothing.
-        if (cause instanceof ProblemError || cause instanceof BoardUnavailableError) {
+        // A refusal, or a send the board never made, moved nothing; the daemon's `unexpected`
+        // (its HTTP 500) leaves the outcome unknown, as a lost reply does.
+        const refused =
+          (cause instanceof ProblemError && cause.code !== 'unexpected') ||
+          cause instanceof BoardUnavailableError;
+        if (refused) {
           if (held.get(task) === entry) held.delete(task);
         } else {
           entry.outcome = 'unknown';

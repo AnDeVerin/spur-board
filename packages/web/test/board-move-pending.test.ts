@@ -233,6 +233,21 @@ const UNKNOWN: Record<string, () => Promise<{ keys: string[]; fresh: boolean }>>
     expect(moves).toHaveLength(2);
     return { keys: moves.map((body) => body.key), fresh: false };
   },
+  'a daemon 500 problem, then a retry from a reopened card form': async () => {
+    const { moves } = await board(THREE, ROWS, (daemon) => {
+      reads(daemon);
+      daemon.routes['task.move'] = () => problem('unexpected', 500, 'Retry the same request.');
+    });
+    choose('#1', 'Move to triage…');
+    sendOnCard('Groomed');
+    await settle();
+    press(buttonIn(one('main'), 'Cancel'), 'click');
+    choose('#1', 'Move to triage…');
+    sendOnCard('Groomed');
+    await settle();
+    expect(moves).toHaveLength(2);
+    return { keys: moves.map((body) => body.key), fresh: false };
+  },
   'a reopened task view reads the source while the board row shows the target': async () => {
     history.replaceState(null, '', `/?open=${encodeURIComponent(KEY)}`);
     const { d, moves } = await board(THREE, ROWS, (daemon) => {
