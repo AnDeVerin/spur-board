@@ -41,18 +41,13 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
 - On doorbell, read `board inbox` and the addressed C<number>@<revision> comment or B<number>
   block. Once handled, ack its revision, ID or ring N<number>-<ring> with keyed
   `board inbox ack <entries>`. Keyed `board answer` handles its block; no ack follows.
-- A return's `code` block needs no ack when you take its Dev turn: the take reads it, and your
-  confirmed submit closes it. If its doorbell still rings (a turn taken before a Board
-  upgrade), ack it as above. A Dev turn you cannot take (a named orchestrator or the operator
-  runs Dev): ack the block on its doorbell, then keyed `board unblock <block> --done <ref>` once
-  the fix is in. Still open after your Dev turn closed (no submit, or one a merge at another head
-  superseded, which opens no turn): take a later Dev turn of that visit and submit. While
-  `board task <task> --why` lists any `holds`, the Board can still open that turn: wait. Close
-  with `--done` as above only when none is listed and no later Dev turn of that visit opened. A
-  hold that does not clear (a ticket left unconfirmed): keyed `board ask <task> <text>` naming the
-  hold, not a close by hand. The Board routes it as any question
-  ([how the Board works](references/how-board-works.md)); its recipient checks the hold or
-  escalates it, up to the operator.
+- A return: ack its Dev turn and submit; the take reads its `code` block, and your confirmed
+  submit closes it. A return block to you that `board task <task>` still shows open while you
+  work without a Dev turn you took, or after you took or submitted one: ack it, then keyed
+  `board unblock <block> --done <ref>` once the fix is in; a redundant ack is a no-op. While
+  `board task <task> --why` lists `submit_pending` or another hold, wait. A hold that does not
+  clear: keyed `board ask <task> <text>` naming it; its recipient checks or escalates it, up to
+  the operator ([how the Board works](references/how-board-works.md)).
 
 ## Board commands
 
