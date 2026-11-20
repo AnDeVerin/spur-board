@@ -54,7 +54,11 @@ function qaBasis(basis: Exclude<SubmissionBasis, 'tested'>): Scenario {
       const problems = await check(board, { column: 'ready-to-merge' });
       const { tasks } = await board.call('operator', 'status.get', { project: 'stand' });
       const qa = tasks.find(({ key }) => key === ISSUE)?.qaSubmission;
-      if (qa?.basis !== basis || qa.reason !== REASONS[basis])
+      if (
+        qa?.basis !== basis ||
+        qa.reason !== REASONS[basis] ||
+        qa.from !== (basis === 'carried' ? A : null)
+      )
         problems.push(`QA submission ${JSON.stringify(qa)}, not ${basis}`);
       return settledUnless(problems);
     },
