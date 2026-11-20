@@ -6,6 +6,7 @@ import {
   deferred,
   envelope,
   failure,
+  problem,
   row,
   status,
   taskGet,
@@ -169,6 +170,119 @@ const LIFECYCLE: Record<string, () => Promise<{ keys: string[]; expected: string
   },
 };
 
+/**
+ * `task.get` for the task view (with `why`) answers the view's column; the board's own read of
+ * the task after a send (no `why`) answers `held`, or never.
+ */
+const reads = (d: Daemon, view = 'todo', held: string | null = null) => {
+  d.routes['task.get'] = (input) =>
+    input['why'] === true || held !== null
+      ? Promise.resolve(viewOf({ column: input['why'] === true ? view : held }))
+      : deferred().promise;
+};
+const lost = () => Promise.resolve(Response.json({ broken: true }, { status: 500 }));
+const closeView = async () => {
+  const close = dialog().querySelector('button[aria-label="Close"]');
+  if (!close) throw new Error('no Close');
+  press(close, 'click');
+  await settle();
+};
+
+/** Moves whose outcome is not known yet; each row returns the bodies and whether a new key may follow. */
+const UNKNOWN: Record<string, () => Promise<{ keys: string[]; fresh: boolean }>> = {
+  'a lost reply, then a retry from the same card form': async () => {
+    const { moves } = await board(THREE, ROWS, (daemon) => {
+      reads(daemon);
+      daemon.routes['task.move'] = lost;
+    });
+    choose('#1', 'Move to triage…');
+    sendOnCard('Groomed');
+    await settle();
+    submit(one('main'));
+    await settle();
+    expect(moves).toHaveLength(2);
+    return { keys: moves.map((body) => body.key), fresh: false };
+  },
+  'a lost reply, then a retry from the task view': async () => {
+    const { moves } = await board(THREE, ROWS, (daemon) => {
+      reads(daemon);
+      daemon.routes['task.move'] = lost;
+    });
+    choose('#1', 'Move to triage…');
+    sendOnCard('Groomed');
+    await settle();
+    await sendInView('Groomed');
+    expect(moves).toHaveLength(2);
+    await sendFromViewAgain('Other');
+    expect(viewAlert()).toBe(PENDING);
+    expect(moves).toHaveLength(2);
+    return { keys: moves.map((body) => body.key), fresh: false };
+  },
+  'a lost reply, then a retry from a reopened card form': async () => {
+    const { moves } = await board(THREE, ROWS, (daemon) => {
+      reads(daemon);
+      daemon.routes['task.move'] = lost;
+    });
+    choose('#1', 'Move to triage…');
+    sendOnCard('Groomed');
+    await settle();
+    press(buttonIn(one('main'), 'Cancel'), 'click');
+    choose('#1', 'Move to triage…');
+    sendOnCard('Groomed');
+    await settle();
+    expect(moves).toHaveLength(2);
+    return { keys: moves.map((body) => body.key), fresh: false };
+  },
+  'a reopened task view reads the source while the board row shows the target': async () => {
+    history.replaceState(null, '', `/?open=${encodeURIComponent(KEY)}`);
+    const { d, moves } = await board(THREE, ROWS, (daemon) => {
+      reads(daemon, 'todo', 'todo');
+    });
+    const read = deferred();
+    d.routes['status.get'] = () => read.promise;
+    await sendFromView('triage', 'Groomed');
+    // Closed during the move; the board row then shows the target before the view reopens.
+    await closeView();
+    read.resolve(envelope(status(MOVED)));
+    await settle();
+    expect(keysIn('triage')).toContain(KEY);
+    await openView();
+    await sendFromView('triage', 'Groomed');
+    expect(moves).toHaveLength(1);
+    return { keys: moves.map((body) => body.key), fresh: false };
+  },
+  'a lost reply whose task read shows the source frees the task': async () => {
+    const { moves } = await board(THREE, ROWS, (daemon) => {
+      reads(daemon, 'todo', 'todo');
+      daemon.routes['task.move'] = lost;
+    });
+    choose('#1', 'Move to triage…');
+    sendOnCard('Groomed');
+    await settle();
+    await sendInView('Other');
+    expect(viewAlert()).not.toBe(PENDING);
+    expect(moves).toHaveLength(2);
+    return { keys: moves.map((body) => body.key), fresh: true };
+  },
+  'a definite refusal frees the task at once': async () => {
+    const { moves } = await board(THREE, ROWS, (daemon) => {
+      reads(daemon);
+      daemon.routes['task.move'] = () => problem('work_started', 409, 'Resolve it.');
+    });
+    choose('#1', 'Move to triage…');
+    sendOnCard('Groomed');
+    await settle();
+    await sendInView('Other');
+    expect(moves).toHaveLength(2);
+    return { keys: moves.map((body) => body.key), fresh: true };
+  },
+};
+/** In the open task view, Cancel the form and send `reason` to triage again. */
+const sendFromViewAgain = async (reason: string) => {
+  press(buttonIn(dialog(), 'Cancel'), 'click');
+  await sendFromView('triage', reason);
+};
+
 const FIRST: Record<string, () => void> = {
   'card menu': () => {
     choose('#1', 'Move to triage…');
@@ -196,6 +310,13 @@ describe('move between Backlog parts: the hold of a move', () => {
   it.each(Object.keys(LIFECYCLE))('%s', async (name) => {
     const result = await LIFECYCLE[name]?.();
     expect(result?.keys).toEqual(result?.expected);
+  });
+});
+
+describe('move between Backlog parts: a move whose outcome is not known yet', () => {
+  it.each(Object.keys(UNKNOWN))('%s', async (name) => {
+    const result = await UNKNOWN[name]?.();
+    expect(new Set(result?.keys).size).toBe(result?.fresh === true ? 2 : 1);
   });
 });
 

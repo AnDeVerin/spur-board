@@ -1,4 +1,4 @@
-import { createMutationIntent, type createApi } from '../lib/api.ts';
+import { createMutationIntent, ProblemError, type createApi } from '../lib/api.ts';
 
 /** `closeItemIntent` or `moveIntent` refused to send because the board is unavailable. */
 export class BoardUnavailableError extends Error {
@@ -54,38 +54,60 @@ interface HeldMove {
   from: string | undefined;
   column: string;
   reason: string;
-  confirmed: boolean;
+  /** The last send's outcome: in flight, accepted, or unknown (no answer could be read). */
+  outcome: 'pending' | 'accepted' | 'unknown';
+  /** Sends so far; a task read started before the latest send is ignored. */
+  sends: number;
+  reading: boolean;
   inner: Run;
 }
 
 /**
- * One move per task in flight, whichever form sends it. Every send re-checks the hold: free, it
- * takes it; held for the same part and reason, it joins the held send and its key; held for
- * another, it is refused. A failed send frees the task. An accepted move frees it once every read
- * that shows the task (`where`: its status row, its open task view) shows it out of the source
- * part; `settle` checks that after each read.
+ * One move per task whose outcome is not known yet, whichever form or task view sends it, with
+ * one key. Every send re-checks the hold: free, it takes it; held for the same part and reason,
+ * it joins with the held key; held for another, it is refused. Only the daemon's own answer or
+ * a read of the task frees it: a definite refusal at once; after an accepted or unknown outcome,
+ * a `task.get` of the task issued after the send that shows the task out of its source part (moved),
+ * or still in it after an unknown outcome (not moved). A board status row never frees it.
  */
-export function createHeldMoves(where: (task: string) => readonly string[]) {
+export function createHeldMoves(api: ReturnType<typeof createApi>) {
   const held = new Map<string, HeldMove>();
-  /** Free each accepted move no read shows in its source part any more. */
-  const settle = () => {
-    for (const [task, entry] of held) {
-      if (entry.confirmed && where(task).every((column) => column !== entry.from))
-        held.delete(task);
-    }
+  // A read of the task itself; a failed one settles nothing.
+  const read = (task: string) =>
+    api('task.get', { task }).then(
+      (value): string | undefined => value.task.column,
+      () => undefined,
+    );
+  const check = (task: string, entry: HeldMove) => {
+    if (entry.outcome === 'pending' || entry.reading) return;
+    entry.reading = true;
+    const sends = entry.sends;
+    void read(task).then((column) => {
+      entry.reading = false;
+      if (held.get(task) !== entry || entry.sends !== sends || column === undefined) return;
+      if (column !== entry.from || entry.outcome === 'unknown') held.delete(task);
+    });
   };
-  const send = (task: string, entry: HeldMove) =>
-    entry.inner.run().then(
+  const send = (task: string, entry: HeldMove) => {
+    entry.outcome = 'pending';
+    entry.sends++;
+    return entry.inner.run().then(
       () => {
-        entry.confirmed = true;
-        // A read may have landed before the accept was seen.
-        settle();
+        entry.outcome = 'accepted';
+        check(task, entry);
       },
       (cause: unknown) => {
-        if (held.get(task) === entry) held.delete(task);
+        // A refusal, or a send the board never made, moved nothing.
+        if (cause instanceof ProblemError || cause instanceof BoardUnavailableError) {
+          if (held.get(task) === entry) held.delete(task);
+        } else {
+          entry.outcome = 'unknown';
+          check(task, entry);
+        }
         throw cause;
       },
     );
+  };
   return {
     /** A form's intent for one part and reason; `from` reads the task's part at each send. */
     intent(
@@ -101,19 +123,27 @@ export function createHeldMoves(where: (task: string) => readonly string[]) {
         run: () => {
           const current = held.get(task);
           if (current) {
-            if (current.column !== column || current.reason !== reason)
+            if (current.column !== column || current.reason !== reason) {
+              check(task, current);
               return Promise.reject(new MovePendingError());
+            }
             inner = current.inner;
             return send(task, current);
           }
           inner ??= create();
-          const entry: HeldMove = { from: from(), column, reason, confirmed: false, inner };
+          const entry: HeldMove = {
+            from: from(),
+            column,
+            reason,
+            outcome: 'pending',
+            sends: 0,
+            reading: false,
+            inner,
+          };
           held.set(task, entry);
           return send(task, entry);
         },
       };
     },
-    /** A read landed. */
-    settle,
   };
 }

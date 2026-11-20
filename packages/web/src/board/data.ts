@@ -187,7 +187,6 @@ export function createBoardData(options: BoardDataOptions) {
       statusUnreadable = cause instanceof UnreadableAnswerError;
       settleRetry('chain', seq);
       update(value ? { status: value, lastGoodAt: options.now() } : {});
-      if (value) moves.settle();
     },
   );
   const config = coordinateRead(
@@ -253,7 +252,6 @@ export function createBoardData(options: BoardDataOptions) {
       else if (result.kind === 'missing')
         update({ task: { key, state: 'missing', value: undefined, retrying: false } });
       else update({ task: { ...state.task, state: 'failed', retrying: false } });
-      moves.settle();
       for (const wait of refreshWaits) {
         if (wait.epoch === taskEpoch && taskRead > wait.after) {
           refreshWaits.delete(wait);
@@ -373,13 +371,13 @@ export function createBoardData(options: BoardDataOptions) {
     };
   };
 
-  // The parts the held reads show a task in: its status row, and its open task view.
+  // Where a task is now: its status row, else its open task view; a move leaves that part.
   const shownIn = (key: string) =>
     [
       state.status?.tasks.find((row) => row.key === key)?.column,
       state.task?.value?.task.key === key ? state.task.value.task.column : undefined,
     ].filter((column) => column !== undefined);
-  const moves = createHeldMoves(shownIn);
+  const moves = createHeldMoves(api);
   const boardIntent = createBoardIntent(
     api,
     () => stopped || state.readFailed || state.stream === 'offline',
