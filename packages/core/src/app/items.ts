@@ -1,11 +1,12 @@
-import { assertNever } from '@spur-board/contracts';
+import { assertNever, type Config } from '@spur-board/contracts';
 import { z } from 'zod';
-import { isItemKind, ITEM_POLICY } from '../domain/fromYou.ts';
+import { isItemKind, itemBlockRef, ITEM_POLICY } from '../domain/fromYou.ts';
 import { parseJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import type { Trx } from './board-utils.ts';
 import type { ResolvedTarget } from './authorize.ts';
-import { authorizationTarget, closeBlockIfOpen } from './blocks.ts';
+import { closeBlockIfOpen, subjectTarget } from './blocks.ts';
+import { blockSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { restartNotification, ringCommentId } from './doorbells.ts';
 import { clearItem, dismissItem } from './feed.ts';
@@ -123,26 +124,58 @@ async function deliveryTask(trx: Trx, item: Item): Promise<Row<'task'> | undefin
 }
 
 /** The task an item belongs to: its own, else its delivery's; undefined for a board item. */
-export async function itemOwner(trx: Trx, item: Item): Promise<Row<'task'> | undefined> {
+async function itemOwner(trx: Trx, item: Item): Promise<Row<'task'> | undefined> {
   return item.task_id === null
     ? deliveryTask(trx, item)
     : trx.selectFrom('task').selectAll().where('id', '=', item.task_id).executeTakeFirst();
 }
 
 /**
- * An item of a task is that task's project's; a board item or an unknown ID has no target, so
- * only the token, the board-wide operator or a one-project board's operator may act on it, and
- * `run` raises the unknown ID.
+ * What an item is about, as `inbox.operator` files it: its owning task (`itemOwner`), else the
+ * block it refers to - that block's task, or a project-level block's project while the project
+ * is in config. Undefined for a board item, including one whose project has left the config.
  */
-async function itemTarget(trx: Trx, input: { item: string }): Promise<readonly ResolvedTarget[]> {
+export async function itemSubject(
+  trx: Trx,
+  item: Item,
+  config: Config,
+): Promise<BlockSubject | undefined> {
+  const owner = await itemOwner(trx, item);
+  if (owner !== undefined) return taskSubject(owner);
+  const ref = itemBlockRef(item);
+  const block =
+    ref === undefined
+      ? undefined
+      : await trx
+          .selectFrom('block')
+          .select(['task_id', 'project'])
+          .where('id', '=', ref)
+          .executeTakeFirst();
+  if (block === undefined) return undefined;
+  if (block.task_id === null && !config.projects.some((entry) => entry.id === block.project)) {
+    return undefined;
+  }
+  return blockSubject(trx, block);
+}
+
+/**
+ * An item is its subject's project's (`itemSubject`); a board item or an unknown ID has no
+ * target, so only the token, the board-wide operator or a one-project board's operator may act
+ * on it, and `run` raises the unknown ID.
+ */
+async function itemTarget(
+  trx: Trx,
+  config: Config,
+  input: { item: string },
+): Promise<readonly ResolvedTarget[]> {
   const item = await trx
     .selectFrom('operator_item')
     .selectAll()
     .where('id', '=', Number(input.item.slice(1)))
     .executeTakeFirst();
   if (item === undefined) return [];
-  const owner = await itemOwner(trx, item);
-  return owner === undefined ? [] : [await authorizationTarget(trx, owner)];
+  const subject = await itemSubject(trx, item, config);
+  return subject === undefined ? [] : [await subjectTarget(trx, subject)];
 }
 
 function view(item: Item, task: Row<'task'> | undefined) {
@@ -164,10 +197,14 @@ function notApplicable(hint: string): CommandError {
  * Item actions: retry runs the action behind the item's kind; close dismisses it. Both clear it,
  * except a retry on a transport item, which the sender clears when the transport is back.
  */
-export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInbound | undefined }): {
+export function createItemMutations(deps: {
+  config: Config;
+  reapplyInbound?: () => ReapplyInbound | undefined;
+}): {
   retry: Mutation<'item.retry'>;
   close: Mutation<'item.close'>;
 } {
+  const resolveTargets = (trx: Trx, input: { item: string }) => itemTarget(trx, deps.config, input);
   /** Runs the retry behind the item's kind; false when the item must stay raised. */
   async function retryAction(trx: Trx, item: Item, at: string): Promise<boolean> {
     const closeHint = `close it with \`board item close I${String(item.id)}\`.`;
@@ -218,7 +255,7 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
   return {
     retry: {
       id: 'item.retry',
-      resolveTargets: itemTarget,
+      resolveTargets,
       async run(trx, input, ctx) {
         const { item, task } = await loadItem(trx, input.item);
         const owner = task ?? (await deliveryTask(trx, item));
@@ -234,7 +271,7 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
     },
     close: {
       id: 'item.close',
-      resolveTargets: itemTarget,
+      resolveTargets,
       async run(trx, input, ctx) {
         const { item, task } = await loadItem(trx, input.item);
         if (item.cleared_at === null) {

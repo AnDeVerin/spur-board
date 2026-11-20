@@ -19,7 +19,7 @@ import type { Store } from '../store/store.ts';
 import { approvalViews } from './approval-watch.ts';
 import { projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
-import { itemOwner } from './items.ts';
+import { itemSubject } from './items.ts';
 import { latestQaSubmissions, latestSubmissions } from './submissions.ts';
 import { readOutageEnds, services } from './status-services.ts';
 import {
@@ -412,7 +412,7 @@ export async function getStatus(
   if (!includeBoardItems && operatorProjects.size > 0) {
     for (const item of itemRows) {
       if (item.task_id !== null || item.source !== null) continue;
-      const owner = await itemOwner(store.db, item);
+      const owner = await itemSubject(store.db, item, config);
       if (owner !== undefined) ownedProjects.set(item.id, owner.project);
     }
   }
