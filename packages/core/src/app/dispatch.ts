@@ -26,7 +26,7 @@ import {
   returnCauses,
   turnReason,
 } from '../domain/dispatch.ts';
-import type { GateMark } from '../domain/gates.ts';
+import { countCycles, type GateMark } from '../domain/gates.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import {
@@ -42,10 +42,9 @@ import {
   type Trx,
 } from './board-utils.ts';
 import {
-  countsFrom,
   courseCounter,
   courseKeyPrefix,
-  courseRounds,
+  cycleEvents,
   cycleKeyPrefix,
   raiseCourseDue,
   replayOnce,
@@ -260,9 +259,9 @@ export async function moveLeft(
   const column = project?.columns.find((entry) => entry.id === task.column);
   if (project?.dispatcher.mode !== 'on' || column === undefined || uncounted(reason))
     return { task: moved, limitReached: false };
-  const replay = await courseRounds(trx, task.id, project);
-  const counts = countsFrom(replay, task.column);
-  if (counts.cycle >= column.cycleLimit) {
+  // The cycle limit counts returns alone: PR history is read only for a course count that is on.
+  const cycle = countCycles(await cycleEvents(trx, task.id), task.column, Infinity).count;
+  if (cycle >= column.cycleLimit) {
     await raiseCycleLimit(trx, { task: moved, column: task.column, at, config });
     return { task: moved, limitReached: true };
   }
@@ -279,7 +278,6 @@ export async function moveLeft(
       },
       project,
     ),
-    replay,
   });
   return { task: moved, limitReached: course !== null };
 }

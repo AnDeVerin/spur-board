@@ -4376,6 +4376,36 @@ describe('external change-request rounds', () => {
       reads: 0,
     },
     {
+      name: 'a push returns the task from External Review with no submit on it',
+      start: async (options: Options) => {
+        const ctx = await pastProductReview(options);
+        expect((await ctx.task()).column).toBe('external-review');
+        await ctx.pr({ headSha: B });
+        expect((await ctx.moves()).at(-1)).toMatchObject({
+          from: 'external-review',
+          to: 'dev',
+          gate: ['no_submit_on_head'],
+        });
+        return ctx;
+      },
+      returns: 0,
+      reads: 0,
+    },
+    {
+      name: 'a change request from before the task entered Dev',
+      start: async (options: Options) => {
+        const ctx = await inDev(options);
+        const submittedAt = new Date(BASE - 3_600_000).toISOString();
+        await ctx.pr({
+          reviews: [{ reviewer: EXTERNAL, state: 'changes_requested', commitSha: A, submittedAt }],
+        });
+        expect(await ctx.events('external_round')).toEqual([]);
+        return ctx;
+      },
+      returns: 0,
+      reads: 0,
+    },
+    {
       name: 'snapshots, no change request and no return',
       start: async (options: Options) => {
         const ctx = await inDev(options);
@@ -4476,6 +4506,60 @@ describe('external change-request rounds', () => {
         ),
       ).toEqual(returns === 0 ? [] : [[JSON.stringify(used)]]);
       expect(used).toHaveLength(returns);
+    },
+  );
+
+  it.each([
+    { name: 'course checks off', courseCheck: 0, reads: 0 },
+    { name: "Review's course check on", courseCheck: 10, reads: 1 },
+  ])(
+    'a return in a dispatcher pass reads PR history only for a course count: $name',
+    async ({ courseCheck, reads }) => {
+      const ctx = await inDev({ cycleLimit: 10, courseCheck });
+      for (const head of [B, C]) await ctx.pr({ headSha: head });
+      await ctx.submit(WORKER, 'T1', C);
+      expect((await ctx.task()).column).toBe('review');
+      // The stored PR head moves on with no poll, so the logged pass itself returns the task.
+      await ctx.store.db
+        .updateTable('pr_snapshot')
+        .set({ detail: sql<string>`json_set(detail, '$.headSha', ${D})` })
+        .execute();
+
+      const queries: CompiledQuery[] = [];
+      const logged = new Kysely<Tables>({
+        dialect: new SqliteDialect({ database: rawDatabase(ctx.file) }),
+        log: (event) => {
+          queries.push(event.query);
+        },
+      });
+      try {
+        // A move needs the scan transaction the poll runs in, here on the logged connection.
+        const store = {
+          transaction: <T>(fn: (trx: Kysely<Tables>) => Promise<T>) =>
+            logged.transaction().execute(fn),
+        } as Store;
+        await scanTransaction(
+          store,
+          ctx.config(),
+          (trx) =>
+            dispatchTasks(trx, [1], {
+              config: ctx.config(),
+              at: new Date(ctx.at()),
+              complete: ctx.complete(),
+            }),
+          { now: () => Date.parse(ctx.at()) },
+        );
+      } finally {
+        await logged.destroy();
+      }
+      expect((await ctx.task()).column).toBe('dev');
+      expect((await ctx.moves()).at(-1)).toMatchObject({
+        from: 'review',
+        gate: ['no_submit_on_head'],
+      });
+      // A read of PR history asks for the `pr_facts_changed` kind; the cycle events alone do not.
+      const facts = queries.filter((query) => query.parameters.includes('pr_facts_changed'));
+      expect(facts).toHaveLength(reads);
     },
   );
 

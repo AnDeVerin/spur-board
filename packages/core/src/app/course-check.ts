@@ -106,6 +106,14 @@ export type CourseReplay = { cycle: CycleEvent[]; course: CourseLog; externalHea
 const reviewsSchema = prFactsSchema.shape.reviews;
 
 /**
+ * The task's cycle events alone, as `courseRounds` gives them: its moves and limit resets, with
+ * no PR history read. Enough for a cycle limit, which counts returns and nothing else.
+ */
+export async function cycleEvents(trx: Trx, taskId: number): Promise<CycleEvent[]> {
+  return (await courseRounds(trx, taskId, { columns: [], operatorGithubLogin: '' }, false)).cycle;
+}
+
+/**
  * The task's journal replayed for its counts, in journal order: the cycle events, and the
  * course rounds with the resets of each counter. A return is resolved against the PR active
  * when it happened: the newest open PR among the facts journaled before it. Its head is that
@@ -114,12 +122,14 @@ const reviewsSchema = prFactsSchema.shape.reviews;
  * seen in the same poll does not take its place. A correction is no boundary: a request it
  * bounces on is still unhandled and is the return's cause. External Review counts each head of
  * external feedback (rounds and such returns) once, resets ignored; a later one on a counted
- * head adds to the cycle events only. `externalHeads` are those heads.
+ * head adds to the cycle events only. `externalHeads` are those heads. With `history` false it
+ * reads no PR history and gives the cycle events alone.
  */
-export async function courseRounds(
+async function courseRounds(
   trx: Trx,
   taskId: number,
   project: Pick<Project, 'columns' | 'operatorGithubLogin'>,
+  history = true,
 ): Promise<CourseReplay> {
   const prefixes = { cycle: cycleKeyPrefix(taskId), course: courseKeyPrefix(taskId) };
   const items = await trx
@@ -158,7 +168,13 @@ export async function courseRounds(
       facts('headSha').as('head'),
     ])
     .where('task_id', '=', taskId)
-    .where('kind', 'in', ['task_moved', 'from_you_cleared', 'external_round', 'pr_facts_changed'])
+    .where(
+      'kind',
+      'in',
+      history
+        ? ['task_moved', 'from_you_cleared', 'external_round', 'pr_facts_changed']
+        : ['task_moved', 'from_you_cleared'],
+    )
     .orderBy('id')
     .execute();
   /** Each PR's latest facts so far, with the id of its first facts row. */
@@ -189,7 +205,8 @@ export async function courseRounds(
       const reset = cleared.success ? resetOf.get(cleared.data.item) : undefined;
       if (reset === undefined || !isColumn(reset.column)) continue;
       if (reset.count === 'cycle') replay.cycle.push({ kind: 'limit_reset', column: reset.column });
-      else queue.push({ entry: { kind: 'reset', counter: reset.column }, external: false });
+      else if (history)
+        queue.push({ entry: { kind: 'reset', counter: reset.column }, external: false });
     } else if (row.kind === 'external_round') {
       const round = eventPayloadSchemas.external_round.safeParse(JSON.parse(row.payload));
       if (round.success) queue.push({ entry: externalRound(round.data, project), external: true });
@@ -200,7 +217,7 @@ export async function courseRounds(
       const event = moved.success ? counted(moved.data, moved.data.block !== undefined) : null;
       if (event?.kind !== 'return') continue;
       replay.cycle.push(event);
-      if (countCycles([event], event.column, Infinity).count === 0) continue;
+      if (!history || countCycles([event], event.column, Infinity).count === 0) continue;
       const counter = courseCounter(event, project);
       const external = counter === EXTERNAL_COUNTER && externalCause(event.causes);
       const pr = active();
@@ -299,7 +316,7 @@ export async function returnCounts(
 }
 
 /** `returnCounts` of `column` from a replay already read. */
-export function countsFrom(replay: CourseReplay, column: ColumnId) {
+function countsFrom(replay: CourseReplay, column: ColumnId) {
   return {
     cycle: countCycles(replay.cycle, column, Infinity).count,
     course: roundsSince(replay.course, column).length,

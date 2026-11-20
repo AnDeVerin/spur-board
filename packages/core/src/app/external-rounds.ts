@@ -1,5 +1,7 @@
-import { COLUMN_IDS, prSourceId, type Config } from '@spur-board/contracts';
+import { COLUMN_IDS, GATE_REASONS, prSourceId, type Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
+import { returnCauses } from '../domain/dispatch.ts';
+import { countCycles } from '../domain/gates.ts';
 import type { Row } from '../store/schema.ts';
 import { emit, type Trx } from './board-utils.ts';
 import {
@@ -49,46 +51,60 @@ export async function recordExternalRounds(
             externalReviewer(pr, project.operatorGithubLogin, review.reviewer),
         )
       : [];
-  if (pr !== null && requests.length > 0 && !blind(prSourceId(project.id, pr.repo))) {
-    const replay = await input.replay();
-    const counted = replay.externalHeads;
-    const fresh = requests.filter((review) => !counted.has(review.commitSha.toLowerCase()));
-    if (fresh.length > 0) {
-      const [entry] = await readStatusColumnEntries(trx, new Set([task.project]), task.id);
-      const entered = Date.parse(entry?.at ?? task.created_at);
-      const after = fresh
-        .filter((review) => Date.parse(review.submittedAt) > entered)
-        .sort(
-          (left, right) =>
-            Date.parse(left.submittedAt) - Date.parse(right.submittedAt) ||
-            left.reviewer.localeCompare(right.reviewer),
-        );
-      for (const review of after) {
-        const head = review.commitSha.toLowerCase();
-        if (counted.has(head)) continue;
-        counted.add(head);
-        await emit(trx, 'external_round', task.project, task.id, at.toISOString(), {
-          repo: pr.repo,
-          pr: pr.number,
-          head,
-          reviewer: review.reviewer,
-        });
-        // The newest journal entry: the replay this pass reuses ends with it.
-        replay.course.push(externalRound({ reviewer: review.reviewer, head }, project));
-      }
-    }
+  if (pr === null || requests.length === 0 || blind(prSourceId(project.id, pr.repo))) return;
+  // The Dev-entry cutoff first: a request older than the visit needs no PR history.
+  const [entry] = await readStatusColumnEntries(trx, new Set([task.project]), task.id);
+  const entered = Date.parse(entry?.at ?? task.created_at);
+  const after = requests
+    .filter((review) => Date.parse(review.submittedAt) > entered)
+    .sort(
+      (left, right) =>
+        Date.parse(left.submittedAt) - Date.parse(right.submittedAt) ||
+        left.reviewer.localeCompare(right.reviewer),
+    );
+  if (after.length === 0) return;
+  const replay = await input.replay();
+  const counted = replay.externalHeads;
+  for (const review of after) {
+    const head = review.commitSha.toLowerCase();
+    if (counted.has(head)) continue;
+    counted.add(head);
+    await emit(trx, 'external_round', task.project, task.id, at.toISOString(), {
+      repo: pr.repo,
+      pr: pr.number,
+      head,
+      reviewer: review.reviewer,
+    });
+    // The newest journal entry: the replay this pass reuses ends with it.
+    replay.course.push(externalRound({ reviewer: review.reviewer, head }, project));
   }
 }
 
 /** The columns a return from External Review can go to: every column left of it. */
 const LEFT_OF_EXTERNAL = COLUMN_IDS.slice(0, COLUMN_IDS.indexOf(EXTERNAL_COUNTER));
 
+/** Gate reasons that give a return a cause its cycle limit counts (`countCycles`). */
+const COUNTED_GATE = GATE_REASONS.filter(
+  (reason) =>
+    countCycles(
+      returnCauses([reason], false).map((cause) => ({
+        kind: 'return' as const,
+        column: EXTERNAL_COUNTER,
+        causes: [cause] as const,
+      })),
+      EXTERNAL_COUNTER,
+      Infinity,
+    ).count > 0,
+);
+
 /**
  * Whether the task's journal may hold a round External Review's counter takes (`courseCounter`):
  * an `external_round`, a move whose gate holds an external cause (`EXTERNAL_CAUSES`) from any
- * column, or any left move from External Review, whatever its cause. A superset of the counted
- * entries: a move it lets through only costs a replay, and none it drops can count. Without one
- * the deferred raise reads no PR history. One row at most, through the event task index.
+ * column, or a left move from External Review with a counted cause: its executor's (a block) or a
+ * counted gate reason (`COUNTED_GATE`). A push-only return (`no_submit_on_head`) counts nowhere
+ * and matches nothing. A superset of the counted entries: a move it lets through only costs a
+ * replay, and none it drops can count. Without one the deferred raise reads no PR history. One
+ * row at most, through the event task index.
  */
 export async function mayCount(trx: Trx, taskId: number): Promise<boolean> {
   const row = await trx
@@ -96,7 +112,7 @@ export async function mayCount(trx: Trx, taskId: number): Promise<boolean> {
     .select('id')
     .where('task_id', '=', taskId)
     .where(
-      sql<boolean>`(kind = 'external_round' or (kind = 'task_moved' and (exists (select 1 from json_each(event.payload, '$.gate') where value in (select value from json_each(${JSON.stringify(EXTERNAL_CAUSES)}))) or (json_extract(payload, '$.from') = ${EXTERNAL_COUNTER} and json_extract(payload, '$.to') in (select value from json_each(${JSON.stringify(LEFT_OF_EXTERNAL)}))))))`,
+      sql<boolean>`(kind = 'external_round' or (kind = 'task_moved' and (exists (select 1 from json_each(event.payload, '$.gate') where value in (select value from json_each(${JSON.stringify(EXTERNAL_CAUSES)}))) or (json_extract(payload, '$.from') = ${EXTERNAL_COUNTER} and json_extract(payload, '$.to') in (select value from json_each(${JSON.stringify(LEFT_OF_EXTERNAL)})) and (json_extract(payload, '$.block') is not null or exists (select 1 from json_each(event.payload, '$.gate') where value in (select value from json_each(${JSON.stringify(COUNTED_GATE)}))))))))`,
     )
     .limit(1)
     .executeTakeFirst();
