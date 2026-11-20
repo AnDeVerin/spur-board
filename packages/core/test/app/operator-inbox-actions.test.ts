@@ -360,11 +360,12 @@ describe('inbox.operator actions', () => {
     });
   });
 
-  it('marks a default-branch item a failure under _board', async () => {
+  it("marks a default-branch item a failure under its repository's project", async () => {
     const { store, inbox } = setup();
     const text = 'o/first: main is red since aaaaaaa (build): fix main before merging more';
+    const source = 'github:first:o/first';
     const id = await store.transaction((trx) =>
-      item(trx, { key: 'default-branch:github:first:o/first', kind: 'board_observation', text }),
+      item(trx, { key: `default-branch:${source}`, kind: 'board_observation', text, source }),
     );
 
     const { items } = await inbox();
@@ -372,7 +373,7 @@ describe('inbox.operator actions', () => {
     expect(items.find((entry) => entry.id === id)).toMatchObject({
       kind: 'board_observation',
       severity: 'failure',
-      project: '_board',
+      project: 'first',
       action: 'open the failing run; fix or revert',
       text: `${text}: open the failing run; fix or revert`,
     });

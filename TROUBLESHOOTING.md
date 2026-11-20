@@ -414,7 +414,7 @@ A Spur project listed with `role: operator` under `projects[].spurProjects` has 
 only on the Board project that lists it. A top-level `spurProjects` entry with `role: operator`
 serves every Board project without its own operator. Operator commands that name no project, such
 as `board token list`, `board task add` with a key that matches no unique project tracker, and `board item retry`
-or `board item close` on an item of neither a task nor a project question, run only for the
+or `board item close` on an item of no task, project question or project source, run only for the
 operator token, the board-wide operator, or the operator of a one-project Board without a
 board-wide operator.
 Before this rule, a project
@@ -428,7 +428,9 @@ bindings from every Board project it should serve. To keep separate operators, g
 Board project its own operator Spur project. Restoring an archived task counts as that task's
 project. Retrying or closing an item of a task counts as that task's project, and of a
 `board project ask` question as that question's project, its failed post, a Slack answer whose
-author is unavailable and a failed Slack reply in its thread included. Once that project has left
+author is unavailable and a failed Slack reply in its thread included. An item of a project's
+repository or tracker source, such as a red default branch or a failing tracker poll, counts as
+that project; a failing Spur poll counts as the Board's. Once that project has left
 the config, the item counts as the Board's. `board inbox operator` and `board status` list an
 item for the same operators that may retry or close it. Operations open
 only to project agents, such as `board ask`, still need the session's Spur project listed under

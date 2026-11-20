@@ -91,6 +91,8 @@ export async function item(
     raiseNo?: number;
     /** The inbound event stored for a retry. */
     inboundEvent?: object;
+    /** The source the item is about, as `reconcileItems` stores it. */
+    source?: string;
   },
 ): Promise<string> {
   const row = await trx
@@ -106,6 +108,7 @@ export async function item(
       raised_at: input.raisedAt ?? ago(3 * HOUR),
       cleared_at: input.clearedAt ?? null,
       line_outbox_id: null,
+      source: input.source ?? null,
       inbound_event_json:
         input.inboundEvent === undefined ? null : JSON.stringify(input.inboundEvent),
     })

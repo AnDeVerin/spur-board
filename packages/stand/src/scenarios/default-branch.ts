@@ -8,7 +8,7 @@ const ITEM = `default-branch:${SOURCE}`;
 /** The stand repo's default-branch head fails its push run, so the board raises one failure. */
 export const defaultBranchRed: Scenario = {
   name: 'default-branch-red',
-  summary: `${REPO}'s main head fails its push build; ${ITEM} is raised as a failure under _board.`,
+  summary: `${REPO}'s main head fails its push build; ${ITEM} is raised as a failure under the stand project.`,
   async seed(board, fakes) {
     await fakes.github('branch', { repo: REPO, state: 'red' });
     await board.poll();

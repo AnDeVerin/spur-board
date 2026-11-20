@@ -105,7 +105,7 @@ export async function getStatus(
     includeBoardItems?: boolean | undefined;
     /**
      * Projects whose operator the caller is; defaults to every project when `visibleProjects` is
-     * unset. Of the items with no task or source it sees those about these projects, which it
+     * unset. Of the items with no task or project source it sees those about these projects, which it
      * may retry and close, and with `includeBoardItems` the board items.
      */
     operatorProjects?: ReadonlySet<string> | undefined;
@@ -412,26 +412,22 @@ export async function getStatus(
     .where('cleared_at', 'is', null)
     .execute();
   const itemTasks = new Map(rows.map((task) => [task.id, task]));
-  // An item with a task or without a source is its subject's project's, as `inbox.operator`
-  // files it; only one with no subject, such as one of a project that left the config, is a
-  // board item. An item of a task follows the task's project; any other needs the caller to be
-  // its project's operator.
-  const subjects = await itemSubjects(
-    store.db,
-    itemRows.filter((item) => item.task_id !== null || item.source === null),
-    config,
-  );
-  const ownedBy = (item: { id: number; task_id: number | null }) => {
+  // Every item is its subject's project's, as `inbox.operator` files it; only one with no
+  // subject, such as a `spur` source's or one of a project that left the config, is a board
+  // item. An item of a task, or of a project's repository or tracker source, follows that
+  // project; any other needs the caller to be its project's operator.
+  const subjects = await itemSubjects(store.db, itemRows, config);
+  const ownedBy = (item: (typeof itemRows)[number]) => {
     const subject = subjects.get(item.id);
     if (subject === undefined) return includeBoardItems;
     if (item.task_id !== null)
       return subject.task?.membership !== 'archived' && projectIds.has(subject.project);
+    if (item.source !== null && projectForSource(config, item.source) !== undefined)
+      return projectIds.has(subject.project);
     return projectIds.has(subject.project) && operatorProjects.has(subject.project);
   };
   const items = itemRows
-    .filter((item) =>
-      item.task_id === null && item.source !== null ? required.has(item.source) : ownedBy(item),
-    )
+    .filter(ownedBy)
     .map((item) => {
       const source = item.source === null ? null : sourceById.get(item.source);
       const stale =

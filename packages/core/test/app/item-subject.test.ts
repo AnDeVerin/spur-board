@@ -23,9 +23,11 @@ afterEach(async () => {
  * Per project: the failed post of a `board project ask` (only its outbox payload names the
  * block), the undelivered answer to one (the item's block), a Slack answer to one whose author
  * is unavailable (only its key names the comment) and a failed Slack reply in its thread (only
- * the stored event names the thread), as rows raised before items stored the block, and an item
- * of a task. Plus a board item that names nothing, and a failed delivery and an item of a task
- * whose project has left the config, which are the board's.
+ * the stored event names the thread), as rows raised before items stored the block, an item
+ * of a task, and a red default branch and a blind tracker, which name only the project's source.
+ * Plus a board item that names nothing, a blind Spur, which every project shares, and a red
+ * branch, a failed delivery and an item of a task of a project that has left the config, which
+ * are the board's.
  */
 async function subjects(store: Store): Promise<Record<string, string>> {
   return store.transaction(async (trx) => {
@@ -89,8 +91,30 @@ async function subjects(store: Store): Promise<Record<string, string>> {
         kind: 'inbound_failure',
         taskId,
       });
+      const repo = `github:${project}:o/${project}`;
+      ids[`${project} red branch`] = await item(trx, {
+        key: `default-branch:${repo}`,
+        kind: 'board_observation',
+        source: repo,
+      });
+      const tracker = `github-issues:${project}:o/${project}`;
+      ids[`${project} blind tracker`] = await item(trx, {
+        key: `source:${tracker}`,
+        kind: 'board_observation',
+        source: tracker,
+      });
     }
     ids.board = await item(trx, { key: 'token:8', kind: 'token_request' });
+    ids['blind spur'] = await item(trx, {
+      key: 'source:spur',
+      kind: 'board_observation',
+      source: 'spur',
+    });
+    ids['gone red branch'] = await item(trx, {
+      key: 'default-branch:github:gone:o/gone',
+      kind: 'board_observation',
+      source: 'github:gone:o/gone',
+    });
     const gone = await task(trx, { project: 'gone', key: 'o/gone#1' });
     ids['gone delivery'] = await failedPost(trx, {
       kind: 'conversation.open',
@@ -105,10 +129,18 @@ async function subjects(store: Store): Promise<Record<string, string>> {
   });
 }
 
-const kinds = ['ask post', 'answer', 'author away', 'reply failed', 'task'];
+const kinds = [
+  'ask post',
+  'answer',
+  'author away',
+  'reply failed',
+  'task',
+  'red branch',
+  'blind tracker',
+];
 const firstOnes = kinds.map((kind) => `first ${kind}`);
 const secondOnes = kinds.map((kind) => `second ${kind}`);
-const boardOnes = ['board', 'gone delivery', 'gone task'];
+const boardOnes = ['board', 'blind spur', 'gone red branch', 'gone delivery', 'gone task'];
 
 describe("an operator item's project", () => {
   it.each([

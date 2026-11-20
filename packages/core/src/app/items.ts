@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { isItemKind, itemBlockRef, ITEM_POLICY } from '../domain/fromYou.ts';
 import { parseJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
-import type { Trx } from './board-utils.ts';
+import { projectForSource, type Trx } from './board-utils.ts';
 import type { ResolvedTarget } from './authorize.ts';
 import { closeBlockIfOpen, subjectTarget } from './blocks.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
@@ -101,8 +101,11 @@ function deliveryRef(row: {
  * posts, or for a doorbell its ring's notification or comment; else the block it refers to
  * (`itemBlockRef`); else the comment or thread it stores (`storedRef`). A notification, comment
  * or thread is its task's, else its block's; a block is its task's, else a project-level block
- * its project's. A subject whose project has left the config is the board's, except an archived
- * task's, which stays hidden. An item missing from the map is a board item. Reads at most six
+ * its project's. An item that reaches neither is the project's whose repository or tracker
+ * source it names (`projectForSource`), such as a blind source or a red default branch; the
+ * `spur` source and other board-wide ones name none. A subject whose project has left the config
+ * is the board's, except an archived task's, which stays hidden. An item missing from the map is
+ * a board item. Reads at most six
  * statements, whatever the item count.
  */
 export async function itemSubjects(
@@ -183,14 +186,18 @@ export async function itemSubjects(
           .execute();
   const blockById = new Map(blocks.map((row) => [row.id, row]));
   const configured = new Set(config.projects.map((project) => project.id));
-  // Each item's task id, or the project of its project-level block.
+  const sourceOf = new Map(items.map((item) => [item.id, item.source]));
+  // Each item's task id, or the project of its project-level block, else of its source.
   const resolved = new Map<number, { task: number } | { project: string }>();
   for (const [itemId, ref] of refs) {
     const blockId = blockOf(ref);
     const block = blockId === undefined ? undefined : blockById.get(blockId);
     const taskId = ref.task ?? linked(ref)?.task_id ?? block?.task_id;
+    const source = sourceOf.get(itemId) ?? null;
+    const sourceProject = source === null ? undefined : projectForSource(config, source)?.id;
     if (typeof taskId === 'number') resolved.set(itemId, { task: taskId });
     else if (block?.project != null) resolved.set(itemId, { project: block.project });
+    else if (sourceProject !== undefined) resolved.set(itemId, { project: sourceProject });
   }
   const taskIds = [
     ...new Set([...resolved.values()].flatMap((entry) => ('task' in entry ? [entry.task] : []))),
