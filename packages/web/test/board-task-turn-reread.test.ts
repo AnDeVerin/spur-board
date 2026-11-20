@@ -243,7 +243,17 @@ describe('Turn section after a write', () => {
       const { d, writes } = await open();
       const acked = d.routes['inbox.ack'];
       // The ack may have landed, but its answer never comes.
-      if (write === 'take stalls') d.routes['inbox.ack'] = never;
+      // The first take request's signal: the deadline must abort it, not only stop waiting.
+      let takeSignal: AbortSignal | undefined;
+      if (write === 'take stalls') {
+        d.routes['inbox.ack'] = never;
+        const fetcher = d.fetcher;
+        d.fetcher = (url, init) => {
+          const path = url instanceof Request ? url.url : url.toString();
+          if (path.endsWith('/inbox.ack')) takeSignal ??= init?.signal ?? undefined;
+          return fetcher(url, init);
+        };
+      }
       if (write === 'take refused') d.routes['inbox.ack'] = () => problem('forbidden', 403);
       if (write === 'take ok, close refused')
         d.routes['task.submit'] = () => problem('head_mismatch', 409);
@@ -272,9 +282,15 @@ describe('Turn section after a write', () => {
       if (stalls) vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       await send();
       if (stalls) {
+        if (write === 'take stalls') {
+          // Just before the deadline the take request still runs.
+          await act(() => vi.advanceTimersByTimeAsync(14_999));
+          expect(takeSignal?.aborted).toBe(false);
+        }
         // The keyed re-read has not answered: past its deadline the section gives up on it.
-        await act(() => vi.advanceTimersByTimeAsync(15_000));
+        await act(() => vi.advanceTimersByTimeAsync(write === 'take stalls' ? 1 : 15_000));
         await settle();
+        if (write === 'take stalls') expect(takeSignal?.aborted).toBe(true);
       }
       if (older !== undefined) {
         // The older read answers now; it says nothing about the write, so nothing unlocks.
