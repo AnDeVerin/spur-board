@@ -410,7 +410,7 @@ export const MIRROR_FAILURES: Record<MirrorFailureCode, { meaning: string; fix: 
   mirror_field_not_found: {
     meaning:
       "The Project has no single-select field with the configured name, the field has no option with the configured value, or an open issue's item in the Project holds an option the field does not list.",
-    fix: 'Set source.field to the name of a single-select field of the Project and source.value to one of its option names, letter case included, and restart the daemon. When the message names an issue, set that field again on the issue in the Project.',
+    fix: 'Set source.field to the name of a single-select field of the Project and source.value to one of its option names, letter case included, and restart the daemon; or set the field again on the named issue in the Project.',
   },
   mirror_snapshot_incomplete: {
     meaning:
