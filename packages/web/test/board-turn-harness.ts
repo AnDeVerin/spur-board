@@ -1,4 +1,4 @@
-// Shared by the Turn section tests: board-task-turn.test.ts and board-task-turn-send.test.ts.
+// Shared by the Turn section tests: board-task-turn, board-task-turn-send and board-task-turn-reread.
 import { act } from 'react';
 import {
   config,

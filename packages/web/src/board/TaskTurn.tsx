@@ -263,9 +263,11 @@ export function TaskTurn({
     const sent = intent.current.value;
     setRefusal(undefined);
     let closing = false;
+    let taking = false;
     void sent
       .run((next) => {
         closing ||= next === 'closing';
+        taking ||= next === 'taking';
         setPhase(next);
       })
       .then(
@@ -294,9 +296,9 @@ export function TaskTurn({
           setRefusal(
             cause instanceof Error ? cause.message : 'Could not close the turn. Try again.',
           );
-          // The take landed (or was already held) before the close was refused: the read then
-          // says who holds the turn.
-          if (closing) watch(sent.refresh());
+          // The take landed (or was already held) before the close was refused, or the take got
+          // no server answer and may have landed: the read then says who holds the turn.
+          if (closing || (taking && !(cause instanceof ProblemError))) watch(sent.refresh());
         },
       );
   };
