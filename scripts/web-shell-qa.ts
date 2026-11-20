@@ -1,9 +1,19 @@
 /** Test-only fixture server for shell QA before the production listener lands. */
 import { createServer, type ServerResponse } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { extname, resolve } from 'node:path';
 import { browserOperations, statusOutputSchema } from '../packages/contracts/src/browser.ts';
 import { renderHttpProblem } from '../packages/contracts/src/error-renderers.ts';
+import { APP_FILES } from './package.ts';
+
+const mimeTypes: Readonly<Record<string, string>> = {
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.woff2': 'font/woff2',
+  '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+};
 
 export const shellScenarios = [
   'loading',
@@ -230,7 +240,11 @@ export function createShellQaServer(
       return;
     }
     const file = path === '/' ? 'index.html' : path.slice(1);
-    if (request.method !== 'GET' || !/^(?:index[.]html|assets\/[A-Za-z0-9_.-]+)$/.test(file)) {
+    const app = (APP_FILES as readonly string[]).includes(file);
+    if (
+      request.method !== 'GET' ||
+      (!app && !/^(?:index[.]html|assets\/[A-Za-z0-9_.-]+)$/.test(file))
+    ) {
       response.writeHead(404).end();
       return;
     }
@@ -239,13 +253,7 @@ export function createShellQaServer(
       response.writeHead(404).end();
       return;
     }
-    const mime = file.endsWith('.js')
-      ? 'text/javascript'
-      : file.endsWith('.css')
-        ? 'text/css'
-        : file.endsWith('.woff2')
-          ? 'font/woff2'
-          : 'text/html';
+    const mime = mimeTypes[extname(file)] ?? 'text/html';
     response.writeHead(200, { 'content-type': mime }).end(readFileSync(target));
   });
   server.on('close', () => {

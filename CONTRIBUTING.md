@@ -55,8 +55,9 @@ changes go in new commits; never force-push a pushed branch.
 
 Build the private React/Vite package with `pnpm --filter @spur-board/web build`; typecheck with
 `pnpm --filter @spur-board/web typecheck`. Unit tests run through the root Vitest unit project:
-`pnpm exec vitest run --project unit packages/web/test scripts/web.test.ts`. The kit test runs in
-the process project: `pnpm exec vitest run --project process packages/web/test/kit.test.ts`.
+`pnpm exec vitest run --project unit packages/web/test scripts/web.test.ts scripts/web-shell-qa.test.ts`.
+The kit test runs in the process project:
+`pnpm exec vitest run --project process packages/web/test/kit.test.ts`.
 The shared Vitest root setup builds fresh web assets once before any selected project's workers
 start, into the run's temporary harness directory. Asset tests consume that provided directory;
 they neither require nor clean `packages/web/dist`. This applies to direct Vitest, local checks,
