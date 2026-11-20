@@ -2,6 +2,7 @@ import {
   COLUMNS,
   COLUMN_IDS,
   TODO_GROUP_COLUMN_IDS,
+  isTodoGroupColumn,
   DISPATCHER_MODES,
   approvalRuleOf,
   isExternalAuthor,
@@ -381,20 +382,28 @@ async function workStartedOn(trx: Trx, taskId: number): Promise<boolean> {
   return openPr !== undefined || (await linkedSession(trx, taskId, 'worker')) !== undefined;
 }
 
-/** Put the task in a fresh visit of a Todo-group column and close its turns. */
+/**
+ * Put the task in a fresh visit of a Todo-group column and close its turns. With
+ * `keepShadowPastGroup`, a shadow column right of the Todo group stays where it is.
+ */
 async function placeInTodoGroup(
   trx: Trx,
   task: Task,
   project: Project | undefined,
   to: ColumnId,
   at: Date,
+  keepShadowPastGroup = false,
 ): Promise<void> {
+  const shadow =
+    keepShadowPastGroup && task.shadow_column !== null && !isTodoGroupColumn(task.shadow_column)
+      ? task.shadow_column
+      : to;
   await trx
     .updateTable('task')
     .set({
       column: to,
       shadow_column:
-        task.shadow_column === null && project?.dispatcher.mode !== 'shadow' ? null : to,
+        task.shadow_column === null && project?.dispatcher.mode !== 'shadow' ? null : shadow,
       column_epoch: task.column_epoch + 1,
       last_change_at: taskChangeAt(at.toISOString()),
     })
@@ -463,7 +472,7 @@ async function mirrorMoveColumn(
     .selectAll()
     .where('id', '=', task.id)
     .executeTakeFirstOrThrow();
-  await placeInTodoGroup(trx, current, project, to, at);
+  await placeInTodoGroup(trx, current, project, to, at, true);
   await emit(trx, 'task_mirror_moved', project.id, task.id, at.toISOString(), {
     from: current.column,
     to,

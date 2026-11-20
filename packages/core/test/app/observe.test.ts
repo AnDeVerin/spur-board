@@ -6904,6 +6904,20 @@ describe('ready-for-dev mirror', () => {
     expect(await task(b)).toMatchObject({ column: 'todo', shadow_column: 'todo' });
   });
 
+  it('keeps a shadow column right of the Todo group in shadow mode', async () => {
+    const b = await board('shadow');
+    // As after a closed PR: the real column is back in todo while the shadow stays in Dev.
+    await b.store.db
+      .updateTable('task')
+      .set({ column: 'todo', shadow_column: 'dev' })
+      .where('key', '=', 'o/r#9')
+      .execute();
+    await read(b, ready());
+    expect(await task(b)).toMatchObject({ column: 'ready-for-dev', shadow_column: 'dev' });
+    await read(b, notReady());
+    expect(await task(b)).toMatchObject({ column: 'todo', shadow_column: 'dev' });
+  });
+
   it('keeps a reopened task the mirror placed in ready-for-dev there', async () => {
     const b = await board();
     await ticket(b, 'open');
