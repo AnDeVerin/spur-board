@@ -164,7 +164,12 @@ describe('web design assets and policy', () => {
       return [
         [`card ${tone} cell`, bound(card, 'color', cellTone(tone), '.cell'), fill],
         [`card ${tone} cell suffix`, bound(card, 'color', '.suffix'), fill],
-      ].map(([label = '', text = '', on = '']) => [label, text, on, '--color-bg-elevated']);
+      ].map(([label = '', text = '', on = '']): [string, string, string, string] => [
+        label,
+        text,
+        on,
+        '--color-bg-elevated',
+      ]);
     }),
     // A loud row is not quiet: its text reads the same at rest as on hover.
     ...[
