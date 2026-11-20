@@ -30,14 +30,15 @@ import styles from './Popover.module.css';
  * Placement comes from `@floating-ui/dom`: `computePosition` with `offset`, `size`, `flip`,
  * `shift` and `hide`, run by `autoUpdate` on any scroll of the anchor's or the panel's scrolling
  * ancestors, on resize, on a resize of either element and on a layout shift of the anchor, and
- * again when the header resizes. The panel has no frame loop of its own. It sits `--space-1` under the anchor's bottom edge,
- * starting at its left edge, and keeps `--space-2` inside the window edges; both gaps are read
- * from the panel's computed style at each update. The panel is hidden (`display: none`, so
- * nothing inside can show itself and its controls leave the tab order) while the anchor is out of
- * view: out of the window or clipped away by a scroller such as a board strip. Clipping follows
- * the anchor's containing-block chain, a `transform`, `filter` or `contain` ancestor included. A
- * hide that would take focus with it moves focus to the trigger first, and the panel showing again
- * gives it back, unless the element left the panel or focus moved on from the trigger.
+ * again when the header resizes. The panel has no frame loop of its own. It sits `--space-1`
+ * under the anchor's bottom edge, starting at its left edge, and keeps `--space-2` inside the
+ * window edges; both gaps are read from the panel's computed style at each update. The panel is
+ * hidden (`display: none`, so nothing inside can show itself and its controls leave the tab
+ * order) while the anchor is out of view: out of the window or clipped away by a scroller such as
+ * a board strip. Clipping follows the anchor's containing-block chain, a `transform`, `filter` or
+ * `contain` ancestor included. A hide that would take focus with it moves focus to the trigger
+ * first, and the panel showing again gives it back, unless the element left the panel or focus
+ * moved on from the trigger.
  *
  * An open panel renders hidden (`data-away="pending"`) until its first placement, and a placement
  * that shows a hidden panel places it once more, so its first shown position uses its rendered
@@ -285,24 +286,23 @@ function OpenPopover({
     seen.current = { ref, element: target };
     if (run.current?.element === target && !moved) return;
     stop();
-    // Each update first rereads the ref: a caller may swap `anchor` or its element with no commit
-    // and no DOM change, which the close and retarget rules above then apply to.
+    // Each update first rereads the anchor element: a caller may swap it with no commit and no
+    // DOM change, which the close and retarget rules above then apply to. Only the element
+    // counts: a new ref object holding the same one keeps this run.
     const update = () => {
-      const now = latest.current.anchor;
-      if (now !== ref || now.current !== target) track();
-      else place(target);
+      if (latest.current.anchor.current === target) place(target);
+      else track();
     };
     const followed = autoUpdate(target, element, update);
     // The header can grow (its actions wrap) while a capped panel keeps its outer size: neither
     // element autoUpdate watches resizes, but the least height changes.
-    const resized =
-      typeof ResizeObserver === 'function' && header.current ? new ResizeObserver(update) : null;
-    if (header.current) resized?.observe(header.current);
+    const resized = new ResizeObserver(update);
+    if (header.current) resized.observe(header.current);
     run.current = {
       element: target,
       stop: () => {
         followed();
-        resized?.disconnect();
+        resized.disconnect();
       },
     };
   };

@@ -97,8 +97,10 @@ describe('Popover placement', () => {
     // swap: the caller points the same ref at another connected element, then a scroll: the
     // panel's element is gone, so it closes once. header: tabs wrap while the panel is capped by
     // the room below, so its outer size stays: the header's own resize raises the least height
-    // to 152, over the 146px below, and the panel flips above (582 - 4 - 570).
-    for (const row of ['swap', 'header'] as const) {
+    // to 152, over the 146px below, and the panel flips above (582 - 4 - 570). newRef: a
+    // re-render passes a fresh ref object holding the same element, which retargets: placement
+    // keeps following it.
+    for (const row of ['swap', 'header', 'newRef'] as const) {
       const onClose = vi.fn();
       const attach = (id: string) => {
         const element = document.createElement('button');
@@ -122,6 +124,16 @@ describe('Popover placement', () => {
         await scrolled();
         await scrolled();
         expect(onClose, row).toHaveBeenCalledTimes(1);
+      } else if (row === 'newRef') {
+        const fresh = { current: one };
+        render(
+          createElement(Popover, { ...props, anchor: fresh, trigger: fresh, children: 'Body' }),
+        );
+        await flush();
+        stubAnchorRect({ left: 200, right: 520, top: 300, bottom: 320 }, 'one');
+        await scrolled();
+        expect(placement(), row).toEqual(box(200, 324));
+        expect(onClose, row).not.toHaveBeenCalled();
       } else {
         const header = opened().firstElementChild as HTMLElement;
         Object.defineProperty(header, 'offsetHeight', { configurable: true, get: () => 66 });

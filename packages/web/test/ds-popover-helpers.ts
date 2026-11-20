@@ -179,9 +179,9 @@ export const clip = (area: Rect | undefined, position = '', id = 'scroller') => 
 /**
  * The panel's size as a browser would lay it out: `width` and the content `height`, capped by the
  * CSS `max-height` (the room placement wrote as `--popover-available`, floored at `least`, which
- * grows with `--popover-header`). A
- * panel under `[data-away]` is not rendered and has no box. As in Chrome, `offsetWidth` and
- * `offsetHeight` round it to whole pixels and `getComputedStyle` to three decimals.
+ * grows with `--popover-header`). A panel under `[data-away]` is not rendered and has no box. As
+ * in Chrome, `offsetWidth` and `offsetHeight` round it to whole pixels and `getComputedStyle` to
+ * three decimals.
  */
 const panelSize = { width: 320, height: 200, least: 120 };
 export const stubPanelSize = (next: Partial<typeof panelSize>) => {
