@@ -39,6 +39,10 @@ buttons and shows the text after them. Moves between the other parts work as bef
 A mirror that cannot be read is frozen: tasks stay where its last complete read put them. The
 part head adds ` · frozen` and its tooltip names the cause; the band shows a warning dot; a
 warning notice above the cards, folded or not, reads `Mirror not readable: frozen` with the
-cause and `Last complete read <time>` (`No complete read yet.` before one). An empty frozen part
-stays a column for the notice. Its Who tab shows the same; a readable mirror shows
-`read <age> ago`, amber while it is degraded.
+cause and `Last complete read <time>` (`No complete read yet.` before one). The cause is the
+failure of the last read, else why the source is blind, such as
+`No complete observation in 3 poll intervals`, then `Polls wait for the GitHub rate budget.`
+while polling waits for it. An empty frozen part stays a column for the notice, and the top
+banner leaves the mirror out; it names it while the project has no tasks, as no columns show
+then. Its Who tab shows the same; a readable mirror shows `read <age> ago`, amber
+while it is degraded.

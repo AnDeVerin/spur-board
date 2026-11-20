@@ -110,10 +110,18 @@ function SessionLink({ session, spurUiOrigin }: { session: Session; spurUiOrigin
 }
 
 /** The read state of a mirror: when it last read, or the frozen Banner when it fails. */
-function MirrorState({ mirror, now }: { mirror: MirrorSource; now: number | undefined }) {
+function MirrorState({
+  mirror,
+  read,
+  now,
+}: {
+  mirror: MirrorSource;
+  read: BoardColumn['read'];
+  now: number | undefined;
+}) {
   if (mirror.health === 'failing')
     return (
-      <Banner variant="warning" icon="pulse" detail={frozenDetail(mirror)}>
+      <Banner variant="warning" icon="pulse" detail={frozenDetail(mirror, { read })}>
         Not readable: frozen
       </Banner>
     );
@@ -129,12 +137,14 @@ function WhoHelp({
   column,
   part,
   source,
+  read,
   now,
   spurUiOrigin,
 }: {
   column: DescribedColumn;
   part: boolean;
   source: BoardColumn['source'];
+  read: BoardColumn['read'];
   now: number | undefined;
   spurUiOrigin: string | null;
 }) {
@@ -151,7 +161,7 @@ function WhoHelp({
             </>
           )}
         </p>
-        {source.kind === 'mirror' && <MirrorState mirror={source} now={now} />}
+        {source.kind === 'mirror' && <MirrorState mirror={source} read={read} now={now} />}
         <p className={styles.text}>{column.movedBy.text}</p>
       </Part>
     );
@@ -331,6 +341,7 @@ export function ColumnHelp({
         column={described.column}
         part={part}
         source={column.source}
+        read={column.read}
         now={now}
         spurUiOrigin={spurUiOrigin}
       />

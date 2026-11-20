@@ -104,12 +104,6 @@ describe('mirrored Backlog part on the board', () => {
       'Mirror not readable: frozenGitHub answered 502. No complete read yet. Tasks stay where they were.',
     );
     expect(keysIn('ready-for-dev')).toEqual([]);
-    remount();
-    await board(mirrored({ health: 'failing' }), MIRRORED_ROWS);
-    expect(notice('ready-for-dev')?.textContent).toBe(
-      'Mirror not readable: frozenThe last read did not complete. Last complete read 13:42 18/11/26. Tasks stay where they were.',
-    );
-    expect(actor('ready-for-dev').title).toBe('Mirror not readable. Click for details.');
   });
 });
 
@@ -137,11 +131,15 @@ describe('mirrored Backlog part in column help', () => {
     return found;
   };
   const lines = () => [...moves().querySelectorAll('p')];
-  /** The board with ready-for-dev in `extra`'s state, read 3 minutes ago, its Who tab open. */
-  const openWho = async (extra: Record<string, unknown> = {}) => {
+  /**
+   * The board with ready-for-dev in `extra`'s state, read 3 minutes ago, and `status.get` listing
+   * `sources`, its Who tab open.
+   */
+  const openWho = async (extra: Record<string, unknown> = {}, sources: unknown[] = []) => {
     remount();
     const d = daemon();
     serve(d, MIRRORED_ROWS, mirrored(extra));
+    d.routes['status.get'] = () => Promise.resolve(envelope(status(MIRRORED_ROWS, sources)));
     d.routes['columns.describe'] = () => Promise.resolve(envelope(described));
     mount(d, {}, () => Date.parse('2026-11-18T13:45:00.000Z'));
     await settle();
@@ -172,21 +170,63 @@ describe('mirrored Backlog part in column help', () => {
     expect(lines()[0]?.textContent).toBe('mirror · GitHub Project Roadmap · Status');
     expect(moves().lastElementChild?.textContent).toBe(TEXT);
   });
+
+  const STALE = {
+    blindReason: 'stale',
+    message: 'No complete observation in 3 poll intervals',
+    lastCompleteAt: '2026-11-18T13:42:00.000Z',
+    stale: true,
+  };
+  const LAST = 'Last complete read 13:42 18/11/26. Tasks stay where they were.';
+  it.each([
+    ['coded error', FROZEN, [], 'GitHub answered 502.', ': GitHub answered 502'],
+    [
+      'stale blind after a good poll',
+      { health: 'failing' },
+      [source('github-project:a:ex/1', STALE)],
+      'No complete observation in 3 poll intervals.',
+      '',
+    ],
+    [
+      'stale blind while waiting for the rate budget',
+      { health: 'failing' },
+      [source('github-project:a:ex/1', { ...STALE, waitsForBudget: true })],
+      'No complete observation in 3 poll intervals. Polls wait for the GitHub rate budget.',
+      '',
+    ],
+    ['no source in status.get', { health: 'failing' }, [], 'The mirror has no usable read.', ''],
+  ])(
+    'frozen mirror, %s: the notice and Who give the cause',
+    async (_, extra, sources, cause, why) => {
+      await openWho(extra, sources);
+      expect(notice('ready-for-dev')?.textContent).toBe(
+        `Mirror not readable: frozen${cause} ${LAST}`,
+      );
+      expect(moves().querySelector('[role="status"]')?.textContent).toBe(
+        `Not readable: frozen${cause} ${LAST}`,
+      );
+      expect(actor('ready-for-dev').title).toBe(`Mirror not readable${why}. Click for details.`);
+    },
+  );
 });
 
 describe('mirrored Backlog part and the top banner', () => {
-  it('a frozen GitHub Project mirror raises no top banner; a stale one and other blind sources do', async () => {
+  it('a frozen GitHub Project mirror raises no top banner while its notice shows; a stale one, an empty project and other blind sources do', async () => {
     const LAST = '2026-11-15T14:40:00.000Z';
     const mirror = (extra: Record<string, unknown>) =>
       source('github-project:a:ex/1', { lastCompleteAt: LAST, ...extra });
     const failed = { code: 'mirror_read_failed', message: 'GitHub answered 502' };
     const said = (name: string) =>
       `${name} has not answered since 14:40 15/11/26.Its facts may be out of date.`;
-    const warnings = async (sources: unknown[]) => {
+    const warnings = async (
+      sources: unknown[],
+      rows: unknown[] = MIRRORED_ROWS,
+      extra: Record<string, unknown> = FROZEN,
+    ) => {
       remount();
       const d = daemon();
-      serve(d, MIRRORED_ROWS, mirrored());
-      d.routes['status.get'] = () => Promise.resolve(envelope(status(MIRRORED_ROWS, sources)));
+      serve(d, rows, mirrored(extra));
+      d.routes['status.get'] = () => Promise.resolve(envelope(status(rows, sources)));
       mount(d);
       await settle();
       return all('[role="status"]')
@@ -195,7 +235,17 @@ describe('mirrored Backlog part and the top banner', () => {
     };
     expect(await warnings([mirror({ blindReason: 'auth', stale: true })])).toEqual([]);
     expect(await warnings([mirror({ failure: failed, stale: true })])).toEqual([]);
-    expect(await warnings([mirror({ stale: true })])).toEqual([said('github-project:a:ex/1')]);
+    // A stale mirror that is not blind is degraded, not frozen.
+    expect(
+      await warnings([mirror({ stale: true })], MIRRORED_ROWS, { health: 'degraded' }),
+    ).toEqual([said('github-project:a:ex/1')]);
+    // No tasks: the board shows its empty message, so no notice names the frozen mirror.
+    expect(await warnings([mirror({ blindReason: 'stale', stale: true })], [])).toEqual([
+      said('github-project:a:ex/1'),
+    ]);
+    expect(await warnings([mirror({ failure: failed, blindReason: 'auth' })], [])).toEqual([
+      said('github-project:a:ex/1'),
+    ]);
     expect(
       await warnings([
         mirror({ blindReason: 'auth', failure: failed }),

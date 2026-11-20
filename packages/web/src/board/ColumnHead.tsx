@@ -32,7 +32,7 @@ export function MirrorNotice({ column }: { column: BoardColumn }) {
   if (mirror === undefined) return null;
   return (
     <div className={styles.notice}>
-      <Banner variant="warning" icon="pulse" detail={frozenDetail(mirror)}>
+      <Banner variant="warning" icon="pulse" detail={frozenDetail(mirror, column)}>
         Mirror not readable: frozen
       </Banner>
     </div>
