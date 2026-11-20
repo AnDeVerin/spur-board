@@ -42,10 +42,12 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
   block. Once handled, ack its revision, ID or ring N<number>-<ring> with keyed
   `board inbox ack <entries>`. Keyed `board answer` handles its block; no ack follows.
 - A return's `code` block needs no ack when you take its Dev turn: the take reads it, and your
-  confirmed submit closes it. An orchestrator runs Dev: ack the block as above, then keyed
-  `board unblock <block> --done <ref>` once the fix is in. Still open after your Dev turn closed
-  (no submit, or one a merge at another head superseded, which opens no turn): take a later Dev
-  turn of that visit and submit; with none, close it with `--done` as above.
+  confirmed submit closes it. A Dev turn you cannot take (a named orchestrator or the operator
+  runs Dev): ack the block on its doorbell, then keyed `board unblock <block> --done <ref>` once
+  the fix is in. Still open after your Dev turn closed (no submit, or one a merge at another head
+  superseded, which opens no turn): take a later Dev turn of that visit and submit. While
+  `board task <task> --why` lists `ticket_unconfirmed`, wait; once it clears and no later Dev
+  turn of that visit opens, close the block with `--done` as above.
 
 ## Board commands
 
