@@ -8,7 +8,8 @@ import {
   type Output,
 } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
-import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
+import { createColumnView } from './column-view.ts';
+import { createColumnsRead, type ColumnsState } from './columns-data.ts';
 import { createSectionStore } from './sections.ts';
 import { createTurnIntent } from './turn-intent.ts';
 import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
@@ -96,6 +97,8 @@ export interface BoardSnapshot {
   task: TaskState | undefined;
   /** History of the open task; undefined until `showHistory` first reads it. */
   history: HistoryState | undefined;
+  /** Column policy of the chosen project; its failures never set `readFailed`. Absent until read. */
+  columns?: ColumnsState | undefined;
 }
 
 interface BoardDataOptions {
@@ -107,8 +110,6 @@ interface BoardDataOptions {
 }
 
 const PROJECT_KEY = 'board-project';
-const sortKey = (project: string, column: string) => `board-sort:${project}:${column}`;
-const foldKey = (project: string, group: string) => `board-fold:${project}:${group}`;
 
 /**
  * Board reads outside React: `config.get`, then `status.get` for the chosen project, and
@@ -136,6 +137,7 @@ export function createBoardData(options: BoardDataOptions) {
     retrying: false,
     task: undefined,
     history: undefined,
+    columns: undefined,
   };
   let preferred: string | null = null;
   try {
@@ -195,6 +197,13 @@ export function createBoardData(options: BoardDataOptions) {
       update(value ? { status: value, lastGoodAt: options.now() } : {});
     },
   );
+  const columns = createColumnsRead(api, {
+    project: () => state.project,
+    columns: () => state.columns,
+    publish: (value) => {
+      update({ columns: value });
+    },
+  });
   const config = coordinateRead(
     (signal) => {
       configIssued = ++issued;
@@ -208,12 +217,21 @@ export function createBoardData(options: BoardDataOptions) {
       if (project !== state.project) {
         statusFailed = false;
         statusUnreadable = false;
-        Object.assign(patch, { project, status: undefined, lastGoodAt: undefined });
+        columns.reset();
+        Object.assign(patch, {
+          project,
+          status: undefined,
+          lastGoodAt: undefined,
+          columns: undefined,
+        });
       }
       // `status.get` throws for an unknown project, so it takes the project from config.
       if (project === undefined) settleRetry('chain', configIssued);
       update(patch);
-      if (project !== undefined) status.refresh();
+      if (project !== undefined) {
+        status.refresh();
+        columns.refresh();
+      }
     },
   );
   const inbox = coordinateRead(
@@ -420,6 +438,7 @@ export function createBoardData(options: BoardDataOptions) {
       refreshWaits.clear();
       stream?.stop();
       status.dispose();
+      columns.dispose();
       config.dispose();
       inbox.dispose();
       task.dispose();
@@ -537,42 +556,19 @@ export function createBoardData(options: BoardDataOptions) {
       statusFailed = false;
       configUnreadable = false;
       statusUnreadable = false;
-      update({ project, status: undefined, lastGoodAt: undefined });
+      columns.reset();
+      update({ project, status: undefined, lastGoodAt: undefined, columns: undefined });
       status.refresh();
+      columns.refresh();
     },
-    /** The stored order of a column; `T ↑` when none is stored, it is unknown or storage fails. */
-    columnSort(project: string, column: string): ColumnSort {
-      try {
-        const stored = options.storage().getItem(sortKey(project, column));
-        return isColumnSort(stored) ? stored : FIRST_SORT;
-      } catch {
-        return FIRST_SORT;
-      }
+    /**
+     * A column help panel opened: read `columns.describe` again. `columns.help` is `loading` until
+     * a read issued after this call settles; the last good answer stays meanwhile.
+     */
+    readColumns() {
+      columns.open();
     },
-    /** Keep the order of a column for its project; it is view state and never reaches the daemon. */
-    setColumnSort(project: string, column: string, sort: ColumnSort) {
-      try {
-        options.storage().setItem(sortKey(project, column), sort);
-      } catch {
-        /* The order lasts until reload without storage. */
-      }
-    },
-    /** Whether a column group is folded; unfolded when none is stored, it is unknown or storage fails. */
-    columnFold(project: string, group: string): boolean {
-      try {
-        return options.storage().getItem(foldKey(project, group)) === 'folded';
-      } catch {
-        return false;
-      }
-    },
-    /** Keep the fold of a column group for its project; view state, like the column order. */
-    setColumnFold(project: string, group: string, folded: boolean) {
-      try {
-        options.storage().setItem(foldKey(project, group), folded ? 'folded' : 'unfolded');
-      } catch {
-        /* The fold lasts until reload without storage. */
-      }
-    },
+    ...createColumnView(options.storage),
     ...createSectionStore(options.storage),
     /** Unsent text of the task view writers, kept across a reload after a board update. */
     drafts: check.drafts,

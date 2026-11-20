@@ -1,6 +1,24 @@
-import { useId, useState, type ReactNode } from 'react';
-import { Button, focusRing, Icon, quiet, Skeleton, TextToggle } from '../ds/index.ts';
+import { useId, useRef, useState, type ReactNode } from 'react';
+import {
+  Button,
+  focusRing,
+  Icon,
+  Popover,
+  quiet,
+  Skeleton,
+  Tabs,
+  TextToggle,
+} from '../ds/index.ts';
 import { age } from './card.ts';
+import {
+  actorIcon,
+  ColumnHelp,
+  describedColumn,
+  noLiveSession,
+  useHelpScope,
+  type HelpTab,
+} from './ColumnHelp.tsx';
+import type { ColumnsState } from './columns-data.ts';
 import {
   boardLayout,
   matchesFilter,
@@ -129,7 +147,16 @@ interface Shared {
   spurUiOrigin: string | null;
   ticketBrowseBase: string | null;
   onOpen: (key: string) => void;
+  /** `columns.describe` of the shown project: column help and the no-live-session warning. */
+  columns: ColumnsState | undefined;
+  /** A column help panel opened: read `columns.describe` again. */
+  onHelpOpen: () => void;
 }
+
+const HELP_TABS = [
+  { value: 'who', label: 'Who' },
+  { value: 'rules', label: 'Rules' },
+];
 
 /** A column's order, read once from `sorts` and stored on each change. */
 function useSort(id: string, sorts: ColumnSorts) {
@@ -156,32 +183,102 @@ const cards = (rows: readonly BoardRow[], shared: Shared) =>
 
 /**
  * A column head: label, count, then the executor and the sort buttons. A group part's label is an
- * `h3` under the band's `h2`, and its second line names where its tasks come from.
+ * `h3` under the band's `h2`, and its second line names where its tasks come from. That line is
+ * the trigger of the column help panel, which sits right after the head and follows it. Focus
+ * moving anywhere outside the head and its panel closes the panel: a keyboard user tabbing to
+ * the Inbox button or to another column's trigger leaves no panel open behind them, so at most
+ * one panel is open and none stays over the Inbox.
  */
 function ColumnHead({
   column,
   part,
   sort,
   onSort,
+  columns,
+  spurUiOrigin,
+  onHelpOpen,
 }: {
   column: BoardColumn;
   part: boolean;
   sort: ColumnSort;
   onSort: (sort: ColumnSort) => void;
+  columns: ColumnsState | undefined;
+  spurUiOrigin: string | null;
+  onHelpOpen: () => void;
 }) {
   const Label = part ? 'h3' : 'h2';
+  const head = useRef<HTMLDivElement>(null);
+  const actor = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const scope = useHelpScope(open, setOpen);
+  const [tab, setTab] = useState<HelpTab>('who');
+  const tabsId = useId();
+  const warn = noLiveSession(describedColumn(columns, column.id)?.column, part);
+  const title = `How ${column.id} works: who acts and the rules`;
   return (
-    <div className={classes(styles.head, quiet)}>
-      <div className={styles.name}>
-        <Label className={classes(styles.label, part ? styles.partLabel : undefined)}>
-          {column.id}
-        </Label>
-        <span className={styles.count}>{column.rows.length}</span>
+    <div ref={scope} className={styles.helpScope}>
+      <div ref={head} className={classes(styles.head, quiet)}>
+        <div className={styles.name}>
+          <Label className={classes(styles.label, part ? styles.partLabel : undefined)}>
+            {column.id}
+          </Label>
+          <span className={styles.count}>{column.rows.length}</span>
+        </div>
+        <div className={styles.exec}>
+          <button
+            ref={actor}
+            type="button"
+            className={classes(styles.actor, focusRing)}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            title={warn ? `${title} · no live session` : title}
+            data-warn={warn ? '' : undefined}
+            onClick={() => {
+              if (open) {
+                setOpen(false);
+                return;
+              }
+              setTab('who');
+              setOpen(true);
+              onHelpOpen();
+            }}
+          >
+            <Icon name={actorIcon(column.kind, part)} />
+            <span className={styles.execText}>{part ? PART_SOURCE : column.executor}</span>
+            {warn && <span className={styles.execWarn}> · no live session</span>}
+          </button>
+          {column.rows.length > 0 && <SortControl id={column.id} sort={sort} onChange={onSort} />}
+        </div>
       </div>
-      <div className={styles.exec}>
-        <span className={styles.execText}>{part ? PART_SOURCE : column.executor}</span>
-        {column.rows.length > 0 && <SortControl id={column.id} sort={sort} onChange={onSort} />}
-      </div>
+      <Popover
+        open={open}
+        onClose={() => {
+          setOpen(false);
+        }}
+        anchor={head}
+        trigger={actor}
+        title={column.id}
+        actions={
+          <Tabs
+            id={tabsId}
+            label="Column help"
+            tabs={HELP_TABS}
+            value={tab}
+            onChange={(value) => {
+              setTab(value === 'rules' ? 'rules' : 'who');
+            }}
+          />
+        }
+      >
+        <ColumnHelp
+          column={column}
+          part={part}
+          tab={tab}
+          tabsId={tabsId}
+          columns={columns}
+          spurUiOrigin={spurUiOrigin}
+        />
+      </Popover>
     </div>
   );
 }
@@ -209,7 +306,15 @@ function Column({
   const rows = sortRows(column.rows, sort);
   return (
     <section className={styles.column} data-stale={stale ? '' : undefined}>
-      <ColumnHead column={column} part={part} sort={sort} onSort={setSort} />
+      <ColumnHead
+        column={column}
+        part={part}
+        sort={sort}
+        onSort={setSort}
+        columns={shared.columns}
+        spurUiOrigin={shared.spurUiOrigin}
+        onHelpOpen={shared.onHelpOpen}
+      />
       {column.id === 'done' ? (
         <ul className={classes(styles.body, styles.done, quiet)}>
           {rows.map((row) => (
@@ -239,7 +344,15 @@ function GroupSection({ column, ...shared }: { column: BoardColumn } & Shared) {
   const [sort, setSort] = useSort(column.id, shared.sorts);
   return (
     <section className={styles.groupSection} data-stale={shared.stale ? '' : undefined}>
-      <ColumnHead column={column} part sort={sort} onSort={setSort} />
+      <ColumnHead
+        column={column}
+        part
+        sort={sort}
+        onSort={setSort}
+        columns={shared.columns}
+        spurUiOrigin={shared.spurUiOrigin}
+        onHelpOpen={shared.onHelpOpen}
+      />
       {column.rows.length === 0 ? (
         <p className={classes(styles.groupEmpty, quiet)}>empty</p>
       ) : (
@@ -315,6 +428,8 @@ export function Columns({
   spurUiOrigin,
   ticketBrowseBase,
   onOpen,
+  columns,
+  onHelpOpen,
 }: {
   view: ColumnsView;
   /** Each column's order; a click reorders that column only. */
@@ -329,10 +444,24 @@ export function Columns({
   ticketBrowseBase: string | null;
   /** A card asks to open its task. */
   onOpen: (key: string) => void;
+  /** `columns.describe` of the shown project. */
+  columns: ColumnsState | undefined;
+  /** A column help panel opened. */
+  onHelpOpen: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const listId = useId();
-  const shared = { sorts, filter, stale, now, spurUiOrigin, ticketBrowseBase, onOpen };
+  const shared = {
+    sorts,
+    filter,
+    stale,
+    now,
+    spurUiOrigin,
+    ticketBrowseBase,
+    onOpen,
+    columns,
+    onHelpOpen,
+  };
   switch (view.kind) {
     case 'failed':
       return null;

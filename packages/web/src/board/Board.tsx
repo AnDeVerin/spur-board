@@ -242,6 +242,10 @@ export function Board({ data }: { data: BoardData }) {
             history.pushState(null, '', openHref(key));
             setOpenKey(key);
           }}
+          columns={snapshot.columns}
+          onHelpOpen={() => {
+            data.readColumns();
+          }}
         />
       </main>
       {inboxOpen && (
