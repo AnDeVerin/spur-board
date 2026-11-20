@@ -42,7 +42,9 @@ of these holds:
   interval raises nothing.
 
 A merged PR linked as a conflict counts here like an active one, unless an active link of the
-task merged too: then only the active merges count, as for the dispatcher. The alert text says
+task merged too: then only the active merges count for the ticket change, as for the dispatcher.
+The newest merge of the closed-without-merge block and its interval is always that of any link
+kind, so a conflict merge after an active one supersedes the closes before it. The alert text says
 `PR <repo>#<n> merged, ticket reopened` after such a ticket change (not when no merged PR has a
 stored merge time), else `no PR`.
 

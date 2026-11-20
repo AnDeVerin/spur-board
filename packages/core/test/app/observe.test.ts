@@ -4484,6 +4484,29 @@ describe('anomaly blocks', () => {
         now += 1_000;
         await prs(b, [eight]);
       },
+      // A worker waits past the idle threshold: only an open PR keeps the observation away.
+      // `openLedger` sees system blocks only, so the observation is asserted here.
+      'worker-idle': (kind, state) => async (b, ticket) => {
+        await ticket('open');
+        now += 1_000;
+        const eight = await onlyPr(b, kind, state);
+        now += 1_000;
+        const waiting = session('worker-1', 'waiting');
+        await spur(b, [waiting]);
+        now += IDLE;
+        await spur(b, [waiting]);
+        now += 1_000;
+        await prs(b, [eight]);
+        const idle = await b.store.db
+          .selectFrom('operator_item')
+          .select('text')
+          .where('item_key', 'like', 'health:%:worker_idle')
+          .where('cleared_at', 'is', null)
+          .execute();
+        expect(idle.map((item) => item.text)).toEqual(
+          state === 'open' ? [] : ['o/r#9: worker idle (worker-1)'],
+        );
+      },
     } satisfies Record<
       string,
       (kind: 'active' | 'conflict', state: 'open' | 'merged' | 'closed') => Scenario
@@ -4495,6 +4518,7 @@ describe('anomaly blocks', () => {
         merged: [],
         closed: ['pr-closed', 'ticket-closed'],
       },
+      'worker-idle': { open: [], merged: [], closed: ['pr-closed'] },
     } as const;
     /** Case A: a merged PR linked as a conflict beside the open #7, then the ticket closes. */
     const caseA: Scenario = async (b, ticket) => {
@@ -4606,8 +4630,55 @@ describe('anomaly blocks', () => {
       now += 1_000;
       await prs(b, [seven, eight]);
     };
+    /**
+     * Case D: active #7 merges, conflict #9 closes unmerged, the ticket is seen open past #7's
+     * grace, then conflict #8 merges and closes the ticket. #8's merge supersedes #9's close: no
+     * block opens at any step.
+     */
+    const caseD: Scenario = async (b, ticket) => {
+      const none = async () => {
+        expect((await surface(b)).blocks).toEqual([]);
+      };
+      await prs(b, [pr(7, 'open')]);
+      now += 1_000;
+      await prs(b, [pr(7, 'open'), pr(8, 'open'), pr(9, 'open')]);
+      const kinds = await b.store.db
+        .selectFrom('link')
+        .select(['number', 'pr_state'])
+        .where('entity', '=', 'pr')
+        .orderBy('number')
+        .execute();
+      expect(kinds).toEqual([
+        { number: 7, pr_state: 'active' },
+        { number: 8, pr_state: 'conflict' },
+        { number: 9, pr_state: 'conflict' },
+      ]);
+      now += 1_000;
+      const seven = { ...pr(7, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [seven, pr(8, 'open'), pr(9, 'open')]);
+      now += 1_000;
+      const nine = { ...pr(9, 'closed'), updatedAt: iso(), closedAt: iso() };
+      await prs(b, [seven, pr(8, 'open'), nine]);
+      now += 1_000;
+      await ticket('open');
+      await seeAgain(b, ticket);
+      now += 1_000;
+      await prs(b, [seven, pr(8, 'open'), nine]);
+      await none();
+      now += 1_000;
+      const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [seven, eight, nine]);
+      now += 1_000;
+      await prs(b, [seven, eight, nine]);
+      await none();
+      now += 1_000;
+      await ticket('closed');
+      now += 1_000;
+      await prs(b, [seven, eight, nine]);
+      await none();
+    };
     it.each([
-      ...(['worker-end', 'ticket-closed'] as const).flatMap((check) =>
+      ...(['worker-end', 'ticket-closed', 'worker-idle'] as const).flatMap((check) =>
         (['active', 'conflict'] as const).flatMap((kind) =>
           (['open', 'merged', 'closed'] as const).map(
             (state) =>
@@ -4626,6 +4697,11 @@ describe('anomaly blocks', () => {
         'case C, active links: follow-up closed and ticket edited, open past the merge grace',
         caseCActive,
         ['pr-closed'],
+      ],
+      [
+        'case D: active merge, conflict closed unmerged, later conflict merge, ticket done',
+        caseD,
+        [],
       ],
     ] as const)(
       'counts a conflict link as an active one for merged and remaining PRs: %s',
