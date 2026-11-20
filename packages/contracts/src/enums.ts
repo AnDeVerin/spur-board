@@ -154,6 +154,13 @@ export const CHECKS_GATE_COLUMNS = [
 ] as const satisfies readonly ColumnId[];
 export type CheckGateColumn = (typeof CHECKS_GATE_COLUMNS)[number];
 
+/**
+ * What `projects[].columns[].approvalRule` on External Review lets a task leave on: any external
+ * approval, or that and the repository's own GitHub review rule for the PR head.
+ */
+export const APPROVAL_RULES = ['any-approval', 'github-rules'] as const;
+export type ApprovalRule = (typeof APPROVAL_RULES)[number];
+
 /** Where a column's effective orchestrator comes from: its own column entry or top-level `spurProjects`. */
 export const COLUMN_BINDING_SOURCES = ['project', 'board-wide'] as const;
 export type ColumnBindingSource = (typeof COLUMN_BINDING_SOURCES)[number];
@@ -245,6 +252,7 @@ export const GATE_CONDITIONS = [
   'submit_on_head',
   'review_on_head',
   'approved',
+  'review_rule_satisfied',
   'merged',
 ] as const;
 export type GateCondition = (typeof GATE_CONDITIONS)[number];

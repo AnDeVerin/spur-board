@@ -10,18 +10,18 @@ reached its agent, or a planned pause, follow the [runbook](docs/runbook.md).
 
 Warnings never block readiness or an update. Blocking failures retain these gates:
 
-| Checks                                                                                                                                                         | Policy and reason                                                                                             |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `config`                                                                                                                                                       | Blocking: invalid daemon config.                                                                              |
-| `service.installed`, `service.node`, `service.running`, `flock`, `http.port`, `daemon.available`                                                               | Blocking: runtime, lock, API and service prerequisites.                                                       |
-| `database.private`, `secrets`                                                                                                                                  | Blocking: private storage and configured credentials.                                                         |
-| `jira.credentials`, `github.credentials`, `spur.api`, `spur.send`                                                                                              | Blocking when configured: polling, enrichment or doorbell work fails; GitHub throttle warnings stay advisory. |
-| `slack.auth`, `slack.orchestrators_member`, `slack.feed_member`, known `slack.command` mismatch                                                                | Blocking when configured: delivery and inbound commands; unknown or unconfigured results warn.                |
-| `operator.path`                                                                                                                                                | Blocking: no operator session or approved token for required operator work.                                   |
-| `web.listening`, `web.spurUiOrigin`, `path.current`, `path.spur`, `skills.codex_visibility`                                                                    | Warning: optional browser or agent tooling; the daemon continues.                                             |
-| `versions`                                                                                                                                                     | Blocking daemon/running CLI mismatch; warning auxiliary PATH binary or skill versions.                        |
-| `web`, `projects.checksGate`                                                                                                                                   | Passing configured-state report; no independent failure gate.                                                 |
-| `stand.port_range`, `link.rules`, `sessions.codex_skill`, `sessions.stale`, `operator.tokens`, `curator.sessions`, `orchestrator.sessions`, `slack.configured` | Advisory; preserve their warnings.                                                                            |
+| Checks                                                                                                                                                                               | Policy and reason                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `config`                                                                                                                                                                             | Blocking: invalid daemon config.                                                                              |
+| `service.installed`, `service.node`, `service.running`, `flock`, `http.port`, `daemon.available`                                                                                     | Blocking: runtime, lock, API and service prerequisites.                                                       |
+| `database.private`, `secrets`                                                                                                                                                        | Blocking: private storage and configured credentials.                                                         |
+| `jira.credentials`, `github.credentials`, `spur.api`, `spur.send`                                                                                                                    | Blocking when configured: polling, enrichment or doorbell work fails; GitHub throttle warnings stay advisory. |
+| `slack.auth`, `slack.orchestrators_member`, `slack.feed_member`, known `slack.command` mismatch                                                                                      | Blocking when configured: delivery and inbound commands; unknown or unconfigured results warn.                |
+| `operator.path`                                                                                                                                                                      | Blocking: no operator session or approved token for required operator work.                                   |
+| `web.listening`, `web.spurUiOrigin`, `path.current`, `path.spur`, `skills.codex_visibility`                                                                                          | Warning: optional browser or agent tooling; the daemon continues.                                             |
+| `versions`                                                                                                                                                                           | Blocking daemon/running CLI mismatch; warning auxiliary PATH binary or skill versions.                        |
+| `web`, `projects.checksGate`                                                                                                                                                         | Passing configured-state report; no independent failure gate.                                                 |
+| `stand.port_range`, `link.rules`, `github.review_rule`, `sessions.codex_skill`, `sessions.stale`, `operator.tokens`, `curator.sessions`, `orchestrator.sessions`, `slack.configured` | Advisory; preserve their warnings.                                                                            |
 
 ### config
 
@@ -266,6 +266,29 @@ match and the unmatched PRs as `#<number>` with their branch. Change `projects[]
 the repository's branch and PR title rules, which the repository's CI title check and its agents'
 skills enforce. Other warnings say the operator has no PRs there, the PRs could not be read,
 `tracker.repo` is missing from `projects[].repos`, or `GITHUB_TOKEN` is missing.
+
+### github.review_rule
+
+Listed only when a project's `external-review` column sets `approvalRule: github-rules`. For each of
+that project's `projects[].repos`, the daemon reads the default branch's review rule from its branch
+protection and the rulesets that apply to it, and prints what it read: the source (branch
+protection, ruleset or both), the required approvals, code owner review, resolved conversations and
+required checks. The Board reads each PR's own base branch the same way on every full PR read. The
+check never blocks and is separate from `github.credentials`. It warns when the branch has no branch
+protection or ruleset, when the rule requires no approval, code owner review or resolved
+conversations (no review rule to follow), when it could not confirm all ruleset rules were read
+(more than 100 apply, or GitHub's answer does not say whether more follow), when the read fails, for
+example because the token cannot read the rules, or when `GITHUB_TOKEN` is missing. The check reads
+only the default branch: a PR whose own base branch rule the token cannot read keeps its head
+undecided in External Review, and the task's `--why` shows it as `review_rule_unreadable`, even
+while this check passes. With no review rule to follow, add a required approval or code owner review
+to the default branch, or remove `approvalRule` from the column. When the read fails, give the token
+read access to the branch protection and rulesets of every base branch, the same advice Doctor gives
+when it could not confirm all ruleset rules were read; a rule may still apply (Doctor cannot confirm
+one exists when GitHub's answer has no `pageInfo`), so removing `approvalRule` could weaken the
+gate. Doctor therefore leaves out the removal advice while a project with a repo that has no review
+rule to follow also has a repo whose rule is in force or could not be read in full: removing
+`approvalRule` from the column would turn off the gate of that repo too.
 
 ### spur.api
 

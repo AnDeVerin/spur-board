@@ -1,4 +1,5 @@
 import { taskMoveInputSchema, taskMoveOutputSchema } from './ops/move-schemas.ts';
+import { turnWriteOperations } from './ops/turn-write-schemas.ts';
 /** Browser-safe operation schemas; never import the operation catalog here. */
 import { z } from 'zod';
 import {
@@ -9,6 +10,7 @@ import {
   OPERATOR_BINDING_SOURCES,
   VIAS,
 } from './enums.ts';
+export { COLUMNS } from './enums.ts';
 import { EVENT_KINDS } from './events.ts';
 import { actorIdSchema, blockIdSchema, itemIdSchema, taskKeyInputSchema } from './ids.ts';
 import { SPACE_IDS } from './gateway/schemas.ts';
@@ -503,4 +505,5 @@ export const browserOperations = {
     input: itemInputSchema,
     output: itemOutputSchema,
   },
+  ...turnWriteOperations,
 } as const;

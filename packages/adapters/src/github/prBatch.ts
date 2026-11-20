@@ -5,10 +5,13 @@ import {
   REF_NUMBER,
   REVIEW_STATES,
   assertNever,
+  REVIEW_DECISIONS,
   prFactsSchema,
+  prReviewRuleSchema,
   type Config,
   type PrFacts,
   type PrFeedback,
+  type PrReviewRule,
   type ReviewerKind,
 } from '@spur-board/contracts';
 import { z } from 'zod';
@@ -20,6 +23,7 @@ import {
   latestContexts,
   type ContextWire,
 } from './checks.ts';
+import { branchRuleOf, branchRuleWire } from './branchRule.ts';
 import {
   inlineComments,
   linkOf,
@@ -119,6 +123,9 @@ const prWire = z.object({
   // Selected only for the tracker repo of a github-issues project whose `link.sources` lists
   // `closing`; a Jira project never selects it.
   closingIssuesReferences: closingWire,
+  // Selected only for a source of a github-rules project; a deleted base branch arrives as null.
+  reviewDecision: z.string().nullish(),
+  baseRef: branchRuleWire.nullish(),
 });
 type ReviewWire = z.output<typeof reviewWire>;
 type CommentWire = z.output<typeof commentWire>;
@@ -478,4 +485,20 @@ export function normalizePr(
   if (!parsed.success)
     throw new AdapterError('transient', 'Malformed GitHub PR facts', { cause: parsed.error });
   return parsed.data;
+}
+
+/**
+ * GitHub's review decision and the base branch's review rule of a PR read with them selected;
+ * undefined when the read did not select them. An unknown decision reads as null; a rule the token
+ * was denied (`ruleDenied`) or one with more ruleset rules than the read returns reads as null, not
+ * as a branch without one.
+ */
+export function normalizeReviewRule(value: unknown, ruleDenied = false): PrReviewRule | undefined {
+  const wire = parseWire(prWire, value, 'Malformed GitHub PR response');
+  if (wire.reviewDecision === undefined && wire.baseRef === undefined) return undefined;
+  const decision = wire.reviewDecision?.toLowerCase();
+  return prReviewRuleSchema.parse({
+    reviewDecision: REVIEW_DECISIONS.find((known) => known === decision) ?? null,
+    rule: ruleDenied ? null : branchRuleOf(wire.baseRef),
+  });
 }

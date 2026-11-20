@@ -7,7 +7,13 @@ import {
   configJsonSchema,
   configSchema,
 } from '../packages/contracts/src/index.ts';
-import { binaryRoutes, checksGateExample, formattedDocs, registeredCommands } from './gen-docs.ts';
+import {
+  approvalRuleExample,
+  binaryRoutes,
+  checksGateExample,
+  formattedDocs,
+  registeredCommands,
+} from './gen-docs.ts';
 
 const cli = readFileSync(new URL('../docs/cli.md', import.meta.url), 'utf8');
 const configuration = readFileSync(new URL('../docs/configuration.md', import.meta.url), 'utf8');
@@ -39,6 +45,38 @@ describe('generated public references', () => {
     expect(configSchema.parse(YAML.parse(block ?? '')).projects[0]?.checksGate).toBe(
       'external-review',
     );
+  });
+
+  it('the approvalRule example parses with github-rules on External Review', () => {
+    const section = configuration.split(
+      '## Example: follow the GitHub review rule at External Review',
+    )[1];
+    const block = section?.split('```yaml\n')[1]?.split('```')[0];
+    expect(block).toBe(approvalRuleExample);
+    const project = configSchema.parse(YAML.parse(block ?? '')).projects[0];
+    expect(project?.columns.find((c) => c.id === 'external-review')?.approvalRule).toBe(
+      'github-rules',
+    );
+    for (const text of [
+      'branch protection and rulesets',
+      'undecided for 30 minutes',
+      'board rollback',
+    ])
+      expect(section?.split('\n## ')[0]).toContain(text);
+  });
+
+  it('cli.md names the review rule waits and their texts', () => {
+    const section = cli.split('## Why a task waits')[1]?.split('\n## ')[0];
+    expect(section).toContain('`approvalRule: github-rules` on External Review only');
+    expect(section).toContain('`review_rule_satisfied`');
+    const rows = (section ?? '').split('\n').map((line) => line.replace(/ +/g, ' '));
+    for (const row of [
+      '| `review_rule_blocked` | `merge blocked by the GitHub review rule` |',
+      '| `changes_requested` | `changes requested` |',
+      '| `merge_state_unknown` | `GitHub has not computed the merge state yet` |',
+      '| `review_rule_unreadable` | `the GitHub review rule for the base branch could not be read` |',
+    ])
+      expect(rows).toContain(row);
   });
 
   it('configuration.md states the grace scope', () => {

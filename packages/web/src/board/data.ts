@@ -8,8 +8,9 @@ import {
   type Output,
 } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
+import { createColumnView } from './column-view.ts';
 import { createColumnsRead, type ColumnsState } from './columns-data.ts';
-import { FIRST_SORT, isColumnSort, type ColumnSort } from './model.ts';
+import { createTurnIntent } from './turn-intent.ts';
 import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
 
 /** `closeItemIntent` refused to send because the board is unavailable. */
@@ -21,6 +22,7 @@ export class BoardUnavailableError extends Error {
 }
 
 export type BoardConfig = Output<'config.get'>;
+type TurnWrite = Parameters<typeof createTurnIntent>[0]['write'];
 type BoardStatus = Output<'status.get'>;
 type BoardInbox = Output<'inbox.operator'>;
 export type BoardTask = Output<'task.get'>;
@@ -107,8 +109,6 @@ interface BoardDataOptions {
 }
 
 const PROJECT_KEY = 'board-project';
-const sortKey = (project: string, column: string) => `board-sort:${project}:${column}`;
-const foldKey = (project: string, group: string) => `board-fold:${project}:${group}`;
 
 /**
  * Board reads outside React: `config.get`, then `status.get` for the chosen project, and
@@ -256,7 +256,9 @@ export function createBoardData(options: BoardDataOptions) {
       const key = taskKey ?? '';
       taskRead++;
       taskIssuedEpoch = taskEpoch;
-      return readResult(key, () => api('task.get', { task: key, why: true }, { signal }));
+      return readResult(key, () =>
+        api('task.get', { task: key, why: true, detail: true }, { signal }),
+      );
     },
     (result) => {
       // An answer for a key that is no longer open is dropped; its trailing read follows.
@@ -350,6 +352,13 @@ export function createBoardData(options: BoardDataOptions) {
       task.refresh();
     });
   };
+  /** A write for task `key`, issued in task epoch `epoch`, cannot be sent now. */
+  const unavailableFor = (key: string, epoch: number) =>
+    stopped ||
+    key !== taskKey ||
+    epoch !== taskEpoch ||
+    state.readFailed ||
+    state.stream === 'offline';
   const writeIntent = <K extends 'block.answer' | 'block.followup' | 'comment.add'>(
     key: string,
     id: K,
@@ -367,13 +376,7 @@ export function createBoardData(options: BoardDataOptions) {
           return Promise.reject(
             new Error('This task is archived. Answers and comments cannot be sent.'),
           );
-        if (
-          stopped ||
-          key !== taskKey ||
-          epoch !== taskEpoch ||
-          state.readFailed ||
-          state.stream === 'offline'
-        )
+        if (unavailableFor(key, epoch))
           return Promise.reject(
             new Error('Answers and comments cannot be sent while the board is unavailable.'),
           );
@@ -389,6 +392,25 @@ export function createBoardData(options: BoardDataOptions) {
         return pending;
       },
     };
+  };
+
+  /** Take turn `turn` of the open task, then close it with `write`; refused like `writeIntent`. */
+  const turnIntent = (key: string, turn: string, write: TurnWrite) => {
+    const epoch = taskEpoch;
+    return createTurnIntent({
+      api,
+      turn,
+      write,
+      held: state.task?.value?.turn?.id === turn && state.task.value.turn.taken?.by === 'operator',
+      refused: () =>
+        state.task?.value?.task.membership === 'archived'
+          ? 'This task is archived. The turn cannot be closed.'
+          : unavailableFor(key, epoch)
+            ? 'The turn cannot be closed while the board is unavailable.'
+            : undefined,
+      // Re-reads only the task the write was for, while its view is still the open one.
+      refresh: () => refreshWrittenTask(key, epoch),
+    });
   };
 
   return {
@@ -430,6 +452,14 @@ export function createBoardData(options: BoardDataOptions) {
       writeIntent(key, 'block.followup', { block, text }),
     commentIntent: (key: string, text: string) =>
       writeIntent(key, 'comment.add', { task: state.task?.value?.task.key ?? key, text }),
+    /** The Turn section's writes: take an orchestrator turn of the open task, then close it. */
+    submitTurnIntent: (
+      key: string,
+      turn: string,
+      input: Omit<Parameters<typeof createMutationIntent<'task.submit'>>[2], 'turn'>,
+    ) => turnIntent(key, turn, { id: 'task.submit', input: { ...input, turn } }),
+    returnTurnIntent: (key: string, turn: string, reason: string) =>
+      turnIntent(key, turn, { id: 'task.return', input: { turn, reason } }),
     /**
      * Close one operator inbox item; the object owns one idempotent intent. Refused while the
      * board is unavailable; a confirmed close re-reads the inbox and later runs return at once.
@@ -459,7 +489,7 @@ export function createBoardData(options: BoardDataOptions) {
     },
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
     /**
-     * Open a task by key, or close it with null: read `task.get` with why, then again whenever the
+     * Open a task by key, or close it with null: read `task.get` with why and detail, then whenever the
      * stream names the task, the board re-reads everything, or `retryTask` runs. History hides.
      */
     open(key: string | null) {
@@ -471,7 +501,8 @@ export function createBoardData(options: BoardDataOptions) {
       historyShown = false;
       taskReadable =
         key !== null &&
-        browserOperations['task.get'].input.safeParse({ task: key, why: true }).success;
+        browserOperations['task.get'].input.safeParse({ task: key, why: true, detail: true })
+          .success;
       if (key === null) update({ task: undefined, history: undefined });
       else if (!taskReadable)
         update({
@@ -536,39 +567,7 @@ export function createBoardData(options: BoardDataOptions) {
     readColumns() {
       columns.open();
     },
-    /** The stored order of a column; `T ↑` when none is stored, it is unknown or storage fails. */
-    columnSort(project: string, column: string): ColumnSort {
-      try {
-        const stored = options.storage().getItem(sortKey(project, column));
-        return isColumnSort(stored) ? stored : FIRST_SORT;
-      } catch {
-        return FIRST_SORT;
-      }
-    },
-    /** Keep the order of a column for its project; it is view state and never reaches the daemon. */
-    setColumnSort(project: string, column: string, sort: ColumnSort) {
-      try {
-        options.storage().setItem(sortKey(project, column), sort);
-      } catch {
-        /* The order lasts until reload without storage. */
-      }
-    },
-    /** Whether a column group is folded; unfolded when none is stored, it is unknown or storage fails. */
-    columnFold(project: string, group: string): boolean {
-      try {
-        return options.storage().getItem(foldKey(project, group)) === 'folded';
-      } catch {
-        return false;
-      }
-    },
-    /** Keep the fold of a column group for its project; view state, like the column order. */
-    setColumnFold(project: string, group: string, folded: boolean) {
-      try {
-        options.storage().setItem(foldKey(project, group), folded ? 'folded' : 'unfolded');
-      } catch {
-        /* The fold lasts until reload without storage. */
-      }
-    },
+    ...createColumnView(options.storage),
     /** Unsent text of the task view writers, kept across a reload after a board update. */
     drafts: check.drafts,
     /**

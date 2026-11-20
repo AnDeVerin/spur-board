@@ -11,7 +11,10 @@ type OpId =
   | 'block.followup'
   | 'comment.add'
   | 'item.close'
-  | 'columns.describe';
+  | 'columns.describe'
+  | 'inbox.ack'
+  | 'task.submit'
+  | 'task.return';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
@@ -276,6 +279,27 @@ export const taskGet = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+/**
+ * `taskGet` in Review with the orchestrator turn T5, not taken, and the closed `turns` of detail;
+ * `turn` fields override T5.
+ */
+export const orchestratorTaskGet = (
+  turn: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {},
+) =>
+  taskGet({
+    task: { ...taskGet().task, column: 'review' },
+    turn: {
+      ...taskGet().turn,
+      id: 'T5',
+      column: 'review',
+      addressee: 'orchestrator:review',
+      ...turn,
+    },
+    turns: [],
+    ...extra,
+  });
+
 /** One exit condition of a `task.get` gate. */
 export const condition = (name: string, state: string, reason: string | null = null) => ({
   condition: name,
@@ -350,48 +374,7 @@ export const taskHistory = (
   ],
 ) => ({ task: taskGet().task, events });
 
-/**
- * One `columns.describe` column: a dispatcher column with no rules, no returns and no limits,
- * unless `extra` says otherwise. A plain object of the column shape; only `policy` parses.
- */
-export const policyColumn = (id: string, extra: Record<string, unknown> = {}) => ({
-  id,
-  name: id,
-  exit: { to: null, conditions: [] },
-  returns: [],
-  limits: null,
-  executor: {
-    kind: 'dispatcher',
-    project: null,
-    role: null,
-    displayName: null,
-    session: null,
-    text: 'The dispatcher moves the task when the rules hold; nobody takes a turn.',
-  },
-  escalation: { chain: [], noRecipient: null, silent: null },
-  movedBy: { kind: 'dispatcher', text: 'The dispatcher moves tasks in when the rules hold.' },
-  ...extra,
-});
-/** A parsed `columns.describe` answer naming one project and its columns. */
-export const policy = (
-  projectId: string,
-  columns: unknown[],
-  extra: Record<string, unknown> = {},
-) =>
-  browserOperations['columns.describe'].output.parse({
-    projects: [
-      {
-        id: projectId,
-        dispatcher: { mode: 'on' },
-        checksGate: 'dev',
-        reposWithoutCi: [],
-        resolvedThreadsFrom: null,
-        completion: { to: 'done', text: 'A merged PR with a done ticket completes the task.' },
-        columns,
-        ...extra,
-      },
-    ],
-  });
+export { policy, policyColumn } from './board-policy-fixtures.ts';
 
 /** Fake daemon: the reads and writes by route and an event stream the test writes to. */
 export function daemon(tasks: unknown[] = ROWS) {
@@ -410,6 +393,25 @@ export function daemon(tasks: unknown[] = ROWS) {
       Promise.resolve(envelope({ comment: comment({ id: 'C9', block: 'B12' }) })),
     'task.history': () => Promise.resolve(envelope(taskHistory())),
     'columns.describe': () => Promise.resolve(envelope({ projects: [] })),
+    'inbox.ack': (input) =>
+      Promise.resolve(
+        envelope({ acked: (input['entries'] as { id: string }[]).map((entry) => entry.id) }),
+      ),
+    // A submit from Review: the answer has the task still in Review until its gates move it.
+    'task.submit': (input) =>
+      Promise.resolve(
+        envelope({
+          task: { ...taskGet().task, column: 'review' },
+          turn: input['turn'],
+          sha: input['sha'],
+          status: 'confirmed',
+        }),
+      ),
+    'task.return': () => {
+      const opened: Record<string, unknown> = block({ type: 'code', addressee: 'worker' });
+      delete opened.answeredVia;
+      return Promise.resolve(envelope({ task: taskGet().task, block: opened }));
+    },
     'item.close': (input) =>
       Promise.resolve(
         envelope({

@@ -1,4 +1,4 @@
-import type { PrFacts } from '@spur-board/contracts';
+import type { PrFacts, PrReviewRule } from '@spur-board/contracts';
 import { z } from 'zod';
 
 /** How long the facts of an open PR may be re-emitted before a full read. */
@@ -19,6 +19,9 @@ const indexAliasWire = z.object({
     mergeable: z.string(),
     mergeStateStatus: z.string(),
     headRefOid: z.string(),
+    // Selected only for a source of a github-rules project: a new review decision forces a full
+    // read, which carries the review rule.
+    reviewDecision: z.string().nullish(),
     // Each check by name and state: a SUCCESS rollup also covers skipped checks, which core
     // judges red when required, and `isRequired` is not read here.
     statusCheckRollup: z
@@ -86,6 +89,8 @@ export interface CachedPr {
   /** Null when that poll had no index entry for it: never reused, only indexed next poll. */
   fingerprint: string | null;
   facts: PrFacts;
+  /** The review rule of that read, for a github-rules source; a reuse sends it with the facts. */
+  reviewRule?: PrReviewRule;
   /** The PR's `feedbackCursors` entry at that read, or `none`. */
   cursorKey: string;
   readAt: number;

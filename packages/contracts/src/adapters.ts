@@ -7,6 +7,7 @@ import {
   commitShaSchema,
   prFactsSchema,
   prRefSchema,
+  prReviewRuleSchema,
   sessionFactsSchema,
   ticketFactsSchema,
   type PrFacts,
@@ -80,6 +81,11 @@ export const batchItemSchema = z.discriminatedUnion('kind', [
       .optional()
       .describe(
         'Comment history core holds for the next poll (A10): omitted says nothing, null drops it, an object holds facts.feedback with resume.',
+      ),
+    reviewRule: prReviewRuleSchema
+      .optional()
+      .describe(
+        "GitHub's review verdict and the base branch's review rule from this full read, sent only for a project whose External Review sets approvalRule github-rules; omitted says nothing new.",
       ),
   }),
   z.strictObject({

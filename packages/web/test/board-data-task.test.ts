@@ -190,7 +190,7 @@ describe('task read', () => {
     data.open('ex/repo#7');
     expect(data.snapshot().task).toMatchObject({ key: 'ex/repo#7', state: 'loading' });
     await settle();
-    expect(taskCalls()).toEqual([{ task: 'ex/repo#7', why: true }]);
+    expect(taskCalls()).toEqual([{ task: 'ex/repo#7', why: true, detail: true }]);
     expect(data.snapshot().task).toMatchObject({ key: 'ex/repo#7', state: 'ready' });
     expect(data.snapshot().task?.value?.task.key).toBe('ex/repo#7');
     data.open('509');

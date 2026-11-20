@@ -279,6 +279,54 @@ export const prFactsSchema = z
   .describe('Facts about one pull request.');
 export type PrFacts = z.output<typeof prFactsSchema>;
 
+/** GitHub's review verdict on a pull request, as its review rule reads it. */
+export const REVIEW_DECISIONS = ['approved', 'changes_requested', 'review_required'] as const;
+export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
+/** Where a base branch's review rule comes from. */
+export const REVIEW_RULE_SOURCES = ['branch-protection', 'ruleset'] as const;
+export type ReviewRuleSource = (typeof REVIEW_RULE_SOURCES)[number];
+
+/** One base branch's review rule, merged over its branch protection and rulesets. */
+export const reviewRuleSchema = z
+  .strictObject({
+    sources: z
+      .array(z.enum(REVIEW_RULE_SOURCES))
+      .describe('Where the rule was read: branch protection, rulesets, both or neither.'),
+    approvals: z
+      .int()
+      .min(0)
+      .nullable()
+      .describe('The largest required approval count of any source; null when none sets one.'),
+    codeOwners: z.boolean().describe('Whether any source requires a code owner review.'),
+    conversationResolution: z
+      .boolean()
+      .describe('Whether any source requires every review conversation resolved.'),
+    requiredChecks: z
+      .array(z.string().min(1))
+      .describe('Check names any source requires, once each.'),
+  })
+  .describe("The base branch's review rule.");
+export type ReviewRule = z.output<typeof reviewRuleSchema>;
+
+/**
+ * What a full read of a pull request says about the review rule of its base branch. It travels
+ * beside the PR facts, never inside them, and only for a project that follows the rule.
+ */
+export const prReviewRuleSchema = z
+  .strictObject({
+    reviewDecision: z
+      .enum(REVIEW_DECISIONS)
+      .nullable()
+      .describe("GitHub's review verdict on the head; null when GitHub gives none or a new one."),
+    rule: reviewRuleSchema
+      .nullable()
+      .describe(
+        'Null when the token could not read the rule; the head then has no decision from the read.',
+      ),
+  })
+  .describe("The pull request's review verdict and its base branch's review rule.");
+export type PrReviewRule = z.output<typeof prReviewRuleSchema>;
+
 /**
  * Whether a comment or review came from outside: not by `agentLogin` in any letter case and not
  * by a bot. A deleted account counts as external.

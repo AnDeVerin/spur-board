@@ -1,0 +1,30 @@
+{
+  "data": {
+    "repository": {
+      "defaultBranchRef": {
+        "name": "main",
+        "refUpdateRule": null,
+        "rules": {
+          "nodes": [
+            {
+              "type": "PULL_REQUEST",
+              "parameters": {
+                "__typename": "PullRequestParameters",
+                "requiredApprovingReviewCount": 1,
+                "requireCodeOwnerReview": false,
+                "requiredReviewThreadResolution": false
+              }
+            },
+            {
+              "type": "DELETION",
+              "parameters": null
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": true
+          }
+        }
+      }
+    }
+  }
+}

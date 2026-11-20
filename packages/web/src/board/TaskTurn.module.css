@@ -1,0 +1,65 @@
+/* The Turn section: one box per turn it shows, a bound closed turn first. */
+.turns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--size-hairline) solid var(--color-border-default);
+}
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+}
+.id {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+.actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.note,
+.status {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--color-text-tertiary);
+}
+.status {
+  color: var(--color-text-secondary);
+}
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: var(--size-measure);
+  padding-top: var(--space-2);
+  border-top: var(--size-hairline) solid var(--color-border-subtle);
+}
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+/* What the button does and that it cannot be undone: said once, right before the button. */
+.confirm {
+  margin: 0;
+  padding: var(--space-1-5) var(--space-2);
+  background: var(--color-fill-attention);
+  font-size: var(--text-small);
+  color: var(--color-text-primary);
+}
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

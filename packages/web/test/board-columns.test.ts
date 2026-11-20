@@ -110,7 +110,7 @@ describe('unknown board columns', () => {
     press(link, 'click');
     await settle();
     expect(location.search).toBe('?open=ex%2Frepo%2399');
-    expect(reads).toContainEqual({ task: 'ex/repo#99', why: true });
+    expect(reads).toContainEqual({ task: 'ex/repo#99', why: true, detail: true });
     const close = document.querySelector<HTMLElement>('button[aria-label="Close"]');
     if (close === null) throw new Error('no task close button');
     press(close, 'click');

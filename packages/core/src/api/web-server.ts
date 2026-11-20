@@ -10,6 +10,12 @@ import { createOpsRoute, installOperationErrors } from './ops-route.ts';
 import type { ApiOptions } from './server.ts';
 import { createEventHub, installEventStream } from './sse.ts';
 
+/**
+ * The Turn section's writes take and close a turn; the operator caller would otherwise get a
+ * fresh key per request, so a keyless retry could take or close a turn again.
+ */
+const KEYED_WEB_WRITES = new Set(['inbox.ack', 'task.submit', 'task.return']);
+
 export interface WebOptions extends Pick<
   ApiOptions,
   | 'store'
@@ -201,6 +207,7 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
     ...options,
     identify: () => Promise.resolve({ actor: 'operator' }),
     allow: (operation) => operation.web !== null,
+    requireKey: (operation) => KEYED_WEB_WRITES.has(operation.id),
     runOperation: (id, input, run) =>
       withVia('web', () =>
         options.runOperation === undefined ? run() : options.runOperation(id, input, run),

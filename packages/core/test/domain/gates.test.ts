@@ -1103,3 +1103,131 @@ describe('countCycles', () => {
     expect(countCycles(events, column, limit)).toEqual(expected);
   });
 });
+
+describe('approvalRule github-rules', () => {
+  const RULED: Board = ORCH.map((c) =>
+    c.id === 'external-review' ? { ...c, approvalRule: 'github-rules' as const } : c,
+  );
+  const project = (checksGate: 'dev' | 'external-review' = 'dev', columns = RULED) => ({
+    columns,
+    reposWithoutCi: [],
+    checksGate,
+  });
+  type Rule = NonNullable<TaskGateFacts['reviewRule']>;
+  const atExternal = (rule: Partial<Rule>, pr: Partial<Pr> = {}) =>
+    ready({
+      pr,
+      externalReviewApproved: true,
+      marks: COLUMN_IDS.map((id) => submit(id, A)),
+      reviewRule: { approved: true, changesRequested: false, decision: 'satisfied', ...rule },
+    });
+
+  it('adds the review rule condition to External Review only', () => {
+    const ids = (column: ColumnId, value: ReturnType<typeof project>) =>
+      describeConditions(column, value).map((rule) => rule.id);
+    expect(ids('external-review', project())).toEqual(['approved', 'review_rule_satisfied']);
+    expect(ids('external-review', project('external-review'))).toEqual([
+      'checks_green',
+      'approved',
+      'review_rule_satisfied',
+    ]);
+    expect(ids('external-review', project('dev', ORCH))).toEqual(['approved']);
+    const disabled = RULED.map((c) => (c.id === 'external-review' ? { ...c, enabled: false } : c));
+    expect(ids('external-review', project('dev', disabled))).toEqual(['approved']);
+    for (const column of COLUMN_IDS.filter((id) => id !== 'external-review'))
+      expect(ids(column, project())).toEqual(ids(column, project('dev', ORCH)));
+  });
+
+  it.each([
+    [{ decision: 'satisfied' }, true],
+    [{ decision: 'blocked' }, ['review_rule_blocked']],
+    [{ decision: 'undecided' }, ['merge_state_unknown']],
+    [{ decision: 'checks_pending' }, ['checks_pending']],
+    [{ decision: 'unresolved_threads' }, ['unresolved_threads']],
+    [{ approved: false }, ['not_approved']],
+    [{ approved: false, decision: 'blocked' }, ['not_approved', 'review_rule_blocked']],
+    [{ changesRequested: true, decision: 'blocked' }, ['changes_requested']],
+    [{ changesRequested: true, approved: true }, ['changes_requested']],
+  ] as const)('External Review with %j fails with %j', (rule, reasons) => {
+    const result = evaluateGate('external-review', atExternal(rule), project());
+    expect(result).toEqual(
+      reasons === true ? { ok: true } : { ok: false, column: 'external-review', reasons },
+    );
+  });
+
+  it('lists one checks_pending, not two, when External Review is the checks gate', () => {
+    const facts = atExternal(
+      { decision: 'checks_pending' },
+      { requiredChecks: [check('pending')], checks: [check('pending')] },
+    );
+    expect(evaluateGate('external-review', facts, project('external-review'))).toEqual({
+      ok: false,
+      column: 'external-review',
+      reasons: ['checks_pending'],
+    });
+    const external = explainGates(facts, project('external-review')).gates.find(
+      (entry) => entry.column === 'external-review',
+    );
+    // The one pending check is a wait of both conditions it fails.
+    expect(external?.conditions).toEqual([
+      { condition: 'checks_green', state: 'waiting', reason: 'checks_pending' },
+      { condition: 'approved', state: 'met', reason: null },
+      { condition: 'review_rule_satisfied', state: 'waiting', reason: 'checks_pending' },
+    ]);
+    // A pending check the review rule does not wait on leaves the rule met.
+    const satisfied = explainGates(
+      atExternal({ decision: 'satisfied' }, { requiredChecks: [], checks: [check('pending')] }),
+      project('external-review'),
+    ).gates.find((entry) => entry.column === 'external-review');
+    expect(satisfied?.conditions).toEqual([
+      { condition: 'checks_green', state: 'waiting', reason: 'checks_pending' },
+      { condition: 'approved', state: 'met', reason: null },
+      { condition: 'review_rule_satisfied', state: 'met', reason: null },
+    ]);
+  });
+
+  it('names the review rule as the condition of its waits at External Review', () => {
+    const conditions = (rule: Partial<Rule>) =>
+      explainGates(atExternal(rule), project()).gates.find(
+        (entry) => entry.column === 'external-review',
+      )?.conditions;
+    expect(conditions({ decision: 'unresolved_threads' })).toEqual([
+      { condition: 'approved', state: 'met', reason: null },
+      { condition: 'review_rule_satisfied', state: 'failed', reason: 'unresolved_threads' },
+    ]);
+    expect(conditions({ decision: 'undecided' })?.at(-1)).toEqual({
+      condition: 'review_rule_satisfied',
+      state: 'waiting',
+      reason: 'merge_state_unknown',
+    });
+    expect(conditions({ decision: 'checks_pending' })?.at(-1)).toEqual({
+      condition: 'review_rule_satisfied',
+      state: 'waiting',
+      reason: 'checks_pending',
+    });
+    expect(conditions({ changesRequested: true })?.[0]).toEqual({
+      condition: 'approved',
+      state: 'failed',
+      reason: 'changes_requested',
+    });
+  });
+
+  it('holds a task right of External Review on an undecided head; a conflict stays Dev', () => {
+    const undecided = evaluateGate(
+      'ready-to-merge',
+      atExternal({ decision: 'undecided' }),
+      project(),
+    );
+    expect(undecided).toEqual({
+      ok: false,
+      column: 'external-review',
+      reasons: ['merge_state_unknown'],
+    });
+    const conflict = evaluateGate(
+      'external-review',
+      atExternal({ decision: 'undecided' }, { mergeable: 'conflicting' }),
+      project(),
+    );
+    expect(conflict).toMatchObject({ ok: false, column: 'dev', reasons: ['conflict'] });
+  });
+});

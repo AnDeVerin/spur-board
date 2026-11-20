@@ -286,6 +286,8 @@ export function Board({ data }: { data: BoardData }) {
           answerIntent={data.answerIntent}
           followUpIntent={data.followUpIntent}
           commentIntent={data.commentIntent}
+          submitTurnIntent={data.submitTurnIntent}
+          returnTurnIntent={data.returnTurnIntent}
           drafts={data.drafts}
           refreshTask={data.refreshTask}
           onClose={() => {

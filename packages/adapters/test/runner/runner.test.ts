@@ -193,12 +193,13 @@ afterEach(async () => {
 });
 
 describe('startAdapters', () => {
-  it('exports only startAdapters, the doctor link sample, the GitHub classifiers and the test fakes', () => {
+  it('exports only startAdapters, the doctor link sample and rule read, the GitHub classifiers and the test fakes', () => {
     expect(Object.keys(entry).sort()).toEqual([
       'checkAccessDenied',
       'classifyHttpFailure',
       'graphEnvelopeWire',
       'graphqlFailure',
+      'readBranchRule',
       'sampleLinkRules',
       'startAdapters',
       'teamScopeDenied',
