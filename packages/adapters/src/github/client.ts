@@ -263,11 +263,20 @@ export class GithubClient {
           if (timed.aborted) throw cause;
           throw new AdapterError('transient', 'GitHub request failed', { cause });
         }
-        if (!response.ok)
+        if (!response.ok) {
+          // A body cut off after the headers is a network failure like the fetch itself.
+          let text: string;
+          try {
+            text = await response.text();
+          } catch (cause) {
+            if (timed.aborted) throw cause;
+            throw new AdapterError('transient', 'GitHub request failed', { cause });
+          }
           throw classifyHttpFailure(
-            { status: response.status, headers: response.headers, body: await response.text() },
+            { status: response.status, headers: response.headers, body: text },
             this.now(),
           );
+        }
         let body: unknown;
         try {
           body = await response.json();

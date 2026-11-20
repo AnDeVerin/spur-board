@@ -4059,6 +4059,18 @@ describe('approval watch', () => {
   );
   it.each<[string, () => Response]>([
     ['502', () => failure(502)],
+    [
+      'a 502 whose body is cut off after the headers',
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new TypeError('terminated'));
+            },
+          }),
+          { status: 502 },
+        ),
+    ],
     ['a non-JSON body', () => new Response('not json', { status: 200 })],
     ['no rateLimit', () => json({ data: { repository: watchedCommits()['repository'] } })],
   ])('retries a transient commits failure on the next poll: %s', async (_name, answer) => {
