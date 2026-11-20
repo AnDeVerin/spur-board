@@ -1,0 +1,280 @@
+{
+  "detail": {
+    "id": "PR_7",
+    "number": 7,
+    "url": "https://github.com/demo/widgets/pull/7",
+    "title": "DEMO-42 Add widget",
+    "updatedAt": "2026-01-02T00:00:00Z",
+    "mergedAt": null,
+    "closedAt": null,
+    "state": "OPEN",
+    "isDraft": false,
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "BLOCKED",
+    "author": {
+      "login": "operator"
+    },
+    "headRefName": "DEMO-42-widget",
+    "headRefOid": "03adde55ad14eeb794a1cdf3524222e499f8211f",
+    "statusCheckRollup": null,
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR_1",
+          "author": {
+            "__typename": "User",
+            "login": "alice"
+          },
+          "state": "APPROVED",
+          "commit": {
+            "oid": "065deb2e23441cbac0c3f4b280a278c26ed6e1bd"
+          },
+          "submittedAt": "2026-01-02T00:00:00Z",
+          "url": "https://github.com/demo/widgets/pull/7#pullrequestreview-1",
+          "lastEditedAt": null
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    },
+    "comments": {
+      "nodes": [],
+      "pageInfo": {
+        "hasPreviousPage": false,
+        "startCursor": null
+      }
+    },
+    "reviewThreads": {
+      "nodes": [],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    },
+    "reviewRequests": {
+      "nodes": [],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    }
+  },
+  "commits": {
+    "data": {
+      "rateLimit": {
+        "cost": 1,
+        "limit": 5000,
+        "remaining": 4321,
+        "resetAt": "2026-01-03T00:00:00Z"
+      },
+      "repository": {
+        "pullRequest": {
+          "commits": {
+            "totalCount": 2,
+            "pageInfo": {
+              "hasPreviousPage": false
+            },
+            "nodes": [
+              {
+                "commit": {
+                  "oid": "065deb2e23441cbac0c3f4b280a278c26ed6e1bd",
+                  "tree": {
+                    "entries": [
+                      {
+                        "name": "back",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "3642d863b0dc5ef60b8d2f957795443cd3b352dc"
+                      },
+                      {
+                        "name": "docs",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "bb575b60c9ccc7bd505139c29e2a0849510b59d5"
+                      },
+                      {
+                        "name": "front",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "dd23bce02dd39f3eaa31ed937d12925c5c264f58"
+                      },
+                      {
+                        "name": "README.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "ad2b1ad4818f6e31ac7882a87032748a70abcb57"
+                      },
+                      {
+                        "name": "package.json",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "65a6992e2f5315610307c36866a04f2093cb832e"
+                      },
+                      {
+                        "name": "run.sh",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "5cfbc7404cf2007babdf75e5f96e06e89b4f2855"
+                      }
+                    ]
+                  },
+                  "parents": {
+                    "totalCount": 1,
+                    "nodes": [
+                      {
+                        "oid": "942384b2e25e17b457295fc4c02223966c439489",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": "back",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "21a79ad1ed66f74ae01295ca2e8ea868c9de03a2"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "bb575b60c9ccc7bd505139c29e2a0849510b59d5"
+                            },
+                            {
+                              "name": "front",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "dd23bce02dd39f3eaa31ed937d12925c5c264f58"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "ad2b1ad4818f6e31ac7882a87032748a70abcb57"
+                            },
+                            {
+                              "name": "package.json",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "65a6992e2f5315610307c36866a04f2093cb832e"
+                            },
+                            {
+                              "name": "run.sh",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "5cfbc7404cf2007babdf75e5f96e06e89b4f2855"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "commit": {
+                  "oid": "03adde55ad14eeb794a1cdf3524222e499f8211f",
+                  "tree": {
+                    "entries": [
+                      {
+                        "name": "back",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "3642d863b0dc5ef60b8d2f957795443cd3b352dc"
+                      },
+                      {
+                        "name": "docs",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "bb575b60c9ccc7bd505139c29e2a0849510b59d5"
+                      },
+                      {
+                        "name": "front",
+                        "type": "tree",
+                        "mode": 16384,
+                        "oid": "dd23bce02dd39f3eaa31ed937d12925c5c264f58"
+                      },
+                      {
+                        "name": "README.md",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "ad2b1ad4818f6e31ac7882a87032748a70abcb57"
+                      },
+                      {
+                        "name": "package.json",
+                        "type": "blob",
+                        "mode": 33188,
+                        "oid": "65a6992e2f5315610307c36866a04f2093cb832e"
+                      },
+                      {
+                        "name": "run.sh",
+                        "type": "blob",
+                        "mode": 33261,
+                        "oid": "5cfbc7404cf2007babdf75e5f96e06e89b4f2855"
+                      }
+                    ]
+                  },
+                  "parents": {
+                    "totalCount": 1,
+                    "nodes": [
+                      {
+                        "oid": "065deb2e23441cbac0c3f4b280a278c26ed6e1bd",
+                        "tree": {
+                          "entries": [
+                            {
+                              "name": "back",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "3642d863b0dc5ef60b8d2f957795443cd3b352dc"
+                            },
+                            {
+                              "name": "docs",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "bb575b60c9ccc7bd505139c29e2a0849510b59d5"
+                            },
+                            {
+                              "name": "front",
+                              "type": "tree",
+                              "mode": 16384,
+                              "oid": "dd23bce02dd39f3eaa31ed937d12925c5c264f58"
+                            },
+                            {
+                              "name": "README.md",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "ad2b1ad4818f6e31ac7882a87032748a70abcb57"
+                            },
+                            {
+                              "name": "package.json",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "65a6992e2f5315610307c36866a04f2093cb832e"
+                            },
+                            {
+                              "name": "run.sh",
+                              "type": "blob",
+                              "mode": 33188,
+                              "oid": "5cfbc7404cf2007babdf75e5f96e06e89b4f2855"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "pairs": [
+    {
+      "approvedSha": "065deb2e23441cbac0c3f4b280a278c26ed6e1bd",
+      "headSha": "03adde55ad14eeb794a1cdf3524222e499f8211f",
+      "commitsAfter": 1,
+      "changed": ["run.sh"]
+    }
+  ]
+}

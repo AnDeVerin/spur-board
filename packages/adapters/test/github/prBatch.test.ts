@@ -3907,8 +3907,11 @@ describe('approval watch', () => {
 
   it('has a fixture for each case', () => {
     expect(watched.map((entry) => entry.name)).toEqual([
+      'approved-on-base',
       'base-merge-cli-14450',
       'head-missing',
+      'mode-change',
+      'octopus',
       'on-head',
       'rebased',
       'root-file',
@@ -3931,6 +3934,13 @@ describe('approval watch', () => {
     ['lists a changed root file bare and a directory with a slash', 'root-file'],
     ['answers two approvals on different commits from one commits read', 'two-approvals'],
     ['marks an approval rewritten away history_rewritten', 'rebased'],
+    // Each change and each ancestor a walk of oids alone, or of two parents, would miss.
+    ['lists a root script whose mode alone changed', 'mode-change'],
+    [
+      'counts after an approved commit that landed on the base, outside the list',
+      'approved-on-base',
+    ],
+    ['walks every parent of an octopus merge', 'octopus'],
   ])('%s', async (_title, name) => {
     const run = scenario(name);
     const batch = await run.poll();
@@ -3966,8 +3976,22 @@ describe('approval watch', () => {
   });
   const watchedCommits = () =>
     (fixture('watched-changed').commits as { data: Record<string, unknown> }).data;
+  /** The watched-changed commits with the head's parents cut to none of its one. */
+  const truncatedParents = () => {
+    const commits = fixture('watched-changed').commits as {
+      data: {
+        repository: {
+          pullRequest: { commits: { nodes: { commit: { parents: { nodes: unknown[] } } }[] } };
+        };
+      };
+    };
+    const head = commits.data.repository.pullRequest.commits.nodes.at(-1);
+    if (head !== undefined) head.commit.parents.nodes = [];
+    return json(commits);
+  };
   it.each<[string, () => Response]>([
     ['head-missing', () => json(fixture('head-missing').commits)],
+    ['a commit with fewer parents listed than its totalCount', truncatedParents],
     [
       'a NOT_FOUND error on the pull request',
       () =>

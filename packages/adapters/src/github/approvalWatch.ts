@@ -6,9 +6,11 @@ import type { ResponseData } from './client.ts';
 
 // A top-level entry; `type` stays a string (`tree`, `blob`, a submodule's `commit`). A name with
 // a slash is no top-level entry, so the read is unreadable rather than a pair the batch rejects.
+// `mode` is git's file mode as a number: `chmod +x` changes it and keeps the blob.
 const entryWire = z.object({
   name: z.string().regex(/^[^/]+$/),
   type: z.string(),
+  mode: z.int(),
   oid: z.string(),
 });
 // Null entries are an unreadable tree, never an empty one.
@@ -45,14 +47,19 @@ export function offHeadApprovals(facts: PrFacts): string[] {
   return [...new Set(shas)];
 }
 
-/** The top-level entries that differ between two root trees: `name/` for a tree, else `name`. */
+/**
+ * The top-level entries that differ between two root trees, by content or by mode: `name/` for a
+ * tree, else `name`.
+ */
 function changedEntries(tree: readonly Entry[], parent: readonly Entry[]): string[] {
   const own = new Map(tree.map((entry) => [entry.name, entry]));
   const before = new Map(parent.map((entry) => [entry.name, entry]));
   const out: string[] = [];
   for (const name of new Set([...own.keys(), ...before.keys()])) {
-    const entry = own.get(name) ?? before.get(name);
-    if (entry !== undefined && own.get(name)?.oid !== before.get(name)?.oid)
+    const now = own.get(name);
+    const then = before.get(name);
+    const entry = now ?? then;
+    if (entry !== undefined && (now?.oid !== then?.oid || now?.mode !== then?.mode))
       out.push(entry.type === 'tree' ? `${name}/` : name);
   }
   return out;
@@ -61,12 +68,15 @@ function changedEntries(tree: readonly Entry[], parent: readonly Entry[]): strin
 /**
  * The pair of every approval of `facts` off its head, or `'unreadable'` when the response cannot
  * answer for this head: any GraphQL error, a null repository or pull request, a malformed part, a
- * null tree or the head missing from the list. Never throws on response content.
+ * null tree, a commit with parents left out, or the head missing from the list. Never throws on
+ * response content.
  *
- * More than 100 commits gives `pr_too_large`; an approved commit the head does not reach through
- * listed parents gives `history_rewritten`. Otherwise the commits after an approval are those the
- * head reaches and it does not; only those with fewer than two parents count, each compared with
- * its first parent's root tree, so a merge from the base adds neither commits nor entries.
+ * More than 100 commits gives `pr_too_large`. An approved commit is an ancestor of the head when
+ * the head reaches it through listed parents, or when it is an unlisted parent of a commit the
+ * head reaches: a commit that landed on the base drops out of the list. Any other gives
+ * `history_rewritten`. Otherwise the commits after an approval are those the head reaches and it
+ * does not; only those with fewer than two parents count, each compared with its first parent's
+ * root tree, so a merge from the base adds neither commits nor entries.
  */
 export function approvalPairs(
   facts: PrFacts,
@@ -80,7 +90,7 @@ export function approvalPairs(
   const readable = listed.every(
     (commit) =>
       commit.tree.entries !== null &&
-      commit.parents.nodes.length === Math.min(commit.parents.totalCount, 2) &&
+      commit.parents.nodes.length === commit.parents.totalCount &&
       commit.parents.nodes.every((parent) => parent.tree.entries !== null),
   );
   if (!readable) return 'unreadable';
@@ -105,8 +115,16 @@ export function approvalPairs(
     return seen;
   };
   const fromHead = reach(headSha);
+  // Base history the head's listed commits name as parents.
+  const unlisted = new Set(
+    [...fromHead].flatMap((oid) =>
+      (byOid.get(oid)?.parents.nodes ?? [])
+        .map((parent) => parent.oid)
+        .filter((parent) => !byOid.has(parent)),
+    ),
+  );
   const pairs = approved.map((approvedSha): PrApprovalPair => {
-    if (!fromHead.has(approvedSha))
+    if (!fromHead.has(approvedSha) && !unlisted.has(approvedSha))
       return { approvedSha, headSha, notCounted: 'history_rewritten' };
     const before = reach(approvedSha);
     const after = [...fromHead]

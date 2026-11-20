@@ -85,26 +85,31 @@
                       {
                         "name": "back",
                         "type": "tree",
+                        "mode": 16384,
                         "oid": "fe16eaa85fb14bb4a70fd9984b263ab98d2ae509"
                       },
                       {
                         "name": "front",
                         "type": "tree",
+                        "mode": 16384,
                         "oid": "0fc6f325342a3d14abc78044f664ba89c7b0624f"
                       },
                       {
                         "name": "docs",
                         "type": "tree",
+                        "mode": 16384,
                         "oid": "7f1cd9f2b0bd6d40a1dc1a67ab63833f0ef18e5b"
                       },
                       {
                         "name": "package.json",
                         "type": "blob",
+                        "mode": 33188,
                         "oid": "254e911187322b204789f2eaf1e9cb182aeca0c2"
                       },
                       {
                         "name": "README.md",
                         "type": "blob",
+                        "mode": 33188,
                         "oid": "1f5f74c6aff94d8640b279f3138f4bd91137e595"
                       }
                     ]
@@ -119,26 +124,31 @@
                             {
                               "name": "back",
                               "type": "tree",
+                              "mode": 16384,
                               "oid": "4f1ba99722848b6676d3e06656feebab40bf39ed"
                             },
                             {
                               "name": "front",
                               "type": "tree",
+                              "mode": 16384,
                               "oid": "0fc6f325342a3d14abc78044f664ba89c7b0624f"
                             },
                             {
                               "name": "docs",
                               "type": "tree",
+                              "mode": 16384,
                               "oid": "7f1cd9f2b0bd6d40a1dc1a67ab63833f0ef18e5b"
                             },
                             {
                               "name": "package.json",
                               "type": "blob",
+                              "mode": 33188,
                               "oid": "254e911187322b204789f2eaf1e9cb182aeca0c2"
                             },
                             {
                               "name": "README.md",
                               "type": "blob",
+                              "mode": 33188,
                               "oid": "1f5f74c6aff94d8640b279f3138f4bd91137e595"
                             }
                           ]

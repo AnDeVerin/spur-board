@@ -910,7 +910,7 @@ describe('commits', () => {
       },
     ],
   };
-  type Entry = { name: string; type: string; oid: string };
+  type Entry = { name: string; type: string; mode: number; oid: string };
   type Node = {
     commit: {
       oid: string;
@@ -950,11 +950,12 @@ describe('commits', () => {
     const [first, second] = commits.nodes;
     expect(first?.commit.oid).toBe(C1);
     expect(first?.commit.parents).toMatchObject({ totalCount: 1, nodes: [{ oid: BASE }] });
-    expect(first?.commit.tree.entries.map(({ name, type }) => [name, type])).toEqual(
+    // Git's modes as GraphQL numbers: 040000 for a tree, 100644 for a file.
+    expect(first?.commit.tree.entries.map(({ name, type, mode }) => [name, type, mode])).toEqual(
       expect.arrayContaining([
-        ['README.md', 'blob'],
-        ['back', 'tree'],
-        ['package.json', 'blob'],
+        ['README.md', 'blob', 0o100644],
+        ['back', 'tree', 0o40000],
+        ['package.json', 'blob', 0o100644],
       ]),
     );
     // Each commit's tree differs from its first parent's exactly at the entries it lists.

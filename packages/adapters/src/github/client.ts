@@ -174,12 +174,13 @@ export function pageQuery(
   return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }
 // A tree's top-level entries; the approval watch compares a commit's with its first parent's.
-const TREE_FIELDS = 'tree { entries { name type oid } }';
+// `mode` shows a change that keeps the blob, such as `chmod +x` on a root script.
+const TREE_FIELDS = 'tree { entries { name type mode oid } }';
 // The PR's last 100 commits with their parents and root trees (`approvalWatch.ts`). The list
 // leaves out base-branch history, so a merge from the base names a parent outside it, whose
-// tree is selected inline here.
+// tree is selected inline here. Every parent is selected, so an octopus merge loses none.
 export function commitsQuery(): string {
-  return `query PrCommits($owner: String!, $repo: String!, $number: Int!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { commits(last: 100) { totalCount pageInfo { hasPreviousPage } nodes { commit { oid ${TREE_FIELDS} parents(first: 2) { totalCount nodes { oid ${TREE_FIELDS} } } } } } } } }`;
+  return `query PrCommits($owner: String!, $repo: String!, $number: Int!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { commits(last: 100) { totalCount pageInfo { hasPreviousPage } nodes { commit { oid ${TREE_FIELDS} parents(first: 100) { totalCount nodes { oid ${TREE_FIELDS} } } } } } } } }`;
 }
 
 /**

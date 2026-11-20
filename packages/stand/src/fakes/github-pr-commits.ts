@@ -5,6 +5,9 @@ import type { Args, WireObject } from './graphql.ts';
 
 /** The base-branch commit a PR's first commit sits on by default; never one of its commits. */
 export const BASE_SHA = createHash('sha1').update('stand-base').digest('hex');
+// Git's tree-entry modes as GraphQL `TreeEntry.mode` gives them: 040000 and 100644.
+const TREE_MODE = 0o40000;
+const BLOB_MODE = 0o100644;
 
 /**
  * The PR's last `last` commits as `commits(last:)` lists them, each with its root tree and its
@@ -32,6 +35,7 @@ export function commitsView(commits: Pr['commits'], args: Args): WireObject {
     entries: [...versionOf(oid)].map(([name, version]) => ({
       name: name.replace(/\/$/, ''),
       type: name.endsWith('/') ? 'tree' : 'blob',
+      mode: name.endsWith('/') ? TREE_MODE : BLOB_MODE,
       oid: createHash('sha1').update(`${name}@${version}`).digest('hex'),
     })),
   });
