@@ -2206,11 +2206,11 @@ describe('daemon doctor github.review_rule', () => {
     );
   });
 
-  it('github.review_rule warns when the branch has more ruleset rules than one read returns', async () => {
+  it('github.review_rule warns with read advice when not every ruleset rule was read', async () => {
     const { rule } = await checkOf(ruleFetch('truncated'));
     expect(rule).toMatchObject({ status: 'warning', blocking: false });
     expect(rule?.fix).toBe(
-      'board example/board@main: more than 100 ruleset rules, more than the Board reads.',
+      "board example/board@main: could not confirm all ruleset rules were read. Give the token read access to the default branch's branch protection and rulesets, then rerun board doctor.",
     );
   });
 

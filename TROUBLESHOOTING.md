@@ -269,25 +269,26 @@ skills enforce. Other warnings say the operator has no PRs there, the PRs could 
 
 ### github.review_rule
 
-Listed only when a project's `external-review` column sets `approvalRule: github-rules`. For each
-of that project's `projects[].repos`, the daemon reads the default branch's review rule from its
-branch protection and the rulesets that apply to it, and prints what it read: the source (branch
+Listed only when a project's `external-review` column sets `approvalRule: github-rules`. For each of
+that project's `projects[].repos`, the daemon reads the default branch's review rule from its branch
+protection and the rulesets that apply to it, and prints what it read: the source (branch
 protection, ruleset or both), the required approvals, code owner review, resolved conversations and
 required checks. The Board reads each PR's own base branch the same way on every full PR read. The
-check never blocks and is separate from `github.credentials`. It warns when the branch has no
-branch protection or ruleset, when the rule requires no approval, code owner review or resolved
-conversations (no review rule to follow), when more than 100 ruleset rules apply, more than the
-Board reads (it then treats the rule as unreadable), when the read fails, for example because the
-token cannot read the rules, or when `GITHUB_TOKEN` is missing. The check reads only the default
-branch: a PR whose own base branch rule the token cannot read keeps its head undecided in
-External Review, and the task's `--why` shows it as `review_rule_unreadable`, even while this
-check passes. With no review rule to follow, add a required approval or code owner review to the
-default branch, or remove `approvalRule` from the column. When the read fails, give the token read
-access to the branch protection and rulesets of every base branch; the rule still applies, so
-removing `approvalRule` would only weaken the gate. Doctor therefore leaves out the removal advice
-while a project with a repo that has no review rule to follow also has a repo whose rule is in
-force, could not be read or has more than 100 ruleset rules: removing `approvalRule` from the
-column would turn off the gate of that repo too.
+check never blocks and is separate from `github.credentials`. It warns when the branch has no branch
+protection or ruleset, when the rule requires no approval, code owner review or resolved
+conversations (no review rule to follow), when it could not confirm all ruleset rules were read
+(more than 100 apply, or GitHub's answer does not say whether more follow), when the read fails, for
+example because the token cannot read the rules, or when `GITHUB_TOKEN` is missing. The check reads
+only the default branch: a PR whose own base branch rule the token cannot read keeps its head
+undecided in External Review, and the task's `--why` shows it as `review_rule_unreadable`, even
+while this check passes. With no review rule to follow, add a required approval or code owner review
+to the default branch, or remove `approvalRule` from the column. When the read fails, give the token
+read access to the branch protection and rulesets of every base branch, the same advice Doctor gives
+when it could not confirm all ruleset rules were read; the rule still applies, so removing
+`approvalRule` would only weaken the gate. Doctor therefore leaves out the removal advice while a
+project with a repo that has no review rule to follow also has a repo whose rule is in force or
+could not be read in full: removing `approvalRule` from the column would turn off the gate of that
+repo too.
 
 ### spur.api
 

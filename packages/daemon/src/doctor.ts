@@ -420,7 +420,7 @@ const RULE_SOURCE_TEXT = {
 // One repo's review rule finding; `cause` picks the remediation of a problem.
 type RuleSegment = LinkSegment & {
   project: string;
-  cause: 'unfollowed' | 'unread' | 'truncated' | null;
+  cause: 'unfollowed' | 'unread' | null;
 };
 
 function ruleSegment({ project, repo, read }: RuleOutcome): RuleSegment {
@@ -442,13 +442,14 @@ function ruleSegment({ project, repo, read }: RuleOutcome): RuleSegment {
     cause: 'unfollowed',
     text: () => `${where}: ${text}, no review rule to follow`,
   });
+  // A null rule is a rules page past the first or without pageInfo: in force, partly unread.
   if (rule === null)
     return {
       problem: true,
       unmatched: false,
       project: project.id,
-      cause: 'truncated',
-      text: () => `${where}: more than 100 ruleset rules, more than the Board reads`,
+      cause: 'unread',
+      text: () => `${where}: could not confirm all ruleset rules were read`,
     };
   if (rule.sources.length === 0) return unfollowed('no branch protection or ruleset');
   const sources = rule.sources.map((source) => RULE_SOURCE_TEXT[source]).join(' and ');
