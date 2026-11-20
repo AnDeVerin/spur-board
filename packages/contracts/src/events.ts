@@ -208,6 +208,8 @@ export const eventPayloadSchemas = {
     from: z.enum(COLUMN_IDS),
     to: z.enum(COLUMN_IDS),
     source: S,
+    /** Only the shadow column moved; `from` and `to` are shadow positions. */
+    shadow: z.literal(true).optional(),
   }),
   /** An external change request on a new PR head while the task is in Dev: one course-check round. */
   external_round: z.looseObject({ repo: S, pr: N, head: S, reviewer: S }),

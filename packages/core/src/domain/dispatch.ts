@@ -143,20 +143,39 @@ function workStarted(input: DispatchInput): boolean {
 }
 
 /**
- * Where a GitHub Project mirror puts the task, or null to leave it: an idle To Do task the
- * Project marks ready goes to Ready for Dev, and an idle Ready for Dev task it marks not ready
- * goes back to To Do. `unknown` (no complete read, or the task missing from it), started work
- * and every other column stay put.
+ * Where a GitHub Project mirror puts the task, or null to leave it. For an idle task whose real
+ * column is To Do or Ready for Dev, the Project's readiness picks the target: `ready` is Ready for
+ * Dev, `not_ready` is To Do. The real column goes to the target, and so does a shadow column in
+ * To Do or Ready for Dev, even when the real column is already there. A shadow column anywhere
+ * else (Triage, Dev and right of it) stays. A null shadow column stays null, unless the real
+ * column moves in shadow mode. `unknown` (no complete read, or the task missing from it), started
+ * work and every other real column stay put.
  */
-export function mirrorTarget(input: {
+export function mirrorPlacement(input: {
   column: ColumnId;
+  shadowColumn: ColumnId | null;
+  shadowMode: boolean;
   workStarted: boolean;
   readiness: ReadinessState | 'unknown';
-}): 'todo' | 'ready-for-dev' | null {
-  if (input.workStarted) return null;
-  if (input.column === 'todo' && input.readiness === 'ready') return 'ready-for-dev';
-  if (input.column === 'ready-for-dev' && input.readiness === 'not_ready') return 'todo';
-  return null;
+}): { column: 'todo' | 'ready-for-dev'; shadowColumn: ColumnId | null } | null {
+  if (input.workStarted || input.readiness === 'unknown') return null;
+  if (!isMirrored(input.column)) return null;
+  const target = input.readiness === 'ready' ? 'ready-for-dev' : 'todo';
+  const moved = input.column !== target;
+  const shadowColumn =
+    input.shadowColumn === null
+      ? moved && input.shadowMode
+        ? target
+        : null
+      : isMirrored(input.shadowColumn)
+        ? target
+        : input.shadowColumn;
+  if (!moved && shadowColumn === input.shadowColumn) return null;
+  return { column: target, shadowColumn };
+}
+
+function isMirrored(column: ColumnId): column is 'todo' | 'ready-for-dev' {
+  return column === 'todo' || column === 'ready-for-dev';
 }
 
 function ticketFinished(input: DispatchInput): boolean {

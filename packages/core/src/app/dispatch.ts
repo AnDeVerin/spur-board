@@ -2,7 +2,6 @@ import {
   COLUMNS,
   COLUMN_IDS,
   TODO_GROUP_COLUMN_IDS,
-  isTodoGroupColumn,
   DISPATCHER_MODES,
   approvalRuleOf,
   isExternalAuthor,
@@ -28,7 +27,7 @@ import {
   describeCompletion as describeDomainCompletion,
   dispatch,
   dispatchHolds,
-  mirrorTarget,
+  mirrorPlacement,
   returnCauses,
   turnReason,
 } from '../domain/dispatch.ts';
@@ -382,28 +381,20 @@ async function workStartedOn(trx: Trx, taskId: number): Promise<boolean> {
   return openPr !== undefined || (await linkedSession(trx, taskId, 'worker')) !== undefined;
 }
 
-/**
- * Put the task in a fresh visit of a Todo-group column and close its turns. With
- * `keepShadowPastGroup`, a shadow column right of the Todo group stays where it is.
- */
+/** Put the task in a fresh visit of a Todo-group column and close its turns. */
 async function placeInTodoGroup(
   trx: Trx,
   task: Task,
   project: Project | undefined,
   to: ColumnId,
   at: Date,
-  keepShadowPastGroup = false,
 ): Promise<void> {
-  const shadow =
-    keepShadowPastGroup && task.shadow_column !== null && !isTodoGroupColumn(task.shadow_column)
-      ? task.shadow_column
-      : to;
   await trx
     .updateTable('task')
     .set({
       column: to,
       shadow_column:
-        task.shadow_column === null && project?.dispatcher.mode !== 'shadow' ? null : shadow,
+        task.shadow_column === null && project?.dispatcher.mode !== 'shadow' ? null : to,
       column_epoch: task.column_epoch + 1,
       last_change_at: taskChangeAt(at.toISOString()),
     })
@@ -458,31 +449,11 @@ export async function manuallyMoveColumn(
 }
 
 /**
- * The mirror's move of an idle task between To Do and Ready for Dev, after synchronizing
- * dispatcher mode: the manual move's writes, journaled as `task_mirror_moved` by `system`.
- */
-async function mirrorMoveColumn(
-  trx: Trx,
-  input: { task: Task; project: Project; to: ColumnId; source: string; at: Date; config: Config },
-): Promise<void> {
-  const { task, project, to, source, at, config } = input;
-  await syncModes(trx, config, at);
-  const current = await trx
-    .selectFrom('task')
-    .selectAll()
-    .where('id', '=', task.id)
-    .executeTakeFirstOrThrow();
-  await placeInTodoGroup(trx, current, project, to, at, true);
-  await emit(trx, 'task_mirror_moved', project.id, task.id, at.toISOString(), {
-    from: current.column,
-    to,
-    source,
-  });
-}
-
-/**
- * Apply a complete GitHub Project read of `source`: every live task of the mirrored project
- * goes where `mirrorTarget` puts it. A task the read does not list stays put.
+ * Apply a complete GitHub Project read of `source`, after synchronizing dispatcher mode: every
+ * live task of the mirrored project goes where `mirrorPlacement` puts it, journaled as
+ * `task_mirror_moved` by `system`. A real column move is a fresh visit that closes the task's
+ * turns. A move of only the shadow column keeps the visit and the turns, and its event carries
+ * `shadow: true` with the shadow positions. A task the read does not list stays put.
  */
 export async function applyMirror(
   trx: Trx,
@@ -496,6 +467,7 @@ export async function applyMirror(
   const { source, at, config } = input;
   const project = config.projects.find((entry) => mirrorSourceId(entry) === source);
   if (project === undefined) return;
+  await syncModes(trx, config, at);
   const readiness = new Map(input.readiness.map((entry) => [entry.key, entry.state]));
   const tasks = await trx
     .selectFrom('task')
@@ -508,12 +480,40 @@ export async function applyMirror(
   for (const task of tasks) {
     const state = readiness.get(task.key);
     if (state === undefined) continue;
-    const to = mirrorTarget({
+    const placement = mirrorPlacement({
       column: task.column,
+      shadowColumn: task.shadow_column,
+      shadowMode: project.dispatcher.mode === 'shadow',
       workStarted: await workStartedOn(trx, task.id),
       readiness: state,
     });
-    if (to !== null) await mirrorMoveColumn(trx, { task, project, to, source, at, config });
+    if (placement === null) continue;
+    const moved = placement.column !== task.column;
+    await trx
+      .updateTable('task')
+      .set({
+        shadow_column: placement.shadowColumn,
+        last_change_at: taskChangeAt(at.toISOString()),
+        ...(moved ? { column: placement.column, column_epoch: task.column_epoch + 1 } : {}),
+      })
+      .where('id', '=', task.id)
+      .execute();
+    if (moved) await closeTurns(trx, { taskId: task.id, reason: 'moved', at });
+    await emit(
+      trx,
+      'task_mirror_moved',
+      project.id,
+      task.id,
+      at.toISOString(),
+      moved
+        ? { from: task.column, to: placement.column, source }
+        : {
+            from: task.shadow_column ?? task.column,
+            to: placement.shadowColumn ?? placement.column,
+            source,
+            shadow: true,
+          },
+    );
   }
 }
 

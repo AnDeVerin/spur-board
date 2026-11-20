@@ -282,7 +282,8 @@ const optional = (prefix: string, value: string | undefined) =>
 /** Summaries built from a row's payload; null falls back to the fixed text. */
 const SUMMARIES: { [K in EventKind]?: (payload: Payload<K>) => string | null } = {
   task_manually_moved: (p) => `Manually moved ${p.from} → ${p.to}: ${p.reason}`,
-  task_mirror_moved: (p) => `Mirror moved ${p.from} → ${p.to}: ${p.source}`,
+  task_mirror_moved: (p) =>
+    `Mirror moved ${p.from} → ${p.to}${p.shadow === true ? ' (shadow mode)' : ''}: ${p.source}`,
   session_state_changed: (p) =>
     `Session ${p.session}: ${from(p.from, p.to)}${optional(', ended (', p.endReason === undefined ? undefined : `${END_WORDS[p.endReason]})`)}`,
   checks_changed: checksSummary,

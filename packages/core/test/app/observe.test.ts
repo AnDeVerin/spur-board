@@ -6918,6 +6918,41 @@ describe('ready-for-dev mirror', () => {
     expect(await task(b)).toMatchObject({ column: 'todo', shadow_column: 'dev' });
   });
 
+  it('moves a corrected shadow column back when the real column is already right', async () => {
+    const b = await board('shadow');
+    await move(b, 'ready-for-dev', 'correct', 'shadow-correct');
+    const corrected = await task(b);
+    expect(corrected).toMatchObject({ column: 'todo', shadow_column: 'ready-for-dev' });
+
+    await read(b, notReady());
+    // Only the shadow column moves: the real visit and its epoch stay.
+    expect(await task(b)).toMatchObject({
+      column: 'todo',
+      shadow_column: 'todo',
+      column_epoch: corrected.column_epoch,
+    });
+    expect(await mirrorEvents(b)).toEqual([
+      {
+        kind: 'task_mirror_moved',
+        actor: 'system',
+        payload: JSON.stringify({
+          from: 'ready-for-dev',
+          to: 'todo',
+          source: MIRROR,
+          shadow: true,
+        }),
+      },
+    ]);
+    const { events } = await b.query(b.registry['task.history'], { task: 'o/r#9' }, 'operator');
+    expect(events.at(-1)).toMatchObject({
+      summary: `Mirror moved ready-for-dev → todo (shadow mode): ${MIRROR}`,
+    });
+
+    // The same read again moves nothing.
+    await read(b, notReady());
+    expect(await mirrorEvents(b)).toHaveLength(1);
+  });
+
   it('keeps a reopened task the mirror placed in ready-for-dev there', async () => {
     const b = await board();
     await ticket(b, 'open');

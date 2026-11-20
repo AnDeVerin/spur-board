@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   dispatch,
   dispatchHolds,
-  mirrorTarget,
+  mirrorPlacement,
   returnCauses,
   turnReason,
 } from '../../src/domain/dispatch.ts';
@@ -950,34 +950,48 @@ describe('turnReason', () => {
   });
 });
 
-describe('mirrorTarget', () => {
+describe('mirrorPlacement', () => {
   const READINESS = ['ready', 'not_ready', 'unknown'] as const;
-  const cells = COLUMN_IDS.flatMap((column) =>
-    [false, true].flatMap((workStarted) =>
-      READINESS.map((readiness) => ({ column, workStarted, readiness })),
+  const SHADOWS = [null, 'todo', 'triage', 'ready-for-dev', 'dev'] as const;
+  const cells = [false, true].flatMap((shadowMode) =>
+    COLUMN_IDS.flatMap((column) =>
+      SHADOWS.flatMap((shadowColumn) =>
+        [false, true].flatMap((workStarted) =>
+          READINESS.map((readiness) => ({
+            shadowMode,
+            column,
+            shadowColumn,
+            workStarted,
+            readiness,
+          })),
+        ),
+      ),
     ),
   );
 
   it.each(cells)(
-    '$column, workStarted $workStarted, $readiness',
-    ({ column, workStarted, readiness }) => {
+    'shadowMode $shadowMode, $column, shadow $shadowColumn, workStarted $workStarted, $readiness',
+    (cell) => {
+      const { shadowMode, column, shadowColumn, workStarted, readiness } = cell;
+      const idle = !workStarted && readiness !== 'unknown';
+      const target = readiness === 'ready' ? 'ready-for-dev' : 'todo';
+      const inGroup = (id: ColumnId | null) => id === 'todo' || id === 'ready-for-dev';
+      // Real column: an idle todo or ready-for-dev task goes to the read's target.
+      const realMoves = idle && inGroup(column) && column !== target;
+      // Shadow column: todo or ready-for-dev follows the target; triage, dev and null stay,
+      // except that a null shadow takes the target when the real column moves in shadow mode.
+      const nextShadow =
+        shadowColumn === null
+          ? realMoves && shadowMode
+            ? target
+            : null
+          : inGroup(shadowColumn)
+            ? target
+            : shadowColumn;
+      const shadowMoves = idle && inGroup(column) && nextShadow !== shadowColumn;
       const expected =
-        workStarted || readiness === 'unknown'
-          ? null
-          : column === 'todo' && readiness === 'ready'
-            ? 'ready-for-dev'
-            : column === 'ready-for-dev' && readiness === 'not_ready'
-              ? 'todo'
-              : null;
-      expect(mirrorTarget({ column, workStarted, readiness })).toBe(expected);
+        realMoves || shadowMoves ? { column: target, shadowColumn: nextShadow } : null;
+      expect(mirrorPlacement(cell)).toEqual(expected);
     },
   );
-
-  it('moves only between todo and ready-for-dev, and only idle work', () => {
-    const moved = cells.filter((cell) => mirrorTarget(cell) !== null);
-    expect(moved).toEqual([
-      { column: 'todo', workStarted: false, readiness: 'ready' },
-      { column: 'ready-for-dev', workStarted: false, readiness: 'not_ready' },
-    ]);
-  });
 });

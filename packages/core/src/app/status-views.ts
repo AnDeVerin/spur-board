@@ -262,7 +262,7 @@ export async function readStatusColumnEntries(
           ))`,
           )
           .where(
-            sql<boolean>`(entry.kind in ('task_added', 'task_moved', 'task_manually_moved', 'task_mirror_moved') or (entry.kind = 'task_corrected' and json_extract(entry.payload, '$.shadow') = 0))`,
+            sql<boolean>`(entry.kind in ('task_added', 'task_moved', 'task_manually_moved') or (entry.kind = 'task_mirror_moved' and json_extract(entry.payload, '$.shadow') is null) or (entry.kind = 'task_corrected' and json_extract(entry.payload, '$.shadow') = 0))`,
           )
           .groupBy('entry.task_id')
           .as('latest'),
