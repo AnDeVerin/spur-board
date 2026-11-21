@@ -73,7 +73,7 @@ interface CancelCounts {
   confirmed: string[];
 }
 
-const NO_CANCELS: CancelCounts = { waiting: [], confirmed: [] };
+export const NO_CANCELS: CancelCounts = { waiting: [], confirmed: [] };
 
 /**
  * Counts the polls since each cancelled check on the PR head was first seen: a new entry starts at

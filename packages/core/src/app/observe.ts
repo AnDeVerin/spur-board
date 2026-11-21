@@ -71,7 +71,7 @@ import {
   voidMarksOffHead,
 } from './dispatch.ts';
 import { closeTurns, rerouteDemotedWorkerTurn } from './turns.ts';
-import { countCancelledChecks } from './cancelled-checks.ts';
+import { countCancelledChecks, NO_CANCELS } from './cancelled-checks.ts';
 import { recordReviewRule } from './review-rule.ts';
 import { recordApprovalPairs } from './approval-watch.ts';
 
@@ -645,7 +645,7 @@ async function pr(
   if (project === undefined) return false;
   const cancels =
     project.checksGate === 'dev'
-      ? { waiting: [], confirmed: [] }
+      ? NO_CANCELS
       : await countCancelledChecks(trx, source, fact, scheduled);
   const confirmed = cancels.confirmed.length > 0;
   // Only a github-rules project's source keeps a review rule row; others make no call.
@@ -787,7 +787,7 @@ async function pr(
     await emit(trx, 'pr_facts_changed', task.project, task.id, at, { facts: fact });
     await markTaskChanged(trx, task.id, at);
   }
-  return confirmed || (!changed && ruled);
+  return confirmed;
 }
 
 const checksJson = (facts: PrFacts) => JSON.stringify([facts.checks, facts.requiredChecks]);
