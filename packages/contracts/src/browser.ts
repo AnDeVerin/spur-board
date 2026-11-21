@@ -80,9 +80,7 @@ const statusBindingsSchema = z
             operator: z.string().min(1).describe('Spur project acting as operator there.'),
             source: z
               .enum(OPERATOR_BINDING_SOURCES)
-              .describe(
-                "project: its own spurProjects; board-wide: top-level spurProjects; other-project: another project's operator, without a board-wide one.",
-              ),
+              .describe('project: its own spurProjects; board-wide: top-level spurProjects.'),
           })
           .describe('One operator binding.'),
       )

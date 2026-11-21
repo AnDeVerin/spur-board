@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   DEFAULT_HTTP_PORT,
   DEFAULT_STAND_PORT_RANGE,
+  OPERATOR_BINDING_SOURCES,
   resolveWebOrigin,
   RESERVED_PROJECT,
   type Config,
@@ -700,14 +701,8 @@ describe('board-wide spur projects', () => {
     });
   });
 
-  it("lists another board project's operator while no board-wide operator exists", () => {
-    const config = configSchema.parse(
-      boardWide([], { spurProjects: [{ name: 'web-ops', role: 'operator' }] }),
-    );
-    expect(configBindings(config, new Set(['web', 'api'])).operators).toEqual([
-      { project: 'web', operator: 'web-ops', source: 'project' },
-      { project: 'api', operator: 'web-ops', source: 'other-project' },
-    ]);
+  it('names only project and board-wide operator sources', () => {
+    expect(OPERATOR_BINDING_SOURCES).toEqual(['project', 'board-wide']);
   });
 
   it.each<[string, Record<string, unknown>[], Record<string, unknown>[], unknown]>([
@@ -717,19 +712,14 @@ describe('board-wide spur projects', () => {
       [{ name: 'api-ops', role: 'operator' }],
       [
         { project: 'web', operator: 'web-ops', source: 'project' },
-        { project: 'web', operator: 'api-ops', source: 'other-project' },
         { project: 'api', operator: 'api-ops', source: 'project' },
-        { project: 'api', operator: 'web-ops', source: 'other-project' },
       ],
     ],
     [
       'only one project has an operator, no board-wide one',
       [],
       [],
-      [
-        { project: 'web', operator: 'web-ops', source: 'project' },
-        { project: 'api', operator: 'web-ops', source: 'other-project' },
-      ],
+      [{ project: 'web', operator: 'web-ops', source: 'project' }],
     ],
     [
       'a board-wide operator exists',
@@ -740,7 +730,7 @@ describe('board-wide spur projects', () => {
         { project: 'api', operator: 'hq', source: 'board-wide' },
       ],
     ],
-  ])('lists the operators acting on each project when %s', (_, top, api, operators) => {
+  ])('lists only the operators each project lists when %s', (_, top, api, operators) => {
     const config = configSchema.parse(
       boardWide(
         top,

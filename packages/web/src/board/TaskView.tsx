@@ -19,7 +19,7 @@ import { TaskMove } from './MoveForm.tsx';
 import { TaskTurn } from './TaskTurn.tsx';
 import { TaskApprovals } from './TaskApprovals.tsx';
 import { TaskSection, TaskSectionsProvider, type TaskSections } from './TaskSection.tsx';
-import { shortKey, type BoardColumnConfig } from './model.ts';
+import { mirrorRefusal, shortKey, type BoardColumnConfig } from './model.ts';
 import {
   actorDisplayName,
   age,
@@ -144,11 +144,15 @@ export function TaskView({
   const chips =
     value === undefined ? [] : linkChips(value.links, key, spurUiOrigin, ticketBrowseBase, row);
   // Another Backlog part to move an active Backlog task to; Todo-group columns are adjacent.
-  const parts = columns.filter(({ group }) => group === 'todo').map(({ id }) => id);
+  // A move into or out of a mirrored part is refused; its button stays, disabled.
+  const todo = columns.filter(({ group }) => group === 'todo');
+  const parts = todo.map(({ id }) => id);
   const from = value?.task.column;
   const moves =
     from !== undefined && value?.task.membership !== 'archived' && parts.includes(from)
-      ? parts.filter((part) => part !== from)
+      ? parts
+          .filter((part) => part !== from)
+          .map((id) => ({ id, refusal: mirrorRefusal(todo, from, id) }))
       : [];
   return (
     <TaskSectionsProvider value={sections}>

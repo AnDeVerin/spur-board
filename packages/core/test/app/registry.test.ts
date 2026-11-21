@@ -1782,19 +1782,15 @@ it('reports the effective bindings of the projects a caller may see', async () =
   });
 });
 
-it('lists other projects operators for a project without one while no board-wide operator exists', async () => {
+it('lists only each project its own operator while no board-wide operator exists', async () => {
   const store = openTempStore('board-registry-').store;
   stores.push(store);
   const shared = configSchema.parse({
     ...config,
-    projects: config.projects.map((project) =>
-      project.id === 'first'
-        ? {
-            ...project,
-            spurProjects: [...project.spurProjects, { name: 'first-ops', role: 'operator' }],
-          }
-        : project,
-    ),
+    projects: config.projects.map((project) => ({
+      ...project,
+      spurProjects: [...project.spurProjects, { name: `${project.id}-ops`, role: 'operator' }],
+    })),
   });
   const status = createOperationRegistry({
     config: shared,
@@ -1802,12 +1798,15 @@ it('lists other projects operators for a project without one while no board-wide
     completeSince: new Map(),
   })['status.get'];
   const query = createQuery({ store, config: shared, clock });
+  const first = { project: 'first', operator: 'first-ops', source: 'project' };
   expect((await query(status, {}, 'operator')).bindings).toEqual({
     columns: [],
-    operators: [
-      { project: 'first', operator: 'first-ops', source: 'project' },
-      { project: 'second', operator: 'first-ops', source: 'other-project' },
-    ],
+    operators: [first, { project: 'second', operator: 'second-ops', source: 'project' }],
+    defaultAddressee: null,
+  });
+  expect((await query(status, {}, 'agent:first-ops/s1')).bindings).toEqual({
+    columns: [],
+    operators: [first],
     defaultAddressee: null,
   });
 });
@@ -1815,8 +1814,16 @@ it('lists other projects operators for a project without one while no board-wide
 it.each([
   ['restores its own project task', 'first-ops', 'add', 'o/first#1', 'allowed'],
   ['restores another project task', 'first-ops', 'add', 'o/second#2', 'denied'],
-  ['adds a new key', 'first-ops', 'add', 'o/first#9', 'denied'],
-  ['adds a new key as board-wide operator', 'hq', 'add', 'o/first#9', 'allowed'],
+  ['adds a new key of its own project', 'first-ops', 'add', 'o/first#9', 'allowed'],
+  ['adds a new key of another project', 'first-ops', 'add', 'o/second#9', 'denied'],
+  [
+    'adds a new key of a project with its own operator as board-wide operator',
+    'hq',
+    'add',
+    'o/first#9',
+    'denied',
+  ],
+  ['adds a new key as board-wide operator', 'hq', 'add', 'o/second#9', 'allowed'],
   ['closes its own project item', 'first-ops', 'close', 'I1', 'allowed'],
   ['closes another project item', 'first-ops', 'close', 'I2', 'denied'],
   ['closes a board item', 'first-ops', 'close', 'I3', 'denied'],
@@ -1904,20 +1911,25 @@ it.each([
     ['delivery:1'],
   ],
   [
-    'the board-wide operator sees every item',
+    'the board-wide operator sees the items of the project it serves and the board',
     true,
     'agent:hq/s1',
-    ['delivery:1', 'delivery:2', 'delivery:3'],
+    ['delivery:2', 'delivery:3'],
   ],
   ['the token sees every item', true, 'operator', ['delivery:1', 'delivery:2', 'delivery:3']],
   ['a worker sees no delivery item', true, 'agent:first-worker/s1', []],
   [
-    'a legacy project operator sees every item',
+    'a project operator without a board-wide one sees its own task delivery only',
     false,
     'agent:first-ops/s1',
-    ['delivery:1', 'delivery:2', 'delivery:3'],
+    ['delivery:1'],
   ],
-  ['a legacy worker sees no delivery item', false, 'agent:first-worker/s1', []],
+  [
+    'a worker without a board-wide operator sees no delivery item',
+    false,
+    'agent:first-worker/s1',
+    [],
+  ],
 ] as const)(
   'shows failed deliveries in status by their owning task: %s',
   async (_name, withBoardWide, actor, keys) => {

@@ -114,9 +114,9 @@ async function taskContext(
   trx: Trx,
   event: InboundEvent,
   gateway: string,
-): Promise<{ taskId: number | null; project: string | null }> {
+): Promise<{ taskId: number | null; blockId: number | null; project: string | null }> {
   if (!('conversation' in event) || event.conversation === undefined) {
-    return { taskId: null, project: null };
+    return { taskId: null, blockId: null, project: null };
   }
   // A project-level block's thread has no task: its project is the block's.
   const row = await trx
@@ -125,6 +125,7 @@ async function taskContext(
     .leftJoin('block', 'block.id', 'conversation.block_id')
     .select((eb) => [
       'conversation.task_id as taskId',
+      'conversation.block_id as blockId',
       eb.fn.coalesce('task.project', 'block.project').as('project'),
     ])
     .where('conversation.gateway', '=', gateway)
@@ -132,6 +133,7 @@ async function taskContext(
     .executeTakeFirst();
   return {
     taskId: row?.taskId ?? null,
+    blockId: row?.blockId ?? null,
     project: row?.project ?? null,
   };
 }
@@ -144,6 +146,8 @@ async function raiseInboundItem(
     sourceUrl: string | null;
     event: InboundEvent;
     taskId: number | null;
+    /** The block of the thread, so a project-level block's item is its project's. */
+    blockId: number | null;
     at: string;
     retry: boolean;
   },
@@ -158,7 +162,7 @@ async function raiseInboundItem(
     text: input.title,
     url: input.sourceUrl ?? '',
     taskId: input.taskId,
-    blockId: null,
+    blockId: input.blockId,
     at: new Date(input.at),
   });
   if (input.retry && item.inbound_event_json === null) {
@@ -322,6 +326,7 @@ async function ringAuthor(
     sourceUrl: input.event.sourceUrl,
     event: input.event,
     taskId: input.subject.task?.id ?? null,
+    blockId: input.block.id,
     at: input.at,
     retry: false,
   });
@@ -781,6 +786,7 @@ export function createInbound(input: {
           sourceUrl: event.sourceUrl,
           event,
           taskId: context.taskId,
+          blockId: context.blockId,
           at,
           retry: true,
         });
@@ -970,6 +976,7 @@ export function createInbound(input: {
           sourceUrl: ref?.permalink ?? null,
           event,
           taskId: context.taskId,
+          blockId: context.blockId,
           at,
           retry: false,
         });

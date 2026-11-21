@@ -19,7 +19,7 @@ import type { Store } from '../store/store.ts';
 import { approvalViews } from './approval-watch.ts';
 import { projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
-import { itemOwner } from './items.ts';
+import { itemSubjects } from './items.ts';
 import { latestQaSubmissions, latestSubmissions } from './submissions.ts';
 import { readOutageEnds, services } from './status-services.ts';
 import {
@@ -104,8 +104,9 @@ export async function getStatus(
     visibleProjects?: ReadonlySet<string> | undefined;
     includeBoardItems?: boolean | undefined;
     /**
-     * Projects whose operator the caller is: without `includeBoardItems`, it still sees the
-     * failed deliveries of those projects' tasks, which it may retry and close.
+     * Projects whose operator the caller is; defaults to every project when `visibleProjects` is
+     * unset. Of the items with no task or project source it sees those about these projects, which it
+     * may retry and close, and with `includeBoardItems` the board items.
      */
     operatorProjects?: ReadonlySet<string> | undefined;
     /** Adds full ticket, pull request and session facts to every row. */
@@ -120,7 +121,9 @@ export async function getStatus(
   };
   const { project: projectId, visibleProjects, detail = false } = options;
   const includeBoardItems = options.includeBoardItems ?? visibleProjects === undefined;
-  const operatorProjects = options.operatorProjects ?? new Set<string>();
+  const operatorProjects =
+    options.operatorProjects ??
+    new Set(visibleProjects === undefined ? config.projects.map((project) => project.id) : []);
   const visible = config.projects.filter(
     (project) => visibleProjects === undefined || visibleProjects.has(project.id),
   );
@@ -409,26 +412,25 @@ export async function getStatus(
     .where('cleared_at', 'is', null)
     .execute();
   const itemTasks = new Map(rows.map((task) => [task.id, task]));
-  const ownedProjects = new Map<number, string>();
-  if (!includeBoardItems && operatorProjects.size > 0) {
-    for (const item of itemRows) {
-      if (item.task_id !== null || item.source !== null) continue;
-      const owner = await itemOwner(store.db, item);
-      if (owner !== undefined) ownedProjects.set(item.id, owner.project);
-    }
-  }
-  const ownedBy = (item: { id: number }) => {
-    const owner = ownedProjects.get(item.id) ?? '';
-    return projectIds.has(owner) && operatorProjects.has(owner);
+  // Every item is its subject's project's, as `inbox.operator` files it; only one with no
+  // subject, such as a `spur` source's or one of a project that left the config, is a board
+  // item. An item of a task, or of a project's repository or tracker source, follows that
+  // project; any other needs the caller to be its project's operator.
+  const subjects = await itemSubjects(store.db, itemRows, config);
+  const ownedBy = (item: (typeof itemRows)[number]) => {
+    const subject = subjects.get(item.id);
+    // A board item of a source every project reads, such as `spur`, stays in each project's
+    // status; only item actions and the inbox need the board's operator for it.
+    if (subject === undefined)
+      return includeBoardItems || (item.source !== null && required.has(item.source));
+    if (item.task_id !== null)
+      return subject.task?.membership !== 'archived' && projectIds.has(subject.project);
+    if (item.source !== null && projectForSource(config, item.source) !== undefined)
+      return projectIds.has(subject.project);
+    return projectIds.has(subject.project) && operatorProjects.has(subject.project);
   };
   const items = itemRows
-    .filter((item) =>
-      item.task_id !== null
-        ? projectIds.has(itemTasks.get(item.task_id)?.project ?? '')
-        : item.source !== null
-          ? required.has(item.source)
-          : includeBoardItems || ownedBy(item),
-    )
+    .filter(ownedBy)
     .map((item) => {
       const source = item.source === null ? null : sourceById.get(item.source);
       const stale =

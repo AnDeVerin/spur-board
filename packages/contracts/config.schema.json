@@ -183,7 +183,7 @@
                 "role": {
                   "type": "string",
                   "enum": ["worker", "operator", "curator", "orchestrator"],
-                  "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
+                  "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator of this board project only. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
                 },
                 "shortName": {
                   "description": "The name the operator types as @<shortName> at the start of a new message in the orchestrators channel to start a conversation with this Spur project's live session. Unique across the board.",
@@ -435,7 +435,7 @@
           "role": {
             "type": "string",
             "enum": ["orchestrator", "operator"],
-            "description": "orchestrator: sessions execute the listed columns in every board project that enables the column and leaves its orchestrator at none. operator: sessions act as the operator of every board project that lists no operator of its own; while one exists, a project's own operator acts only in its project. At most one operator."
+            "description": "orchestrator: sessions execute the listed columns in every board project that enables the column and leaves its orchestrator at none. operator: sessions act as the operator of every board project that lists no operator of its own; a project's own operator acts only in its project. At most one operator."
           },
           "columns": {
             "description": "Required for role orchestrator, not allowed for operator. The columns it executes board-wide. A project column whose orchestrator is set to anything but none keeps it, and a disabled column is never filled; it must fill at least one column in some board project.",

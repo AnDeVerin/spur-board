@@ -906,7 +906,7 @@ describe('each scenario', () => {
     );
   }, 60_000);
 
-  it('default-branch-red: one failure item under _board; a green head clears it; a failed scheduled run raises nothing', async () => {
+  it('default-branch-red: one failure item under the stand project; a green head clears it; a failed scheduled run raises nothing', async () => {
     await up();
     const { scenario } = await seed('default-branch-red');
     const repo = 'stand-org/board';
@@ -937,7 +937,7 @@ describe('each scenario', () => {
         ...red.items[0],
         kind: 'board_observation',
         severity: 'failure',
-        project: '_board',
+        project: 'stand',
         action: 'open the failing run; fix or revert',
         url,
       },

@@ -32,7 +32,10 @@ function columnsView(snapshot: BoardSnapshot): ColumnsView {
   const ids = new Set(configured.map(({ id }) => id));
   return {
     kind: 'columns',
-    columns: boardColumns(configured, snapshot.status.tasks),
+    columns: boardColumns(configured, snapshot.status.tasks, {
+      project: snapshot.project,
+      sources: snapshot.status.sources,
+    }),
     unknown: snapshot.status.tasks.filter((row) => !ids.has(row.column)),
   };
 }

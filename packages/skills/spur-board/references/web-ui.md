@@ -62,7 +62,9 @@ Screen times are UTC, `hh:mm dd/mm/yy`.
   text shows that warning first and stays; the next **Reload** goes on. An open task view or inbox
   repeats that banner, so **Reload** keeps the text typed there without closing it.
 - **Source blind**: a warning names unresponsive project sources and their last complete poll;
-  warming-up sources are omitted.
+  warming-up sources are omitted. It also names a GitHub Project mirror that is blind or whose last
+  read failed and says its part is frozen: tasks stay where they were until the mirror reads
+  again. Its Backlog part shows the frozen notice too.
 - **Shadow**: an info banner says the dispatcher computes columns and turns but does not act.
 
 Banners order errors, warnings, info. Data time means this browser's last good status read.

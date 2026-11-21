@@ -17,7 +17,7 @@ import type { Row } from '../store/schema.ts';
 import { authorize, isOperator, projectTarget } from './authorize.ts';
 import type { Trx } from './board-utils.ts';
 import { answeredVia, answeredViaColumn } from './blocks.ts';
-import { deliveryOwners } from './items.ts';
+import { itemSubjects } from './items.ts';
 import { TASKLESS_ITEM_URL } from './item-raise.ts';
 import { deliveredRefSchema } from './outbox.ts';
 import type { Query } from './queries.ts';
@@ -408,33 +408,35 @@ export function createOperatorInbox(deps: {
       const sourceIds = items.flatMap((item) =>
         item.item_key.startsWith(SOURCE_KEY) ? [item.item_key.slice(SOURCE_KEY.length)] : [],
       );
-      const [referenced, owners, sources, deliveries, waiting, operatorTurns] = await Promise.all([
-        blockIds.length === 0
-          ? Promise.resolve([])
-          : trx
-              .selectFrom('block')
-              .leftJoin('task', 'task.id', 'block.task_id')
-              .select([
-                'block.id',
-                'block.addressee_role',
-                'block.project',
-                'block.addressee_spur_project',
-                ...taskColumns,
-              ])
-              .where('block.id', 'in', blockIds)
-              .execute(),
-        deliveryOwners(trx, items),
-        sourceIds.length === 0
-          ? Promise.resolve([])
-          : trx
-              .selectFrom('source_state')
-              .select(['source', 'blind_reason', 'blind_message'])
-              .where('source', 'in', sourceIds)
-              .execute(),
-        deliveryUrls(trx, items),
-        waitingTurns(trx, openItems),
-        endedOperatorTurns(trx, items),
-      ]);
+      const [referenced, subjects, sources, deliveries, waiting, operatorTurns] = await Promise.all(
+        [
+          blockIds.length === 0
+            ? Promise.resolve([])
+            : trx
+                .selectFrom('block')
+                .leftJoin('task', 'task.id', 'block.task_id')
+                .select([
+                  'block.id',
+                  'block.addressee_role',
+                  'block.project',
+                  'block.addressee_spur_project',
+                  ...taskColumns,
+                ])
+                .where('block.id', 'in', blockIds)
+                .execute(),
+          itemSubjects(trx, items, config),
+          sourceIds.length === 0
+            ? Promise.resolve([])
+            : trx
+                .selectFrom('source_state')
+                .select(['source', 'blind_reason', 'blind_message'])
+                .where('source', 'in', sourceIds)
+                .execute(),
+          deliveryUrls(trx, items),
+          waitingTurns(trx, openItems),
+          endedOperatorTurns(trx, items),
+        ],
+      );
       const blockById = new Map(referenced.map((block) => [block.id, block]));
       const sourceById = new Map(sources.map((state) => [state.source, state]));
 
@@ -456,8 +458,8 @@ export function createOperatorInbox(deps: {
             item.item_key.startsWith(BLOCK_KEY))
         )
           return undefined;
-        const task =
-          owner(item) ?? owners.get(item.id) ?? (block === undefined ? null : owner(block));
+        const subject = subjects.get(item.id);
+        const task = subject?.task ?? null;
         if (task?.membership === 'archived') return undefined;
         const { condition, action } = item.item_key.startsWith(SOURCE_KEY)
           ? sourceText(item, sourceById.get(item.item_key.slice(SOURCE_KEY.length)))
@@ -470,8 +472,7 @@ export function createOperatorInbox(deps: {
         const url = itemUrl(item, deliveries);
         return {
           id: `I${String(item.id)}`,
-          project:
-            task?.project ?? (block === undefined ? RESERVED_PROJECT : blockProject(block.project)),
+          project: subject?.project ?? RESERVED_PROJECT,
           kind,
           severity: itemSeverity(kind, item.item_key),
           text: `${condition}: ${action}`,

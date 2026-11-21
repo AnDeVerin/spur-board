@@ -326,6 +326,40 @@
   border-color: var(--color-status-working);
   background: var(--color-fill-working);
 }
+/* A part that refuses the card in the hand: a move into or out of a mirrored part. */
+.body[data-drop='refused'],
+.groupSection[data-drop='refused'] {
+  margin: calc(-1 * var(--size-hairline));
+  border: var(--size-hairline) dashed var(--color-status-attention);
+  background: var(--color-fill-attention);
+  cursor: not-allowed;
+}
+.spine[data-drop='refused'] {
+  border-color: var(--color-status-attention);
+  background: var(--color-fill-attention);
+  cursor: not-allowed;
+}
+/* The frozen mirror notice under a part's head; it stays put while the cards scroll. */
+.notice {
+  flex: none;
+  margin-bottom: var(--space-2);
+}
+/* The band's dot for a frozen mirror; its word is for a screen reader only. */
+.groupWarn {
+  display: inline-flex;
+}
+/* Visually hidden, as KeyValueBox hides its status word. */
+.hidden {
+  position: absolute;
+  width: var(--size-hairline);
+  height: var(--size-hairline);
+  margin: calc(-1 * var(--size-hairline));
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .dropNote {
   flex: none;
   margin: 0;

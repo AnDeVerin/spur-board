@@ -1289,7 +1289,7 @@ describe('daemon doctor board-wide bindings', () => {
     );
   });
 
-  it("names the other projects' operators while no board-wide operator exists", async () => {
+  it('names only its own operator for each project while no board-wide operator exists', async () => {
     const ctx = doctorContext({
       projects: [
         { id: 'alpha', spurProjects: [{ name: 'alpha-ops', role: 'operator' }] },
@@ -1299,16 +1299,16 @@ describe('daemon doctor board-wide bindings', () => {
     const entry = checkOf(await runDaemonDoctor(ctx, '1.2.3', doctorFetch()), 'operator.path');
     expect(entry).toMatchObject({ status: 'pass', blocking: false });
     expect(entry?.fix).toBe(
-      'alpha: operator alpha-ops (project), beta-ops (other-project). beta: operator beta-ops (project), alpha-ops (other-project).',
+      'alpha: operator alpha-ops (project). beta: operator beta-ops (project).',
     );
   });
 
-  it('falls back to a project count when every long operator acts on every project', async () => {
+  it('falls back to a project count when no single project operator text fits', async () => {
     const ctx = doctorContext({
       projects: Array.from({ length: 15 }, (_, index) => ({
         id: `project-${String(index)}`,
         spurProjects: [
-          { name: `ops-${String(index)}-${'x'.repeat(200)}`, role: 'operator' as const },
+          { name: `ops-${String(index)}-${'x'.repeat(290)}`, role: 'operator' as const },
         ],
       })),
     });

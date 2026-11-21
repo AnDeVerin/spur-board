@@ -1,6 +1,7 @@
 import type { IconName, MeterThresholds, StatusDotTone } from '../ds/index.ts';
 import type { Output } from '../lib/api.ts';
 import type { BoardSnapshot } from './data.ts';
+import { frozenNote } from './model.ts';
 
 type BoardStatus = Output<'status.get'>;
 type ServiceRow = BoardStatus['services'][number];
@@ -53,6 +54,8 @@ const BUDGET_WAIT = 'waits for rate budget';
 /** Health of one source from its own fields, in core's order of reasons. */
 function sourceState(source: BoardSourceView): Health {
   if (source.blindReason !== null) return { tone: 'error', word: `blind: ${source.blindReason}` };
+  // A coded failure froze a github-project mirror.
+  if (source.failure != null) return { tone: 'error', word: 'failing' };
   if (source.waitsForBudget) return { tone: 'warn', word: BUDGET_WAIT };
   if (source.lastCompleteAt === null)
     return { tone: 'warn', word: source.warmingUp ? 'warming up' : 'never completed' };
@@ -283,15 +286,17 @@ export interface PanelBox {
 }
 
 const GONE: PanelRow[] = [{ key: 'Unknown while the daemon does not answer.', note: true }];
+const FROZEN = frozenNote('ready-for-dev');
 
 /** The last part of a source id: the repo of a GitHub source, the project of a Jira one. */
 const tail = (source: string) => source.split(':').at(-1) ?? '';
 
 /**
  * The panel boxes: the shared daemon, host, slack and spur, then one run per project in the order
- * its sources come, each with one box per GitHub pull request source, GitHub issue source and Jira
- * source. A source box takes its word from its own fields. While the daemon does not answer every
- * box but the daemon reads unknown; before the first status there are none.
+ * its sources come, each with one box per GitHub pull request source, GitHub issue source, Jira
+ * source and GitHub Project mirror source. A source box takes its word from its own fields. While
+ * the daemon does not answer every box but the daemon reads unknown; before the first status
+ * there are none.
  */
 export function panelBoxes(
   snapshot: HealthSnapshot,
@@ -314,37 +319,69 @@ export function panelBoxes(
       rows,
     };
   };
-  const sourceBox = (source: BoardSourceView, service: ServiceName, name: string): PanelBox => ({
+  const sourceBox = (
+    source: BoardSourceView,
+    service: ServiceName | null,
+    name: string,
+    icon: IconName,
+  ): PanelBox => ({
     id: source.source,
     service,
     project: source.project,
-    icon: ICONS[service],
+    icon,
     name,
     health: live ? sourceState(source) : UNKNOWN,
     rows: live ? sourceRows(source, formatTime) : GONE,
   });
+  // A mirror box names its Project and, when frozen, the failure and what it means.
+  const mirrorBox = (box: PanelBox, source: BoardSourceView): PanelBox => {
+    if (!live) return box;
+    const { failure } = source;
+    const rows: PanelRow[] = [{ key: 'Project', text: tail(source.source) }, ...box.rows];
+    if (failure != null)
+      rows.push({ key: 'Failure', text: `${failure.code} · ${failure.message}` });
+    if (source.blindReason !== null || failure != null) rows.push({ key: FROZEN, note: true });
+    return { ...box, rows };
+  };
   const sources = (status?.sources ?? []).filter((source) => source.source !== 'spur');
   // A kind with several sources in one project's group names each by its repo.
-  const named = (project: string | null, prefix: string, name: string, service: ServiceName) => {
+  const named = (
+    project: string | null,
+    prefix: string,
+    name: string,
+    service: ServiceName | null,
+    icon: IconName,
+    dress: (box: PanelBox, source: BoardSourceView) => PanelBox = (box) => box,
+  ) => {
     const list = sources.filter(
       (source) => source.project === project && source.source.startsWith(`${prefix}:`),
     );
     return list.map((source) =>
-      sourceBox(source, service, list.length > 1 ? `${name} · ${tail(source.source)}` : name),
+      dress(
+        sourceBox(
+          source,
+          service,
+          list.length > 1 ? `${name} · ${tail(source.source)}` : name,
+          icon,
+        ),
+        source,
+      ),
     );
   };
   // A source with no project, which core does not send today, stays with the shared boxes.
   const grouped = [null, ...new Set(sources.flatMap((source) => source.project ?? []))].flatMap(
     (project) => [
-      ...named(project, 'github', 'github pull requests', 'github'),
-      ...named(project, 'github-issues', 'github issues', 'github'),
-      ...named(project, 'jira', 'jira', 'jira'),
+      ...named(project, 'github', 'github pull requests', 'github', ICONS.github),
+      ...named(project, 'github-issues', 'github issues', 'github', ICONS.github),
+      ...named(project, 'jira', 'jira', 'jira', ICONS.jira),
+      // A mirror has no status bar button: the board names a frozen one on its Backlog part.
+      ...named(project, 'github-project', 'github project', null, 'mirror', mirrorBox),
     ],
   );
   const hasGithub = sources.some((source) => serviceOf(source.source) === 'github');
   const spurSource = status?.sources.find((source) => source.source === 'spur');
   const spur = spurSource
-    ? sourceBox(spurSource, 'spur', 'spur')
+    ? sourceBox(spurSource, 'spur', 'spur', ICONS.spur)
     : serviceBox('spur', live ? [] : GONE);
   if (live?.spurUnavailable != null)
     spur.rows = [...spur.rows, { key: live.spurUnavailable, status: 'fail' }];

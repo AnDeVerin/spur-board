@@ -49,8 +49,8 @@ export const mixed = configSchema.parse({
   ...base,
   spurProjects: [{ name: 'hq', role: 'operator' }],
 });
-/** No board-wide operator: `first-ops` acts on every project and on the board. */
-export const legacy = configSchema.parse(base);
+/** No board-wide operator: `first-ops` acts only on `first`; `second` and the board have only the token. */
+export const ownOnly = configSchema.parse(base);
 
 export async function task(
   trx: Trx,
@@ -89,6 +89,10 @@ export async function item(
     raisedAt?: string;
     clearedAt?: string | null;
     raiseNo?: number;
+    /** The inbound event stored for a retry. */
+    inboundEvent?: object;
+    /** The source the item is about, as `reconcileItems` stores it. */
+    source?: string;
   },
 ): Promise<string> {
   const row = await trx
@@ -104,7 +108,9 @@ export async function item(
       raised_at: input.raisedAt ?? ago(3 * HOUR),
       cleared_at: input.clearedAt ?? null,
       line_outbox_id: null,
-      inbound_event_json: null,
+      source: input.source ?? null,
+      inbound_event_json:
+        input.inboundEvent === undefined ? null : JSON.stringify(input.inboundEvent),
     })
     .returning('id')
     .executeTakeFirstOrThrow();
