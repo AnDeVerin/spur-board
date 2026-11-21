@@ -1,6 +1,7 @@
 import type { IconName, MeterThresholds, StatusDotTone } from '../ds/index.ts';
 import type { Output } from '../lib/api.ts';
 import type { BoardSnapshot } from './data.ts';
+import { clockTime } from './model.ts';
 
 type BoardStatus = Output<'status.get'>;
 type ServiceRow = BoardStatus['services'][number];
@@ -73,13 +74,6 @@ function serviceHealth(name: ServiceName, row: ServiceRow, sources: readonly Boa
     .map(sourceState)
     .find((health) => health.tone === tone);
   return first ?? { tone, word: row.state };
-}
-
-const pad = (value: number) => String(value).padStart(2, '0');
-/** UTC `hh:mm`, as the prototype writes a budget reset. */
-function clockTime(iso: string): string {
-  const date = new Date(iso);
-  return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
 }
 
 type HealthSnapshot = Pick<

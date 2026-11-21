@@ -62,6 +62,17 @@ describe('task card', () => {
       tone: 'error',
       hollow: false,
     });
+    const wait = { reason: 'a free stand', since: minutes(5), wakesAt: '2026-11-15T08:30:00.000Z' };
+    const waiting = 'waiting: a free stand, wakes 08:30';
+    expect(view({ ...taken, wait })).toEqual({
+      ...view(taken),
+      tail: waiting,
+      waiting: true,
+    });
+    expect(view(taken)).not.toHaveProperty('waiting');
+    expect(view({ ...taken, wait, stalledSince: minutes(40) })).not.toHaveProperty('waiting');
+    expect(view({ ...taken, wait, stalledSince: minutes(40) })?.tail).toBe('stalled · 40m');
+    expect(turnView(card({ turn: turn({ ...taken, wait }) }).turn, undefined)?.tail).toBe(waiting);
     expect(view({ addressee: 'orchestrator:review', column: 'review' })).toMatchObject({
       role: 'orchestrator',
     });

@@ -29,13 +29,19 @@
   margin-left: auto;
 }
 .note,
-.status {
+.status,
+.wait {
   margin: 0;
   font-size: var(--text-small);
   color: var(--color-text-tertiary);
 }
-.status {
+.status,
+.wait {
   color: var(--color-text-secondary);
+}
+/* The holder's reason can be one unbroken word of up to 200 characters. */
+.wait {
+  overflow-wrap: anywhere;
 }
 .form {
   display: flex;

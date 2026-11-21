@@ -94,7 +94,9 @@ Columns follow configuration order:
     tested, none or no QA column adds nothing. See [Approvals](web-ui-task-approvals.md).
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
     on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
-    without a turn. Ages stop while the data is stale.
+    without a turn. Ages stop while the data is stale. While the holder waits (`board wait`), the
+    age reads `waiting: <reason>, wakes <hh:mm>` (UTC), cut short on a narrow card; hover shows
+    all of it. A stall shows instead.
 - Unconfigured columns: a trailing count opens a list of task keys, titles and original columns.
   Rows open the task view and keep status order. At zero, both are absent.
 

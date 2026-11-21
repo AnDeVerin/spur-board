@@ -2,7 +2,7 @@
 import type { ChipTone, IconName, StatusDotTone } from '../ds/index.ts';
 import { safeExternalUrl, sessionLinkHref, ticketBrowseHref } from '../lib/links.ts';
 import { approvalChip, approvalSuffix, approvalSummary } from './approvals.ts';
-import { formatDataTime, type BoardRow } from './model.ts';
+import { clockTime, formatDataTime, type BoardRow } from './model.ts';
 
 type Turn = NonNullable<BoardRow['turn']>;
 type PrSummary = NonNullable<BoardRow['prSummary']>[number];
@@ -52,11 +52,20 @@ export interface TurnView {
   role: string;
   /** The session that took the turn, else the one it is addressed to, else `unassigned`. */
   name: string;
-  /** `taken · 5m`, `open · 2h`, `not taken · 1d` or `stalled · 40m`. */
+  /**
+   * `taken · 5m`, `open · 2h`, `not taken · 1d`, `stalled · 40m`, or `waiting: <reason>, wakes
+   * <hh:mm>` while the holder waits.
+   */
   tail: string;
   tone: StatusDotTone;
   hollow: boolean;
+  /** The holder waits on the taken turn: the tail names the reason and the UTC wake time. */
+  waiting?: true;
 }
+
+/** `waiting: <reason>, wakes <hh:mm>`, the wait as the card and the Turn section write it. */
+export const waitText = (wait: Pick<NonNullable<Turn['wait']>, 'reason' | 'wakesAt'>) =>
+  `waiting: ${wait.reason}, wakes ${clockTime(wait.wakesAt)}`;
 
 /** The turn line; null when no turn is open. */
 export function turnView(turn: Turn | null, now: number | undefined): TurnView | null {
@@ -81,6 +90,15 @@ export function turnView(turn: Turn | null, now: number | undefined): TurnView |
       tail: `open · ${age(turn.at, now)}`,
       tone: 'warn',
       hollow: false,
+    };
+  if (turn.taken !== null && turn.wait !== undefined)
+    return {
+      ...common,
+      kind: 'agent',
+      tail: waitText(turn.wait),
+      tone: 'working',
+      hollow: false,
+      waiting: true,
     };
   if (turn.taken !== null)
     return {

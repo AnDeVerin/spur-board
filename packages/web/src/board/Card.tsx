@@ -228,7 +228,7 @@ export function Card({
           </div>
         )}
         {turn && (
-          <div id={`${id}-turn`} className={styles.turn}>
+          <div id={`${id}-turn`} className={styles.turn} data-waiting={turn.waiting}>
             <StatusDot tone={turn.tone} hollow={turn.hollow} />
             <span className={styles.who}>
               {turn.id}{' '}
@@ -240,7 +240,11 @@ export function Card({
                 </>
               )}
             </span>{' '}
-            <span className={styles.age} data-kind={turn.kind}>
+            <span
+              className={styles.age}
+              data-kind={turn.kind}
+              title={turn.waiting ? turn.tail : undefined}
+            >
               {turn.tail}
             </span>
           </div>

@@ -126,6 +126,12 @@ export function matchesFilter(row: BoardRow, text: string): boolean {
 
 const pad = (value: number) => String(value).padStart(2, '0');
 
+/** UTC `hh:mm`, as the prototype writes a budget reset or a wake time. */
+export function clockTime(iso: string): string {
+  const date = new Date(iso);
+  return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+}
+
 /** UTC `hh:mm dd/mm/yy`, as the prototype and History write times. */
 export function formatDataTime(ms: number): string {
   const date = new Date(ms);

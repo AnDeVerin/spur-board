@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { focusRing } from '../src/ds/index.ts';
-import { orchestratorTaskGet, problem, taskGet } from './board-fixtures.ts';
+import { never, orchestratorTaskGet, problem, taskGet } from './board-fixtures.ts';
 import { mountEachTest, press, settle } from './board-harness.ts';
 import {
   HEAD,
@@ -297,6 +297,38 @@ describe('Turn section summary and availability', () => {
     await reread(d, orchestratorTaskGet({}, { turn: null, turns: [closedTurn('returned')] }));
     expect(summary()).toBe('T5 closed by qa-1');
     expect(text()).toContain('Returned to dev 0m ago.');
+  });
+
+  describe('wait note', () => {
+    const wait = { reason: 'a free stand', since: AT, wakesAt: '2026-11-15T13:30:00.000Z' };
+    const WAITING = 'waiting: a free stand, wakes 13:30';
+    const HOLD =
+      'You hold T5; the orchestrator cannot submit or return it until you finish or it takes the turn back.';
+    const notes = () => [...turnSection().querySelectorAll('p')].map((p) => p.textContent);
+
+    it('shows the wait after the turn line and before the gates note', async () => {
+      const { d } = await open(orchestratorTaskGet({ taken: { by: 'agent:rev/rev-1', at: AT } }));
+      expect(notes()).toEqual([expect.stringContaining('You can close this turn yourself')]);
+      await reread(d, orchestratorTaskGet({ taken: { by: 'agent:rev/rev-1', at: AT }, wait }));
+      expect(text()).toContain('taken by rev / rev-1 · 0m');
+      expect(notes()).toEqual([WAITING, expect.stringContaining('You can close this turn')]);
+    });
+
+    it('an operator holding a waiting turn sees the hold note, the wait note, then the gates note', async () => {
+      await open(orchestratorTaskGet({ taken: { by: 'operator', at: AT }, wait }));
+      expect(notes()).toEqual([HOLD, WAITING, expect.stringContaining('You can close this turn')]);
+    });
+
+    it('shows no wait note while the re-read after a write is pending', async () => {
+      const { d } = await open(orchestratorTaskGet({ taken: { by: 'operator', at: AT }, wait }));
+      d.routes['task.submit'] = () => problem('head_mismatch', 409);
+      d.routes['task.get'] = never;
+      await click('Submit…');
+      await send();
+      expect(text()).toContain('Refreshing the turn…');
+      expect(text()).not.toContain(WAITING);
+      expect(text()).not.toContain(HOLD);
+    });
   });
 
   it('disables the actions on an archived task', async () => {

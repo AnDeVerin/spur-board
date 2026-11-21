@@ -12,6 +12,7 @@ no Turn section; the section sits after **Why it is here**.
   configured Spur project display name, as in Blocks; the operator reads as `you`.
 - While the operator holds the turn: `You hold T<n>; the orchestrator cannot submit or return it
 until you finish or it takes the turn back.`
+- While the holder waits: `waiting: <reason>, wakes <hh:mm>` (UTC).
 - A note that you can close the turn yourself, then **Submit…**, and **Return to dev…** for a
   column that can return (`review`, `product-review`, `external-review`, `qa`,
   `ready-to-merge`).

@@ -16,6 +16,7 @@ import type { BoardColumnConfig, BoardRow } from './model.ts';
 import { actorDisplayName, age } from './task-model.ts';
 import { TaskSection } from './TaskSection.tsx';
 import type { TurnIntent, TurnPhase } from './turn-intent.ts';
+import { TurnNotes } from './TurnNotes.tsx';
 import { useTurnReread } from './turn-reread.ts';
 import {
   ARCHIVED,
@@ -372,12 +373,7 @@ export function TaskTurn({
             triggers(turn, blocked !== undefined || inFlight || earlierForm || stale, primary),
         )}
         {staleLine}
-        {!stale && turn.taken?.by === 'operator' && (
-          <p className={styles.note}>
-            You hold {turn.id}; the orchestrator cannot submit or return it until you finish or it
-            takes the turn back.
-          </p>
-        )}
+        <TurnNotes turn={turn} stale={stale} />
         {!formOpen && !stale && <p className={styles.note}>{NOTE}</p>}
         {blocked !== undefined && <p className={styles.note}>{blocked}</p>}
         {formOpen && formElement(turn)}
