@@ -251,9 +251,13 @@
 .age[data-kind='stall'] {
   color: var(--color-status-error);
 }
-/* A waiting tail can be long: when it does not fit beside the holder it wraps to its own line and ellipsises there. */
+/* A waiting tail can be long: the dot and holder stay on the first line, and only a tail that does not fit
+   beside them wraps to its own line and ellipsises there. */
 .turn[data-waiting] {
   flex-wrap: wrap;
+}
+.turn[data-waiting] .who {
+  flex: 1 1 0;
 }
 .turn[data-waiting] .age {
   flex: 0 1 auto;
