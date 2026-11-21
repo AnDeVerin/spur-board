@@ -330,6 +330,13 @@ const columnConfig = z.strictObject({
     .describe(
       "What lets a task leave External Review. any-approval, the default: an approval by someone other than operatorGithubLogin and no changes requested by one. github-rules: that, and GitHub's review rule for the PR's base branch, from branch protection and rulesets, met on the PR's head: no changes requested (GitHub's review decision counts only once the merge state is computed), a required check completed, or, when none is required, every check except skipped ones green and at least one (no checks at all also counts); and the merge not blocked. A required check, one GitHub marks required or a context the rule lists, pending or without a run GitHub marks required holds the head on CI unless the merge state is clean, unstable or has hooks. Only on the external-review column; a disabled one ignores it.",
     ),
+  quietAfterMs: z
+    .int()
+    .min(0)
+    .optional()
+    .describe(
+      'How long a task may wait in External Review with an open PR and no new external review round before the board raises one operator item (external-quiet:) for it, in milliseconds. The wait runs from the latest of the task entering the column, the last Dev submit or arrival of the current PR head, and the last external review on the PR. While the PR source is blind or stale no item is raised and a raised one stays; that time still counts. A new external review, a new head or leaving the column clears the item. A signal only: it moves nothing and opens no turn. 0 or unset turns it off; else at least 300000 (5 minutes). Only on the external-review column; a disabled one ignores it.',
+    ),
   quietTurnAfterMs: z
     .int()
     .min(1)
@@ -375,6 +382,20 @@ export function approvalRuleOf(project: {
   return column?.enabled === true && column.approvalRule === 'github-rules'
     ? 'github-rules'
     : 'any-approval';
+}
+
+/** The least non-zero `projects[].columns[].quietAfterMs`: 5 minutes. */
+export const MIN_EXTERNAL_QUIET_AFTER_MS = 300_000;
+
+/**
+ * How long a task waits in a project's External Review without a new external round before the
+ * board raises an operator item: the enabled external-review column's quietAfterMs, else 0 (off).
+ */
+export function externalQuietAfterMs(project: {
+  columns: readonly Pick<ColumnConfig, 'id' | 'enabled' | 'quietAfterMs'>[];
+}): number {
+  const column = project.columns.find((entry) => entry.id === 'external-review');
+  return column?.enabled === true ? (column.quietAfterMs ?? 0) : 0;
 }
 
 /** The GitHub Project status a project's ready-for-dev mirrors, with its owner and number. */
@@ -444,6 +465,23 @@ function checkBoard(items: readonly ColumnConfig[], ctx: z.RefinementCtx): void 
         code: 'custom',
         path: [i, 'approvalRule'],
         message: `Column ${JSON.stringify(item.id)} cannot set approvalRule: approvalRule is allowed only on the external-review column`,
+      });
+    }
+    if (item.quietAfterMs !== undefined && item.id !== 'external-review') {
+      ctx.addIssue({
+        code: 'custom',
+        path: [i, 'quietAfterMs'],
+        message: `Column ${JSON.stringify(item.id)} cannot set quietAfterMs: quietAfterMs is allowed only on the external-review column`,
+      });
+    } else if (
+      item.quietAfterMs !== undefined &&
+      item.quietAfterMs > 0 &&
+      item.quietAfterMs < MIN_EXTERNAL_QUIET_AFTER_MS
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [i, 'quietAfterMs'],
+        message: 'quietAfterMs must be 0 (off) or at least 300000 (5 minutes)',
       });
     }
     if (item.source !== undefined && item.id !== 'ready-for-dev') {

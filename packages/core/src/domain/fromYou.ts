@@ -205,6 +205,8 @@ export const CONVERSATION_KEY = 'conversation:';
 export const NO_SESSION_KEY = 'no-session:';
 /** The item of a github-rules task whose PR head GitHub has left undecided in External Review. */
 export const REVIEW_RULE_KEY = 'review-rule:';
+/** The item of a task waiting in External Review with no new external review round for its quietAfterMs. */
+export const EXTERNAL_QUIET_KEY = 'external-quiet:';
 
 /** The block an item is about: its ledger block, else the block its key names. */
 export function itemBlockRef(item: {

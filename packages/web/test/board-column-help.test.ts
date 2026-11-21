@@ -165,6 +165,7 @@ const answer = (qa: { id: string; links: never[] } | null = qaSession) =>
           unhealthyAfterMs: 600_000,
           text: 'Quiet turns.',
         },
+        quiet: null,
       },
     }),
     policyColumn('external-review', {

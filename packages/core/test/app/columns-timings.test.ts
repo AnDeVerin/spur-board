@@ -179,3 +179,54 @@ it.each([
     }
   },
 );
+
+it.each<{ name: string; quietAfterMs: number | undefined }>([
+  { name: 'set', quietAfterMs: 600_000 },
+  { name: 'zero', quietAfterMs: 0 },
+  { name: 'unset', quietAfterMs: undefined },
+])(
+  'describes the External Review quiet item and shows quietAfterMs in config.get when $name',
+  async ({ quietAfterMs }) => {
+    const store = openTempStore('board-column-quiet-').store;
+    stores.push(store);
+    const config = configSchema.parse({
+      projects: [
+        {
+          id: 'policy',
+          tracker: { type: 'github-issues', repo: 'o/r', label: 'board' },
+          repos: ['o/r'],
+          operatorGithubLogin: 'operator',
+          columns: (['todo', 'dev', 'review', 'external-review', 'done'] satisfies ColumnId[]).map(
+            (id) => ({
+              id,
+              ...(id !== 'external-review' || quietAfterMs === undefined ? {} : { quietAfterMs }),
+            }),
+          ),
+        },
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    const registry = createOperationRegistry({
+      config,
+      clock: { now: () => 0 },
+      completeSince: new Map(),
+    });
+    const query = createQuery({ store, config, clock: { now: () => 0 } });
+    const described = (await query(registry['columns.describe'], {}, 'operator')).projects[0]
+      ?.columns;
+    const quiet = described?.find((entry) => entry.id === 'external-review')?.escalation.quiet;
+    expect(quiet?.operatorItemAfterMs).toBe(quietAfterMs ?? 0);
+    expect(quiet?.text).toContain('quietAfterMs');
+    expect(quiet?.text).toContain('external-quiet:');
+    expect(quiet?.text.split(/\.\s/).length).toBeLessThanOrEqual(2);
+    for (const other of described?.filter((entry) => entry.id !== 'external-review') ?? [])
+      expect(other.escalation.quiet).toBeNull();
+    const compact = (await query(registry['config.get'], {}, 'operator')).projects[0]?.columns;
+    const external = compact?.find((entry) => entry.id === 'external-review');
+    if (quietAfterMs === 600_000) expect(external?.quietAfterMs).toBe(600_000);
+    else expect(external).not.toHaveProperty('quietAfterMs');
+    for (const other of compact?.filter((entry) => entry.id !== 'external-review') ?? [])
+      expect(other).not.toHaveProperty('quietAfterMs');
+  },
+);

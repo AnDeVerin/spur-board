@@ -50,6 +50,7 @@ import {
 } from './dispatcher.ts';
 import { dispatchCloseAfterMerge, dispatchSplitPr, dispatchTicketDoneNoPr } from './split-pr.ts';
 import { empty } from './empty.ts';
+import { externalReviewQuiet } from './external-quiet.ts';
 import { feedCodeHints } from './feed-code-hints.ts';
 import { prFinality } from './pr-finality.ts';
 import { qaCarried, qaSkipped } from './qa-basis.ts';
@@ -225,6 +226,7 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchUnresolvedThread,
   dispatchApprovalWithNotes,
   dispatchUnboundReview,
+  externalReviewQuiet,
   qaCarried,
   qaSkipped,
   approvalStale,

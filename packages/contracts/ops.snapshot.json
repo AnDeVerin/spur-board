@@ -1,5 +1,5 @@
 {
-  "version": "15eec946e82137358ab13587d31c2b38426ee2f42c775fba57f0983d4efe1b30",
+  "version": "82b21ec16a7025ede7cd8c1ec4b1aef4640343b5c5fb58016bfe74a7e76a6662",
   "grants": [
     "operator",
     "project-agent",
@@ -12398,6 +12398,12 @@
                         "type": "integer",
                         "minimum": 1,
                         "maximum": 9007199254740991
+                      },
+                      "quietAfterMs": {
+                        "description": "How long a task waits in External Review without a new external review round before the operator item, in milliseconds; present only on the external-review column when above 0.",
+                        "type": "integer",
+                        "minimum": 300000,
+                        "maximum": 9007199254740991
                       }
                     },
                     "required": ["id", "executor"],
@@ -12553,7 +12559,12 @@
                       "session": null,
                       "text": "No executor turn opens in the Todo group, even with a configured binding."
                     },
-                    "escalation": { "chain": [], "noRecipient": null, "silent": null },
+                    "escalation": {
+                      "chain": [],
+                      "noRecipient": null,
+                      "silent": null,
+                      "quiet": null
+                    },
                     "movedBy": {
                       "kind": "manual",
                       "text": "Manual placement; work starting leaves the whole Todo group."
@@ -13069,9 +13080,32 @@
                               { "type": "null" }
                             ],
                             "description": "Taken-agent-turn silence policy; null for operator, dispatcher and Todo."
+                          },
+                          "quiet": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "operatorItemAfterMs": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991,
+                                    "description": "Effective quietAfterMs: how long a task waits here without a new external review round before one operator item; 0 is off."
+                                  },
+                                  "text": {
+                                    "type": "string",
+                                    "description": "What the item is and that it moves nothing and opens no turn."
+                                  }
+                                },
+                                "required": ["operatorItemAfterMs", "text"],
+                                "additionalProperties": false
+                              },
+                              { "type": "null" }
+                            ],
+                            "description": "No-new-external-round policy; present (0 = off) on External Review, null elsewhere."
                           }
                         },
-                        "required": ["chain", "noRecipient", "silent"],
+                        "required": ["chain", "noRecipient", "silent", "quiet"],
                         "additionalProperties": false,
                         "description": "Question and silent-executor escalation."
                       },
