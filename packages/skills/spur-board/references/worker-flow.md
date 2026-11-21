@@ -7,8 +7,8 @@
   doorbell. Update: keyed `board comment <task> <text>`.
 - A return to Dev: ack its Dev turn and read the reason in `board task <task>`. Code a review
   finding only if it breaks the task's goal in its target setup or regresses the release, else
-  put it under PR Risk with a thread reply. For a return a gate caused (red CI,
-  draft, conflict) with no finding: clear that gate. Then keyed `board submit <turn> <sha>`.
+  put it under PR Risk with a thread reply. Always clear a failing gate that caused the
+  return (red CI, draft, conflict), finding or not. Then keyed `board submit <turn> <sha>`.
   The take reads the "back" code block; your confirmed submit closes it `done`, no unblock.
 - Close a "back" block by hand: keyed `board unblock <block> --done <commit/PR link>` once the
   fix is in, only if `board task <task>` shows it open with `addressee` worker, and that

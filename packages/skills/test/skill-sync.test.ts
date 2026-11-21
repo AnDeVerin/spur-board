@@ -284,7 +284,7 @@ describe('product skill sync', () => {
     );
   });
 
-  // Every shipped return-to-Dev step: review findings take the scope rule, gate returns clear the gate.
+  // Every shipped return-to-Dev step: review findings take the scope rule, any failing gate is cleared, finding or not.
   it.each([
     ['SKILL.md', skill, '- A return:'],
     ['worker-flow.md', workerFlow, '- A return to Dev:'],
@@ -294,8 +294,9 @@ describe('product skill sync', () => {
       /review\s+finding[\s\S]*breaks the task's goal in its\s+target\s+setup\s+or\s+regresses\s+the\s+release[\s\S]*PR\s+Risk\s+with\s+a\s+thread\s+reply/,
     );
     expect(step).toMatch(
-      /return\s+a\s+gate\s+caused\s+\(red\s+CI,\s+draft,\s+conflict\)\s+with\s+no\s+finding:\s+clear\s+that\s+gate/,
+      /[Aa]lways\s+clear\s+a\s+failing\s+gate\s+that\s+caused\s+the\s+return\s+\(red\s+CI,\s+draft,\s+conflict\),\s+finding\s+or\s+not/,
     );
+    expect(step).not.toMatch(/with\s+no\s+finding/);
     expect(step).toMatch(/board submit <turn> <sha>|then submit/);
     expect(text).not.toMatch(/fix it\b|fix and submit/);
   });
