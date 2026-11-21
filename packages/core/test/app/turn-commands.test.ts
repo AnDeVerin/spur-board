@@ -60,7 +60,16 @@ function board(
   mode: 'shadow' | 'on' = 'shadow',
   qaOrchestrator = 'qa',
   devOrchestrator = 'none',
+  /** Adds project `other`, which alone lists the operator Spur project `other-ops`. */
+  otherProject = false,
 ) {
+  const other = {
+    id: 'other',
+    tracker: { type: 'github-issues', repo: 'o/other', label: 'board' },
+    repos: ['o/other'],
+    operatorGithubLogin: 'operator',
+    spurProjects: [{ name: 'other-ops', role: 'operator' }],
+  };
   return configSchema.parse({
     projects: [
       {
@@ -86,6 +95,7 @@ function board(
         ],
         dispatcher: { mode },
       },
+      ...(otherProject ? [other] : []),
     ],
     operator: { slack: 'operator' },
     digest: { tz: 'UTC' },
@@ -134,6 +144,7 @@ async function setup(
     /** When GitHub and Spur last completed a poll, with `complete`; default `AT`. */
     completeAt?: string;
     pr?: Partial<PrFacts>;
+    otherProject?: boolean;
   } = {},
 ) {
   const config = board(
@@ -141,6 +152,7 @@ async function setup(
     options.mode,
     options.qaOrchestrator,
     options.devOrchestrator,
+    options.otherProject,
   );
   const clock = { now: () => Date.parse(AT) };
   const store = openTempStore('board-turn-').store;
@@ -3069,6 +3081,21 @@ describe('operator takeover', () => {
           .where('closed_at', 'is', null)
           .execute();
         expect(open).toEqual([{ role: 'orchestrator:qa' }]);
+      },
+    );
+
+    it.each(BINDINGS)(
+      "refuses an ack of a %s operator turn by another project's operator with forbidden",
+      async (binding) => {
+        const ctx = await setup({ reviewOrchestrator: binding, otherProject: true });
+        await ctx.openTurn();
+        expect((await ctx.turn()).role).toBe('operator');
+        const unchanged = await ctx.tables();
+        await expect(ctx.ack('agent:other-ops/other-ops-1')).rejects.toMatchObject({
+          code: 'forbidden',
+        });
+        expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(unchanged));
+        await expect(ctx.ack(OPS_1)).resolves.toMatchObject({ acked: ['T1'] });
       },
     );
 
