@@ -8434,6 +8434,52 @@ describe('External Review quiet item', () => {
     expect(item?.text).not.toContain('latest external review');
   });
 
+  const pr8 = { number: 8, url: 'https://github.com/o/r/pull/8' } as const;
+  it.each([
+    {
+      name: 'a same-head replacement PR waits from the time it became the active PR',
+      pr: 'o/r#8',
+      arrange: async (ctx: Board) => {
+        ctx.wait(QUIET / 2);
+        await ctx.unlinkPr(7);
+        await ctx.pr({ ...pr8, headSha: A });
+        return ctx.at();
+      },
+    },
+    {
+      name: "another linked PR's push to the active head leaves the active PR's wait",
+      pr: 'o/r#7',
+      arrange: async (ctx: Board) => {
+        const since = await entered(ctx);
+        await ctx.pr({ ...pr8, headSha: C });
+        ctx.wait(QUIET / 2);
+        await ctx.pr({ ...pr8, headSha: A });
+        return since;
+      },
+    },
+    {
+      name: "the active PR's own new head restarts the wait",
+      pr: 'o/r#7',
+      arrange: async (ctx: Board) => {
+        ctx.wait(QUIET / 2);
+        await ctx.pr({ headSha: B });
+        return ctx.at();
+      },
+    },
+  ])('$name', async ({ pr, arrange }) => {
+    const ctx = await shadowInExternal();
+    const since = await arrange(ctx);
+    await reconcileAt(ctx, since, QUIET - 60_000);
+    expect((await ctx.task()).column).toBe('external-review');
+    expect(await quietItems(ctx)).toEqual([]);
+    await reconcileAt(ctx, since, QUIET);
+    const [item, ...rest] = await quietItems(ctx);
+    expect(rest).toEqual([]);
+    expect(item?.cleared_at).toBeNull();
+    expect(item?.text).toContain(`${KEY}: ${pr} has had no new external review round for 10 min`);
+    expect(item?.text).toContain(`since ${since};`);
+  });
+
   it('a new PR head clears the item while the task stays in External Review', async () => {
     const ctx = await shadowInExternal();
     await reconcileAt(ctx, await entered(ctx), QUIET);
