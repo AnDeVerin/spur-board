@@ -1162,6 +1162,18 @@ describe('operator block feed line', () => {
     expect((await blockRow(ctx, blockId)).state).toBe('open');
     expect(await unblocked(ctx)).toEqual([]);
   });
+
+  it('leaves the block of an archived task open', async () => {
+    const ctx = await setup();
+    const { blockId, item: itemId } = await asked(ctx);
+    await ctx.store.transaction((trx) =>
+      trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute(),
+    );
+    await ctx.close(`I${String(itemId)}`);
+    expect((await item(ctx, itemId)).cleared_at).not.toBeNull();
+    expect((await blockRow(ctx, blockId)).state).toBe('open');
+    expect(await unblocked(ctx)).toEqual([]);
+  });
 });
 
 describe('an item with no task on a board without a board-wide operator', () => {
