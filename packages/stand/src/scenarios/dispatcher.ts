@@ -135,7 +135,7 @@ export async function toReadyToMerge(
 }
 
 /** The key of the operator turn item `turn:<id>` on the flow task with `reason`. */
-async function operatorItem(board: Board, reason: string): Promise<string> {
+export async function operatorItem(board: Board, reason: string): Promise<string> {
   let key: string | undefined;
   await board.until(`operator turn ${reason}`, STEP_MS, async () => {
     key = (await items(board)).find(

@@ -489,11 +489,13 @@ export async function turnReturn(
 
 /**
  * The open `code` block of the return that opened `turn`'s visit while it is still addressed to
- * the turn's role, else undefined. Taking the turn reads it; the turn's submit closes it.
+ * the turn's role (or one of `roles`), else undefined. Taking the turn reads it; the turn's
+ * submit closes it.
  */
 export async function openReturnBlock(
   db: Trx,
   turn: Pick<Selectable<TurnTable>, 'task_id' | 'column' | 'epoch' | 'role'>,
+  roles: readonly Selectable<TurnTable>['role'][] = [turn.role],
 ) {
   const returned = await turnReturn(db, turn);
   if (returned === undefined) return undefined;
@@ -504,7 +506,7 @@ export async function openReturnBlock(
     .where('task_id', '=', turn.task_id)
     .where('state', '=', 'open')
     .where('type', '=', 'code')
-    .where('addressee_role', '=', turn.role)
+    .where('addressee_role', 'in', roles)
     .executeTakeFirst();
 }
 

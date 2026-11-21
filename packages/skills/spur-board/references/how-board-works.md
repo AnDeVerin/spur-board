@@ -18,8 +18,9 @@ effective Spur projects with display names, each project's `ticketBrowseBase`
 (`<tracker baseUrl>/browse/` for Jira, else null) and each project's `checksGate`, plus `web.publicOrigin` (the listener's origin,
 null when off or not bound yet) and `web.spurUiOrigin` (null when not configured). It excludes
 credentials and adapter settings.
-A worker executor falls back to the operator when no live worker exists; unbound external review
-is handled by the dispatcher.
+An unbound Dev falls back to the operator when no live worker exists, and an unbound Done opens
+a wrap-up turn only for a live worker; unbound Review, Product Review, QA and Ready to Merge go
+to the operator, and unbound External Review to the dispatcher.
 Column bindings `none` and `operator` keep their routing meaning even when a Spur project has the
 same name.
 

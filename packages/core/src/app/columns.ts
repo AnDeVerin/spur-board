@@ -9,7 +9,7 @@ import {
   type Config,
 } from '@spur-board/contracts';
 import { blockAddressee, escalateBlock, parseAddressee } from '../domain/blocks/blocks.ts';
-import { nextColumn } from '../domain/dispatch.ts';
+import { nextColumn, operatorWhenUnbound } from '../domain/dispatch.ts';
 import { describeConditions, threadsFrom } from '../domain/gates.ts';
 import { curatorProject } from './authorize.ts';
 import type { Trx } from './board-utils.ts';
@@ -21,6 +21,26 @@ import { projectTargets, visibleProjects } from './task-queries.ts';
 import { stuckTurnAfterMs, turnExecutor } from './turns.ts';
 
 type Project = Config['projects'][number];
+
+/**
+ * The executor text of a column whose turns go to the operator: why, and the levers that hand
+ * them on. A required column cannot be disabled; the checks-gate column only after `checksGate`
+ * moves, as config validation rejects a disabled one.
+ */
+function operatorText(unbound: boolean, required: boolean, checksGate: boolean): string {
+  const why = unbound
+    ? 'No executor is bound to this column, so its turns go to the operator.'
+    : 'The board config binds this column to the operator, so its turns go to the operator.';
+  const bind =
+    'bind an orchestrator or curator to this column in the board config to hand its turns to an agent';
+  const levers = required
+    ? `Take a turn to close it yourself, or ${bind}.`
+    : `Take a turn to close it yourself, ${bind}, or disable the column to skip it${checksGate ? ' after moving checksGate to another enabled column' : ''}.`;
+  const questions = unbound
+    ? " Questions keep the routing of an unbound column: the board's own go to the task's live worker, others to the curator, else the operator."
+    : '';
+  return `${why} ${levers}${questions}`;
+}
 
 /** Policy reads reuse runtime selectors, but never choose a task-linked worker or turn owner. */
 export function createColumnsQuery(config: Config): Query<'columns.describe'> {
@@ -108,7 +128,11 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
             ? ('orchestrator' as const)
             : column.id === 'external-review'
               ? ('dispatcher' as const)
-              : ('worker' as const);
+              : operatorWhenUnbound(column.id)
+                ? ('operator' as const)
+                : ('worker' as const);
+    // An unbound column run by the operator keeps an unbound column's question routing.
+    const unbound = kind === 'operator' && column.orchestrator === 'none';
     const role: AddresseeRole =
       kind === 'curator'
         ? 'curator'
@@ -134,17 +158,20 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
             ))
       );
     };
+    const chainRole: AddresseeRole = unbound ? 'worker' : role;
     const chain =
-      kind === 'dispatcher' || metadata.group !== null ? [] : [await destination(role, 'question')];
-    if (chain.length > 0 && role !== 'operator') {
+      kind === 'dispatcher' || metadata.group !== null
+        ? []
+        : [await destination(chainRole, 'question')];
+    if (chain.length > 0 && chainRole !== 'operator') {
       let step = blockAddressee({
         type: 'needs_input',
         author,
-        authorRole: role,
+        authorRole: chainRole,
         column: column.id,
         orchestrator: column.orchestrator === 'none' ? null : column.orchestrator,
         curator,
-        hasWorker: kind === 'worker',
+        hasWorker: kind === 'worker' || unbound,
       });
       for (let i = 0; i < 3; i++) {
         chain.push(await destination(step, 'question'));
@@ -206,7 +233,11 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
             ? 'No executor turn opens in the Todo group, even with a configured binding.'
             : kind === 'dispatcher'
               ? 'The dispatcher waits for external approval; nobody takes a turn in this unbound External Review column.'
-              : `${executorDestination.text}${column.id === 'done' ? ' Done may open an agent wrap-up turn; it has no exit gate.' : ''}`,
+              : kind === 'operator' && column.id !== 'done'
+                ? operatorText(unbound, metadata.required, project.checksGate === column.id)
+                : column.id === 'done' && kind === 'worker'
+                  ? 'The task-linked live worker gets a wrap-up turn; without one no turn opens. Done has no exit gate.'
+                  : `${executorDestination.text}${column.id === 'done' ? ' Done may open an agent wrap-up turn; it has no exit gate.' : ''}`,
       },
       escalation: {
         chain,

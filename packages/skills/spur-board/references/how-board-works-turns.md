@@ -17,8 +17,7 @@ An unseen-head QA submit closes the turn while pending and gives no gate credit
 until confirmed. Confirmation survives upstream revalidation: completing Dev and
 reviews on that head needs no second QA submit. Confirmed QA survives same-head
 returns and corrections to Dev. Correction into QA clears even pending QA evidence:
-with upstream gates passing, a QA orchestrator or operator gets a fresh turn;
-executor `none` may instead reuse a valid worker submit without a new QA turn.
+with upstream gates passing, a QA orchestrator or operator gets a fresh turn.
 Retained QA cannot satisfy Dev: a return to Dev needs the current Dev visit's submit.
 
 Submissions declare provenance with `--basis tested|carried|skipped`; omitted means
@@ -49,7 +48,7 @@ Each handed entry has its `url`, `editedAt` once edited, and a review's inline
 `comments` with `url` and `threadId`. Turns of a Dev visit opened by a return
 show `returned`: who, from, the turn, the `code` block and the verbatim reason.
 A worker taking that turn reads its block; the block closes `done` with the SHA once
-the Board confirms the turn's submit.
+the Board confirms the turn's submit, an operator's included.
 
 Closed turns receive no further Board sends; Obsolete queued rings are dropped;
 a message already accepted by Spur cannot be retracted. Check `board inbox` and
@@ -57,7 +56,9 @@ act only on a current turn; reread after `turn_closed`.
 [Task history](how-board-works-history.md#task-history) lists journal events `turn_opened`,
 `turn_taken` and `turn_closed`: executor, taker, outcome.
 
-An operator takes over an open orchestrator turn, taken or not, with keyed
+An operator finds turns addressed to it in `board inbox operator`, not `board inbox`.
+An operator takes a turn addressed to it, or takes over an open orchestrator
+turn, taken or not, with keyed
 `board inbox ack <entries>`, then submits or returns it, or does both from the web
 [Turn](web-ui-task-turn.md) section. The earlier holder gets
 `not_turn_taker`, then `turn_closed`. The takeover is not sticky: the addressed
@@ -73,9 +74,10 @@ holds existing; gaps restart timing for new questions.
 An accepted ended session holding the current non-Done turn raises one
 `worker_ended` attention item immediately, with no stall block. Every end reason
 counts, including unknown; an open PR or another linked live session does not
-resolve the held turn. Start a replacement worker or archive the task. The item
-clears on turn closure, actual holder replacement, archive or departure from the
-column visit. Existing ended-holder stall blocks withdraw with a recorded reason,
+resolve the held turn. Start a replacement worker, retake an operator turn
+(`board inbox ack`), or archive the task. The item clears on turn closure,
+actual holder replacement, archive or departure from the column visit. Existing
+ended-holder stall blocks withdraw with a recorded reason,
 even while Spur is blind. Removing a link alone leaves the taken turn unresolved.
 Done wrap-up turns still close when their holder ends. A stopped session without
 an end time remains subject to live stall timing above.

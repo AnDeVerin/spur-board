@@ -1,20 +1,24 @@
 # Web UI: task turn
 
 The **Turn** section of the [task view](web-ui-task-view.md) shows the task's open orchestrator
-turn and lets the operator close it: submit the work or return it to Dev. Use it when the
-orchestrator is down or the verdict comes from elsewhere. Worker, curator and operator turns get
-no Turn section; the section sits after **Why it is here**.
+or operator turn and lets the operator close it: submit the work or return it to Dev. Use it when
+the orchestrator is down, the verdict comes from elsewhere, or no agent takes the turn. Only
+worker and curator turns get no Turn section; the section sits after **Why it is here**.
 
 ## What it shows
 
 - A line per turn: a status light, the turn id, its column, the column executor from
-  configuration, then `taken by <name> · <age>` or `not taken · <age>`. Agent names use the
-  configured Spur project display name, as in Blocks; the operator reads as `you`.
-- While the operator holds the turn: `You hold T<n>; the orchestrator cannot submit or return it
+  configuration (`operator` for an operator turn), then `taken by <name> · <age>` or
+  `not taken · <age>`. Agents read as their Spur project display name, as in
+  Blocks; the operator as `you`.
+- While the operator holds an orchestrator turn: `You hold T<n>; the orchestrator cannot submit or return it
 until you finish or it takes the turn back.`
 - A note that you can close the turn yourself, then **Submit…**, and **Return to dev…** for a
   column that can return (`review`, `product-review`, `external-review`, `qa`,
   `ready-to-merge`).
+- On an operator turn the note reads `No agent takes this turn, so it is yours to close.` until
+  the operator token holds it; then only `You hold T<n>.` shows. A Dev operator turn has no
+  Return.
 
 ## Submit
 
@@ -49,17 +53,17 @@ name and returns the task to dev. It cannot be undone, and it counts toward the 
 
 ## Take, then close
 
-Pressing the button first checks the fields: a missing or wrong field shows its error and nothing
-is sent. Then the section takes the turn with `inbox.ack` and closes it with `task.submit` or
+Pressing the button first checks the fields: an invalid field shows its error and nothing is
+sent. Then the section takes the turn with `inbox.ack` and closes it with `task.submit` or
 `task.return`. Each request carries its own idempotency key; the web listener refuses these three
 writes without one (`usage`). When the task read already shows the operator holding the turn, the
 ack is skipped.
 
 While a request runs, the button reads `Taking the turn`, then `Closing the turn`, and a status
-line says the same. The fields, the tabs, Cancel and the turn's buttons wait until it ends.
+line says the same. Fields, tabs, Cancel and the turn's buttons wait until it ends.
 
-Once the ack has landed the operator holds the turn: the orchestrator's own submit or return then
-gets `not_turn_taker`. It takes the turn back with `board inbox ack <entries>` with the turn ID.
+Once the ack lands the operator holds the turn; the orchestrator gets `not_turn_taker` until it
+acks the turn back.
 
 ## Refusals
 
@@ -69,8 +73,8 @@ next send and on Cancel. An unchanged resend uses the same keys, so a write that
 applied twice; an edited one is a new write with a new key. After `not_turn_taker` the next send
 takes the turn again with a new key. A refusal after the ack leaves the operator holding the turn,
 and the read that follows shows it in the hold line and the header. A take, submit or return
-whose answer was lost, or did not come in 15 seconds, may have landed: Cancel works at once, and
-a resend asks again under the same key, so it is safe. A submit or return without an answer keeps
+with no answer in 15 seconds may have landed: Cancel works at once, and a resend reuses the key,
+so it is safe. A submit or return without an answer keeps
 its form as sent, read-only, with
 `The earlier send may still land; send it again to settle it, or Cancel.`: the send resends that
 input until it gets an answer, and Cancel drops it. Until the read after a take, submit or
@@ -94,7 +98,7 @@ executor`, `the dispatcher mode changed` or `the task was archived`.
 
 The bound turn's buttons and the send button are disabled; **Cancel** still closes the form and
 the notice stays until the view closes or you open a form on a newer turn. When the same read
-shows a new orchestrator turn, it appears below with its own buttons, usable once no form of the
+shows a new orchestrator or operator turn, it appears below with its own buttons, usable once no form of the
 closed turn is open. Cancel there moves focus to the new turn's first button, or without one to
 the notice.
 
@@ -124,6 +128,5 @@ folding keeps the form, its text and its keys. The header sums
 up the turn: `T<n> · not taken`, `T<n> · taken by <name>` or `T<n> · you hold it`; `Closing
 T<n>…` while a request runs; `T<n> · refused, you hold it` after a refusal once the turn is held,
 else `T<n> · refused`; `T<n> submitted` or `T<n> returned` after your close; `T<n> closed by
-<name>` or `T<n> closed: <outcome>` after a close elsewhere. In the header, both `taken by <name>` and `closed by <name>` name the
-session alone, cut to 16 characters, so the section title keeps its room; the turn line and the
-notice show the full name. A newer open turn is added after a `;`. A close while the section is folded does not move focus.
+<name>` or `T<n> closed: <outcome>` after a close elsewhere. In the header, `taken by` and `closed by` name the
+session alone, cut to 16 characters; the turn line and the notice show the full name. A newer open turn is added after a `;`. A close while the section is folded does not move focus.

@@ -973,9 +973,11 @@ describe('snapshot', () => {
     // prSummary and task.get PR links. #737 adds task.order, tasks[].position, the
     // order_anchor_invalid code and the task_reordered kind; the task.order description
     // names its one-placement and non-blank key rule. #798 drops the other-project operator
-    // source from status.get bindings and rewords the inbox.operator description.
+    // source from status.get bindings and rewords the inbox.operator description. #800 names the
+    // operator's take of a turn addressed to it in inbox.ack and points it to inbox_operator, the
+    // operator kind of unbound columns in config.get and the no-turn Done without a live worker.
     expect(await catalogVersion(baseline)).toBe(
-      '899b0afa90dfbf277c19b70f2d2d9b4249f6d3eb4a1ac0afaa0b894c5868b521',
+      '1a4a7dffe577c26367bf6ec9429a6c1df638811b3ef18c34411bbdc48fa17d7a',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

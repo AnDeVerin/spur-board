@@ -147,6 +147,17 @@ describe('why rows', () => {
       value: 'yours · open · 2h',
       status: 'wait',
     });
+    expect(
+      turnRow({ ...turn, addressee: 'operator', taken: { by: 'operator', at: at(5) } }),
+    ).toEqual({ key: 'Open turn T4', value: 'yours · taken · 5m' });
+    expect(
+      turnRow({ ...turn, addressee: 'operator', taken: { by: 'agent:ops/ops-1', at: at(5) } }),
+    ).toEqual({ key: 'Open turn T4', value: 'operator ops-1 · taken · 5m' });
+    expect(
+      whyRows(task({}, { turn: { ...turn, addressee: 'operator' } }), COLUMNS, NOW, true).find(
+        (row) => row.key.startsWith('Open turn'),
+      ),
+    ).toEqual({ key: 'Open turn T4', value: 'operator · holder unknown', status: 'unchecked' });
     expect(turnRow(null)).toEqual({ key: 'Open turn', value: 'none' });
   });
 
