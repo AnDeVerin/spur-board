@@ -112,8 +112,8 @@ it('describes only visible enabled column policies without changing board state'
     exit: { to: null, conditions: [] },
     limits: null,
   });
-  expect(project?.columns.find((column) => column.id === 'done')?.executor.text).toContain(
-    'wrap-up turn',
+  expect(project?.columns.find((column) => column.id === 'done')?.executor.text).toBe(
+    'The task-linked live worker gets a wrap-up turn; without one no turn opens. Done has no exit gate.',
   );
   expect(
     (await query(registry['columns.describe'], {}, 'operator')).projects.map((entry) => entry.id),

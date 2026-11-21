@@ -34,7 +34,7 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
         /Each column has one executor/,
         /worker owns the code and branch/,
         /`worker`, `operator`, `curator` and\s*`orchestrator`/,
-        /`none` \(Dev, Done: live worker, else operator; External Review: no turn; others:\s*operator\), `operator`, or project with role\s*`orchestrator` or `curator`/,
+        /`none` \(Dev: live worker, else operator; Done: worker wrap-up or none; External\s*Review: no turn; others: operator\), `operator`, or project with role\s*`orchestrator` or `curator`/,
         /board-wide/,
         /project-level binding wins/,
       ],

@@ -297,7 +297,7 @@ const columnConfig = z.strictObject({
   orchestrator: nonEmpty
     .default('none')
     .describe(
-      "Who takes the column's turns. none: in Dev and Done the task's live worker session, else the operator; in Review, Product Review, QA and Ready to Merge the operator; External Review waits for approval with no turn. operator: the operator, who also gets the questions asked in the column. Otherwise the name of a spurProjects entry with role orchestrator or curator whose sessions orchestrate the column and get the questions others ask in it. A column left at none, and enabled, takes the top-level spurProjects orchestrator that lists it.",
+      "Who takes the column's turns. none: in Dev the task's live worker session, else the operator; in Done a wrap-up turn for the live worker, else no turn; in Review, Product Review, QA and Ready to Merge the operator; External Review waits for approval with no turn. operator: the operator, who also gets the questions asked in the column. Otherwise the name of a spurProjects entry with role orchestrator or curator whose sessions orchestrate the column and get the questions others ask in it. A column left at none, and enabled, takes the top-level spurProjects orchestrator that lists it.",
     ),
   cycleLimit: z
     .int()

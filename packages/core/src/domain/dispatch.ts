@@ -118,8 +118,8 @@ function orchestratorOf(project: GateProject, column: ColumnId): string {
 
 /**
  * Whether a column with orchestrator `none` goes to the operator, not the worker: Review, Product
- * Review, QA and Ready to Merge. Dev and Done fall back to the worker, External Review waits with
- * no turn and the Todo group opens none.
+ * Review, QA and Ready to Merge. Dev falls back to the worker, Done opens a wrap-up turn only for
+ * a live worker, External Review waits with no turn and the Todo group opens none.
  */
 export function operatorWhenUnbound(column: ColumnId): boolean {
   return (

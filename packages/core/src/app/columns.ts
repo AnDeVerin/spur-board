@@ -234,7 +234,9 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
               ? 'The dispatcher waits for external approval; nobody takes a turn in this unbound External Review column.'
               : kind === 'operator' && column.id !== 'done'
                 ? operatorText(unbound, metadata.required)
-                : `${executorDestination.text}${column.id === 'done' ? ' Done may open an agent wrap-up turn; it has no exit gate.' : ''}`,
+                : column.id === 'done' && kind === 'worker'
+                  ? 'The task-linked live worker gets a wrap-up turn; without one no turn opens. Done has no exit gate.'
+                  : `${executorDestination.text}${column.id === 'done' ? ' Done may open an agent wrap-up turn; it has no exit gate.' : ''}`,
       },
       escalation: {
         chain,

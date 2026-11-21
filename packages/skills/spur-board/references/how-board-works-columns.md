@@ -47,8 +47,8 @@ Each complete read moves idle tasks between it and `todo`, overriding `--correct
 `board config get`: `group: todo`; `board status`: `columnGroups`.
 
 Each column has one executor: `projects[].columns[].orchestrator`:
-`none` (Dev, Done: live worker, else operator; External Review: no turn; others:
-operator), `operator`, or project with role
+`none` (Dev: live worker, else operator; Done: worker wrap-up or none; External
+Review: no turn; others: operator), `operator`, or project with role
 `orchestrator` or `curator`. The worker owns the code and branch; others inspect/return, never push.
 
 `projects[].spurProjects[].role` accepts `worker`, `operator`, `curator` and
