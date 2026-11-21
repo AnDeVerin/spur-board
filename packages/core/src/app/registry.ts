@@ -13,6 +13,7 @@ import {
 } from '@spur-board/contracts';
 import type { statusOutputSchema } from '@spur-board/contracts/browser';
 import type { z } from 'zod';
+import { operatorWhenUnbound } from '../domain/dispatch.ts';
 import { authorize, projectTarget } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
 import { createColumnsQuery } from './columns.ts';
@@ -204,7 +205,9 @@ export function createOperationRegistry(deps: {
                           ? ('orchestrator' as const)
                           : column.id === 'external-review'
                             ? ('dispatcher' as const)
-                            : ('worker' as const),
+                            : operatorWhenUnbound(column.id)
+                              ? ('operator' as const)
+                              : ('worker' as const),
                   name: named?.name ?? null,
                 },
                 ...(group === null

@@ -221,10 +221,12 @@ function conditionRow(condition: TaskGate['conditions'][number]): WhyRow {
 function turnRow(turn: BoardTask['turn'], now: number, holderUnknown: boolean): WhyRow {
   if (turn === null) return { key: 'Open turn', value: 'none' };
   const key = `Open turn ${turn.id}`;
-  if (turn.addressee === 'operator')
-    return { key, value: `yours · open · ${age(turn.at, now)}`, status: 'wait' };
   const role = turn.addressee.split(':')[0] ?? turn.addressee;
   if (holderUnknown) return { key, value: `${role} · holder unknown`, status: 'unchecked' };
+  if (turn.addressee === 'operator' && turn.taken === null)
+    return { key, value: `yours · open · ${age(turn.at, now)}`, status: 'wait' };
+  if (turn.addressee === 'operator' && turn.taken?.by === 'operator')
+    return { key, value: `yours · taken · ${age(turn.taken.at, now)}` };
   if (turn.taken)
     return {
       key,

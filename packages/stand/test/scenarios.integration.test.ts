@@ -292,6 +292,7 @@ describe('scenarios', () => {
       'dispatch-reviewer-status-comment',
       'dispatch-unresolved-thread',
       'dispatch-approval-with-notes',
+      'dispatch-unbound-review',
       'external-review-quiet',
       'qa-carried',
       'qa-skipped',

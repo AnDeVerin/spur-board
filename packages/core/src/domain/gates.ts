@@ -166,31 +166,14 @@ function checksVerdict(pr: NonNullable<TaskGateFacts['pr']>, waived: boolean): V
   return 'green';
 }
 
-function orchestratorOf(column: ColumnId, columns: readonly GateColumn[]): string | undefined {
-  return columns.find((c) => c.id === column)?.orchestrator;
-}
-
 /**
- * Whether the column's executor is done on the current head: a submit or mark in the column is on
- * head. A column without an orchestrator is executed by the worker, so any worker submit on head
- * (a submit in a column without an orchestrator) also counts there.
+ * Whether the column's executor is done on the current head: a submit or mark in the column itself
+ * is on head, whoever made it. A submit in another column never counts.
  */
-function executorDone(
-  column: ColumnId,
-  facts: TaskGateFacts,
-  columns: readonly GateColumn[],
-): boolean {
+function executorDone(column: ColumnId, facts: TaskGateFacts): boolean {
   const head = facts.pr?.headSha;
   if (head === undefined) return false;
-  const onHead = facts.marks.filter((mark) => mark.headSha === head);
-  if (onHead.some((mark) => mark.column === column)) return true;
-  if (orchestratorOf(column, columns) !== 'none') return false;
-  return onHead.some(
-    (mark) =>
-      mark.kind === 'submit' &&
-      !(column === 'dev' && mark.column === 'qa') &&
-      orchestratorOf(mark.column, columns) === 'none',
-  );
+  return facts.marks.some((mark) => mark.headSha === head && mark.column === column);
 }
 
 /**
@@ -317,14 +300,14 @@ const CONDITION_DEFINITIONS: Record<GateCondition, ConditionDefinition> = {
     reasons: (facts) => (facts.unresolvedThreads > 0 ? ['unresolved_threads'] : []),
   },
   submit_on_head: {
-    text: 'The executor has submitted on the current PR head. Worker submits can satisfy other unbound worker stages; a QA submit does not satisfy Dev.',
-    reasons: (facts, project, column) =>
-      executorDone(column, facts, project.columns) ? [] : ['no_submit_on_head'],
+    text: "The column's executor has submitted on the current PR head; a submit in another column does not count.",
+    reasons: (facts, _project, column) =>
+      executorDone(column, facts) ? [] : ['no_submit_on_head'],
   },
   review_on_head: {
-    text: 'The executor has reviewed or submitted on the current PR head.',
-    reasons: (facts, project, column) =>
-      executorDone(column, facts, project.columns) ? [] : ['no_review_on_head'],
+    text: "The column's executor has reviewed or submitted on the current PR head; a submit in another column does not count.",
+    reasons: (facts, _project, column) =>
+      executorDone(column, facts) ? [] : ['no_review_on_head'],
   },
   approved: {
     text: 'Approved by an external reviewer.',

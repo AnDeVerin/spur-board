@@ -59,7 +59,17 @@ function board(
   reviewOrchestrator = 'rev',
   mode: 'shadow' | 'on' = 'shadow',
   qaOrchestrator = 'qa',
+  devOrchestrator = 'none',
+  /** Adds project `other`, which alone lists the operator Spur project `other-ops`. */
+  otherProject = false,
 ) {
+  const other = {
+    id: 'other',
+    tracker: { type: 'github-issues', repo: 'o/other', label: 'board' },
+    repos: ['o/other'],
+    operatorGithubLogin: 'operator',
+    spurProjects: [{ name: 'other-ops', role: 'operator' }],
+  };
   return configSchema.parse({
     projects: [
       {
@@ -77,7 +87,7 @@ function board(
           { id: 'todo', orchestrator: 'none' },
           { id: 'triage', orchestrator: 'none', enabled: false },
           { id: 'ready-for-dev', orchestrator: 'none' },
-          { id: 'dev', orchestrator: 'none' },
+          { id: 'dev', orchestrator: devOrchestrator },
           { id: 'review', orchestrator: reviewOrchestrator },
           { id: 'qa', orchestrator: qaOrchestrator },
           { id: 'ready-to-merge', orchestrator: 'none' },
@@ -85,6 +95,7 @@ function board(
         ],
         dispatcher: { mode },
       },
+      ...(otherProject ? [other] : []),
     ],
     operator: { slack: 'operator' },
     digest: { tz: 'UTC' },
@@ -125,6 +136,7 @@ async function setup(
     column?: ColumnId;
     reviewOrchestrator?: string;
     qaOrchestrator?: string;
+    devOrchestrator?: string;
     noPoller?: boolean;
     mode?: 'shadow' | 'on';
     /** GitHub and Spur count as polled to the end since start, so the dispatcher decides. */
@@ -132,9 +144,16 @@ async function setup(
     /** When GitHub and Spur last completed a poll, with `complete`; default `AT`. */
     completeAt?: string;
     pr?: Partial<PrFacts>;
+    otherProject?: boolean;
   } = {},
 ) {
-  const config = board(options.reviewOrchestrator, options.mode, options.qaOrchestrator);
+  const config = board(
+    options.reviewOrchestrator,
+    options.mode,
+    options.qaOrchestrator,
+    options.devOrchestrator,
+    options.otherProject,
+  );
   const clock = { now: () => Date.parse(AT) };
   const store = openTempStore('board-turn-').store;
   stores.push(store);
@@ -1431,7 +1450,7 @@ describe('turn refusals', () => {
   });
 
   it('polls nothing for a caller the grants deny', async () => {
-    const ctx = await setup({ reviewOrchestrator: 'none' });
+    const ctx = await setup({ column: 'dev' });
     expect((await ctx.openTurn()).role).toBe('worker');
     await ctx.ack(WORKER_1);
     await ctx.store.transaction(async (trx) => {
@@ -1506,14 +1525,22 @@ describe('task.return', () => {
     expect(ctx.calls).toHaveLength(0);
   });
 
-  /** A review turn on a board with the dispatcher on, returned to Dev by rev-1: T2, B1. */
-  async function returnedToDev() {
+  /**
+   * A review turn on a board with the dispatcher on, returned to Dev by rev-1: T2, B1. `noWorker`
+   * drops the worker's session link before the return, so the Dev turn goes to the operator.
+   */
+  async function returnedToDev(options: { devOrchestrator?: string; noWorker?: boolean } = {}) {
     const green = { name: 'ci', state: 'success' as const, completedAt: AT };
     const ctx = await taken({
       mode: 'on',
       complete: true,
       pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
+      ...(options.devOrchestrator === undefined
+        ? {}
+        : { devOrchestrator: options.devOrchestrator }),
     });
+    if (options.noWorker === true)
+      await ctx.store.db.deleteFrom('link').where('session_id', '=', 'worker-1').execute();
     const clock = { now: () => Date.parse(AT) };
     const registry = createOperationRegistry({
       config: ctx.config,
@@ -1594,23 +1621,56 @@ describe('task.return', () => {
   });
 
   it.each([
-    { name: 'a new head', head: B },
-    { name: 'the same head', head: A },
-  ])('a submit of $name on the returned Dev turn closes its code block', async ({ head }) => {
-    const { ctx, block, unblocked } = await returnedToDev();
-    await ctx.ack(WORKER_1, 'T2');
+    { name: "the worker's submit of a new head", head: B, actor: WORKER_1, options: {} },
+    { name: "the worker's submit of the same head", head: A, actor: WORKER_1, options: {} },
+    {
+      name: "the operator's submit at an unbound Dev with no worker",
+      head: B,
+      actor: 'operator' as const,
+      options: { noWorker: true },
+    },
+    {
+      name: "the operator's submit at an operator-bound Dev the return rang the worker for",
+      head: B,
+      actor: 'operator' as const,
+      options: { devOrchestrator: 'operator' },
+    },
+    {
+      name: "a named Dev orchestrator's submit while the worker is live",
+      head: B,
+      actor: QA_1,
+      options: { devOrchestrator: 'qa' },
+    },
+  ])('$name on the returned Dev turn answers its code block', async ({ head, actor, options }) => {
+    const { ctx, block, unblocked } = await returnedToDev(options);
+    expect(await block()).toMatchObject({ state: 'open', addressee_role: 'worker' });
+    const turn = await ctx.store.db
+      .selectFrom('turn')
+      .select('role')
+      .where('id', '=', 2)
+      .executeTakeFirstOrThrow();
+    const role = { [WORKER_1]: 'worker', [QA_1]: 'orchestrator:dev' }[actor] ?? 'operator';
+    expect(turn.role).toBe(role);
+    await ctx.ack(actor, 'T2');
     ctx.commits(head);
 
-    await expect(ctx.submit(WORKER_1, head, 'submit-t2', 'T2')).resolves.toMatchObject({
+    await expect(ctx.submit(actor, head, 'submit-t2', 'T2')).resolves.toMatchObject({
       turn: 'T2',
       sha: head,
+      status: 'confirmed',
     });
 
+    if (role === 'orchestrator:dev') {
+      // The block stays on the live worker, who has not read it yet.
+      expect(await block()).toMatchObject({ state: 'open', outcome: null });
+      expect(await unblocked()).toEqual([]);
+      return;
+    }
     expect(await block()).toMatchObject({
       state: 'unblocked',
       outcome: 'done',
       outcome_reason: head,
-      unblocked_by: WORKER_1,
+      unblocked_by: actor,
       unblocked_at: AT,
     });
     expect(await unblocked()).toEqual([
@@ -2452,12 +2512,9 @@ describe('task.move', () => {
         .select(['column', 'closed_reason'])
         .orderBy('id')
         .execute();
-      expect(turns.filter((turn) => turn.column === 'qa')).toHaveLength(
-        qaOrchestrator === 'none' ? 1 : 2,
-      );
-      expect((await ctx.task()).column).toBe(qaOrchestrator === 'none' ? 'ready-to-merge' : 'qa');
-      const actor =
-        qaOrchestrator === 'qa' ? QA_1 : qaOrchestrator === 'operator' ? 'operator' : WORKER_1;
+      expect(turns.filter((turn) => turn.column === 'qa')).toHaveLength(2);
+      expect((await ctx.task()).column).toBe('qa');
+      const actor = qaOrchestrator === 'qa' ? QA_1 : 'operator';
       await expect(ctx.submit(actor, A, 'late-after-correction')).rejects.toMatchObject({
         code: 'turn_closed',
       });
@@ -2908,7 +2965,7 @@ describe('operator takeover', () => {
     expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(held));
   });
 
-  it('keeps the bare operator to orchestrator turns', async () => {
+  it('keeps the bare operator to turns', async () => {
     const ctx = await taken();
     const notice = await ctx.turnNotice(1);
     const ring = `N${String(notice.id)}`;
@@ -2936,7 +2993,7 @@ describe('operator takeover', () => {
     });
     expect(await eventsSince(ctx, denied)).toEqual([]);
 
-    const worker = await setup({ reviewOrchestrator: 'none' });
+    const worker = await setup({ column: 'dev' });
     await worker.openTurn();
     expect((await worker.turn()).role).toBe('worker');
     const workerSeen = (await worker.events()).length;
@@ -2944,10 +3001,113 @@ describe('operator takeover', () => {
     expect(await eventsSince(worker, workerSeen)).toEqual([]);
     await worker.ack(WORKER_1);
     await expect(worker.ack('operator')).rejects.toMatchObject({ code: 'not_found' });
+  });
 
-    const own = await setup({ reviewOrchestrator: 'operator' });
-    await own.openTurn();
-    expect((await own.turn()).role).toBe('operator');
-    await expect(own.ack('operator')).rejects.toMatchObject({ code: 'not_found' });
+  describe('operator turns', () => {
+    const BINDINGS = ['none', 'operator'] as const;
+    const cases = BINDINGS.flatMap((binding) => OPERATORS.map((actor) => ({ binding, actor })));
+
+    it.each(cases)(
+      '$actor takes an untaken $binding Review operator turn and submits it with a basis',
+      async ({ binding, actor }) => {
+        const ctx = await setup({ reviewOrchestrator: binding });
+        await ctx.openTurn();
+        expect((await ctx.turn()).role).toBe('operator');
+        await expect(ctx.ack(actor)).resolves.toMatchObject({ acked: ['T1'] });
+        expect(await ctx.turn()).toMatchObject({ acked_by: actor, acked_at: AT });
+        expect(
+          await ctx.store.db
+            .selectFrom('event')
+            .select(['actor', 'actor_ref', 'payload'])
+            .where('kind', '=', 'turn_taken')
+            .execute(),
+        ).toEqual([{ ...actorOf(actor), payload: JSON.stringify({ turn: 'T1', taker: actor }) }]);
+        ctx.commits(A);
+        await expect(
+          ctx.submit(actor, A, 'op-submit', 'T1', { basis: 'skipped', reason: 'Checked by hand.' }),
+        ).resolves.toMatchObject({ turn: 'T1', status: 'confirmed' });
+        expect(await ctx.store.db.selectFrom('submission').selectAll().execute()).toMatchObject([
+          { author: actor, commit_sha: A, basis: 'skipped' },
+        ]);
+        expect(await closedRows(ctx)).toEqual([actorOf(actor)]);
+      },
+    );
+
+    it.each(BINDINGS)(
+      'lets the other operator re-take a taken %s operator turn',
+      async (binding) => {
+        const ctx = await setup({ reviewOrchestrator: binding });
+        await ctx.openTurn();
+        await ctx.ack('operator');
+        await expect(ctx.ack(OPS_1)).resolves.toMatchObject({ acked: ['T1'] });
+        expect((await ctx.turn()).acked_by).toBe(OPS_1);
+      },
+    );
+
+    it.each(cases)('$actor returns a $binding operator turn to Dev', async ({ binding, actor }) => {
+      const ctx = await setup({ reviewOrchestrator: binding });
+      await ctx.openTurn();
+      await ctx.ack(actor);
+      await expect(ctx.return(actor, 'op-return')).resolves.toMatchObject({
+        task: { key: 'o/r#9', column: 'dev' },
+        block: { id: 'B1', author: actor, addressee: 'worker' },
+      });
+      expect(await ctx.turn()).toMatchObject({ closed_reason: 'returned' });
+      expect(await closedRows(ctx)).toEqual([actorOf(actor)]);
+    });
+
+    it.each(OPERATORS)(
+      "passes an unbound Review on %s's submit, not on the worker's Dev submit",
+      async (actor) => {
+        const green = { name: 'ci', state: 'success' as const, completedAt: AT };
+        const ctx = await setup({
+          reviewOrchestrator: 'none',
+          mode: 'on',
+          complete: true,
+          pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
+        });
+        await ctx.submitted('dev', A, WORKER_1);
+        ctx.commits(A);
+        await ctx.openTurn();
+        expect((await ctx.turn()).role).toBe('operator');
+        await ctx.ack(actor);
+        await expect(ctx.submit(actor, A, 'op-submit')).resolves.toMatchObject({
+          status: 'confirmed',
+          task: { column: 'qa' },
+        });
+        const open = await ctx.store.db
+          .selectFrom('turn')
+          .select('role')
+          .where('closed_at', 'is', null)
+          .execute();
+        expect(open).toEqual([{ role: 'orchestrator:qa' }]);
+      },
+    );
+
+    it.each(BINDINGS)(
+      "refuses an ack of a %s operator turn by another project's operator with forbidden",
+      async (binding) => {
+        const ctx = await setup({ reviewOrchestrator: binding, otherProject: true });
+        await ctx.openTurn();
+        expect((await ctx.turn()).role).toBe('operator');
+        const unchanged = await ctx.tables();
+        await expect(ctx.ack('agent:other-ops/other-ops-1')).rejects.toMatchObject({
+          code: 'forbidden',
+        });
+        expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(unchanged));
+        await expect(ctx.ack(OPS_1)).resolves.toMatchObject({ acked: ['T1'] });
+      },
+    );
+
+    it.each(BINDINGS)(
+      'refuses a worker ack of a %s operator turn with not_found',
+      async (binding) => {
+        const ctx = await setup({ reviewOrchestrator: binding });
+        await ctx.openTurn();
+        const unchanged = await ctx.tables();
+        await expect(ctx.ack(WORKER_1)).rejects.toMatchObject({ code: 'not_found' });
+        expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(unchanged));
+      },
+    );
   });
 });

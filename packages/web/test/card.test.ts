@@ -56,6 +56,18 @@ describe('task card', () => {
       tone: 'warn',
       hollow: false,
     });
+    expect(
+      view({ addressee: 'operator', taken: { by: 'operator', at: minutes(5) } }),
+    ).toMatchObject({ kind: 'you', tail: 'taken · 5m' });
+    expect(
+      view({ addressee: 'operator', taken: { by: 'agent:ops/ops-1', at: minutes(5) } }),
+    ).toMatchObject({
+      kind: 'agent',
+      role: 'operator',
+      name: 'ops-1',
+      tail: 'taken · 5m',
+      tone: 'working',
+    });
     expect(view({ ...taken, stalledSince: minutes(40) })).toMatchObject({
       kind: 'stall',
       tail: 'stalled · 40m',
