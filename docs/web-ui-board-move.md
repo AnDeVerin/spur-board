@@ -31,10 +31,10 @@ live updates are unavailable the send is disabled and the hint adds why, then
 
 When `ready-for-dev` mirrors a GitHub Project, only the Project moves tasks into or out of it.
 The menu lists those moves disabled, each with
-`ready-for-dev mirrors GitHub Project "<name>". Change the task status there instead.` under
-it. A drag into or out of the part marks the part under the card in the attention colour with
-that text as its note (a spine's tooltip) and takes no drop. The task view disables those part
-buttons and shows the text after them. Moves between the other parts work as before.
+`ready-for-dev mirrors GitHub Project "<name>" (<owner>/<number>, field <field>). Change the task status there instead.`
+under it. A drag into or out of the part marks the part under the card in the attention colour
+with that text as its note (a spine's tooltip) and takes no drop. The task view disables those
+part buttons and shows the text after them. Moves between the other parts work as before.
 
 A mirror that cannot be read is frozen: tasks stay where its last complete read put them. The
 part head adds ` · frozen` and its tooltip names the cause; the band shows a warning dot; a

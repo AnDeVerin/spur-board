@@ -118,7 +118,7 @@ export function mirrorRefusal(
   for (const id of [to, from]) {
     const source = parts.find((part) => part.id === id)?.source;
     if (source?.kind === 'mirror')
-      return `${id} mirrors GitHub Project "${source.name}". Change the task status there instead.`;
+      return `${id} mirrors GitHub Project "${source.name}" (${source.project}, field ${source.field}). Change the task status there instead.`;
   }
   return undefined;
 }

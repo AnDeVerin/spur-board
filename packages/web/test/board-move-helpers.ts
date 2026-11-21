@@ -49,9 +49,9 @@ export const mirrored = (extra: Record<string, unknown> = {}) =>
     configColumn('done'),
   ]);
 export const MIRRORED = mirrored();
-/** The refusal of a move into or out of the mirrored ready-for-dev. */
+/** The refusal of a move into or out of the mirrored ready-for-dev, with Project ref and field. */
 export const REFUSAL =
-  'ready-for-dev mirrors GitHub Project "Roadmap". Change the task status there instead.';
+  'ready-for-dev mirrors GitHub Project "Roadmap" (ex/1, field Status). Change the task status there instead.';
 export const ALONE = configWith([
   configColumn('todo', true),
   configColumn('dev', false, 'worker'),
