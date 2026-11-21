@@ -121,6 +121,7 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
         /Confirmation survives upstream revalidation[\s\S]*no second QA submit/,
         /Correction into QA clears even pending QA evidence:\s*with upstream gates passing, a QA orchestrator or operator gets a fresh turn\./,
         /An operator takes a turn addressed to it, or takes over an open orchestrator\s*turn, taken or not/,
+        /An operator finds turns addressed to it in `board inbox operator`, not `board inbox`\./,
         /Retained QA cannot satisfy Dev: a return to Dev needs the current Dev visit's submit/,
         /do not resubmit or raise a\s*block/,
         /Right of Dev, red CI, a draft, a conflict, an external comment or an unresolved\s+thread where required returns the\s+task to Dev at once, unless a turn is taken; then after its submit or return/,

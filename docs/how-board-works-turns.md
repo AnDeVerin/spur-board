@@ -56,6 +56,7 @@ act only on a current turn; reread after `turn_closed`.
 [Task history](how-board-works-history.md#task-history) lists journal events `turn_opened`,
 `turn_taken` and `turn_closed`: executor, taker, outcome.
 
+An operator finds turns addressed to it in `board inbox operator`, not `board inbox`.
 An operator takes a turn addressed to it, or takes over an open orchestrator
 turn, taken or not, with keyed
 `board inbox ack <entries>`, then submits or returns it, or does both from the web

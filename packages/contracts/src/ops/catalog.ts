@@ -679,7 +679,8 @@ export const OPERATIONS = [
     mcp: {
       whenToUse:
         'Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take a turn addressed to the operator, or to take over an open orchestrator turn, taken or not.',
-      whenNotToUse: 'Use inbox_get to inspect them first.',
+      whenNotToUse:
+        'Use inbox_get to inspect them first; the operator finds the turns addressed to it with inbox_operator.',
     },
     input: inboxAckInputSchema,
     output: inboxAckOutputSchema,

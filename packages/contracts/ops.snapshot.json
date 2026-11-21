@@ -1,5 +1,5 @@
 {
-  "version": "1e10403f65a7c8f4d8f7933dcd17232a92ba09b4471c694a096beaff8759b6de",
+  "version": "43cf45221018c6db5cec927476642b3902d471cf6af07d1a4832e7ac9822055f",
   "grants": [
     "operator",
     "project-agent",
@@ -7632,7 +7632,7 @@
         "name": "inbox_ack",
         "key": "idempotencyKey",
         "whenToUse": "Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take a turn addressed to the operator, or to take over an open orchestrator turn, taken or not.",
-        "whenNotToUse": "Use inbox_get to inspect them first.",
+        "whenNotToUse": "Use inbox_get to inspect them first; the operator finds the turns addressed to it with inbox_operator.",
         "destructive": true
       },
       "slack": null,
