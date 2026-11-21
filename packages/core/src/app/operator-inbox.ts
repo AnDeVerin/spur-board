@@ -58,10 +58,14 @@ type Referenced = Pick<
 > &
   Joined;
 
-/** What the item names: the block it refers to and the task it is about. */
+/**
+ * What the item names: the block it refers to, the task it is about and, for an ended holder of
+ * an operator turn, that turn's `T<n>`.
+ */
 interface ActionContext {
   block: Referenced | undefined;
   task: Owner | null;
+  operatorTurn?: string | undefined;
 }
 
 /** `B<n>` of the block an item refers to, else "its block". */
@@ -120,7 +124,11 @@ const ACTIONS: Record<Exclude<ItemKind, 'turn'>, (item: Item, at: ActionContext)
       ? 'pass the answer to the asking session yourself, then close the item'
       : 'comment on the task so a live session reads the answer, then close the item',
   board_observation: observationAction,
-  worker_ended: () => WORKER_ENDED,
+  // A replacement worker cannot take an operator turn; the operator retakes it.
+  worker_ended: (_item, { operatorTurn }) =>
+    operatorTurn === undefined
+      ? WORKER_ENDED
+      : `retake ${operatorTurn} with board inbox ack ${operatorTurn} from the operator token or another operator session`,
   anomaly: (item) => `wait for the answer to ${blockName(item)}, or answer it yourself`,
   course_check: (item) => `wait for the answer to ${blockName(item)}, or answer it yourself`,
   cycle_limit: (item) => `answer or close ${blockName(item)} to reset the cycle count`,
@@ -298,6 +306,26 @@ function noSessionText(
   };
 }
 
+const ENDED_TURN_KEY = 'ended-turn:';
+
+/** The turn id an `ended-turn:<turnId>:<session>` key names. */
+const endedTurnId = (key: string) => Number(key.slice(ENDED_TURN_KEY.length).split(':')[0]);
+
+/** Turn ids of the operator turns that `ended-turn:` items name: one batched read. */
+async function endedOperatorTurns(trx: Trx, items: readonly Item[]): Promise<Set<number>> {
+  const ids = items.flatMap((item) =>
+    item.item_key.startsWith(ENDED_TURN_KEY) ? [endedTurnId(item.item_key)] : [],
+  );
+  if (ids.length === 0) return new Set();
+  const rows = await trx
+    .selectFrom('turn')
+    .select('id')
+    .where('id', 'in', ids)
+    .where('role', '=', 'operator')
+    .execute();
+  return new Set(rows.map((row) => row.id));
+}
+
 /** Newest first by `at`, ties by id as text. */
 function newestFirst(at: (entry: Entry) => string) {
   return (left: Entry, right: Entry) =>
@@ -380,7 +408,7 @@ export function createOperatorInbox(deps: {
       const sourceIds = items.flatMap((item) =>
         item.item_key.startsWith(SOURCE_KEY) ? [item.item_key.slice(SOURCE_KEY.length)] : [],
       );
-      const [referenced, owners, sources, deliveries, waiting] = await Promise.all([
+      const [referenced, owners, sources, deliveries, waiting, operatorTurns] = await Promise.all([
         blockIds.length === 0
           ? Promise.resolve([])
           : trx
@@ -405,10 +433,16 @@ export function createOperatorInbox(deps: {
               .execute(),
         deliveryUrls(trx, items),
         waitingTurns(trx, openItems),
+        endedOperatorTurns(trx, items),
       ]);
       const blockById = new Map(referenced.map((block) => [block.id, block]));
       const sourceById = new Map(sources.map((state) => [state.source, state]));
 
+      const operatorTurnOf = (item: Item) => {
+        if (!item.item_key.startsWith(ENDED_TURN_KEY)) return undefined;
+        const id = endedTurnId(item.item_key);
+        return operatorTurns.has(id) ? `T${String(id)}` : undefined;
+      };
       const itemEntry = (item: Item & Joined): Entry | undefined => {
         const kind = item.kind;
         if (!isItemKind(kind) || kind === 'turn') return undefined;
@@ -429,7 +463,10 @@ export function createOperatorInbox(deps: {
           ? sourceText(item, sourceById.get(item.item_key.slice(SOURCE_KEY.length)))
           : kind === 'board_observation' && item.item_key.startsWith(NO_SESSION_KEY)
             ? noSessionText(item, config, waiting, clock.now())
-            : { condition: item.text, action: ACTIONS[kind](item, { block, task }) };
+            : {
+                condition: item.text,
+                action: ACTIONS[kind](item, { block, task, operatorTurn: operatorTurnOf(item) }),
+              };
         const url = itemUrl(item, deliveries);
         return {
           id: `I${String(item.id)}`,

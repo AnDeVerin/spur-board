@@ -74,9 +74,10 @@ holds existing; gaps restart timing for new questions.
 An accepted ended session holding the current non-Done turn raises one
 `worker_ended` attention item immediately, with no stall block. Every end reason
 counts, including unknown; an open PR or another linked live session does not
-resolve the held turn. Start a replacement worker or archive the task. The item
-clears on turn closure, actual holder replacement, archive or departure from the
-column visit. Existing ended-holder stall blocks withdraw with a recorded reason,
+resolve the held turn. Start a replacement worker, retake an operator turn
+(`board inbox ack`), or archive the task. The item clears on turn closure,
+actual holder replacement, archive or departure from the column visit. Existing
+ended-holder stall blocks withdraw with a recorded reason,
 even while Spur is blind. Removing a link alone leaves the taken turn unresolved.
 Done wrap-up turns still close when their holder ends. A stopped session without
 an end time remains subject to live stall timing above.

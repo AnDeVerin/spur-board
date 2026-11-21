@@ -10,6 +10,7 @@ import {
   item,
   mixed,
   task,
+  turn,
 } from '../support/operator-inbox.ts';
 import { openTempStore } from '../support/store.ts';
 
@@ -273,6 +274,35 @@ describe('inbox.operator actions', () => {
       const entry = byId.get(id);
       expect(entry, action).toMatchObject({ action, text: `${entry?.kind ?? ''} text: ${action}` });
     }
+  });
+
+  it('tells the operator to retake an operator turn whose ended holder no worker can replace', async () => {
+    const { store, inbox } = setup();
+    const ids = await store.transaction(async (trx) => {
+      const first = await task(trx, { project: 'first', key: 'o/first#1' });
+      const second = await task(trx, { project: 'first', key: 'o/first#2' });
+      const own = await turn(trx, { taskId: first, role: 'operator' });
+      const worker = await turn(trx, { taskId: second, role: 'worker' });
+      const raise = (ref: string, taskId: number) =>
+        item(trx, {
+          key: `ended-turn:${ref.slice(1)}:s9`,
+          kind: 'worker_ended',
+          taskId,
+          text: `${ref} ended`,
+        });
+      return {
+        own,
+        worker,
+        ownItem: await raise(own, first),
+        workerItem: await raise(worker, second),
+      };
+    });
+
+    const byId = new Map((await inbox()).items.map((entry) => [entry.id, entry.action]));
+    expect(byId.get(ids.ownItem)).toBe(
+      `retake ${ids.own} with board inbox ack ${ids.own} from the operator token or another operator session`,
+    );
+    expect(byId.get(ids.workerItem)).toBe('start a new worker for the task, or archive the task');
   });
 
   it('adds the waiting turns of non-archived tasks and the minutes without a session to an open no-session item', async () => {

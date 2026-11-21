@@ -1338,7 +1338,11 @@ async function endedTurnItems(
       .where('item_key', 'in', keys)
       .where('cleared_at', 'is', null)
       .execute();
-    const reason = `turn T${String(turn.id)} holder ${sessionId} ended; start a replacement worker or archive the task`;
+    const recovery =
+      turn.role === 'operator'
+        ? `retake T${String(turn.id)} as the operator`
+        : 'start a replacement worker or archive the task';
+    const reason = `turn T${String(turn.id)} holder ${sessionId} ended; ${recovery}`;
     for (const item of legacy) await clearReconciled(trx, item, at, reason);
     const task = tasks.get(turn.task_id);
     if (
