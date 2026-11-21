@@ -67,31 +67,40 @@ const sameRun = (
   right: { name: string; completedAt: string | null },
 ) => left.name === right.name && left.completedAt === right.completedAt;
 
+/** Cancelled check names on head: still inside the grace window, and turned red by this poll. */
+interface CancelCounts {
+  waiting: string[];
+  confirmed: string[];
+}
+
+const NO_CANCELS: CancelCounts = { waiting: [], confirmed: [] };
+
 /**
  * Counts the polls since each cancelled check on the PR head was first seen: a new entry starts at
  * 0, a scheduled complete poll adds 1, and a head change starts over. It deletes the row of a PR
- * that is not open or has no cancelled check. Returns true when this poll confirms a cancel.
+ * that is not open or has no cancelled check. Returns the names still waiting after this poll and
+ * the names this poll confirms as red, each once, in check order.
  */
 export async function countCancelledChecks(
   trx: Trx,
   source: string,
   fact: PrChecks,
   scheduled: boolean,
-): Promise<boolean> {
+): Promise<CancelCounts> {
   const key = cancelledChecksKey(source, fact);
   const cancelled = fact.state === 'open' ? cancelledOnHead(fact) : [];
   if (cancelled.length === 0) {
     await trx.deleteFrom('meta').where('key', '=', key).execute();
-    return false;
+    return NO_CANCELS;
   }
   const head = fact.headSha.toLowerCase();
   const previous = await countsOnHead(trx, key, head);
-  let confirmed = false;
+  const confirmed = new Set<string>();
   const next = cancelled.map((check) => {
     const before = previous.find((entry) => sameRun(entry, check));
     if (before === undefined) return { ...check, polls: 0 };
     if (!scheduled || before.polls >= CANCEL_CONFIRM_POLLS) return before;
-    if (before.polls + 1 === CANCEL_CONFIRM_POLLS) confirmed = true;
+    if (before.polls + 1 === CANCEL_CONFIRM_POLLS) confirmed.add(check.name);
     return { ...before, polls: before.polls + 1 };
   });
   const value = toJson(cancelledChecksSchema, { headSha: head, cancelled: next });
@@ -100,7 +109,10 @@ export async function countCancelledChecks(
     .values({ key, value })
     .onConflict((oc) => oc.column('key').doUpdateSet({ value }))
     .execute();
-  return confirmed;
+  const waiting = new Set(
+    next.filter((entry) => entry.polls < CANCEL_CONFIRM_POLLS).map(({ name }) => name),
+  );
+  return { waiting: [...waiting], confirmed: [...confirmed] };
 }
 
 /**

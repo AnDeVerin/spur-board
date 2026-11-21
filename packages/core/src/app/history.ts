@@ -257,7 +257,11 @@ function factsSummary(entity: Entity, previous: Facts | undefined): string | nul
   return `${entity.prefix}: ${texts.join(', ')}${more(named.length)}`;
 }
 
-/** `Checks on <ref>:` with the failed names, or the green and pending counts. */
+/**
+ * `Checks on <ref>:` with the failed names, or the green and pending counts. A cancelled check the
+ * row names as `waiting` counts as pending; a clause names the cancels this poll confirmed, then
+ * the ones still waiting.
+ */
 function checksSummary(payload: Payload<'checks_changed'>) {
   const lists = checksSchema.safeParse(parsedJson(payload.to));
   if (!lists.success) return null;
@@ -268,12 +272,28 @@ function checksSummary(payload: Payload<'checks_changed'>) {
       : checks.filter((check) => check.state !== 'skipped');
   const head = `Checks on ${ref(payload.repo, payload.pr)}`;
   if (list.length === 0) return `${head}: none`;
-  const failed = list.filter((check) => VERDICT[check.state] === 'red').map(({ name }) => name);
+  const waiting = new Set(payload.waiting);
+  const isWaiting = (check: (typeof list)[number]) =>
+    check.state === 'cancelled' && waiting.has(check.name);
+  const clause = (names: readonly string[] | undefined, text: string) => {
+    const counted = [...new Set(names)].filter((name) =>
+      list.some((check) => check.state === 'cancelled' && check.name === name),
+    );
+    return counted.length === 0
+      ? ''
+      : `; ${counted.slice(0, NAMED_CHANGES).join(', ')}${more(counted.length)} cancelled, ${text}`;
+  };
+  const clauses =
+    clause(payload.confirmed, 'now counts as red') +
+    clause(payload.waiting, 'waiting for a new run');
+  const failed = list
+    .filter((check) => VERDICT[check.state] === 'red' && !isWaiting(check))
+    .map(({ name }) => name);
   if (failed.length > 0)
-    return `${head}: ${String(failed.length)} failed: ${failed.slice(0, NAMED_CHANGES).join(', ')}${more(failed.length)}`;
+    return `${head}: ${String(failed.length)} failed: ${failed.slice(0, NAMED_CHANGES).join(', ')}${more(failed.length)}${clauses}`;
   const green = list.filter((check) => VERDICT[check.state] === 'green').length;
   const pending = list.length - green;
-  return `${head}: ${String(green)}/${String(list.length)} green${pending > 0 ? `, ${String(pending)} pending` : ''}`;
+  return `${head}: ${String(green)}/${String(list.length)} green${pending > 0 ? `, ${String(pending)} pending` : ''}${clauses}`;
 }
 
 const gates = (gate: readonly string[] | undefined) =>

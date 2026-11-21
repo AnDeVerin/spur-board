@@ -566,7 +566,9 @@ function comparableFacts(
  * Applies one PR fact. `scheduled` is a complete scheduled poll, the only kind that advances the
  * cancelled-check count; `reviewRule` is the full read's review rule of a github-rules source.
  * Returns true when this poll confirmed a cancelled check as red, or changed the review rule with
- * the facts unchanged: no fact event dispatches the PR's tasks then.
+ * the facts unchanged: no fact event dispatches the PR's tasks then. A `checks_changed` row names
+ * the cancels still in their grace window and the ones this poll confirms; a confirm with the
+ * checks unchanged still writes one, with `from` equal to `to`.
  */
 async function pr(
   trx: Trx,
@@ -641,8 +643,11 @@ async function pr(
   }
   const project = projectForSource(config, source);
   if (project === undefined) return false;
-  const confirmed =
-    project.checksGate !== 'dev' && (await countCancelledChecks(trx, source, fact, scheduled));
+  const cancels =
+    project.checksGate === 'dev'
+      ? { waiting: [], confirmed: [] }
+      : await countCancelledChecks(trx, source, fact, scheduled);
+  const confirmed = cancels.confirmed.length > 0;
   // Only a github-rules project's source keeps a review rule row; others make no call.
   const ruled =
     approvalRuleOf(project) === 'github-rules' &&
@@ -718,7 +723,7 @@ async function pr(
     }
   }
   await applyPendingReopen(trx, fact, at);
-  if (!changed) return confirmed || ruled;
+  if (!changed && !confirmed) return ruled;
   const links = await trx
     .selectFrom('link')
     .select(['task_id'])
@@ -739,17 +744,16 @@ async function pr(
         from: previous.headSha,
         to: fact.headSha,
       });
-    if (
-      previous !== null &&
-      JSON.stringify([previous.checks, previous.requiredChecks]) !==
-        JSON.stringify([fact.checks, fact.requiredChecks])
-    )
+    const from = previous === null ? null : checksJson(previous);
+    if ((from !== null && from !== checksJson(fact)) || confirmed)
       await emit(trx, 'checks_changed', task.project, task.id, at, {
         repo: fact.repo,
         pr: fact.number,
-        from: JSON.stringify([previous.checks, previous.requiredChecks]),
-        to: JSON.stringify([fact.checks, fact.requiredChecks]),
+        from,
+        to: checksJson(fact),
         sha: fact.headSha,
+        ...(cancels.waiting.length > 0 && { waiting: cancels.waiting }),
+        ...(confirmed && { confirmed: cancels.confirmed }),
       });
     if (previous !== null && previous.mergeable !== fact.mergeable)
       await emit(trx, 'mergeable_changed', task.project, task.id, at, {
@@ -779,11 +783,14 @@ async function pr(
           state: review.state,
         });
     }
+    if (!changed) continue;
     await emit(trx, 'pr_facts_changed', task.project, task.id, at, { facts: fact });
     await markTaskChanged(trx, task.id, at);
   }
-  return confirmed;
+  return confirmed || (!changed && ruled);
 }
+
+const checksJson = (facts: PrFacts) => JSON.stringify([facts.checks, facts.requiredChecks]);
 
 // The key matches in any letter case, not after a letter or digit and not before a digit,
 // so WEBDEV-56 is not found in XWEBDEV-56 or WEBDEV-5698.

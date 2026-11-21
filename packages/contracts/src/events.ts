@@ -121,7 +121,14 @@ const prChange = { repo: S, pr: N, from, to: S };
 export const eventPayloadSchemas = {
   head_moved: z.looseObject(prChange),
   pr_facts_changed: z.looseObject({ facts: prFactsSchema }),
-  checks_changed: z.looseObject({ ...prChange, sha: S }),
+  // `waiting` names cancelled checks inside a right-of-Dev `checksGate` grace window, `confirmed`
+  // the ones this poll turned red.
+  checks_changed: z.looseObject({
+    ...prChange,
+    sha: S,
+    waiting: z.array(S).optional(),
+    confirmed: z.array(S).optional(),
+  }),
   review_submitted: z.looseObject({ repo: S, pr: N, reviewer: S, state: S }),
   mergeable_changed: z.looseObject(prChange),
   pr_state_changed: z.looseObject(prChange),

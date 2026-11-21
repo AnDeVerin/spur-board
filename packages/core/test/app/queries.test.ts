@@ -1306,6 +1306,57 @@ describe('task history summaries', () => {
       summary: 'Checks on o/r#7: 4 failed: a, b, c +1 more',
     },
     {
+      name: 'a cancelled check waiting for a new run',
+      rows: [['checks_changed', { ...checks([], [check('ci', 'cancelled')]), waiting: ['ci'] }]],
+      summary: 'Checks on o/r#7: 0/1 green, 1 pending; ci cancelled, waiting for a new run',
+    },
+    {
+      name: 'a waiting cancel beside a real failure',
+      rows: [
+        [
+          'checks_changed',
+          {
+            ...checks([], [check('ci', 'cancelled'), check('lint', 'failure')]),
+            waiting: ['ci'],
+          },
+        ],
+      ],
+      summary: 'Checks on o/r#7: 1 failed: lint; ci cancelled, waiting for a new run',
+    },
+    {
+      name: 'a cancel confirmed as red',
+      rows: [['checks_changed', { ...checks([], [check('ci', 'cancelled')]), confirmed: ['ci'] }]],
+      summary: 'Checks on o/r#7: 1 failed: ci; ci cancelled, now counts as red',
+    },
+    {
+      name: 'a confirmed and a waiting cancel in one row',
+      rows: [
+        [
+          'checks_changed',
+          {
+            ...checks([], [check('a', 'cancelled'), check('b', 'cancelled')]),
+            confirmed: ['a'],
+            waiting: ['b'],
+          },
+        ],
+      ],
+      summary:
+        'Checks on o/r#7: 1 failed: a; a cancelled, now counts as red; b cancelled, waiting for a new run',
+    },
+    {
+      name: 'a waiting cancel outside the counted checks',
+      rows: [
+        [
+          'checks_changed',
+          {
+            ...checks([check('e2e', 'cancelled')], [check('ci', 'success')]),
+            waiting: ['e2e'],
+          },
+        ],
+      ],
+      summary: 'Checks on o/r#7: 1/1 green',
+    },
+    {
       name: 'no checks',
       rows: [['checks_changed', checks([check('docs', 'skipped')])]],
       summary: 'Checks on o/r#7: none',

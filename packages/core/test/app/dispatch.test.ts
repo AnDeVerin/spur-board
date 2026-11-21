@@ -7429,6 +7429,20 @@ describe('checksGate', () => {
       .execute();
   const cancelCount = async (ctx: Board) =>
     (await cancelRows(ctx)).map((row) => JSON.parse(row.value) as unknown);
+  const summaries = async (ctx: Board) =>
+    (await ctx.history()).events.map(({ summary }) => summary);
+  const checkRows = async (ctx: Board) =>
+    (await ctx.history()).events
+      .filter((event) => event.kind === 'checks_changed')
+      .map(({ summary }) => summary);
+  const WAITING = 'Checks on o/r#7: 0/1 green, 1 pending; ci cancelled, waiting for a new run';
+  const TURNED_RED = 'Checks on o/r#7: 1 failed: ci; ci cancelled, now counts as red';
+  const RED_RETURN = {
+    from: 'external-review',
+    to: 'dev',
+    reason: 'gate_broken',
+    gate: ['checks_red'],
+  };
 
   it('checksGate external-review: pending passes Dev, Review, Product Review and holds at External Review', async () => {
     const ctx = await started(GATED);
@@ -7567,8 +7581,10 @@ describe('checksGate', () => {
 
   it('checksGate external-review: a cancelled check turns red on the second complete poll after its sighting', async () => {
     const ctx = await pastProductReview(GATED);
+    const before = (await ctx.moves()).length;
     await ctx.pr(ci('cancelled', 40));
     expect((await ctx.task()).column).toBe('external-review');
+    expect((await checkRows(ctx)).at(-1)).toBe(WAITING);
     expect((await ctx.why()).waiting).toEqual([
       {
         reason: 'checks_pending',
@@ -7580,12 +7596,30 @@ describe('checksGate', () => {
     expect((await ctx.task()).column).toBe('external-review');
     await ctx.github();
     expect((await ctx.task()).column).toBe('dev');
-    expect((await ctx.moves()).at(-1)).toEqual({
-      from: 'external-review',
-      to: 'dev',
-      reason: 'gate_broken',
-      gate: ['checks_red'],
+    expect((await ctx.moves()).slice(before)).toEqual([RED_RETURN]);
+    const rows = await summaries(ctx);
+    expect(rows.filter((row) => row.includes('cancelled'))).toEqual([WAITING, TURNED_RED]);
+    expect(rows[rows.indexOf(TURNED_RED) + 1]).toBe(
+      'Moved external-review → dev: gate_broken (checks_red)',
+    );
+    expect((await checkRows(ctx)).slice(0, -1).filter((row) => row.includes('failed'))).toEqual([]);
+  });
+
+  it('checksGate external-review: a cancel that turns red with another check change writes one row', async () => {
+    const ctx = await pastProductReview(GATED);
+    const before = (await ctx.moves()).length;
+    const checks = (lint: 'pending' | 'success') => ({
+      requiredChecks: [
+        { name: 'ci', state: 'cancelled' as const, completedAt: at(40) },
+        { name: 'lint', state: lint, completedAt: lint === 'pending' ? null : at(45) },
+      ],
     });
+    await ctx.pr(checks('pending'));
+    await ctx.github();
+    const rows = (await checkRows(ctx)).length;
+    await ctx.pr(checks('success'));
+    expect((await checkRows(ctx)).slice(rows)).toEqual([TURNED_RED]);
+    expect((await ctx.moves()).slice(before)).toEqual([RED_RETURN]);
   });
 
   it('checksGate external-review: a new run after a cancel keeps the task in place', async () => {
@@ -7598,6 +7632,13 @@ describe('checksGate', () => {
     expect((await ctx.task()).column).toBe('external-review');
     expect((await ctx.moves()).filter((move) => move.to === 'dev')).toHaveLength(1);
     expect(await cancelRows(ctx)).toEqual([]);
+    const rows = await checkRows(ctx);
+    expect(rows.slice(rows.indexOf(WAITING))).toEqual([
+      WAITING,
+      'Checks on o/r#7: 0/1 green, 1 pending',
+      'Checks on o/r#7: 1/1 green',
+    ]);
+    expect(rows.filter((row) => row.includes('failed') || row.includes('now counts'))).toEqual([]);
   });
 
   it('checksGate external-review: incomplete polls and demand reads do not count a cancel', async () => {
@@ -7628,12 +7669,20 @@ describe('checksGate', () => {
     ]);
   });
 
-  it('without the key a cancelled required check returns the task to Dev at once', async () => {
-    const ctx = await inReview();
+  it.each([
+    { name: 'without the key', options: {} },
+    { name: 'with checksGate dev', options: { checksGate: 'dev' } as const },
+  ])('$name a cancelled required check returns the task to Dev at once', async ({ options }) => {
+    const ctx = await inReview(options);
     await ctx.pr(ci('cancelled', 20));
     expect((await ctx.task()).column).toBe('dev');
     expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['checks_red'] });
     expect(await cancelRows(ctx)).toEqual([]);
+    const rows = await checkRows(ctx);
+    expect(rows.at(-1)).toBe('Checks on o/r#7: 1 failed: ci');
+    expect(rows.filter((row) => row.includes('waiting for') || row.includes('now counts'))).toEqual(
+      [],
+    );
   });
 });
 
