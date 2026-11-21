@@ -26,8 +26,10 @@ On `turn_closed`, act only on a turn `board inbox` lists. Shadow mode opens no t
 
 - Dev worker: ack, then keyed `board submit <turn> <sha>` for the PR head. Answer each external comment the turn hands you with a new head or a reasoned reply; a reply alone submits the same head.
   Re-request review only from reviewers whose threads your push closed.
-  If returns repeat the same mechanism, fix the class once; one table test for variants;
-  edges with no user-visible effect under PR Risk; still fix P0/P1 and user-visible findings.
+  If returns repeat the same mechanism, fix the class once; one table test for variants.
+  Code a finding only if it breaks the task's stated goal in its target setup or regresses the
+  current release, whatever its severity label; other edges, task out-of-scope included, under
+  PR Risk with a thread reply, no code. Unclear goal or setup: keyed `board ask <task> <text>` first.
 - Column orchestrator: ack, then keyed `board submit <turn> <sha>` for the reviewed head, or
   `board return <turn> <reason>` to send it to Dev with what to change. Never push.
 - Operator (the operator token, or a session of a Spur project marked operator): keyed

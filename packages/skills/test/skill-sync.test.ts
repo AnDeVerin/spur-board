@@ -275,8 +275,9 @@ describe('product skill sync', () => {
   it('keeps repeated-mechanism guidance and exceptions with Dev-worker duties', () => {
     const worker = skill.split('- Dev worker:')[1]?.split('- Column orchestrator:')[0];
     expect(worker).toMatch(
-      /board submit <turn> <sha>[\s\S]*Answer each external comment[\s\S]*a reply alone submits the same head[\s\S]*Re-request review only from reviewers whose threads your push closed[\s\S]*If returns repeat the same mechanism[\s\S]*fix the class once[\s\S]*one table test for variants[\s\S]*edges with no user-visible effect under PR Risk[\s\S]*still fix P0\/P1 and user-visible findings/,
+      /board submit <turn> <sha>[\s\S]*Answer each external comment[\s\S]*a reply alone submits the same head[\s\S]*Re-request review only from reviewers whose threads your push closed[\s\S]*If returns repeat the same mechanism[\s\S]*fix the class once[\s\S]*one table test for variants[\s\S]*breaks the task's stated goal in its target setup or\s+regresses the\s+current release[\s\S]*whatever its severity label[\s\S]*other edges, task out-of-scope included[\s\S]*PR Risk with a thread reply, no code[\s\S]*Unclear goal or setup: keyed `board ask <task> <text>` first/,
     );
+    expect(worker).not.toMatch(/P0\/P1|user-visible/);
     expect(skill.split('- On doorbell,')[1]?.split('\n## ')[0]).toMatch(
       /block\. Once handled, ack its revision, ID or ring[\s\S]*board inbox ack <entries>/,
     );

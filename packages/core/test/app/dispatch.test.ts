@@ -3662,12 +3662,11 @@ describe('course check', () => {
     expect(findings).not.toContain('on bbbbbbb');
     expect(block.reason).toContain('PR: https://github.com/o/r/pull/7');
     expect(block.reason).toContain('Issue: https://github.com/o/r/issues/9');
-    expect(block.reason).toContain('If returns keep hitting the same mechanism');
-    expect(block.reason).toContain('fix the bug class once');
-    expect(block.reason).toContain('cover its variants with one table test');
-    expect(block.reason).toContain('remaining edges with no user-visible effect under Risk');
-    expect(block.reason).toContain('in the PR description instead of fixing them here');
-    expect(block.reason).toContain('Still fix P0/P1 and user-visible findings in this PR');
+    expect(block.reason.split('\n').at(-1)).toBe(
+      "If returns repeat a mechanism, fix its class once; one table test covers its variants. Code a finding only if it breaks the task's stated goal in its target setup or regresses the current release, whatever its severity label. Other edges, task out-of-scope included, go under PR Risk with a thread reply, no code. Unclear goal or setup: `board ask` first.",
+    );
+    expect(block.reason).not.toContain('P0/P1');
+    expect(block.reason).not.toContain('user-visible');
     expect((await ctx.task()).column).toBe('dev');
     expect(await ctx.openTurn()).toBeNull();
     expect((await ctx.why()).holds).toContain('cycle_limit');

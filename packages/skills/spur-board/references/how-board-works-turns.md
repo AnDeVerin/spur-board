@@ -116,7 +116,7 @@ reopened tickets or mode switches. With External Review enabled, returns for ext
 count toward its `courseCheck` instead, as does each external change request on a new PR head
 while the task is in Dev, once per head; `cycleLimit` stays per column.
 
-If returns keep hitting the same mechanism, fix the bug class once; cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description. Still fix P0/P1 and user-visible findings in this PR.
+If returns repeat a mechanism, fix its class once; one table test covers its variants. Code a finding only if it breaks the task's stated goal in its target setup or regresses the current release, whatever its severity label. Other edges, task out-of-scope included, go under PR Risk with a thread reply, no code. Unclear goal or setup: `board ask` first.
 `projects[].columns[].courseCheckTo`: `operator`, curator or column orchestrator.
 Default: curator (`projects[].spurProjects[].role`), else operator. An answer
 resets the course count and reaches the worker as a task comment. Only the

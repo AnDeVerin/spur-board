@@ -523,7 +523,7 @@ async function courseSummary(
   lines.push(`Issue: ${url}`);
   lines.push(
     '',
-    'If returns keep hitting the same mechanism, fix the bug class once and cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description instead of fixing them here. Still fix P0/P1 and user-visible findings in this PR.',
+    "If returns repeat a mechanism, fix its class once; one table test covers its variants. Code a finding only if it breaks the task's stated goal in its target setup or regresses the current release, whatever its severity label. Other edges, task out-of-scope included, go under PR Risk with a thread reply, no code. Unclear goal or setup: `board ask` first.",
   );
   return lines.join('\n');
 }
