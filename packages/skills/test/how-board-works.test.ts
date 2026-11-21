@@ -361,17 +361,17 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
       'health:',
       'no-session:',
       'review-rule:',
+      'external-quiet:',
     ];
     expect([...new Set(rows.map((row) => row.kind))].sort()).toEqual([...ITEM_KINDS].sort());
     for (const kind of ITEM_KINDS) {
       const plain = rows.filter((row) => row.kind === kind && row.prefix === undefined);
       expect(plain, kind).toHaveLength(1);
     }
-    expect(
-      rows
-        .filter((row) => row.prefix !== undefined)
-        .map((row) => `${row.kind} ${row.prefix ?? ''}`),
-    ).toEqual(prefixes.map((prefix) => `board_observation ${prefix}`));
+    const prefixed = rows.filter((row) => row.prefix !== undefined);
+    expect(prefixed.map((row) => `${row.kind} ${row.prefix ?? ''}`)).toEqual(
+      prefixes.map((prefix) => `board_observation ${prefix}`),
+    );
     for (const row of rows) {
       const label = `${row.kind} ${row.prefix ?? ''}`;
       expect(row.cells, label).toHaveLength(6);

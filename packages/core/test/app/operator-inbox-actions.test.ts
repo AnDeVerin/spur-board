@@ -238,6 +238,10 @@ describe('inbox.operator actions', () => {
           await raise('default-branch:github:first:o/first', 'board_observation'),
           'open the failing run; fix or revert',
         ],
+        [
+          await raise(`external-quiet:${String(first)}:1`, 'board_observation'),
+          'request a new external review round or approve the PR by hand',
+        ],
         [await raise('misc:1', 'board_observation'), 'check the task, then close the item'],
         [
           await raise('no-session:first:review', 'board_observation'),

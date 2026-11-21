@@ -339,6 +339,12 @@
                   "type": "string",
                   "enum": ["any-approval", "github-rules"]
                 },
+                "quietAfterMs": {
+                  "description": "How long a task may wait in External Review with an open PR and no new external review round before the board raises one operator item (external-quiet:) for it, in milliseconds. The wait runs from the latest of the task entering the column, the last Dev submit or arrival of the current PR head, the linking or reopening of the PR, and the last external review on the PR. While the PR source is blind or stale no item is raised and a raised one stays; that time still counts. A new external review, a new head or leaving the column clears the item. A signal only: it moves nothing and opens no turn. 0 or unset turns it off; else at least 300000 (5 minutes). Only on the external-review column; a disabled one ignores it.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
                 "quietTurnAfterMs": {
                   "description": "How long the orchestrator session holding a turn of this column may sit quiet at its prompt before the board reminds it, then raises a stuck-turn anomaly, in milliseconds. Defaults to health.idleInDevAfterMs. Named orchestrator only: allowed on an enabled column whose orchestrator is a Spur project, set here or filled board-wide; a worker or operator turn left in the column keeps health.idleInDevAfterMs.",
                   "type": "integer",

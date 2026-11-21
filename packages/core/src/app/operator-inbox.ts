@@ -4,6 +4,8 @@ import { z } from 'zod';
 import {
   BLOCK_KEY,
   DEFAULT_BRANCH_KEY,
+  EXTERNAL_QUIET_ACTION,
+  EXTERNAL_QUIET_KEY,
   isItemKind,
   ITEM_POLICY,
   itemBlockRef,
@@ -86,6 +88,7 @@ function observationAction(item: Item): string {
   if (key.startsWith('lookup:'))
     return 'check the ticket in the tracker, then close the item or archive the task';
   if (key.startsWith(DEFAULT_BRANCH_KEY)) return 'open the failing run; fix or revert';
+  if (key.startsWith(EXTERNAL_QUIET_KEY)) return EXTERNAL_QUIET_ACTION;
   if (key.startsWith(OPERATOR_BLOCK_KEY)) return `answer ${blockName(item)}`;
   if (key.startsWith(BLOCK_KEY))
     return `answer ${blockName(item)} if it is a question, or close it with a reason`;
