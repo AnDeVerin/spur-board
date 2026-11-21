@@ -17,8 +17,7 @@ An unseen-head QA submit closes the turn while pending and gives no gate credit
 until confirmed. Confirmation survives upstream revalidation: completing Dev and
 reviews on that head needs no second QA submit. Confirmed QA survives same-head
 returns and corrections to Dev. Correction into QA clears even pending QA evidence:
-with upstream gates passing, a QA orchestrator or operator gets a fresh turn;
-executor `none` may instead reuse a valid worker submit without a new QA turn.
+with upstream gates passing, a QA orchestrator or operator gets a fresh turn.
 Retained QA cannot satisfy Dev: a return to Dev needs the current Dev visit's submit.
 
 Submissions declare provenance with `--basis tested|carried|skipped`; omitted means
@@ -27,7 +26,7 @@ Submissions declare provenance with `--basis tested|carried|skipped`; omitted me
 must be a tested submission on this task or a carried submission with a tested
 origin. Carry chains retain the supplied source and pin the original tested row;
 no git ancestry is checked. `skipped` requires a reason. `tested` permits a reason;
-only `carried` permits `from`. Supplied reasons must be nonblank, literal text of
+only `carried` permits `from`. Supplied reasons are nonblank literal text of
 at most 2,000 UTF-16 units. Workers and column orchestrators keep their existing
 submit permissions for every basis. All bases close turns and follow the same
 head confirmation and gates; only returns increment course and cycle counts.
@@ -36,8 +35,8 @@ head confirmation and gates; only returns increment course and cycle counts.
 submission includes its pending and voided state: historical tested submissions
 remain carryable even when pending or voided, independently of gate validity.
 Legacy rows with nullable provenance read as tested; stored command results and
-omitted-input fingerprints remain compatible. Migration rollback uses the normal
-pre-update backup restore, with no downgrade guarantee for the migrated database.
+omitted-input fingerprints remain compatible. Migration rollback is the normal
+pre-update backup restore; the migrated database has no downgrade guarantee.
 After a catalog upgrade, restart the daemon and MCP clients together.
 
 A new head closes taken turns outside Dev and Done; taken Dev turns and Done
@@ -49,7 +48,7 @@ Each handed entry has its `url`, `editedAt` once edited, and a review's inline
 `comments` with `url` and `threadId`. Turns of a Dev visit opened by a return
 show `returned`: who, from, the turn, the `code` block and the verbatim reason.
 A worker taking that turn reads its block; the block closes `done` with the SHA once
-the Board confirms the turn's submit.
+the Board confirms the turn's submit, an operator's included.
 
 Closed turns receive no further Board sends; Obsolete queued rings are dropped;
 a message already accepted by Spur cannot be retracted. Check `board inbox` and
@@ -57,7 +56,9 @@ act only on a current turn; reread after `turn_closed`.
 [Task history](how-board-works-history.md#task-history) lists journal events `turn_opened`,
 `turn_taken` and `turn_closed`: executor, taker, outcome.
 
-An operator takes over an open orchestrator turn, taken or not, with keyed
+An operator finds turns addressed to it in `board inbox operator`, not `board inbox`.
+An operator takes a turn addressed to it, or takes over an open orchestrator
+turn, taken or not, with keyed
 `board inbox ack <entries>`, then submits or returns it, or does both from the web
 [Turn](web-ui-task-turn.md) section. The earlier holder gets
 `not_turn_taker`, then `turn_closed`. The takeover is not sticky: the addressed
@@ -73,12 +74,13 @@ holds existing; gaps restart timing for new questions.
 An accepted ended session holding the current non-Done turn raises one
 `worker_ended` attention item immediately, with no stall block. Every end reason
 counts, including unknown; an open PR or another linked live session does not
-resolve the held turn. Start a replacement worker or archive the task. The item
-clears on turn closure, actual holder replacement, archive or departure from the
-column visit. Existing ended-holder stall blocks withdraw with a recorded reason,
+resolve the held turn. Start a replacement worker, retake an operator turn
+(`board inbox ack`), or archive the task. The item clears on turn closure,
+actual holder replacement, archive or departure from the column visit. Existing
+ended-holder stall blocks withdraw with a recorded reason,
 even while Spur is blind. Removing a link alone leaves the taken turn unresolved.
-Done wrap-up turns still close when their holder ends. A stopped session without
-an end time remains subject to live stall timing above.
+Done wrap-up turns still close. A stopped session without
+an end time stays subject to live stall timing above.
 
 ## Doorbells
 
@@ -100,13 +102,13 @@ Exhaustion alerts the operator, except removals and quiet-turn reminders;
 curator questions move to operator.
 
 A taken turn is reminded, then flagged stuck, after `health.idleInDevAfterMs` of quiet;
-an orchestrator turn of a column with a named orchestrator uses the column's
+a named column orchestrator's turn uses the column's
 `quietTurnAfterMs` instead. When the column's untaken turns have no live session to ring for
 its `noRecipientAfterMs` (default 10 minutes, counted from the later of the ring and the
 moment the last session that could take them stopped being a recipient: its first end, absence
 or finished state), the operator gets one `no-session:` inbox item per column.
 
-A holder that must re-check an outside condition [waits on its turn](how-board-works-waits.md).
+A holder can [wait on its turn](how-board-works-waits.md).
 
 ## Course checks and cycle limits
 

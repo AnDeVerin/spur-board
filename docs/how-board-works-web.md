@@ -33,8 +33,8 @@ The private web package builds the Board screen for one chosen project; the
 [task view](web-ui-task-view.md) with its "Why it is here", Blocks and Comments sections and History tab.
 The task view can answer open operator questions through `block.answer`, follow up on answered
 ones through `block.followup` and add task comments
-through `comment.add`. Its [Turn](web-ui-task-turn.md) section takes an open orchestrator turn
-through `inbox.ack` and closes it through `task.submit` or `task.return`. The operator inbox can close an active item through `item.close`, and the Board and task view
+through `comment.add`. Its [Turn](web-ui-task-turn.md) section takes an open orchestrator or operator
+turn through `inbox.ack` and closes it through `task.submit` or `task.return`. The operator inbox can close an active item through `item.close`, and the Board and task view
 move a task between Backlog parts with a reason through `task.move`; other actions stay in the CLI, MCP and Slack. Failed sends preserve
 drafts, and confirmed writes refresh authoritative task data. While the daemon or live updates
 are unavailable, the forms are disabled with a reason and retain their drafts.

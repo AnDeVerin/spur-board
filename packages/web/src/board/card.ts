@@ -50,11 +50,14 @@ export interface TurnView {
   id: string;
   /** The addressee role, such as `worker` or `orchestrator`; unused for your turn. */
   role: string;
-  /** The session that took the turn, else the one it is addressed to, else `unassigned`. */
+  /**
+   * The session that took the turn, else the one it is addressed to, else `unassigned`; unused
+   * for your turn.
+   */
   name: string;
   /**
-   * `taken · 5m`, `open · 2h`, `not taken · 1d`, `stalled · 40m`, or `waiting: <reason>, wakes
-   * <hh:mm>` while the holder waits.
+   * `taken · 5m` (an agent's, or yours once you hold it), `open · 2h`, `not taken · 1d`,
+   * `stalled · 40m`, or `waiting: <reason>, wakes <hh:mm>` while an agent holder waits.
    */
   tail: string;
   tone: StatusDotTone;
@@ -83,11 +86,14 @@ export function turnView(turn: Turn | null, now: number | undefined): TurnView |
       tone: 'error',
       hollow: false,
     };
-  if (turn.addressee === 'operator')
+  // Your turn: addressed to the operator and untaken or held by the operator token. An operator
+  // session that holds it reads like an agent's.
+  if (turn.addressee === 'operator' && (turn.taken === null || turn.taken.by === 'operator'))
     return {
       ...common,
       kind: 'you',
-      tail: `open · ${age(turn.at, now)}`,
+      tail:
+        turn.taken === null ? `open · ${age(turn.at, now)}` : `taken · ${age(turn.taken.at, now)}`,
       tone: 'warn',
       hollow: false,
     };

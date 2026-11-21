@@ -6,6 +6,8 @@
   Product Review and run Review, Product Review and Ready to Merge by `--as orchestrator`.
 - `qa-carried` and `qa-skipped` add QA (`--as orchestrator`) to the `dispatch-*` board; the card
   waits in Ready to Merge with the matching QA submission. `dispatch-happy-path` has no QA column.
+- `dispatch-unbound-review` leaves Review and QA unbound, with Ready to Merge the operator's: the
+  task waits in Review on an operator turn item; the operator takes it with `board inbox ack T<n>`.
 - `approval-stale`, `approval-stale-quiet`, `approval-multi`, `approval-rewritten`,
   `approval-uncounted` and `approval-stale-no-watch` wait in Ready to Merge on the `dispatch-*`
   board with seeded approvals on PR #1 and `approvalWatch` `[back/, front/]` (none for

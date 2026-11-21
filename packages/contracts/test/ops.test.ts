@@ -980,11 +980,13 @@ describe('snapshot', () => {
     // prSummary and task.get PR links. #737 adds task.order, tasks[].position, the
     // order_anchor_invalid code and the task_reordered kind; the task.order description
     // names its one-placement and non-blank key rule. #798 drops the other-project operator
-    // source from status.get bindings and rewords the inbox.operator description. #804 adds
-    // task.wait, the optional turn wait in turn views, the turn_wait_limit code and the turn wait
-    // event kinds.
+    // source from status.get bindings and rewords the inbox.operator description. #800 names the
+    // operator's take of a turn addressed to it in inbox.ack and points it to inbox_operator, the
+    // operator kind of unbound columns in config.get and the no-turn Done without a live worker.
+    // #804 adds task.wait, the optional turn wait in turn views, the turn_wait_limit code and the
+    // turn wait event kinds.
     expect(await catalogVersion(baseline)).toBe(
-      '8c080fb4437258efb6966320321369d56f8b086ecc8de4b4b2d2a50b56b89df1',
+      '3ae4ccd1197858f4badb117106278cbf065c8522e8c6275f103a91374a34b64c',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

@@ -44,6 +44,15 @@ const config = configSchema.parse({
   digest: { tz: 'UTC' },
 });
 const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
+/** The columns whose turns go to the operator when no executor is bound. */
+const OPERATOR_WHEN_UNBOUND: readonly string[] = [
+  'review',
+  'product-review',
+  'qa',
+  'ready-to-merge',
+];
+const UNBOUND_TEXT =
+  "No executor is bound to this column, so its turns go to the operator. Take a turn to close it yourself, bind an orchestrator or curator to this column in the board config to hand its turns to an agent, or disable the column to skip it. Questions keep the routing of an unbound column: the board's own go to the task's live worker, others to the curator, else the operator.";
 const stores: Store[] = [];
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close();
@@ -96,12 +105,16 @@ it('describes only visible enabled column policies without changing board state'
     project: null,
     session: null,
   });
+  const unbound = project?.columns.find((column) => column.id === 'review');
+  expect(unbound?.executor).toMatchObject({ kind: 'operator', project: null, text: UNBOUND_TEXT });
+  expect(unbound?.escalation.chain.map((step) => step.role)).toEqual(['worker', 'operator']);
+  expect(unbound?.escalation.silent).toBeNull();
   expect(project?.columns.find((column) => column.id === 'done')).toMatchObject({
     exit: { to: null, conditions: [] },
     limits: null,
   });
-  expect(project?.columns.find((column) => column.id === 'done')?.executor.text).toContain(
-    'wrap-up turn',
+  expect(project?.columns.find((column) => column.id === 'done')?.executor.text).toBe(
+    'The task-linked live worker gets a wrap-up turn; without one no turn opens. Done has no exit gate.',
   );
   expect(
     (await query(registry['columns.describe'], {}, 'operator')).projects.map((entry) => entry.id),
@@ -2001,6 +2014,76 @@ it.each([
   },
 );
 
+it('describes an explicit operator column with its levers, without disable on Dev', async () => {
+  const store = openTempStore('board-column-operator-').store;
+  stores.push(store);
+  const bound = configSchema.parse({
+    ...config,
+    projects: config.projects.slice(0, 1).map((project) => ({
+      ...project,
+      columns: project.columns.map((column) =>
+        column.id === 'dev' || column.id === 'review'
+          ? { ...column, orchestrator: 'operator' }
+          : column,
+      ),
+    })),
+  });
+  const registry = createOperationRegistry({ config: bound, clock, completeSince: new Map() });
+  const query = createQuery({ store, config: bound, clock });
+  const [project] = (await query(registry['columns.describe'], {}, 'operator')).projects;
+  const text = (id: string) => project?.columns.find((column) => column.id === id)?.executor.text;
+  const binds =
+    'The board config binds this column to the operator, so its turns go to the operator. Take a turn to close it yourself';
+  const agent =
+    'bind an orchestrator or curator to this column in the board config to hand its turns to an agent';
+  expect(text('review')).toBe(`${binds}, ${agent}, or disable the column to skip it.`);
+  expect(text('dev')).toBe(`${binds}, or ${agent}.`);
+  expect(text('dev')).not.toContain('disable');
+  expect(
+    project?.columns.find((column) => column.id === 'review')?.escalation.chain.map((s) => s.role),
+  ).toEqual(['operator']);
+});
+
+it('tells the operator to move checksGate before disabling the checks-gate column', async () => {
+  const store = openTempStore('board-column-checks-gate-').store;
+  stores.push(store);
+  const gated = configSchema.parse({
+    ...config,
+    projects: config.projects.slice(0, 1).map((project) => ({ ...project, checksGate: 'review' })),
+  });
+  const registry = createOperationRegistry({ config: gated, clock, completeSince: new Map() });
+  const query = createQuery({ store, config: gated, clock });
+  const [project] = (await query(registry['columns.describe'], {}, 'operator')).projects;
+  const text = (id: string) => project?.columns.find((column) => column.id === id)?.executor.text;
+  expect(text('review')).toContain(
+    'or disable the column to skip it after moving checksGate to another enabled column.',
+  );
+  expect(text('qa')).toContain('or disable the column to skip it.');
+});
+
+it.each(OPERATOR_WHEN_UNBOUND)(
+  'reads an unbound %s as the operator in config.get and columns.describe',
+  async (id) => {
+    const store = openTempStore('board-column-unbound-').store;
+    stores.push(store);
+    const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+    const query = createQuery({ store, config, clock });
+    const [described] = (await query(registry['columns.describe'], {}, 'operator')).projects;
+    const [viewed] = (await query(registry['config.get'], {}, 'operator')).projects;
+    const column = described?.columns.find((entry) => entry.id === id);
+    expect(column?.executor).toMatchObject({ kind: 'operator', text: UNBOUND_TEXT });
+    expect(column?.escalation.chain.map((step) => step.role)).toEqual(['worker', 'operator']);
+    expect(column?.escalation.silent).toBeNull();
+    expect(column?.exit.conditions.map((condition) => condition.text).join(' ')).not.toMatch(
+      /worker/i,
+    );
+    expect(viewed?.columns.find((entry) => entry.id === id)?.executor).toEqual({
+      kind: 'operator',
+      name: null,
+    });
+  },
+);
+
 it.each([
   ...configSchema.shape.projects.element.shape.spurProjects
     .unwrap()
@@ -2042,7 +2125,9 @@ it.each([
               kind === 'automatic'
                 ? column.id === 'external-review'
                   ? 'dispatcher'
-                  : 'worker'
+                  : OPERATOR_WHEN_UNBOUND.includes(column.id)
+                    ? 'operator'
+                    : 'worker'
                 : kind,
             name: binding === 'none' || binding === 'operator' ? null : name,
           },

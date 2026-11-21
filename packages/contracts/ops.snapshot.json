@@ -1,5 +1,5 @@
 {
-  "version": "e80da63d6225a9d8d30238d2a566e0f4e84728e852736bcda410cdc2d76d41e2",
+  "version": "15eec946e82137358ab13587d31c2b38426ee2f42c775fba57f0983d4efe1b30",
   "grants": [
     "operator",
     "project-agent",
@@ -7787,8 +7787,8 @@
       "mcp": {
         "name": "inbox_ack",
         "key": "idempotencyKey",
-        "whenToUse": "Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take over an open orchestrator turn, taken or not.",
-        "whenNotToUse": "Use inbox_get to inspect them first.",
+        "whenToUse": "Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take a turn addressed to the operator, or to take over an open orchestrator turn, taken or not.",
+        "whenNotToUse": "Use inbox_get to inspect them first; the operator finds the turns addressed to it with inbox_operator.",
         "destructive": true
       },
       "slack": null,
@@ -12268,7 +12268,7 @@
                           "kind": {
                             "type": "string",
                             "enum": ["dispatcher", "worker", "orchestrator", "curator", "operator"],
-                            "description": "Configured executor; worker falls back to operator without a live worker."
+                            "description": "Configured executor; worker falls back to operator without a live worker, except in Done, which then opens no turn; unbound Review, Product Review, QA and Ready to Merge read operator."
                           },
                           "name": {
                             "description": "Named Spur project, or null for automatic routing.",
@@ -12854,7 +12854,7 @@
                           "kind": {
                             "type": "string",
                             "enum": ["dispatcher", "worker", "orchestrator", "curator", "operator"],
-                            "description": "Configured executor; worker falls back to operator without a live worker."
+                            "description": "Configured executor; worker falls back to operator without a live worker, except in Done, which then opens no turn; unbound Review, Product Review, QA and Ready to Merge read operator."
                           },
                           "project": {
                             "description": "Named Spur project, or null for the operator or task worker.",
@@ -13005,7 +13005,7 @@
                               "required": ["role", "project", "displayName", "session", "text"],
                               "additionalProperties": false
                             },
-                            "description": "Question escalation starting at the executor; self-role steps are skipped using runtime routing."
+                            "description": "Question escalation starting at the first recipient: the executor, or the task's live worker in a column with no executor bound; self-role steps are skipped using runtime routing."
                           },
                           "noRecipient": {
                             "anyOf": [

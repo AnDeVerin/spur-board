@@ -33,8 +33,9 @@ To re-check an outside condition instead of sitting quiet, keyed
 - Column orchestrator: ack, then keyed `board submit <turn> <sha>` for the reviewed head, or
   `board return <turn> <reason>` to send it to Dev with what to change. Never push.
 - Operator (the operator token, or a session of a Spur project marked operator): keyed
-  `board inbox ack <entries>` with the T<number> from `board task <task>` takes over an open
-  orchestrator turn, taken or not; then submit or return it as above.
+  `board inbox ack <entries>` with the T<number> from `board inbox operator` (not
+  `board inbox`) or `board task <task>` takes a turn addressed to the operator, or takes over an open orchestrator turn, taken or not; then submit
+  or return it as above.
 
 ## Worker flow
 

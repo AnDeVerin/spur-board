@@ -147,7 +147,7 @@ export const columnsDescribeOutputSchema = z.strictObject({
                   chain: z
                     .array(destination)
                     .describe(
-                      'Question escalation starting at the executor; self-role steps are skipped using runtime routing.',
+                      "Question escalation starting at the first recipient: the executor, or the task's live worker in a column with no executor bound; self-role steps are skipped using runtime routing.",
                     ),
                   noRecipient: z
                     .strictObject({

@@ -264,13 +264,19 @@ const gateCases: [string, ColumnId, TaskGateFacts, Board, Expected][] = [
     DEFAULT,
     broken('dev', 'no_submit_on_head'),
   ],
-  ['Dev still supplies worker QA', 'qa', ready({ externalReviewApproved: true }), DEFAULT, ok],
   [
-    'other worker columns still supply Dev',
+    'Dev no longer supplies an unbound QA',
+    'qa',
+    ready({ externalReviewApproved: true }),
+    DEFAULT,
+    broken('review', 'no_review_on_head'),
+  ],
+  [
+    'other columns no longer supply Dev',
     'dev',
     ready({ marks: [submit('ready-to-merge', A)] }),
     DEFAULT,
-    ok,
+    broken('dev', 'no_submit_on_head'),
   ],
   [
     'current Dev evidence accepts alongside QA',
@@ -491,13 +497,31 @@ const gateCases: [string, ColumnId, TaskGateFacts, Board, Expected][] = [
     ORCH,
     ok,
   ],
-  ['39 default board review', 'review', ready(), DEFAULT, ok],
-  ['40 default board product review', 'product-review', ready(), DEFAULT, ok],
-  ['41 default board qa', 'qa', ready({ externalReviewApproved: true }), DEFAULT, ok],
+  [
+    '39 default board review waits for its executor',
+    'review',
+    ready(),
+    DEFAULT,
+    broken('review', 'no_review_on_head'),
+  ],
+  [
+    '40 default board product review waits at review',
+    'product-review',
+    ready(),
+    DEFAULT,
+    broken('review', 'no_review_on_head'),
+  ],
+  [
+    '41 default board qa waits at review',
+    'qa',
+    ready({ externalReviewApproved: true }),
+    DEFAULT,
+    broken('review', 'no_review_on_head'),
+  ],
   [
     '42 default board holds at external review',
     'ready-to-merge',
-    ready(),
+    ready({ marks: reviewMarks }),
     DEFAULT,
     broken('external-review', 'not_approved'),
   ],
@@ -509,23 +533,23 @@ const gateCases: [string, ColumnId, TaskGateFacts, Board, Expected][] = [
     broken('review', 'no_review_on_head'),
   ],
   [
-    '44 carry-over past an orchestrated column',
+    '44 no carry-over past an orchestrated column',
     'product-review',
     ready({ marks: [submit('dev', A), submit('review', A)] }),
     orchestrate(DEFAULT, 'review', 'conductor'),
-    ok,
+    broken('product-review', 'no_review_on_head'),
   ],
   [
     '45 operator executor holds',
     'qa',
-    ready({ externalReviewApproved: true }),
+    ready({ externalReviewApproved: true, marks: reviewMarks }),
     orchestrate(DEFAULT, 'qa', 'operator'),
     broken('qa', 'no_submit_on_head'),
   ],
   [
     '46 operator executor passes',
     'qa',
-    ready({ externalReviewApproved: true, marks: [submit('dev', A), submit('qa', A)] }),
+    ready({ externalReviewApproved: true, marks: [...reviewMarks, submit('qa', A)] }),
     orchestrate(DEFAULT, 'qa', 'operator'),
     ok,
   ],
@@ -587,7 +611,7 @@ const threadCases: [string, ColumnId, TaskGateFacts, Board, Expected][] = [
   [
     't2 default board review passes with threads',
     'review',
-    ready({ unresolvedThreads: 1 }),
+    ready({ unresolvedThreads: 1, marks: reviewMarks }),
     DEFAULT,
     ok,
   ],
@@ -671,6 +695,27 @@ describe('evaluateGate', () => {
   it.each(threadCases)('%s', (_name, column, facts, board, expected) => {
     expect(gate(column, facts, board)).toEqual(expected);
   });
+
+  it.each(['review', 'product-review', 'qa'] as const)(
+    'passes an unbound %s only on its own submit or mark',
+    (column) => {
+      const board = DEFAULT.map((c) =>
+        COLUMN_IDS.indexOf(c.id) > COLUMN_IDS.indexOf('dev') && c.id !== 'done' && c.id !== column
+          ? { ...c, enabled: false }
+          : c,
+      );
+      const reason = column === 'qa' ? 'no_submit_on_head' : 'no_review_on_head';
+      expect(gate(column, ready(), board)).toEqual(broken(column, reason));
+      expect(gate(column, ready({ marks: [submit('dev', A), submit(column, A)] }), board)).toEqual(
+        ok,
+      );
+      if (column !== 'qa') {
+        expect(gate(column, ready({ marks: [submit('dev', A), mark(column, A)] }), board)).toEqual(
+          ok,
+        );
+      }
+    },
+  );
 
   it('keeps every column consistent with the leftmost broken one', () => {
     for (const [name, , facts, board] of gateCases) {

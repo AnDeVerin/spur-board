@@ -76,6 +76,7 @@ import {
 import { spurSourceSilent } from './spur-source-silent.ts';
 import { tokenApproval } from './token-approval.ts';
 import { dispatchTurnView } from './turn-view.ts';
+import { dispatchUnboundReview } from './unbound-review.ts';
 import { workerKilledNoPr, workerKilledNoPrJira } from './worker-killed-no-pr.ts';
 
 /** How often `until` and `wait` look again. */
@@ -223,6 +224,7 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchReviewerStatusComment,
   dispatchUnresolvedThread,
   dispatchApprovalWithNotes,
+  dispatchUnboundReview,
   qaCarried,
   qaSkipped,
   approvalStale,

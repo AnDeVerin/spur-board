@@ -47,9 +47,10 @@ description: Plan, evidence and outcome of a QA round - the qa/<task>/<sha8>/r<N
 Only in a board QA round, with bare `board` on the live task. In a manager run post nothing to the
 live board: return the verdict, the reason and the report path to the caller.
 
-- The round's executor follows `turnExecutor` (`packages/core/src/app/turns.ts`): column
-  orchestrator `operator` -> the operator; `none` -> the task's live worker, else the operator;
-  any other value -> that column's orchestrator project.
+- The round's executor follows `turnExecutor` (`packages/core/src/domain/dispatch.ts`): column
+  orchestrator `operator` -> the operator; `none` at Review, Product Review, QA or Ready to
+  Merge -> the operator; `none` at Dev -> the task's live worker, else the operator; any other
+  value -> that column's orchestrator project.
 - Pass: one keyed `board comment <task> "<summary>; report: <path>" --key <key>`, naming
   submission of the tested head as the executor's step. There is no submit command; never invent
   one.
