@@ -9,6 +9,7 @@ import { createSender, enqueueConversationOpen, openStore, type Store } from '..
 import { clearItem, raiseItem } from '../../src/app/feed.ts';
 import type { RaiseItemInput } from '../../src/app/item-raise.ts';
 import {
+  EXTERNAL_QUIET_ACTION,
   ITEM_POLICY,
   RECONCILED_KINDS,
   isItemKind,
@@ -144,6 +145,59 @@ describe('operator item feed', () => {
       expect(ctx.observed.requests[1]?.actions).toBeUndefined();
     },
   );
+
+  it('ends an external-quiet line and its edit with the inbox action, other lines unchanged', async () => {
+    const ctx = await setup();
+    const quiet = await raise(ctx.store, 'board_observation', 'external-quiet:1:1');
+    const other = await raise(ctx.store, 'board_observation', 'table:1');
+    await ctx.sender.tick();
+    await ctx.sender.tick();
+    await scanTransaction(ctx.store, testConfig, async (trx) => {
+      await clearItem(trx, quiet.id, AT);
+      await clearItem(trx, other.id, AT);
+    });
+    await ctx.sender.tick();
+    await ctx.sender.tick();
+    const lined = `${TEXT}: ${EXTERNAL_QUIET_ACTION}`;
+    const texts = ctx.observed.requests.map((request) => JSON.stringify(request.body));
+    expect(texts).toHaveLength(4);
+    const [quietLine, otherLine, quietEdit, otherEdit] = texts;
+    expect(quietLine?.split(EXTERNAL_QUIET_ACTION)).toHaveLength(2);
+    expect(quietLine).toContain(JSON.stringify(lined).slice(1, -1));
+    expect(otherLine).not.toContain(EXTERNAL_QUIET_ACTION);
+    expect(otherLine).toContain(JSON.stringify(TEXT).slice(1, -1));
+    expect(ctx.observed.requests[2]?.body).toContainEqual({
+      kind: 'quote',
+      children: [{ kind: 'strike', text: lined }],
+    });
+    expect(quietEdit?.split(EXTERNAL_QUIET_ACTION)).toHaveLength(2);
+    expect(ctx.observed.requests[3]?.body).toEqual([
+      { kind: 'paragraph', children: [{ kind: 'link', url: URL, text: KEY }] },
+      { kind: 'quote', children: [{ kind: 'strike', text: TEXT }] },
+      { kind: 'paragraph', children: [{ kind: 'text', text: '✓ Resolved: condition ended' }] },
+    ]);
+    expect(otherEdit).not.toContain(EXTERNAL_QUIET_ACTION);
+    const stored = await ctx.store.db
+      .selectFrom('operator_item')
+      .select('text')
+      .where('id', '=', quiet.id)
+      .executeTakeFirstOrThrow();
+    expect(stored.text).toBe(TEXT);
+  });
+
+  it('caps a long external-quiet summary with its action in the edit', async () => {
+    const ctx = await setup();
+    const item = await raise(ctx.store, 'board_observation', 'external-quiet:2:1', 'x'.repeat(490));
+    await scanTransaction(ctx.store, testConfig, (trx) => clearItem(trx, item.id, AT));
+    const edit = await ctx.store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'feed.line.edit')
+      .executeTakeFirstOrThrow();
+    const { text } = JSON.parse(edit.payload) as { text: string };
+    expect(Array.from(text)).toHaveLength(500);
+    expect(text.endsWith('…')).toBe(true);
+  });
 
   it('caps a long summary in the edit so it stays one part', async () => {
     const ctx = await setup();

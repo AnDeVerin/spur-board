@@ -207,6 +207,16 @@ export const NO_SESSION_KEY = 'no-session:';
 export const REVIEW_RULE_KEY = 'review-rule:';
 /** The item of a task waiting in External Review with no new external review round for its quietAfterMs. */
 export const EXTERNAL_QUIET_KEY = 'external-quiet:';
+/** The operator's action on an external-quiet item; its inbox entry and its feed line end with it. */
+export const EXTERNAL_QUIET_ACTION =
+  'request a new external review round or approve the PR by hand';
+
+/** The text of an item's feed line: its text, and for an external-quiet item its action. */
+export function itemLineText(item: { item_key: string; text: string }): string {
+  return item.item_key.startsWith(EXTERNAL_QUIET_KEY)
+    ? `${item.text}: ${EXTERNAL_QUIET_ACTION}`
+    : item.text;
+}
 
 /** The block an item is about: its ledger block, else the block its key names. */
 export function itemBlockRef(item: {
