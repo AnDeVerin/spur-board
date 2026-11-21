@@ -251,10 +251,13 @@
 .age[data-kind='stall'] {
   color: var(--color-status-error);
 }
-/* A waiting tail always takes its own line under the turn ID and holder, which keep line 1 and
-   ellipsise there. */
+/* In a waiting turn the dot and holder keep line 1: the holder's zero basis keeps it beside the
+   dot, and it grows to fill the line and ellipsises there. The label always takes its own line. */
 .turn[data-waiting] {
   flex-wrap: wrap;
+}
+.turn[data-waiting] .who {
+  flex: 1 1 0;
 }
 .turn[data-waiting] .age {
   flex-basis: 100%;
