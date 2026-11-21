@@ -29,7 +29,8 @@ the turn as `wait: {reason, since, wakesAt}`; it is absent with no active wait.
 ## The wake
 
 The first tick at or after `wakesAt` (ticks run every minute) ends the wait `woken` and rings you
-once (an operator holder is not rung; the wait just ends):
+once (an operator holder, or a worker whose task link the operator removed, is not rung; the
+wait just ends):
 
 `<KEY> turn T<n> wait ended: <reason>; check board inbox (N<id>-<ring>)`
 

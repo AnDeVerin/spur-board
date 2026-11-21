@@ -90,9 +90,34 @@ async function sessionEnded(trx: Trx, session: string): Promise<boolean> {
 }
 
 /**
+ * Whether the holder `session` of a worker turn has lost the task: `unlinked` holds the
+ * `taskId:sessionId` pairs whose session link the operator removed. An orchestrator turn is
+ * addressed through the column config, so a link removal does not end its hold.
+ */
+export function workerUnlinked(
+  unlinked: ReadonlySet<string>,
+  turn: Pick<Turn, 'role' | 'task_id'>,
+  session: string,
+): boolean {
+  return turn.role === 'worker' && unlinked.has(`${String(turn.task_id)}:${session}`);
+}
+
+/** The `taskId:sessionId` pairs whose session link the operator removed. */
+export async function unlinkedSessions(trx: Trx): Promise<Set<string>> {
+  const removed = await trx
+    .selectFrom('link')
+    .select(['task_id', 'session_id'])
+    .where('entity', '=', 'session')
+    .where('banned', '=', 1)
+    .execute();
+  return new Set(removed.map((link) => `${String(link.task_id)}:${link.session_id ?? ''}`));
+}
+
+/**
  * The tick's wait ends. A wait whose agent holder's session ended ends `closed` with no ring.
  * Otherwise, once its wake time passes, it ends `limit` when the turn's waits reached a limit,
- * else `woken`, and an agent holder gets one wake ring.
+ * else `woken`, and an agent holder gets one wake ring, unless it holds a worker turn whose session
+ * link the operator removed.
  */
 export async function wakeWaitingTurns(trx: Trx, config: Config, at: Date): Promise<void> {
   const waiting = await trx
@@ -104,6 +129,7 @@ export async function wakeWaitingTurns(trx: Trx, config: Config, at: Date): Prom
     .where('turn.wait_until', 'is not', null)
     .orderBy('turn.id')
     .execute();
+  const unlinked = waiting.length === 0 ? new Set<string>() : await unlinkedSessions(trx);
   for (const turn of waiting) {
     const session = holderSession(turn);
     if (session !== null && (await sessionEnded(trx, session))) {
@@ -116,7 +142,7 @@ export async function wakeWaitingTurns(trx: Trx, config: Config, at: Date): Prom
     const used = waitsUsed(config, { ...turn, waited_ms: turn.waited_ms + lasted });
     const outcome = used ? 'limit' : 'woken';
     await endTurnWait(trx, { turn, project: turn.project, outcome, at });
-    if (session !== null)
+    if (session !== null && !workerUnlinked(unlinked, turn, session))
       await registerTurnReminder(
         trx,
         turn,

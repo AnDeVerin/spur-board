@@ -12,6 +12,7 @@ import {
   registerTurnReminder,
   turnReminderKey,
 } from './doorbells.ts';
+import { unlinkedSessions, workerUnlinked } from './turn-waits.ts';
 import { taskProject } from './turns.ts';
 
 // When the holder of a taken turn sits quiet: the reminder, the stuck-turn rule and the sender's
@@ -73,22 +74,14 @@ export async function quietTurns(trx: Trx) {
     .where('role', '!=', 'operator')
     .orderBy('id')
     .execute();
-  const removed = await trx
-    .selectFrom('link')
-    .select(['task_id', 'session_id'])
-    .where('entity', '=', 'session')
-    .where('banned', '=', 1)
-    .execute();
-  const unlinked = new Set(
-    removed.map((link) => `${String(link.task_id)}:${link.session_id ?? ''}`),
-  );
+  const unlinked = await unlinkedSessions(trx);
   const quiet = [];
   for (const turn of turns) {
     if (turn.acked_by === null || turn.acked_at === null) continue;
     const holder = parseActorId(turn.acked_by);
     if (holder?.actor !== 'agent') continue;
     const sessionId = holder.actorRef.session;
-    if (turn.role === 'worker' && unlinked.has(`${String(turn.task_id)}:${sessionId}`)) continue;
+    if (workerUnlinked(unlinked, turn, sessionId)) continue;
     const session = await trx
       .selectFrom('session_snapshot')
       .selectAll()

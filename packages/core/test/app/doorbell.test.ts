@@ -3468,6 +3468,36 @@ describe('turns', () => {
       ]);
     });
 
+    it.each([
+      { link: 'kept', rings: 1 },
+      { link: 'removed', rings: 0 },
+    ])('rings a worker whose link was $link $rings times at the wake', async ({ link, rings }) => {
+      const ctx = await setup({ config: policyBoard('none') });
+      await takenByWorker(ctx);
+      await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+      await waitOp(ctx, 30, REASON, 'wait-1');
+      if (link === 'removed')
+        await ctx.store.transaction((trx) =>
+          trx
+            .updateTable('link')
+            .set({ banned: 1 })
+            .where('entity', '=', 'session')
+            .where('session_id', '=', 'worker-1')
+            .execute(),
+        );
+      const sent = ctx.sent.length;
+      ctx.advance(30 * MINUTE);
+      await boardTick(ctx);
+      await step(ctx);
+
+      expect(await waitEnds(ctx)).toEqual([
+        { turn: 'T1', outcome: 'woken', waitedMs: 30 * MINUTE, waits: 1 },
+      ]);
+      const wakes = (await reminders(ctx)).filter((notice) => notice.source_key.includes(':wake:'));
+      expect(wakes).toHaveLength(rings);
+      expect(ctx.sent.slice(sent)).toHaveLength(rings);
+    });
+
     it('limits the number of waits and raises one operator item', async () => {
       const base = policyBoard('none');
       const limited = configSchema.parse({
