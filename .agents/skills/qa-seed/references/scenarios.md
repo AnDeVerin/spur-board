@@ -8,6 +8,11 @@
   waits in Ready to Merge with the matching QA submission. `dispatch-happy-path` has no QA column.
 - `dispatch-unbound-review` leaves Review and QA unbound, with Ready to Merge the operator's: the
   task waits in Review on an operator turn item; the operator takes it with `board inbox ack T<n>`.
+- `approval-stale`, `approval-stale-quiet`, `approval-multi`, `approval-rewritten`,
+  `approval-uncounted` and `approval-stale-no-watch` wait in Ready to Merge on the `dispatch-*`
+  board with seeded approvals on PR #1 and `approvalWatch` `[back/, front/]` (none for
+  `approval-stale-no-watch`, whose chip caps six watched entries); each `settled` checks the
+  `prSummary[].approvals` facts.
 - `dispatch-ci-pending-after-submit` and `dispatch-ring-closed-turn` set the conductor session
   `--state waiting` so rings to it go out.
 - The curator scenarios (`question-to-curator`, `curator-escalation`, `curator-absent`,

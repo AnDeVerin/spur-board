@@ -34,8 +34,28 @@ const description = (card: HTMLElement) =>
       return target.getAttribute('aria-label') ?? target.textContent;
     })
     .join(' | ');
-const chipClass = (tone: ChipTone) =>
-  /class="([^"]*)"/.exec(renderToStaticMarkup(createElement(Chip, { tone, children: 'x' })))?.[1];
+const chipClass = (tone: ChipTone, wrap = false) =>
+  /class="([^"]*)"/.exec(
+    renderToStaticMarkup(createElement(Chip, { tone, wrap, children: 'x' })),
+  )?.[1];
+/** `config` with an operator Ready to Merge column in the first project. */
+function readyToMergeConfig() {
+  const [first, ...rest] = config.projects;
+  if (first === undefined) throw new Error('no project');
+  return {
+    ...config,
+    projects: [
+      {
+        ...first,
+        columns: [
+          ...first.columns,
+          { id: 'ready-to-merge', executor: { kind: 'operator', name: null } },
+        ],
+      },
+      ...rest,
+    ],
+  };
+}
 
 describe('board task cards', () => {
   it('a quick link does not open the task', async () => {
@@ -178,8 +198,6 @@ describe('board task cards', () => {
       voided: false,
       ...extra,
     });
-    const [first, ...rest] = config.projects;
-    if (first === undefined) throw new Error('no project');
     const d = daemon();
     serve(
       d,
@@ -192,19 +210,7 @@ describe('board task cards', () => {
         }),
         row('ex/repo#9', 'ready-to-merge', { qaSubmission: qa('tested') }),
       ],
-      {
-        ...config,
-        projects: [
-          {
-            ...first,
-            columns: [
-              ...first.columns,
-              { id: 'ready-to-merge', executor: { kind: 'operator', name: null } },
-            ],
-          },
-          ...rest,
-        ],
-      },
+      readyToMergeConfig(),
     );
     mount(d, {}, () => NOW);
     await settle();
@@ -227,6 +233,62 @@ describe('board task cards', () => {
     expect(description(card('ex/repo#8'))).toBe('QA skipped');
     expect(card('ex/repo#9').getAttribute('aria-describedby') ?? '').not.toContain('markers');
     expect(card('ex/repo#9').textContent).not.toContain('QA');
+  });
+
+  it('a Ready to Merge card shows approval freshness in the reviews cell and markers', async () => {
+    const sha = 'a'.repeat(40);
+    const pr = (number: number, approval: Record<string, unknown>) => ({
+      links: { ticket: null, prs: [prLink(number)], sessions: [] },
+      prSummary: [
+        prSummary({ number, approvals: [{ author: 'dana', sha, onHead: false, ...approval }] }),
+      ],
+    });
+    const d = daemon();
+    serve(
+      d,
+      [
+        row(
+          'ex/repo#7',
+          'ready-to-merge',
+          pr(7, {
+            commitsAfter: 3,
+            changedAfter: ['back/', 'docs/', 'front/'],
+            watchedAfter: ['back/', 'front/'],
+          }),
+        ),
+        row(
+          'ex/repo#8',
+          'ready-to-merge',
+          pr(8, { commitsAfter: 2, changedAfter: ['docs/'], watchedAfter: [] }),
+        ),
+      ],
+      readyToMergeConfig(),
+    );
+    mount(d, {}, () => NOW);
+    await settle();
+    const card = (key: string) => one(`main a[title="${key}"]`);
+    const cell = (key: string) => {
+      const found = card(key).querySelectorAll<HTMLElement>('[role="img"]')[3];
+      if (found === undefined) throw new Error(`no reviews cell on ${key}`);
+      return found;
+    };
+    const staleTitle = 'Approved 3 commits ago; changed since: back/, docs/, front/';
+    const stale = cell('ex/repo#7');
+    expect(stale.getAttribute('data-tone')).toBe('pend');
+    expect(stale.textContent).toBe('1+3');
+    expect(stale.title).toBe(staleTitle);
+    const chip = [...card('ex/repo#7').querySelectorAll('span')].find(
+      (span) => span.textContent === 'approved before back/ front/',
+    );
+    expect(chip?.className).toBe(chipClass('warn', true));
+    expect(chip?.title).toBe(`dana approved ${sha}; 3 commits since changed back/, front/.`);
+    expect(description(card('ex/repo#7'))).toContain(`Approvals: 1; ${staleTitle}`);
+    expect(description(card('ex/repo#7'))).toContain('approved before back/ front/');
+    const quietCell = cell('ex/repo#8');
+    expect(quietCell.getAttribute('data-tone')).toBe('ok');
+    expect(quietCell.textContent).toBe('1+2');
+    expect(quietCell.lastElementChild?.textContent).toBe('+2');
+    expect(card('ex/repo#8').getAttribute('aria-describedby') ?? '').not.toContain('markers');
   });
 
   it('a not-observed first PR keeps +N for the other linked PRs in the description', async () => {

@@ -16,6 +16,16 @@ export function Ghost() {
 export function Titled() {
   return <Chip title="Other open blocks: B7, B9">+2</Chip>;
 }
+export function Wrapping() {
+  return (
+    <div style={{ width: 'var(--size-column)', display: 'flex', flexWrap: 'wrap' }}>
+      <Chip tone="warn" wrap>
+        <Icon name="person" />
+        approved before deployment-config/ integration-tests/
+      </Chip>
+    </div>
+  );
+}
 export function Link() {
   return (
     <Chip href="https://example.com/" label="PR #12, acme/app">
