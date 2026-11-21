@@ -1288,6 +1288,26 @@ describe('operator block feed line', () => {
     );
   });
 
+  it('drops the line under an unreadable thread and keeps sending other rows', async () => {
+    const ctx = await setup();
+    await asked(ctx);
+    await ctx.store.db
+      .updateTable('outbox')
+      .set({ payload: '{' })
+      .where('kind', '=', 'conversation.open')
+      .execute();
+    await raise(ctx, { key: 'source:github', kind: 'board_observation' });
+    await ctx.sender.tick();
+    ctx.advance(60_000);
+    await ctx.sender.tick();
+    const outbox = await rows(ctx, 'outbox');
+    expect(outbox.find((r) => r.kind === 'conversation.open')?.state).toBe('dead');
+    const line = (key: string) =>
+      outbox.find((r) => r.kind === 'feed.line' && r.payload.includes(key));
+    expect(line('operator-block:')).toMatchObject(dropped);
+    expect(line('source:github')?.state).toBe('done');
+  });
+
   it('leaves the block of an archived task open', async () => {
     const ctx = await setup();
     const { blockId, item: itemId } = await asked(ctx);

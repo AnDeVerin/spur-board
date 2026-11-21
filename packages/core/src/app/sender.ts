@@ -372,7 +372,8 @@ export function createSender(options: SenderOptions): Sender {
    * A feed line waits for its block's thread only to link it. When the thread post failed for good
    * or died while its block is still open (its failed post closed or blocked), the line goes on
    * without a parent, and so without the link. A thread that died because its block closed takes
-   * its line with it.
+   * its line with it. A thread whose payload is not JSON names no block: its line dies with it,
+   * and the guard keeps `json_extract` from throwing and stalling every later claim.
    */
   async function detachAbandonedThreads(trx: Trx): Promise<void> {
     await trx
@@ -385,7 +386,7 @@ export function createSender(options: SenderOptions): Sender {
           .selectFrom('outbox as parent')
           .innerJoin('block', (join) =>
             join.on(
-              sql<number>`json_extract(parent.payload, '$.blockId')`,
+              sql<number>`case when json_valid(parent.payload) then json_extract(parent.payload, '$.blockId') end`,
               '=',
               sql.ref('block.id'),
             ),
