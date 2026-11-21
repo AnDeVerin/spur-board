@@ -335,7 +335,7 @@ const columnConfig = z.strictObject({
     .min(0)
     .optional()
     .describe(
-      'How long a task may wait in External Review with an open PR and no new external review round before the board raises one operator item (external-quiet:) for it, in milliseconds. The wait runs from the latest of the task entering the column, the last Dev submit or arrival of the current PR head, the linking of the PR to the task, and the last external review on the PR. While the PR source is blind or stale no item is raised and a raised one stays; that time still counts. A new external review, a new head or leaving the column clears the item. A signal only: it moves nothing and opens no turn. 0 or unset turns it off; else at least 300000 (5 minutes). Only on the external-review column; a disabled one ignores it.',
+      'How long a task may wait in External Review with an open PR and no new external review round before the board raises one operator item (external-quiet:) for it, in milliseconds. The wait runs from the latest of the task entering the column, the last Dev submit or arrival of the current PR head, the linking or reopening of the PR, and the last external review on the PR. While the PR source is blind or stale no item is raised and a raised one stays; that time still counts. A new external review, a new head or leaving the column clears the item. A signal only: it moves nothing and opens no turn. 0 or unset turns it off; else at least 300000 (5 minutes). Only on the external-review column; a disabled one ignores it.',
     ),
   quietTurnAfterMs: z
     .int()

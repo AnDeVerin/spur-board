@@ -11,7 +11,7 @@ import { readStatusColumnEntries, sourceInterval } from './status-views.ts';
  * The items of tasks waiting in External Review with an open PR and no new external review round
  * for the project's `quietAfterMs`. The wait runs from the latest of the task entering the column,
  * the last Dev submit on the current head, the head's arrival on this PR, the PR's linking to the
- * task and the last external review on the PR. While the PR's source is blind or stale nothing is raised and the item of the current visit
+ * task or reopening, and the last external review on the PR. While the PR's source is blind or stale nothing is raised and the item of the current visit
  * is held, so a review that lands in the gap shows on the next complete read.
  */
 export async function externalQuietItems(
@@ -54,8 +54,9 @@ export async function externalQuietItems(
       .where('column', '=', 'dev')
       .where(sql<boolean>`lower(commit_sha) = ${head}`)
       .executeTakeFirst();
-    // The head's arrival on this PR, or the PR's last linking to the task when later: a PR that
-    // replaced another on the same head moved no head, and another linked PR's push is not one.
+    // When this PR last became the task's active, open PR on this head: the head's arrival on it,
+    // its linking, or its reopening, which can promote it over another PR on the same head.
+    // Another linked PR's push is not one.
     const arrival = await trx
       .selectFrom('event')
       .select((eb) => eb.fn.max('at').as('at'))
@@ -65,6 +66,10 @@ export async function externalQuietItems(
       .where((eb) =>
         eb.or([
           eb('kind', '=', 'link_added'),
+          eb.and([
+            eb('kind', '=', 'pr_state_changed'),
+            sql<boolean>`json_extract(payload, '$.to') = 'open'`,
+          ]),
           eb.and([
             eb('kind', '=', 'head_moved'),
             sql<boolean>`lower(json_extract(payload, '$.to')) = ${head}`,

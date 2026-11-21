@@ -8466,6 +8466,26 @@ describe('External Review quiet item', () => {
         return ctx.at();
       },
     },
+    {
+      name: 'a manual PR reopened on the active head waits from its reopening',
+      pr: 'o/r#8',
+      arrange: async (ctx: Board) => {
+        await ctx.pr({ ...pr8, headSha: A, state: 'closed' });
+        await ctx.linkPr(8);
+        ctx.wait(QUIET);
+        await ctx.pr({ ...pr8, state: 'open' });
+        expect(
+          await ctx.store.db
+            .selectFrom('link')
+            .select(['number', 'pr_state'])
+            .where('entity', '=', 'pr')
+            .where('pr_open', '=', 1)
+            .where('pr_state', '=', 'active')
+            .execute(),
+        ).toEqual([{ number: 8, pr_state: 'active' }]);
+        return ctx.at();
+      },
+    },
   ])('$name', async ({ pr, arrange }) => {
     const ctx = await shadowInExternal();
     const since = await arrange(ctx);
