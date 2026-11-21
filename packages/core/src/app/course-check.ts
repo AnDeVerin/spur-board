@@ -522,8 +522,9 @@ async function courseSummary(
   }
   lines.push(`Issue: ${url}`);
   lines.push(
+    "To you, the recipient: the last line guides the worker. To clarify the task's goal or setup, answer this question; your answer reaches the worker as a task comment.",
     '',
-    'If returns keep hitting the same mechanism, fix the bug class once and cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description instead of fixing them here. Still fix P0/P1 and user-visible findings in this PR.',
+    "Repeated mechanism: fix its class once, one table test. Code a finding only if it breaks the task's goal in its target setup or regresses the release, whatever its severity; else PR Risk with a thread reply, no code. Unclear scope: `board ask` first.",
   );
   return lines.join('\n');
 }

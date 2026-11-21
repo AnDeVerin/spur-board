@@ -10,7 +10,7 @@ import {
 } from '@spur-board/contracts';
 import type { Row } from '../store/schema.ts';
 import type { Trx } from './board-utils.ts';
-import { fingerprint, OPERATOR_BLOCK_KEY } from '../domain/fromYou.ts';
+import { fingerprint, itemLineText, OPERATOR_BLOCK_KEY } from '../domain/fromYou.ts';
 import { isOperator } from './authorize.ts';
 import { TASKLESS_FEED_KEY, journal, raiseItemWith, type RaiseItemInput } from './item-raise.ts';
 import {
@@ -113,7 +113,7 @@ export async function clearItem(
     lineId: item.line_outbox_id,
     key: task?.key ?? TASKLESS_FEED_KEY,
     taskId: item.task_id,
-    summary: capPoints(item.text, MAX_SUMMARY),
+    summary: capPoints(itemLineText(item), MAX_SUMMARY),
     url: item.url,
     by: actor,
     at,

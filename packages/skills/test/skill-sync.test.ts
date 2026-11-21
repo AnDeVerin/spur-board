@@ -276,11 +276,29 @@ describe('product skill sync', () => {
   it('keeps repeated-mechanism guidance and exceptions with Dev-worker duties', () => {
     const worker = skill.split('- Dev worker:')[1]?.split('- Column orchestrator:')[0];
     expect(worker).toMatch(
-      /board submit <turn> <sha>[\s\S]*Answer each external comment[\s\S]*a reply alone submits the same head[\s\S]*Re-request review only from reviewers whose threads your push closed[\s\S]*If returns repeat the same mechanism[\s\S]*fix the class once[\s\S]*one table test for variants[\s\S]*edges with no user-visible effect under PR Risk[\s\S]*still fix P0\/P1 and user-visible findings/,
+      /board submit <turn> <sha>[\s\S]*Answer each external comment[\s\S]*a reply alone submits the same head[\s\S]*Re-request review only from reviewers whose threads your push closed[\s\S]*If returns repeat the same mechanism[\s\S]*fix the class once[\s\S]*one table test for variants[\s\S]*breaks the task's goal in its target setup or\s+regresses the\s+release[\s\S]*whatever its severity; else under PR Risk with a thread reply, no code[\s\S]*Unclear scope: keyed\s+`board ask <task> <text>` first/,
     );
+    expect(worker).not.toMatch(/P0\/P1|user-visible/);
     expect(skill.split('- On doorbell,')[1]?.split('\n## ')[0]).toMatch(
       /block\. Once handled, ack its revision, ID or ring[\s\S]*board inbox ack <entries>/,
     );
+  });
+
+  // Every shipped return-to-Dev step: review findings take the scope rule, any failing gate is cleared, finding or not.
+  it.each([
+    ['SKILL.md', skill, '- A return:'],
+    ['worker-flow.md', workerFlow, '- A return to Dev:'],
+  ])('scopes review findings and clears the gate on a return in %s', (_name, text, start) => {
+    const step = text.split(start)[1]?.split(/\n(?:- |\n)/)[0];
+    expect(step).toMatch(
+      /review\s+finding[\s\S]*breaks the task's goal in its\s+target\s+setup\s+or\s+regresses\s+the\s+release[\s\S]*PR\s+Risk\s+with\s+a\s+thread\s+reply/,
+    );
+    expect(step).toMatch(
+      /[Aa]lways\s+clear\s+a\s+failing\s+gate\s+that\s+caused\s+the\s+return\s+\(red\s+CI,\s+draft,\s+conflict\),\s+finding\s+or\s+not/,
+    );
+    expect(step).not.toMatch(/with\s+no\s+finding/);
+    expect(step).toMatch(/board submit <turn> <sha>|then submit/);
+    expect(text).not.toMatch(/fix it\b|fix and submit/);
   });
 
   it.each(['worker', 'orchestrator'] as const)('indexes exactly the %s grants', (role) => {

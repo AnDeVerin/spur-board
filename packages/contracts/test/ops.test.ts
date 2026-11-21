@@ -227,6 +227,7 @@ describe('catalog', () => {
         ".projects[].columns[].source|1.error.message",
         ".projects[].columns[].quietTurnAfterMs",
         ".projects[].columns[].noRecipientAfterMs",
+        ".projects[].columns[].quietAfterMs",
         ".projects[].dispatcher",
         ".projects[].dispatcher.mode",
         ".projects[].spurProjects",
@@ -984,9 +985,10 @@ describe('snapshot', () => {
     // operator's take of a turn addressed to it in inbox.ack and points it to inbox_operator, the
     // operator kind of unbound columns in config.get and the no-turn Done without a live worker.
     // #804 adds task.wait, the optional turn wait in turn views, the turn_wait_limit code and the
-    // turn wait event kinds. #815 says which items item.close also closes the block of.
+    // turn wait event kinds. #810 adds the optional projects[].columns[].quietAfterMs to
+    // config.get. #815 says which items item.close also closes the block of.
     expect(await catalogVersion(baseline)).toBe(
-      '1002809c06e6bacc6dd711a6b08a9c40a4d75f7ab9c1b44687e1023cab7f301b',
+      'c7f126098cef8f5494beae2d5cb681ac899eecfffe891f7b6b827df5e93e3710',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

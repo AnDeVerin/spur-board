@@ -293,6 +293,7 @@ describe('scenarios', () => {
       'dispatch-unresolved-thread',
       'dispatch-approval-with-notes',
       'dispatch-unbound-review',
+      'external-review-quiet',
       'qa-carried',
       'qa-skipped',
       'approval-stale',
@@ -2275,6 +2276,33 @@ describe('dispatcher scenarios', () => {
         return (JSON.parse(row.detail) as { reviews: unknown[] }).reviews;
       });
       expect(reviews).toHaveLength(1);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'external-review-quiet: one external-quiet: item for the waiting task; an approval clears it',
+    async () => {
+      await up();
+      const { scenario } = await seed('external-review-quiet');
+      expect(await column()).toBe('external-review');
+      const key = scenario.items?.['quiet'] ?? '';
+      expect(key).toMatch(/^external-quiet:\d+:\d+$/);
+      const quiet = (await status(current())).items.filter((item) =>
+        item.key.startsWith('external-quiet:'),
+      );
+      expect(quiet.map((item) => item.key)).toEqual([key]);
+      expect(quiet[0]?.summary).toContain(
+        `${ISSUE}: stand-org/board#1 has had no new external review round for 6 min`,
+      );
+      expect(quiet[0]?.summary).toContain(`no external review on ${A.slice(0, 7)}`);
+
+      await github('review', { state: 'APPROVED' });
+      await poll();
+      expect(await column()).toBe('ready-to-merge');
+      expect(
+        (await status(current())).items.filter((item) => item.key.startsWith('external-quiet:')),
+      ).toEqual([]);
     },
     TIMEOUT,
   );

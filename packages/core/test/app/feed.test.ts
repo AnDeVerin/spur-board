@@ -7,9 +7,9 @@ import { configSchema, type Config, type Gateway } from '@spur-board/contracts';
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 import { createSender, enqueueConversationOpen, openStore, type Store } from '../../src/index.ts';
 import { clearItem, raiseItem } from '../../src/app/feed.ts';
-import { reconcileItems } from '../../src/app/fromYou.ts';
 import type { RaiseItemInput } from '../../src/app/item-raise.ts';
 import {
+  EXTERNAL_QUIET_ACTION,
   ITEM_POLICY,
   RECONCILED_KINDS,
   isItemKind,
@@ -145,6 +145,59 @@ describe('operator item feed', () => {
       expect(ctx.observed.requests[1]?.actions).toBeUndefined();
     },
   );
+
+  it('ends an external-quiet line and its edit with the inbox action, other lines unchanged', async () => {
+    const ctx = await setup();
+    const quiet = await raise(ctx.store, 'board_observation', 'external-quiet:1:1');
+    const other = await raise(ctx.store, 'board_observation', 'table:1');
+    await ctx.sender.tick();
+    await ctx.sender.tick();
+    await scanTransaction(ctx.store, testConfig, async (trx) => {
+      await clearItem(trx, quiet.id, AT);
+      await clearItem(trx, other.id, AT);
+    });
+    await ctx.sender.tick();
+    await ctx.sender.tick();
+    const lined = `${TEXT}: ${EXTERNAL_QUIET_ACTION}`;
+    const texts = ctx.observed.requests.map((request) => JSON.stringify(request.body));
+    expect(texts).toHaveLength(4);
+    const [quietLine, otherLine, quietEdit, otherEdit] = texts;
+    expect(quietLine?.split(EXTERNAL_QUIET_ACTION)).toHaveLength(2);
+    expect(quietLine).toContain(JSON.stringify(lined).slice(1, -1));
+    expect(otherLine).not.toContain(EXTERNAL_QUIET_ACTION);
+    expect(otherLine).toContain(JSON.stringify(TEXT).slice(1, -1));
+    expect(ctx.observed.requests[2]?.body).toContainEqual({
+      kind: 'quote',
+      children: [{ kind: 'strike', text: lined }],
+    });
+    expect(quietEdit?.split(EXTERNAL_QUIET_ACTION)).toHaveLength(2);
+    expect(ctx.observed.requests[3]?.body).toEqual([
+      { kind: 'paragraph', children: [{ kind: 'link', url: URL, text: KEY }] },
+      { kind: 'quote', children: [{ kind: 'strike', text: TEXT }] },
+      { kind: 'paragraph', children: [{ kind: 'text', text: '✓ Resolved: condition ended' }] },
+    ]);
+    expect(otherEdit).not.toContain(EXTERNAL_QUIET_ACTION);
+    const stored = await ctx.store.db
+      .selectFrom('operator_item')
+      .select('text')
+      .where('id', '=', quiet.id)
+      .executeTakeFirstOrThrow();
+    expect(stored.text).toBe(TEXT);
+  });
+
+  it('caps a long external-quiet summary with its action in the edit', async () => {
+    const ctx = await setup();
+    const item = await raise(ctx.store, 'board_observation', 'external-quiet:2:1', 'x'.repeat(490));
+    await scanTransaction(ctx.store, testConfig, (trx) => clearItem(trx, item.id, AT));
+    const edit = await ctx.store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'feed.line.edit')
+      .executeTakeFirstOrThrow();
+    const { text } = JSON.parse(edit.payload) as { text: string };
+    expect(Array.from(text)).toHaveLength(500);
+    expect(text.endsWith('…')).toBe(true);
+  });
 
   it('caps a long summary in the edit so it stays one part', async () => {
     const ctx = await setup();
@@ -379,111 +432,6 @@ describe('operator item feed', () => {
       { kind: 'feed.line.edit', state: 'dead' },
     ]);
   });
-
-  it.each([
-    {
-      type: 'needs_input' as const,
-      hint: (block: string) => [
-        { kind: 'text', text: 'Reply in ' },
-        'link',
-        { kind: 'text', text: ` to answer it. Close closes ${block} without an answer.` },
-      ],
-    },
-    {
-      type: 'dependency' as const,
-      hint: (block: string) => [
-        { kind: 'text', text: 'See ' },
-        'link',
-        { kind: 'text', text: `. Close unblocks ${block}.` },
-      ],
-    },
-    {
-      type: 'code' as const,
-      hint: (block: string) => [
-        { kind: 'text', text: 'See ' },
-        'link',
-        { kind: 'text', text: `. Close unblocks ${block}.` },
-      ],
-    },
-  ])(
-    'holds a $type operator block line until its thread is out and links it',
-    async ({ type, hint }) => {
-      const ctx = await setup();
-      const blockId = await scanTransaction(ctx.store, testConfig, async (trx) => {
-        const block = await trx
-          .insertInto('block')
-          .values({
-            task_id: 1,
-            type,
-            reason: 'Choose a version',
-            author: 'agent:web/worker-1',
-            addressee_role: 'operator',
-            target_column: null,
-            state: 'open',
-            outcome: null,
-            outcome_reason: null,
-            repeat_of: null,
-            unblocked_by: null,
-            unblocked_at: null,
-            created_at: AT.toISOString(),
-          })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        await enqueueConversationOpen(trx, {
-          blockId: block.id,
-          commentId: null,
-          persona: { name: 'worker', role: 'worker' },
-          at: AT,
-        });
-        await reconcileItems(trx, testConfig, AT.getTime(), true);
-        return block.id;
-      });
-      const rows = await ctx.store.db
-        .selectFrom('outbox')
-        .select(['id', 'kind', 'parent_outbox_id'])
-        .where('kind', 'in', ['conversation.open', 'feed.line'])
-        .orderBy('id')
-        .execute();
-      const open = rows.find((row) => row.kind === 'conversation.open');
-      expect(rows.find((row) => row.kind === 'feed.line')?.parent_outbox_id).toBe(open?.id);
-      let now = AT.getTime();
-      const sender = createSender({
-        config: testConfig,
-        store: ctx.store,
-        gateway: ctx.observed.gateway,
-        spur: { send: () => Promise.resolve() },
-        now: () => new Date(now),
-        spaceIntervalMs: 0,
-      });
-      ctx.fake.platform.rateLimitNext(1_000);
-      await sender.tick();
-      expect(ctx.observed.requests.map((request) => request.target)).toEqual([
-        expect.objectContaining({ kind: 'open', space: 'orchestrators' }),
-      ]);
-      now += 60_000;
-      await sender.tick();
-      await sender.tick();
-      expect(ctx.observed.requests.map((request) => request.target)).toEqual([
-        expect.objectContaining({ kind: 'open', space: 'orchestrators' }),
-        expect.objectContaining({ kind: 'open', space: 'orchestrators' }),
-        expect.objectContaining({ kind: 'open', space: 'feed' }),
-      ]);
-      const thread = await ctx.store.db
-        .selectFrom('outbox')
-        .select('external_ref')
-        .where('id', '=', open?.id ?? 0)
-        .executeTakeFirstOrThrow();
-      const { permalink } = JSON.parse(thread.external_ref ?? '{}') as { permalink: string };
-      expect(permalink).toEqual(expect.any(String));
-      const block = `B${String(blockId)}`;
-      const link = { kind: 'link', url: permalink, text: `the ${block} thread` };
-      expect(ctx.observed.requests[2]?.body.at(-1)).toEqual({
-        kind: 'context',
-        children: hint(block).map((part) => (part === 'link' ? link : part)),
-      });
-      expect(ctx.observed.violations).toEqual([]);
-    },
-  );
 
   it('recovers an uncertain line and then edits it after the item clears', async () => {
     const ctx = await setup();

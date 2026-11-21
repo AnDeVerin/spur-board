@@ -11,7 +11,8 @@ secret gets a blocked-post item, which takes the line's place. A reply
 in the thread answers a question block; on another block type it is not processed
 and raises an item. Close on that line closes the block without an answer, as
 your unblock with the reason `closed by the operator from the feed`; on an
-already closed block it only clears the line.
+already closed block it only clears the line. An `external-quiet:` item line
+ends with its inbox action.
 `slack.channels.orchestrators`: block threads addressed to the operator by
 others. Answer in the existing block thread. A later reply on an answered
 block is a follow-up, the same as `board followup`.

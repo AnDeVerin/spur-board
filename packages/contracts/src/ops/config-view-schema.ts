@@ -97,6 +97,13 @@ export const configViewSchema = z
                   .describe(
                     'Effective wait of an untaken turn with no live session before the operator item, in milliseconds; present only on columns with a named orchestrator.',
                   ),
+                quietAfterMs: z
+                  .int()
+                  .min(300_000)
+                  .optional()
+                  .describe(
+                    'How long a task waits in External Review without a new external review round before the operator item, in milliseconds; present only on the external-review column when above 0.',
+                  ),
               }),
             )
             .describe('Enabled board columns.'),

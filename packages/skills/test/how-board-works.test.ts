@@ -160,11 +160,10 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
       section: 'Course checks and cycle limits',
       topic: 'turns',
       clauses: [
-        /If returns keep hitting the same mechanism/,
-        /fix the bug class once/,
-        /cover its variants with one table test/,
-        /remaining edges with no user-visible effect under Risk in the PR description/,
-        /Still fix P0\/P1 and user-visible findings in this PR/,
+        /Repeated mechanism: fix its class once, one table test/,
+        /Code a finding only if it breaks the task's goal in its target setup or\s+regresses the release, whatever its severity/,
+        /else PR Risk with a thread reply,\s+no code/,
+        /Unclear scope: `board ask` first/,
         /defaults to 3/,
         /`courseCheck: 0` disables/,
         /defaults to 10 and\s*takes priority/,
@@ -362,17 +361,17 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
       'health:',
       'no-session:',
       'review-rule:',
+      'external-quiet:',
     ];
     expect([...new Set(rows.map((row) => row.kind))].sort()).toEqual([...ITEM_KINDS].sort());
     for (const kind of ITEM_KINDS) {
       const plain = rows.filter((row) => row.kind === kind && row.prefix === undefined);
       expect(plain, kind).toHaveLength(1);
     }
-    expect(
-      rows
-        .filter((row) => row.prefix !== undefined)
-        .map((row) => `${row.kind} ${row.prefix ?? ''}`),
-    ).toEqual(prefixes.map((prefix) => `board_observation ${prefix}`));
+    const prefixed = rows.filter((row) => row.prefix !== undefined);
+    expect(prefixed.map((row) => `${row.kind} ${row.prefix ?? ''}`)).toEqual(
+      prefixes.map((prefix) => `board_observation ${prefix}`),
+    );
     for (const row of rows) {
       const label = `${row.kind} ${row.prefix ?? ''}`;
       expect(row.cells, label).toHaveLength(6);

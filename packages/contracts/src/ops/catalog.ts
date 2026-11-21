@@ -1653,7 +1653,7 @@ export const OPERATIONS = [
                     session: null,
                     text: 'No executor turn opens in the Todo group, even with a configured binding.',
                   },
-                  escalation: { chain: [], noRecipient: null, silent: null },
+                  escalation: { chain: [], noRecipient: null, silent: null, quiet: null },
                   movedBy: {
                     kind: 'manual',
                     text: 'Manual placement; work starting leaves the whole Todo group.',

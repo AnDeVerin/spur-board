@@ -14,7 +14,8 @@ Choose the topic for the decision or action in front of you:
 
 Read effective project configuration with `board config get`, then the current overview with
 `board status`. Configuration lists enabled columns in order, their executors (with `quietTurnAfterMs` and
-`noRecipientAfterMs` on columns with a named orchestrator), dispatcher mode,
+`noRecipientAfterMs` on columns with a named orchestrator, and `quietAfterMs` on External Review
+when above 0), dispatcher mode,
 effective Spur projects with display names, each project's `ticketBrowseBase`
 (`<tracker baseUrl>/browse/` for Jira, else null) and each project's `checksGate`, plus `web.publicOrigin` (the listener's origin,
 null when off or not bound yet) and `web.spurUiOrigin` (null when not configured). It excludes

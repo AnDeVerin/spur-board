@@ -28,8 +28,10 @@ To re-check an outside condition instead of sitting quiet, keyed
 
 - Dev worker: ack, then keyed `board submit <turn> <sha>` for the PR head. Answer each external comment the turn hands you with a new head or a reasoned reply; a reply alone submits the same head.
   Re-request review only from reviewers whose threads your push closed.
-  If returns repeat the same mechanism, fix the class once; one table test for variants;
-  edges with no user-visible effect under PR Risk; still fix P0/P1 and user-visible findings.
+  If returns repeat the same mechanism, fix the class once; one table test for variants.
+  Code a finding only if it breaks the task's goal in its target setup or regresses the release,
+  whatever its severity; else under PR Risk with a thread reply, no code. Unclear scope: keyed
+  `board ask <task> <text>` first.
 - Column orchestrator: ack, then keyed `board submit <turn> <sha>` for the reviewed head, or
   `board return <turn> <reason>` to send it to Dev with what to change. Never push.
 - Operator (the operator token, or a session of a Spur project marked operator): keyed
@@ -44,8 +46,10 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
 - On doorbell, read `board inbox` and the addressed C<number>@<revision> comment or B<number>
   block. Once handled, ack its revision, ID or ring N<number>-<ring> with keyed
   `board inbox ack <entries>`. Keyed `board answer` handles its block; no ack follows.
-- A return: ack its Dev turn, fix and submit; the take reads its `code` block, your confirmed
-  submit closes it; no unblock. Keyed `board unblock <block> --done <ref>` after the fix only
+- A return: ack its Dev turn. Code a review finding only if it breaks the task's goal in its
+  target setup or regresses the release, else PR Risk with a thread reply. Always clear a
+  failing gate that caused the return (red CI, draft, conflict), finding or not; then submit. The take reads its
+  `code` block, your confirmed submit closes it; no unblock. Keyed `board unblock <block> --done <ref>` after the fix only
   if `board task <task>` shows it open with `addressee` worker, after your submit if a Dev
   turn is yours. Ack it when you read it in `board inbox`; `not_found`: none due. If the ack
   answers `forbidden` (the block's ring is assigned to another worker, or you authored the

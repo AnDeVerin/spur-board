@@ -1,7 +1,7 @@
 // Operator item raising without the outbox, so the outbox can raise a blocked-post item.
 import { RESERVED_PROJECT, type Action, type ActorId } from '@spur-board/contracts';
 import type { Row } from '../store/schema.ts';
-import { hasRetryButton, ITEM_POLICY, type ItemKind } from '../domain/fromYou.ts';
+import { hasRetryButton, ITEM_POLICY, itemLineText, type ItemKind } from '../domain/fromYou.ts';
 import { emit, type Trx } from './board-utils.ts';
 
 /** Display label of a feed line with no task; not part of the line's identity. */
@@ -140,13 +140,14 @@ export async function raiseItemWith(
             .where('id', '=', item.task_id)
             .executeTakeFirstOrThrow();
     const key = task?.key ?? TASKLESS_FEED_KEY;
+    const text = itemLineText(item);
     const line = await writeLine(trx, {
       itemId: item.id,
       itemKey: item.item_key,
       raise: item.raise_no,
       key,
-      text: item.text,
-      title: `${key}: ${item.text}`,
+      text,
+      title: `${key}: ${text}`,
       url: item.url,
       taskId: item.task_id,
       actions: itemActions(item.id, input.kind),

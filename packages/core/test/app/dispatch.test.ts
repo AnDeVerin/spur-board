@@ -106,6 +106,8 @@ type Options = {
   checksGate?: CheckGateColumn;
   /** External Review's `approvalRule`; unset by default. */
   approvalRule?: 'any-approval' | 'github-rules';
+  /** External Review's `quietAfterMs`; unset by default. */
+  externalQuietAfterMs?: number;
   /**
    * Adds the project `web` that also polls `o/r`, without `approvalRule`; `github-rules` gives its
    * External Review that rule too.
@@ -249,6 +251,9 @@ function columnsOf(options: Options) {
               ? {}
               : { courseCheck: options.externalCourseCheck }),
             ...(options.approvalRule === undefined ? {} : { approvalRule: options.approvalRule }),
+            ...(options.externalQuietAfterMs === undefined
+              ? {}
+              : { quietAfterMs: options.externalQuietAfterMs }),
           },
         ]
       : []),
@@ -3760,12 +3765,15 @@ describe('course check', () => {
     expect(findings).not.toContain('on bbbbbbb');
     expect(block.reason).toContain('PR: https://github.com/o/r/pull/7');
     expect(block.reason).toContain('Issue: https://github.com/o/r/issues/9');
-    expect(block.reason).toContain('If returns keep hitting the same mechanism');
-    expect(block.reason).toContain('fix the bug class once');
-    expect(block.reason).toContain('cover its variants with one table test');
-    expect(block.reason).toContain('remaining edges with no user-visible effect under Risk');
-    expect(block.reason).toContain('in the PR description instead of fixing them here');
-    expect(block.reason).toContain('Still fix P0/P1 and user-visible findings in this PR');
+    expect(block.reason.split('\n').at(-3)).toBe(
+      "To you, the recipient: the last line guides the worker. To clarify the task's goal or setup, answer this question; your answer reaches the worker as a task comment.",
+    );
+    expect(block.reason.split('\n').at(-2)).toBe('');
+    expect(block.reason.split('\n').at(-1)).toBe(
+      "Repeated mechanism: fix its class once, one table test. Code a finding only if it breaks the task's goal in its target setup or regresses the release, whatever its severity; else PR Risk with a thread reply, no code. Unclear scope: `board ask` first.",
+    );
+    expect(block.reason).not.toContain('P0/P1');
+    expect(block.reason).not.toContain('user-visible');
     expect((await ctx.task()).column).toBe('dev');
     expect(await ctx.openTurn()).toBeNull();
     expect((await ctx.why()).holds).toContain('cycle_limit');
@@ -8308,5 +8316,248 @@ describe('approvalRule github-rules', () => {
     ctx.wait(HALF_HOUR);
     await ctx.tick();
     expect(await ruleItems(ctx)).toEqual([]);
+  });
+});
+
+describe('External Review quiet item', () => {
+  const RULED = { externalReview: true, approvalRule: 'github-rules' } as const;
+  const QUIET = 600_000;
+  const quietItems = (ctx: Board) =>
+    ctx.store.db
+      .selectFrom('operator_item')
+      .select(['id', 'item_key', 'kind', 'task_id', 'text', 'cleared_at'])
+      .where('item_key', 'like', 'external-quiet:%')
+      .orderBy('id')
+      .execute();
+  /** When the task last moved into External Review. */
+  const entered = async (ctx: Board) =>
+    (
+      await ctx.store.db
+        .selectFrom('event')
+        .select('at')
+        .where('kind', '=', 'task_moved')
+        .where(sql<boolean>`json_extract(payload, '$.to') = 'external-review'`)
+        .orderBy('id', 'desc')
+        .executeTakeFirstOrThrow()
+    ).at;
+  /** A complete GitHub poll and a tick, the tick landing `ms` after `from`. */
+  const reconcileAt = async (ctx: Board, from: string, ms: number) => {
+    ctx.wait(Date.parse(from) + ms - Date.parse(ctx.at()) - 2 * 60_000);
+    await ctx.github();
+    await ctx.tick();
+  };
+  const approval = (sha: string, submittedAt: string) => ({
+    reviews: [{ reviewer: EXTERNAL, state: 'approved' as const, commitSha: sha, submittedAt }],
+  });
+
+  it('raises one item after quietAfterMs with no external review, naming the PR and the head, and moves nothing', async () => {
+    const ctx = await pastProductReview({ externalReview: true, externalQuietAfterMs: QUIET });
+    const task = await ctx.task();
+    expect(task.column).toBe('external-review');
+    const since = await entered(ctx);
+    const moves = await ctx.moves();
+    const turn = await ctx.openTurn();
+    await reconcileAt(ctx, since, QUIET - 60_000);
+    expect(await quietItems(ctx)).toEqual([]);
+    await reconcileAt(ctx, since, QUIET);
+    const [item, ...rest] = await quietItems(ctx);
+    expect(rest).toEqual([]);
+    expect(item).toMatchObject({
+      item_key: `external-quiet:${String(task.id)}:${String(task.column_epoch)}`,
+      kind: 'board_observation',
+      task_id: task.id,
+      cleared_at: null,
+    });
+    expect(item?.text).toBe(
+      `${KEY}: o/r#7 has had no new external review round for 10 min, since ${since}; no external review on ${A.slice(0, 7)}`,
+    );
+    expect((await ctx.task()).column).toBe('external-review');
+    expect(await ctx.moves()).toEqual(moves);
+    expect(await ctx.openTurn()).toEqual(turn);
+    // The next reconcile keeps the row and shows the longer wait.
+    await ctx.github();
+    await ctx.tick();
+    const [kept, ...more] = await quietItems(ctx);
+    expect(more).toEqual([]);
+    expect(kept?.id).toBe(item?.id);
+    expect(kept?.text).toContain('for 12 min, since');
+  });
+
+  it('never raises with quietAfterMs unset', async () => {
+    const ctx = await pastProductReview({ externalReview: true });
+    await reconcileAt(ctx, await entered(ctx), 60 * 60_000);
+    expect((await ctx.task()).column).toBe('external-review');
+    expect(await quietItems(ctx)).toEqual([]);
+  });
+
+  it('a new external review clears the item, and another full wait raises a new row naming it', async () => {
+    const ctx = await pastProductReview({ ...RULED, externalQuietAfterMs: QUIET });
+    await reconcileAt(ctx, await entered(ctx), QUIET);
+    const [first] = await quietItems(ctx);
+    expect(first?.cleared_at).toBeNull();
+    const reviewed = ctx.at();
+    await ctx.pr({ ...approval(A, reviewed), mergeState: 'behind' });
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await quietItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+    await reconcileAt(ctx, reviewed, QUIET - 60_000);
+    expect((await quietItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+    await reconcileAt(ctx, reviewed, QUIET);
+    const items = await quietItems(ctx);
+    expect(items.map((entry) => entry.cleared_at === null)).toEqual([false, true]);
+    expect(items[1]?.item_key).toBe(first?.item_key);
+    expect(
+      items[1]?.text.endsWith(
+        `since ${reviewed}; latest external review on ${A.slice(0, 7)}: approved by ${EXTERNAL} at ${reviewed}`,
+      ),
+    ).toBe(true);
+  });
+
+  /** The task in External Review, then the board in shadow mode, so a new head keeps it there. */
+  const shadowInExternal = async () => {
+    const options = { externalReview: true, externalQuietAfterMs: QUIET };
+    const ctx = await pastProductReview(options);
+    ctx.restart({ ...options, mode: 'shadow' });
+    expect((await ctx.task()).column).toBe('external-review');
+    return ctx;
+  };
+
+  it('names no external review on the current head when only an older head was reviewed', async () => {
+    const ctx = await shadowInExternal();
+    await ctx.pr(approval(A, ctx.at()));
+    await ctx.pr({ headSha: B });
+    const arrived = ctx.at();
+    await reconcileAt(ctx, arrived, QUIET);
+    expect((await ctx.task()).column).toBe('external-review');
+    const [item, ...rest] = await quietItems(ctx);
+    expect(rest).toEqual([]);
+    expect(item?.text.endsWith(`since ${arrived}; no external review on ${B.slice(0, 7)}`)).toBe(
+      true,
+    );
+    expect(item?.text).not.toContain('latest external review');
+  });
+
+  const pr8 = { number: 8, url: 'https://github.com/o/r/pull/8' } as const;
+  it.each([
+    {
+      name: 'a same-head replacement PR waits from the time it became the active PR',
+      pr: 'o/r#8',
+      arrange: async (ctx: Board) => {
+        ctx.wait(QUIET / 2);
+        await ctx.unlinkPr(7);
+        await ctx.pr({ ...pr8, headSha: A });
+        return ctx.at();
+      },
+    },
+    {
+      name: "another linked PR's push to the active head leaves the active PR's wait",
+      pr: 'o/r#7',
+      arrange: async (ctx: Board) => {
+        const since = await entered(ctx);
+        await ctx.pr({ ...pr8, headSha: C });
+        ctx.wait(QUIET / 2);
+        await ctx.pr({ ...pr8, headSha: A });
+        return since;
+      },
+    },
+    {
+      name: "the active PR's own new head restarts the wait",
+      pr: 'o/r#7',
+      arrange: async (ctx: Board) => {
+        ctx.wait(QUIET / 2);
+        await ctx.pr({ headSha: B });
+        return ctx.at();
+      },
+    },
+    {
+      name: 'a manual PR reopened on the active head waits from its reopening',
+      pr: 'o/r#8',
+      arrange: async (ctx: Board) => {
+        await ctx.pr({ ...pr8, headSha: A, state: 'closed' });
+        await ctx.linkPr(8);
+        ctx.wait(QUIET);
+        await ctx.pr({ ...pr8, state: 'open' });
+        expect(
+          await ctx.store.db
+            .selectFrom('link')
+            .select(['number', 'pr_state'])
+            .where('entity', '=', 'pr')
+            .where('pr_open', '=', 1)
+            .where('pr_state', '=', 'active')
+            .execute(),
+        ).toEqual([{ number: 8, pr_state: 'active' }]);
+        return ctx.at();
+      },
+    },
+  ])('$name', async ({ pr, arrange }) => {
+    const ctx = await shadowInExternal();
+    const since = await arrange(ctx);
+    await reconcileAt(ctx, since, QUIET - 60_000);
+    expect((await ctx.task()).column).toBe('external-review');
+    expect(await quietItems(ctx)).toEqual([]);
+    await reconcileAt(ctx, since, QUIET);
+    const [item, ...rest] = await quietItems(ctx);
+    expect(rest).toEqual([]);
+    expect(item?.cleared_at).toBeNull();
+    expect(item?.text).toContain(`${KEY}: ${pr} has had no new external review round for 10 min`);
+    expect(item?.text).toContain(`since ${since};`);
+  });
+
+  it('a new PR head clears the item while the task stays in External Review', async () => {
+    const ctx = await shadowInExternal();
+    await reconcileAt(ctx, await entered(ctx), QUIET);
+    expect((await quietItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([true]);
+    await ctx.pr({ headSha: B });
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await quietItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+  });
+
+  it('leaving External Review clears the item, also while GitHub is blind', async () => {
+    const approved = await pastProductReview({ externalReview: true, externalQuietAfterMs: QUIET });
+    await reconcileAt(approved, await entered(approved), QUIET);
+    expect((await quietItems(approved)).map((entry) => entry.cleared_at === null)).toEqual([true]);
+    await approved.pr(approval(A, approved.at()));
+    await approved.tick();
+    expect((await approved.task()).column).toBe('ready-to-merge');
+    expect((await quietItems(approved)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+
+    const moved = await pastProductReview({ externalReview: true, externalQuietAfterMs: QUIET });
+    await reconcileAt(moved, await entered(moved), QUIET);
+    await moved.blind(GITHUB, true);
+    await moved.move('dev');
+    await moved.tick();
+    expect((await moved.task()).column).toBe('dev');
+    expect((await quietItems(moved)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+  });
+
+  it('raises nothing past the wait while GitHub is stale, and raises on the next complete poll', async () => {
+    const ctx = await pastProductReview({ externalReview: true, externalQuietAfterMs: QUIET });
+    ctx.wait(QUIET + 5 * 60_000);
+    await ctx.tick();
+    expect(await quietItems(ctx)).toEqual([]);
+    await ctx.github();
+    await ctx.tick();
+    expect((await quietItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([true]);
+  });
+
+  it('keeps the raised item through a blind or stale GitHub', async () => {
+    const ctx = await pastProductReview({ externalReview: true, externalQuietAfterMs: QUIET });
+    await reconcileAt(ctx, await entered(ctx), QUIET);
+    const [item] = await quietItems(ctx);
+    ctx.wait(QUIET);
+    await ctx.tick();
+    expect(await quietItems(ctx)).toEqual([item]);
+    await ctx.blind(GITHUB, true);
+    ctx.wait(QUIET);
+    await ctx.tick();
+    expect(await quietItems(ctx)).toEqual([item]);
+    await ctx.blind(GITHUB, false);
+    await ctx.github();
+    await ctx.tick();
+    const [kept, ...rest] = await quietItems(ctx);
+    expect(rest).toEqual([]);
+    expect(kept?.id).toBe(item?.id);
+    expect(kept?.cleared_at).toBeNull();
   });
 });
