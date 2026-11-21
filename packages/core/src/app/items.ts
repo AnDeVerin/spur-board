@@ -43,6 +43,7 @@ const deliveryPayloadSchema = z.object({
   taskId: z.unknown().optional(),
   blockId: z.unknown().optional(),
   notificationId: z.unknown().optional(),
+  itemId: z.unknown().optional(),
 });
 
 /** The outbox row of a `delivery:<outbox id>` item; the item itself has no task. */
@@ -52,13 +53,18 @@ function deliveryId(item: Item): number | undefined {
     : undefined;
 }
 
-/** How an item finds its subject: a task, or a notification, comment, thread or block. */
+/**
+ * How an item finds its subject: a task, or a notification, comment, thread or block, or the
+ * operator item a feed line is about, or the outbox row a feed edit changes.
+ */
 interface SubjectRef {
   task?: number;
   notification?: number;
   comment?: number;
   conversation?: string;
   block?: number;
+  item?: number;
+  delivery?: number;
 }
 
 /** The conversation of an `inbound_failure` item's stored event. */
@@ -80,49 +86,99 @@ function storedRef(item: Item): SubjectRef {
   return typeof conversation === 'string' ? { conversation } : {};
 }
 
-/** How a failed delivery's outbox row finds its subject, from its payload or ring, if at all. */
-function deliveryRef(row: {
-  kind: string;
-  dedupe_key: string;
-  payload: string;
-}): SubjectRef | undefined {
+type DeliveryRow = Pick<
+  Row<'outbox'>,
+  'id' | 'kind' | 'dedupe_key' | 'payload' | 'parent_outbox_id'
+>;
+
+/**
+ * How a failed delivery's outbox row finds its subject, from its payload or ring, if at all: a
+ * feed line by the item it is about, a feed edit by the line it edits.
+ */
+function deliveryRef(row: DeliveryRow): SubjectRef | undefined {
   const payload = parseJson(deliveryPayloadSchema, row.payload);
   if (typeof payload.taskId === 'number') return { task: payload.taskId };
   if (typeof payload.blockId === 'number') return { block: payload.blockId };
+  if (row.kind === 'feed.line') {
+    return typeof payload.itemId === 'number' ? { item: payload.itemId } : undefined;
+  }
+  if (row.kind === 'feed.line.edit') {
+    return row.parent_outbox_id === null ? undefined : { delivery: row.parent_outbox_id };
+  }
   if (row.kind !== 'doorbell') return undefined;
   if (typeof payload.notificationId === 'number') return { notification: payload.notificationId };
   const comment = ringCommentId(row.dedupe_key);
   return comment === undefined ? undefined : { comment };
 }
 
+/** Outbox rows read per edit chain: a token card's revoked edit follows its card edit. */
+const DELIVERY_HOPS = 3;
+/** Operator items followed from a feed line: the line's item, never an item's line again. */
+const ITEM_HOPS = 1;
+
+/**
+ * Each failed delivery's ref, following a feed edit to the line it edits for at most
+ * `DELIVERY_HOPS` rows; a longer chain has no ref. One statement per hop.
+ */
+async function deliveryRefs(
+  trx: Trx,
+  outboxIds: readonly number[],
+): Promise<Map<number, SubjectRef | undefined>> {
+  const refs = new Map<number, SubjectRef | undefined>();
+  // Each failed delivery's outbox id -> the row still to read for it.
+  let pending = new Map(outboxIds.map((id) => [id, id]));
+  for (let hop = 0; hop < DELIVERY_HOPS && pending.size > 0; hop += 1) {
+    const rows = await trx
+      .selectFrom('outbox')
+      .select(['id', 'kind', 'dedupe_key', 'payload', 'parent_outbox_id'])
+      .where('id', 'in', [...new Set(pending.values())])
+      .execute();
+    const refOf = new Map(rows.map((row) => [row.id, deliveryRef(row)]));
+    const next = new Map<number, number>();
+    for (const [origin, current] of pending) {
+      const ref = refOf.get(current);
+      if (ref?.delivery === undefined) refs.set(origin, ref);
+      else next.set(origin, ref.delivery);
+    }
+    pending = next;
+  }
+  return refs;
+}
+
 /**
  * What each item is about; `inbox.operator`, `status.get` and item actions all file an item by
  * it. An item is its own task's; else a failed delivery's: its payload's task, the block it
- * posts, or for a doorbell its ring's notification or comment; else the block it refers to
+ * posts, for a doorbell its ring's notification or comment, for a feed line the subject of the
+ * item it is about, for a feed edit that of the line it edits; else the block it refers to
  * (`itemBlockRef`); else the comment or thread it stores (`storedRef`). A notification, comment
  * or thread is its task's, else its block's; a block is its task's, else a project-level block
  * its project's. An item that reaches neither is the project's whose repository or tracker
  * source it names (`projectForSource`), such as a blind source or a red default branch; the
  * `spur` source and other board-wide ones name none. A subject whose project has left the config
  * is the board's, except an archived task's, which stays hidden. An item missing from the map is
- * a board item. Reads at most six
- * statements, whatever the item count.
+ * a board item. The number of statements it reads is bounded (`DELIVERY_HOPS`, `ITEM_HOPS`),
+ * whatever the item count.
  */
 export async function itemSubjects(
   trx: Trx,
   items: readonly Item[],
   config: Config,
 ): Promise<Map<number, BlockSubject>> {
+  return subjectsOf(trx, items, config, ITEM_HOPS);
+}
+
+/** `itemSubjects`, following a feed line to its item for at most `itemHops` items. */
+async function subjectsOf(
+  trx: Trx,
+  items: readonly Item[],
+  config: Config,
+  itemHops: number,
+): Promise<Map<number, BlockSubject>> {
   const outboxIds = items.flatMap((item) => deliveryId(item) ?? []);
-  const deliveries =
+  const refOfDelivery =
     outboxIds.length === 0
-      ? []
-      : await trx
-          .selectFrom('outbox')
-          .select(['id', 'kind', 'dedupe_key', 'payload'])
-          .where('id', 'in', outboxIds)
-          .execute();
-  const deliveryRefs = new Map(deliveries.map((row) => [row.id, deliveryRef(row)]));
+      ? new Map<number, SubjectRef | undefined>()
+      : await deliveryRefs(trx, outboxIds);
   const refs = new Map<number, SubjectRef>();
   for (const item of items) {
     const outboxId = deliveryId(item);
@@ -130,13 +186,23 @@ export async function itemSubjects(
     const ref =
       item.task_id !== null
         ? { task: item.task_id }
-        : ((outboxId === undefined ? undefined : deliveryRefs.get(outboxId)) ??
+        : ((outboxId === undefined ? undefined : refOfDelivery.get(outboxId)) ??
           (blockRef === undefined ? storedRef(item) : { block: blockRef }));
     refs.set(item.id, ref);
   }
-  const ids = <K extends 'notification' | 'comment' | 'conversation' | 'block'>(pick: K) => [
-    ...new Set([...refs.values()].flatMap((ref) => ref[pick] ?? [])),
-  ];
+  const ids = <K extends 'notification' | 'comment' | 'conversation' | 'block' | 'item'>(
+    pick: K,
+  ) => [...new Set([...refs.values()].flatMap((ref) => ref[pick] ?? []))];
+  // A failed feed line or edit is the subject's of the item the line is about.
+  const lineItemIds = itemHops === 0 ? [] : ids('item');
+  const lineItems =
+    lineItemIds.length === 0
+      ? []
+      : await trx.selectFrom('operator_item').selectAll().where('id', 'in', lineItemIds).execute();
+  const lineSubjects =
+    lineItems.length === 0
+      ? new Map<number, BlockSubject>()
+      : await subjectsOf(trx, lineItems, config, itemHops - 1);
   type Linked = { task_id: number | null; block_id: number | null };
   const notificationIds = ids('notification');
   const commentIds = ids('comment');
@@ -222,6 +288,10 @@ export async function itemSubjects(
     if (configured.has(subject.project) || task?.membership === 'archived') {
       subjects.set(itemId, subject);
     }
+  }
+  for (const [itemId, ref] of refs) {
+    const subject = ref.item === undefined ? undefined : lineSubjects.get(ref.item);
+    if (subject !== undefined) subjects.set(itemId, subject);
   }
   return subjects;
 }

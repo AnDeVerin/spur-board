@@ -428,7 +428,8 @@ bindings from every Board project it should serve. To keep separate operators, g
 Board project its own operator Spur project. Restoring an archived task counts as that task's
 project. Retrying or closing an item of a task counts as that task's project, and of a
 `board project ask` question as that question's project, its failed post, a Slack answer whose
-author is unavailable and a failed Slack reply in its thread included. An item of a project's
+author is unavailable and a failed Slack reply in its thread included. A failed feed post of an
+item, or a failed edit of that post, counts as that item's project. An item of a project's
 repository or tracker source, such as a red default branch or a failing tracker poll, counts as
 that project; a failing Spur poll counts as the Board's. Once that project has left
 the config, the item counts as the Board's. `board inbox operator` and `board status` list an

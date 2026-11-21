@@ -23,7 +23,9 @@ afterEach(async () => {
  * Per project: the failed post of a `board project ask` (only its outbox payload names the
  * block), the undelivered answer to one (the item's block), a Slack answer to one whose author
  * is unavailable (only its key names the comment) and a failed Slack reply in its thread (only
- * the stored event names the thread), as rows raised before items stored the block, an item
+ * the stored event names the thread), as rows raised before items stored the block, a recovery
+ * gap in its thread with its failed feed line and the failed edit of its posted line (only the
+ * line's item and the edit's parent lead to the gap), an item
  * of a task, and a red default branch and a blind tracker, which name only the project's source.
  * Plus a board item that names nothing, a blind Spur, which every project shares, and a red
  * branch, a failed delivery and an item of a task of a project that has left the config, which
@@ -85,6 +87,44 @@ async function subjects(store: Store): Promise<Record<string, string>> {
         kind: 'answer_undelivered',
         blockId: answered,
       });
+      const gap = await item(trx, {
+        key: `inbound:gap:${project}`,
+        kind: 'inbound_gap',
+        blockId: asked,
+      });
+      ids[`${project} gap`] = gap;
+      const gapId = Number(gap.slice(1));
+      const line = {
+        key: 'board',
+        text: 'Messages may be missing.',
+        persona: { name: 'board', role: 'board' },
+        itemKey: `inbound:gap:${project}`,
+      };
+      ids[`${project} gap line`] = await failedPost(trx, {
+        kind: 'feed.line',
+        payload: { ...line, title: 'Recovery gap', itemId: gapId },
+      });
+      const posted = await trx
+        .insertInto('outbox')
+        .values({
+          kind: 'feed.line',
+          dedupe_key: `feed.line:inbound:gap:${project}:posted`,
+          payload: JSON.stringify({ ...line, title: 'Recovery gap', itemId: gapId }),
+          state: 'done',
+          next_at: ago(HOUR),
+          last_error: null,
+          external_ref: null,
+          parent_outbox_id: null,
+          first_attempt_at: ago(HOUR),
+          first_delivery_at: ago(HOUR),
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      ids[`${project} gap edit`] = await failedPost(trx, {
+        kind: 'feed.line.edit',
+        payload: { ...line, resolved: { by: 'operator', at: ago(0) } },
+        parentId: posted.id,
+      });
       const taskId = await task(trx, { project, key: `o/${project}#1` });
       ids[`${project} task`] = await item(trx, {
         key: `inbound:${project}`,
@@ -134,6 +174,9 @@ const kinds = [
   'answer',
   'author away',
   'reply failed',
+  'gap',
+  'gap line',
+  'gap edit',
   'task',
   'red branch',
   'blind tracker',
