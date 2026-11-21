@@ -49,7 +49,7 @@ import {
   type Trx,
 } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
-import { blockThreadRow } from './outbox.ts';
+import { blockThread } from './outbox.ts';
 import {
   bestProjectSession,
   curatorSession,
@@ -1189,8 +1189,8 @@ export async function reconcileItems(
       const blockId = candidate.key.startsWith(OPERATOR_BLOCK_KEY)
         ? itemBlockRef({ item_key: candidate.key, block_id: null })
         : undefined;
-      const parent = blockId === undefined ? null : await blockThreadRow(trx, blockId);
-      await raiseItem(trx, { ...input, taskId: candidate.taskId, blockId: null }, parent);
+      const thread = blockId === undefined ? null : await blockThread(trx, blockId);
+      await raiseItem(trx, { ...input, taskId: candidate.taskId, blockId: null }, thread);
     }
   }
 }

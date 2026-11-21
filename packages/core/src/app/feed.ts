@@ -2,6 +2,7 @@ import {
   parseActorId,
   userIdSchema,
   type ActorId,
+  type BlockType,
   type Config,
   type RichText,
   type RichTextBlock,
@@ -33,15 +34,19 @@ export function capPoints(text: string, max: number): string {
 }
 
 /**
- * Raise one item generation. A repeated raise of an active key is idempotent. A `parent` outbox
- * row holds the feed line until it is delivered.
+ * Raise one item generation. A repeated raise of an active key is idempotent. An operator block's
+ * `thread` row holds the feed line until it is delivered.
  */
 export async function raiseItem(
   trx: Trx,
   input: RaiseItemInput,
-  parent: number | null = null,
+  thread: { parent: number; blockType: BlockType } | null = null,
 ): Promise<Row<'operator_item'>> {
-  return raiseItemWith(trx, input, (t, line) => enqueueFeedLine(t, line, parent));
+  return raiseItemWith(trx, input, (t, line) =>
+    thread === null
+      ? enqueueFeedLine(t, line)
+      : enqueueFeedLine(t, { ...line, blockType: thread.blockType }, thread.parent),
+  );
 }
 
 /**
@@ -187,13 +192,16 @@ function resolvedLine(by: ActorId, at: string, config: Config): RichTextInline[]
 
 /**
  * A feed line: its key, linked when it has a url, then its segments, or its text, as a quote. An
- * operator block's line sent under its delivered `thread` ends with what a reply and Close do.
+ * operator block's line sent under its delivered `thread` ends with what Close does and, for a
+ * question, that a reply in the thread answers it; a reply to any other block type is refused.
  */
 export function feedLineBody(
-  payload: Pick<FeedLinePayload, 'key' | 'url' | 'text' | 'segments'> & { itemKey?: string },
+  payload: Pick<FeedLinePayload, 'key' | 'url' | 'text' | 'segments' | 'blockType'> & {
+    itemKey?: string;
+  },
   thread?: { permalink: string } | null,
 ): RichText {
-  const { key, url, text, segments, itemKey } = payload;
+  const { key, url, text, segments, itemKey, blockType } = payload;
   const body: RichTextBlock[] = [
     {
       kind: 'paragraph',
@@ -205,13 +213,25 @@ export function feedLineBody(
   ];
   if (thread != null && itemKey?.startsWith(OPERATOR_BLOCK_KEY) === true) {
     const block = `B${itemKey.slice(OPERATOR_BLOCK_KEY.length)}`;
+    const link: RichTextInline = {
+      kind: 'link',
+      url: thread.permalink,
+      text: `the ${block} thread`,
+    };
     body.push({
       kind: 'context',
-      children: [
-        { kind: 'text', text: 'Reply in ' },
-        { kind: 'link', url: thread.permalink, text: `the ${block} thread` },
-        { kind: 'text', text: ` to answer it. Close closes ${block} without an answer.` },
-      ],
+      children:
+        blockType === 'needs_input'
+          ? [
+              { kind: 'text', text: 'Reply in ' },
+              link,
+              { kind: 'text', text: ` to answer it. Close closes ${block} without an answer.` },
+            ]
+          : [
+              { kind: 'text', text: 'See ' },
+              link,
+              { kind: 'text', text: `. Close unblocks ${block}.` },
+            ],
     });
   }
   return body;

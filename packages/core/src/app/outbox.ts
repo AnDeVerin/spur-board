@@ -2,10 +2,12 @@
 import { createHash } from 'node:crypto';
 import {
   actorIdSchema,
+  BLOCK_TYPES,
   conversationRefSchema,
   messageRefSchema,
   PERSONA_ROLES,
   type ActorId,
+  type BlockType,
   type ConversationRef,
   type Persona,
   type Action,
@@ -133,10 +135,14 @@ export function feedText(segments: readonly FeedSegment[]): string {
   return segments.map((part) => part.text).join('');
 }
 
-/** `segments`, when set, is the line's rich form of `text`; a mismatch is never sent. */
+/**
+ * `segments`, when set, is the line's rich form of `text`; a mismatch is never sent. `blockType`
+ * is the type of an operator block whose line links its thread.
+ */
 const feedLineWithLinkPayload = feedLinePayload
   .extend({
     itemId: id.optional(),
+    blockType: z.enum(BLOCK_TYPES).optional(),
     url: z.url().optional(),
     actions: z.array(actionPayload).optional(),
     exchange: exchange.optional(),
@@ -359,6 +365,7 @@ export async function enqueueFeedLine(
     taskId: number | null;
     actions?: readonly Action[];
     segments?: readonly FeedSegment[];
+    blockType?: BlockType;
     at: Date;
   },
   parent: number | null = null,
@@ -377,6 +384,7 @@ export async function enqueueFeedLine(
       ...(input.url === '' ? {} : { url: input.url }),
       actions: input.actions,
       ...(input.segments === undefined ? {} : { segments: input.segments }),
+      ...(input.blockType === undefined ? {} : { blockType: input.blockType }),
     },
     parent,
     at: input.at,
@@ -770,15 +778,22 @@ export async function enqueueConversationOpen(
   return row.id;
 }
 
-/** The live `conversation.open` row of a block's operator thread, or null when it has none. */
-export async function blockThreadRow(trx: Trx, blockId: number): Promise<number | null> {
+/**
+ * The live `conversation.open` row of a block's operator thread and the block's type, or null when
+ * the block has no such row.
+ */
+export async function blockThread(
+  trx: Trx,
+  blockId: number,
+): Promise<{ parent: number; blockType: BlockType } | null> {
   const row = await trx
     .selectFrom('outbox')
-    .select('id')
-    .where('dedupe_key', '=', `conversation.open:block:${String(blockId)}`)
-    .where('state', '!=', 'dead')
+    .innerJoin('block', (join) => join.on('block.id', '=', blockId))
+    .select(['outbox.id', 'block.type'])
+    .where('outbox.dedupe_key', '=', `conversation.open:block:${String(blockId)}`)
+    .where('outbox.state', '!=', 'dead')
     .executeTakeFirst();
-  return row?.id ?? null;
+  return row === undefined ? null : { parent: row.id, blockType: row.type };
 }
 
 /** The thread an operator conversation was started in; undefined for every other block. */
