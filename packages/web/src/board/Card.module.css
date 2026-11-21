@@ -251,10 +251,10 @@
 .age[data-kind='stall'] {
   color: var(--color-status-error);
 }
-/* A waiting tail can be long: only it shrinks, and the turn and holder keep up to half the row. */
+/* A waiting tail can be long: only it shrinks, and the turn and holder keep up to 70% of the row. */
 .turn[data-waiting] .who {
   flex-shrink: 0;
-  max-width: 50%;
+  max-width: 70%;
 }
 .turn[data-waiting] .age {
   flex: 0 1 auto;
