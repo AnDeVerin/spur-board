@@ -984,9 +984,9 @@ describe('snapshot', () => {
     // operator's take of a turn addressed to it in inbox.ack and points it to inbox_operator, the
     // operator kind of unbound columns in config.get and the no-turn Done without a live worker.
     // #804 adds task.wait, the optional turn wait in turn views, the turn_wait_limit code and the
-    // turn wait event kinds.
+    // turn wait event kinds. #815 says that item.close also closes the block of a block's item.
     expect(await catalogVersion(baseline)).toBe(
-      '3ae4ccd1197858f4badb117106278cbf065c8522e8c6275f103a91374a34b64c',
+      '5561d885cc710862145e00ea5ee789118fa66b780cdbf8ae1e650d22a7e0d667',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

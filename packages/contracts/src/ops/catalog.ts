@@ -907,9 +907,10 @@ export const OPERATIONS = [
     id: 'item.close',
     web: true,
     kind: 'mutation',
-    description: 'Close a "from you" item without acting on it.',
+    description: 'Close a "from you" item without retrying; a block\'s item also closes its block.',
     mcp: {
-      whenToUse: 'Dismiss an item without retrying.',
+      whenToUse:
+        'Dismiss an item without retrying. An item for an open block also closes that block with a reason, as the operator.',
       whenNotToUse: 'Use item_retry to try again.',
     },
     input: itemInputSchema,
