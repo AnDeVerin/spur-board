@@ -44,8 +44,10 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
 - On doorbell, read `board inbox` and the addressed C<number>@<revision> comment or B<number>
   block. Once handled, ack its revision, ID or ring N<number>-<ring> with keyed
   `board inbox ack <entries>`. Keyed `board answer` handles its block; no ack follows.
-- A return: ack its Dev turn, fix and submit; the take reads its `code` block, your confirmed
-  submit closes it; no unblock. Keyed `board unblock <block> --done <ref>` after the fix only
+- A return: ack its Dev turn. Code a review finding only if it breaks the task's stated goal in its
+  target setup or regresses the current release, else PR Risk with a thread reply; a return a gate
+  caused (red CI, draft, conflict) with no finding: clear that gate; then submit. The take reads its
+  `code` block, your confirmed submit closes it; no unblock. Keyed `board unblock <block> --done <ref>` after the fix only
   if `board task <task>` shows it open with `addressee` worker, after your submit if a Dev
   turn is yours. Ack it when you read it in `board inbox`; `not_found`: none due. If the ack
   answers `forbidden` (the block's ring is assigned to another worker, or you authored the
