@@ -8029,6 +8029,82 @@ describe('approvalRule github-rules', () => {
     expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
   });
 
+  // A closed item stays closed for the rest of its stretch; the next stretch on the head raises a
+  // new item. `wait` is how long a read takes to raise: at once when blocked, 30 minutes undecided.
+  const checked = (state: 'success' | 'pending') => ({ requiredChecks: [run('ci', state)] });
+  it.each<{
+    name: string;
+    first: Partial<PrFacts>;
+    wait: number;
+    between: (ctx: Board) => Promise<void>;
+    again: Partial<PrFacts>;
+    open: boolean[];
+  }>([
+    {
+      name: 'a blocked head read blocked again keeps it closed',
+      first: { mergeState: 'blocked' },
+      wait: 0,
+      between: async () => {},
+      again: { mergeState: 'blocked' },
+      open: [false],
+    },
+    {
+      name: 'a blocked head read clean, then blocked again, raises a new item',
+      first: { mergeState: 'blocked' },
+      wait: 0,
+      between: async (ctx) => {
+        await ctx.rulePr({ mergeState: 'clean' }, rule());
+        expect((await ctx.task()).column).toBe('ready-to-merge');
+      },
+      again: { mergeState: 'blocked' },
+      open: [false, true],
+    },
+    {
+      name: 'a blocked head back from Dev after unresolved threads raises a new item',
+      first: { mergeState: 'blocked' },
+      wait: 0,
+      between: async (ctx) => {
+        await ctx.rulePr({ mergeState: 'blocked', reviewThreads: [openThread] }, rule());
+        expect((await ctx.task()).column).toBe('dev');
+        const turn = await ctx.openTurn();
+        await ctx.ack(WORKER, turn?.id ?? '');
+        await ctx.rulePr(
+          { mergeState: 'blocked', reviewThreads: [{ ...openThread, resolved: true }] },
+          rule(),
+        );
+        await ctx.submit(WORKER, turn?.id ?? '', A);
+        expect((await ctx.task()).column).toBe('external-review');
+      },
+      again: { mergeState: 'blocked' },
+      open: [false, true],
+    },
+    {
+      name: 'an undecided head whose clock a check rerun stopped raises a new item 30 minutes later',
+      first: { mergeState: 'behind', ...checked('success') },
+      wait: HALF_HOUR,
+      between: (ctx) => ctx.rulePr({ mergeState: 'blocked', ...checked('pending') }, rule()),
+      again: { mergeState: 'behind', ...checked('success') },
+      open: [false, true],
+    },
+  ])('a closed review-rule item: $name', async ({ first, wait, between, again, open }) => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr({ ...approved, ...first }, rule());
+    ctx.wait(wait);
+    await ctx.tick();
+    const [item, ...rest] = await ruleItems(ctx);
+    expect(rest).toEqual([]);
+    expect(item?.cleared_at).toBeNull();
+    await ctx.closeItem(`I${String(item?.id)}`);
+    await between(ctx);
+    await ctx.rulePr(again, rule());
+    expect((await ctx.task()).column).toBe('external-review');
+    ctx.wait(wait);
+    await ctx.tick();
+    const items = await ruleItems(ctx);
+    expect(items.map((entry) => entry.cleared_at === null)).toEqual(open);
+    expect(new Set(items.map((entry) => entry.item_key))).toEqual(new Set([item?.item_key]));
+  });
+
   it.each([
     { name: 'without the external approval', reviews: {}, options: {} },
     {
@@ -8151,33 +8227,27 @@ describe('approvalRule github-rules', () => {
   });
 
   // A manual link refreshes the snapshot with a lowercase slug and the next poll can bring back
-  // the mixed case: the item stays one, and a closed one stays closed.
+  // the mixed case: the item stays one, and a closed one stays closed for the rest of its stretch.
   it.each([
     { first: 'o/r', later: 'o/r' },
     { first: 'O/R', later: 'o/r' },
     { first: 'o/r', later: 'O/R' },
   ])(
-    'keeps one item, and a closed item closed for a later undecided stretch with the same text, from repo $first to $later',
+    'keeps one item, and a closed item closed for the rest of its stretch, from repo $first to $later',
     async ({ first: from, later }) => {
       const ctx = await pastProductReview(RULED);
-      // A rerun of the required check stops the clock of a head with no decision yet.
-      const behind = (state: 'success' | 'pending') => ({
-        repo: later,
-        mergeState: state === 'pending' ? ('blocked' as const) : ('behind' as const),
-        requiredChecks: [{ name: 'ci', state, completedAt: state === 'pending' ? null : at(29) }],
-      });
-      await ctx.rulePr({ ...approved, ...behind('success'), repo: from }, rule());
+      const behind = { repo: later, mergeState: 'behind' as const, ...checked('success') };
+      await ctx.rulePr({ ...approved, ...behind, repo: from }, rule());
       ctx.wait(HALF_HOUR);
       await ctx.tick();
       const [first, ...rest] = await ruleItems(ctx);
       expect(rest).toEqual([]);
       expect(first?.item_key).toBe(`review-rule:${String((await ctx.task()).id)}:o/r#7:${A}`);
-      await ctx.rulePr(behind('success'), rule());
+      await ctx.rulePr(behind, rule());
       await ctx.tick();
       expect(await ruleItems(ctx)).toEqual([first]);
       await ctx.closeItem(`I${String(first?.id)}`);
-      await ctx.rulePr(behind('pending'), rule());
-      await ctx.rulePr(behind('success'), rule());
+      await ctx.rulePr(behind, rule());
       ctx.wait(HALF_HOUR);
       await ctx.tick();
       expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);

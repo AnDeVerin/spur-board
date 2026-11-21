@@ -29,6 +29,7 @@ import {
   OPERATOR_BLOCK_KEY,
   orderItems,
   RECONCILED_KINDS,
+  REVIEW_RULE_KEY,
   SOURCE_KEY,
   type ItemCandidate,
   type ItemKind,
@@ -1115,12 +1116,18 @@ export async function reconcileItems(
   for (const item of existing) {
     if (!seen.has(item.item_key)) await clearReconciled(trx, item, new Date(now));
   }
-  // A closure ends when its PR or ticket stops being closed; the next closure raises anew.
+  // A closure ends when its PR or ticket stops being closed, and a review-rule dismissal when its
+  // stretch ends: a clean read, a state with its own reason, a new head or the task leaving
+  // External Review. The next closure or stretch raises anew.
   const closures = await trx
     .selectFrom('dismissal')
     .select('item_key')
     .where((eb) =>
-      eb.or([eb('item_key', 'like', 'pr-closed:%'), eb('item_key', 'like', 'ticket-closed:%')]),
+      eb.or([
+        eb('item_key', 'like', 'pr-closed:%'),
+        eb('item_key', 'like', 'ticket-closed:%'),
+        eb('item_key', 'like', `${REVIEW_RULE_KEY}%`),
+      ]),
     )
     .execute();
   const ended = closures.map((row) => row.item_key).filter((key) => !seen.has(key));
