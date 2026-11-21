@@ -13,9 +13,10 @@
   there; the space comes from the kind, never from the payload.
 - A row that must follow another (reply, close, edit) sets `parent_outbox_id` to the thread's
   latest row; none is written under a dead one. A row under a dead parent dies `superseded`,
-  except a `feed.line` under its block's dead `conversation.open` while the block is still
-  open: it loses the parent and posts without the thread link (`detachAbandonedThreads` in
-  `packages/core/src/app/sender.ts`). A `feed.line.edit` written before its line is sent means the item was cleared: the sender
+  except a `feed.line` under its block's dead or `post_failed` `conversation.open` while the
+  block is still open: it loses the parent and posts without the thread link
+  (`detachAbandonedThreads` in `packages/core/src/app/sender.ts`). A `feed.line.edit` written
+  before its line is sent means the item was cleared: the sender
   cancels both. A gateway row with `uncertain=1` is never cancelled as stale (it may be posted):
   it goes with `maybeSent`, then its dependents.
 - A doorbell's delivered ring count lives in `notification`, not `outbox.attempts`: transport

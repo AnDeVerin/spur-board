@@ -369,9 +369,10 @@ export function createSender(options: SenderOptions): Sender {
   }
 
   /**
-   * A feed line waits for its block's thread only to link it. When the thread row died while its
-   * block is still open (its failed post closed or blocked), the line goes on without a parent,
-   * and so without the link. A thread that died because its block closed takes its line with it.
+   * A feed line waits for its block's thread only to link it. When the thread post failed for good
+   * or died while its block is still open (its failed post closed or blocked), the line goes on
+   * without a parent, and so without the link. A thread that died because its block closed takes
+   * its line with it.
    */
   async function detachAbandonedThreads(trx: Trx): Promise<void> {
     await trx
@@ -391,7 +392,7 @@ export function createSender(options: SenderOptions): Sender {
           )
           .select('parent.id')
           .where('parent.kind', '=', 'conversation.open')
-          .where('parent.state', '=', 'dead')
+          .where('parent.state', 'in', ['post_failed', 'dead'])
           .where('block.state', '=', 'open'),
       )
       .execute();

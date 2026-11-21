@@ -6,7 +6,8 @@
 except delivery/health items and the block items: anomaly, cycle limit,
 course check and conversation waiting. A block addressed to you by others
 gets a feed line once its thread is out; the line links the thread, or comes
-without the link when the failed thread post is closed or blocked. A reply
+without the link when the thread post fails for good. A thread blocked as a
+secret gets a blocked-post item, which takes the line's place. A reply
 in the thread answers a question block; on another block type it is not processed
 and raises an item. Close on that line closes the block without an answer, as
 your unblock with the reason `closed by the operator from the feed`; on an

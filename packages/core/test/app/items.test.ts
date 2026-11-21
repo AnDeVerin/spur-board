@@ -1182,45 +1182,103 @@ describe('operator block feed line', () => {
     return { open, failed: `I${String(failed.id)}` };
   }
 
+  /** Fails the thread post for good, then blocks its retry as a secret. */
+  async function blockThread(ctx: Ctx) {
+    const { open, failed } = await failThread(ctx);
+    const secret = ['xoxb', '123', 'abc'].join('-');
+    await ctx.store.db
+      .updateTable('outbox')
+      .set({ payload: open.payload.replace('Which version?', secret) })
+      .where('id', '=', open.id)
+      .execute();
+    await ctx.retry(failed);
+  }
+
+  const sent = { state: 'done', parent_outbox_id: null, last_error: null };
+  const dropped = { state: 'dead', last_error: 'superseded' };
   it.each([
+    {
+      thread: 'its post fails for good',
+      lose: async (ctx: Ctx) => {
+        await failThread(ctx);
+      },
+      line: sent,
+      open: 'post_failed',
+      alert: true,
+      edit: undefined,
+    },
     {
       thread: 'its failed post is closed',
       lose: async (ctx: Ctx) => {
         await ctx.close((await failThread(ctx)).failed);
       },
-      line: { state: 'done', parent_outbox_id: null, last_error: null },
+      line: sent,
+      open: 'dead',
+      alert: true,
+      edit: undefined,
+    },
+    // A thread blocked as a secret makes its post_blocked item the block's line (#38), so the
+    // alert clears: struck when the sender posted it first, cancelled when reconcile ran first.
+    {
+      thread: 'its retry is blocked as a secret, sender first',
+      lose: async (ctx: Ctx) => {
+        await blockThread(ctx);
+        await ctx.sender.tick();
+      },
+      line: sent,
+      open: 'dead',
+      alert: false,
+      edit: 'done',
     },
     {
-      thread: 'its failed post is blocked as a secret',
+      thread: 'its retry is blocked as a secret, reconcile first',
       lose: async (ctx: Ctx) => {
-        const { open, failed } = await failThread(ctx);
-        const secret = ['xoxb', '123', 'abc'].join('-');
-        await ctx.store.db
-          .updateTable('outbox')
-          .set({ payload: open.payload.replace('Which version?', secret) })
-          .where('id', '=', open.id)
-          .execute();
-        await ctx.retry(failed);
+        await blockThread(ctx);
+        await ctx.tick();
       },
-      line: { state: 'done', parent_outbox_id: null, last_error: null },
+      line: dropped,
+      open: 'dead',
+      alert: false,
+      edit: 'dead',
     },
     {
       thread: 'its block is closed',
       lose: async (ctx: Ctx, block: string) => {
         await ctx.apply(blocks.unblock, { block, mode: 'reason', reason: 'Not now.' }, 'operator');
       },
-      line: { state: 'dead', last_error: 'superseded' },
+      line: dropped,
+      open: 'dead',
+      alert: false,
+      edit: 'dead',
     },
-  ])('sends or drops the line when $thread', async ({ lose, line }) => {
+  ])('sends or drops the line when $thread', async ({ thread, lose, line, open, alert, edit }) => {
     const ctx = await setup();
-    const { block } = await asked(ctx);
+    const { block, blockId, item: itemId } = await asked(ctx);
     await lose(ctx, block);
     ctx.advance(60_000);
     await ctx.sender.tick();
-    const row = (await rows(ctx, 'outbox')).find((r) => r.kind === 'feed.line');
+    await ctx.tick();
+    ctx.advance(60_000);
+    await ctx.sender.tick();
+    const outbox = await rows(ctx, 'outbox');
+    const row = outbox.find((r) => r.kind === 'feed.line' && r.payload.includes('operator-block:'));
     expect(row).toMatchObject(line);
-    const open = (await rows(ctx, 'outbox')).find((r) => r.kind === 'conversation.open');
-    expect(open?.state).toBe('dead');
+    expect(outbox.find((r) => r.kind === 'conversation.open')?.state).toBe(open);
+    expect((await item(ctx, itemId)).cleared_at === null).toBe(alert);
+    // A cleared alert strikes its posted line, or cancels it unsent.
+    const strike = outbox.find(
+      (r) => r.kind === 'feed.line.edit' && r.parent_outbox_id === row?.id,
+    );
+    expect(strike?.state).toBe(edit);
+    // A blocked thread's post_blocked item stays raised for its still open block.
+    const blocked = await ctx.store.db
+      .selectFrom('operator_item')
+      .select(['block_id', 'cleared_at'])
+      .where('kind', '=', 'post_blocked')
+      .execute();
+    expect(blocked).toEqual(
+      thread.includes('secret') ? [{ block_id: blockId, cleared_at: null }] : [],
+    );
     const posted = ctx.gateway.platform
       .messages()
       .filter((m) => m.root && m.text.includes('Which version?'));
