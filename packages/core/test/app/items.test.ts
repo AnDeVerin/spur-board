@@ -1163,6 +1163,73 @@ describe('operator block feed line', () => {
     expect(await unblocked(ctx)).toEqual([]);
   });
 
+  /** Fails the thread post for good and returns the ids of its row and its `post_failed` item. */
+  async function failThread(ctx: Ctx) {
+    ctx.gateway.platform.failNextPermanently({ scope: 'message', reason: 'invalid_blocks' });
+    await ctx.sender.tick();
+    await ctx.tick();
+    const open = await ctx.store.db
+      .selectFrom('outbox')
+      .selectAll()
+      .where('kind', '=', 'conversation.open')
+      .executeTakeFirstOrThrow();
+    expect(open.state).toBe('post_failed');
+    const failed = await ctx.store.db
+      .selectFrom('operator_item')
+      .select('id')
+      .where('item_key', '=', `delivery:${String(open.id)}`)
+      .executeTakeFirstOrThrow();
+    return { open, failed: `I${String(failed.id)}` };
+  }
+
+  it.each([
+    {
+      thread: 'its failed post is closed',
+      lose: async (ctx: Ctx) => {
+        await ctx.close((await failThread(ctx)).failed);
+      },
+      line: { state: 'done', parent_outbox_id: null, last_error: null },
+    },
+    {
+      thread: 'its failed post is blocked as a secret',
+      lose: async (ctx: Ctx) => {
+        const { open, failed } = await failThread(ctx);
+        const secret = ['xoxb', '123', 'abc'].join('-');
+        await ctx.store.db
+          .updateTable('outbox')
+          .set({ payload: open.payload.replace('Which version?', secret) })
+          .where('id', '=', open.id)
+          .execute();
+        await ctx.retry(failed);
+      },
+      line: { state: 'done', parent_outbox_id: null, last_error: null },
+    },
+    {
+      thread: 'its block is closed',
+      lose: async (ctx: Ctx, block: string) => {
+        await ctx.apply(blocks.unblock, { block, mode: 'reason', reason: 'Not now.' }, 'operator');
+      },
+      line: { state: 'dead', last_error: 'superseded' },
+    },
+  ])('sends or drops the line when $thread', async ({ lose, line }) => {
+    const ctx = await setup();
+    const { block } = await asked(ctx);
+    await lose(ctx, block);
+    ctx.advance(60_000);
+    await ctx.sender.tick();
+    const row = (await rows(ctx, 'outbox')).find((r) => r.kind === 'feed.line');
+    expect(row).toMatchObject(line);
+    const open = (await rows(ctx, 'outbox')).find((r) => r.kind === 'conversation.open');
+    expect(open?.state).toBe('dead');
+    const posted = ctx.gateway.platform
+      .messages()
+      .filter((m) => m.root && m.text.includes('Which version?'));
+    // A line without its thread posts with no link to it.
+    expect(posted.map((m) => m.text.includes('thread'))).toEqual(
+      line.state === 'done' ? [false] : [],
+    );
+  });
+
   it('leaves the block of an archived task open', async () => {
     const ctx = await setup();
     const { blockId, item: itemId } = await asked(ctx);

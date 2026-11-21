@@ -369,6 +369,35 @@ export function createSender(options: SenderOptions): Sender {
   }
 
   /**
+   * A feed line waits for its block's thread only to link it. When the thread row died while its
+   * block is still open (its failed post closed or blocked), the line goes on without a parent,
+   * and so without the link. A thread that died because its block closed takes its line with it.
+   */
+  async function detachAbandonedThreads(trx: Trx): Promise<void> {
+    await trx
+      .updateTable('outbox')
+      .set({ parent_outbox_id: null })
+      .where('kind', '=', 'feed.line')
+      .where('state', 'in', ['pending', 'post_failed'])
+      .where('parent_outbox_id', 'in', (eb) =>
+        eb
+          .selectFrom('outbox as parent')
+          .innerJoin('block', (join) =>
+            join.on(
+              sql<number>`json_extract(parent.payload, '$.blockId')`,
+              '=',
+              sql.ref('block.id'),
+            ),
+          )
+          .select('parent.id')
+          .where('parent.kind', '=', 'conversation.open')
+          .where('parent.state', '=', 'dead')
+          .where('block.state', '=', 'open'),
+      )
+      .execute();
+  }
+
+  /**
    * Raising or refreshing health for `spaces` suspends the 30-min window of every waiting row
    * there, so a row that retried before the outage gets a full window once the space recovers.
    */
@@ -438,6 +467,7 @@ export function createSender(options: SenderOptions): Sender {
       }
     }
     await kill(trx, stale, 'superseded');
+    await detachAbandonedThreads(trx);
     await cascade(trx);
 
     let ranThreshold = false;
