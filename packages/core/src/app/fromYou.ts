@@ -61,7 +61,9 @@ import { TASKLESS_ITEM_URL, type RaiseItemInput } from './item-raise.ts';
 import { externalQuietItems } from './external-quiet.ts';
 import { reviewRuleItems } from './review-rule.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
-import { closeTurns, quietTurns, stuckTurnAfterMs } from './turns.ts';
+import { quietTurns, stuckTurnAfterMs } from './quiet-turns.ts';
+import { restingHolders, turnWaitItems } from './turn-waits.ts';
+import { closeTurns } from './turns.ts';
 
 const episodeSchema = z.object({ startedAt: z.number() }).nullable();
 const stallEpisodeSchema = z.object({
@@ -955,8 +957,12 @@ export async function reconcileItems(
       oc.column('key').doUpdateSet({ value: toJson(episodeSchema, health.episode) }),
     )
     .execute();
+  // A holder waiting on its turn, or just woken from the wait, is not idle.
+  const resting = await restingHolders(trx, config, now);
+  const restingIdle = (flag: { kind: string; taskId: string; sessionId: string }) =>
+    flag.kind === 'worker_idle' && resting.has(`${flag.taskId}:${flag.sessionId}`);
   for (const flag of health.flags) {
-    if (endedHolders.has(`${flag.taskId}:${flag.sessionId}`)) continue;
+    if (endedHolders.has(`${flag.taskId}:${flag.sessionId}`) || restingIdle(flag)) continue;
     const task = taskById.get(Number(flag.taskId));
     if (task === undefined) continue;
     const fact = subjects.find(
@@ -1057,10 +1063,11 @@ export async function reconcileItems(
   const quiet = await externalQuietItems(trx, config, now, tasks, sourceById);
   candidates.push(...quiet.candidates);
   heldKeys.push(...quiet.held);
+  candidates.push(...(await turnWaitItems(trx, config, taskById)));
   const ordered = orderItems(candidates);
   const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {
-    if (endedHolders.has(`${flag.taskId}:${flag.sessionId}`)) continue;
+    if (endedHolders.has(`${flag.taskId}:${flag.sessionId}`) || restingIdle(flag)) continue;
     const task = taskById.get(Number(flag.taskId));
     if (task !== undefined && !stalled.has(`${flag.taskId}:${flag.sessionId}`))
       seen.add(healthKey(task.id, flag));

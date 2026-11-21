@@ -204,6 +204,14 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "task_return",
   },
   {
+    "description": "Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends.
+Use when: You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time.
+When not to use: Use task_submit to hand in finished work, or task_return to send the task back to Dev.
+Example: {"turn":"T4","for":30,"reason":"waiting for a free test stand","idempotencyKey":"task_wait-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
+    "name": "task_wait",
+  },
+  {
     "description": "Move an idle task inside the Todo group, or correct its column and settle the gates.
 Use when: Place idle work at the end of an enabled Todo-group column with a literal reason and explicit key, or correct a wrong column with mode correct.
 When not to use: Use task_get with why to read why the task is where it is.

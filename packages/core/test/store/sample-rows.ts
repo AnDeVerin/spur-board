@@ -138,6 +138,12 @@ export const sampleRows: SampleRows = {
     closed_reason: 'moved',
     created_at: at,
     head_sha: null,
+    wait_reason: null,
+    wait_since: null,
+    wait_until: null,
+    wait_ended_at: null,
+    wait_count: 0,
+    waited_ms: 0,
   },
   block: {
     id: 1,

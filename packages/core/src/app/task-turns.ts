@@ -2,6 +2,7 @@ import { eventPayloadSchemas, type EventKind } from '@spur-board/contracts';
 import type { Selectable } from 'kysely';
 import type { TurnTable } from '../store/schema.ts';
 import { turnReturn, type Trx } from './board-utils.ts';
+import { turnWaitView } from './turn-waits.ts';
 import { turnHanded } from './turns.ts';
 
 /** How many closed turns `task.get --detail` shows. */
@@ -18,6 +19,7 @@ async function taskTurnView(trx: Trx, turn: Selectable<TurnTable>) {
       turn.acked_by === null || turn.acked_at === null
         ? null
         : { by: turn.acked_by, at: turn.acked_at },
+    ...turnWaitView(turn),
     handed: turnHanded(turn),
     ...(returned === undefined ? {} : { returned }),
     closed:

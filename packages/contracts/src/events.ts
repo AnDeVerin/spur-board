@@ -12,6 +12,7 @@ import {
   SESSION_END_REASONS,
   SESSION_LINK_ROLES,
   TURN_OUTCOMES,
+  TURN_WAIT_OUTCOMES,
   SUBMISSION_BASES,
 } from './enums.ts';
 import { actorIdSchema, actorPartSchema } from './ids.ts';
@@ -46,6 +47,8 @@ export const EVENT_KINDS = [
   'turn_opened',
   'turn_taken',
   'turn_closed',
+  'turn_wait_started',
+  'turn_wait_ended',
   'block_opened',
   'block_escalated',
   'block_unblocked',
@@ -235,6 +238,14 @@ export const eventPayloadSchemas = {
   }),
   turn_taken: z.looseObject({ turn: S, taker: actorIdSchema }),
   turn_closed: z.looseObject({ turn: S, outcome: z.enum(TURN_OUTCOMES) }),
+  /** `until` is when the board wakes the holder; `waits` counts the turn's waits so far. */
+  turn_wait_started: z.looseObject({ turn: S, reason: S, until: S, waits: N }),
+  turn_wait_ended: z.looseObject({
+    turn: S,
+    outcome: z.enum(TURN_WAIT_OUTCOMES),
+    waitedMs: z.int().min(0),
+    waits: N,
+  }),
   block_opened: z.looseObject({ block: S, type: z.enum(BLOCK_TYPES), addressee: role }),
   block_escalated: z.looseObject({ block: S, from: role, to: role, reason: S.optional() }),
   block_unblocked: z.looseObject({

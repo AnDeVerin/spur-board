@@ -51,17 +51,21 @@ const NOTE =
 const OPERATOR_NOTE = 'No agent takes this turn, so it is yours to close.';
 
 /**
- * The notes under an open turn: the hold line while the operator token holds it, then the note
- * unless a form is open. An operator turn the token holds shows its short hold line alone.
+ * The notes under an open turn, split around the wait note: `lead` holds the hold line while the
+ * operator token holds it, `rest` the note unless a form is open. An operator turn the token
+ * holds shows its short hold line alone; one it does not hold leads with its own note.
  */
-export function turnNotes(turn: NonNullable<BoardTask['turn']>, formOpen: boolean): string[] {
+export function turnNotes(
+  turn: NonNullable<BoardTask['turn']>,
+  formOpen: boolean,
+): { lead: string[]; rest: string[] } {
   const held = turn.taken?.by === 'operator';
   if (turn.addressee === 'operator') {
-    if (held) return [`You hold ${turn.id}.`];
-    return formOpen ? [] : [OPERATOR_NOTE];
+    if (held) return { lead: [`You hold ${turn.id}.`], rest: [] };
+    return { lead: formOpen ? [] : [OPERATOR_NOTE], rest: [] };
   }
   const hold = `You hold ${turn.id}; the orchestrator cannot submit or return it until you finish or it takes the turn back.`;
-  return [...(held ? [hold] : []), ...(formOpen ? [] : [NOTE])];
+  return { lead: held ? [hold] : [], rest: formOpen ? [] : [NOTE] };
 }
 
 /** The open turn the operator can close here: an orchestrator turn or one addressed to it. */

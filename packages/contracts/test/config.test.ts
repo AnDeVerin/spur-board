@@ -117,6 +117,7 @@ const adapterDefaults: Pick<Config, 'adapters' | 'sources' | 'github' | 'health'
     idleInDevAfterMs: 1_800_000,
     flipSmoothingMs: 30_000,
     hostLoad: { sessions: 3, windowMs: 60_000, maxEpisodeMs: 300_000 },
+    turnWait: { maxWaits: 8, maxTotalMs: 7_200_000 },
   },
 };
 
@@ -1455,6 +1456,12 @@ describe('invalid configs', () => {
       'health.errorAfterMs',
     ],
     [
+      'zero turn waits',
+      validConfig({}, { health: { turnWait: { maxWaits: 0 } } }),
+      'Too small: expected number to be >=1',
+      'health.turnWait.maxWaits',
+    ],
+    [
       'a duration key without its unit',
       validConfig({}, { health: { errorAfter: 90_000 } }),
       'Unrecognized key: "errorAfter"',
@@ -1908,6 +1915,7 @@ describe('JSON Schema', () => {
       '.health.idleInDevAfterMs',
       '.health.needsInputAfterMs',
       '.health.turnStallAfterMs',
+      '.health.turnWait.maxTotalMs',
       '.projects[].columns[].noRecipientAfterMs',
       '.projects[].columns[].quietAfterMs',
       '.projects[].columns[].quietTurnAfterMs',

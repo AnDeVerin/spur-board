@@ -1,7 +1,8 @@
 import { columnTurnTimings, configSchema, type ColumnId } from '@spur-board/contracts';
 import { afterEach, expect, it } from 'vitest';
 import { createOperationRegistry, createQuery, type Store } from '../../src/index.ts';
-import { stuckTurnAfterMs, turnExecutor } from '../../src/app/turns.ts';
+import { stuckTurnAfterMs } from '../../src/app/quiet-turns.ts';
+import { turnExecutor } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
 
 const stores: Store[] = [];

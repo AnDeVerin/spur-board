@@ -338,6 +338,37 @@ describe('board task cards', () => {
     ]);
   });
 
+  it('a waiting turn row carries data-waiting and the full tail as its title', async () => {
+    const reason = 'r'.repeat(200);
+    const wait = { reason, since: '2026-11-15T14:01:00.000Z', wakesAt: '2026-11-15T14:31:00.000Z' };
+    const d = daemon();
+    serve(d, [
+      row('ex/repo#7', 'dev', { turn: turn({ ...taken, wait }) }),
+      row('ex/repo#8', 'dev', {
+        turn: turn({ ...taken, wait, stalledSince: '2026-11-15T13:25:00.000Z' }),
+      }),
+      row('ex/repo#9', 'dev', { turn: turn(taken) }),
+    ]);
+    mount(d, {}, () => NOW);
+    await settle();
+    const turnRow = (key: string) => {
+      const found = one(`main a[title="${key}"]`).querySelector('[id$="-turn"]');
+      if (found === null) throw new Error(`no turn row on ${key}`);
+      return found;
+    };
+    const tail = (key: string) => turnRow(key).querySelector('[data-kind]');
+    const full = `waiting: ${reason}, wakes 14:31`;
+    expect(turnRow('ex/repo#7').hasAttribute('data-waiting')).toBe(true);
+    expect(tail('ex/repo#7')?.getAttribute('title')).toBe(full);
+    expect(tail('ex/repo#7')?.textContent).toBe(full);
+    expect(tail('ex/repo#7')?.getAttribute('data-kind')).toBe('agent');
+    for (const key of ['ex/repo#8', 'ex/repo#9']) {
+      expect(turnRow(key).hasAttribute('data-waiting')).toBe(false);
+      expect(tail(key)?.hasAttribute('title')).toBe(false);
+    }
+    expect(tail('ex/repo#8')?.textContent).toBe('stalled · 40m');
+  });
+
   it('ages freeze while stale', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     let now = NOW;

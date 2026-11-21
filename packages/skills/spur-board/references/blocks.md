@@ -63,3 +63,13 @@ Use when: Send the task back to Dev when the work needs code changes.
 Avoid when: Use `board submit <turn> <sha>` to hand in the work instead.
 Example: `board return T4 "Handle the empty list in the parser." --key return-PROJ-123-return-reviewed-1432` — Return a reviewed task to Dev.
 Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `return_not_allowed`, `task_archived`, `idempotency_key_mismatch`.
+
+### `board wait`
+
+Purpose: Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends.
+Arguments: `<turn>`.
+Flags: `--for <value>`, `--reason <value>`, `--key <key>`, `--json`.
+Use when: You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time.
+Avoid when: Use `board submit <turn> <sha>` to hand in finished work, or `board return <turn> <reason>` to send the task back to Dev.
+Example: `board wait T4 --for 30 --reason "waiting for a free test stand" --key wait-PROJ-123-30-minutes-1432` — Wait 30 minutes for a free test stand.
+Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `turn_wait_limit`, `task_archived`, `idempotency_key_mismatch`.

@@ -48,7 +48,7 @@ async function taskById(db: Trx, id: number): Promise<Task> {
 const isTurnId = (id: string) => parseRef(id, 'turn').ok;
 
 /** Authorizes against the turn's own column, so a late call on an old turn is `turn_closed`. */
-async function turnVisitTarget(db: Trx, id: string): Promise<readonly ResolvedTarget[]> {
+export async function turnVisitTarget(db: Trx, id: string): Promise<readonly ResolvedTarget[]> {
   const turn = await turnById(db, id);
   if (turn === undefined) return [{ kind: 'missing', id }];
   const task = await taskById(db, turn.task_id);
@@ -119,7 +119,7 @@ function current(turn: Turn, task: Task): boolean {
 }
 
 /** The refusals both operations share, in order: archived, closed, not the taker. */
-async function takenTurn(
+export async function takenTurn(
   trx: Trx,
   id: string,
   ctx: CommandContext,

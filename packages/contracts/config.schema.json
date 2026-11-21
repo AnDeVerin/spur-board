@@ -874,6 +874,27 @@
             }
           },
           "additionalProperties": false
+        },
+        "turnWait": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "maxWaits": {
+              "default": 8,
+              "description": "Waits a turn may start, counted over its whole life.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "maxTotalMs": {
+              "default": 7200000,
+              "description": "Total time the waits of one turn may last in milliseconds.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

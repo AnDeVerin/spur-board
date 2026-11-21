@@ -376,6 +376,40 @@ Example:
 }
 ```
 
+## turn_wait_limit
+
+The turn has used its waits: the count or the total wait time reached the limit.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Submit or return the turn; the operator gets an inbox item once the wait ends.  
+Recovery: Submit or return the turn instead of waiting again.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "turn_wait_limit",
+    "requestId": "req-example-123",
+    "message": "The turn has used its waits: the count or the total wait time reached the limit.",
+    "hint": "Submit or return the turn; the operator gets an inbox item once the wait ends.",
+    "docs": "docs/errors.md#turn_wait_limit",
+    "recovery": {
+      "action": "Submit or return the turn instead of waiting again.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## submit_basis_invalid
 
 The submission basis fields are inconsistent.

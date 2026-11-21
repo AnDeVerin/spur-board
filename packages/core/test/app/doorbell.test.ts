@@ -37,14 +37,8 @@ import { SpurRejectedError } from '../../src/app/sender.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { archiveTask } from '../../src/app/archive.ts';
 import { createLinkMutations } from '../../src/app/links.ts';
-import {
-  closeTurns,
-  isTurnOpen,
-  openTurn,
-  quietTurns,
-  remindStuckTurns,
-  turnExecutor,
-} from '../../src/app/turns.ts';
+import { quietTurns, remindStuckTurns } from '../../src/app/quiet-turns.ts';
+import { closeTurns, isTurnOpen, openTurn, turnExecutor } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
 import {
   CONVERSATION_AT,
@@ -3295,6 +3289,357 @@ describe('turns', () => {
         .executeTakeFirstOrThrow(),
     );
   }
+
+  describe('turn waits', () => {
+    const REASON = 'waiting for a free test stand';
+    const MINUTE = 60_000;
+
+    /** `task.wait` for `actor` at the board's current time. */
+    function waitOp(ctx: Board, minutes: number, reason: string, key: string, actor = worker) {
+      const registry = createOperationRegistry({
+        config: ctx.config,
+        clock: { now: () => ctx.now().getTime() },
+        completeSince: new Map(),
+      });
+      return ctx.apply(registry['task.wait'], { turn: 'T1', for: minutes, reason }, actor, key);
+    }
+
+    /** One board tick; with `spur` Spur counts as completely polled now. */
+    function boardTick(ctx: Board, spur = true) {
+      return tickBoard({
+        store: ctx.store,
+        config: ctx.config,
+        clock: { now: () => ctx.now().getTime() },
+        completeSince: new Map(spur ? [['spur', ctx.now().toISOString()]] : []),
+      });
+    }
+
+    /** The registry's queries at the board's current time. */
+    function query(ctx: Board) {
+      const clock = { now: () => ctx.now().getTime() };
+      const registry = createOperationRegistry({
+        config: ctx.config,
+        clock,
+        completeSince: new Map(),
+      });
+      const run = createQuery({ store: ctx.store, config: ctx.config, clock });
+      return {
+        status: () => run(registry['status.get'], {}, 'operator'),
+        get: (why = false) => run(registry['task.get'], { task: KEY, why }, 'operator'),
+        inbox: () => run(registry['inbox.get'], {}, worker),
+      };
+    }
+
+    /** Records a complete poll of the project's GitHub source that began at `at`. */
+    function polled(ctx: Board, at: number) {
+      const row = {
+        ...sampleRows.source_state,
+        source: 'github:proj:o/r',
+        last_complete_at: new Date(at).toISOString(),
+        observed_at: new Date(at).toISOString(),
+      };
+      return ctx.store.transaction((trx) =>
+        trx
+          .insertInto('source_state')
+          .values(row)
+          .onConflict((oc) =>
+            oc.column('source').doUpdateSet({ last_complete_at: row.last_complete_at }),
+          )
+          .execute(),
+      );
+    }
+
+    /** A worker turn taken by worker-1, idle at its prompt since now, its PRs polled since. */
+    async function idleWorker(config = policyBoard('none')) {
+      const ctx = await setup({ config });
+      await takenByWorker(ctx);
+      await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+      await polled(ctx, ctx.now().getTime() + 1);
+      return ctx;
+    }
+
+    const IDLE_KEY = 'health:1:worker-1:worker_idle';
+    const activeKeys = async (ctx: Board) =>
+      (
+        await ctx.store.db
+          .selectFrom('operator_item')
+          .select('item_key')
+          .where('cleared_at', 'is', null)
+          .execute()
+      ).map((item) => item.item_key);
+    const waitEnds = async (ctx: Board) =>
+      (
+        await ctx.store.db
+          .selectFrom('event')
+          .select('payload')
+          .where('kind', '=', 'turn_wait_ended')
+          .orderBy('id')
+          .execute()
+      ).map((row) => JSON.parse(row.payload) as unknown);
+
+    it('suppresses the reminder, the stuck turn and worker idle while waiting', async () => {
+      const control = await idleWorker();
+      control.advance(IDLE);
+      await boardTick(control);
+      expect(await activeKeys(control)).toContain(IDLE_KEY);
+
+      const ctx = await idleWorker();
+      await waitOp(ctx, 120, REASON, 'wait-1');
+      for (let round = 0; round < 3; round += 1) {
+        ctx.advance(IDLE);
+        await boardTick(ctx);
+        await step(ctx);
+      }
+      expect(await reminders(ctx)).toEqual([]);
+      const keys = await activeKeys(ctx);
+      expect(keys).not.toContain('stuck-turn:1');
+      expect(keys).not.toContain(IDLE_KEY);
+    });
+
+    it('clears a stuck turn raised before the wait', async () => {
+      const ctx = await setup({ config: policyBoard('none') });
+      await takenByWorker(ctx);
+      await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+      ctx.advance(IDLE);
+      await boardTick(ctx);
+      await step(ctx);
+      expect(await reminders(ctx)).toEqual([expect.objectContaining({ rings: 1 })]);
+      ctx.advance(IDLE);
+      await boardTick(ctx);
+      expect(await activeKeys(ctx)).toContain('stuck-turn:1');
+
+      await waitOp(ctx, 30, REASON, 'wait-1');
+      await boardTick(ctx);
+
+      expect(await activeKeys(ctx)).not.toContain('stuck-turn:1');
+      expect(
+        await ctx.store.db
+          .selectFrom('operator_item')
+          .select('cleared_at')
+          .where('item_key', '=', 'stuck-turn:1')
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ cleared_at: ctx.now().toISOString() });
+    });
+
+    it('rings once at the wake and restarts the quiet clock there', async () => {
+      const ctx = await setup({ config: policyBoard('none') });
+      await takenByWorker(ctx);
+      await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+      const { wait } = await waitOp(ctx, 30, REASON, 'wait-1');
+      const sent = ctx.sent.length;
+      ctx.advance(30 * MINUTE - 1);
+      await boardTick(ctx);
+      await step(ctx);
+      expect(ctx.sent).toHaveLength(sent);
+      expect((await query(ctx).get()).turn?.wait).toEqual(wait);
+
+      ctx.advance(1);
+      await boardTick(ctx);
+      await step(ctx);
+
+      const wake = (await reminders(ctx)).find((notice) => notice.source_key.includes(':wake:'));
+      expect(wake).toMatchObject({
+        source_key: `turn:1:wake:worker-1:${wait.since}`,
+        author_session: 'worker-1',
+        rings: 1,
+      });
+      expect(ctx.sent.slice(sent)).toEqual([
+        {
+          session: 'worker-1',
+          text: `${KEY} turn T1 wait ended: ${REASON}; check board inbox (N${String(wake?.id)}-1)`,
+        },
+      ]);
+      expect((await turns(ctx))[0]).toMatchObject({ wait_until: null, waited_ms: 30 * MINUTE });
+      expect(await waitEnds(ctx)).toEqual([
+        { turn: 'T1', outcome: 'woken', waitedMs: 30 * MINUTE, waits: 1 },
+      ]);
+      const views = query(ctx);
+      const row = (await views.status()).tasks.find((task) => task.key === KEY);
+      expect(row?.turn).not.toHaveProperty('wait');
+      expect((await views.get()).turn).not.toHaveProperty('wait');
+      expect((await views.get(true)).why?.turn).not.toHaveProperty('wait');
+      expect((await views.inbox()).turns[0]).not.toHaveProperty('wait');
+
+      ctx.advance(IDLE - 1);
+      await boardTick(ctx);
+      await step(ctx);
+      expect(ctx.sent).toHaveLength(sent + 1);
+
+      ctx.advance(1);
+      await boardTick(ctx);
+      await step(ctx);
+      expect(ctx.sent.slice(sent + 1)).toEqual([
+        {
+          session: 'worker-1',
+          text: expect.stringMatching(
+            /^o\/r#101 turn T1 is still open: check board inbox/,
+          ) as unknown,
+        },
+      ]);
+    });
+
+    it.each([
+      { link: 'kept', rings: 1 },
+      { link: 'removed', rings: 0 },
+    ])('rings a worker whose link was $link $rings times at the wake', async ({ link, rings }) => {
+      const ctx = await setup({ config: policyBoard('none') });
+      await takenByWorker(ctx);
+      await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+      await waitOp(ctx, 30, REASON, 'wait-1');
+      if (link === 'removed')
+        await ctx.store.transaction((trx) =>
+          trx
+            .updateTable('link')
+            .set({ banned: 1 })
+            .where('entity', '=', 'session')
+            .where('session_id', '=', 'worker-1')
+            .execute(),
+        );
+      const sent = ctx.sent.length;
+      ctx.advance(30 * MINUTE);
+      await boardTick(ctx);
+      await step(ctx);
+
+      expect(await waitEnds(ctx)).toEqual([
+        { turn: 'T1', outcome: 'woken', waitedMs: 30 * MINUTE, waits: 1 },
+      ]);
+      const wakes = (await reminders(ctx)).filter((notice) => notice.source_key.includes(':wake:'));
+      expect(wakes).toHaveLength(rings);
+      expect(ctx.sent.slice(sent)).toHaveLength(rings);
+    });
+
+    it('limits the number of waits and raises one operator item', async () => {
+      const base = policyBoard('none');
+      const limited = configSchema.parse({
+        ...base,
+        health: { ...base.health, turnWait: { maxWaits: 2, maxTotalMs: 7_200_000 } },
+      });
+      const ctx = await setup({ config: limited });
+      await takenByWorker(ctx);
+      await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+      for (const key of ['wait-1', 'wait-2']) {
+        await waitOp(ctx, 30, REASON, key);
+        ctx.advance(30 * MINUTE);
+        await boardTick(ctx);
+        await step(ctx);
+      }
+      expect((await waitEnds(ctx)).map((end) => (end as { outcome: string }).outcome)).toEqual([
+        'woken',
+        'limit',
+      ]);
+      const rows = async () => [
+        await turns(ctx),
+        await ctx.store.db.selectFrom('notification').selectAll().execute(),
+      ];
+      const before = await rows();
+      await expect(waitOp(ctx, 30, REASON, 'wait-3')).rejects.toMatchObject({
+        code: 'turn_wait_limit',
+      });
+      expect(await rows()).toEqual(before);
+      const item = await ctx.store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('item_key', '=', 'turn-wait:1')
+        .execute();
+      expect(item).toEqual([
+        expect.objectContaining({
+          kind: 'board_observation',
+          text: `${KEY}: turn T1 has waited 1h for ${REASON}`,
+          task_id: 1,
+          cleared_at: null,
+        }),
+      ]);
+      expect((await turns(ctx))[0]).toMatchObject({ acked_by: worker, closed_at: null });
+
+      await close(ctx);
+      await boardTick(ctx);
+      expect(await activeKeys(ctx)).not.toContain('turn-wait:1');
+    });
+
+    it('cuts a wait to the time left of the total and ends it at the limit', async () => {
+      const base = policyBoard('none');
+      const limited = configSchema.parse({
+        ...base,
+        health: { ...base.health, turnWait: { maxWaits: 8, maxTotalMs: 2_700_000 } },
+      });
+      const ctx = await setup({ config: limited });
+      await takenByWorker(ctx);
+      await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+      await waitOp(ctx, 30, REASON, 'wait-1');
+      ctx.advance(30 * MINUTE);
+      await boardTick(ctx);
+      const { wait } = await waitOp(ctx, 30, REASON, 'wait-2');
+      expect(Date.parse(wait.wakesAt) - Date.parse(wait.since)).toBe(15 * MINUTE);
+      ctx.advance(15 * MINUTE);
+      await boardTick(ctx);
+      expect((await waitEnds(ctx)).at(-1)).toMatchObject({ outcome: 'limit', waitedMs: 2_700_000 });
+    });
+
+    it('ends the wait without a ring when the holder ends', async () => {
+      const ctx = await setup({ config: policyBoard('none') });
+      await takenByWorker(ctx);
+      await waitOp(ctx, 30, REASON, 'wait-1');
+      const ended = ctx.now().toISOString();
+      await setSession(ctx, 'worker-1', {
+        ended_at: ended,
+        detail: JSON.stringify({
+          id: 'worker-1',
+          spurProject: 'web',
+          branch: null,
+          pr: null,
+          links: {},
+          lifecycle: 'completed',
+          health: 'stopped',
+          healthSince: ended,
+          lastActivityAt: null,
+          endedAt: ended,
+          endReason: 'complete',
+        }),
+      });
+      const sent = ctx.sent.length;
+      ctx.advance(MINUTE);
+      await boardTick(ctx);
+      await step(ctx);
+
+      expect(await waitEnds(ctx)).toEqual([
+        { turn: 'T1', outcome: 'closed', waitedMs: MINUTE, waits: 1 },
+      ]);
+      ctx.advance(30 * MINUTE);
+      await boardTick(ctx);
+      await step(ctx);
+      expect(ctx.sent).toHaveLength(sent);
+      expect(await activeKeys(ctx)).toContain('ended-turn:1:worker-1');
+    });
+
+    it('keeps worker idle off for the grace after the wake', async () => {
+      const ctx = await idleWorker();
+      await waitOp(ctx, 30, REASON, 'wait-1');
+      ctx.advance(30 * MINUTE);
+      await boardTick(ctx);
+      ctx.advance(IDLE - 1);
+      await boardTick(ctx);
+      expect(await activeKeys(ctx)).not.toContain(IDLE_KEY);
+
+      await polled(ctx, ctx.now().getTime());
+      ctx.advance(1);
+      await boardTick(ctx);
+      expect(await activeKeys(ctx)).toContain(IDLE_KEY);
+    });
+
+    it('gives no grace once the holder submitted', async () => {
+      const ctx = await idleWorker();
+      await waitOp(ctx, 30, REASON, 'wait-1');
+      ctx.advance(30 * MINUTE);
+      await boardTick(ctx);
+      await scanTransaction(ctx.store, ctx.config, (trx) =>
+        closeTurns(trx, { taskId: 1, reason: 'submitted', at: ctx.now() }),
+      );
+      await polled(ctx, ctx.now().getTime());
+      ctx.advance(1);
+      await boardTick(ctx);
+      expect(await activeKeys(ctx)).toContain(IDLE_KEY);
+    });
+  });
 
   it('rings one reminder for a quiet taken turn', async () => {
     const ctx = await setup({ config: policyBoard('none') });

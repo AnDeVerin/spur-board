@@ -2,8 +2,8 @@
 
 The **Turn** section of the [task view](web-ui-task-view.md) shows the task's open orchestrator
 or operator turn and lets the operator close it: submit the work or return it to Dev. Use it when
-the orchestrator is down, the verdict comes from elsewhere, or no agent takes the turn. Only
-worker and curator turns get no Turn section; the section sits after **Why it is here**.
+the orchestrator is down, the verdict comes from elsewhere, or no agent takes the turn. Worker
+and curator turns get none; the section sits after **Why it is here**.
 
 ## What it shows
 
@@ -13,6 +13,7 @@ worker and curator turns get no Turn section; the section sits after **Why it is
   Blocks; the operator as `you`.
 - While the operator holds an orchestrator turn: `You hold T<n>; the orchestrator cannot submit or return it
 until you finish or it takes the turn back.`
+- A waiting holder: `waiting: <reason>, wakes <hh:mm>` (UTC).
 - A note that you can close the turn yourself, then **Submit…**, and **Return to dev…** for a
   column that can return (`review`, `product-review`, `external-review`, `qa`,
   `ready-to-merge`).
@@ -35,13 +36,13 @@ characters: surrounding spaces are trimmed, upper case is refused.
   from, and a **Reason**.
 - Skipped needs a **Reason**.
 
-A reason must hold text other than spaces and is at most 2000 characters. The request carries
+A reason needs non-space text, at most 2000 characters. The request carries
 `from` only for carried and `reason` only for carried and skipped.
 
 The button reads **Submit**; there is no confirm dialog. The line above it says
 `This closes T<n> in your name and hands the task to the board's gates for <column>.`, then
 `Next column: <next>.` when the column has an enabled column after it, and ends
-`It cannot be undone.` It names the next column only as a fact of the configuration: the Board's
+`It cannot be undone.` The next column is only a fact of the configuration: the Board's
 gates decide where the task goes.
 
 ## Return
@@ -106,10 +107,10 @@ the notice.
 
 After a close the section keeps a focused status line, `T<n> submitted.` or
 `T<n> returned to dev.`, then `The task is in <column>.`: the column of the latest task read once
-that read shows the turn closed, else the column in the write's answer. It stays even when the task then has no
-open turn. A turn the same write opened shows below.
+that read shows the turn closed, else the column in the write's answer. It stays even with no open turn
+left. A turn the same write opened shows below.
 
-Keys are reused only within the open form. A reload, one after a Board update included, closes the form and
+Keys are reused only within the open form. A reload, also after a Board update, closes the form and
 drops its text, and does not wait for a Turn send; one that lands after the ack leaves the operator
 holding the turn. The next form takes new keys. Sending from it is safe: the operator may take a
 turn it already holds again, and a second close of a closed turn answers `turn_closed`.
