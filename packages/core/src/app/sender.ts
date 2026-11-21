@@ -697,7 +697,7 @@ export function createSender(options: SenderOptions): Sender {
                 : c.body.kind === 'feed.line' && c.body.payload.exchange !== undefined
                   ? exchangeBody({ ...c.body.payload, exchange: c.body.payload.exchange })
                   : c.body.kind === 'feed.line'
-                    ? feedLineBody(c.body.payload)
+                    ? feedLineBody(c.body.payload, c.parent)
                     : renderBody(c.body.payload.key, c.body.payload.text),
         ...((body.kind === 'feed.line' || body.kind === 'feed.line.edit') &&
         body.payload.actions !== undefined

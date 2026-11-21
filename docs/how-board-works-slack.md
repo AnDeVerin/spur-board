@@ -3,7 +3,12 @@
 ## Slack now
 
 `slack.channels.feed`: curator answers and operator items,
-except delivery/health items and blocks.
+except delivery/health items and the block items: anomaly, cycle limit,
+course check and conversation waiting. A block addressed to you by others
+gets a feed line once its thread is out; the line links the thread, where a
+reply answers it. Close on that line closes the block without an answer, as
+your unblock with the reason `closed by the operator from the feed`; on an
+already closed block it only clears the line.
 `slack.channels.orchestrators`: block threads addressed to the operator by
 others. Answer in the existing block thread. A later reply on an answered
 block is a follow-up, the same as `board followup`.

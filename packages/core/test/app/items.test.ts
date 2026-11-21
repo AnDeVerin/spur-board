@@ -1069,6 +1069,101 @@ describe('ledger item', () => {
   });
 });
 
+describe('operator block feed line', () => {
+  /** A worker question to the operator, its feed line raised and both delivered. */
+  async function asked(ctx: Ctx) {
+    const { block } = await ctx.apply(
+      blocks.ask,
+      { task: KEY, text: 'Which version?' },
+      AGENT,
+      'ask',
+    );
+    await ctx.tick();
+    const raised = await ctx.store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', '=', `operator-block:${block.id.slice(1)}`)
+      .executeTakeFirstOrThrow();
+    return { block: block.id, blockId: Number(block.id.slice(1)), item: raised.id };
+  }
+  const blockRow = (ctx: Ctx, id: number) =>
+    ctx.store.db
+      .selectFrom('block')
+      .select(['state', 'outcome', 'outcome_reason', 'unblocked_by'])
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+  const unblocked = async (ctx: Ctx) =>
+    (await rows(ctx, 'event')).filter((event) => event.kind === 'block_unblocked');
+  const closes = async (ctx: Ctx) =>
+    (await rows(ctx, 'outbox')).filter((row) => row.kind === 'conversation.close');
+
+  it('closes the block from a Slack Close press', async () => {
+    const ctx = await setup();
+    const { blockId, item: itemId } = await asked(ctx);
+    await ctx.gateway.start((event) => ctx.inbound.sink(event));
+    await ctx.sender.tick();
+    ctx.advance(1001);
+    await ctx.sender.tick();
+    const line = (await rows(ctx, 'outbox')).find((row) => row.kind === 'feed.line');
+    expect(line?.state).toBe('done');
+    const { message } = JSON.parse(line?.external_ref ?? '{}') as { message: string };
+    await ctx.gateway.platform.inject({
+      kind: 'action',
+      message: messageRefSchema.parse(message),
+      actionId: `item:${String(itemId)}:close`,
+      author: userIdSchema.parse('operator'),
+    });
+    await ctx.gateway.platform.settle();
+    await ctx.gateway.stop();
+    expect((await item(ctx, itemId)).cleared_at).not.toBeNull();
+    expect(await blockRow(ctx, blockId)).toEqual({
+      state: 'unblocked',
+      outcome: 'reason',
+      outcome_reason: 'closed by the operator from the feed',
+      unblocked_by: 'operator',
+    });
+    const [event, ...more] = await unblocked(ctx);
+    expect(more).toEqual([]);
+    expect([event?.actor, event?.via]).toEqual(['operator', 'slack']);
+    expect(await closes(ctx)).toHaveLength(1);
+    // A redelivery of the same press and a second press change nothing.
+    const action = `item:${String(itemId)}:close`;
+    const key = event?.request_id ?? '';
+    await ctx.inbound.sink(press({ key, actionId: action }));
+    await ctx.inbound.sink(press({ key: 'second-press', actionId: action }));
+    expect(await unblocked(ctx)).toHaveLength(1);
+    expect(await closes(ctx)).toHaveLength(1);
+  });
+
+  it('only clears the line when the block is already closed', async () => {
+    const ctx = await setup();
+    const { block, blockId, item: itemId } = await asked(ctx);
+    await ctx.apply(blocks.unblock, { block, mode: 'reason', reason: 'Not now.' }, 'operator');
+    await ctx.close(`I${String(itemId)}`);
+    expect((await item(ctx, itemId)).cleared_at).not.toBeNull();
+    expect(await blockRow(ctx, blockId)).toMatchObject({
+      outcome_reason: 'Not now.',
+      unblocked_by: 'operator',
+    });
+    expect(await unblocked(ctx)).toHaveLength(1);
+    expect(await closes(ctx)).toHaveLength(1);
+  });
+
+  it('leaves a block addressed to an agent open', async () => {
+    const ctx = await setup();
+    const { blockId, item: itemId } = await asked(ctx);
+    await ctx.store.db
+      .updateTable('block')
+      .set({ addressee_role: 'worker' })
+      .where('id', '=', blockId)
+      .execute();
+    await ctx.close(`I${String(itemId)}`);
+    expect((await item(ctx, itemId)).cleared_at).not.toBeNull();
+    expect((await blockRow(ctx, blockId)).state).toBe('open');
+    expect(await unblocked(ctx)).toEqual([]);
+  });
+});
+
 describe('an item with no task on a board without a board-wide operator', () => {
   const split = configSchema.parse({
     projects: ['alpha', 'beta'].map((id) => ({

@@ -2058,6 +2058,21 @@ describe('project question', () => {
       },
     ]);
     expect(await outbox(b.store, 'feed.line')).toHaveLength(1);
+    // The line waits for the block's thread, so it can link it; the item names no block.
+    const lines = await b.store.db
+      .selectFrom('outbox')
+      .select(['kind', 'id', 'parent_outbox_id'])
+      .where('kind', 'in', ['conversation.open', 'feed.line'])
+      .orderBy('id')
+      .execute();
+    const open = lines.find((row) => row.kind === 'conversation.open');
+    expect(open).toBeDefined();
+    expect(lines.find((row) => row.kind === 'feed.line')?.parent_outbox_id).toBe(open?.id);
+    expect(
+      (await b.store.db.selectFrom('operator_item').select('block_id').execute()).map(
+        (row) => row.block_id,
+      ),
+    ).toEqual([null]);
     await b.apply(b.ops.answer, { block: block.id, text: 'Yes.' }, 'operator', 'answer');
     await reconcile();
     expect((await items())[0]?.cleared_at).not.toBeNull();

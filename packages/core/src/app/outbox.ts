@@ -342,7 +342,10 @@ export async function enqueueSkillReload(
   return row.inserted;
 }
 
-/** The key includes the item raise, so a restart cannot add a second line. */
+/**
+ * The key includes the item raise, so a restart cannot add a second line. A line with a `parent`
+ * waits for that row's delivery and dies with it.
+ */
 export async function enqueueFeedLine(
   trx: Trx,
   input: {
@@ -358,6 +361,7 @@ export async function enqueueFeedLine(
     segments?: readonly FeedSegment[];
     at: Date;
   },
+  parent: number | null = null,
 ): Promise<number | null> {
   const row = await insertOutbox(trx, {
     kind: 'feed.line',
@@ -374,7 +378,7 @@ export async function enqueueFeedLine(
       actions: input.actions,
       ...(input.segments === undefined ? {} : { segments: input.segments }),
     },
-    parent: null,
+    parent,
     at: input.at,
   });
   return row.id;
@@ -764,6 +768,17 @@ export async function enqueueConversationOpen(
   });
   if (row.inserted && input.commentId !== null) await markCommentPending(trx, input.commentId);
   return row.id;
+}
+
+/** The live `conversation.open` row of a block's operator thread, or null when it has none. */
+export async function blockThreadRow(trx: Trx, blockId: number): Promise<number | null> {
+  const row = await trx
+    .selectFrom('outbox')
+    .select('id')
+    .where('dedupe_key', '=', `conversation.open:block:${String(blockId)}`)
+    .where('state', '!=', 'dead')
+    .executeTakeFirst();
+  return row?.id ?? null;
 }
 
 /** The thread an operator conversation was started in; undefined for every other block. */
