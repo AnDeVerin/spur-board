@@ -29,7 +29,8 @@ afterEach(async () => {
  * of a task, and a red default branch and a blind tracker, which name only the project's source.
  * Plus a board item that names nothing, a blind Spur, which every project shares, and a red
  * branch, a failed delivery and an item of a task of a project that has left the config, which
- * are the board's.
+ * are the board's, as are an inbound failure whose stored event, a failed feed edit whose parent
+ * line's payload and a failed delivery whose payload cannot be read.
  */
 async function subjects(store: Store): Promise<Record<string, string>> {
   return store.transaction(async (trx) => {
@@ -165,6 +166,48 @@ async function subjects(store: Store): Promise<Record<string, string>> {
       kind: 'inbound_failure',
       taskId: gone,
     });
+    // Stored references a legacy or hand-edited row may hold unreadable.
+    ids['broken event'] = await item(trx, {
+      key: 'inbound:failure:broken',
+      kind: 'inbound_failure',
+      inboundEvent: {},
+    });
+    await trx
+      .updateTable('operator_item')
+      .set({ inbound_event_json: '{not json' })
+      .where('id', '=', Number(ids['broken event'].slice(1)))
+      .execute();
+    const unreadable = await trx
+      .insertInto('outbox')
+      .values({
+        kind: 'feed.line',
+        dedupe_key: 'feed.line:broken:posted',
+        payload: '{not json',
+        state: 'done',
+        next_at: ago(HOUR),
+        last_error: null,
+        external_ref: null,
+        parent_outbox_id: null,
+        first_attempt_at: ago(HOUR),
+        first_delivery_at: ago(HOUR),
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    ids['broken edit'] = await failedPost(trx, {
+      kind: 'feed.line.edit',
+      payload: { key: 'board', text: 'Resolved.' },
+      parentId: unreadable.id,
+    });
+    ids['broken delivery'] = await failedPost(trx, {
+      kind: 'conversation.open',
+      payload: {},
+      dedupeKey: 'conversation.open:broken',
+    });
+    await trx
+      .updateTable('outbox')
+      .set({ payload: '[1' })
+      .where('dedupe_key', '=', 'conversation.open:broken')
+      .execute();
     return ids;
   });
 }
@@ -183,7 +226,18 @@ const kinds = [
 ];
 const firstOnes = kinds.map((kind) => `first ${kind}`);
 const secondOnes = kinds.map((kind) => `second ${kind}`);
-const boardOnes = ['board', 'blind spur', 'gone red branch', 'gone delivery', 'gone task'];
+const boardOnes = [
+  'board',
+  'blind spur',
+  'gone red branch',
+  'gone delivery',
+  'gone task',
+  'broken event',
+  'broken edit',
+  'broken delivery',
+];
+/** A board item every project's status shows, as the `spur` source is every project's. */
+const shared = 'blind spur';
 
 describe("an operator item's project", () => {
   it.each([
@@ -193,7 +247,7 @@ describe("an operator item's project", () => {
     ['a board-wide operator', 'agent:first-ops/s1', mixed, firstOnes],
     ['a board-wide operator', 'agent:hq/s1', mixed, [...secondOnes, ...boardOnes]],
   ] as const)(
-    'with %s, %s sees and acts on the same items in the inbox, status and item actions',
+    'with %s, %s sees and acts on the same items in the inbox, status and item actions, and sees the shared Spur item in status',
     async (_name, actor: ActorId, config: Config, expected: readonly string[]) => {
       const store = openTempStore('board-item-subject-').store;
       stores.push(store);
@@ -222,9 +276,28 @@ describe("an operator item's project", () => {
       expect(seen).toEqual(
         Object.keys(ids).map((subject) => {
           const mine = expected.includes(subject);
-          return [subject, mine, mine, mine, mine];
+          return [subject, mine, mine || subject === shared, mine, mine];
         }),
       );
+    },
+  );
+
+  it.each([
+    ['no board-wide operator', ownOnly],
+    ['a board-wide operator', mixed],
+  ] as const)(
+    "with %s, a worker's status shows its project's source items and the shared Spur item",
+    async (_name, config: Config) => {
+      const store = openTempStore('board-item-subject-').store;
+      stores.push(store);
+      const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+      const query = createQuery({ store, config, clock });
+      const ids = await subjects(store);
+      const status = await query(registry['status.get'], {}, 'agent:first-worker/s1');
+      const shown = Object.entries(ids)
+        .filter(([, id]) => status.items.some((entry) => entry.id === id))
+        .map(([subject]) => subject);
+      expect(shown).toEqual(['first task', 'first red branch', 'first blind tracker', shared]);
     },
   );
 });

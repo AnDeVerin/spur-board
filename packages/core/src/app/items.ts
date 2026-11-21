@@ -1,7 +1,6 @@
 import { assertNever, type Config } from '@spur-board/contracts';
 import { z } from 'zod';
 import { isItemKind, itemBlockRef, ITEM_POLICY } from '../domain/fromYou.ts';
-import { parseJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import { projectForSource, type Trx } from './board-utils.ts';
 import type { ResolvedTarget } from './authorize.ts';
@@ -38,6 +37,19 @@ async function loadItem(
   return { item, task };
 }
 
+/**
+ * A stored JSON reference read leniently: a legacy or hand-edited value that is not JSON or not
+ * of `schema`'s shape is no reference, so the item falls to its next rule or to the board.
+ */
+function readRef<S extends z.ZodType>(schema: S, text: string): z.output<S> | undefined {
+  try {
+    const parsed = schema.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The ids a delivery payload may carry; each payload kind has its own full schema. */
 const deliveryPayloadSchema = z.object({
   taskId: z.unknown().optional(),
@@ -48,9 +60,9 @@ const deliveryPayloadSchema = z.object({
 
 /** The outbox row of a `delivery:<outbox id>` item; the item itself has no task. */
 function deliveryId(item: Item): number | undefined {
-  return item.kind === 'post_failed' && item.task_id === null
-    ? Number(item.item_key.slice('delivery:'.length))
-    : undefined;
+  if (item.kind !== 'post_failed' || item.task_id !== null) return undefined;
+  const id = Number(item.item_key.slice('delivery:'.length));
+  return Number.isSafeInteger(id) && id > 0 ? id : undefined;
 }
 
 /**
@@ -82,7 +94,7 @@ function storedRef(item: Item): SubjectRef {
     if (comment !== undefined) return { comment };
   }
   if (item.inbound_event_json === null) return {};
-  const { conversation } = parseJson(storedEventSchema, item.inbound_event_json);
+  const conversation = readRef(storedEventSchema, item.inbound_event_json)?.conversation;
   return typeof conversation === 'string' ? { conversation } : {};
 }
 
@@ -96,7 +108,7 @@ type DeliveryRow = Pick<
  * feed line by the item it is about, a feed edit by the line it edits.
  */
 function deliveryRef(row: DeliveryRow): SubjectRef | undefined {
-  const payload = parseJson(deliveryPayloadSchema, row.payload);
+  const payload = readRef(deliveryPayloadSchema, row.payload) ?? {};
   if (typeof payload.taskId === 'number') return { task: payload.taskId };
   if (typeof payload.blockId === 'number') return { block: payload.blockId };
   if (row.kind === 'feed.line') {
@@ -156,7 +168,7 @@ async function deliveryRefs(
  * source it names (`projectForSource`), such as a blind source or a red default branch; the
  * `spur` source and other board-wide ones name none. A subject whose project has left the config
  * is the board's, except an archived task's, which stays hidden. An item missing from the map is
- * a board item. The number of statements it reads is bounded (`DELIVERY_HOPS`, `ITEM_HOPS`),
+ * a board item, as is one whose stored reference cannot be read. The number of statements it reads is bounded (`DELIVERY_HOPS`, `ITEM_HOPS`),
  * whatever the item count.
  */
 export async function itemSubjects(

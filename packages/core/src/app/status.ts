@@ -419,7 +419,10 @@ export async function getStatus(
   const subjects = await itemSubjects(store.db, itemRows, config);
   const ownedBy = (item: (typeof itemRows)[number]) => {
     const subject = subjects.get(item.id);
-    if (subject === undefined) return includeBoardItems;
+    // A board item of a source every project reads, such as `spur`, stays in each project's
+    // status; only item actions and the inbox need the board's operator for it.
+    if (subject === undefined)
+      return includeBoardItems || (item.source !== null && required.has(item.source));
     if (item.task_id !== null)
       return subject.task?.membership !== 'archived' && projectIds.has(subject.project);
     if (item.source !== null && projectForSource(config, item.source) !== undefined)
