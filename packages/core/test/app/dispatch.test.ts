@@ -8366,7 +8366,7 @@ describe('External Review quiet item', () => {
       cleared_at: null,
     });
     expect(item?.text).toBe(
-      `${KEY}: o/r#7 has had no new external review round for 10 min, since ${since}; no external review on ${A.slice(0, 7)}. Request a new external review round, or approve the PR by hand`,
+      `${KEY}: o/r#7 has had no new external review round for 10 min, since ${since}; no external review on ${A.slice(0, 7)}`,
     );
     expect((await ctx.task()).column).toBe('external-review');
     expect(await ctx.moves()).toEqual(moves);
@@ -8403,9 +8403,11 @@ describe('External Review quiet item', () => {
     const items = await quietItems(ctx);
     expect(items.map((entry) => entry.cleared_at === null)).toEqual([false, true]);
     expect(items[1]?.item_key).toBe(first?.item_key);
-    expect(items[1]?.text).toContain(
-      `since ${reviewed}; latest external review on ${A.slice(0, 7)}: approved by ${EXTERNAL} at ${reviewed}.`,
-    );
+    expect(
+      items[1]?.text.endsWith(
+        `since ${reviewed}; latest external review on ${A.slice(0, 7)}: approved by ${EXTERNAL} at ${reviewed}`,
+      ),
+    ).toBe(true);
   });
 
   /** The task in External Review, then the board in shadow mode, so a new head keeps it there. */
@@ -8426,7 +8428,9 @@ describe('External Review quiet item', () => {
     expect((await ctx.task()).column).toBe('external-review');
     const [item, ...rest] = await quietItems(ctx);
     expect(rest).toEqual([]);
-    expect(item?.text).toContain(`since ${arrived}; no external review on ${B.slice(0, 7)}.`);
+    expect(item?.text.endsWith(`since ${arrived}; no external review on ${B.slice(0, 7)}`)).toBe(
+      true,
+    );
     expect(item?.text).not.toContain('latest external review');
   });
 

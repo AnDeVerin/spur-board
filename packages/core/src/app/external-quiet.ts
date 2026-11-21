@@ -81,7 +81,7 @@ export async function externalQuietItems(
         ? `no external review on ${sha}`
         : `latest external review on ${sha}: ${latest.state.replaceAll('_', ' ')} by ${latest.reviewer} at ${latest.submittedAt}`;
     const what = (waited: string) =>
-      `${task.key}: ${pr.repo}#${String(pr.number)} has had no new external review round${waited}, since ${new Date(since).toISOString()}; ${last}. Request a new external review round, or approve the PR by hand`;
+      `${task.key}: ${pr.repo}#${String(pr.number)} has had no new external review round${waited}, since ${new Date(since).toISOString()}; ${last}`;
     candidates.push({
       key,
       kind: 'board_observation',
