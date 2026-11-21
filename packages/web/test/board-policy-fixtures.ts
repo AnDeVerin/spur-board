@@ -18,7 +18,7 @@ export const policyColumn = (id: string, extra: Record<string, unknown> = {}) =>
     session: null,
     text: 'The dispatcher moves the task when the rules hold; nobody takes a turn.',
   },
-  escalation: { chain: [], noRecipient: null, silent: null },
+  escalation: { chain: [], noRecipient: null, silent: null, quiet: null },
   movedBy: { kind: 'dispatcher', text: 'The dispatcher moves tasks in when the rules hold.' },
   ...extra,
 });

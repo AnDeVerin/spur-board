@@ -193,6 +193,22 @@ export const columnsDescribeOutputSchema = z.strictObject({
                     .describe(
                       'Taken-agent-turn silence policy; null for operator, dispatcher and Todo.',
                     ),
+                  quiet: z
+                    .strictObject({
+                      operatorItemAfterMs: z
+                        .int()
+                        .min(0)
+                        .describe(
+                          'Effective quietAfterMs: how long a task waits here without a new external review round before one operator item; 0 is off.',
+                        ),
+                      text: z
+                        .string()
+                        .describe('What the item is and that it moves nothing and opens no turn.'),
+                    })
+                    .nullable()
+                    .describe(
+                      'No-new-external-round policy; present (0 = off) on External Review, null elsewhere.',
+                    ),
                 })
                 .describe('Question and silent-executor escalation.'),
               movedBy: z

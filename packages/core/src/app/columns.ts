@@ -3,6 +3,7 @@ import {
   COLUMN_IDS,
   columnTurnTimings,
   encodeActorId,
+  externalQuietAfterMs,
   readyMirrorOf,
   type AddresseeRole,
   type ColumnId,
@@ -226,6 +227,13 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
                 unhealthyAfterMs: config.health.turnStallAfterMs,
                 text: `Active with dispatcher on; shadow only models policy. A taken named executor uses its effective column quietTurnAfterMs. Existing worker/operator turns keep the global idle threshold. A taken agent turn gets one reminder after observed idle time; an operator item follows after the reminder is read and another quiet period. Open questions and blind sources pause observation. An unread reminder does not start the post-read timer; an exhausted failed reminder can raise an operator item once the current quiet period reaches remindAfterMs. Unhealthy executor episodes use continuous observation and turnStallAfterMs. Ordinary doorbells wait ${String(config.doorbells.firstRetryMs)}, then ${String(config.doorbells.secondRetryMs)} ms between delivered rings; the final unanswered pause is ${String(config.doorbells.unansweredAfterMs)} ms.`,
               },
+        quiet:
+          column.id === 'external-review'
+            ? {
+                operatorItemAfterMs: externalQuietAfterMs(project),
+                text: 'quietAfterMs (0 = off): an external-quiet: inbox item when a task with an open PR waits here that long without a new external review round. It moves nothing and opens no turn.',
+              }
+            : null,
       },
       movedBy:
         mirror !== undefined && column.id === 'ready-for-dev'

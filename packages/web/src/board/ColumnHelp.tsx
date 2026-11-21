@@ -173,7 +173,7 @@ function WhoHelp({
       </Part>
     );
   const { executor, escalation } = column;
-  const { chain, silent, noRecipient } = escalation;
+  const { chain, silent, noRecipient, quiet } = escalation;
   return (
     <>
       <Part title="Acts here">
@@ -230,6 +230,21 @@ function WhoHelp({
               `; with no live session, an item in your inbox after ${minutes(noRecipient.operatorItemAfterMs)}`}
             .
           </p>
+        </Part>
+      )}
+      {quiet !== null && (
+        <Part title="When no new external round">
+          <p className={styles.text}>
+            {quiet.operatorItemAfterMs > 0 ? (
+              <>
+                An item in your inbox after <b>{minutes(quiet.operatorItemAfterMs)}</b> without a
+                new external review round.
+              </>
+            ) : (
+              'Off: no inbox item.'
+            )}
+          </p>
+          <p className={styles.text}>{quiet.text}</p>
         </Part>
       )}
     </>

@@ -227,6 +227,7 @@ describe('catalog', () => {
         ".projects[].columns[].source|1.error.message",
         ".projects[].columns[].quietTurnAfterMs",
         ".projects[].columns[].noRecipientAfterMs",
+        ".projects[].columns[].quietAfterMs",
         ".projects[].dispatcher",
         ".projects[].dispatcher.mode",
         ".projects[].spurProjects",
@@ -973,9 +974,10 @@ describe('snapshot', () => {
     // prSummary and task.get PR links. #737 adds task.order, tasks[].position, the
     // order_anchor_invalid code and the task_reordered kind; the task.order description
     // names its one-placement and non-blank key rule. #798 drops the other-project operator
-    // source from status.get bindings and rewords the inbox.operator description.
+    // source from status.get bindings and rewords the inbox.operator description. #810 adds the
+    // optional projects[].columns[].quietAfterMs to config.get.
     expect(await catalogVersion(baseline)).toBe(
-      '899b0afa90dfbf277c19b70f2d2d9b4249f6d3eb4a1ac0afaa0b894c5868b521',
+      'd15dc395d48711ba920e643d946d89b8e434ebcb8fa1920c75dcf9f0a4ac0543',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

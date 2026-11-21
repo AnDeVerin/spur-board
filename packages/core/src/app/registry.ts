@@ -1,6 +1,7 @@
 import {
   buildCatalogSnapshot,
   columnTurnTimings,
+  externalQuietAfterMs,
   COLUMNS,
   mirrorSourceId,
   OPERATIONS,
@@ -221,6 +222,9 @@ export function createOperationRegistry(deps: {
                       quietTurnAfterMs: timings.quietTurnAfterMs,
                       noRecipientAfterMs: timings.noRecipientAfterMs,
                     }),
+                ...(column.id !== 'external-review' || externalQuietAfterMs(project) === 0
+                  ? {}
+                  : { quietAfterMs: externalQuietAfterMs(project) }),
               };
             }),
           dispatcher: { mode: project.dispatcher.mode },

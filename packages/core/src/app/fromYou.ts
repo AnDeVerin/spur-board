@@ -58,6 +58,7 @@ import {
 } from './doorbells.ts';
 import { curatorProject } from './authorize.ts';
 import { TASKLESS_ITEM_URL, type RaiseItemInput } from './item-raise.ts';
+import { externalQuietItems } from './external-quiet.ts';
 import { reviewRuleItems } from './review-rule.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { closeTurns, quietTurns, stuckTurnAfterMs } from './turns.ts';
@@ -1053,6 +1054,9 @@ export async function reconcileItems(
     heldKeys.push(...held.map((item) => item.item_key));
   } else candidates.push(...(await turnsWithoutSession(trx, config, now, taskById)));
   candidates.push(...(await reviewRuleItems(trx, config, now, tasks)));
+  const quiet = await externalQuietItems(trx, config, now, tasks, sourceById);
+  candidates.push(...quiet.candidates);
+  heldKeys.push(...quiet.held);
   const ordered = orderItems(candidates);
   const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {

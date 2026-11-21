@@ -11,6 +11,7 @@ import {
   type Config,
   approvalRuleOf,
   configBindings,
+  externalQuietAfterMs,
   configJsonSchema,
   columnTurnTimings,
   configSchema,
@@ -275,6 +276,39 @@ describe('fixtures', () => {
       configSchema.parse(validConfig()).projects[0],
     ])
       expect(project === undefined ? undefined : approvalRuleOf(project)).toBe('any-approval');
+  });
+
+  it.each([0, 300_000, 3_600_000])(
+    'quietAfterMs: accepts %i on external-review',
+    (quietAfterMs) => {
+      const project = configSchema.parse(
+        validConfig({
+          columns: [
+            ...columns('todo', 'dev'),
+            { id: 'external-review', quietAfterMs },
+            ...columns('done'),
+          ],
+        }),
+      ).projects[0];
+      expect(project?.columns[2]?.quietAfterMs).toBe(quietAfterMs);
+      expect(project === undefined ? undefined : externalQuietAfterMs(project)).toBe(quietAfterMs);
+    },
+  );
+
+  it('quietAfterMs: 0 without the key, on a disabled column and without External Review', () => {
+    const parse = (external: Record<string, unknown>[]) =>
+      configSchema.parse(
+        validConfig({ columns: [...columns('todo', 'dev'), ...external, ...columns('done')] }),
+      ).projects[0];
+    const plain = parse([{ id: 'external-review' }]);
+    expect(plain?.columns[2]).not.toHaveProperty('quietAfterMs');
+    for (const project of [
+      plain,
+      parse([{ id: 'external-review', enabled: false, quietAfterMs: 600_000 }]),
+      parse([]),
+      configSchema.parse(validConfig()).projects[0],
+    ])
+      expect(project === undefined ? undefined : externalQuietAfterMs(project)).toBe(0);
   });
 
   it('source: parses the ready mirror fixture with a tracker source on ready-for-dev', () => {
@@ -994,6 +1028,42 @@ describe('invalid configs', () => {
       }),
       'Invalid option',
       'projects[0].columns[2].approvalRule',
+    ],
+    [
+      'quietAfterMs 1 on external-review',
+      validConfig({
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'external-review', quietAfterMs: 1 },
+          ...columns('done'),
+        ],
+      }),
+      'quietAfterMs must be 0 (off) or at least 300000 (5 minutes)',
+      'projects[0].columns[2].quietAfterMs',
+    ],
+    [
+      'quietAfterMs 299999 on external-review',
+      validConfig({
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'external-review', quietAfterMs: 299_999 },
+          ...columns('done'),
+        ],
+      }),
+      'quietAfterMs must be 0 (off) or at least 300000 (5 minutes)',
+      'projects[0].columns[2].quietAfterMs',
+    ],
+    [
+      'quietAfterMs on review',
+      validConfig({
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', quietAfterMs: 600_000 },
+          ...columns('done'),
+        ],
+      }),
+      'Column "review" cannot set quietAfterMs: quietAfterMs is allowed only on the external-review column',
+      'projects[0].columns[2].quietAfterMs',
     ],
     [
       'source on review',
@@ -1839,6 +1909,7 @@ describe('JSON Schema', () => {
       '.health.needsInputAfterMs',
       '.health.turnStallAfterMs',
       '.projects[].columns[].noRecipientAfterMs',
+      '.projects[].columns[].quietAfterMs',
       '.projects[].columns[].quietTurnAfterMs',
       '.projects[].dispatcher.submitConfirmMs',
       '.sources.authRetryMs',
