@@ -3765,7 +3765,7 @@ describe('course check', () => {
     );
     expect(block.reason.split('\n').at(-2)).toBe('');
     expect(block.reason.split('\n').at(-1)).toBe(
-      "If returns repeat a mechanism, fix its class once; one table test covers its variants. Code a finding only if it breaks the task's stated goal in its target setup or regresses the current release, whatever its severity label. Other edges, task out-of-scope included, go under PR Risk with a thread reply, no code. Unclear goal or setup: `board ask` first.",
+      "Repeated mechanism: fix its class once, one table test. Code a finding only if it breaks the task's goal in its target setup or regresses the release, whatever its severity; else PR Risk with a thread reply, no code. Unclear scope: `board ask` first.",
     );
     expect(block.reason).not.toContain('P0/P1');
     expect(block.reason).not.toContain('user-visible');
