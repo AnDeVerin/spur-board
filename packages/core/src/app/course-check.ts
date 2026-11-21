@@ -522,6 +522,7 @@ async function courseSummary(
   }
   lines.push(`Issue: ${url}`);
   lines.push(
+    "To you, the recipient: the last line guides the worker. To clarify the task's goal or setup, answer this question; your answer reaches the worker as a task comment.",
     '',
     "If returns repeat a mechanism, fix its class once; one table test covers its variants. Code a finding only if it breaks the task's stated goal in its target setup or regresses the current release, whatever its severity label. Other edges, task out-of-scope included, go under PR Risk with a thread reply, no code. Unclear goal or setup: `board ask` first.",
   );

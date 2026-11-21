@@ -278,6 +278,10 @@ describe('product skill sync', () => {
       /board submit <turn> <sha>[\s\S]*Answer each external comment[\s\S]*a reply alone submits the same head[\s\S]*Re-request review only from reviewers whose threads your push closed[\s\S]*If returns repeat the same mechanism[\s\S]*fix the class once[\s\S]*one table test for variants[\s\S]*breaks the task's stated goal in its target setup or\s+regresses the\s+current release[\s\S]*whatever its severity label[\s\S]*other edges, task out-of-scope included[\s\S]*PR Risk with a thread reply, no code[\s\S]*Unclear goal or setup: keyed `board ask <task> <text>` first/,
     );
     expect(worker).not.toMatch(/P0\/P1|user-visible/);
+    expect(workerFlow.split('- A return to Dev:')[1]?.split('\n- ')[0]).toMatch(
+      /read the reason in `board task <task>`, code it only if it\s+breaks the task's stated goal in its target setup or regresses the current release, else put\s+it under PR Risk with a thread reply, then keyed `board submit <turn> <sha>`/,
+    );
+    expect(workerFlow).not.toContain('fix it, then');
     expect(skill.split('- On doorbell,')[1]?.split('\n## ')[0]).toMatch(
       /block\. Once handled, ack its revision, ID or ring[\s\S]*board inbox ack <entries>/,
     );
