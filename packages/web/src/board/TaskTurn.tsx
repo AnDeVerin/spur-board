@@ -26,14 +26,14 @@ import {
   closedNotice,
   commitDefault,
   isBasis,
-  NOTE,
   openSummary,
-  orchestrated,
+  closable,
   PHASE,
   reasonError,
   RETURNABLE,
   shaError,
   submitConfirmation,
+  turnNotes,
   UNAVAILABLE,
   REFRESHING,
   UNSETTLED,
@@ -59,10 +59,10 @@ interface Bound {
 }
 
 /**
- * The Turn section of the task view: the open orchestrator turn, which the operator can take and
- * submit or return to Dev. A form binds to the turn it opened on; when that turn closes elsewhere
- * the section says how, and who closed it for a submit or a return. Renders nothing without an
- * orchestrator turn or a bound one.
+ * The Turn section of the task view: the open orchestrator or operator turn, which the operator
+ * can take and submit or return to Dev. A form binds to the turn it opened on; when that turn
+ * closes elsewhere the section says how, and who closed it for a submit or a return. Renders
+ * nothing without an orchestrator or operator turn or a bound one.
  */
 export function TaskTurn({
   value,
@@ -152,7 +152,7 @@ export function TaskTurn({
     };
   }, []);
 
-  const open = orchestrated(value.turn);
+  const open = closable(value.turn);
   const inFlight = phase !== 'idle';
   const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
   const closed = bound !== undefined && !boundOpen && !inFlight;
@@ -202,8 +202,10 @@ export function TaskTurn({
   if (open === undefined && bound === undefined) return null;
   const record = bound && value.turns?.find((turn) => turn.id === bound.turn.id);
   const name = (actor: string) => actorDisplayName(actor, config);
-  const executor = (column: string) => {
-    const entry = columns.find((candidate) => candidate.id === column)?.executor;
+  // A turn addressed to the operator names it, whatever the column's executor reads now.
+  const executor = (turn: Turn) => {
+    if (turn.addressee === 'operator') return 'operator';
+    const entry = columns.find((candidate) => candidate.id === turn.column)?.executor;
     if (entry === undefined) return undefined;
     return entry.name === null ? entry.kind : `${entry.kind} ${entry.name}`;
   };
@@ -323,7 +325,7 @@ export function TaskTurn({
         hollow={stale || !turn.taken}
       />
       <span className={styles.id}>{turn.id}</span>
-      <span>{[turn.column, executor(turn.column), state].filter(Boolean).join(' · ')}</span>
+      <span>{[turn.column, executor(turn), state].filter(Boolean).join(' · ')}</span>
       {buttons}
     </div>
   );
@@ -372,13 +374,12 @@ export function TaskTurn({
             triggers(turn, blocked !== undefined || inFlight || earlierForm || stale, primary),
         )}
         {staleLine}
-        {!stale && turn.taken?.by === 'operator' && (
-          <p className={styles.note}>
-            You hold {turn.id}; the orchestrator cannot submit or return it until you finish or it
-            takes the turn back.
-          </p>
-        )}
-        {!formOpen && !stale && <p className={styles.note}>{NOTE}</p>}
+        {!stale &&
+          turnNotes(turn, formOpen).map((note) => (
+            <p key={note} className={styles.note}>
+              {note}
+            </p>
+          ))}
         {blocked !== undefined && <p className={styles.note}>{blocked}</p>}
         {formOpen && formElement(turn)}
       </div>

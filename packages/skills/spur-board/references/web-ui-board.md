@@ -87,8 +87,9 @@ Columns follow configuration order:
     reason) or a warn `QA skipped` (tooltip: reason) comes first; tested, none or no QA column adds
     nothing.
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
-    on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
-    without a turn. Ages stop while the data is stale.
+    on it; yellow for your turn (`open`, or `taken` once you hold it), or not taken (dashed
+    rail, hollow dot); red when stalled; none without a turn. A turn addressed to you that an
+    operator session holds reads like an agent's. Ages stop while the data is stale.
 - Unconfigured columns: a trailing count opens a list of task keys, titles and original columns.
   Rows open the task view and keep status order. At zero, both are absent.
 

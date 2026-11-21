@@ -68,14 +68,14 @@ conditions are unknown (an unconfigured project, or missing pull request facts) 
 Then come each hold, the open turn (its id, who executes it, who took it and how long ago), and
 the open blocks. When every exit condition is met, or the column has none, a last row names the
 next column: `When dev exit conditions pass → review`.
-From a Todo-group column (`todo`, `triage` or `ready-for-dev`) the row names the first enabled
+From a Todo-group column the row names the first enabled
 column right of the group: the task moves there once work starts, with an open PR or a live
 worker.
 
 The section header sums up the failed and waiting conditions and the open blocks, or reads
 `all pass` or `unknown`.
 
-An open orchestrator turn has a **Turn** section; see [Turn](web-ui-task-turn.md).
+An open orchestrator or operator turn has a **Turn** section; see [Turn](web-ui-task-turn.md).
 
 ## Latest submission
 

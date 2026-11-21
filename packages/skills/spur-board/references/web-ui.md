@@ -1,7 +1,7 @@
 # Web UI
 
 View the Board and freshness, answer operator questions, follow up on them, comment, close
-an operator inbox item, submit or return an orchestrator turn, and move a task between Backlog
+an operator inbox item, submit or return an orchestrator or operator turn, and move a task between Backlog
 parts.
 Archived tasks are read-only; other actions use CLI, MCP or Slack.
 
@@ -25,7 +25,8 @@ open-task `task.get`/`task.history` and `/v1/events`. The UI owns no data.
   **Blocks**, **Comments** and **History** (journal events with channel, e.g. `operator (web)`).
 - [Task blocks and comments](web-ui-task-blocks.md): answers, follow-ups and comments in the task
   view.
-- [Turn](web-ui-task-turn.md): take an orchestrator turn and submit it or return it to Dev.
+- [Turn](web-ui-task-turn.md): take an orchestrator or operator turn and submit it or return it
+  to Dev.
 - [Moving between Backlog parts](web-ui-board-move.md): the card menu, drop and task-view move
   with a reason.
 

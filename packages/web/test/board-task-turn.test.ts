@@ -59,6 +59,35 @@ describe('Turn section', () => {
     expect(button('Submit…').disabled).toBe(false);
   });
 
+  it('shows an open operator turn, takes it and submits', async () => {
+    // The harness binds Review to rev-bot: the line takes `operator` from the turn's addressee.
+    const { writes } = await open(orchestratorTaskGet({ addressee: 'operator' }));
+    expect(text()).toContain('review · operator · not taken');
+    expect(text()).not.toContain('rev-bot');
+    expect(text()).toContain('No agent takes this turn, so it is yours to close.');
+    expect(text()).not.toContain('when the orchestrator is down');
+    await click('Submit…');
+    await send();
+    expect(writes().map(({ op }) => op)).toEqual(['inbox.ack', 'task.submit']);
+  });
+
+  it('shows only the hold line on an operator turn the operator token holds', async () => {
+    await open(orchestratorTaskGet({ addressee: 'operator', taken: { by: 'operator', at: AT } }));
+    expect(text()).toContain('You hold T5.');
+    expect(text()).not.toContain('the orchestrator cannot');
+    expect(text()).not.toContain('No agent takes this turn');
+  });
+
+  it('names the operator on a Dev operator turn and offers no Return', async () => {
+    await open(
+      orchestratorTaskGet({ column: 'dev', addressee: 'operator' }, { task: taskGet().task }),
+    );
+    expect(text()).toContain('dev · operator · not taken');
+    expect(text()).not.toContain('worker');
+    expect(buttons().map((entry) => entry.textContent)).not.toContain('Return to dev…');
+    expect(button('Submit…').disabled).toBe(false);
+  });
+
   it.each(['tested', 'carried', 'skipped'])(
     'submits a %s basis after taking the turn',
     async (basis) => {

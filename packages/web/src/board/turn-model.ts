@@ -44,11 +44,31 @@ export const UNSETTLED = 'The earlier send may still land; send it again to sett
 /** Shown in place of the holder while that re-read runs. */
 export const REFRESHING = 'Refreshing the turn…';
 export const ARCHIVED = 'This task is archived. The turn cannot be closed.';
-export const NOTE =
+const NOTE =
   'You can close this turn yourself when the orchestrator is down or you have the verdict from elsewhere.';
 
-export const orchestrated = (turn: BoardTask['turn']) =>
-  turn?.addressee.startsWith('orchestrator:') ? turn : undefined;
+/** The note of a turn addressed to the operator while the operator token does not hold it. */
+const OPERATOR_NOTE = 'No agent takes this turn, so it is yours to close.';
+
+/**
+ * The notes under an open turn: the hold line while the operator token holds it, then the note
+ * unless a form is open. An operator turn the token holds shows its short hold line alone.
+ */
+export function turnNotes(turn: NonNullable<BoardTask['turn']>, formOpen: boolean): string[] {
+  const held = turn.taken?.by === 'operator';
+  if (turn.addressee === 'operator') {
+    if (held) return [`You hold ${turn.id}.`];
+    return formOpen ? [] : [OPERATOR_NOTE];
+  }
+  const hold = `You hold ${turn.id}; the orchestrator cannot submit or return it until you finish or it takes the turn back.`;
+  return [...(held ? [hold] : []), ...(formOpen ? [] : [NOTE])];
+}
+
+/** The open turn the operator can close here: an orchestrator turn or one addressed to it. */
+export const closable = (turn: BoardTask['turn']) =>
+  turn?.addressee.startsWith('orchestrator:') === true || turn?.addressee === 'operator'
+    ? turn
+    : undefined;
 export function shaError(value: string, what: string): string | undefined {
   if (value === '') return `Enter ${what}.`;
   return SHA.test(value)
