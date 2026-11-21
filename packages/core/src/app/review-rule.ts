@@ -231,8 +231,11 @@ export async function storedReviewRule(
 const upper = (value: string | null): string => (value === null ? 'null' : value.toUpperCase());
 
 /**
- * The items of github-rules tasks in External Review whose head has stayed undecided for
- * `REVIEW_RULE_UNDECIDED_MS` and whose gate, read as `readInput` reads it, still runs the clock: a
+ * The items of github-rules tasks in External Review. A head GitHub blocks with every review thread
+ * resolved, while the external approval is in place and External Review has no orchestrator, raises
+ * one at once; its shown text carries GitHub's current values and nothing is written. Otherwise an
+ * item comes for a head that has stayed undecided for `REVIEW_RULE_UNDECIDED_MS` and whose gate,
+ * read as `readInput` reads it, still runs the clock: a
  * newer read of the head by another project's source can name someone to act first or carry
  * GitHub's answer, and then no item is raised or kept. GitHub's values are frozen in the row at
  * the first reconcile past the threshold and again when the cause changes, so a later poll or a
@@ -267,10 +270,34 @@ export async function reviewRuleItems(
       project.checksGate === 'dev' ? pr : await withUnconfirmedCancels(trx, source, pr);
     const gate = await gateRead(trx, source, gatePr, project.operatorGithubLogin);
     const row = gate.row;
-    if (row?.undecidedSince == null || !gate.clock) continue;
-    if (now - Date.parse(row.undecidedSince) < REVIEW_RULE_UNDECIDED_MS) continue;
     // The slug as the meta key holds it: a manual link and a poll can spell it differently.
     const ref = `${pr.repo.toLowerCase()}#${String(pr.number)}`;
+    const executor =
+      project.columns.find((column) => column.id === 'external-review')?.orchestrator ?? 'none';
+    // Blocked with every thread resolved and the approval in place: no one on the board can act,
+    // so the operator hears at once. Unresolved threads return the task to Dev instead.
+    if (
+      row !== null &&
+      gate.decision === 'blocked' &&
+      gate.approved &&
+      !gate.changesRequested &&
+      executor === 'none'
+    ) {
+      const what = `${task.key}: GitHub blocks the merge of ${ref} on ${row.headSha.slice(0, 7)} with every review thread resolved and the approval in place`;
+      candidates.push({
+        key: `${REVIEW_RULE_KEY}${String(task.id)}:${ref}:${row.headSha}`,
+        kind: 'board_observation',
+        taskId: task.id,
+        summary: `${what} (mergeStateStatus=${upper(pr.mergeState)}, mergeable=${upper(pr.mergeable)}, reviewDecision=${upper(row.reviewDecision)})`,
+        hashedSummary: what,
+        factAt: row.observedAt ?? null,
+        source,
+        priority: 4,
+      });
+      continue;
+    }
+    if (row?.undecidedSince == null || !gate.clock) continue;
+    if (now - Date.parse(row.undecidedSince) < REVIEW_RULE_UNDECIDED_MS) continue;
     const what =
       gate.decision === 'unreadable'
         ? `The GitHub review rule for the base branch of ${ref} could not be read`

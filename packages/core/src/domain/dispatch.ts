@@ -312,7 +312,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
   // A Dev turn names unresolved threads whenever a column of the project requires them resolved,
   // even where Dev's own gate ignores them, so the worker resolves them before moving right.
   const withThreads = (next: DispatchTurn | null): DispatchTurn | null => {
-    if (next?.column !== 'dev' || !threadsGated(project) || facts.unresolvedThreads === 0)
+    if (next?.column !== 'dev' || !threadsGated(project, facts) || facts.unresolvedThreads === 0)
       return next;
     const { reasons } = next;
     if (reasons.some((r) => r === 'no_pr' || r === 'pr_closed' || r === 'unresolved_threads'))

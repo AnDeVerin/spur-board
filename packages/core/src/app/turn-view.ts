@@ -12,11 +12,14 @@ type Project = Config['projects'][number];
 
 /**
  * The unresolved review threads a Dev turn lists, read live from the task's PR snapshot: only on a
- * project requiring resolved threads and an open PR, and only threads with an id and a link (facts
- * stored by an earlier version lack them). Undefined when none.
+ * project requiring resolved threads, or for a turn whose reason names `unresolved_threads` (a
+ * return GitHub's review rule caused), and an open PR, and only threads with an id and a link
+ * (facts stored by an earlier version lack them). Undefined when none.
  */
 async function turnThreads(trx: Trx, taskId: number, project: Project | undefined, turn: Turn) {
-  if (turn.column !== 'dev' || project === undefined || !threadsGated(project)) return undefined;
+  if (turn.column !== 'dev' || project === undefined) return undefined;
+  const named = (turn.reason.split(': ')[1] ?? '').split(', ').includes('unresolved_threads');
+  if (!named && !threadsGated(project)) return undefined;
   const pr = await prFacts(trx, taskId);
   if (pr?.state !== 'open') return undefined;
   const threads = pr.reviewThreads.flatMap(({ resolved, id, url, outdated }) =>

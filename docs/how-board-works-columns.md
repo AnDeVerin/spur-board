@@ -19,8 +19,8 @@ workers give `work_started`. CLI default `--manual`; MCP `task_move`; web API.
 Both modes: real column, new visit (same column too).
 Idle stays until a later reopen; work/completion follow facts. Ties: journal
 order; saved sorts win. Need non-blank literal reason
-(max 20,000 UTF-16 units), explicit non-blank key; retry identical input/key.
-Exact reason in events; one line in history.
+(max 20,000 UTF-16 units; one line in history) and key;
+retry identical input/key.
 
 `--correct` repairs enabled non-Done columns then settles gates. Dev return:
 `board return <turn> <reason>`. QA: `board submit <turn> <sha>` records evidence.
@@ -55,7 +55,7 @@ Review: no turn; others: operator), `operator`, or project with role
 `orchestrator`.
 
 Top-level `spurProjects[].columns` fills `none` columns board-wide;
-`role: operator` there serves operatorless projects, one session in
+`role: operator` there serves operatorless projects, one session
 each. A project-level binding wins.
 
 ## Gates and placement
@@ -64,7 +64,7 @@ Facts (head, checks, reviews, comments, ticket, sessions) feed gates; actions: m
 per evaluation). Turns follow unmet entry gates, actionable post-submit failures,
 rerouting or Done wrap-up. Holds and existing turns can yield neither action.
 
-Dispatcher moves, executor turns, course checks need `projects[].dispatcher.mode: on`;
+Moves, turns, course checks need `projects[].dispatcher.mode: on`;
 default is `shadow`: no doorbells or blocks.
 
 Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, failed gates return to the leftmost failing
@@ -104,7 +104,9 @@ gates that column and those right of it: an unresolved review thread, outdated
 or by anyone, returns the task to Dev, whose turn lists each thread link. The
 worker fixes or answers, then resolves each; reviewers never do. A
 Dev submit on the same head moves right, keeping marks and approval. An
-approval's inline notes are threads; it still passes External Review.
+approval's inline notes are threads; it still passes External Review. Under
+`github-rules`, GitHub blocking on threads returns the task to Dev from
+External Review on.
 
 Review/Product Review mark lasts across visits on the current head. QA submissions
 also survive returns and corrections to Dev on the same head. Other visit
@@ -114,7 +116,7 @@ Product Review and QA evidence, even if the head later returns.
 Operator correction into QA clears confirmed and pending QA evidence,
 keeping review marks; with passing upstream gates,
 this opens a fresh QA turn. Retained QA cannot supply Dev's submit
-requirement: submit the current Dev visit first.
+requirement.
 
 PR closed without merge with no open PR, or closed
 ticket with live work and no merged PR. `board status` lists them as operator block threads.

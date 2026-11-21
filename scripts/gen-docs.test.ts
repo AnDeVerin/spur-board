@@ -62,6 +62,9 @@ describe('generated public references', () => {
     for (const text of [
       'branch protection and rulesets',
       'undecided for 30 minutes',
+      'returns the task to Dev',
+      'whatever `requireResolvedThreads` says',
+      'one item at once',
       'board rollback',
     ])
       expect(section?.split('\n## ')[0]).toContain(text);

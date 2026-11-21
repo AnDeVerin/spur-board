@@ -1200,6 +1200,34 @@ describe('approvalRule github-rules', () => {
     );
   });
 
+  it('returns a task from External Review on to Dev when GitHub blocks on unresolved threads', () => {
+    const facts = { ...atExternal({ decision: 'unresolved_threads' }), unresolvedThreads: 1 };
+    const toDev = { ok: false, column: 'dev', reasons: ['unresolved_threads'] };
+    const noRtmThreads = requireThreads(RULED, 'ready-to-merge', false);
+    const rtmOff = disable(RULED, 'ready-to-merge');
+    for (const columns of [RULED, noRtmThreads, rtmOff])
+      for (const column of ['external-review', 'qa', 'ready-to-merge'] as const)
+        expect(evaluateGate(column, facts, project('dev', columns))).toEqual(toDev);
+    // Left of External Review the decision does not count.
+    expect(evaluateGate('review', facts, project('dev', noRtmThreads))).toEqual({ ok: true });
+    // Blocked without threads, or no rule fact, still fails at External Review.
+    expect(evaluateGate('external-review', atExternal({ decision: 'blocked' }), project())).toEqual(
+      { ok: false, column: 'external-review', reasons: ['review_rule_blocked'] },
+    );
+    // Under any-approval the decision is ignored.
+    const anyApproval = requireThreads(ORCH, 'ready-to-merge', false);
+    expect(evaluateGate('qa', facts, project('dev', anyApproval))).toEqual({ ok: true });
+    // Dev's own conditions count the threads while the decision stands.
+    const dev = explainGates(facts, project('dev', noRtmThreads)).gates.find(
+      (entry) => entry.column === 'dev',
+    );
+    expect(dev?.conditions).toContainEqual({
+      condition: 'threads_resolved',
+      state: 'failed',
+      reason: 'unresolved_threads',
+    });
+  });
+
   it('lists one checks_pending, not two, when External Review is the checks gate', () => {
     const facts = atExternal(
       { decision: 'checks_pending' },
