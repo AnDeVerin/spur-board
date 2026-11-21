@@ -433,7 +433,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board item close`
 
-Close a "from you" item without retrying; a block's item also closes its block.
+Close a "from you" item without retrying; some block items close their block.
 
 Arguments: `<item>`.
 

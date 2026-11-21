@@ -108,8 +108,8 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "item_retry",
   },
   {
-    "description": "Close a "from you" item without retrying; a block's item also closes its block.
-Use when: Dismiss an item without retrying. An item for an open block also closes that block with a reason, as the operator.
+    "description": "Close a "from you" item without retrying; some block items close their block.
+Use when: Dismiss an item without retrying. An anomaly, cycle_limit or course_check item also closes its block; an operator-block: item closes its block when you may unblock it.
 When not to use: Use item_retry to try again.
 Example: {"item":"I8","idempotencyKey":"item_close-example-001"}
 Choose a unique idempotencyKey for each action; reuse it on retries.",
