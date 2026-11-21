@@ -1623,7 +1623,13 @@ describe('task.return', () => {
       actor: 'operator' as const,
       options: { devOrchestrator: 'operator' },
     },
-  ])('$name on the returned Dev turn closes its code block', async ({ head, actor, options }) => {
+    {
+      name: "a named Dev orchestrator's submit while the worker is live",
+      head: B,
+      actor: QA_1,
+      options: { devOrchestrator: 'qa' },
+    },
+  ])('$name on the returned Dev turn answers its code block', async ({ head, actor, options }) => {
     const { ctx, block, unblocked } = await returnedToDev(options);
     expect(await block()).toMatchObject({ state: 'open', addressee_role: 'worker' });
     const turn = await ctx.store.db
@@ -1631,7 +1637,8 @@ describe('task.return', () => {
       .select('role')
       .where('id', '=', 2)
       .executeTakeFirstOrThrow();
-    expect(turn.role).toBe(actor === WORKER_1 ? 'worker' : 'operator');
+    const role = { [WORKER_1]: 'worker', [QA_1]: 'orchestrator:dev' }[actor] ?? 'operator';
+    expect(turn.role).toBe(role);
     await ctx.ack(actor, 'T2');
     ctx.commits(head);
 
@@ -1641,6 +1648,12 @@ describe('task.return', () => {
       status: 'confirmed',
     });
 
+    if (role === 'orchestrator:dev') {
+      // The block stays on the live worker, who has not read it yet.
+      expect(await block()).toMatchObject({ state: 'open', outcome: null });
+      expect(await unblocked()).toEqual([]);
+      return;
+    }
     expect(await block()).toMatchObject({
       state: 'unblocked',
       outcome: 'done',
