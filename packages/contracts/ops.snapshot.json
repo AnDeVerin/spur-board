@@ -1,5 +1,5 @@
 {
-  "version": "8ac97a15e1aa874a8fee0fe8f5871b45be53ee7edc4f9e45fea7fceaedb61657",
+  "version": "e80da63d6225a9d8d30238d2a566e0f4e84728e852736bcda410cdc2d76d41e2",
   "grants": [
     "operator",
     "project-agent",
@@ -340,7 +340,7 @@
       "status": 409,
       "exit": 1,
       "message": "The turn has used its waits: the count or the total wait time reached the limit.",
-      "hint": "Submit or return the turn; the operator inbox names the wait.",
+      "hint": "Submit or return the turn; the operator gets an inbox item once the wait ends.",
       "recovery": {
         "action": "Submit or return the turn instead of waiting again.",
         "sideEffects": "none",

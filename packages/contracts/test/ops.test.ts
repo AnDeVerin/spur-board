@@ -984,7 +984,7 @@ describe('snapshot', () => {
     // task.wait, the optional turn wait in turn views, the turn_wait_limit code and the turn wait
     // event kinds.
     expect(await catalogVersion(baseline)).toBe(
-      '3ec688d4b0d2b5dbc7243d0375ccf92fa17bd0c95ba499069046704d13687401',
+      '8c080fb4437258efb6966320321369d56f8b086ecc8de4b4b2d2a50b56b89df1',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

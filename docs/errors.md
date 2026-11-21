@@ -382,7 +382,7 @@ The turn has used its waits: the count or the total wait time reached the limit.
 
 HTTP: 409  
 Exit code: 1  
-Hint: Submit or return the turn; the operator inbox names the wait.  
+Hint: Submit or return the turn; the operator gets an inbox item once the wait ends.  
 Recovery: Submit or return the turn instead of waiting again.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
@@ -397,7 +397,7 @@ Example:
     "code": "turn_wait_limit",
     "requestId": "req-example-123",
     "message": "The turn has used its waits: the count or the total wait time reached the limit.",
-    "hint": "Submit or return the turn; the operator inbox names the wait.",
+    "hint": "Submit or return the turn; the operator gets an inbox item once the wait ends.",
     "docs": "docs/errors.md#turn_wait_limit",
     "recovery": {
       "action": "Submit or return the turn instead of waiting again.",

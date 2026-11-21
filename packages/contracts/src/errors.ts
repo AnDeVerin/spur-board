@@ -173,7 +173,7 @@ export const ERRORS = {
     status: 409,
     exit: EXIT_CODES.refused,
     message: 'The turn has used its waits: the count or the total wait time reached the limit.',
-    hint: 'Submit or return the turn; the operator inbox names the wait.',
+    hint: 'Submit or return the turn; the operator gets an inbox item once the wait ends.',
     recovery: noRetry('Submit or return the turn instead of waiting again.'),
   }),
   submit_basis_invalid: spec('submit_basis_invalid', {
