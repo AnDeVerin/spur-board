@@ -79,6 +79,16 @@ function holderSession(turn: Pick<Turn, 'acked_by'>): string | null {
   return holder?.actor === 'agent' ? holder.actorRef.session : null;
 }
 
+/** Whether the snapshot of `session` says it ended; false without a snapshot. */
+async function sessionEnded(trx: Trx, session: string): Promise<boolean> {
+  const snapshot = await trx
+    .selectFrom('session_snapshot')
+    .select('ended_at')
+    .where('id', '=', session)
+    .executeTakeFirst();
+  return snapshot?.ended_at != null;
+}
+
 /**
  * The tick's wait ends. A wait whose agent holder's session ended ends `closed` with no ring.
  * Otherwise, once its wake time passes, it ends `limit` when the turn's waits reached a limit,
@@ -96,15 +106,7 @@ export async function wakeWaitingTurns(trx: Trx, config: Config, at: Date): Prom
     .execute();
   for (const turn of waiting) {
     const session = holderSession(turn);
-    const snapshot =
-      session === null
-        ? undefined
-        : await trx
-            .selectFrom('session_snapshot')
-            .select('ended_at')
-            .where('id', '=', session)
-            .executeTakeFirst();
-    if (snapshot?.ended_at != null) {
+    if (session !== null && (await sessionEnded(trx, session))) {
       await endTurnWait(trx, { turn, project: turn.project, outcome: 'closed', at });
       continue;
     }
@@ -142,13 +144,7 @@ export async function restingHolders(trx: Trx, config: Config, now: number): Pro
   const resting = new Set<string>();
   for (const turn of turns) {
     const session = holderSession(turn);
-    if (session === null || turn.acked_at === null) continue;
-    const snapshot = await trx
-      .selectFrom('session_snapshot')
-      .select('ended_at')
-      .where('id', '=', session)
-      .executeTakeFirst();
-    if (snapshot?.ended_at != null) continue;
+    if (session === null || turn.acked_at === null || (await sessionEnded(trx, session))) continue;
     const ended = turn.wait_ended_at === null ? null : Date.parse(turn.wait_ended_at);
     const grace =
       ended !== null &&

@@ -59,9 +59,10 @@ function latest(values: readonly string[]): string {
  * turn.
  * `quietSince` is when the holder last had something to do: the take, the start of its idle
  * spell, the end of its last wait, or the close of its last question on the task. Null while the
- * holder works, waits (`task.wait`), has an open question on the task, or has no readable snapshot. A worker turn whose holder's session link
- * the operator removed is left out: the holder no longer works the task. An orchestrator turn is
- * addressed through the column config, so a link removal does not end its hold.
+ * holder works, waits (`task.wait`), has an open question on the task, or has no readable
+ * snapshot. A worker turn whose holder's session link the operator removed is left out: the holder
+ * no longer works the task. An orchestrator turn is addressed through the column config, so a link
+ * removal does not end its hold.
  */
 export async function quietTurns(trx: Trx) {
   const turns = await trx
@@ -175,7 +176,6 @@ export async function ringDue(
     .executeTakeFirst();
   if (n?.kind !== 'turn_reminder') return true;
   if (await spurBlind(trx)) return false;
-  // A wake ring is due once its wait ended; the wait's end is its rule.
   if (isTurnWakeKey(n.source_key)) return true;
   const quiet = (await quietTurns(trx)).find((entry) => entry.reminder?.id === notificationId);
   if (quiet === undefined || quiet.ended || quiet.quietSince === null) return false;

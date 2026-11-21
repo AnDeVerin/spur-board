@@ -232,17 +232,17 @@ export async function cancelledRingState(
  * its take, so each ownership episode gets its own reminder and no episode gets a second. A
  * reminder of the take cancelled unsent is replaced by a fresh one: its row gets a new id, so the
  * new ring does not reuse the outbox key of a ring the sender already killed. A wait's wake ring
- * passes its own `key` (`turnWakeKey`).
+ * passes its own `wakeKey` (`turnWakeKey`).
  */
 export async function registerTurnReminder(
   trx: Trx,
   turn: Pick<Row<'turn'>, 'id' | 'task_id' | 'role' | 'acked_at'>,
   session: string,
   at: Date,
-  key = turn.acked_at === null ? null : turnReminderKey(turn.id, session, turn.acked_at),
+  wakeKey?: string,
 ): Promise<void> {
-  if (turn.acked_at === null || key === null)
-    throw new Error(`turn ${String(turn.id)} is not taken`);
+  if (turn.acked_at === null) throw new Error(`turn ${String(turn.id)} is not taken`);
+  const key = wakeKey ?? turnReminderKey(turn.id, session, turn.acked_at);
   const earlier = await trx
     .selectFrom('notification')
     .selectAll()
