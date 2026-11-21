@@ -26,7 +26,7 @@ Submissions declare provenance with `--basis tested|carried|skipped`; omitted me
 must be a tested submission on this task or a carried submission with a tested
 origin. Carry chains retain the supplied source and pin the original tested row;
 no git ancestry is checked. `skipped` requires a reason. `tested` permits a reason;
-only `carried` permits `from`. Supplied reasons must be nonblank, literal text of
+only `carried` permits `from`. Supplied reasons are nonblank literal text of
 at most 2,000 UTF-16 units. Workers and column orchestrators keep their existing
 submit permissions for every basis. All bases close turns and follow the same
 head confirmation and gates; only returns increment course and cycle counts.
@@ -35,8 +35,8 @@ head confirmation and gates; only returns increment course and cycle counts.
 submission includes its pending and voided state: historical tested submissions
 remain carryable even when pending or voided, independently of gate validity.
 Legacy rows with nullable provenance read as tested; stored command results and
-omitted-input fingerprints remain compatible. Migration rollback uses the normal
-pre-update backup restore, with no downgrade guarantee for the migrated database.
+omitted-input fingerprints remain compatible. Migration rollback is the normal
+pre-update backup restore; the migrated database has no downgrade guarantee.
 After a catalog upgrade, restart the daemon and MCP clients together.
 
 A new head closes taken turns outside Dev and Done; taken Dev turns and Done
@@ -79,8 +79,8 @@ resolve the held turn. Start a replacement worker, retake an operator turn
 actual holder replacement, archive or departure from the column visit. Existing
 ended-holder stall blocks withdraw with a recorded reason,
 even while Spur is blind. Removing a link alone leaves the taken turn unresolved.
-Done wrap-up turns still close when their holder ends. A stopped session without
-an end time remains subject to live stall timing above.
+Done wrap-up turns still close. A stopped session without
+an end time stays subject to live stall timing above.
 
 ## Doorbells
 
@@ -102,11 +102,13 @@ Exhaustion alerts the operator, except removals and quiet-turn reminders;
 curator questions move to operator.
 
 A taken turn is reminded, then flagged stuck, after `health.idleInDevAfterMs` of quiet;
-an orchestrator turn of a column with a named orchestrator uses the column's
+a named column orchestrator's turn uses the column's
 `quietTurnAfterMs` instead. When the column's untaken turns have no live session to ring for
 its `noRecipientAfterMs` (default 10 minutes, counted from the later of the ring and the
 moment the last session that could take them stopped being a recipient: its first end, absence
 or finished state), the operator gets one `no-session:` inbox item per column.
+
+A holder can [wait on its turn](how-board-works-waits.md).
 
 ## Course checks and cycle limits
 

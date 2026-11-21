@@ -36,6 +36,17 @@ const turnReturnSchema = z
   })
   .describe('The return that sent the task back to Dev and opened this visit.');
 
+/** The active wait of a taken turn, started by its holder with `task.wait`. */
+export const turnWaitSchema = z
+  .strictObject({
+    reason: z.string().min(1).describe('What the holder waits for, as it gave it.'),
+    since: z.iso.datetime().describe('When the wait started, ISO 8601 UTC.'),
+    wakesAt: z.iso
+      .datetime()
+      .describe('When the board ends the wait and rings the holder, ISO 8601 UTC.'),
+  })
+  .describe('The active wait of the turn.');
+
 export const turnViewSchema = z
   .strictObject({
     id: turnIdSchema,
@@ -62,6 +73,11 @@ export const turnViewSchema = z
       })
       .nullable()
       .describe('Who took the turn and when; null until it is taken.'),
+    wait: turnWaitSchema
+      .optional()
+      .describe(
+        'The active wait the holder started with task.wait: its reason, start and wake time. Absent when the turn is not waiting.',
+      ),
     threads: z
       .array(
         z
@@ -90,6 +106,7 @@ export const taskTurnSchema = turnViewSchema
     addressee: true,
     at: true,
     taken: true,
+    wait: true,
     handed: true,
     returned: true,
   })

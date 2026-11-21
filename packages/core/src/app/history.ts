@@ -44,6 +44,8 @@ const EVENT_SUMMARIES = {
   turn_opened: 'Turn opened',
   turn_taken: 'Turn taken',
   turn_closed: 'Turn closed',
+  turn_wait_started: 'Turn wait started',
+  turn_wait_ended: 'Turn wait ended',
   block_opened: 'Block opened',
   block_escalated: 'Block escalated',
   block_unblocked: 'Block unblocked',
@@ -306,6 +308,8 @@ const SUMMARIES: { [K in EventKind]?: (payload: Payload<K>) => string | null } =
     `Comment ${p.comment} for ${p.addressee}${optional(', forwarded from ', p.forwardedFrom)}`,
   comment_edited: (p) =>
     `Comment ${p.comment} edited, revision ${String(p.revision)}${p.clarification ? ', clarification' : ''}`,
+  turn_wait_started: (p) => `Turn ${p.turn} waits until ${p.until}: ${p.reason}`,
+  turn_wait_ended: (p) => `Turn ${p.turn} wait ended: ${p.outcome}`,
   comment_deleted: (p) => `Comment ${p.comment} deleted`,
   comment_acked: (p) => `Comment ${p.comment} acknowledged`,
   doorbell_rung: (p) =>

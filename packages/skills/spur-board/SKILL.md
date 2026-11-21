@@ -23,6 +23,8 @@ Ack T<number> first with keyed
 `board inbox ack <entries>`; only its acking session may submit or return.
 On `turn_closed`, act only on a turn `board inbox` lists. Shadow mode opens no turn:
 `board submit <task> <sha>`.
+To re-check an outside condition instead of sitting quiet, keyed
+`board wait <turn> --for <minutes> --reason <text>`; the Board rings you when the wait ends.
 
 - Dev worker: ack, then keyed `board submit <turn> <sha>` for the PR head. Answer each external comment the turn hands you with a new head or a reasoned reply; a reply alone submits the same head.
   Re-request review only from reviewers whose threads your push closed.
@@ -76,6 +78,7 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
 - [`board unblock`](references/blocks.md#board-unblock)
 - [`board submit`](references/blocks.md#board-submit)
 - [`board return`](references/blocks.md#board-return)
+- [`board wait`](references/blocks.md#board-wait)
 - [`board config get`](references/config.md#board-config-get)
 - [`board columns describe`](references/config.md#board-columns-describe)
 

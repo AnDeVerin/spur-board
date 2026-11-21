@@ -16,6 +16,7 @@ import type { BoardColumnConfig, BoardRow } from './model.ts';
 import { actorDisplayName, age } from './task-model.ts';
 import { TaskSection } from './TaskSection.tsx';
 import type { TurnIntent, TurnPhase } from './turn-intent.ts';
+import { TurnNotes } from './TurnNotes.tsx';
 import { useTurnReread } from './turn-reread.ts';
 import {
   ARCHIVED,
@@ -33,7 +34,6 @@ import {
   RETURNABLE,
   shaError,
   submitConfirmation,
-  turnNotes,
   UNAVAILABLE,
   REFRESHING,
   UNSETTLED,
@@ -374,12 +374,7 @@ export function TaskTurn({
             triggers(turn, blocked !== undefined || inFlight || earlierForm || stale, primary),
         )}
         {staleLine}
-        {!stale &&
-          turnNotes(turn, formOpen).map((note) => (
-            <p key={note} className={styles.note}>
-              {note}
-            </p>
-          ))}
+        <TurnNotes turn={turn} stale={stale} formOpen={formOpen} />
         {blocked !== undefined && <p className={styles.note}>{blocked}</p>}
         {formOpen && formElement(turn)}
       </div>

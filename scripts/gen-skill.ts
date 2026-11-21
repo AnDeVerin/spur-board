@@ -179,7 +179,7 @@ const commandPages = [
   {
     fileName: 'blocks.md',
     title: '# Board block and turn commands',
-    commands: ['block', 'escalate', 'answer', 'unblock', 'submit', 'return'],
+    commands: ['block', 'escalate', 'answer', 'unblock', 'submit', 'return', 'wait'],
   },
 ];
 

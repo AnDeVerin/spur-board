@@ -4,6 +4,7 @@ import { threadsGated } from '../domain/gates.ts';
 import type { TaskTable, TurnTable } from '../store/schema.ts';
 import { turnReturn, type Trx } from './board-utils.ts';
 import { prFacts } from './course-check.ts';
+import { turnWaitView } from './turn-waits.ts';
 import { turnHanded } from './turns.ts';
 
 type Turn = Selectable<TurnTable>;
@@ -52,6 +53,7 @@ export async function turnView(
       turn.acked_by === null || turn.acked_at === null
         ? null
         : { by: turn.acked_by, at: turn.acked_at },
+    ...turnWaitView(turn),
     ...(threads === undefined ? {} : { threads }),
   };
 }

@@ -166,6 +166,14 @@ function insertRaw(raw: Database.Database, table: string, row: Record<string, un
 
 /** Task columns added after 0028, left out of every old-shape `sampleRows.task` insert. */
 const POST_0028_TASK = ['position'];
+const POST_0029_TURN = [
+  'wait_reason',
+  'wait_since',
+  'wait_until',
+  'wait_ended_at',
+  'wait_count',
+  'waited_ms',
+];
 
 /** `row` without the columns a later migration added. */
 function without(row: object, columns: string[]): Record<string, unknown> {
@@ -1046,7 +1054,7 @@ describe('migrate', () => {
     insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at', ...POST_0028_TASK]));
     insertRaw(raw, 'block', without(sampleRows.block, ['project', 'addressee_spur_project']));
     insertRaw(raw, 'turn', {
-      ...without(sampleRows.turn, ['head_sha']),
+      ...without(sampleRows.turn, ['head_sha', ...POST_0029_TURN]),
       closed_at: null,
       closed_reason: null,
     });
@@ -1115,7 +1123,7 @@ describe('migrate', () => {
     const block = without(sampleRows.block, ['project', 'addressee_spur_project']);
     insertRaw(raw, 'block', block);
     insertRaw(raw, 'comment', sampleRows.comment);
-    insertRaw(raw, 'turn', sampleRows.turn);
+    insertRaw(raw, 'turn', without(sampleRows.turn, POST_0029_TURN));
     const notification = { ...sampleRows.notification, last_outbox_id: null, turn_id: null };
     insertRaw(raw, 'notification', notification);
     raw.prepare("UPDATE sqlite_sequence SET seq = 40 WHERE name = 'block'").run();
@@ -1335,6 +1343,7 @@ describe('migration pins', () => {
       'd1b873b8fb0a02f3c1d0b2bdf9891b04906e9949071d950812d6e9ddd1819b79',
     '0028_source_mirror.sql': '4553449e520b89f35764593f000e16a4907db7216da720017c44fe457f4a241d',
     '0029_task_position.sql': 'e940f9c1a7bf653e4f66aa307b65bb73b3ba7ac68628ed2e44524305a2b2e43e',
+    '0030_turn_wait.sql': '12f7d7510a24deef864539a74b73120529f9432a54fa96d2dfce578963a4137d',
     '0019_pr_polling.sql': '17e2b7964c72320f484ae05ae54e68f5964ebc06ea6c5e014013d13f2060d198',
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',

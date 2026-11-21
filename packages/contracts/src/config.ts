@@ -1167,6 +1167,16 @@ const configObject = z.strictObject({
           ),
         })
         .prefault({}),
+      turnWait: z
+        .strictObject({
+          maxWaits: z
+            .int()
+            .min(1)
+            .default(8)
+            .describe('Waits a turn may start, counted over its whole life.'),
+          maxTotalMs: durationMs(7_200_000, 'Total time the waits of one turn may last'),
+        })
+        .prefault({}),
     })
     .prefault({}),
 });

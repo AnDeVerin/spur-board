@@ -797,6 +797,13 @@ describe('grants', () => {
       [...archived, 'turn_closed', 'not_turn_taker', 'return_not_allowed'],
     ],
     [
+      'task.wait',
+      'mutation',
+      [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, operator],
+      null,
+      [...archived, 'turn_closed', 'not_turn_taker', 'turn_wait_limit'],
+    ],
+    [
       'task.move',
       'mutation',
       [operator],
@@ -825,7 +832,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 30 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 31 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -846,7 +853,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(30);
+    expect(OPERATIONS).toHaveLength(31);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {
@@ -976,8 +983,10 @@ describe('snapshot', () => {
     // source from status.get bindings and rewords the inbox.operator description. #800 names the
     // operator's take of a turn addressed to it in inbox.ack and points it to inbox_operator, the
     // operator kind of unbound columns in config.get and the no-turn Done without a live worker.
+    // #804 adds task.wait, the optional turn wait in turn views, the turn_wait_limit code and the
+    // turn wait event kinds.
     expect(await catalogVersion(baseline)).toBe(
-      '1a4a7dffe577c26367bf6ec9429a6c1df638811b3ef18c34411bbdc48fa17d7a',
+      '3ae4ccd1197858f4badb117106278cbf065c8522e8c6275f103a91374a34b64c',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
