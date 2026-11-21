@@ -278,7 +278,7 @@ export function dispatchHolds(input: DispatchInput): TaskHold[] {
  * Runs the dispatcher cascade from the task's column: each step moves the task or ends with at
  * most one turn for its column. A turn whose executor is the worker (an unbound Dev or Done) is
  * deferred while Spur is blind. A Ready to Merge run by the operator opens no turn after a submit
- * while only the merge is missing.
+ * while only the merge is missing, unless that submit failed.
  */
 export function dispatch(input: DispatchInput): DispatchResult {
   const moves: DispatchMove[] = [];
@@ -380,6 +380,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
       case 'submitted':
         if (
           column === 'ready-to-merge' &&
+          !input.submitFailed &&
           operatorExecutes(project, column) &&
           reasons.every((reason) => reason === 'not_merged')
         )

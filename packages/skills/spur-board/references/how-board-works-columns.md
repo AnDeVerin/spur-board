@@ -49,7 +49,7 @@ Each complete read moves idle tasks between it and `todo`, overriding `--correct
 Each column has one executor: `projects[].columns[].orchestrator`:
 `none` (Dev: live worker, else operator; Done: worker wrap-up or none; External
 Review: no turn; others: operator), `operator`, or project with role
-`orchestrator` or `curator`. The worker owns the code and branch; others inspect/return, never push.
+`orchestrator` or `curator`. The worker owns the code and branch; others never push.
 
 `projects[].spurProjects[].role` accepts `worker`, `operator`, `curator` and
 `orchestrator`.
@@ -89,7 +89,7 @@ A status comment whose last line is a hidden `board-reviewer-progress` or
 for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
-External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. A submit counts only in its own column. After a submit, an operator Ready to Merge waits for the merge with no new turn. Gate rules have no switch
+External Review's external approval. QA: current-head submit; Ready to Merge: merge. A submit counts only in its own column. After a submit, an operator Ready to Merge waits for the merge with no new turn unless the submit fails. Gate rules have no switch
 except enabled columns, no-CI, checks gate, resolved threads and review rule
 (`approvalRule: github-rules`, `docs/configuration.md`).
 

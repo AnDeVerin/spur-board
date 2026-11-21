@@ -469,6 +469,35 @@ const cases: [string, Changes, Result][] = [
     nothing,
   ],
   [
+    'after_submit for a failed submit to an operator Ready to Merge while only the merge is missing',
+    {
+      column: 'ready-to-merge',
+      facts: { marks: [submit('dev'), mark('review'), mark('product-review')] },
+      submitFailed: true,
+      turn: { visit: 'submitted' },
+    },
+    {
+      moves: [],
+      turn: turn('after_submit', 'ready-to-merge', 'not_merged'),
+      voids: 'ready-to-merge',
+    },
+  ],
+  [
+    'after_submit for a failed submit to an unbound Ready to Merge while only the merge is missing',
+    {
+      column: 'ready-to-merge',
+      board: orchestrate(SB, 'ready-to-merge', 'none'),
+      facts: { marks: [submit('dev'), mark('review'), mark('product-review')] },
+      submitFailed: true,
+      turn: { visit: 'submitted' },
+    },
+    {
+      moves: [],
+      turn: turn('after_submit', 'ready-to-merge', 'not_merged'),
+      voids: 'ready-to-merge',
+    },
+  ],
+  [
     'after_submit for an orchestrator Ready to Merge while only the merge is missing',
     {
       column: 'ready-to-merge',

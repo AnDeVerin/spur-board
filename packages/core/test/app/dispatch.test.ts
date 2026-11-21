@@ -1101,6 +1101,39 @@ describe('unbound columns right of Dev', () => {
       expect((await ctx.task()).column).toBe('ready-to-merge');
     },
   );
+
+  it('reopens the operator Ready to Merge turn when its pending submit fails confirmation', async () => {
+    const ctx = await inDev();
+    await ctx.submit(WORKER, 'T1', A);
+    for (const [actor, id] of [
+      [REV, 'T2'],
+      [COORD, 'T3'],
+    ] as const) {
+      await ctx.ack(actor, id);
+      await ctx.submit(actor, id, A);
+    }
+    const turn = await ctx.openTurn();
+    expect(turn).toMatchObject({ column: 'ready-to-merge', role: 'operator' });
+    await ctx.ack('operator', turn?.id ?? '');
+    ctx.pollAnswers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+    await expect(ctx.submit('operator', turn?.id ?? '', B)).resolves.toMatchObject({
+      status: 'pending',
+    });
+    expect(await ctx.openTurn()).toBeNull();
+    // The next complete poll still sees head A: the submit of B fails and its turn reopens.
+    await ctx.github();
+    const retry = await ctx.openTurn();
+    expect(retry).toMatchObject({ column: 'ready-to-merge', role: 'operator' });
+    expect(retry?.reason).toContain('head moved to aaaaaaa');
+    expect(
+      await ctx.store.db
+        .selectFrom('submission')
+        .select('voided_at')
+        .where('column', '=', 'ready-to-merge')
+        .executeTakeFirstOrThrow(),
+    ).not.toEqual({ voided_at: null });
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+  });
 });
 
 describe('orchestrator role transitions', () => {
