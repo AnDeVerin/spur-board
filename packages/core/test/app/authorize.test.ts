@@ -97,6 +97,7 @@ const allowed = {
   'block.unblock': ['worker', 'addressee'],
   'task.submit': ['operator', 'worker', 'orchestrator', 'addressee'],
   'task.return': ['operator', 'worker', 'orchestrator', 'addressee'],
+  'task.wait': ['operator', 'worker', 'orchestrator', 'addressee'],
   'task.move': ['operator'],
   'task.order': ['operator'],
 } satisfies Record<MutationId, readonly ActorLabel[]>;
@@ -584,6 +585,7 @@ describe('authorize catalog grants', () => {
       'to',
       'findings',
       'anchor',
+      'for',
     ];
     const keys = new Set<string>();
     for (const entry of OPERATIONS) {

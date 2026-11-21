@@ -4,6 +4,7 @@ Choose the topic for the decision or action in front of you:
 
 - [Columns and gates](how-board-works-columns.md): find the executor, placement rules and gate requirements.
 - [Turns and delivery](how-board-works-turns.md): acknowledge work, submit or return, handle doorbells and repeated returns.
+- [Turn waits](how-board-works-waits.md): wait on a taken turn for an outside condition and get rung when it ends.
 - [Task history](how-board-works-history.md): read the journal events of a task.
 - [Blocks and escalation](how-board-works-blocks.md): route a question or escalate a block, and read the operator inbox.
 - [Operator inbox items](how-board-works-inbox.md): what to do about each item kind and when it clears.

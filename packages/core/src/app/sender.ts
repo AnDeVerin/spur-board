@@ -19,7 +19,7 @@ import type { Trx } from './board-utils.ts';
 import { insertConversation } from './conversations.ts';
 import { recordRingDelivery, ringStillCurrent, ringTask, ringUndelivered } from './doorbells.ts';
 import { expireTokenOfItem } from './tokens.ts';
-import { ringDue } from './turns.ts';
+import { ringDue } from './quiet-turns.ts';
 import { clearItem, feedLineBody, raiseItem, resolvedFeedBody, tokenCardBody } from './feed.ts';
 import {
   deliveredRefSchema,

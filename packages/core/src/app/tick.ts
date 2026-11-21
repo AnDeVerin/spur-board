@@ -6,7 +6,8 @@ import { archiveTask } from './archive.ts';
 import { reconcileQuestionAddressees } from './blocks.ts';
 import { dispatchJournaled, dispatchPendingSubmits } from './dispatch.ts';
 import { reconcileItems } from './fromYou.ts';
-import { remindStuckTurns } from './turns.ts';
+import { remindStuckTurns } from './quiet-turns.ts';
+import { wakeWaitingTurns } from './turn-waits.ts';
 import { lastLocalSlot } from '../domain/slot.ts';
 
 /** One board tick, including an archive slot missed during downtime. */
@@ -73,6 +74,7 @@ export async function tickBoard(deps: {
       await dispatchJournaled(trx, { config, at: new Date(now), complete: completeSince });
       // A pending submit's bound passes, or a poll confirms it, with no journal entry.
       await dispatchPendingSubmits(trx, { config, at: new Date(now), complete: completeSince });
+      await wakeWaitingTurns(trx, config, new Date(now));
       await remindStuckTurns(trx, config, new Date(now));
       await reconcileItems(trx, config, now, completeSince.has('spur'), deps.warnSkipped);
     },

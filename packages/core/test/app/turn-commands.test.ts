@@ -23,6 +23,7 @@ import {
 } from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { returnCounts } from '../../src/app/course-check.ts';
+import { archiveTask } from '../../src/app/archive.ts';
 import { dispatchPendingSubmits } from '../../src/app/dispatch.ts';
 import { closeTurns, openTurn, takeTurn } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
@@ -337,6 +338,9 @@ async function setup(
         actor,
         key,
       ),
+    wait: (actor: ActorId, key: string, minutes: number, reason: string, turn = 'T1') =>
+      apply(registry['task.wait'], { turn, for: minutes, reason }, actor, key),
+    inbox: (actor: ActorId) => query(registry['inbox.get'], {}, actor),
     move: (column: Exclude<ColumnId, 'done'>, actor: ActorId = 'operator', key = 'move-1') =>
       apply(
         registry['task.move'],
@@ -2949,5 +2953,179 @@ describe('operator takeover', () => {
     await own.openTurn();
     expect((await own.turn()).role).toBe('operator');
     await expect(own.ack('operator')).rejects.toMatchObject({ code: 'not_found' });
+  });
+});
+
+describe('task.wait', () => {
+  const REASON = 'waiting for a free test stand';
+  const WAKES = new Date(Date.parse(AT) + 30 * 60_000).toISOString();
+  const WAIT = { reason: REASON, since: AT, wakesAt: WAKES };
+  /** The `turn_wait_ended` payloads, oldest first. */
+  const ends = async (ctx: Awaited<ReturnType<typeof setup>>) =>
+    (await ctx.events()).filter((event) => event.kind === 'turn_wait_ended');
+
+  it('starts a wait for the taker, the operator after a takeover included', async () => {
+    const ctx = await taken();
+    await expect(ctx.wait(REV_1, 'wait-1', 30, REASON)).resolves.toEqual({
+      turn: 'T1',
+      wait: WAIT,
+      waits: 1,
+    });
+    expect(await ctx.turn()).toMatchObject({
+      wait_reason: REASON,
+      wait_since: AT,
+      wait_until: WAKES,
+      wait_count: 1,
+      waited_ms: 0,
+    });
+    expect((await ctx.events()).filter((event) => event.kind === 'turn_wait_started')).toEqual([
+      {
+        kind: 'turn_wait_started',
+        payload: { turn: 'T1', reason: REASON, until: WAKES, waits: 1 },
+      },
+    ]);
+
+    const operator = await taken();
+    await operator.ack('operator');
+    await expect(operator.wait('operator', 'wait-op', 5, 'operator check')).resolves.toMatchObject({
+      turn: 'T1',
+      waits: 1,
+    });
+  });
+
+  it('replaces an active wait and keeps the count', async () => {
+    const ctx = await taken();
+    await ctx.wait(REV_1, 'wait-1', 30, REASON);
+    await expect(ctx.wait(REV_1, 'wait-2', 10, 'a shorter wait')).resolves.toMatchObject({
+      waits: 2,
+      wait: { reason: 'a shorter wait' },
+    });
+    expect(await ends(ctx)).toEqual([
+      {
+        kind: 'turn_wait_ended',
+        payload: { turn: 'T1', outcome: 'closed', waitedMs: 0, waits: 1 },
+      },
+    ]);
+  });
+
+  it('refuses a non-holder, a closed or archived turn and bad input, writing nothing', async () => {
+    const untaken = await setup();
+    await untaken.openTurn();
+    const fresh = await untaken.tables();
+    await expect(untaken.wait(REV_1, 'w', 30, REASON)).rejects.toMatchObject({
+      code: 'not_turn_taker',
+    });
+    expect(await untaken.tables()).toEqual(fresh);
+
+    const ctx = await taken();
+    const before = await ctx.tables();
+    await expect(ctx.wait(REV_2, 'w', 30, REASON)).rejects.toMatchObject({
+      code: 'not_turn_taker',
+    });
+    for (const [minutes, reason] of [
+      [0, REASON],
+      [121, REASON],
+      [1.5, REASON],
+      [30, '   '],
+      [30, 'x'.repeat(201)],
+    ] as const) {
+      await expect(ctx.wait(REV_1, `w-${String(minutes)}`, minutes, reason)).rejects.toMatchObject({
+        code: 'usage',
+      });
+    }
+    expect(await ctx.tables()).toEqual(before);
+
+    const earlier = await taken();
+    await earlier.store.transaction(async (trx) => {
+      await trx.updateTable('task').set({ column_epoch: 1 }).execute();
+    });
+    const visit = await earlier.tables();
+    await expect(earlier.wait(REV_1, 'w', 30, REASON)).rejects.toMatchObject({
+      code: 'turn_closed',
+    });
+    expect(await earlier.tables()).toEqual(visit);
+
+    const closed = await taken();
+    await scanTransaction(closed.store, closed.config, (trx) =>
+      closeTurns(trx, { taskId: 1, reason: 'moved', at: new Date(AT) }),
+    );
+    const shut = await closed.tables();
+    await expect(closed.wait(REV_1, 'w', 30, REASON)).rejects.toMatchObject({
+      code: 'turn_closed',
+    });
+    expect(await closed.tables()).toEqual(shut);
+
+    const archived = await taken();
+    await archived.store.db.updateTable('task').set({ membership: 'archived' }).execute();
+    const gone = await archived.tables();
+    await expect(archived.wait(REV_1, 'w', 30, REASON)).rejects.toMatchObject({
+      code: 'task_archived',
+    });
+    expect(await archived.tables()).toEqual(gone);
+  });
+
+  it.each<[string, (ctx: Awaited<ReturnType<typeof setup>>) => Promise<unknown>, string]>([
+    [
+      'a submit',
+      (ctx) => {
+        ctx.commits(A);
+        return ctx.submit(REV_1, A, 'submit-1');
+      },
+      'submitted',
+    ],
+    ['a return', (ctx) => ctx.return(REV_1, 'return-1'), 'closed'],
+    ['a correction', (ctx) => ctx.move('qa'), 'closed'],
+    [
+      'an archive',
+      (ctx) =>
+        scanTransaction(
+          ctx.store,
+          ctx.config,
+          async (trx) => {
+            const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+            await archiveTask(trx, { task, reason: 'done', actor: 'operator', at: AT });
+          },
+          { now: () => Date.parse(AT) },
+        ),
+      'closed',
+    ],
+    ['a takeover', (ctx) => ctx.ack(REV_2), 'closed'],
+    ['an operator takeover', (ctx) => ctx.ack('operator'), 'closed'],
+  ])('ends the wait on %s', async (name, end, outcome) => {
+    // A correction closes the turn only with the dispatcher on.
+    const ctx = await taken(name === 'a correction' ? { mode: 'on' } : {});
+    await ctx.wait(REV_1, 'wait-1', 30, REASON);
+    await end(ctx);
+    expect((await ctx.store.db.selectFrom('turn').select('wait_until').execute())[0]).toEqual({
+      wait_until: null,
+    });
+    expect((await ends(ctx)).at(-1)?.payload).toMatchObject({ turn: 'T1', outcome });
+  });
+
+  it('shows the wait in status, task.get, why and the holder inbox', async () => {
+    const ctx = await taken();
+    await ctx.wait(REV_1, 'wait-1', 30, REASON);
+    const row = (await ctx.status()).tasks.find((task) => task.key === 'o/r#9');
+    expect(row?.turn?.wait).toEqual(WAIT);
+    expect((await ctx.get()).turn?.wait).toEqual(WAIT);
+    expect((await ctx.why()).turn?.wait).toEqual(WAIT);
+    expect((await ctx.inbox(REV_1)).turns.map((turn) => turn.wait)).toEqual([WAIT]);
+  });
+
+  it('lists the wait start and end before the close in history', async () => {
+    const ctx = await taken();
+    await ctx.wait(REV_1, 'wait-1', 30, REASON);
+    ctx.commits(A);
+    await ctx.submit(REV_1, A, 'submit-1');
+    const kinds = ['turn_wait_started', 'turn_wait_ended', 'turn_closed'];
+    expect(
+      (await ctx.history())
+        .filter((event) => kinds.includes(event.kind))
+        .map((event) => event.summary),
+    ).toEqual([
+      `Turn T1 waits until ${WAKES}: ${REASON}`,
+      'Turn T1 wait ended: submitted',
+      'Turn T1 closed: submitted',
+    ]);
   });
 });

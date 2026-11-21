@@ -797,6 +797,13 @@ describe('grants', () => {
       [...archived, 'turn_closed', 'not_turn_taker', 'return_not_allowed'],
     ],
     [
+      'task.wait',
+      'mutation',
+      [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, operator],
+      null,
+      [...archived, 'turn_closed', 'not_turn_taker', 'turn_wait_limit'],
+    ],
+    [
       'task.move',
       'mutation',
       [operator],
@@ -825,7 +832,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 30 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 31 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -846,7 +853,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(30);
+    expect(OPERATIONS).toHaveLength(31);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {
@@ -972,9 +979,10 @@ describe('snapshot', () => {
     // tasks[].qaSubmission to status.get. #753 adds the optional approvals list to status.get
     // prSummary and task.get PR links. #737 adds task.order, tasks[].position, the
     // order_anchor_invalid code and the task_reordered kind; the task.order description
-    // names its one-placement and non-blank key rule.
+    // names its one-placement and non-blank key rule. #804 adds task.wait, the optional turn
+    // wait in turn views, the turn_wait_limit code and the turn wait event kinds.
     expect(await catalogVersion(baseline)).toBe(
-      '71eed80ab701c6eb867ff07b3c50dd70fc341a2d6c72102a9529d5031f850d88',
+      '2206d762bf52e1c4c8c39bd6d74bed6a7e0a89a06712b8a7767a1d785a7e575f',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

@@ -24,6 +24,7 @@ says what changed:
 | `pr_facts_changed`, `session_facts_changed`, `ticket_facts_changed` | `PR <ref>:`, `Session <id>:` or `Ticket <key>:` with up to 3 changes and `+N more`; `first observed` the first time  |
 | `block_*`, `comment_*`, `doorbell_*`                                | the ID with its addressee, outcome, revision or reason                                                               |
 | `turn_opened`, `turn_taken`, `turn_closed`                          | executor, taker, outcome                                                                                             |
+| `turn_wait_started`, `turn_wait_ended`                              | `Turn T<n> waits until <until>: <reason>`, `Turn T<n> wait ended: <outcome>`                                         |
 
 `turn_closed` names the operator as actor when an operator's submit or return
 closed the turn; every other close names `system`.

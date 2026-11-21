@@ -25,3 +25,4 @@
 - `submit_source_not_tested`: Choose a tested submission SHA on this task, or a carried SHA with a tested origin; otherwise test or explicitly skip with a reason.
 - `head_mismatch`: Push the commit to the task's pull request branch and submit the head GitHub shows.
 - `return_not_allowed`: In Dev, ask with `board ask` instead.
+- `turn_wait_limit`: Submit or return the turn; the operator inbox names the wait.

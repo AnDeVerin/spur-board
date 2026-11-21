@@ -19,7 +19,8 @@ import { liveSession } from '../support/conversation.ts';
 import { bestProjectSession, selectNotificationRecipient } from '../../src/app/doorbells.ts';
 import { blockAddressee, escalateBlock } from '../../src/domain/blocks/blocks.ts';
 import { courseAddressee } from '../../src/app/course-check.ts';
-import { stuckTurnAfterMs, turnExecutor } from '../../src/app/turns.ts';
+import { stuckTurnAfterMs } from '../../src/app/quiet-turns.ts';
+import { turnExecutor } from '../../src/app/turns.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
 const config = configSchema.parse({

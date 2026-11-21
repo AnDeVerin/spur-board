@@ -19,6 +19,7 @@ import type { z } from 'zod';
 import type { Store } from '../store/store.ts';
 import type { ApprovalView } from './approval-watch.ts';
 import { eventActor, parseDefaultBranch, projectForSource } from './board-utils.ts';
+import { turnWaitView } from './turn-waits.ts';
 
 /** The column groups with their built-in columns in canonical order, the same for every project. */
 export function columnGroupViews() {
@@ -96,6 +97,9 @@ export async function readStatusTurns(db: Store['db'], projectIds: ReadonlySet<s
       'turn.created_at',
       'turn.acked_by',
       'turn.acked_at',
+      'turn.wait_reason',
+      'turn.wait_since',
+      'turn.wait_until',
     ])
     .select(['task.key as task_key', 'notification.recipient_session'])
     // The open stall items of this turn (`turn-stall:<turnId>:...`, fromYou.ts): a key range the
@@ -136,6 +140,7 @@ export async function readStatusTurns(db: Store['db'], projectIds: ReadonlySet<s
           turn.acked_by === null || turn.acked_at === null
             ? null
             : { by: turn.acked_by, at: turn.acked_at },
+        ...turnWaitView(turn),
         addressedTo: turn.acked_at === null ? turn.recipient_session : null,
         stalledSince: turn.stalled_since,
       },

@@ -1,5 +1,5 @@
 {
-  "version": "37ae43a93565fd47ed84c17a290688cfde2f4db79f87560317f616aeb5f85a66",
+  "version": "931bdae96e9883753539dcf9d5c70ffe4c28ad8db1cdec409e103b97073d7c25",
   "grants": [
     "operator",
     "project-agent",
@@ -319,6 +319,35 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#not_turn_taker",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "turn_wait_limit": {
+      "status": 409,
+      "exit": 1,
+      "message": "The turn has used its waits: the count or the total wait time reached the limit.",
+      "hint": "Submit or return the turn; the operator inbox names the wait.",
+      "recovery": {
+        "action": "Submit or return the turn instead of waiting again.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#turn_wait_limit",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -2971,6 +3000,31 @@
                           ],
                           "description": "Who took the turn and when; null until it is taken."
                         },
+                        "wait": {
+                          "description": "The active wait the holder started with task.wait: its reason, start and wake time. Absent when the turn is not waiting.",
+                          "type": "object",
+                          "properties": {
+                            "reason": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "What the holder waits for, as it gave it."
+                            },
+                            "since": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                              "description": "When the wait started, ISO 8601 UTC."
+                            },
+                            "wakesAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                              "description": "When the board ends the wait and rings the holder, ISO 8601 UTC."
+                            }
+                          },
+                          "required": ["reason", "since", "wakesAt"],
+                          "additionalProperties": false
+                        },
                         "threads": {
                           "description": "Always omitted by status.get, even with detail=true; use task.get --why or inbox.get for details.",
                           "minItems": 1,
@@ -4613,6 +4667,31 @@
                     ],
                     "description": "Who took the turn and when; null until it is taken."
                   },
+                  "wait": {
+                    "description": "The active wait the holder started with task.wait: its reason, start and wake time. Absent when the turn is not waiting.",
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "What the holder waits for, as it gave it."
+                      },
+                      "since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "description": "When the wait started, ISO 8601 UTC."
+                      },
+                      "wakesAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "description": "When the board ends the wait and rings the holder, ISO 8601 UTC."
+                      }
+                    },
+                    "required": ["reason", "since", "wakesAt"],
+                    "additionalProperties": false
+                  },
                   "handed": {
                     "type": "array",
                     "items": {
@@ -4869,6 +4948,31 @@
                     { "type": "null" }
                   ],
                   "description": "Who took the turn and when; null until it is taken."
+                },
+                "wait": {
+                  "description": "The active wait the holder started with task.wait: its reason, start and wake time. Absent when the turn is not waiting.",
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What the holder waits for, as it gave it."
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the wait started, ISO 8601 UTC."
+                    },
+                    "wakesAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the board ends the wait and rings the holder, ISO 8601 UTC."
+                    }
+                  },
+                  "required": ["reason", "since", "wakesAt"],
+                  "additionalProperties": false
                 },
                 "handed": {
                   "type": "array",
@@ -5967,6 +6071,31 @@
                         ],
                         "description": "Who took the turn and when; null until it is taken."
                       },
+                      "wait": {
+                        "description": "The active wait the holder started with task.wait: its reason, start and wake time. Absent when the turn is not waiting.",
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "What the holder waits for, as it gave it."
+                          },
+                          "since": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                            "description": "When the wait started, ISO 8601 UTC."
+                          },
+                          "wakesAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                            "description": "When the board ends the wait and rings the holder, ISO 8601 UTC."
+                          }
+                        },
+                        "required": ["reason", "since", "wakesAt"],
+                        "additionalProperties": false
+                      },
                       "threads": {
                         "description": "The unresolved review threads on the task's open pull request, read live, in a Dev turn of a project requiring resolved threads; absent when none, or when the pull request is closed, merged or missing. Fix or answer each thread, then resolve it.",
                         "minItems": 1,
@@ -6338,6 +6467,8 @@
                     "turn_opened",
                     "turn_taken",
                     "turn_closed",
+                    "turn_wait_started",
+                    "turn_wait_ended",
                     "block_opened",
                     "block_escalated",
                     "block_unblocked",
@@ -7212,6 +7343,31 @@
                     { "type": "null" }
                   ],
                   "description": "Who took the turn and when; null until it is taken."
+                },
+                "wait": {
+                  "description": "The active wait the holder started with task.wait: its reason, start and wake time. Absent when the turn is not waiting.",
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What the holder waits for, as it gave it."
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the wait started, ISO 8601 UTC."
+                    },
+                    "wakesAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the board ends the wait and rings the holder, ISO 8601 UTC."
+                    }
+                  },
+                  "required": ["reason", "since", "wakesAt"],
+                  "additionalProperties": false
                 },
                 "threads": {
                   "description": "The unresolved review threads on the task's open pull request, read live, in a Dev turn of a project requiring resolved threads; absent when none, or when the pull request is closed, merged or missing. Fix or answer each thread, then resolve it.",
@@ -11238,6 +11394,129 @@
           }
         },
         "required": ["task", "block"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "task.wait",
+      "kind": "mutation",
+      "description": "Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends.",
+      "grants": [
+        { "grant": "task-worker" },
+        { "grant": "column-orchestrator" },
+        { "grant": "operator" }
+      ],
+      "preconditions": null,
+      "errors": [
+        "usage",
+        "wrong_id_kind",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "turn_closed",
+        "not_turn_taker",
+        "turn_wait_limit",
+        "task_archived",
+        "idempotency_key_mismatch",
+        "identity_unavailable",
+        "starting",
+        "stopping"
+      ],
+      "cli": { "command": "wait", "args": ["turn"], "modes": null, "key": "--key" },
+      "mcp": {
+        "name": "task_wait",
+        "key": "idempotencyKey",
+        "whenToUse": "You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time.",
+        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev.",
+        "destructive": true
+      },
+      "slack": null,
+      "web": null,
+      "examples": [
+        {
+          "summary": "Wait 30 minutes for a free test stand",
+          "input": { "turn": "T4", "for": 30, "reason": "waiting for a free test stand" },
+          "output": {
+            "turn": "T4",
+            "wait": {
+              "reason": "waiting for a free test stand",
+              "since": "2026-01-05T09:30:00.000Z",
+              "wakesAt": "2026-01-05T10:00:00.000Z"
+            },
+            "waits": 1
+          }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "turn": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^T[1-9]\\d{0,14}$",
+            "description": "Turn ID you took (T4)."
+          },
+          "for": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120,
+            "description": "Whole minutes to wait, 1 to 120; the turn total cap may shorten it."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S",
+            "description": "What you wait for, up to 200 characters; the wake ring repeats it."
+          }
+        },
+        "required": ["turn", "for", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "turn": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^T[1-9]\\d{0,14}$",
+            "description": "The waiting turn."
+          },
+          "wait": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What the holder waits for, as it gave it."
+              },
+              "since": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "When the wait started, ISO 8601 UTC."
+              },
+              "wakesAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "When the board ends the wait and rings the holder, ISO 8601 UTC."
+              }
+            },
+            "required": ["reason", "since", "wakesAt"],
+            "additionalProperties": false,
+            "description": "The active wait of the turn."
+          },
+          "waits": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "Waits the turn has started, this one included."
+          }
+        },
+        "required": ["turn", "wait", "waits"],
         "additionalProperties": false
       }
     },

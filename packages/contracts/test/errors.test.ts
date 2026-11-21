@@ -46,6 +46,7 @@ describe('error catalog', () => {
       ['stale_comment_revision', 409, 1],
       ['turn_closed', 409, 1],
       ['not_turn_taker', 409, 1],
+      ['turn_wait_limit', 409, 1],
       ['submit_basis_invalid', 409, 1],
       ['submit_source_not_tested', 409, 1],
       ['head_mismatch', 409, 1],

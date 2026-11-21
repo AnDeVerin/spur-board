@@ -25,6 +25,7 @@ const guideNames = [
   '',
   '-columns',
   '-turns',
+  '-waits',
   '-history',
   '-blocks',
   '-inbox',
@@ -256,7 +257,7 @@ describe('product skill sync', () => {
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
     // guideDocs reads every listed guide, so the count rules out an unlisted docs page.
-    expect(readdirSync(docsPath).filter((n) => /^(how-board|web-ui)/.test(n))).toHaveLength(17);
+    expect(readdirSync(docsPath).filter((n) => /^(how-board|web-ui)/.test(n))).toHaveLength(18);
     for (const [index, reference] of guideTexts.entries()) {
       expect(reference).toBe(guideDocs[index]);
       expect(Buffer.byteLength(reference)).toBeLessThan(8192);

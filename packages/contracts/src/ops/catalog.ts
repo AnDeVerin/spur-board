@@ -29,6 +29,8 @@ import {
   taskReturnOutputSchema,
   taskSubmitInputSchema,
   taskSubmitOutputSchema,
+  taskWaitInputSchema,
+  taskWaitOutputSchema,
 } from './turn-write-schemas.ts';
 import { z } from 'zod';
 import { configViewSchema } from './config-view-schema.ts';
@@ -1389,6 +1391,46 @@ export const OPERATIONS = [
             author: 'agent:rev/rev-1',
             reason: 'Fix the two review findings.',
           },
+        },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'task.wait',
+    kind: 'mutation',
+    description:
+      'Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends.',
+    mcp: {
+      whenToUse:
+        'You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time.',
+      whenNotToUse:
+        'Use task_submit to hand in finished work, or task_return to send the task back to Dev.',
+    },
+    input: taskWaitInputSchema,
+    output: taskWaitOutputSchema,
+    grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, { grant: 'operator' }],
+    errors: [
+      'wrong_id_kind',
+      'not_found',
+      'task_archived',
+      'turn_closed',
+      'not_turn_taker',
+      'turn_wait_limit',
+    ],
+    cli: { command: 'wait', args: ['turn'] },
+    slack: null,
+    examples: [
+      {
+        summary: 'Wait 30 minutes for a free test stand',
+        input: { turn: 'T4', for: 30, reason: 'waiting for a free test stand' },
+        output: {
+          turn: 'T4',
+          wait: {
+            reason: 'waiting for a free test stand',
+            since: at,
+            wakesAt: '2026-01-05T10:00:00.000Z',
+          },
+          waits: 1,
         },
       },
     ],

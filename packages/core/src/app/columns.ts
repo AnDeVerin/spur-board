@@ -18,7 +18,8 @@ import { bestProjectSession, observedFacts } from './doorbells.ts';
 import { describeCompletion } from './dispatch.ts';
 import type { Query } from './queries.ts';
 import { projectTargets, visibleProjects } from './task-queries.ts';
-import { stuckTurnAfterMs, turnExecutor } from './turns.ts';
+import { stuckTurnAfterMs } from './quiet-turns.ts';
+import { turnExecutor } from './turns.ts';
 
 type Project = Config['projects'][number];
 

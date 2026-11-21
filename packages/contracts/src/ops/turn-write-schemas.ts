@@ -11,6 +11,7 @@ import {
   turnIdSchema,
 } from '../ids.ts';
 import { blockViewSchema, taskViewSchema } from './schemas.ts';
+import { turnWaitSchema } from './turn-schemas.ts';
 
 /** Most entries one `inbox.ack` call acknowledges. */
 const ACK_ENTRIES_MAX = 100;
@@ -100,6 +101,28 @@ export const taskReturnInputSchema = z.strictObject({
 export const taskReturnOutputSchema = z.strictObject({
   task: taskViewSchema,
   block: blockViewSchema,
+});
+
+/** Longest one wait may last, in minutes. */
+const WAIT_MINUTES_MAX = 120;
+export const taskWaitInputSchema = z.strictObject({
+  turn: turnIdSchema.describe('Turn ID you took (T4).'),
+  for: z
+    .int()
+    .min(1)
+    .max(WAIT_MINUTES_MAX)
+    .describe('Whole minutes to wait, 1 to 120; the turn total cap may shorten it.'),
+  reason: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/\S/)
+    .describe('What you wait for, up to 200 characters; the wake ring repeats it.'),
+});
+export const taskWaitOutputSchema = z.strictObject({
+  turn: turnIdSchema.describe('The waiting turn.'),
+  wait: turnWaitSchema,
+  waits: z.int().min(1).describe('Waits the turn has started, this one included.'),
 });
 
 /**

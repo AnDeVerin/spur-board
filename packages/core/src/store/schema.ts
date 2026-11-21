@@ -197,6 +197,18 @@ export interface TurnTable {
   created_at: string;
   /** Head commit of the task's PR when the turn opened, lowercase; null without a PR. */
   head_sha: string | null;
+  /** The reason of the holder's latest wait; kept after the wait ends for its wake ring. */
+  wait_reason: string | null;
+  /** When the latest wait started. */
+  wait_since: string | null;
+  /** When the active wait wakes; null while the turn is not waiting. */
+  wait_until: string | null;
+  /** When the latest wait ended. */
+  wait_ended_at: string | null;
+  /** Waits the turn has started, never reset. */
+  wait_count: Generated<number>;
+  /** Total time the turn's ended waits lasted, in milliseconds, never reset. */
+  waited_ms: Generated<number>;
 }
 
 export interface BlockTable {

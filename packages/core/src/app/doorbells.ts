@@ -179,6 +179,16 @@ async function heldForOpener(
 export const turnReminderKey = (turnId: number, session: string, takenAt: string) =>
   `turn:${String(turnId)}:reminder:${session}:${takenAt}`;
 
+/**
+ * The key of the ring that wakes `session` when its wait on a turn, started at `since`, ends. A
+ * `turn_reminder` row too, so it rings once and drops with the turn's other reminders.
+ */
+export const turnWakeKey = (turnId: number, session: string, since: string) =>
+  `turn:${String(turnId)}:wake:${session}:${since}`;
+
+/** Whether a `turn_reminder` row is the wake ring of a wait. */
+export const isTurnWakeKey = (key: string) => /^turn:\d+:wake:/.test(key);
+
 const isTurnKind = (kind: Notification['kind']) => kind === 'turn' || kind === 'turn_reminder';
 
 /**
@@ -221,16 +231,18 @@ export async function cancelledRingState(
  * Register the single reminder to the session holding a quiet turn. The key names the holder and
  * its take, so each ownership episode gets its own reminder and no episode gets a second. A
  * reminder of the take cancelled unsent is replaced by a fresh one: its row gets a new id, so the
- * new ring does not reuse the outbox key of a ring the sender already killed.
+ * new ring does not reuse the outbox key of a ring the sender already killed. A wait's wake ring
+ * passes its own `key` (`turnWakeKey`).
  */
 export async function registerTurnReminder(
   trx: Trx,
   turn: Pick<Row<'turn'>, 'id' | 'task_id' | 'role' | 'acked_at'>,
   session: string,
   at: Date,
+  key = turn.acked_at === null ? null : turnReminderKey(turn.id, session, turn.acked_at),
 ): Promise<void> {
-  if (turn.acked_at === null) throw new Error(`turn ${String(turn.id)} is not taken`);
-  const key = turnReminderKey(turn.id, session, turn.acked_at);
+  if (turn.acked_at === null || key === null)
+    throw new Error(`turn ${String(turn.id)} is not taken`);
   const earlier = await trx
     .selectFrom('notification')
     .selectAll()
@@ -922,7 +934,10 @@ async function noRecipientEnd(trx: Trx, n: Notification): Promise<string | null>
   return course === undefined ? null : 'no live orchestrator session';
 }
 
-/** A ring never carries comment or reason text: only where to look. */
+/**
+ * A ring never carries comment or reason text, only where to look; the one exception is a wait's
+ * wake ring, which repeats the reason the holder gave itself, on one line.
+ */
 async function ringText(
   trx: Trx,
   n: Notification,
@@ -931,6 +946,15 @@ async function ringText(
 ): Promise<string> {
   const suffix = ringMarker(n.id, ring);
   if (n.kind === 'turn') return `${key} turn T${String(n.turn_id)}: check board inbox ${suffix}`;
+  if (n.kind === 'turn_reminder' && n.turn_id !== null && isTurnWakeKey(n.source_key)) {
+    const turn = await trx
+      .selectFrom('turn')
+      .select('wait_reason')
+      .where('id', '=', n.turn_id)
+      .executeTakeFirst();
+    const reason = (turn?.wait_reason ?? '').replace(/\s+/g, ' ').trim();
+    return `${key} turn T${String(n.turn_id)} wait ended: ${reason}; check board inbox ${suffix}`;
+  }
   if (n.kind === 'turn_reminder')
     return `${key} turn T${String(n.turn_id)} is still open: check board inbox ${suffix}`;
   const blockId = noticeBlockId(n);

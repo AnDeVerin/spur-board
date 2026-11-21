@@ -106,6 +106,8 @@ its `noRecipientAfterMs` (default 10 minutes, counted from the later of the ring
 moment the last session that could take them stopped being a recipient: its first end, absence
 or finished state), the operator gets one `no-session:` inbox item per column.
 
+A holder that must re-check an outside condition [waits on its turn](how-board-works-waits.md).
+
 ## Course checks and cycle limits
 
 `projects[].columns[].courseCheck` defaults to 3 returns to Dev;

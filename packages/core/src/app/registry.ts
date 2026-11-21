@@ -28,6 +28,7 @@ import { sourceView } from './status-views.ts';
 import { createTaskQueries, projectTargets, visibleProjects } from './task-queries.ts';
 import { tokenListQuery, tokenRevokeMutation } from './tokens.ts';
 import { createTurnMutations } from './turn-commands.ts';
+import { createTurnWaitMutation } from './turn-wait-commands.ts';
 
 const catalog = await buildCatalogSnapshot(OPERATIONS);
 
@@ -308,6 +309,7 @@ export function createOperationRegistry(deps: {
     'item.close': items.close,
     'task.submit': turns.submit,
     'task.return': turns.return,
+    'task.wait': createTurnWaitMutation({ config }),
     'task.move': turns.move,
     'task.order': createOrderMutations(config).order,
   };

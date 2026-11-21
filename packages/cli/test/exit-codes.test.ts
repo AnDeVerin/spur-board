@@ -86,6 +86,7 @@ const SERVER_EXITS = {
   stale_comment_revision: { exit: 1, code: 'stale_comment_revision' },
   turn_closed: { exit: 1, code: 'turn_closed' },
   not_turn_taker: { exit: 1, code: 'not_turn_taker' },
+  turn_wait_limit: { exit: 1, code: 'turn_wait_limit' },
   head_mismatch: { exit: 1, code: 'head_mismatch' },
   submit_basis_invalid: { exit: 1, code: 'submit_basis_invalid' },
   submit_source_not_tested: { exit: 1, code: 'submit_source_not_tested' },

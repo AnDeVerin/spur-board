@@ -239,6 +239,14 @@ export const TURN_OUTCOMES = [
 ] as const;
 export type TurnOutcome = (typeof TURN_OUTCOMES)[number];
 
+/**
+ * How a turn wait ended: `woken` when its time ran out, `submitted` by the holder's submit,
+ * `closed` by any other turn close, a take or the holder's end, `limit` when it ran out and the
+ * turn's waits reached their count or total time.
+ */
+export const TURN_WAIT_OUTCOMES = ['woken', 'submitted', 'closed', 'limit'] as const;
+export type TurnWaitOutcome = (typeof TURN_WAIT_OUTCOMES)[number];
+
 /** The exit conditions of the column gates, as `board task --why` names them. */
 export const GATE_CONDITIONS = [
   'pr_open',

@@ -624,6 +624,23 @@ Example: `board return T4 "Handle the empty list in the parser." --key return-PR
 
 Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `turn_closed` (exit 1: Read your open turns with `board inbox` and act only on a turn listed there.); `not_turn_taker` (exit 1: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.); `return_not_allowed` (exit 1: In Dev, ask with `board ask` instead.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.).
 
+### `board wait`
+
+Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends.
+
+Arguments: `<turn>`.
+
+Flags:
+
+`--for <value>` — Whole minutes to wait, 1 to 120; the turn total cap may shorten it.
+`--reason <value>` — What you wait for, up to 200 characters; the wake ring repeats it.
+`--key <key>` — Idempotency key for this action.
+`--json` — Print JSON output or a JSON error.
+
+Example: `board wait T4 --for 30 --reason "waiting for a free test stand" --key wait-PROJ-123-example-1432`
+
+Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `turn_closed` (exit 1: Read your open turns with `board inbox` and act only on a turn listed there.); `not_turn_taker` (exit 1: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.); `turn_wait_limit` (exit 1: Submit or return the turn; the operator inbox names the wait.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.).
+
 ### `board move`
 
 Move an idle task inside the Todo group, or correct its column and settle the gates.

@@ -169,6 +169,13 @@ export const ERRORS = {
       'Take the turn first; only the session that took it can submit or return it.',
     ),
   }),
+  turn_wait_limit: spec('turn_wait_limit', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The turn has used its waits: the count or the total wait time reached the limit.',
+    hint: 'Submit or return the turn; the operator inbox names the wait.',
+    recovery: noRetry('Submit or return the turn instead of waiting again.'),
+  }),
   submit_basis_invalid: spec('submit_basis_invalid', {
     status: 409,
     exit: EXIT_CODES.refused,
