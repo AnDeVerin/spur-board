@@ -420,21 +420,41 @@ describe('block and comment mutations', () => {
     expect((await events(store)).at(-1)?.payload).toMatchObject({ addressee: 'operator' });
   });
 
-  it('addresses dependency and external blocks from a configured operator agent to operator', async () => {
+  it("addresses dependency and external blocks from the project's operator agent to operator", async () => {
     const { store, apply } = await seeded();
-    for (const [type, actor] of [
-      ['dependency', operatorAgent],
-      ['external', remoteOperator],
-    ] as const) {
+    for (const type of ['dependency', 'external'] as const) {
       const created = await apply(
         ops.create,
         { task: KEY, type, reason: 'Waiting for a decision.' },
-        actor,
+        operatorAgent,
         `operator-${type}`,
       );
-      expect(created.block).toMatchObject({ author: actor, addressee: 'operator' });
+      expect(created.block).toMatchObject({ author: operatorAgent, addressee: 'operator' });
     }
     expect(await counts(store)).toMatchObject({ outbox: 0 });
+  });
+
+  it("refuses a block from another project's operator agent", async () => {
+    const { apply } = await seeded();
+    await expect(
+      apply(
+        ops.create,
+        { task: KEY, type: 'external', reason: 'Waiting for a decision.' },
+        remoteOperator,
+        'remote-external',
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it("addresses a comment on an open block another project's operator wrote to worker", async () => {
+    const { store, apply } = await seeded();
+    const id = await seedBlock(store, {
+      type: 'needs_input',
+      author: remoteOperator,
+      addressee: 'operator',
+    });
+    await apply(ops.add, { task: KEY, block: id, text: 'A comment.' }, 'operator', 'remote-1');
+    expect((await events(store)).at(-1)?.payload).toMatchObject({ addressee: 'worker' });
   });
 
   it('accepts done from a later linked worker and records that session', async () => {

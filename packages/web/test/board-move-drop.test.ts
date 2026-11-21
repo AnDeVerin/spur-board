@@ -2,8 +2,23 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import styles from '../src/board/Columns.module.css';
-import { all, mountEachTest, one, press } from './board-harness.ts';
-import { board, form, forms, KEY, keysIn, link, part, wrap } from './board-move-helpers.ts';
+import { all, mountEachTest, one, press, remount } from './board-harness.ts';
+import {
+  board,
+  field,
+  form,
+  forms,
+  KEY,
+  keysIn,
+  link,
+  MIRRORED,
+  MIRRORED_ROWS,
+  part,
+  REFUSAL,
+  ROWS,
+  type,
+  wrap,
+} from './board-move-helpers.ts';
 
 mountEachTest();
 
@@ -120,6 +135,77 @@ describe('move between Backlog parts: a drop', () => {
     drag(body('todo'), 'drop');
     drag(dev, 'drop');
     expect(forms()).toHaveLength(0);
+    expect(moves).toEqual([]);
+  });
+
+  it('a drag into or out of a mirrored part is refused and marked', async () => {
+    const { moves } = await board(MIRRORED, MIRRORED_ROWS);
+    // Into it: the zone is marked refused, the refusal as its note; a drop is cancelled, no form.
+    drag(link(KEY), 'dragstart');
+    const target = body('ready-for-dev');
+    expect(drag(target, 'dragover').defaultPrevented).toBe(false);
+    expect(target.getAttribute('data-drop')).toBe('refused');
+    expect(target.firstElementChild?.textContent).toBe(REFUSAL);
+    expect(marked()).toEqual([target]);
+    expect(drag(target, 'drop').defaultPrevented).toBe(true);
+    expect(forms()).toHaveLength(0);
+    // todo to triage still takes the drop.
+    expect(drag(body('triage'), 'dragover').defaultPrevented).toBe(true);
+    expect(body('triage').getAttribute('data-drop')).toBe('part');
+    expect(marked()).toEqual([body('triage')]);
+    drag(link(KEY), 'dragend');
+    expect(marked()).toHaveLength(0);
+    // Out of it: every other part refuses.
+    drag(link('ex/repo#4'), 'dragstart');
+    for (const id of ['todo', 'triage']) {
+      expect(drag(body(id), 'dragover').defaultPrevented).toBe(false);
+      expect(body(id).getAttribute('data-drop')).toBe('refused');
+      expect(body(id).firstElementChild?.textContent).toBe(REFUSAL);
+      drag(body(id), 'drop');
+    }
+    drag(link('ex/repo#4'), 'dragend');
+    // Folded: the section is marked, its note under the head.
+    press(toggle(), 'click');
+    drag(link(KEY), 'dragstart');
+    const section = part('ready-for-dev');
+    expect(drag(section, 'dragover').defaultPrevented).toBe(false);
+    expect(section.getAttribute('data-drop')).toBe('refused');
+    expect(section.children[1]?.textContent).toBe(REFUSAL);
+    drag(section, 'drop');
+    drag(link(KEY), 'dragend');
+    expect(forms()).toHaveLength(0);
+    expect(moves).toEqual([]);
+    expect(keysIn('ready-for-dev')).toEqual(['ex/repo#4']);
+    // An empty mirrored part is a spine: the refusal is its title while the card is over it.
+    remount();
+    await board(MIRRORED, ROWS);
+    const spine = part('ready-for-dev');
+    expect(spine.title).toBe('ready-for-dev: empty · mirror · Roadmap');
+    drag(link(KEY), 'dragstart');
+    expect(drag(spine, 'dragover').defaultPrevented).toBe(false);
+    expect(spine.getAttribute('data-drop')).toBe('refused');
+    expect(spine.title).toBe(REFUSAL);
+    drag(spine, 'drop');
+    expect(forms()).toHaveLength(0);
+  });
+
+  it('a refused drop on an open reason field cancels the native drop', async () => {
+    const { moves } = await board(MIRRORED, MIRRORED_ROWS);
+    drag(link(KEY), 'dragstart');
+    drag(body('triage'), 'dragover');
+    drag(body('triage'), 'drop');
+    drag(link(KEY), 'dragend');
+    const reason = field();
+    type(reason, 'Needs triage');
+    // A mirrored card dropped on the field: refused, and the browser inserts nothing.
+    drag(link('ex/repo#4'), 'dragstart');
+    expect(drag(reason, 'dragover').defaultPrevented).toBe(false);
+    expect(body('todo').getAttribute('data-drop')).toBe('refused');
+    expect(drag(reason, 'drop').defaultPrevented).toBe(true);
+    drag(link('ex/repo#4'), 'dragend');
+    expect(field()).toBe(reason);
+    expect(reason.value).toBe('Needs triage');
+    expect(forms()).toHaveLength(1);
     expect(moves).toEqual([]);
   });
 

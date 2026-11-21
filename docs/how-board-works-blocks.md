@@ -29,8 +29,10 @@ Its `comments` leave out a block's opening comment that repeats its reason.
 `board inbox operator` needs the operator grant: the token, the web screen or
 an operator Spur session. It lists open operator items, blocks to `operator`
 and operator turns of the caller's operator projects; `_board` entries only
-for the token and the board-wide operator, or any operator project when there
-is none. A block or turn is listed once, not
+for the token, the board-wide operator, or the operator of a one-project
+Board without a board-wide operator.
+A project's own operator acts only in the project that lists it. A block or
+turn is listed once, not
 with its items. Each entry is `attention` or `failure`. Every item entry
 (`I…`) carries `action`, what you do about it, and its text ends with it;
 block and turn entries have none. `handled` keeps the last 24 h, at most 20,

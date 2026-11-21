@@ -2699,7 +2699,12 @@ describe('course-check hold', () => {
     const block = await workerBlock(ctx.store);
     await steps(ctx, 3);
     expect(workerTexts(ctx)).toEqual([]);
-    await ctx.apply(createItemMutations({}).close, { item: course.item }, 'operator', 'close');
+    await ctx.apply(
+      createItemMutations({ config }).close,
+      { item: course.item },
+      'operator',
+      'close',
+    );
     await steps(ctx, 1);
     expect(ringBlocks(ctx)).toEqual([block]);
   });
@@ -2707,7 +2712,12 @@ describe('course-check hold', () => {
   it('keeps the release order when the item closes without a note', async () => {
     const ctx = await board();
     const { queued, course, late } = await held(ctx);
-    await ctx.apply(createItemMutations({}).close, { item: course.item }, 'operator', 'close');
+    await ctx.apply(
+      createItemMutations({ config }).close,
+      { item: course.item },
+      'operator',
+      'close',
+    );
     await steps(ctx, 12, 250);
     expect(ringBlocks(ctx)).toEqual([queued, late]);
   });
@@ -4437,7 +4447,7 @@ describe('turns', () => {
       const [item] = await active(ctx);
       expect(item?.text).toContain('oldest T1 since');
       await ctx.apply(
-        createItemMutations({}).close,
+        createItemMutations({ config }).close,
         { item: `I${String(item?.id)}` },
         'operator',
         'close',

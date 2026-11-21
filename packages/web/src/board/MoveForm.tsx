@@ -11,7 +11,7 @@ import { Button, FormRow, TextArea } from '../ds/index.ts';
 import { ProblemError } from '../lib/api.ts';
 import type { BoardData } from './data.ts';
 import { MovePendingError } from './intents.ts';
-import { openHref, shortKey, type BoardColumn, type BoardRow } from './model.ts';
+import { mirrorRefusal, openHref, shortKey, type BoardColumn, type BoardRow } from './model.ts';
 import styles from './MoveForm.module.css';
 
 type ColumnId = BoardColumn['id'];
@@ -169,8 +169,9 @@ const accepted = (draft: MoveDraft) => (open: Moving | null) =>
 
 /**
  * The task view's move: `Move to` and a button per other Backlog part, then the form for the
- * chosen one. The form closes when the task leaves its part; after an accepted move, focus goes
- * to the first part button.
+ * chosen one. A part the move is refused for has its button disabled, with the refusal after the
+ * buttons. The form closes when the task leaves its part; after an accepted move, focus goes to
+ * the first enabled part button.
  */
 export function TaskMove({
   taskKey,
@@ -184,32 +185,36 @@ export function TaskMove({
   taskKey: string;
   name: string;
   from: ColumnId;
-  /** The other enabled Backlog parts, in config order. */
-  parts: readonly ColumnId[];
+  /** The other enabled Backlog parts, in config order, each with why a move there is refused. */
+  parts: readonly { id: ColumnId; refusal: string | undefined }[];
   moveIntent: BoardData['moveIntent'];
   unavailable: string | undefined;
 }) {
   const [moving, setMoving] = useState<Moving | null>(null);
   const row = useRef<HTMLDivElement>(null);
+  const refusal = parts.find((part) => part.refusal !== undefined)?.refusal;
   useEffect(() => {
     if (moving === null || moving.from === from) return;
     setMoving(null);
-    if (moving.sent) row.current?.querySelector('button')?.focus();
+    if (moving.sent) row.current?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
   }, [from, moving]);
   return (
     <>
       <div ref={row} className={styles.row}>
         <span className={styles.label}>Move to</span>
-        {parts.map((part) => (
+        {parts.map(({ id, refusal }) => (
           <Button
-            key={part}
+            key={id}
+            disabled={refusal !== undefined}
             onClick={() => {
-              setMoving({ key: taskKey, from, to: part, sent: false, draft: newDraft() });
+              if (refusal === undefined)
+                setMoving({ key: taskKey, from, to: id, sent: false, draft: newDraft() });
             }}
           >
-            {part}…
+            {id}…
           </Button>
         ))}
+        {refusal !== undefined && <span className={styles.note}>{refusal}</span>}
       </div>
       {moving !== null && (
         <MoveForm
@@ -244,8 +249,10 @@ export interface Band {
   setMoving: Dispatch<SetStateAction<Moving | null>>;
   setDrag: (drag: { key: string; from: ColumnId } | null) => void;
   setOver: (over: ColumnId | null | ((over: ColumnId | null) => ColumnId | null)) => void;
-  /** A drag of this band's card from another part is over `part`. */
+  /** A drag of this band's card from another part is over `part`, and `part` takes it. */
   dropping: (part: ColumnId) => boolean;
+  /** Why `part` refuses the drag over it: a move into or out of a mirrored part. */
+  refusal: (part: ColumnId) => string | undefined;
   moveIntent: BoardData['moveIntent'];
   moveUnavailable: string | undefined;
 }
@@ -273,6 +280,10 @@ export function useBand(
       .find((link) => link.getAttribute('href') === href)
       ?.focus();
   }, [at, moving, root]);
+  const refusal = (part: ColumnId) =>
+    drag !== null && drag.from !== part && over === part
+      ? mirrorRefusal(parts, drag.from, part)
+      : undefined;
   return {
     parts,
     moving,
@@ -281,7 +292,9 @@ export function useBand(
     setMoving,
     setDrag,
     setOver,
-    dropping: (part) => drag !== null && drag.from !== part && over === part,
+    dropping: (part) =>
+      drag !== null && drag.from !== part && over === part && refusal(part) === undefined,
+    refusal,
     moveIntent,
     moveUnavailable,
   };
@@ -289,18 +302,25 @@ export function useBand(
 
 /**
  * The drop zone props of a part: it takes only a card of its band from another part. A drop
- * opens the reason form under the card, which stays in its part until the daemon accepts.
+ * opens the reason form under the card, which stays in its part until the daemon accepts. A move
+ * into or out of a mirrored part is refused: the zone is marked and its drop opens nothing.
  */
 export function zone(band: Band | undefined, part: ColumnId) {
   if (band === undefined) return {};
   const takes = () => band.drag !== null && band.drag.from !== part;
+  const refused = () =>
+    band.drag !== null && mirrorRefusal(band.parts, band.drag.from, part) !== undefined;
+  let mark: 'part' | 'refused' | undefined;
+  if (band.dropping(part)) mark = 'part';
+  else if (band.refusal(part) !== undefined) mark = 'refused';
   return {
-    'data-drop': band.dropping(part) ? 'part' : undefined,
+    'data-drop': mark,
     onDragOver: (event: DragEvent) => {
       if (!takes()) return;
+      band.setOver(part);
+      if (refused()) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
-      band.setOver(part);
     },
     onDragLeave: (event: DragEvent) => {
       const next = event.relatedTarget;
@@ -310,7 +330,9 @@ export function zone(band: Band | undefined, part: ColumnId) {
     onDrop: (event: DragEvent) => {
       const { drag } = band;
       if (drag === null || drag.from === part) return;
+      // A refused drop still cancels the native one: on a reason field it would insert the link.
       event.preventDefault();
+      if (refused()) return;
       band.setDrag(null);
       band.setOver(null);
       band.setMoving({ key: drag.key, from: drag.from, to: part, sent: false, draft: newDraft() });
@@ -325,8 +347,17 @@ export function bandProps(row: BoardRow, band: Band, part: ColumnId) {
     moves: {
       items: band.parts
         .filter(({ id }) => id !== part)
-        .map(({ id }) => ({ value: id, label: `Move to ${id}…`, group: 'part' })),
+        .map(({ id }) => {
+          const cause = mirrorRefusal(band.parts, part, id);
+          return {
+            value: id,
+            label: `Move to ${id}…`,
+            group: 'part',
+            ...(cause === undefined ? {} : { disabled: true, cause }),
+          };
+        }),
       onSelect: (to: ColumnId) => {
+        if (mirrorRefusal(band.parts, part, to) !== undefined) return;
         band.setMoving({ key: row.key, from: part, to, sent: false, draft: newDraft() });
       },
     },

@@ -1068,3 +1068,118 @@ describe('ledger item', () => {
     ).toHaveLength(2);
   });
 });
+
+describe('an item with no task on a board without a board-wide operator', () => {
+  const split = configSchema.parse({
+    projects: ['alpha', 'beta'].map((id) => ({
+      id,
+      tracker: { type: 'github-issues', repo: `${id}/r`, milestone: 'M1' },
+      repos: [`${id}/r`],
+      operatorGithubLogin: 'operator',
+      spurProjects: [{ name: `${id}-ops`, role: 'operator' }],
+    })),
+    operator: { slack: 'operator' },
+    digest: { tz: 'UTC' },
+  });
+  const alphaOps: ActorId = 'agent:alpha-ops/ops-1';
+  const betaOps: ActorId = 'agent:beta-ops/ops-1';
+
+  /**
+   * An undelivered answer item with no task whose block is a project-level block of `alpha` or of
+   * `gone` (a project no longer in config), or a block of a `beta` task.
+   */
+  async function board(subject: 'alpha' | 'gone' | 'beta task') {
+    const store = openTempStore('core-items-split-').store;
+    stores.push(store);
+    const clock = { now: () => START };
+    const at = new Date(START).toISOString();
+    const id = await scanTransaction(store, split, async (trx) => {
+      const task =
+        subject === 'beta task'
+          ? await trx
+              .insertInto('task')
+              .values({
+                ...sampleRows.task,
+                key: 'beta/r#1',
+                project: 'beta',
+                membership: 'active',
+                archive_reason: null,
+                column: 'dev',
+              })
+              .returningAll()
+              .executeTakeFirstOrThrow()
+          : undefined;
+      const block = await trx
+        .insertInto('block')
+        .values({
+          task_id: task?.id ?? null,
+          project: task === undefined ? subject : null,
+          type: 'needs_input',
+          reason: 'Which release?',
+          author: AGENT,
+          addressee_role: 'operator',
+          target_column: null,
+          state: 'unblocked',
+          outcome: 'done',
+          outcome_reason: null,
+          repeat_of: null,
+          unblocked_by: 'operator',
+          unblocked_at: at,
+          created_at: at,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const raised = await raiseItem(trx, {
+        itemKey: 'answer_undelivered:none',
+        kind: 'answer_undelivered',
+        text: `Answer to B${String(block.id)} was not delivered: gone`,
+        url: 'https://example.test/item',
+        taskId: null,
+        blockId: block.id,
+        at: new Date(START),
+      });
+      return raised.id;
+    });
+    const registry = createOperationRegistry({ config: split, clock, completeSince: new Map() });
+    const apply = createApply({ store, clock, config: split });
+    return { store, clock, registry, apply, item: `I${String(id)}` };
+  }
+
+  const cases = [
+    ['alpha', alphaOps, true],
+    ['alpha', betaOps, false],
+    ['alpha', 'operator', true],
+    ['beta task', betaOps, true],
+    ['beta task', alphaOps, false],
+    ['gone', alphaOps, false],
+    ['gone', 'operator', true],
+  ] as const;
+
+  it.each(cases)('on the %s block, lets %s retry and close it: %s', async (subject, actor, ok) => {
+    const ctx = await board(subject);
+    const outcome = (run: Promise<unknown>) =>
+      run.then(
+        () => 'done',
+        (error: unknown) => (error as { code?: string }).code,
+      );
+    const { item } = ctx;
+    // No ring series is left to restart, so an allowed retry reaches the action and stops there.
+    const retry = await outcome(ctx.apply(ctx.registry['item.retry'], { item }, actor, 'retry'));
+    const close = await outcome(ctx.apply(ctx.registry['item.close'], { item }, actor, 'close'));
+    expect([retry, close]).toEqual(
+      ok ? ['retry_not_applicable', 'done'] : ['forbidden', 'forbidden'],
+    );
+  });
+
+  it.each(cases.filter(([, actor]) => actor !== 'operator'))(
+    'on the %s block, lists it in status.get for %s: %s',
+    async (subject, actor, listed) => {
+      const ctx = await board(subject);
+      const deps = { store: ctx.store, clock: ctx.clock, config: split, registry: ctx.registry };
+      const status = (await dispatchOperation(deps, 'status.get', {}, actor)) as {
+        items: { id: string }[];
+      };
+      expect(status.items.map((entry) => entry.id).includes(ctx.item)).toBe(listed);
+    },
+  );
+});

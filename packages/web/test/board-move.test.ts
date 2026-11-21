@@ -11,7 +11,7 @@ import {
   taskGet,
   type Daemon,
 } from './board-fixtures.ts';
-import { all, goOffline, mountEachTest, one, press, settle } from './board-harness.ts';
+import { all, goOffline, mountEachTest, one, press, remount, settle } from './board-harness.ts';
 import {
   ALONE,
   board,
@@ -21,6 +21,9 @@ import {
   KEY,
   keysIn,
   link,
+  MIRRORED,
+  MIRRORED_ROWS,
+  REFUSAL,
   ROWS,
   send,
   submit,
@@ -92,6 +95,44 @@ describe('move between Backlog parts: the card menu', () => {
     press(buttonIn(form(), 'Cancel'), 'click');
     expect(forms()).toHaveLength(0);
     expect(moves).toEqual([]);
+  });
+
+  it('a mirrored part: the menu lists moves into and out of it disabled with the cause', async () => {
+    const { moves } = await board(MIRRORED, MIRRORED_ROWS);
+    press(trigger(), 'click');
+    const menu = () => one('main [role="menu"]');
+    expect(items().map((item) => item.textContent)).toEqual([
+      'Move to triage…',
+      'Move to ready-for-dev…',
+    ]);
+    const [triage, ready] = items();
+    expect(triage?.hasAttribute('aria-disabled')).toBe(false);
+    expect(triage?.hasAttribute('aria-describedby')).toBe(false);
+    expect(ready?.getAttribute('aria-disabled')).toBe('true');
+    const cause = document.getElementById(ready?.getAttribute('aria-describedby') ?? '');
+    expect(cause?.textContent).toBe(REFUSAL);
+    expect(menu().textContent).toBe(`Move to triage…Move to ready-for-dev…${REFUSAL}`);
+    if (ready) press(ready, 'click');
+    expect(forms()).toHaveLength(0);
+    expect(menu()).toBeDefined();
+    press(document.body, 'keydown', { key: 'Escape' });
+    // Out of the mirrored part: every move is disabled, each with the cause.
+    press(one('main button[aria-label="Move #4"]'), 'click');
+    const out = items();
+    expect(out.map((item) => item.textContent)).toEqual(['Move to todo…', 'Move to triage…']);
+    for (const item of out) {
+      expect(item.getAttribute('aria-disabled')).toBe('true');
+      expect(
+        document.getElementById(item.getAttribute('aria-describedby') ?? '')?.textContent,
+      ).toBe(REFUSAL);
+      press(item, 'click');
+    }
+    expect(forms()).toHaveLength(0);
+    expect(moves).toEqual([]);
+    press(document.body, 'keydown', { key: 'Escape' });
+    // todo and triage still move between each other.
+    choose('Move to triage…');
+    expect(form().querySelector('label')?.textContent).toBe('Move #1 to triage: reason');
   });
 
   it('todo alone and other columns: no menu and no draggable wrap', async () => {
@@ -306,6 +347,70 @@ describe('move between Backlog parts: the task view', () => {
   ])('task view shows no move for a task %s', async (_name, task) => {
     await openTask(task);
     expect(dialog().textContent).not.toContain('Move to');
+  });
+
+  it('task view: mirrored part buttons disabled with the cause', async () => {
+    history.replaceState(null, '', `/?open=${encodeURIComponent(KEY)}`);
+    // ready-for-dev first, so the first part button after a move is a disabled one.
+    const first = {
+      ...MIRRORED,
+      projects: MIRRORED.projects.map((entry) => ({
+        ...entry,
+        columns: [
+          ...entry.columns.filter(({ id }) => id === 'ready-for-dev'),
+          ...entry.columns.filter(({ id }) => id !== 'ready-for-dev'),
+        ],
+      })),
+    };
+    const { d, moves } = await board(first, MIRRORED_ROWS, (daemon) => {
+      withTask(daemon);
+    });
+    const row = [...dialog().querySelectorAll('div')].find(
+      (item) => item.firstElementChild?.textContent === 'Move to',
+    );
+    if (!row) throw new Error('no Move to row');
+    const buttons = () => [...row.querySelectorAll('button')];
+    expect(buttons().map((item) => [item.textContent, item.disabled])).toEqual([
+      ['ready-for-dev…', true],
+      ['triage…', false],
+    ]);
+    expect(row.lastElementChild?.textContent).toBe(REFUSAL);
+    expect(row.lastElementChild?.tagName).toBe('SPAN');
+    press(buttonIn(row, 'ready-for-dev…'), 'click');
+    await settle();
+    expect(forms(dialog())).toHaveLength(0);
+    press(buttonIn(row, 'triage…'), 'click');
+    await settle();
+    type(field(dialog()), 'Groomed');
+    const read = deferred();
+    d.routes['task.get'] = () => read.promise;
+    submit(dialog());
+    await settle();
+    expect(moves.map((body) => body.input)).toEqual([
+      { mode: 'manual', task: KEY, column: 'triage', reason: 'Groomed' },
+    ]);
+    read.resolve(envelope(taskGet({ task: { ...taskGet().task, key: KEY, column: 'triage' } })));
+    await settle();
+    expect(buttons().map((item) => [item.textContent, item.disabled])).toEqual([
+      ['ready-for-dev…', true],
+      ['todo…', false],
+    ]);
+    expect(document.activeElement).toBe(buttonIn(row, 'todo…'));
+    // A task in the mirrored part: every button disabled with the cause.
+    remount();
+    await board(MIRRORED, MIRRORED_ROWS, (daemon) => {
+      withTask(daemon, { key: 'ex/repo#4', column: 'ready-for-dev' });
+    });
+    const out = [...dialog().querySelectorAll('div')].find(
+      (item) => item.firstElementChild?.textContent === 'Move to',
+    );
+    expect(
+      [...(out?.querySelectorAll('button') ?? [])].map((item) => [item.textContent, item.disabled]),
+    ).toEqual([
+      ['todo…', true],
+      ['triage…', true],
+    ]);
+    expect(out?.lastElementChild?.textContent).toBe(REFUSAL);
   });
 
   it('task view shows no move with todo alone', async () => {

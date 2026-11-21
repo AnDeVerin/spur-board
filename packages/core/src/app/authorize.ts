@@ -50,11 +50,11 @@ export function projectTarget(project: string): ResolvedTarget {
 }
 
 /**
- * True for the operator token and for a session of an operator Spur project. Without a
- * board-wide operator, every operator Spur project acts on every board project, as before
- * top-level `spurProjects`. With one, a session acts as operator on `project` only when that
- * project lists its Spur project as operator, and on no project (`null`) only for the
- * board-wide operator.
+ * True for the operator token and for a session of an operator Spur project. A session acts as
+ * operator on `project` only when that project lists its Spur project as operator; a board-wide
+ * operator is listed in every project without its own. On no project (`null`) it acts only as
+ * the board-wide operator or, without one, as an operator every board project lists, which only
+ * a one-project board has.
  */
 export function isOperator(actor: ActorId, config: Config, project: string | null): boolean {
   if (actor === 'operator') return true;
@@ -64,8 +64,9 @@ export function isOperator(actor: ActorId, config: Config, project: string | nul
   const operatorIn = (entry: Config['projects'][number]) =>
     entry.spurProjects.some((spur) => spur.name === name && spur.role === 'operator');
   const boardWide = config.spurProjects.find((entry) => entry.role === 'operator');
-  if (boardWide === undefined) return config.projects.some(operatorIn);
-  if (project === null) return name === boardWide.name;
+  if (project === null) {
+    return boardWide === undefined ? config.projects.every(operatorIn) : name === boardWide.name;
+  }
   const target = config.projects.find((entry) => entry.id === project);
   return target !== undefined && operatorIn(target);
 }

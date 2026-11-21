@@ -965,7 +965,7 @@ describe('comment shape', () => {
 });
 
 describe('snapshot', () => {
-  it('pins the catalog excluding columns.describe after adding approval freshness', async () => {
+  it('pins the catalog excluding columns.describe after scoping project operators', async () => {
     const baseline = catalogSnapshotBody(
       OPERATIONS.filter((operation) => operation.id !== 'columns.describe'),
     );
@@ -979,10 +979,12 @@ describe('snapshot', () => {
     // tasks[].qaSubmission to status.get. #753 adds the optional approvals list to status.get
     // prSummary and task.get PR links. #737 adds task.order, tasks[].position, the
     // order_anchor_invalid code and the task_reordered kind; the task.order description
-    // names its one-placement and non-blank key rule. #804 adds task.wait, the optional turn
-    // wait in turn views, the turn_wait_limit code and the turn wait event kinds.
+    // names its one-placement and non-blank key rule. #798 drops the other-project operator
+    // source from status.get bindings and rewords the inbox.operator description. #804 adds
+    // task.wait, the optional turn wait in turn views, the turn_wait_limit code and the turn wait
+    // event kinds.
     expect(await catalogVersion(baseline)).toBe(
-      '2206d762bf52e1c4c8c39bd6d74bed6a7e0a89a06712b8a7767a1d785a7e575f',
+      '3ec688d4b0d2b5dbc7243d0375ccf92fa17bd0c95ba499069046704d13687401',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

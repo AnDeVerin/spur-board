@@ -9,8 +9,8 @@ Header, left to right:
 
 - The logo.
 - The project switcher lists `<id> · dispatcher <mode>`, checking the current project. Escape or
-  an outside click closes it. The browser remembers the choice, falling back to the first project
-  if removed. Long ids end in `…`.
+  an outside click closes it. The browser keeps the choice, or the first project if that one is
+  removed. Long ids end in `…`.
 - Dispatcher mode: `dispatcher on` or `dispatcher shadow`.
 - The filter matches full/short keys (`#12`), session or block ids, ignoring case. Misses dim,
   remain visible and accept Tab; Clear resets the filter.
@@ -32,10 +32,9 @@ Header, left to right:
   says inbox data is unavailable; later failures retain data. Task rows open above the retained
   panel and select their project when config arrives. Task close focuses its row or panel Close if
   removed; panel close focuses the header inbox button. Back/Forward follow these layers. Task-less
-  rows with a known HTTP(S) destination open it in a new tab on click or Enter, retaining the inbox.
-  This applies to active and handled entries. Task navigation takes precedence even when a URL is
-  supplied. Rows without a safe destination remain focusable. Each active item entry (`I<n>`) has a
-  quiet `Close I<n>` below its row that sends one `item.close`, as Slack's Close does: a ledger
+  active and handled rows with a known HTTP(S) destination open it in a new tab on click or Enter,
+  retaining the inbox; task navigation wins over a supplied URL. Rows without a safe destination
+  remain focusable. Each active item entry (`I<n>`) has a quiet `Close I<n>` below its row that sends one `item.close`, as Slack's Close does: a ledger
   item's block closes with it and a failed post stays unsent. Blocks, turns and handled entries have
   none. It reads `Closing I<n>` while sent, then `Closed I<n>, waiting for the board.` until the
   re-read moves the entry to handled; focus then goes to the next row, else the previous one, else
@@ -46,8 +45,8 @@ Header, left to right:
 Columns follow configuration order:
 
 - Fitting rows centre; wider rows scroll horizontally from the left.
-- Columns are 320px wide above 760px and retain 248px at 760px or narrower. Card accent rails
-  are 2px wide; empty-column spines retain their compact width.
+- Columns are 320px wide, or 248px at 760px or narrower. Card accent rails
+  are 2px wide; empty-column spines stay compact.
 - A column header shows name, task count and executor (kind, then name), then two sort buttons.
   `T`/`K` sorts by time in the column or by key; `↑`/`↓` reverses. `T ↑`, the default, puts the
   longest in the column first; `K ↑` the lowest key, numbers compared as numbers. Rows without a
@@ -62,9 +61,12 @@ Columns follow configuration order:
 - An empty column collapses to a spine with its name and `0`.
 - Two or three adjacent Todo-group columns (`todo`, `triage`, `ready-for-dev`) sit under one
   `Backlog` band with their total count; `todo` alone stays a plain column. Each part's head
-  reads `manual` instead of the executor. The band's caret toggle folds the group into one
-  column with a section per part (`empty` when it has no tasks) and unfolds it back into
-  columns. The browser keeps the fold per project; a fold reads nothing from the daemon.
+  reads `manual` instead of the executor, or `mirror · <Project>` with a mirror icon when a
+  GitHub Project places its tasks; its Who tab names the Project, field and last read. A mirror
+  that cannot be read is frozen: ` · frozen` on the line, a warning dot on the band and a notice
+  above the part's cards ([mirrored part](web-ui-board-move.md#mirrored-part)). The band's caret folds the group into one
+  column, a section per part (`empty` with no tasks), and unfolds it. The browser keeps the fold
+  per project; a fold reads nothing from the daemon.
 - A Backlog card moves to another part of its band with a reason: see
   [moving between Backlog parts](web-ui-board-move.md).
 - `done` lists every done task in a compact scrolling list, each with its time in the column.
@@ -94,9 +96,9 @@ Columns follow configuration order:
     tested, none or no QA column adds nothing. See [Approvals](web-ui-task-approvals.md).
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
     on it; yellow for your turn, or not taken (dashed rail, hollow dot); red when stalled; none
-    without a turn. Ages stop while the data is stale. While the holder waits (`board wait`), the
-    age reads `waiting: <reason>, wakes <hh:mm>` (UTC), cut short on a narrow card; hover shows
-    all of it. A stall shows instead.
+    without a turn. Ages stop while the data is stale. A waiting holder (`board wait`) shows
+    `waiting: <reason>, wakes <hh:mm>` (UTC) for the age, cut short when narrow, full on hover; a
+    stall wins.
 - Unconfigured columns: a trailing count opens a list of task keys, titles and original columns.
   Rows open the task view and keep status order. At zero, both are absent.
 

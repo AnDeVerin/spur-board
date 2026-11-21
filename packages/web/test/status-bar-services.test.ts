@@ -215,6 +215,86 @@ describe('services panel rows', () => {
     expect(texts(sourceRows(noBudget, time)).at(-1)).toEqual(['Budget', '—']);
   });
 
+  it('a github-project source: its own box in its project group, healthy and failing with its code', () => {
+    const MIRROR = 'github-project:a:ex/1';
+    const FROZEN =
+      'ready-for-dev is frozen: tasks stay where they were until the mirror reads again.';
+    const boxesWith = (extra: Record<string, unknown> = {}) =>
+      panelBoxes(
+        snap(
+          status(
+            undefined,
+            [polled('spur'), polled('github:a:ex/repo'), polled(MIRROR, extra), polled('jira:a')],
+            { services: [...HEALTHY, service('jira', 'healthy')], transport: [SLACK_UP] },
+          ),
+        ),
+        time,
+      );
+    const mirror = (extra: Record<string, unknown> = {}) =>
+      first(boxesWith(extra).filter((box) => box.id === MIRROR));
+    expect(boxesWith().map((box) => box.id)).toEqual([
+      'daemon',
+      'host',
+      'slack',
+      'spur',
+      'github:a:ex/repo',
+      'jira:a',
+      MIRROR,
+    ]);
+    const healthyBox = mirror();
+    expect(healthyBox).toMatchObject({
+      service: null,
+      project: 'a',
+      icon: 'mirror',
+      name: 'github project',
+      health: { tone: 'ok', word: 'polling' },
+    });
+    expect(texts(healthyBox.rows)).toEqual([
+      ['Project', 'ex/1'],
+      ['Last complete poll', T_TEXT],
+      ['Last observation', T_TEXT],
+      ['Freshness', 'fresh'],
+      ['Warming up', 'no'],
+      ['Budget', '—'],
+    ]);
+    const failing = mirror({
+      failure: { code: 'mirror_read_failed', message: 'GitHub answered 502' },
+    });
+    expect(failing.health).toEqual({ tone: 'error', word: 'failing' });
+    expect(texts(failing.rows).slice(-2)).toEqual([
+      ['Failure', 'mirror_read_failed · GitHub answered 502'],
+      [FROZEN],
+    ]);
+    const blind = mirror({
+      blindReason: 'auth',
+      message: 'token refused',
+      failure: {
+        code: 'mirror_project_forbidden',
+        message: 'GitHub Project ex/1 was not found or is not readable: forbidden',
+      },
+    });
+    expect(blind.health).toEqual({ tone: 'error', word: 'blind: auth' });
+    expect(texts(blind.rows)).toContainEqual(['Blind', 'auth · token refused']);
+    expect(texts(blind.rows).slice(-2)).toEqual([
+      [
+        'Failure',
+        'mirror_project_forbidden · GitHub Project ex/1 was not found or is not readable: forbidden',
+      ],
+      [FROZEN],
+    ]);
+    // A stale mirror with no failure is not frozen.
+    expect(texts(mirror({ stale: true }).rows).flat()).not.toContain(FROZEN);
+    // No status bar button and no scroll target: the github button keeps its box.
+    expect(scrollTarget(boxesWith(), 'github')).toBe('github:a:ex/repo');
+    expect(
+      labels(
+        status(undefined, [polled(MIRROR, { blindReason: 'auth' })], {
+          services: [...HEALTHY, service('github-project', 'failing')],
+        }),
+      ),
+    ).toEqual(['daemon: running', 'slack: up', 'github: polling', 'spur: polling']);
+  });
+
   it('groups source boxes by project after the shared boxes', () => {
     const boxes = panelBoxes(
       snap(

@@ -750,6 +750,7 @@ describe('inbound apply', () => {
       text: 'Answer author unavailable',
       url: 'https://example.test/thread/reply',
       task_id: 1,
+      block_id: 1,
     });
     expect(item?.inbound_event_json).toBeNull();
     expect(
@@ -772,6 +773,7 @@ describe('inbound apply', () => {
       kind: 'inbound_failure',
       text: 'Slack message not processed',
       url: 'https://example.test/thread/reply',
+      block_id: 1,
       cleared_at: null,
     });
     expect(JSON.parse(item?.inbound_event_json ?? '{}')).toMatchObject({

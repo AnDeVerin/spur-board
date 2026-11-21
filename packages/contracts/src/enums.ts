@@ -165,11 +165,8 @@ export type ApprovalRule = (typeof APPROVAL_RULES)[number];
 export const COLUMN_BINDING_SOURCES = ['project', 'board-wide'] as const;
 export type ColumnBindingSource = (typeof COLUMN_BINDING_SOURCES)[number];
 
-/**
- * Where a project's effective operator comes from: its own `spurProjects`, top-level
- * `spurProjects`, or, while no board-wide operator exists, another board project's list.
- */
-export const OPERATOR_BINDING_SOURCES = ['project', 'board-wide', 'other-project'] as const;
+/** Where a project's effective operator comes from: its own `spurProjects` or top-level `spurProjects`. */
+export const OPERATOR_BINDING_SOURCES = ['project', 'board-wide'] as const;
 export type OperatorBindingSource = (typeof OPERATOR_BINDING_SOURCES)[number];
 
 /** Where the default Slack addressee comes from: `slack.defaultAddressee`, the board-wide operator or a project's operator. */

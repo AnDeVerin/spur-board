@@ -7,6 +7,9 @@ export type BoardColumnConfig = BoardProject['columns'][number];
 export type BoardRow = Output<'status.get'>['tasks'][number];
 type BoardSource = Output<'status.get'>['sources'][number];
 type BoardGroup = NonNullable<BoardColumnConfig['group']>;
+type PartSource = NonNullable<BoardColumnConfig['source']>;
+/** A part the board fills from a GitHub Project field. */
+export type MirrorSource = Extract<PartSource, { kind: 'mirror' }>;
 
 export interface BoardColumn {
   id: BoardColumnConfig['id'];
@@ -18,16 +21,39 @@ export interface BoardColumn {
   kind: BoardColumnConfig['executor']['kind'];
   /** Rows of this column in `status.get` order, before `sortRows`; none makes it a spine. */
   rows: BoardRow[];
+  /** `config.get` source of a Todo-group column; manual when the config view has none. */
+  source: PartSource;
+  /** `status.get` source of a mirrored part, when the read lists it; it tells why it is blind. */
+  read: BoardSource | undefined;
 }
+
+const MANUAL: PartSource = { kind: 'manual' };
 
 const executorLine = ({ executor }: BoardColumnConfig) =>
   executor.name === null ? executor.kind : `${executor.kind} ${executor.name}`;
 
-/** Configured groups in `config.get` order; the screen handles unmatched rows separately. */
+/** Source id of a project's mirror in `status.get`, as core names it. */
+const mirrorSourceId = (project: string | undefined, mirror: MirrorSource) =>
+  `github-project:${project ?? ''}:${mirror.project.toLowerCase()}`;
+
+/**
+ * Configured groups in `config.get` order; the screen handles unmatched rows separately. A
+ * mirrored part takes its source from `status` sources of `project`.
+ */
 export function boardColumns(
   columns: readonly BoardColumnConfig[],
   rows: readonly BoardRow[],
+  status: { project: string | undefined; sources: readonly BoardSource[] } = {
+    project: undefined,
+    sources: [],
+  },
 ): BoardColumn[] {
+  const readOf = (source: PartSource) =>
+    source.kind === 'mirror'
+      ? status.sources.find(
+          (candidate) => candidate.source === mirrorSourceId(status.project, source),
+        )
+      : undefined;
   const byId = new Map<string, BoardColumn>(
     columns.map((column) => [
       column.id,
@@ -37,6 +63,8 @@ export function boardColumns(
         executor: executorLine(column),
         kind: column.executor.kind,
         rows: [],
+        source: column.source ?? MANUAL,
+        read: readOf(column.source ?? MANUAL),
       },
     ]),
   );
@@ -46,11 +74,54 @@ export function boardColumns(
 
 const GROUP_LABELS: Record<BoardGroup, string> = { todo: 'Backlog' };
 
+/** Where a group part's tasks come from, on the second line of its head. */
+export const partSource = ({ source }: Pick<BoardColumn, 'source'>) =>
+  source.kind === 'mirror' ? `mirror · ${source.name}` : 'manual';
+
+/** The mirror of a part whose last read failed: its tasks stay where they were until it reads. */
+export const mirrorFrozen = ({ source }: Pick<BoardColumn, 'source'>): MirrorSource | undefined =>
+  source.kind === 'mirror' && source.health === 'failing' ? source : undefined;
+
 /**
- * Where a group part's tasks come from, on the second line of its head. Every part is filled by
- * hand today; the mirror UI (issue 751) reads it from the config view.
+ * Why a mirror is not readable: the failure of its last read, else why its source is blind, as a
+ * stale source after a successful poll; then a rate-budget wait. Unknown, it claims no failure.
  */
-export const PART_SOURCE = 'manual';
+function frozenCause(mirror: MirrorSource, read: BoardSource | undefined): string {
+  const cause =
+    mirror.error !== undefined
+      ? `${mirror.error.message}.`
+      : read?.blindReason != null
+        ? `${read.message ?? `The source is blind: ${read.blindReason}`}.`
+        : 'The mirror has no usable read.';
+  return read?.waitsForBudget === true ? `${cause} Polls wait for the GitHub rate budget.` : cause;
+}
+
+/** The cause line of a frozen mirror: why it is not readable, its last complete read, the outcome. */
+export function frozenDetail(mirror: MirrorSource, { read }: Pick<BoardColumn, 'read'>): string {
+  const cause = frozenCause(mirror, read);
+  const last =
+    mirror.readAt === null
+      ? 'No complete read yet.'
+      : `Last complete read ${formatDataTime(Date.parse(mirror.readAt))}.`;
+  return `${cause} ${last} Tasks stay where they were.`;
+}
+
+/**
+ * Why a move from part `from` to part `to` is refused: either end is a mirrored part, whose tasks
+ * move only in the tracker. The text follows the `column_mirrored` hint; undefined when allowed.
+ */
+export function mirrorRefusal(
+  parts: readonly { id: string; source?: PartSource | undefined }[],
+  from: string,
+  to: string,
+): string | undefined {
+  for (const id of [to, from]) {
+    const source = parts.find((part) => part.id === id)?.source;
+    if (source?.kind === 'mirror')
+      return `${id} mirrors GitHub Project "${source.name}" (${source.project}, field ${source.field}). Change the task status there instead.`;
+  }
+  return undefined;
+}
 
 /** One board item: a plain column, or a group band over its parts. */
 type BoardItem =
@@ -150,24 +221,52 @@ export interface BoardBanner {
   action?: 'reload';
 }
 
-const sourceName = (source: BoardSource) => (source.source === 'spur' ? 'Spur' : source.source);
+const sourceName = ({ source }: BoardSource) =>
+  source === 'spur'
+    ? 'Spur'
+    : source.startsWith('github-project:')
+      ? `GitHub Project ${source.split(':').at(-1) ?? ''}`
+      : source;
+/** What a frozen mirrored part means, as the top warning and the mirror's service box say it. */
+export const frozenNote = (part: string) =>
+  `${part} is frozen: tasks stay where they were until the mirror reads again.`;
 const sinceText = (source: BoardSource) =>
   source.lastCompleteAt === null
     ? 'has never completed a poll'
     : `has not answered since ${formatDataTime(Date.parse(source.lastCompleteAt))}`;
 
-/** Blind or stale sources of the chosen project and the shared spur; other projects' are left out. */
+/**
+ * Blind or stale sources of the chosen project and the shared spur; other projects' are left out.
+ * A GitHub Project mirror whose last read failed is named too, as its frozen Backlog notice can
+ * be offscreen; the warning then says which part is frozen, by its id in `columns`.
+ */
 function blindBanner(
   sources: readonly BoardSource[],
   project: string | undefined,
+  columns: readonly BoardColumnConfig[],
 ): BoardBanner | undefined {
+  const isMirror = (source: BoardSource) => source.source.startsWith('github-project:');
   const blind = sources.filter(
     (source) =>
       (source.project === null || source.project === project) &&
-      (source.blindReason !== null || (source.stale && !source.warmingUp)),
+      (source.blindReason !== null ||
+        (source.stale && !source.warmingUp) ||
+        (isMirror(source) && source.failure != null)),
   );
   const [first] = blind;
   if (first === undefined) return undefined;
+  // A mirror is frozen when blind or its last read failed; a stale one alone is only degraded.
+  const frozen = blind
+    .filter((source) => isMirror(source) && (source.blindReason !== null || source.failure != null))
+    .map((source) => {
+      const part = columns.find(
+        ({ source: part }) =>
+          part?.kind === 'mirror' && mirrorSourceId(project, part) === source.source,
+      );
+      return frozenNote(part?.id ?? 'ready-for-dev');
+    });
+  const notes = [...new Set(frozen)];
+  const withNotes = (detail: string) => [detail, ...notes].join(' ');
   if (blind.length === 1)
     return {
       variant: 'warning',
@@ -176,7 +275,7 @@ function blindBanner(
       detail:
         first.source === 'spur'
           ? 'Session states may be out of date.'
-          : 'Its facts may be out of date.',
+          : (notes[0] ?? 'Its facts may be out of date.'),
     };
   const times = blind.flatMap((source) =>
     source.lastCompleteAt === null ? [] : [Date.parse(source.lastCompleteAt)],
@@ -185,10 +284,11 @@ function blindBanner(
     variant: 'warning',
     icon: 'clock',
     text: `${String(blind.length)} sources have not answered: ${blind.map(sourceName).join(', ')}.`,
-    detail:
+    detail: withNotes(
       times.length === 0
         ? 'None has completed a poll.'
         : `The oldest answer is from ${formatDataTime(Math.min(...times))}.`,
+    ),
   };
 }
 
@@ -229,7 +329,11 @@ export function banners(snapshot: BoardSnapshot): BoardBanner[] {
     });
   else if (snapshot.stream === 'offline')
     list.push({ variant: 'error', icon: 'x', text: 'Live updates are lost.', detail: data });
-  const blind = blindBanner(snapshot.status?.sources ?? [], snapshot.project);
+  const blind = blindBanner(
+    snapshot.status?.sources ?? [],
+    snapshot.project,
+    chosenProject(snapshot)?.columns ?? [],
+  );
   if (blind) list.push(blind);
   if (chosenProject(snapshot)?.dispatcher.mode === 'shadow')
     list.push({

@@ -43,15 +43,18 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
   bar, such as `41.1 GiB free`. A volume that cannot be read is left out; `Disk — / 100` means
   no volume could be read or no sample yet. A host load wait adds an amber row.
 - slack: when down, Down since, Reason and Spaces.
-- spur, then one group per project, headed by the project id, with one box per GitHub source and
-  one per Jira source of that project. Each box is headed by its own state, so every source the
+- spur, then one group per project, headed by the project id, with one box per GitHub source,
+  one per Jira source and one `github project` box per GitHub Project mirror of that project. Each box is headed by its own state, so every source the
   daemon holds back for a rate limit reads `waits for rate budget`, even before its first complete
   poll after a restart. A blind source reads its blind reason instead, `blind: stale`,
   `blind: auth` or `blind: config`, because blind outranks the wait. Each box shows Last
   complete poll, Last observation, Blind (when blind), Freshness, Warming up, Points last hour
   (pull request sources) and Budget: a bar of requests left over the limit with its reset time,
   amber at 20% and red at 5%; `<n> left` without a limit; `—` without a budget. The spur box
-  adds an availability line while Spur is unavailable.
+  adds an availability line while Spur is unavailable. A `github project` box starts with
+  `Project <owner/number>`; when its last read failed it reads `failing` (or its blind reason)
+  and adds `Failure <code> · <message>` and a note that `ready-for-dev` is frozen. It has no
+  status bar button.
 
 A box name adds `· <repo>` only when its group has two sources of that kind. A service button
 scrolls the panel to its service's failing box, else its degraded box, else its first box; among
