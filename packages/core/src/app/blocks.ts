@@ -686,8 +686,9 @@ export async function closeBlockIfOpen(
 
 /**
  * Closes the open `code` block of the return that opened `turn`'s visit (`openReturnBlock`) as
- * done at `sha`: the turn's submit, once confirmed, answered it. A pending submit waits, so a
- * voided one leaves the block to the next submit.
+ * done at `sha`: the turn's submit, once confirmed, answered it. The block stays on the worker
+ * when an operator holds the Dev turn, so it closes on the worker's role too. A pending submit
+ * waits, so a voided one leaves the block to the next submit.
  */
 export async function answerReturn(
   trx: Trx,
@@ -696,7 +697,7 @@ export async function answerReturn(
   ctx: CommandContext,
   sha: string,
 ): Promise<void> {
-  const block = await openReturnBlock(trx, turn);
+  const block = await openReturnBlock(trx, turn, [turn.role, 'worker']);
   if (block !== undefined) await closeOpenBlock(trx, taskSubject(task), block, ctx, 'done', sha);
 }
 

@@ -59,6 +59,7 @@ function board(
   reviewOrchestrator = 'rev',
   mode: 'shadow' | 'on' = 'shadow',
   qaOrchestrator = 'qa',
+  devOrchestrator = 'none',
 ) {
   return configSchema.parse({
     projects: [
@@ -77,7 +78,7 @@ function board(
           { id: 'todo', orchestrator: 'none' },
           { id: 'triage', orchestrator: 'none', enabled: false },
           { id: 'ready-for-dev', orchestrator: 'none' },
-          { id: 'dev', orchestrator: 'none' },
+          { id: 'dev', orchestrator: devOrchestrator },
           { id: 'review', orchestrator: reviewOrchestrator },
           { id: 'qa', orchestrator: qaOrchestrator },
           { id: 'ready-to-merge', orchestrator: 'none' },
@@ -125,6 +126,7 @@ async function setup(
     column?: ColumnId;
     reviewOrchestrator?: string;
     qaOrchestrator?: string;
+    devOrchestrator?: string;
     noPoller?: boolean;
     mode?: 'shadow' | 'on';
     /** GitHub and Spur count as polled to the end since start, so the dispatcher decides. */
@@ -134,7 +136,12 @@ async function setup(
     pr?: Partial<PrFacts>;
   } = {},
 ) {
-  const config = board(options.reviewOrchestrator, options.mode, options.qaOrchestrator);
+  const config = board(
+    options.reviewOrchestrator,
+    options.mode,
+    options.qaOrchestrator,
+    options.devOrchestrator,
+  );
   const clock = { now: () => Date.parse(AT) };
   const store = openTempStore('board-turn-').store;
   stores.push(store);
@@ -1506,14 +1513,22 @@ describe('task.return', () => {
     expect(ctx.calls).toHaveLength(0);
   });
 
-  /** A review turn on a board with the dispatcher on, returned to Dev by rev-1: T2, B1. */
-  async function returnedToDev() {
+  /**
+   * A review turn on a board with the dispatcher on, returned to Dev by rev-1: T2, B1. `noWorker`
+   * drops the worker's session link before the return, so the Dev turn goes to the operator.
+   */
+  async function returnedToDev(options: { devOrchestrator?: string; noWorker?: boolean } = {}) {
     const green = { name: 'ci', state: 'success' as const, completedAt: AT };
     const ctx = await taken({
       mode: 'on',
       complete: true,
       pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
+      ...(options.devOrchestrator === undefined
+        ? {}
+        : { devOrchestrator: options.devOrchestrator }),
     });
+    if (options.noWorker === true)
+      await ctx.store.db.deleteFrom('link').where('session_id', '=', 'worker-1').execute();
     const clock = { now: () => Date.parse(AT) };
     const registry = createOperationRegistry({
       config: ctx.config,
@@ -1594,23 +1609,43 @@ describe('task.return', () => {
   });
 
   it.each([
-    { name: 'a new head', head: B },
-    { name: 'the same head', head: A },
-  ])('a submit of $name on the returned Dev turn closes its code block', async ({ head }) => {
-    const { ctx, block, unblocked } = await returnedToDev();
-    await ctx.ack(WORKER_1, 'T2');
+    { name: "the worker's submit of a new head", head: B, actor: WORKER_1, options: {} },
+    { name: "the worker's submit of the same head", head: A, actor: WORKER_1, options: {} },
+    {
+      name: "the operator's submit at an unbound Dev with no worker",
+      head: B,
+      actor: 'operator' as const,
+      options: { noWorker: true },
+    },
+    {
+      name: "the operator's submit at an operator-bound Dev the return rang the worker for",
+      head: B,
+      actor: 'operator' as const,
+      options: { devOrchestrator: 'operator' },
+    },
+  ])('$name on the returned Dev turn closes its code block', async ({ head, actor, options }) => {
+    const { ctx, block, unblocked } = await returnedToDev(options);
+    expect(await block()).toMatchObject({ state: 'open', addressee_role: 'worker' });
+    const turn = await ctx.store.db
+      .selectFrom('turn')
+      .select('role')
+      .where('id', '=', 2)
+      .executeTakeFirstOrThrow();
+    expect(turn.role).toBe(actor === WORKER_1 ? 'worker' : 'operator');
+    await ctx.ack(actor, 'T2');
     ctx.commits(head);
 
-    await expect(ctx.submit(WORKER_1, head, 'submit-t2', 'T2')).resolves.toMatchObject({
+    await expect(ctx.submit(actor, head, 'submit-t2', 'T2')).resolves.toMatchObject({
       turn: 'T2',
       sha: head,
+      status: 'confirmed',
     });
 
     expect(await block()).toMatchObject({
       state: 'unblocked',
       outcome: 'done',
       outcome_reason: head,
-      unblocked_by: WORKER_1,
+      unblocked_by: actor,
       unblocked_at: AT,
     });
     expect(await unblocked()).toEqual([
