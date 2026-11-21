@@ -29,7 +29,7 @@ the turn as `wait: {reason, since, wakesAt}`; it is absent with no active wait.
 ## The wake
 
 The first tick at or after `wakesAt` (ticks run every minute) ends the wait `woken` and rings you
-once:
+once (an operator holder is not rung; the wait just ends):
 
 `<KEY> turn T<n> wait ended: <reason>; check board inbox (N<id>-<ring>)`
 
@@ -43,8 +43,8 @@ delivered, no second reminder comes before the `stuck-turn:` item (one reminder 
 
 | Outcome     | When                                                                                                                     |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `woken`     | its time ran out; the holder is rung                                                                                     |
-| `limit`     | its time ran out and the turn's waits reached a limit; the holder is rung                                                |
+| `woken`     | its time ran out; an agent holder is rung                                                                                |
+| `limit`     | its time ran out and the turn's waits reached a limit; an agent holder is rung                                           |
 | `submitted` | the holder submitted the turn                                                                                            |
 | `closed`    | a return, move, correction, archive or other close; a take or takeover; a new wait; the holder's session ended (no ring) |
 
