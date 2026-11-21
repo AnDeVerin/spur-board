@@ -1243,6 +1243,103 @@ describe('operator block feed line', () => {
   });
 });
 
+describe('who closes an operator block from its feed line', () => {
+  const project = (id: string, spur: { name: string; role: 'operator' | 'worker' }) => ({
+    id,
+    tracker: { type: 'github-issues', repo: `${id}/r`, milestone: 'M1' },
+    repos: [`${id}/r`],
+    operatorGithubLogin: 'operator',
+    spurProjects: [spur],
+  });
+  const boards = {
+    // A board-wide operator, alpha with its own operator and beta without one.
+    wide: configSchema.parse({
+      spurProjects: [{ name: 'board-ops', role: 'operator' }],
+      projects: [
+        project('alpha', { name: 'alpha-ops', role: 'operator' }),
+        project('beta', { name: 'beta-web', role: 'worker' }),
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    }),
+    // No board-wide operator: alpha's operator acts on the board as a whole.
+    sole: configSchema.parse({
+      projects: [project('alpha', { name: 'alpha-ops', role: 'operator' })],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    }),
+  };
+
+  /** An open project-level block of `subject` to the operator and its feed line's item. */
+  async function board(name: keyof typeof boards, subject: string) {
+    const cfg = boards[name];
+    const store = openTempStore('core-items-authority-').store;
+    stores.push(store);
+    const clock = { now: () => START };
+    const at = new Date(START).toISOString();
+    const { blockId, itemId } = await scanTransaction(store, cfg, async (trx) => {
+      const block = await trx
+        .insertInto('block')
+        .values({
+          task_id: null,
+          project: subject,
+          type: 'needs_input',
+          reason: 'Which release?',
+          author: AGENT,
+          addressee_role: 'operator',
+          target_column: null,
+          state: 'open',
+          outcome: null,
+          outcome_reason: null,
+          repeat_of: null,
+          unblocked_by: null,
+          unblocked_at: null,
+          created_at: at,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const raised = await raiseItem(trx, {
+        itemKey: `operator-block:${String(block.id)}`,
+        kind: 'board_observation',
+        text: `${subject}: Which release?`,
+        url: '',
+        taskId: null,
+        blockId: null,
+        at: new Date(START),
+      });
+      return { blockId: block.id, itemId: raised.id };
+    });
+    const registry = createOperationRegistry({ config: cfg, clock, completeSince: new Map() });
+    const apply = createApply({ store, clock, config: cfg });
+    return { store, registry, apply, blockId, item: `I${String(itemId)}` };
+  }
+
+  const alphaOps: ActorId = 'agent:alpha-ops/ops-1';
+  const boardOps: ActorId = 'agent:board-ops/ops-1';
+  it.each([
+    { board: 'wide', subject: 'alpha', actor: alphaOps, block: 'unblocked' },
+    { board: 'wide', subject: 'beta', actor: boardOps, block: 'unblocked' },
+    { board: 'wide', subject: 'gone', actor: 'operator', block: 'unblocked' },
+    { board: 'wide', subject: 'gone', actor: boardOps, block: 'open' },
+    { board: 'sole', subject: 'alpha', actor: alphaOps, block: 'unblocked' },
+    { board: 'sole', subject: 'gone', actor: alphaOps, block: 'open' },
+  ] as const)(
+    'on a $board board, $actor closing a $subject block line leaves it $block',
+    async ({ board: name, subject, actor, block }) => {
+      const ctx = await board(name, subject);
+      await ctx.apply(ctx.registry['item.close'], { item: ctx.item }, actor, 'close');
+      const items = await ctx.store.db.selectFrom('operator_item').select('cleared_at').execute();
+      expect(items.map((row) => row.cleared_at === null)).toEqual([false]);
+      const row = await ctx.store.db
+        .selectFrom('block')
+        .select('state')
+        .where('id', '=', ctx.blockId)
+        .executeTakeFirstOrThrow();
+      expect(row.state).toBe(block);
+    },
+  );
+});
+
 describe('an item with no task on a board without a board-wide operator', () => {
   const split = configSchema.parse({
     projects: ['alpha', 'beta'].map((id) => ({

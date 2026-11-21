@@ -1,9 +1,9 @@
-import { assertNever, type Config } from '@spur-board/contracts';
+import { assertNever, OPERATIONS, type Config } from '@spur-board/contracts';
 import { z } from 'zod';
 import { isItemKind, itemBlockRef, ITEM_POLICY, OPERATOR_BLOCK_KEY } from '../domain/fromYou.ts';
 import type { Row } from '../store/schema.ts';
 import { projectForSource, type Trx } from './board-utils.ts';
-import type { ResolvedTarget } from './authorize.ts';
+import { authorize, type ResolvedTarget } from './authorize.ts';
 import { closeBlockIfOpen, createBlockMutations, subjectTarget } from './blocks.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
@@ -368,9 +368,11 @@ export function createItemMutations(deps: {
 } {
   const resolveTargets = (trx: Trx, input: { item: string }) => itemTarget(trx, deps.config, input);
   const unblock = createBlockMutations(deps.config).unblock;
+  const unblockGrants = OPERATIONS.find((op) => op.id === 'block.unblock')?.grants ?? [];
   /**
    * Closes the open operator-addressed block an `operator-block:` item names, as the operator's
-   * unblock. A closed block, an agent's block or an archived task leaves the block as it is.
+   * unblock. A closed block, an agent's block, an archived task or a caller `block.unblock` would
+   * refuse (a session whose project no longer holds the block) leaves the block as it is.
    */
   async function closeOperatorBlock(trx: Trx, item: Item, ctx: CommandContext): Promise<void> {
     const blockId = itemBlockRef(item);
@@ -389,8 +391,15 @@ export function createItemMutations(deps: {
         .executeTakeFirstOrThrow();
       if (task.membership === 'archived') return;
     }
-    const ref = `B${String(blockId)}`;
-    await unblock.run(trx, { mode: 'reason', block: ref, reason: FEED_CLOSE_REASON }, ctx);
+    const input = {
+      mode: 'reason',
+      block: `B${String(blockId)}`,
+      reason: FEED_CLOSE_REASON,
+    } as const;
+    const [target = { kind: 'missing' }] = await unblock.resolveTargets(trx, input, ctx.actor);
+    const state = { config: deps.config, target, mode: input.mode };
+    if (authorize(unblockGrants, ctx.actor, state).status !== 'allowed') return;
+    await unblock.run(trx, input, ctx);
   }
   /** Runs the retry behind the item's kind; false when the item must stay raised. */
   async function retryAction(trx: Trx, item: Item, at: string): Promise<boolean> {
