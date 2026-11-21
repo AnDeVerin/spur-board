@@ -24,9 +24,10 @@ type Project = Config['projects'][number];
 
 /**
  * The executor text of a column whose turns go to the operator: why, and the levers that hand
- * them on. A required column cannot be disabled.
+ * them on. A required column cannot be disabled; the checks-gate column only after `checksGate`
+ * moves, as config validation rejects a disabled one.
  */
-function operatorText(unbound: boolean, required: boolean): string {
+function operatorText(unbound: boolean, required: boolean, checksGate: boolean): string {
   const why = unbound
     ? 'No executor is bound to this column, so its turns go to the operator.'
     : 'The board config binds this column to the operator, so its turns go to the operator.';
@@ -34,7 +35,7 @@ function operatorText(unbound: boolean, required: boolean): string {
     'bind an orchestrator or curator to this column in the board config to hand its turns to an agent';
   const levers = required
     ? `Take a turn to close it yourself, or ${bind}.`
-    : `Take a turn to close it yourself, ${bind}, or disable the column to skip it.`;
+    : `Take a turn to close it yourself, ${bind}, or disable the column to skip it${checksGate ? ' after moving checksGate to another enabled column' : ''}.`;
   const questions = unbound
     ? " Questions keep the routing of an unbound column: the board's own go to the task's live worker, others to the curator, else the operator."
     : '';
@@ -233,7 +234,7 @@ async function describeProject(trx: Trx, config: Config, project: Project) {
             : kind === 'dispatcher'
               ? 'The dispatcher waits for external approval; nobody takes a turn in this unbound External Review column.'
               : kind === 'operator' && column.id !== 'done'
-                ? operatorText(unbound, metadata.required)
+                ? operatorText(unbound, metadata.required, project.checksGate === column.id)
                 : column.id === 'done' && kind === 'worker'
                   ? 'The task-linked live worker gets a wrap-up turn; without one no turn opens. Done has no exit gate.'
                   : `${executorDestination.text}${column.id === 'done' ? ' Done may open an agent wrap-up turn; it has no exit gate.' : ''}`,

@@ -2031,6 +2031,23 @@ it('describes an explicit operator column with its levers, without disable on De
   ).toEqual(['operator']);
 });
 
+it('tells the operator to move checksGate before disabling the checks-gate column', async () => {
+  const store = openTempStore('board-column-checks-gate-').store;
+  stores.push(store);
+  const gated = configSchema.parse({
+    ...config,
+    projects: config.projects.slice(0, 1).map((project) => ({ ...project, checksGate: 'review' })),
+  });
+  const registry = createOperationRegistry({ config: gated, clock, completeSince: new Map() });
+  const query = createQuery({ store, config: gated, clock });
+  const [project] = (await query(registry['columns.describe'], {}, 'operator')).projects;
+  const text = (id: string) => project?.columns.find((column) => column.id === id)?.executor.text;
+  expect(text('review')).toContain(
+    'or disable the column to skip it after moving checksGate to another enabled column.',
+  );
+  expect(text('qa')).toContain('or disable the column to skip it.');
+});
+
 it.each(OPERATOR_WHEN_UNBOUND)(
   'reads an unbound %s as the operator in config.get and columns.describe',
   async (id) => {
