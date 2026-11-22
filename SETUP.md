@@ -36,7 +36,10 @@ Slack is optional. To run without it, skip the Slack app and leave `operator` an
 `config.yaml`; the Board then writes nothing for Slack and delivers Spur doorbells as usual. A
 Spur project with role `operator` is the operator: questions addressed to you wait in
 `board inbox operator` and the web inbox. Items and blocks raised while Slack is off get no Slack
-line when you add Slack later. Add `operator.slack` back before `board rollback` to a version
+line when you add Slack later. To turn Slack off on an existing install, also remove
+`SLACK_BOT_TOKEN` and `SLACK_API_URL` from `secrets.env`: with either one and no Slack channels,
+the daemon does not start. `SLACK_APP_TOKEN` and `SLACK_APP_CONFIG_TOKEN` are unused without
+Slack and can go too. Add `operator.slack` back before `board rollback` to a version
 that requires it. Without Slack, skip [Slack app](#slack-app) and continue at
 [Configuration and secrets](#configuration-and-secrets); the rest of this section applies either
 way.

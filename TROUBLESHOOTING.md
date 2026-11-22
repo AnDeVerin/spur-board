@@ -367,6 +367,12 @@ not set. It passes, without blocking, when `operator.slack` is not set either: t
 without Slack. Questions addressed to the operator wait in `board inbox operator` and the web
 inbox, and only Spur sessions reach the Board, since a token request needs Slack approval.
 
+To turn Slack off on an existing install, remove `SLACK_BOT_TOKEN` and `SLACK_API_URL` from
+`secrets.env` as well as the `operator.slack` and `slack` blocks: with either secret and no Slack
+channels, the daemon does not start. While the daemon is down, `board doctor` still shows this
+check as passing; read the service log for the start error. `SLACK_APP_TOKEN` and
+`SLACK_APP_CONFIG_TOKEN` are unused without Slack and can go too.
+
 It warns when `operator.slack` is set without `slack.channels`: Slack is partly configured and
 nothing reaches it. Use the setup skill to assign the orchestrators and feed channel IDs, or
 remove `operator.slack` to run without Slack.
