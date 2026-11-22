@@ -41,9 +41,9 @@ is selected once configuration arrives. Back and Forward restore both layers.
   Other ticket refs, Jira keys from another project, or Jira keys without a browse base stay plain.
   All links open new tabs.
 - A Backlog task, unless archived, shows `Move to` [part buttons](web-ui-board-move.md).
-- An agent holder's active wait, as on the card, adds an amber strip under the chips:
-  `waiting: <reason> · wakes <hh:mm>` (UTC), then `(in 20m)`/`(now)`. Long reasons
-  wrap; hidden while the Turn section re-reads.
+- A taken open turn's active wait, unless it is an operator turn you hold, adds an amber strip
+  under the chips: `waiting: <reason> · wakes <hh:mm>` (UTC), then `(in 20m)`/`(now)`. Unlike
+  the card, it shows during a stall too. Long reasons wrap; hidden while the Turn section re-reads.
 - `History` lists the task's journal events, newest first by event time; events at the same
   time keep the reverse of their journal order. Each row shows the time (UTC, `hh:mm dd/mm/yy`),
   the summary of what changed with who did it, and the raw event kind, such as `turn_taken`. An agent reads as its session;
@@ -62,8 +62,7 @@ is selected once configuration arrives. Back and Forward restore both layers.
 ## Why it is here
 
 The section lists the exit conditions of the column the dispatcher works from (the shadow
-column in shadow mode): each one met, failed with its reason, waiting with its reason, or not
-checked. A column without exit conditions reads `No exit conditions in <column>`; when the
+column in shadow mode): each one met, failed or waiting with its reason, or not checked. A column without exit conditions reads `No exit conditions in <column>`; when the
 conditions are unknown (an unconfigured project, or missing pull request facts) the row reads
 `Exit conditions unknown`.
 
@@ -100,7 +99,7 @@ submission.
 
 ## Blocks and comments
 
-**Blocks** and **Comments** and the three writes (answer, follow up and comment) are described on
+**Blocks**, **Comments** and their three writes (answer, follow up, comment):
 [blocks and comments](web-ui-task-blocks.md).
 
 ## States
@@ -108,14 +107,15 @@ submission.
 - A key the daemon does not know, or a value that is not a task key such as `?open=509`, shows
   `Task not found.`
 - A failed read shows an error banner, `Could not load the task.`, with **Retry**, above the
-  data loaded before. While the UI is offline and the task was loaded, no banner shows in the
-  dialog: the Board's offline banner says so.
+  data loaded before. Offline with the task loaded, the dialog shows no banner: the Board's
+  offline banner says so.
 - History reads `task.history` only while its tab shows. A failed read shows
   `Could not load the history.` with **Retry** above the rows loaded before, with the same
-  offline rule. A task the daemon no longer knows shows `Task not found.`
-- The task view rereads the task when the stream names it, and whenever the UI rereads
-  everything: a `reset`, the 30-second status frame, a changed journal head or daemon instance,
-  and **Retry now**. While History shows, it rereads the history at the same moments.
+  offline rule, and the rows may be out of date. A task the daemon no longer knows shows
+  `Task not found.`
+- It rereads the task when the stream names it and whenever the UI rereads everything: a
+  `reset`, the 30-second status frame, a changed journal head or daemon instance, and
+  **Retry now**. A shown History rereads at the same moments.
 
 ## Closing it
 
@@ -125,6 +125,6 @@ returns to the card that opened it; after opening from the address, to the card 
 when the columns show it.
 
 For a task opened from the inbox, closing returns to `?open=inbox` and keeps the panel and its
-filter open. Focus returns to the inbox row that opened the task, or to the panel's Close
-button if that row has disappeared. A second Escape closes the inbox and focuses its header
+filter open. Focus returns to the inbox row that opened the task, or, if that row is gone, to
+the panel's Close button. A second Escape closes the inbox and focuses its header
 button. Closing adds a history entry, so Back opens the task again.
