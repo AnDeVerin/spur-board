@@ -152,6 +152,44 @@ function SortDemo({ caption, open = false }: { caption: string; open?: boolean }
     </Frame>
   );
 }
+// Two sort menus whose parent keeps one open at most, as the board's column heads do.
+function SharedDemo() {
+  const [shown, setShown] = useState<'a' | 'b' | null>(null);
+  const [first, setFirst] = useState<Field>('time');
+  const [second, setSecond] = useState<Field>('key');
+  const letter = (value: Field) =>
+    (fields.find((field) => field.value === value)?.label ?? '').slice(0, 1);
+  const change = (menu: 'a' | 'b') => (open: boolean) => {
+    setShown((current) => (open ? menu : current === menu ? null : current));
+  };
+  return (
+    <Frame
+      caption="Controlled: opening either menu by hover, click or key closes the other"
+      opens="down"
+    >
+      <HoverMenu
+        label="Sort todo"
+        text={letter(first)}
+        items={fields}
+        value={first}
+        onSelect={setFirst}
+        opens="down"
+        open={shown === 'a'}
+        onOpenChange={change('a')}
+      />
+      <HoverMenu
+        label="Sort ready"
+        text={letter(second)}
+        items={fields}
+        value={second}
+        onSelect={setSecond}
+        opens="down"
+        open={shown === 'b'}
+        onOpenChange={change('b')}
+      />
+    </Frame>
+  );
+}
 // The card menu: moves inside the manual order, then a rule and the moves to other parts.
 const cardMoves: readonly HoverMenuItem<string>[] = [
   { value: 'top', label: 'Move to top', disabled: true },
@@ -215,6 +253,9 @@ export function TextTrigger() {
 }
 export function SortMenu() {
   return <SortDemo caption="The sort menu open downward from its letter, Time checked" open />;
+}
+export function Controlled() {
+  return <SharedDemo />;
 }
 export function CardMenu() {
   return (

@@ -94,6 +94,7 @@ describe('Banner, Skeleton, HoverMenu and Breakpoints examples', () => {
       'CardMenuMirror',
       'CauseLine',
       'Closed',
+      'Controlled',
       'Focused',
       'Open',
       'OpensDown',

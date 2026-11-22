@@ -109,6 +109,13 @@ export function removeOpenMenu(entry: OpenMenu): void {
  *   first. An Escape already handled (`defaultPrevented`) or composing closes no menu.
  *
  * `defaultOpen` renders it open and pinned on mount without moving focus.
+ *
+ * Controlled: with `open` given, the parent owns the open state and `defaultOpen` is ignored.
+ * Every open or close the menu would make (hover enter and leave, click, ArrowDown, an item,
+ * Tab, Escape, a pointer down outside) calls `onOpenChange` instead, only on a real change, and
+ * shows only once the parent passes the new `open`; `onOpenChange` also reports changes in the
+ * uncontrolled mode. A parent close resets the pin, so a later hover-open closes on leave, and
+ * moves no focus: when focus was inside the menu the parent restores it.
  */
 export function HoverMenu<V extends string>({
   label,
@@ -121,17 +128,29 @@ export function HoverMenu<V extends string>({
   opens = 'up',
   variant = 'choice',
   note,
+  open: controlled,
+  onOpenChange,
 }: {
   label: string;
   items: readonly HoverMenuItem<V>[];
   onSelect: (value: V) => void;
   defaultOpen?: boolean;
+  /** Controlled open state; the menu then reports every change through `onOpenChange`. */
+  open?: boolean | undefined;
+  onOpenChange?: ((open: boolean) => void) | undefined;
   opens?: 'up' | 'down';
   note?: string | undefined;
 } & ({ icon: IconName; text?: undefined } | { text: string; icon?: undefined }) &
   ({ variant?: 'choice'; value?: V | undefined } | { variant: 'action'; value?: undefined })) {
-  const [open, setOpen] = useState(defaultOpen);
-  const pinned = useRef(defaultOpen);
+  const [inner, setInner] = useState(defaultOpen);
+  const open = controlled ?? inner;
+  // Every internal open and close: the parent decides when it owns the state.
+  const setOpen = (next: boolean) => {
+    if (next === open) return;
+    if (controlled === undefined) setInner(next);
+    onOpenChange?.(next);
+  };
+  const pinned = useRef(controlled === undefined && defaultOpen);
   const focusOnOpen = useRef(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -162,7 +181,12 @@ export function HoverMenu<V extends string>({
     }
   };
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // A parent close skips `close`: no pin or pending focus outlives it.
+      pinned.current = false;
+      focusOnOpen.current = false;
+      return;
+    }
     if (focusOnOpen.current) {
       focusOnOpen.current = false;
       focusChecked();
