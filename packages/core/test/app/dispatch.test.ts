@@ -2909,6 +2909,7 @@ describe('a merged PR and the ticket', () => {
     ['needs_input', 'open wrap-up', 'worker-1', true],
     ['needs_input', 'fresh wrap-up after a close', 'worker-2', true],
     ['needs_input', 'taken wrap-up after a close', 'worker-3', true],
+    ['needs_input', 'two stopped workers', 'worker-1', true],
   ] as const)(
     'a worker stopped in %s health (%s) loses its flags only with the wrap-up it left',
     async (health, setup, subject, kept) => {
@@ -2975,7 +2976,7 @@ describe('a merged PR and the ticket', () => {
       } else {
         // Worker-2, linked last, takes the wrap-up's rings, so worker-1 is not its stalled executor.
         const others =
-          setup === 'host load' || setup === 'open wrap-up'
+          setup === 'host load' || setup === 'open wrap-up' || setup === 'two stopped workers'
             ? [sessionFacts('worker-2', 'worker')]
             : [];
         if (setup === 'no wrap-up') {
@@ -3005,7 +3006,11 @@ describe('a merged PR and the ticket', () => {
         stop = () =>
           read(
             { ...unhealthy, lifecycle: 'stopped' },
-            ...(setup === 'host load' ? [sessionFacts('worker-2', 'worker', true)] : others),
+            ...(setup === 'host load'
+              ? [sessionFacts('worker-2', 'worker', true)]
+              : setup === 'two stopped workers'
+                ? [facts('worker-2', unhealthy.healthSince, true)]
+                : others),
           );
       }
       const alert = `health:1:${subject}:needs_input`;
@@ -3020,7 +3025,12 @@ describe('a merged PR and the ticket', () => {
           expect(await openSystemBlocks(ctx)).toEqual([]);
         }
       }
-      if (!kept) {
+      if (setup === 'two stopped workers') {
+        // The newest stopped worker took the closed wrap-up's diagnosis: it is never flagged.
+        expect(await itemsOf(ctx, 'worker-2')).toEqual([]);
+        expect(await openSystemBlocks(ctx)).toHaveLength(1);
+      }
+      if (!kept || setup === 'two stopped workers') {
         await expectMovedClose(ctx, id);
         expect(await ctx.openTurn()).toBeNull();
       }

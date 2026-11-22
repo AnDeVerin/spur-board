@@ -805,29 +805,7 @@ export async function reconcileItems(
     if (executor === undefined && turn.acked_at === null) {
       const project = config.projects.find((entry) => entry.id === task.project);
       const target = project?.columns.find((entry) => entry.id === turn.column)?.orchestrator;
-      const stopped = await trx
-        .selectFrom('session_snapshot')
-        .selectAll()
-        .where('state', '=', 'stopped')
-        .where('ended_at', 'is', null)
-        .where('absent_since', 'is', null)
-        .orderBy('first_seen', 'desc')
-        .orderBy('id')
-        .execute();
-      for (const row of stopped) {
-        const linked = await trx
-          .selectFrom('link')
-          .select('id')
-          .where('task_id', '=', task.id)
-          .where('session_id', '=', row.id)
-          .where('role', '=', turn.role === 'worker' ? 'worker' : 'orchestrator')
-          .where('banned', '=', 0)
-          .executeTakeFirst();
-        if (linked !== undefined || (turn.role !== 'worker' && row.spur_project === target)) {
-          executor = row;
-          break;
-        }
-      }
+      executor = await stoppedExecutor(trx, task.id, turn.role, target);
     }
     if (executor === undefined || executor.ended_at !== null || executor.absent_since !== null) {
       await observeTurnEpisode(trx, turn.id, null);
@@ -997,6 +975,14 @@ export async function reconcileItems(
       )
       .map((turn) => turn.task_id),
   );
+  // Only the worker the stall scan would have diagnosed that turn against: another linked
+  // worker's alert was never held by it.
+  const addressed = new Set<string>();
+  for (const taskId of unaddressedDone) {
+    if (!taskById.has(taskId) || turnTasks.has(taskId)) continue;
+    const session = await stoppedExecutor(trx, taskId, 'worker', undefined);
+    if (session !== undefined) addressed.add(`${String(taskId)}:${session.id}`);
+  }
   const stoppedInDone = new Set(
     subjects
       .filter(
@@ -1004,9 +990,7 @@ export async function reconcileItems(
           subject.role === 'worker' &&
           subject.lifecycle === 'stopped' &&
           subject.endedAt === null &&
-          taskById.get(Number(subject.taskId))?.column === 'done' &&
-          unaddressedDone.has(Number(subject.taskId)) &&
-          !turnTasks.has(Number(subject.taskId)),
+          addressed.has(`${subject.taskId}:${subject.id}`),
       )
       .map((subject) => `${subject.taskId}:${subject.id}`),
   );
@@ -1552,6 +1536,40 @@ async function observeTurnEpisode(trx: Trx, turnId: number, fact: SessionFacts |
     )
     .execute();
   return episode;
+}
+
+/**
+ * The stopped session an untaken turn of `role` with no live recipient is diagnosed against: the
+ * newest stopped, present session linked to the task in that role, or for a column orchestrator
+ * turn one of the column's orchestrator project `target`.
+ */
+async function stoppedExecutor(
+  trx: Trx,
+  taskId: number,
+  role: string,
+  target: string | undefined,
+): Promise<Row<'session_snapshot'> | undefined> {
+  const stopped = await trx
+    .selectFrom('session_snapshot')
+    .selectAll()
+    .where('state', '=', 'stopped')
+    .where('ended_at', 'is', null)
+    .where('absent_since', 'is', null)
+    .orderBy('first_seen', 'desc')
+    .orderBy('id')
+    .execute();
+  for (const row of stopped) {
+    const linked = await trx
+      .selectFrom('link')
+      .select('id')
+      .where('task_id', '=', taskId)
+      .where('session_id', '=', row.id)
+      .where('role', '=', role === 'worker' ? 'worker' : 'orchestrator')
+      .where('banned', '=', 0)
+      .executeTakeFirst();
+    if (linked !== undefined || (role !== 'worker' && row.spur_project === target)) return row;
+  }
+  return undefined;
 }
 
 function healthKey(taskId: number, flag: SessionHealthFlag): string {
