@@ -110,7 +110,8 @@ describe('End wait', () => {
     shown()
       .closest(`.${styles.wait ?? ''}`)
       ?.querySelector('[role="alert"]');
-  const ends = (calls: { op: string }[]) => calls.filter((call) => call.op === 'task.wait');
+  const ends = (calls: { op: string; key: string | undefined }[]) =>
+    calls.filter((call) => call.op === 'task.wait');
   const end = async () => {
     press(control(), 'click');
     await settle();

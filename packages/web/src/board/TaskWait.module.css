@@ -34,11 +34,12 @@
   font-size: var(--text-small);
   overflow-wrap: anywhere;
 }
-/* Hover keeps the strip's colour: the toggle's hover colour would lose contrast on the fill. */
+/* The strip's attention text colour, on hover too: the toggle's hover colour would lose contrast
+   on the fill. */
 .strip .end,
 .strip .end:hover {
   flex: none;
-  color: var(--color-text-attention);
+  color: inherit;
   font-size: var(--text-small);
   text-decoration: underline;
   white-space: nowrap;
