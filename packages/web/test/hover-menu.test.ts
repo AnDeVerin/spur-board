@@ -318,7 +318,8 @@ describe('HoverMenu controlled', () => {
     });
   });
 
-  it('(o) the Controlled example keeps one of its two menus open', () => {
+  /** Renders the Controlled example and returns its two triggers. */
+  const controlledExample = () => {
     const Controlled = Object.values(examples)[0]?.Controlled;
     if (!Controlled) throw new Error('no Controlled example');
     act(() => {
@@ -328,6 +329,11 @@ describe('HoverMenu controlled', () => {
       ...container.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]'),
     ];
     if (!first || !second) throw new Error('no two triggers');
+    return [first, second] as const;
+  };
+
+  it('(o) the Controlled example keeps one of its two menus open', () => {
+    const [first, second] = controlledExample();
     const menus = () => [...container.querySelectorAll('[role="menu"]')];
     click(first, 1);
     expect(menus()).toHaveLength(1);
@@ -339,6 +345,22 @@ describe('HoverMenu controlled', () => {
     expect(first.getAttribute('aria-expanded')).toBe('true');
     expect(second.getAttribute('aria-expanded')).toBe('false');
     expect(menus()).toHaveLength(1);
+  });
+
+  it.each([
+    { path: 'the Controlled example opened by ArrowDown, then a hover on the other', open: 'key' },
+    { path: 'the Controlled example opened by click, then a hover on the other', open: 'click' },
+    { path: 'a menu its parent closes', open: 'parent' },
+  ] as const)('(p) $path: focus inside moves to the closed menu trigger', ({ open }) => {
+    if (open === 'parent') render(true);
+    const [first, second] = open === 'parent' ? [trigger(), undefined] : controlledExample();
+    if (open === 'click') click(first, 1);
+    else key(first, 'ArrowDown');
+    expect(menu()?.contains(document.activeElement)).toBe(true);
+    if (second) move('mouse', document.body, second);
+    else render(false);
+    expect(isOpen()).toBe(open !== 'parent');
+    expect(document.activeElement).toBe(first);
   });
 });
 

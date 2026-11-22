@@ -2,6 +2,7 @@ import {
   Fragment,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -114,8 +115,11 @@ export function removeOpenMenu(entry: OpenMenu): void {
  * Every open or close the menu would make (hover enter and leave, click, ArrowDown, an item,
  * Tab, Escape, a pointer down outside) calls `onOpenChange` instead, only on a real change, and
  * shows only once the parent passes the new `open`; `onOpenChange` also reports changes in the
- * uncontrolled mode. A parent close resets the pin, so a later hover-open closes on leave, and
- * moves no focus: when focus was inside the menu the parent restores it.
+ * uncontrolled mode. A parent close resets the pin, so a later hover-open closes on leave.
+ *
+ * Any close, a parent's included, that drops focus from inside the menu (focus then on nothing,
+ * `body` or a removed node) moves it to the trigger; a menu opened by click or key in the same
+ * update still moves it on to its checked item.
  */
 export function HoverMenu<V extends string>({
   label,
@@ -180,6 +184,16 @@ export function HoverMenu<V extends string>({
       setOpen(true);
     }
   };
+  // Whether the last focus inside the root was in the menu.
+  const focusInMenu = useRef(false);
+  // Before the passive effects: a menu opened by click or key moves focus on after this.
+  useLayoutEffect(() => {
+    if (open) return;
+    const active = document.activeElement;
+    if (focusInMenu.current && (active === null || active === document.body || !active.isConnected))
+      trigger.current?.focus({ preventScroll: true });
+    focusInMenu.current = false;
+  }, [open]);
   useEffect(() => {
     if (!open) {
       // A parent close skips `close`: no pin or pending focus outlives it.
@@ -231,6 +245,9 @@ export function HoverMenu<V extends string>({
       className={styles.root}
       ref={root}
       data-opens={opens === 'down' ? 'down' : undefined}
+      onFocus={(event) => {
+        focusInMenu.current = menu.current?.contains(event.target) ?? false;
+      }}
       onPointerEnter={(event: PointerEvent<HTMLDivElement>) => {
         if (event.pointerType !== 'touch' && !open) setOpen(true);
       }}
