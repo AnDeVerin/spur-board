@@ -2838,8 +2838,12 @@ describe('a merged PR and the ticket', () => {
       // complete read, or a blind complete read.
       if (gate === 'blind') await ctx.spur('ended', true, [], undefined, true);
       else {
-        if (gate === 'restart') ctx.restart();
-        else {
+        if (gate === 'restart') {
+          // A complete read dated past the next steps keeps the last complete read unexpired, so
+          // only the missing complete read since restart holds the turn.
+          await ctx.spur('live', true, [], new Date(Date.parse(ctx.at()) + 120_000).toISOString());
+          ctx.restart();
+        } else {
           const spur = ctx.config().adapters.spur;
           ctx.wait(spur.intervalMs * ctx.config().thresholds.staleMultiplier);
         }
