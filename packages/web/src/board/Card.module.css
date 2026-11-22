@@ -259,10 +259,34 @@
 .turn[data-waiting] .who {
   flex: 1 1 0;
 }
+/* Line 2 is clock, `wakes hh:mm ·`, then the reason, the only part that ellipsises. */
 .turn[data-waiting] .age {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
   flex-basis: 100%;
   margin-left: 0;
   min-width: 0;
+  color: var(--color-status-attention);
+}
+.wake {
+  flex: none;
+  white-space: nowrap;
+}
+.reason {
+  min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
+}
+/* The wait's full label, for assistive technology only. */
+.hidden {
+  position: absolute;
+  width: var(--size-hairline);
+  height: var(--size-hairline);
+  padding: 0;
+  margin: calc(-1 * var(--space-0-25));
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -240,12 +240,25 @@ export function Card({
                 </>
               )}
             </span>{' '}
-            <span
-              className={styles.age}
-              data-kind={turn.kind}
-              title={turn.waiting ? turn.tail : undefined}
-            >
-              {turn.tail}
+            <span className={styles.age} data-kind={turn.kind} title={turn.label}>
+              {turn.waiting ? (
+                // The visible line is hidden from assistive technology, which reads the full label.
+                <>
+                  <Icon name="clock" />
+                  <span className={styles.wake} aria-hidden="true">
+                    {turn.wake}
+                    {turn.reason !== undefined && ' ·'}
+                  </span>
+                  {turn.reason !== undefined && (
+                    <span className={styles.reason} aria-hidden="true">
+                      {turn.reason}
+                    </span>
+                  )}
+                  <span className={styles.hidden}>{turn.label}</span>
+                </>
+              ) : (
+                turn.tail
+              )}
             </span>
           </div>
         )}
