@@ -174,12 +174,11 @@ export function Board({ data }: { data: BoardData }) {
   const requested =
     helpRequest !== null && snapshot.project === helpRequest.project ? helpRequest : null;
   const requestedHead = requested !== null && hasHead(view, requested.column);
-  // Once the requested project's view settles without the column's head, the task opens from
-  // the board instead; a failed read drops the request and its banner stays.
+  // Once the requested project's view settles without the column's head, or its read fails, the
+  // task opens from the board instead: `task.get` does not need `status.get`.
   useEffect(() => {
     if (requested === null || requestedHead || view.kind === 'loading') return;
     setHelpRequest(null);
-    if (view.kind === 'failed') return;
     history.pushState(null, '', openHref(requested.task));
     setOpenKey(requested.task);
   }, [requested, requestedHead, view.kind]);
@@ -188,11 +187,13 @@ export function Board({ data }: { data: BoardData }) {
     history.pushState({ inbox: true, project }, '', openHref(task));
     setOpenKey(task);
   };
+  // No head to open: an unknown project, or the shown project's view settled without the
+  // column's head. The no-session row then stays a task link and the task opens over the inbox.
+  const opensTask = (project: string, column: string) =>
+    snapshot.config?.projects.some(({ id }) => id === project) !== true ||
+    (snapshot.project === project && view.kind !== 'loading' && !hasHead(view, column));
   const onColumnHelp = (request: HelpRequest) => {
-    const known = snapshot.config?.projects.some(({ id }) => id === request.project) === true;
-    const shown = snapshot.project === request.project && view.kind !== 'loading';
-    // No head to open in the shown project: the inbox stays and the task opens over it.
-    if (!known || (shown && !hasHead(view, request.column))) {
+    if (opensTask(request.project, request.column)) {
       openFromInbox(request.project, request.task);
       return;
     }
@@ -320,6 +321,7 @@ export function Board({ data }: { data: BoardData }) {
             if (entry.task !== null) openFromInbox(entry.project, entry.task);
           }}
           onColumnHelp={onColumnHelp}
+          opensTask={opensTask}
         />
       )}
       {task !== undefined && (

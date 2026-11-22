@@ -89,6 +89,7 @@ export function InboxPanel({
   onClose,
   onOpen,
   onColumnHelp,
+  opensTask,
   closeItem,
 }: {
   snapshot: BoardSnapshot;
@@ -99,6 +100,8 @@ export function InboxPanel({
   onOpen: (entry: Entry) => void;
   /** An active no-session row asks for its column's help, on Who. */
   onColumnHelp: (request: HelpRequest) => void;
+  /** Whether a no-session row of `project` and `column` has no head to open and opens its task. */
+  opensTask: (project: string, column: string) => boolean;
   closeItem: BoardData['closeItemIntent'];
 }) {
   const [selected, select] = useState('all');
@@ -308,9 +311,10 @@ export function InboxPanel({
     );
     const className = `${styles.row ?? ''} ${quiet} ${focusRing}`;
     const url = entry.url === undefined ? null : safeExternalUrl(entry.url);
-    // An active no-session row opens its column's help, which links the oldest waiting turn.
+    // An active no-session row opens its column's help, which links the oldest waiting turn,
+    // unless the column has no head to open: then it stays the task link below.
     const { task } = entry;
-    if (!handled && known !== undefined && task !== null)
+    if (!handled && known !== undefined && task !== null && !opensTask(entry.project, known.column))
       return (
         <button
           type="button"

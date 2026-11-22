@@ -264,6 +264,9 @@ describe('inbox no-session row column help', () => {
   it('spine in the shown project keeps the inbox and opens the task', async () => {
     const { d } = board(() => Promise.resolve(envelope(status(rowsA(false)))));
     await openInbox(d);
+    const link = document.querySelector('[data-inbox-id="I7"]');
+    expect(link?.tagName).toBe('A');
+    expect(link?.getAttribute('href')).toBe(TASK_SEARCH);
     await clickRow();
     expect(labels()).toEqual(['Inbox', expect.anything()]);
     expect(dialogs().at(-1)?.textContent).toContain('#7');
@@ -283,18 +286,33 @@ describe('inbox no-session row column help', () => {
     expect(history.state).toBeNull();
   });
 
-  it('a failed view after a switch drops the request', async () => {
+  it('a failed view after a switch opens the task from the board', async () => {
     const { d } = board(failure);
     await openInbox(d, 'b');
     await clickRow();
     expect(shownProject()).toBe('a');
-    expect(dialogs()).toHaveLength(0);
     expect(document.body.textContent).toContain('The board daemon does not answer.');
-    d.routes['status.get'] = () => Promise.resolve(envelope(status(rowsA())));
-    d.send('event: reset\ndata: {}\n\n');
-    await settle();
-    expect(trigger('qa').getAttribute('aria-expanded')).toBe('false');
+    expect(dialogs()).toHaveLength(1);
+    expect(labels()).not.toContain('qa');
+    expect(dialogs()[0]?.textContent).toContain('#7');
+    expect(location.search).toBe(TASK_SEARCH);
+    expect(history.state).toBeNull();
+  });
+
+  it('a failed first read of the shown project opens the task from the board', async () => {
+    const held = deferred();
+    const { d } = board(() => held.promise);
+    await openInbox(d);
+    expect(document.querySelector('[data-inbox-id="I7"]')?.tagName).toBe('BUTTON');
+    await clickRow();
     expect(dialogs()).toHaveLength(0);
+    held.resolve(Response.json({ broken: true }, { status: 500 }));
+    await settle();
+    expect(dialogs()).toHaveLength(1);
+    expect(labels()).not.toContain('Inbox');
+    expect(dialogs()[0]?.textContent).toContain('#7');
+    expect(location.search).toBe(TASK_SEARCH);
+    expect(history.state).toBeNull();
   });
 
   it('Back reopens the inbox without help; Forward closes it', async () => {
