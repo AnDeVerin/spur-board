@@ -31,16 +31,20 @@ Every test runs through the root config, so all of these hold:
   It builds fresh production assets before workers in provided `webAssetsRoot`; tests inject
   that path. Failure/teardown removes it. `packages/testkit/test/web-assets.test.ts` pins this.
 - Global setup writes an owner record into its root (pid, start ticks, boot id, pid
-  namespace) and, before it creates the root, removes the `spur-board-test-*` roots of dead
-  runs from `tmpdir()` and the system temp directory (`packages/testkit/src/sweep.ts`): owner
-  gone, pid reused or, in the same pid namespace, earlier boot. A root without an owner record
-  goes after 3 h of age; a root in another pid namespace (whatever its boot id), with a record
-  missing a field, or whose owner's stat exists but cannot be read, after 24 h. Age is the newer
-  mtime of the root and its tmp directory.
-  It never follows symlinks, skips other users' entries and never removes a live run's root.
+  namespace, machine id) and, before it creates the root, removes the `spur-board-test-*` roots
+  of dead runs from `tmpdir()` and the system temp directory (`packages/testkit/src/sweep.ts`).
+  On the same machine id and pid namespace it removes a root at once when the owner pid is gone,
+  reused or from an earlier boot, and keeps it while the owner pid exists, even when its start
+  time cannot be read. A root without an owner record goes after 3 h of age; one with no
+  liveness signal (another or unknown host, another pid namespace, a record or sweeper
+  missing a field, an owner of unknown state) after 24 h. Age is the newer mtime of the root
+  and its tmp directory.
+  It skips other users' entries and does not follow a symlinked candidate root (lstat); the
+  owner record and tmp directory inside a root are read through symlinks.
 - `packages/testkit/src/setup.ts` re-pins `HOME`, `TMPDIR` and the XDG directories in each
   worker to the run root from `inject('harnessRoot')`, prints a `testkit: re-pinned` line on
-  stderr when a runner handed the worker other values, and throws when global setup did not
+  stderr when a runner handed the worker other values (old `TMPDIR`, `STRYKER_MUTATOR_WORKER`,
+  parent pid and executable name, never its arguments), and throws when global setup did not
   run. Then it installs the network guard: a connection to a non-local host throws.
 - Temp-dir helpers remove what they make: `openTempStore` (`packages/core/test/support/store.ts`)
   and `makeHome` (`packages/daemon/test/home.ts`) remove their directory after the test's
