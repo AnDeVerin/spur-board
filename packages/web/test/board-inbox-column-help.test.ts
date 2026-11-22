@@ -56,6 +56,16 @@ const ITEM = {
   action: ACTION,
   at: '2026-11-18T14:30:00.000Z',
   task: TASK,
+  noSession: {
+    project: 'a',
+    column: 'qa',
+    spurProject: 'orbit-qa',
+    oldestTask: TASK,
+    since: '2026-11-18T14:28:00.000Z',
+    waiting: 2,
+    oldestTurn: 'T524',
+    oldestAt: '2026-11-18T13:06:00.000Z',
+  },
 };
 
 const [projectA, projectB] = config.projects;
