@@ -509,7 +509,7 @@ function board(options: Options = {}) {
       observe(`github:proj:${repo}`, [], complete, startedAt, blind),
     /**
      * A complete Spur poll: the reviewers always, the worker while `worker` is not `none`; the
-     * session ids in `gone` are left out.
+     * session ids in `gone` are left out; `workerPatch` overrides the worker's facts.
      */
     spur: (
       worker: 'live' | 'ended' | 'none' | 'unlinked' = 'live',
@@ -517,6 +517,7 @@ function board(options: Options = {}) {
       gone: readonly string[] = [],
       startedAt?: string,
       blind = false,
+      workerPatch: Partial<SessionFacts> = {},
     ) =>
       observe(
         'spur',
@@ -526,12 +527,15 @@ function board(options: Options = {}) {
             : [
                 {
                   kind: 'session' as const,
-                  facts: sessionFacts(
-                    'worker-1',
-                    'worker',
-                    worker === 'ended',
-                    worker !== 'unlinked',
-                  ),
+                  facts: {
+                    ...sessionFacts(
+                      'worker-1',
+                      'worker',
+                      worker === 'ended',
+                      worker !== 'unlinked',
+                    ),
+                    ...workerPatch,
+                  },
                 },
               ]),
           { kind: 'session' as const, facts: sessionFacts('rev-1', 'rev') },
@@ -2876,6 +2880,37 @@ describe('a merged PR and the ticket', () => {
     await ctx.tick();
     await expectOpen(ctx, id);
   });
+
+  it.each([
+    ['error', 'errorAfterMs'],
+    ['needs_input', 'needsInputAfterMs'],
+  ] as const)(
+    'closes an untaken Done wrap-up for a worker stopped in %s health and flags it nowhere',
+    async (health, threshold) => {
+      const ctx = await inDev();
+      const id = await untakenWrapUp(ctx);
+      // Spur keeps the smoothed health of the stopped worker past its flag threshold.
+      const healthSince = ctx.at();
+      ctx.wait(ctx.config().health[threshold]);
+      await ctx.spur('live', true, [], undefined, false, {
+        lifecycle: 'stopped',
+        health,
+        healthSince,
+      });
+      await expectMovedClose(ctx, id);
+      ctx.wait(ctx.config().health[threshold]);
+      await ctx.tick();
+      expect(
+        await ctx.store.db
+          .selectFrom('operator_item')
+          .select(['item_key', 'kind'])
+          .where('item_key', 'like', '%worker-1%')
+          .execute(),
+      ).toEqual([]);
+      expect(await openSystemBlocks(ctx)).toEqual([]);
+      expect(await ctx.openTurn()).toBeNull();
+    },
+  );
 
   it('keeps an untaken Dev turn open when its worker ends', async () => {
     const ctx = await started();

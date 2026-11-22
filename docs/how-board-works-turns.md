@@ -27,7 +27,7 @@ must be a tested submission on this task or a carried submission with a tested
 origin. Carry chains retain the supplied source and pin the original tested row;
 no git ancestry is checked. `skipped` requires a reason. `tested` permits a reason;
 only `carried` permits `from`. Supplied reasons are nonblank literal text of
-at most 2,000 UTF-16 units. Workers and column orchestrators keep their existing
+at most 2,000 UTF-16 units. Workers and column orchestrators keep their
 submit permissions for every basis. All bases close turns and follow the same
 head confirmation and gates; only returns increment course and cycle counts.
 
@@ -77,11 +77,11 @@ An accepted ended session holding the current non-Done turn raises one
 counts, including unknown; an open PR or another linked live session does not
 resolve the held turn. Start a replacement worker, retake an operator turn
 (`board inbox ack`), or archive the task. The item clears on turn closure,
-actual holder replacement, archive or departure from the column visit. Existing
+holder replacement, archive or departure from the column visit. Existing
 ended-holder stall blocks withdraw with a recorded reason,
 even while Spur is blind. Removing a link alone leaves a taken turn unresolved.
 Stopped sessions with no end time keep stall timing;
-untaken Done wrap-ups close.
+untaken Done wrap-ups close only when no live worker or Done orchestrator is left.
 
 ## Doorbells
 
@@ -106,8 +106,7 @@ A taken turn is reminded, then flagged stuck, after `health.idleInDevAfterMs` of
 a named column orchestrator's turn uses the column's
 `quietTurnAfterMs` instead. When the column's untaken turns have no live session to ring for
 its `noRecipientAfterMs` (default 10 minutes, counted from the later of the ring and the
-moment the last session that could take them stopped being a recipient: its first end, absence
-or finished state), the operator gets one `no-session:` inbox item per column.
+last session able to take them: its first end, absence or finished state), the operator gets one `no-session:` inbox item per column.
 
 A holder can [wait on its turn](how-board-works-waits.md).
 

@@ -969,8 +969,31 @@ export async function reconcileItems(
   const resting = await restingHolders(trx, config, now);
   const restingIdle = (flag: { kind: string; taskId: string; sessionId: string }) =>
     flag.kind === 'worker_idle' && resting.has(`${flag.taskId}:${flag.sessionId}`);
+  // A worker stopped without an end time on a Done task with no open turn has nothing left to
+  // answer: the retained Spur health of its last state raises no stuck or input flag.
+  const turnTasks = new Set(turns.map((turn) => turn.task_id));
+  const stoppedInDone = new Set(
+    subjects
+      .filter(
+        (subject) =>
+          subject.role === 'worker' &&
+          subject.lifecycle === 'stopped' &&
+          subject.endedAt === null &&
+          taskById.get(Number(subject.taskId))?.column === 'done' &&
+          !turnTasks.has(Number(subject.taskId)),
+      )
+      .map((subject) => `${subject.taskId}:${subject.id}`),
+  );
+  const stoppedRetained = (flag: { kind: string; taskId: string; sessionId: string }) =>
+    ['stuck_worker', 'needs_input'].includes(flag.kind) &&
+    stoppedInDone.has(`${flag.taskId}:${flag.sessionId}`);
   for (const flag of health.flags) {
-    if (endedHolders.has(`${flag.taskId}:${flag.sessionId}`) || restingIdle(flag)) continue;
+    if (
+      endedHolders.has(`${flag.taskId}:${flag.sessionId}`) ||
+      restingIdle(flag) ||
+      stoppedRetained(flag)
+    )
+      continue;
     const task = taskById.get(Number(flag.taskId));
     if (task === undefined) continue;
     const fact = subjects.find(
@@ -1076,7 +1099,12 @@ export async function reconcileItems(
   const ordered = orderItems(candidates);
   const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {
-    if (endedHolders.has(`${flag.taskId}:${flag.sessionId}`) || restingIdle(flag)) continue;
+    if (
+      endedHolders.has(`${flag.taskId}:${flag.sessionId}`) ||
+      restingIdle(flag) ||
+      stoppedRetained(flag)
+    )
+      continue;
     const task = taskById.get(Number(flag.taskId));
     if (task !== undefined && !stalled.has(`${flag.taskId}:${flag.sessionId}`))
       seen.add(healthKey(task.id, flag));
