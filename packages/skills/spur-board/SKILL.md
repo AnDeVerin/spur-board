@@ -37,7 +37,7 @@ Keyed `board wait <turn> --for <min> --reason <text>`; a ring wakes you.
   whatever its severity; else under PR Risk with a thread reply, no code. Unclear scope: keyed
   `board ask <task> <text>` first.
 - Column orchestrator: ack, then keyed `board submit <turn> <sha>` for the reviewed head, or
-  `board return <turn> <reason>` to send it to Dev with what to change. Never push.
+  `board return <turn> <reason>` naming what to change for Dev. Never push.
 - Operator (the operator token, or a session of a Spur project marked operator): keyed
   `board inbox ack <entries>` with the T<number> from `board inbox operator` (not
   `board inbox`) or `board task <task>` takes a turn addressed to the operator or an open orchestrator turn, taken or not; then
@@ -45,7 +45,7 @@ Keyed `board wait <turn> --for <min> --reason <text>`; a ring wakes you.
 
 ## Worker flow
 
-Read [the worker flow](references/worker-flow.md) for links, asks, updates, "back" blocks, exit codes and own-session answers.
+Read [the worker flow](references/worker-flow.md) for links, asks, updates, "back" blocks, exit codes, own-session answers, QA turns.
 
 - On doorbell, read `board inbox` and the addressed C<number>@<revision> comment or B<number>
   block. Once handled, ack its revision, ID or ring N<number>-<ring> with keyed

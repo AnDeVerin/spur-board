@@ -30,3 +30,31 @@
   replies. Add no other answer comment or reply.
 - Only the asking session may `--withdraw`. A replacement session posts provenance in a
   keyed `board comment` and leaves the block open.
+
+## QA orchestrator contract
+
+- On start and on each ring, read `board inbox` and take each QA turn whose `taken` is null
+  with keyed `board inbox ack <entries>`. Your own (`taken.by` is
+  `agent:<project>/$SPUR_SESSION`) needs no ack.
+- Leave any turn whose `taken.by` names the operator or another session, even one that has
+  ended: an ack would take it back and the holder's submit or return then fails
+  `not_turn_taker`. The operator takes such a turn over with keyed `board inbox ack`, taking
+  its T<number> from `board task <task>` (or `board inbox operator`).
+- Test the turn's `head`, then keyed `board submit <turn> <sha>`: `--basis tested` (the default),
+  `--basis skipped --reason <text>`, or `--basis carried --from <sha> --reason <text>` for work
+  tested on an earlier head. `--from` must name a SHA with a tested submission on this task, or
+  one with a carried submission on this task whose origin was tested; a head you tested but never
+  submitted answers `submit_source_not_tested`.
+  Failed: keyed `board return <turn> <reason>` naming what to fix.
+- One session may hold several QA turns; close each by its own T<number>, in any order.
+- `turn_closed` (a new head, or the operator closed the turn) or `not_turn_taker` (the operator
+  took the turn over): stop that round, re-read `board inbox`, act only on a listed turn that is
+  untaken or yours, leave the rest, then wait for the next ring.
+
+```sh
+board inbox
+board inbox ack T12 --key inbox-ack-PROJ-7-qa-take-0905
+board submit T12 0123456789abcdef0123456789abcdef01234567 --basis tested --key submit-PROJ-7-qa-tested-0940
+board inbox ack T13 --key inbox-ack-PROJ-8-qa-take-0906
+board return T13 "Export fails on an empty list." --key return-PROJ-8-qa-return-0941
+```

@@ -54,6 +54,7 @@ import { externalReviewQuiet } from './external-quiet.ts';
 import { feedCodeHints } from './feed-code-hints.ts';
 import { prFinality } from './pr-finality.ts';
 import { qaCarried, qaSkipped } from './qa-basis.ts';
+import { qaStubOrchestrator } from './qa-orchestrator.ts';
 import {
   dispatchCiPendingAfterSubmit,
   dispatchCiRedNewHeadInProductReview,
@@ -229,6 +230,7 @@ export const SCENARIOS: readonly Scenario[] = [
   externalReviewQuiet,
   qaCarried,
   qaSkipped,
+  qaStubOrchestrator,
   approvalStale,
   approvalStaleQuiet,
   approvalMulti,

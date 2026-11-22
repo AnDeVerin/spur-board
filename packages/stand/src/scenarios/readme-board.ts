@@ -8,7 +8,7 @@
 // count from the seed.
 import { randomUUID } from 'node:crypto';
 import { flow, REPO, STEP_MS, submit, take } from './dispatcher.ts';
-import { issueKey, settledUnless } from './helpers.ts';
+import { issueKey, settledUnless, turnOn } from './helpers.ts';
 import type { Board, Scenario, ScenarioFakes } from './index.ts';
 
 type Column = 'todo' | 'dev' | 'review' | 'ready-to-merge' | 'done';
@@ -95,24 +95,6 @@ const REVIEW = numbersIn('review')[0] ?? 0;
 const READY = numbersIn('ready-to-merge')[0] ?? 0;
 const sha = (number: number): string => String(number).padStart(40, 'a');
 
-/** Waits for the role's open turn on issue `number` whose reason is `reason`; its id. */
-async function turnOn(
-  board: Board,
-  role: 'worker' | 'orchestrator',
-  number: number,
-  reason: string,
-): Promise<string> {
-  const task = issueKey(number);
-  let id: string | undefined;
-  await board.until(`${role} turn ${reason} on ${task}`, STEP_MS, async () => {
-    const { turns } = await board.call(role, 'inbox.get', {});
-    id = turns.find((turn) => turn.task === task && turn.reason === reason)?.id;
-    return id !== undefined;
-  });
-  if (id === undefined) throw new Error(`no ${role} turn ${reason} on ${task}`);
-  return id;
-}
-
 /** Links the worker role session to issue `number`, then takes its Dev turn; the turn id. */
 async function takeDev(board: Board, number: number): Promise<string> {
   await board.call('operator', 'link.add', {
@@ -122,7 +104,7 @@ async function takeDev(board: Board, number: number): Promise<string> {
     reason: 'Stand README board',
   });
   await board.poll();
-  const turn = await turnOn(board, 'worker', number, 'dev: no_pr');
+  const turn = await turnOn(board, 'worker', number, 'dev: no_pr', STEP_MS);
   await take(board, 'worker', turn);
   return turn;
 }
@@ -139,7 +121,7 @@ async function toReview(board: Board, fakes: ScenarioFakes, number: number): Pro
   const dev = await takeDev(board, number);
   await openPr(fakes, board, number, true);
   await submit(board, 'worker', dev, sha(number));
-  return turnOn(board, 'orchestrator', number, 'review: no_review_on_head');
+  return turnOn(board, 'orchestrator', number, 'review: no_review_on_head', STEP_MS);
 }
 
 /**
