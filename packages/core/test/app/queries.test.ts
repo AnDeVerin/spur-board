@@ -1208,11 +1208,12 @@ describe('task history summaries', () => {
     updatedAt: AT,
   };
   const LATER = '2026-11-04T09:00:00.000Z';
-  const check = (name: string, state: PrFacts['checks'][number]['state']) => ({
-    name,
-    state,
-    completedAt: null,
-  });
+  const check = (
+    name: string,
+    state: PrFacts['checks'][number]['state'],
+    completedAt: string | null = null,
+  ) => ({ name, state, completedAt });
+  const run = (name: string, completedAt: string | null = null) => ({ name, completedAt });
   const checks = (all: PrFacts['checks'], required: PrFacts['checks'] = []) => ({
     repo: 'o/r',
     pr: 7,
@@ -1307,7 +1308,9 @@ describe('task history summaries', () => {
     },
     {
       name: 'a cancelled check waiting for a new run',
-      rows: [['checks_changed', { ...checks([], [check('ci', 'cancelled')]), waiting: ['ci'] }]],
+      rows: [
+        ['checks_changed', { ...checks([], [check('ci', 'cancelled')]), waiting: [run('ci')] }],
+      ],
       summary: 'Checks on o/r#7: 0/1 green, 1 pending; ci cancelled, waiting for a new run',
     },
     {
@@ -1317,7 +1320,7 @@ describe('task history summaries', () => {
           'checks_changed',
           {
             ...checks([], [check('ci', 'cancelled'), check('lint', 'failure')]),
-            waiting: ['ci'],
+            waiting: [run('ci')],
           },
         ],
       ],
@@ -1325,7 +1328,9 @@ describe('task history summaries', () => {
     },
     {
       name: 'a cancel confirmed as red',
-      rows: [['checks_changed', { ...checks([], [check('ci', 'cancelled')]), confirmed: ['ci'] }]],
+      rows: [
+        ['checks_changed', { ...checks([], [check('ci', 'cancelled')]), confirmed: [run('ci')] }],
+      ],
       summary: 'Checks on o/r#7: 1 failed: ci; ci cancelled, now counts as red',
     },
     {
@@ -1335,8 +1340,8 @@ describe('task history summaries', () => {
           'checks_changed',
           {
             ...checks([], [check('a', 'cancelled'), check('b', 'cancelled')]),
-            confirmed: ['a'],
-            waiting: ['b'],
+            confirmed: [run('a')],
+            waiting: [run('b')],
           },
         ],
       ],
@@ -1350,11 +1355,50 @@ describe('task history summaries', () => {
           'checks_changed',
           {
             ...checks([check('e2e', 'cancelled')], [check('ci', 'success')]),
-            waiting: ['e2e'],
+            waiting: [run('e2e')],
           },
         ],
       ],
       summary: 'Checks on o/r#7: 1/1 green',
+    },
+    {
+      name: 'two runs of one name, one confirmed and one waiting',
+      rows: [
+        [
+          'checks_changed',
+          {
+            ...checks([], [check('test', 'cancelled', AT), check('test', 'cancelled', LATER)]),
+            confirmed: [run('test', AT)],
+            waiting: [run('test', LATER)],
+          },
+        ],
+      ],
+      summary:
+        'Checks on o/r#7: 1 failed: test; test cancelled, now counts as red; test cancelled, waiting for a new run',
+    },
+    {
+      name: 'an optional run confirmed while the required run of its name waits',
+      rows: [
+        [
+          'checks_changed',
+          {
+            ...checks([check('test', 'cancelled', AT)], [check('test', 'cancelled', LATER)]),
+            confirmed: [run('test', AT)],
+            waiting: [run('test', LATER)],
+          },
+        ],
+      ],
+      summary: 'Checks on o/r#7: 0/1 green, 1 pending; test cancelled, waiting for a new run',
+    },
+    {
+      name: 'a waiting run of another completion time',
+      rows: [
+        [
+          'checks_changed',
+          { ...checks([], [check('ci', 'cancelled', LATER)]), waiting: [run('ci', AT)] },
+        ],
+      ],
+      summary: 'Checks on o/r#7: 1 failed: ci',
     },
     {
       name: 'no checks',

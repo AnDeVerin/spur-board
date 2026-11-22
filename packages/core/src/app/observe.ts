@@ -71,7 +71,7 @@ import {
   voidMarksOffHead,
 } from './dispatch.ts';
 import { closeTurns, rerouteDemotedWorkerTurn } from './turns.ts';
-import { countCancelledChecks, NO_CANCELS } from './cancelled-checks.ts';
+import { countCancelledChecks, NO_CANCELS, sameRun } from './cancelled-checks.ts';
 import { countedChecks } from '../domain/gates.ts';
 import { recordReviewRule } from './review-rule.ts';
 import { recordApprovalPairs } from './approval-watch.ts';
@@ -567,9 +567,10 @@ function comparableFacts(
  * Applies one PR fact. `scheduled` is a complete scheduled poll, the only kind that advances the
  * cancelled-check count; `reviewRule` is the full read's review rule of a github-rules source.
  * Returns true when this poll confirmed a cancelled check as red, or changed the review rule with
- * the facts unchanged: no fact event dispatches the PR's tasks then. A `checks_changed` row names
- * the cancels still in their grace window and the ones this poll confirms; a confirm of a counted
- * check (`countedChecks`) with the checks unchanged still writes one, with `from` equal to `to`.
+ * the facts unchanged: no fact event dispatches the PR's tasks then. A `checks_changed` row lists
+ * the cancelled runs still in their grace window and the ones this poll confirms; a confirm of a
+ * counted check's run (`countedChecks`, by name and completion time) with the checks unchanged
+ * still writes one, with `from` equal to `to`.
  */
 async function pr(
   trx: Trx,
@@ -649,9 +650,9 @@ async function pr(
       ? NO_CANCELS
       : await countCancelledChecks(trx, source, fact, scheduled);
   const confirmed = cancels.confirmed.length > 0;
-  // A confirm writes a row only for a cancel among the checks History and the gate count.
+  // A confirm writes a row only for a cancelled run among the checks History and the gate count.
   const confirmRow = countedChecks(fact).some(
-    (check) => check.state === 'cancelled' && cancels.confirmed.includes(check.name),
+    (check) => check.state === 'cancelled' && cancels.confirmed.some((run) => sameRun(run, check)),
   );
   // Only a github-rules project's source keeps a review rule row; others make no call.
   const ruled =

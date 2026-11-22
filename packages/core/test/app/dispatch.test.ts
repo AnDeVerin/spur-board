@@ -7582,6 +7582,7 @@ describe('checksGate', () => {
   it('checksGate external-review: a cancelled check turns red on the second complete poll after its sighting', async () => {
     const ctx = await pastProductReview(GATED);
     const before = (await ctx.moves()).length;
+    const checksBefore = (await checkRows(ctx)).length;
     await ctx.pr(ci('cancelled', 40));
     expect((await ctx.task()).column).toBe('external-review');
     expect((await checkRows(ctx)).at(-1)).toBe(WAITING);
@@ -7597,12 +7598,11 @@ describe('checksGate', () => {
     await ctx.github();
     expect((await ctx.task()).column).toBe('dev');
     expect((await ctx.moves()).slice(before)).toEqual([RED_RETURN]);
+    expect((await checkRows(ctx)).slice(checksBefore)).toEqual([WAITING, TURNED_RED]);
     const rows = await summaries(ctx);
-    expect(rows.filter((row) => row.includes('cancelled'))).toEqual([WAITING, TURNED_RED]);
     expect(rows[rows.indexOf(TURNED_RED) + 1]).toBe(
       'Moved external-review → dev: gate_broken (checks_red)',
     );
-    expect((await checkRows(ctx)).slice(0, -1).filter((row) => row.includes('failed'))).toEqual([]);
   });
 
   it('checksGate external-review: a cancel that turns red with another check change writes one row', async () => {
@@ -7622,32 +7622,72 @@ describe('checksGate', () => {
     expect((await ctx.moves()).slice(before)).toEqual([RED_RETURN]);
   });
 
+  const run = (name: string, minute: number, polls: number) => ({
+    name,
+    completedAt: at(minute),
+    polls,
+  });
+  const cancelled = (name: string, minute: number) => ({
+    name,
+    state: 'cancelled' as const,
+    completedAt: at(minute),
+  });
+  // Each case's first poll sights a cancel; rows and moves are the ones after it.
   it.each([
     {
       name: 'optional check beside a green required one turns red with no row and no move',
-      checks: { checks: [{ name: 'lint', state: 'cancelled' as const, completedAt: at(40) }] },
+      polls: [{ checks: [cancelled('lint', 40)] }, {}, {}],
       rows: [],
       moves: [],
+      counts: [run('lint', 40, 2)],
     },
     {
       name: 'check counted with none required turns red with one row and a return to Dev',
-      checks: {
-        requiredChecks: [],
-        checks: [{ name: 'lint', state: 'cancelled' as const, completedAt: at(40) }],
-      },
+      polls: [{ requiredChecks: [], checks: [cancelled('lint', 40)] }, {}, {}],
       rows: ['Checks on o/r#7: 1 failed: lint; lint cancelled, now counts as red'],
       moves: [RED_RETURN],
+      counts: [run('lint', 40, 2)],
+    },
+    {
+      name: 'optional run expiring while the required run of its name waits writes no row',
+      polls: [
+        {
+          requiredChecks: [{ name: 'test', state: 'pending' as const, completedAt: null }],
+          checks: [cancelled('test', 40)],
+        },
+        { requiredChecks: [cancelled('test', 50)] },
+        {},
+        {},
+      ],
+      rows: [
+        'Checks on o/r#7: 0/1 green, 1 pending; test cancelled, waiting for a new run',
+        'Checks on o/r#7: 1 failed: test; test cancelled, now counts as red',
+      ],
+      moves: [RED_RETURN],
+      counts: [run('test', 50, 2), run('test', 40, 2)],
+    },
+    {
+      name: 'run turning red while another run of its name waits',
+      polls: [
+        { requiredChecks: [cancelled('test', 40)] },
+        { requiredChecks: [cancelled('test', 40), cancelled('test', 50)] },
+        {},
+      ],
+      rows: [
+        'Checks on o/r#7: 0/2 green, 2 pending; test cancelled, waiting for a new run',
+        'Checks on o/r#7: 1 failed: test; test cancelled, now counts as red; test cancelled, waiting for a new run',
+      ],
+      moves: [RED_RETURN],
+      counts: [run('test', 40, 2), run('test', 50, 1)],
     },
   ])('checksGate external-review: a cancelled $name', async (row) => {
     const ctx = await pastProductReview(GATED);
     const before = (await ctx.moves()).length;
-    await ctx.pr(row.checks);
+    const [sighting, ...later] = row.polls;
+    await ctx.pr(sighting);
     const sighted = (await checkRows(ctx)).length;
-    await ctx.github();
-    await ctx.github();
-    expect(await cancelCount(ctx)).toEqual([
-      { headSha: A, cancelled: [{ name: 'lint', completedAt: at(40), polls: 2 }] },
-    ]);
+    for (const patch of later) await ctx.pr(patch);
+    expect(await cancelCount(ctx)).toEqual([{ headSha: A, cancelled: row.counts }]);
     expect((await checkRows(ctx)).slice(sighted)).toEqual(row.rows);
     expect((await ctx.moves()).slice(before)).toEqual(row.moves);
   });

@@ -50,8 +50,14 @@ async function countsOnHead(
   }
 }
 
+/** A check run by name and completion time. */
+interface CheckRun {
+  name: string;
+  completedAt: string | null;
+}
+
 /** The cancelled checks on head, once each by name and completion time. */
-function cancelledOnHead(fact: PrChecks): { name: string; completedAt: string | null }[] {
+function cancelledOnHead(fact: PrChecks): CheckRun[] {
   const seen = new Set<string>();
   return [...fact.requiredChecks, ...fact.checks].flatMap((check) => {
     if (check.state !== 'cancelled') return [];
@@ -62,15 +68,13 @@ function cancelledOnHead(fact: PrChecks): { name: string; completedAt: string | 
   });
 }
 
-const sameRun = (
-  left: { name: string; completedAt: string | null },
-  right: { name: string; completedAt: string | null },
-) => left.name === right.name && left.completedAt === right.completedAt;
+export const sameRun = (left: CheckRun, right: CheckRun) =>
+  left.name === right.name && left.completedAt === right.completedAt;
 
-/** Cancelled check names on head: still inside the grace window, and turned red by this poll. */
+/** Cancelled check runs on head: still inside the grace window, and turned red by this poll. */
 interface CancelCounts {
-  waiting: string[];
-  confirmed: string[];
+  waiting: CheckRun[];
+  confirmed: CheckRun[];
 }
 
 export const NO_CANCELS: CancelCounts = { waiting: [], confirmed: [] };
@@ -78,8 +82,8 @@ export const NO_CANCELS: CancelCounts = { waiting: [], confirmed: [] };
 /**
  * Counts the polls since each cancelled check on the PR head was first seen: a new entry starts at
  * 0, a scheduled complete poll adds 1, and a head change starts over. It deletes the row of a PR
- * that is not open or has no cancelled check. Returns the names still waiting after this poll and
- * the names this poll confirms as red, each once, in check order.
+ * that is not open or has no cancelled check. Returns the runs still waiting after this poll and
+ * the runs this poll confirms as red, each once by name and completion time, in check order.
  */
 export async function countCancelledChecks(
   trx: Trx,
@@ -95,12 +99,12 @@ export async function countCancelledChecks(
   }
   const head = fact.headSha.toLowerCase();
   const previous = await countsOnHead(trx, key, head);
-  const confirmed = new Set<string>();
+  const confirmed: CheckRun[] = [];
   const next = cancelled.map((check) => {
     const before = previous.find((entry) => sameRun(entry, check));
     if (before === undefined) return { ...check, polls: 0 };
     if (!scheduled || before.polls >= CANCEL_CONFIRM_POLLS) return before;
-    if (before.polls + 1 === CANCEL_CONFIRM_POLLS) confirmed.add(check.name);
+    if (before.polls + 1 === CANCEL_CONFIRM_POLLS) confirmed.push(check);
     return { ...before, polls: before.polls + 1 };
   });
   const value = toJson(cancelledChecksSchema, { headSha: head, cancelled: next });
@@ -109,10 +113,10 @@ export async function countCancelledChecks(
     .values({ key, value })
     .onConflict((oc) => oc.column('key').doUpdateSet({ value }))
     .execute();
-  const waiting = new Set(
-    next.filter((entry) => entry.polls < CANCEL_CONFIRM_POLLS).map(({ name }) => name),
-  );
-  return { waiting: [...waiting], confirmed: [...confirmed] };
+  const waiting = next
+    .filter((entry) => entry.polls < CANCEL_CONFIRM_POLLS)
+    .map(({ name, completedAt }) => ({ name, completedAt }));
+  return { waiting, confirmed };
 }
 
 /**

@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { VERDICT, countedChecks } from '../domain/gates.ts';
 import type { EventTable } from '../store/schema.ts';
 import { eventActor } from './board-utils.ts';
+import { sameRun } from './cancelled-checks.ts';
 import { END_WORDS } from './status.ts';
 import { turnSummary } from './task-turns.ts';
 
@@ -258,9 +259,9 @@ function factsSummary(entity: Entity, previous: Facts | undefined): string | nul
 }
 
 /**
- * `Checks on <ref>:` with the failed names, or the green and pending counts. A cancelled check the
- * row names as `waiting` counts as pending; a clause names the cancels this poll confirmed, then
- * the ones still waiting.
+ * `Checks on <ref>:` with the failed names, or the green and pending counts. A cancelled check
+ * whose run (name and completion time) the row lists as `waiting` counts as pending; a clause names
+ * the counted cancels whose run this poll confirmed, then the ones still waiting.
  */
 function checksSummary(payload: Payload<'checks_changed'>) {
   const lists = checksSchema.safeParse(parsedJson(payload.to));
@@ -269,13 +270,12 @@ function checksSummary(payload: Payload<'checks_changed'>) {
   const list = countedChecks({ checks, requiredChecks });
   const head = `Checks on ${ref(payload.repo, payload.pr)}`;
   if (list.length === 0) return `${head}: none`;
-  const waiting = new Set(payload.waiting);
-  const isWaiting = (check: (typeof list)[number]) =>
-    check.state === 'cancelled' && waiting.has(check.name);
-  const clause = (names: readonly string[] | undefined, text: string) => {
-    const counted = [...new Set(names)].filter((name) =>
-      list.some((check) => check.state === 'cancelled' && check.name === name),
-    );
+  const listed = (check: (typeof list)[number], runs: Payload<'checks_changed'>['waiting']) =>
+    check.state === 'cancelled' && (runs ?? []).some((run) => sameRun(run, check));
+  const clause = (runs: Payload<'checks_changed'>['waiting'], text: string) => {
+    const counted = [
+      ...new Set(list.filter((check) => listed(check, runs)).map(({ name }) => name)),
+    ];
     return counted.length === 0
       ? ''
       : `; ${counted.slice(0, NAMED_CHANGES).join(', ')}${more(counted.length)} cancelled, ${text}`;
@@ -284,7 +284,7 @@ function checksSummary(payload: Payload<'checks_changed'>) {
     clause(payload.confirmed, 'now counts as red') +
     clause(payload.waiting, 'waiting for a new run');
   const failed = list
-    .filter((check) => VERDICT[check.state] === 'red' && !isWaiting(check))
+    .filter((check) => VERDICT[check.state] === 'red' && !listed(check, payload.waiting))
     .map(({ name }) => name);
   if (failed.length > 0)
     return `${head}: ${String(failed.length)} failed: ${failed.slice(0, NAMED_CHANGES).join(', ')}${more(failed.length)}${clauses}`;

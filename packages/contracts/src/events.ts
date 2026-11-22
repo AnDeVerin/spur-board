@@ -116,19 +116,18 @@ const N = z.int().positive();
 const from = S.nullable();
 const role = z.enum(ADDRESSEE_ROLES);
 const prChange = { repo: S, pr: N, from, to: S };
+// A check run by name and completion time, as the cancelled-check count identifies it.
+const checkRuns = z
+  .array(prFactsSchema.shape.checks.element.pick({ name: true, completedAt: true }))
+  .optional();
 
 // Payloads keep unknown keys, so a field added by a newer writer survives parsing.
 export const eventPayloadSchemas = {
   head_moved: z.looseObject(prChange),
   pr_facts_changed: z.looseObject({ facts: prFactsSchema }),
-  // `waiting` names cancelled checks inside a right-of-Dev `checksGate` grace window, `confirmed`
-  // the ones this poll turned red.
-  checks_changed: z.looseObject({
-    ...prChange,
-    sha: S,
-    waiting: z.array(S).optional(),
-    confirmed: z.array(S).optional(),
-  }),
+  // `waiting` lists the cancelled check runs inside a right-of-Dev `checksGate` grace window,
+  // `confirmed` the ones this poll turned red.
+  checks_changed: z.looseObject({ ...prChange, sha: S, waiting: checkRuns, confirmed: checkRuns }),
   review_submitted: z.looseObject({ repo: S, pr: N, reviewer: S, state: S }),
   mergeable_changed: z.looseObject(prChange),
   pr_state_changed: z.looseObject(prChange),
