@@ -15,6 +15,10 @@
   white-space: nowrap;
   cursor: pointer;
 }
+.tab[aria-disabled='true'] {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}
 .tab:focus-visible,
 .panel:focus-visible {
   outline: var(--width-ring) solid var(--color-status-working);
@@ -38,7 +42,7 @@
   /* The underline sits on the header row's bottom border. */
   margin-bottom: calc(-1 * var(--space-0-25));
 }
-.underline .tab:hover {
+.underline .tab:hover:not([aria-disabled='true']) {
   color: var(--color-text-secondary);
 }
 .underline .tab[aria-selected='true'] {

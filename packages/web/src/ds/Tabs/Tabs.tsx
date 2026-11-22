@@ -3,8 +3,13 @@ import styles from './Tabs.module.css';
 
 export type TabsVariant = 'underline' | 'segmented';
 
-/** One tab. With a count, the tab's name is `<label> <count>`. */
-export type TabItem = { value: string; label: string; count?: number | undefined };
+/** One tab. With a count, the tab's name is `<label> <count>`. A disabled tab is inert. */
+export type TabItem = {
+  value: string;
+  label: string;
+  count?: number | undefined;
+  disabled?: boolean | undefined;
+};
 
 const tabId = (id: string, value: string) => `${id}-tab-${encodeURIComponent(value)}`;
 const panelId = (id: string, value: string) => `${id}-panel-${encodeURIComponent(value)}`;
@@ -14,7 +19,12 @@ const panelId = (id: string, value: string) => `${id}-panel-${encodeURIComponent
  * click or key only calls `onChange`; the selection changes when the caller passes the new
  * `value`. Selection follows focus: ArrowLeft and ArrowRight move and wrap, Home and End jump;
  * with Shift, Alt, Ctrl or Meta held they do nothing. Only one tab is a Tab stop: the selected
- * one, or the first when `value` matches no tab.
+ * one, or the first enabled one when `value` matches no tab or names a disabled one.
+ *
+ * A disabled tab (`TabItem.disabled`) renders `aria-disabled`, is never a Tab stop and ignores
+ * clicks; the keys skip it, and from a focused disabled tab they step to the nearest enabled one.
+ * `disabled` on the list disables every tab: keys and clicks do nothing, no tab is a Tab stop and
+ * Tab reaches the panel.
  *
  * Tab and panel ids derive from `id`, so give each tablist an id unique on the page. Only the
  * selected tab points at its panel: the screen renders one `TabPanel`, for the selected value.
@@ -27,6 +37,7 @@ export function Tabs({
   tabs,
   value,
   onChange,
+  disabled = false,
 }: {
   id: string;
   label: string;
@@ -34,17 +45,21 @@ export function Tabs({
   tabs: readonly TabItem[];
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean | undefined;
 }) {
   if (tabs.length === 0) return null;
+  const off = (tab: TabItem) => disabled || tab.disabled === true;
+  const enabled = tabs.flatMap((tab, index) => (off(tab) ? [] : [index]));
   const selected = tabs.findIndex((tab) => tab.value === value);
-  const stop = selected === -1 ? 0 : selected;
+  const stop = enabled.includes(selected) ? selected : enabled[0];
   const keyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+    // Arrows step over enabled tabs in the key's direction and wrap, from a disabled tab too.
     let next: number | undefined;
-    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
-    if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
-    if (event.key === 'Home') next = 0;
-    if (event.key === 'End') next = tabs.length - 1;
+    if (event.key === 'ArrowRight') next = enabled.find((i) => i > index) ?? enabled[0];
+    if (event.key === 'ArrowLeft') next = enabled.findLast((i) => i < index) ?? enabled.at(-1);
+    if (event.key === 'Home') next = enabled[0];
+    if (event.key === 'End') next = enabled.at(-1);
     const target = next === undefined ? undefined : tabs[next];
     if (!target) return;
     event.preventDefault();
@@ -67,8 +82,10 @@ export function Tabs({
           aria-selected={index === selected}
           aria-controls={index === selected ? panelId(id, tab.value) : undefined}
           aria-label={tab.count === undefined ? undefined : `${tab.label} ${String(tab.count)}`}
+          aria-disabled={off(tab) || undefined}
           tabIndex={index === stop ? 0 : -1}
           onClick={() => {
+            if (off(tab)) return;
             onChange(tab.value);
           }}
           onKeyDown={(event) => {

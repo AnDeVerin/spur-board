@@ -1,4 +1,6 @@
-import { createElement } from 'react';
+// @vitest-environment happy-dom
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { CollapsibleSection, quiet, TabPanel, Tabs, type TabItem } from '../src/ds/index.ts';
@@ -161,8 +163,117 @@ describe('Tabs', () => {
     expect(render('a b', [{ value: 'a b', label: 'a b' }])).toContain('id="f-tab-a%20b"');
   });
 
+  it('marks a disabled tab and never makes it the tab stop', () => {
+    const off = (index: number) =>
+      filters.map((tab, at) => (at === index ? { ...tab, disabled: true } : tab));
+    const one = tabTags(render('all', off(1)));
+    const marked = one.filter((tag) => tag.includes('aria-disabled="true"'));
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toContain('id="f-tab-spur-board"');
+    expect(marked[0]).toContain('tabindex="-1"');
+    const firstOff = tabTags(render('none', off(0)));
+    expect(firstOff[1]).toContain('tabindex="0"');
+    expect(firstOff.filter((tag) => tag.includes('tabindex="0"'))).toHaveLength(1);
+  });
+
+  it('marks every tab of a disabled list and leaves no tab stop', () => {
+    const html = renderToStaticMarkup(
+      createElement(Tabs, {
+        id: 'f',
+        label: 'Filter',
+        tabs: filters,
+        value: 'all',
+        onChange: () => undefined,
+        disabled: true,
+      }),
+    );
+    expect(tabTags(html).filter((tag) => tag.includes('aria-disabled="true"'))).toHaveLength(3);
+    expect(html).not.toContain('tabindex="0"');
+  });
+
+  describe('keys and clicks', () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const tabs: TabItem[] = [
+      { value: 'a', label: 'a' },
+      { value: 'b', label: 'b', disabled: true },
+      { value: 'c', label: 'c' },
+      { value: 'd', label: 'd', disabled: true },
+    ];
+    const mount = (disabled = false) => {
+      const onChange = vi.fn();
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      act(() => {
+        root.render(
+          createElement(Tabs, { id: 'k', label: 'Keys', tabs, value: 'a', onChange, disabled }),
+        );
+      });
+      const tab = (value: string) => {
+        const found = document.getElementById(`k-tab-${value}`);
+        if (!found) throw new Error(`no tab ${value}`);
+        return found;
+      };
+      const key = (value: string, k: string) => {
+        tab(value).focus();
+        act(() => {
+          tab(value).dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+        });
+      };
+      const click = (value: string) => {
+        act(() => {
+          tab(value).click();
+        });
+      };
+      const unmount = () => {
+        act(() => {
+          root.unmount();
+        });
+        host.remove();
+      };
+      return { onChange, tab, key, click, unmount };
+    };
+
+    it('skip disabled tabs with wrap, from a focused disabled tab too', () => {
+      const { onChange, tab, key, click, unmount } = mount();
+      const after = (value: string, k: string) => {
+        onChange.mockClear();
+        key(value, k);
+        return onChange.mock.calls;
+      };
+      expect(after('a', 'ArrowRight')).toEqual([['c']]);
+      expect(document.activeElement).toBe(tab('c'));
+      expect(after('c', 'ArrowRight')).toEqual([['a']]);
+      expect(document.activeElement).toBe(tab('a'));
+      expect(after('a', 'ArrowLeft')).toEqual([['c']]);
+      expect(after('a', 'End')).toEqual([['c']]);
+      expect(after('c', 'Home')).toEqual([['a']]);
+      expect(after('b', 'ArrowRight')).toEqual([['c']]);
+      expect(document.activeElement).toBe(tab('c'));
+      expect(after('b', 'ArrowLeft')).toEqual([['a']]);
+      onChange.mockClear();
+      click('b');
+      expect(onChange).not.toHaveBeenCalled();
+      unmount();
+    });
+
+    it('do nothing on a disabled list', () => {
+      const { onChange, tab, key, click, unmount } = mount(true);
+      for (const k of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) {
+        key('a', k);
+        expect(document.activeElement, k).toBe(tab('a'));
+      }
+      click('a');
+      click('c');
+      expect(onChange).not.toHaveBeenCalled();
+      unmount();
+    });
+  });
+
   it('has the examples the gallery shows', () => {
     expect(Object.keys(examples['../src/ds/Tabs/Tabs.examples.tsx'] ?? {}).sort()).toEqual([
+      'Disabled',
+      'DisabledTab',
       'Focused',
       'Segmented',
       'Underline',
