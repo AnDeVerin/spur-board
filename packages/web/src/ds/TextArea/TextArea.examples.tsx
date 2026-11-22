@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { TextArea } from './TextArea.tsx';
 
 function Controlled({ initial, disabled = false }: { initial: string; disabled?: boolean }) {
@@ -24,7 +25,7 @@ export function Disabled() {
 }
 export function Focused() {
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+    <div className={quiet} style={{ display: 'grid', gap: 'var(--space-2)' }}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Press Tab: the border turns primary
       </p>

@@ -1,4 +1,5 @@
 import { Button } from '../Button/Button.tsx';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { IconButton } from './IconButton.tsx';
 
 export function Close() {
@@ -14,7 +15,7 @@ export function InActions() {
 }
 export function Disabled() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+    <div className={quiet} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
       <IconButton icon="x" label="Close" disabled />
       <span style={{ color: 'var(--color-text-tertiary)' }}>
         Dimmed and skipped by Tab; hovering changes nothing
@@ -24,7 +25,10 @@ export function Disabled() {
 }
 export function Focused() {
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}
+    >
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Press Tab: each size shows the focus ring
       </p>

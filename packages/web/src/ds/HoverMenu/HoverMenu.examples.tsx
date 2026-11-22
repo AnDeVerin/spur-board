@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import type { IconName } from '../Icon/Icon.tsx';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { HoverMenu, type HoverMenuItem } from './HoverMenu.tsx';
 
 type Choice = 'light' | 'dark' | 'auto';
@@ -23,7 +24,7 @@ function Frame({
   children: ReactNode;
 }) {
   return (
-    <div>
+    <div className={quiet}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>{caption}</p>
       <div
         style={{

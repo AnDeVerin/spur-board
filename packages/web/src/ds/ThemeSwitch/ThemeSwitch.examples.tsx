@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { ThemeSwitch, type ThemePreference } from './ThemeSwitch.tsx';
 
 // The menu opens upward, so each example reserves room above the switch.
@@ -13,7 +14,7 @@ function Controlled({
 }) {
   const [value, setValue] = useState(initial);
   return (
-    <div>
+    <div className={quiet}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>{caption}</p>
       <div style={{ paddingBlockStart: 'calc(var(--size-control) * 4)' }}>
         <ThemeSwitch value={value} onChange={setValue} defaultOpen={open} />

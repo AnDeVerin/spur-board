@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { FormRow } from '../FormRow/FormRow.tsx';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { TextInput } from './TextInput.tsx';
 
 function Filter({ initial, disabled = false }: { initial: string; disabled?: boolean }) {
@@ -17,7 +18,7 @@ function Filter({ initial, disabled = false }: { initial: string; disabled?: boo
 }
 export function Empty() {
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+    <div className={quiet} style={{ display: 'grid', gap: 'var(--space-2)' }}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Tab in to see focus: the border turns primary
       </p>
@@ -41,7 +42,7 @@ function Row({ label, hint, error }: { label: string; hint: string; error?: stri
 }
 export function InFormRow() {
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+    <div className={quiet} style={{ display: 'grid', gap: 'var(--space-3)' }}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Click a label: focus lands in its field, which the row names and describes by its hint or
         error
@@ -57,7 +58,7 @@ export function InFormRow() {
 }
 export function Focused() {
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+    <div className={quiet} style={{ display: 'grid', gap: 'var(--space-2)' }}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Press Tab: the border turns primary; press Tab again to reach Clear, which shows the focus
         ring

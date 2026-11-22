@@ -1,4 +1,5 @@
 import { Icon } from '../Icon/Icon.tsx';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { Chip } from './Chip.tsx';
 
 export function Default() {
@@ -35,7 +36,10 @@ export function Link() {
 }
 export function LinkFocused() {
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}
+    >
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Hover it, or press Tab for the focus ring
       </p>

@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import { Button } from '../Button/Button.tsx';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { SidePanel } from '../SidePanel/SidePanel.tsx';
 import { TabPanel, Tabs, type TabItem } from '../Tabs/Tabs.tsx';
 import { Modal } from './Modal.tsx';
@@ -51,7 +52,10 @@ function TaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
 function Demo({ children }: { children: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}
+    >
       <p style={caption}>{children}</p>
       <Button
         onClick={() => {
@@ -94,7 +98,10 @@ export function OverPanel() {
   const [panel, setPanel] = useState(false);
   const [task, setTask] = useState(false);
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}
+    >
       <p style={caption}>
         Open the inbox, then the task: the modal sits over the panel, the first Escape closes only
         the modal and returns focus into the panel, the second closes the panel.

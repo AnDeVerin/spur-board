@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { Button } from '../Button/Button.tsx';
 import { HoverMenu, type HoverMenuItem } from '../HoverMenu/HoverMenu.tsx';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { TabPanel, Tabs, type TabItem } from '../Tabs/Tabs.tsx';
 import { Popover } from './Popover.tsx';
 
@@ -84,7 +85,7 @@ function Demo({
   const { anchor, trigger, hold } = useAnchor();
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', ...style }}>
+    <div className={quiet} style={{ display: 'grid', gap: 'var(--space-2)', ...style }}>
       <p style={caption}>{children}</p>
       <div ref={hold} style={{ justifySelf: end ? 'end' : 'start' }}>
         <Button
@@ -130,7 +131,7 @@ export function FollowsColumn() {
     borderRight: 'var(--size-hairline) solid var(--color-border-default)',
   };
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', ...reserved }}>
+    <div className={quiet} style={{ display: 'grid', gap: 'var(--space-2)', ...reserved }}>
       <p style={caption}>
         Starts open under the third column head. Scroll the strip sideways: the panel follows the
         column, keeps inside the window while the column shows, and leaves the window with it. A
@@ -181,7 +182,7 @@ export function PanelLayer() {
   const [open, setOpen] = useState(true);
   const [sort, setSort] = useState<Field>('time');
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', ...reserved }}>
+    <div className={quiet} style={{ display: 'grid', gap: 'var(--space-2)', ...reserved }}>
       <p style={caption}>
         Starts open at layer panel (--z-panel), under a column head whose sort menu (--z-menu) drops
         over the panel, so each item can be clicked.

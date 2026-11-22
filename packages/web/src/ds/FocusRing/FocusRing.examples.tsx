@@ -1,9 +1,13 @@
 import type { ReactNode } from 'react';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { focusRing } from './FocusRing.tsx';
 
 function Shown({ caption, children }: { caption: string; children: ReactNode }) {
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}
+    >
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>{caption}</p>
       {children}
     </div>

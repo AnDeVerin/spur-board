@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { LineClamp } from './LineClamp.tsx';
 
 const long =
@@ -10,7 +11,10 @@ const long =
 function Clamped({ text, note }: { text: string; note?: string }) {
   const [overflows, setOverflows] = useState<boolean | undefined>(undefined);
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', width: 'var(--size-column)' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', width: 'var(--size-column)' }}
+    >
       <LineClamp onOverflowChange={setOverflows}>{text}</LineClamp>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         {`overflows: ${overflows === undefined ? '…' : overflows ? 'yes' : 'no'}`}

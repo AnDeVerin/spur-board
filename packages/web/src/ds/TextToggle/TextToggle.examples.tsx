@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { TextToggle } from './TextToggle.tsx';
 
 const noop = () => undefined;
@@ -9,7 +10,10 @@ export function Rest() {
 export function Focused() {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}
+    >
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Press Tab to reach the toggle; Enter or Space toggles it
       </p>

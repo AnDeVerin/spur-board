@@ -1,10 +1,11 @@
+import { quiet } from '../Quiet/Quiet.tsx';
 import { breakpoints } from './Breakpoints.tsx';
 import styles from './Breakpoints.module.css';
 
 // Matching is shown by CSS alone, so the example calls no matchMedia while it renders.
 export function List() {
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+    <div className={quiet} style={{ display: 'grid', gap: 'var(--space-2)' }}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Resize the window below 760px to see narrow match
       </p>

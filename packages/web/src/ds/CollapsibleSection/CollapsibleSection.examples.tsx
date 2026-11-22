@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { KeyValueBox } from '../KeyValueBox/KeyValueBox.tsx';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { CollapsibleSection } from './CollapsibleSection.tsx';
 
 export function Open() {
@@ -41,7 +42,7 @@ export function Sticky() {
 }
 export function Focused() {
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+    <div className={quiet} style={{ display: 'grid', gap: 'var(--space-2)' }}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Press Tab to reach the chevron; Enter or Space toggles the section
       </p>

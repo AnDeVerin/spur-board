@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { Button } from '../Button/Button.tsx';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { Scrim } from './Scrim.tsx';
 
 export function Default() {
   const [shown, setShown] = useState(false);
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}
+    >
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Show the scrim: it dims only the box below; a click on it hides it, as does the button.
       </p>

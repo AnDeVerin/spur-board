@@ -1,9 +1,13 @@
 import { useId, useState, type ReactNode } from 'react';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { Button } from './Button.tsx';
 
 function Shown({ caption, children }: { caption: string; children: ReactNode }) {
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}
+    >
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>{caption}</p>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>{children}</div>
     </div>

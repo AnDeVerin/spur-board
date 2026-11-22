@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Button } from '../Button/Button.tsx';
 import type { IconName } from '../Icon/Icon.tsx';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { SidePanel, type SidePanelSide } from './SidePanel.tsx';
 
 function Demo({
@@ -20,7 +21,10 @@ function Demo({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}
+    >
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>{caption}</p>
       <Button
         onClick={() => {
@@ -94,7 +98,10 @@ export function LiveBar() {
   const [open, setOpen] = useState(false);
   const bar = useRef<HTMLDivElement>(null);
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+    <div
+      className={quiet}
+      style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}
+    >
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Click Services in the bar: the left panel opens and the bar stays live, so a second click
         closes it. Tab stays inside the panel; Escape and Close close it too.

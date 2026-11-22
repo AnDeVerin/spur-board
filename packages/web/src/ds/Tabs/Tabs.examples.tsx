@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { quiet } from '../Quiet/Quiet.tsx';
 import { TabPanel, Tabs, type TabItem, type TabsVariant } from './Tabs.tsx';
 
 function Controlled({
@@ -67,7 +68,7 @@ export function Segmented() {
 }
 export function Focused() {
   return (
-    <div>
+    <div className={quiet}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Press Tab to reach the selected tab, then the arrow keys, Home and End; Tab again reaches
         the panel.
@@ -79,7 +80,7 @@ export function Focused() {
 }
 export function Disabled() {
   return (
-    <div>
+    <div className={quiet}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Disabled list: dimmed; arrow keys, Home, End, clicks and hover do nothing; Tab skips the
         tabs to the panel.
@@ -96,7 +97,7 @@ const bases: TabItem[] = [
 ];
 export function DisabledTab() {
   return (
-    <div>
+    <div className={quiet}>
       <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Carried is disabled: the arrow keys skip it and a click on it does nothing.
       </p>
