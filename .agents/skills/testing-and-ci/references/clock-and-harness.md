@@ -31,9 +31,9 @@ Every test runs through the root config, so all of these hold:
   It builds fresh production assets before workers in provided `webAssetsRoot`; tests inject
   that path. Failure/teardown removes it. `packages/testkit/test/web-assets.test.ts` pins this.
 - Global setup writes an owner record into its root (pid, start ticks, boot id, pid
-  namespace) and, before it creates the root, removes the `spur-board-test-*` roots of dead runs from
-  `tmpdir()` and `/tmp` (`packages/testkit/src/sweep.ts`): owner gone, pid reused or earlier
-  boot. A root without an owner record goes after 3 h of age, a root in another pid namespace or
+  namespace) and, before it creates the root, removes the `spur-board-test-*` roots of dead
+  runs from `tmpdir()` and the system temp directory (`packages/testkit/src/sweep.ts`): owner
+  gone, pid reused or earlier boot. A root without an owner record goes after 3 h of age, a root in another pid namespace or
   with a record missing a field after 24 h; age is the newer mtime of the root and its tmp directory.
   It never follows symlinks, skips other users' entries and never removes a live run's root.
 - `packages/testkit/src/setup.ts` re-pins `HOME`, `TMPDIR` and the XDG directories in each
