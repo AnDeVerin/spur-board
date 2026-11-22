@@ -32,6 +32,13 @@ keep it.
 
 ## 3. Create the Slack app and configuration
 
+Slack is optional. To run without it, skip the Slack app and leave `operator` and `slack` out of
+`config.yaml`; the Board then writes nothing for Slack and delivers Spur doorbells as usual. A
+Spur project with role `operator` is the operator: questions addressed to you wait in
+`board inbox operator` and the web inbox. Items and blocks raised while Slack is off get no Slack
+line when you add Slack later. Add `operator.slack` back before `board rollback` to a version
+that requires it. To use Slack, read on.
+
 Choose private channels for the orchestrators and feed roles. The app must be invited before it
 can see a private channel. The example names `#orchestrators` and `#board-feed` are defaults,
 not requirements. The slash command defaults to `/board`; these names can be changed. Generate
@@ -181,6 +188,7 @@ an operator session outside Spur, choose a folder and request a named token ther
 board token create --name <name> --into <folder>
 ```
 
+Without Slack, use a Spur project marked `operator`: a token request needs Slack approval.
 Approve the request in Slack before using the token; the Slack prompt shows the same
 `requestHash` the command printed, so approve only a request whose hash matches. The CLI looks for the folder's
 `.spur-board/token` while walking upward from the current directory, stopping at the root of
@@ -204,8 +212,8 @@ has a `spur-board` skill file changed since it started or was last told; the mes
 files, and a session already told gets nothing. A `sessions.stale` warning lists the sessions that
 started before the skill files last changed and have no delivered message: stop and wake them in
 Spur, which keeps the conversation. Sessions whose message is still queued are named apart; rerun doctor in a minute.
-After the first complete poll, look for the `spur-board is live` line in the configured feed
-channel. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for check-specific fixes and logs.
+With Slack, after the first complete poll, look for the `spur-board is live` line in the
+configured feed channel; without it, check the web inbox or `board status`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for check-specific fixes and logs.
 
 To upgrade, run `board update` for the latest release, or `board update <version>` for a given one,
 from a shell with the same Node and `BOARD_HOME` or `XDG_*` settings as the service (a live Spur

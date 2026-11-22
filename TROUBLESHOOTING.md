@@ -362,9 +362,14 @@ the command answers from another app or Board, see
 
 ### slack.configured
 
-Slack is not configured. Questions addressed to the operator remain visible through the
-Board inbox. Use the setup skill to assign the orchestrators and feed channel IDs when Slack
-delivery is wanted. This check appears instead of the four Slack integration checks above.
+This check appears instead of the four Slack integration checks above when `slack.channels` is
+not set. It passes, without blocking, when `operator.slack` is not set either: the Board runs
+without Slack. Questions addressed to the operator wait in `board inbox operator` and the web
+inbox, and only Spur sessions reach the Board, since a token request needs Slack approval.
+
+It warns when `operator.slack` is set without `slack.channels`: Slack is partly configured and
+nothing reaches it. Use the setup skill to assign the orchestrators and feed channel IDs, or
+remove `operator.slack` to run without Slack.
 
 ### operator.path
 
