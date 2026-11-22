@@ -23,12 +23,14 @@ Ack T<number> first with keyed
 `board inbox ack <entries>`; only its acking session may submit or return.
 On `turn_closed`, act only on a turn `board inbox` lists. Shadow mode opens no turn:
 `board submit <task> <sha>`.
-Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot,
-high machine load, a deploy, an outside service. Not on your own work (review fixes, tests,
+Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load,
+someone else's deploy, an outside service you call. Not on your own work (review fixes, tests,
 checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.
+Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges):
+submit the head and stop; red checks or other needs bring a new Dev turn.
 Keyed `board wait <turn> --for <min> --reason <text>`; a ring wakes you.
 
-- Dev worker: ack, then keyed `board submit <turn> <sha>` for the PR head. Answer each external comment the turn hands you with a new head or a reasoned reply; a reply alone submits the same head.
+- Dev worker: ack, then keyed `board submit <turn> <sha>` for the PR head right after the push, not waiting for CI. Answer each external comment the turn hands you with a new head or a reasoned reply; a reply alone submits the same head.
   Re-request review only from reviewers whose threads your push closed.
   If returns repeat the same mechanism, fix the class once; one table test for variants.
   Code a finding only if it breaks the task's goal in its target setup or regresses the release,
@@ -38,12 +40,12 @@ Keyed `board wait <turn> --for <min> --reason <text>`; a ring wakes you.
   `board return <turn> <reason>` to send it to Dev with what to change. Never push.
 - Operator (the operator token, or a session of a Spur project marked operator): keyed
   `board inbox ack <entries>` with the T<number> from `board inbox operator` (not
-  `board inbox`) or `board task <task>` takes a turn addressed to the operator, or takes over an open orchestrator turn, taken or not; then submit
-  or return it as above.
+  `board inbox`) or `board task <task>` takes a turn addressed to the operator or an open orchestrator turn, taken or not; then
+  submit or return it.
 
 ## Worker flow
 
-Read [the worker flow](references/worker-flow.md) for session links, asks, updates, "back" code blocks, exit codes and own-session answers.
+Read [the worker flow](references/worker-flow.md) for links, asks, updates, "back" blocks, exit codes and own-session answers.
 
 - On doorbell, read `board inbox` and the addressed C<number>@<revision> comment or B<number>
   block. Once handled, ack its revision, ID or ring N<number>-<ring> with keyed
@@ -54,11 +56,10 @@ Read [the worker flow](references/worker-flow.md) for session links, asks, updat
   `code` block, your confirmed submit closes it; no unblock. Keyed `board unblock <block> --done <ref>` after the fix only
   if `board task <task>` shows it open with `addressee` worker, after your submit if a Dev
   turn is yours. Ack it when you read it in `board inbox`; `not_found`: none due. If the ack
-  answers `forbidden` (the block's ring is assigned to another worker, or you authored the
-  block), skip the ack: close it with `--done` if it is yours to close, otherwise leave it to
-  the worker it rings. While `board task <task> --why` lists `submit_pending` or another hold,
-  wait. A hold that does not clear: keyed `board ask <task> <text>` naming it; its recipient
-  checks or escalates it, up to the operator ([how the Board works](references/how-board-works.md)).
+  answers `forbidden` (another worker's ring, or your own block), skip it: close it with
+  `--done` if yours, else leave it to the worker it rings. While `board task <task> --why` lists
+  `submit_pending` or another hold, wait. A hold that does not clear: keyed
+  `board ask <task> <text>` naming it.
 
 ## Board commands
 

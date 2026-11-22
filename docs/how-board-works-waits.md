@@ -2,9 +2,17 @@
 
 ## Start a wait
 
-Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot,
-high machine load, a deploy, an outside service. Not on your own work (review fixes, tests,
+Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load,
+someone else's deploy, an outside service you call. Not on your own work (review fixes, tests,
 checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.
+Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges):
+submit the head and stop; red checks or other needs bring a new Dev turn.
+
+A submit needs no green checks. Running checks hold the task at the `checksGate` column's exit
+(Dev by default); red checks, a cancelled run included, return it to Dev with a new turn. With
+`checksGate` right of Dev, a cancelled run counts as running for about two GitHub poll intervals
+first. Only the latest run of each check counts, so a rerun on the same head replaces a
+cancelled run.
 
 To wait on a taken, open turn you hold, instead of sitting quiet:
 `board wait <turn> --for <minutes> --reason <text> --key <key>` (MCP `task_wait`).
