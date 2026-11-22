@@ -493,6 +493,11 @@ export function createBoardData(options: BoardDataOptions) {
             refreshTask();
           }),
       ),
+    /** End an agent's wait on turn `turn` as the operator; refused as `closeItemIntent` is. */
+    endWaitIntent: (turn: string) =>
+      boardIntent('task.wait', { turn, end: true }, () => {
+        status.refresh();
+      }),
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
     /**
      * Open a task by key, or close it with null: read `task.get` with why and detail, then whenever the

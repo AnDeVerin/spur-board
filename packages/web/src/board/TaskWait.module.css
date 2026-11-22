@@ -1,14 +1,24 @@
-/* The wait strip between the link chips and "Why it is here". */
+/* The wait strip between the link chips and "Why it is here", with its error line under it. */
+.wait {
+  margin-bottom: var(--space-3);
+}
 .strip {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
   padding: var(--space-2) var(--space-2-5);
   border: var(--size-hairline) solid var(--color-status-attention);
   border-radius: var(--radius);
   background: var(--color-fill-attention);
   color: var(--color-text-attention);
+}
+/* The labelled image: icon and text. It takes the room the End wait link leaves. */
+.label {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: flex-start;
+  gap: var(--space-2);
 }
 /* Items sit at the top, so a wrapped reason keeps the icon on its first line. */
 .icon {
@@ -22,5 +32,31 @@
   min-width: 0;
   margin: 0;
   font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+/* Hover keeps the strip's colour: the toggle's hover colour would lose contrast on the fill. */
+.strip .end,
+.strip .end:hover {
+  flex: none;
+  color: var(--color-text-attention);
+  font-size: var(--text-small);
+  text-decoration: underline;
+  white-space: nowrap;
+}
+/* The turn in the link's name, for assistive technology only. */
+.hidden {
+  position: absolute;
+  width: var(--size-hairline);
+  height: var(--size-hairline);
+  padding: 0;
+  margin: calc(-1 * var(--space-0-25));
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.error {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-small);
+  color: var(--color-status-error);
   overflow-wrap: anywhere;
 }

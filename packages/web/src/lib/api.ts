@@ -79,7 +79,8 @@ export function createMutationIntent<
     | 'inbox.ack'
     | 'task.submit'
     | 'task.return'
-    | 'task.move',
+    | 'task.move'
+    | 'task.wait',
 >(
   api: ReturnType<typeof createApi>,
   id: K,

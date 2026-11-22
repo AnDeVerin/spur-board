@@ -1,8 +1,7 @@
 # Web UI: task view
 
 The task view of the [web UI](web-ui.md) shows one task in a dialog over the columns; on a
-narrow screen it fills the screen. It reads `task.get` with `why` and `detail` for the open task and, like
-the rest of the UI, refreshes from the event stream. It also offers the writes below.
+narrow screen it fills the screen. It reads `task.get` with `why` and `detail`.
 
 ## Opening it
 
@@ -44,6 +43,7 @@ is selected once configuration arrives. Back and Forward restore both layers.
 - A taken open turn's active wait, unless it is an operator turn you hold, adds an amber strip
   under the chips: `waiting: <reason> · wakes <hh:mm>` (UTC), then `(in 20m)`/`(now)`. Unlike
   the card, it shows during a stall too. Long reasons wrap; hidden while the Turn section re-reads.
+  On an agent's turn, `End wait` ends it at once ([waits](how-board-works-waits.md)).
 - `History` lists the task's journal events, newest first by event time; events at the same
   time keep the reverse of their journal order. Each row shows the time (UTC, `hh:mm dd/mm/yy`),
   the summary of what changed with who did it, and the raw event kind, such as `turn_taken`. An agent reads as its session;
