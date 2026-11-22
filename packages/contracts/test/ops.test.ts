@@ -999,9 +999,10 @@ describe('snapshot', () => {
     // task.wait guidance and its reason field. #827 lets the operator end a turn's wait early:
     // task.wait gains end and web, optional for, reason and output wait, the ended outcome, and
     // the not_operator and no_active_wait codes. #841 rewords the task.wait description, its
-    // guidance and its reason field: wait only on what the Board cannot see, not on what it watches.
+    // guidance and its reason field: wait only on what the Board cannot see, not on what it watches,
+    // unless your own next step needs the watched fact.
     expect(await catalogVersion(baseline)).toBe(
-      'f0400aaf2d1eae4a9c7dabae2c185add742dbff9b4555a6f13113ab3eb967299',
+      '52dcca9e2debc3e04351392f674e0b524c10e572a332e5bdc8272fca85fc51ad',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

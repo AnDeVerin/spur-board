@@ -23,7 +23,7 @@ describe('board wait guidance', () => {
       'Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.',
     );
     expect(normalised).toContain(
-      'Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges): submit the head and stop; red checks or other needs bring a new Dev turn.',
+      'Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges): submit the head and stop; red checks or other needs bring a new Dev turn. If your next step needs it (you merge, or shadow mode), wait for it.',
     );
     expect(normalised).not.toContain('such as a busy test stand');
     expect(normalised).not.toContain('a condition you cannot change and must re-check');

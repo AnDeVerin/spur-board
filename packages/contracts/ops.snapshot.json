@@ -1,5 +1,5 @@
 {
-  "version": "7f8dee88ec4619ba00de6aab815d8116946513316186edd4ae783fa2cf4066d7",
+  "version": "70e7d3c3a707975aeda29a088e72fd0e9cefe74d6dbf1cf26df44ad300668ca3",
   "grants": [
     "operator",
     "project-agent",
@@ -11487,7 +11487,7 @@
         "name": "task_wait",
         "key": "idempotencyKey",
         "whenToUse": "You hold a turn. Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load, someone else's deploy, an outside service you call. Give whole minutes and the reason; the Board rings you with the reason when the wait ends, and submit, return or a close ends it earlier. Waits per turn are capped by count and total time. As the operator, pass end to end a holder's active wait early; the holder is rung.",
-        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it. Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges): submit the head and stop; red checks or other needs bring a new Dev turn.",
+        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it. Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges): submit the head and stop; red checks or other needs bring a new Dev turn. If your next step needs it (you merge, or shadow mode), wait for it.",
         "destructive": true
       },
       "slack": null,
@@ -11529,7 +11529,7 @@
             "maximum": 120
           },
           "reason": {
-            "description": "What you wait for, up to 200 characters; the wake ring repeats it. Required unless end. Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load, someone else's deploy, an outside service you call. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it. Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges): submit the head and stop; red checks or other needs bring a new Dev turn.",
+            "description": "What you wait for, up to 200 characters; the wake ring repeats it. Required unless end. Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load, someone else's deploy, an outside service you call. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it. Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges): submit the head and stop; red checks or other needs bring a new Dev turn. If your next step needs it (you merge, or shadow mode), wait for it.",
             "type": "string",
             "minLength": 1,
             "maxLength": 200,

@@ -7,6 +7,7 @@ someone else's deploy, an outside service you call. Not on your own work (review
 checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.
 Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges):
 submit the head and stop; red checks or other needs bring a new Dev turn.
+If your next step needs it (you merge, or shadow mode), wait for it.
 
 A submit needs no green checks. Running checks hold the task at the `checksGate` column's exit
 (Dev by default); red checks, a cancelled run included, return it to Dev with a new turn. With
