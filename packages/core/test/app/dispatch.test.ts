@@ -2889,27 +2889,29 @@ describe('a merged PR and the ticket', () => {
     await expectOpen(ctx, id);
   });
 
-  /** The open operator items naming worker-1, by key. */
-  const workerItems = async (ctx: Board) =>
+  /** The operator items naming `session`, by key: every one ever raised, or only the open ones. */
+  const itemsOf = async (ctx: Board, session: string, open = false) =>
     (
       await ctx.store.db
         .selectFrom('operator_item')
         .select('item_key')
-        .where('item_key', 'like', '%worker-1%')
-        .where('cleared_at', 'is', null)
+        .where('item_key', 'like', `%:${session}:%`)
+        .$if(open, (query) => query.where('cleared_at', 'is', null))
         .execute()
     ).map((item) => item.item_key);
 
   it.each([
-    ['error', 'untaken wrap-up', null],
-    ['needs_input', 'untaken wrap-up', null],
-    ['error', 'host load', null],
-    ['needs_input', 'no wrap-up', 'health:1:worker-1:needs_input'],
-    ['needs_input', 'Review turn', 'health:1:worker-1:needs_input'],
-    ['needs_input', 'open wrap-up', 'health:1:worker-1:needs_input'],
+    ['error', 'untaken wrap-up', 'worker-1', false],
+    ['needs_input', 'untaken wrap-up', 'worker-1', false],
+    ['error', 'host load', 'worker-1', false],
+    ['needs_input', 'no wrap-up', 'worker-1', true],
+    ['needs_input', 'Review turn', 'worker-1', true],
+    ['needs_input', 'open wrap-up', 'worker-1', true],
+    ['needs_input', 'fresh wrap-up after a close', 'worker-2', true],
+    ['needs_input', 'taken wrap-up after a close', 'worker-3', true],
   ] as const)(
     'a worker stopped in %s health (%s) loses its flags only with the wrap-up it left',
-    async (health, setup, kept) => {
+    async (health, setup, subject, kept) => {
       const options = {
         ...(setup === 'host load' ? { hostLoadSessions: 1 } : {}),
         ...(setup === 'no wrap-up' ? { doneOrchestrator: 'operator' } : {}),
@@ -2917,58 +2919,108 @@ describe('a merged PR and the ticket', () => {
       // In Review the reviewer's open turn leaves worker-1 out of the stall scan.
       const ctx = await (setup === 'Review turn' ? inReview(options) : inDev(options));
       const { health: limits } = ctx.config();
-      // Worker-2, linked last, takes the wrap-up's rings, so worker-1 is not its stalled executor.
-      const extra =
-        setup === 'host load' || setup === 'open wrap-up'
-          ? [sessionFacts('worker-2', 'worker')]
-          : [];
+      const flagAfter = limits[health === 'error' ? 'errorAfterMs' : 'needsInputAfterMs'];
+      const facts = (id: string, healthSince: string, stopped = false): SessionFacts => ({
+        ...sessionFacts(id, 'worker'),
+        health,
+        healthSince,
+        ...(stopped ? { lifecycle: 'stopped' } : {}),
+      });
+      /** A complete Spur read: worker-1 as `worker1`, then the other workers. */
+      const read = (worker1: Partial<SessionFacts> | 'ended', ...others: SessionFacts[]) =>
+        worker1 === 'ended'
+          ? ctx.spur('ended', true, [], undefined, false, {}, others)
+          : ctx.spur('live', true, [], undefined, false, worker1, others);
       let id = -1;
-      if (setup === 'no wrap-up') {
-        await ctx.pr({ state: 'merged' });
-        await ctx.ticket('closed');
-        expect((await ctx.task()).column).toBe('done');
-        expect(await ctx.openTurn()).toBeNull();
-      } else if (setup !== 'Review turn') id = await untakenWrapUp(ctx);
-      // Spur keeps the smoothed health of the worker past its flag threshold.
-      const unhealthy = { health, healthSince: ctx.at() };
-      await ctx.spur('live', true, [], undefined, false, unhealthy, extra);
-      ctx.wait(
-        setup === 'host load'
-          ? limits.hostLoad.maxEpisodeMs + limits.errorAfterMs
-          : limits[health === 'error' ? 'errorAfterMs' : 'needsInputAfterMs'],
-      );
-      await ctx.spur('live', true, [], undefined, false, unhealthy, extra);
-      const before = await workerItems(ctx);
-      if (setup === 'host load') {
-        expect(before).toEqual(['health:1:worker-1:stuck_worker']);
-        expect(await openSystemBlocks(ctx)).toHaveLength(1);
-        // A host-load episode that holds the stuck-worker block of a session still in error.
-        const episode = JSON.stringify({ startedAt: Date.parse(ctx.at()) });
-        await ctx.store.db
-          .insertInto('meta')
-          .values({ key: 'host_load_episode', value: episode })
-          .onConflict((oc) => oc.column('key').doUpdateSet({ value: episode }))
-          .execute();
-      } else if (kept === null) expect(before).toEqual([]);
-      else expect(before.some((key) => key.startsWith(kept))).toBe(true);
-      await ctx.spur(
-        'live',
-        true,
-        [],
-        undefined,
-        false,
-        { ...unhealthy, lifecycle: 'stopped' },
-        setup === 'host load' ? [sessionFacts('worker-2', 'worker', true)] : extra,
-      );
+      let stop: () => Promise<void>;
+      if (setup === 'fresh wrap-up after a close' || setup === 'taken wrap-up after a close') {
+        // An older untaken wrap-up of this Done visit closed with no recipient left.
+        const old = await untakenWrapUp(ctx);
+        await read('ended');
+        await expectMovedClose(ctx, old);
+        const worker2 = sessionFacts('worker-2', 'worker');
+        await read('ended', worker2);
+        await ctx.tick();
+        const next = await ctx.openTurn();
+        expect(next).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+        await ctx.ack('agent:worker/worker-2', next?.id ?? '');
+        const since = ctx.at();
+        if (setup === 'fresh wrap-up after a close') {
+          // Worker-2 submits its wrap-up, then waits for input and stops.
+          await ctx.submit('agent:worker/worker-2', next?.id ?? '');
+          expect((await ctx.turns()).at(-1)).toMatchObject({ closed_reason: 'submitted' });
+          await read('ended', facts('worker-2', since));
+          ctx.wait(flagAfter);
+          await read('ended', facts('worker-2', since));
+          stop = () => read('ended', facts('worker-2', since, true));
+        } else {
+          // Worker-3 waits for input and stops while worker-2 holds the wrap-up; then worker-2
+          // ends, which closes its taken turn.
+          await read('ended', worker2, facts('worker-3', since));
+          ctx.wait(flagAfter);
+          await read('ended', worker2, facts('worker-3', since));
+          stop = async () => {
+            await read('ended', worker2, facts('worker-3', since, true));
+            await read(
+              'ended',
+              sessionFacts('worker-2', 'worker', true),
+              facts('worker-3', since, true),
+            );
+            expect((await ctx.turns()).at(-1)).toMatchObject({
+              acked_by: 'agent:worker/worker-2',
+              closed_reason: 'moved',
+            });
+          };
+        }
+      } else {
+        // Worker-2, linked last, takes the wrap-up's rings, so worker-1 is not its stalled executor.
+        const others =
+          setup === 'host load' || setup === 'open wrap-up'
+            ? [sessionFacts('worker-2', 'worker')]
+            : [];
+        if (setup === 'no wrap-up') {
+          await ctx.pr({ state: 'merged' });
+          await ctx.ticket('closed');
+          expect((await ctx.task()).column).toBe('done');
+          expect(await ctx.openTurn()).toBeNull();
+        } else if (setup !== 'Review turn') id = await untakenWrapUp(ctx);
+        // Spur keeps the smoothed health of the worker past its flag threshold.
+        const unhealthy = { health, healthSince: ctx.at() };
+        await read(unhealthy, ...others);
+        ctx.wait(
+          setup === 'host load' ? limits.hostLoad.maxEpisodeMs + limits.errorAfterMs : flagAfter,
+        );
+        await read(unhealthy, ...others);
+        if (setup === 'host load') {
+          expect(await itemsOf(ctx, subject, true)).toEqual(['health:1:worker-1:stuck_worker']);
+          expect(await openSystemBlocks(ctx)).toHaveLength(1);
+          // A host-load episode that holds the stuck-worker block of a session still in error.
+          const episode = JSON.stringify({ startedAt: Date.parse(ctx.at()) });
+          await ctx.store.db
+            .insertInto('meta')
+            .values({ key: 'host_load_episode', value: episode })
+            .onConflict((oc) => oc.column('key').doUpdateSet({ value: episode }))
+            .execute();
+        }
+        stop = () =>
+          read(
+            { ...unhealthy, lifecycle: 'stopped' },
+            ...(setup === 'host load' ? [sessionFacts('worker-2', 'worker', true)] : others),
+          );
+      }
+      const alert = `health:1:${subject}:needs_input`;
+      if (kept) expect(await itemsOf(ctx, subject, true)).toContain(alert);
+      await stop();
       for (const step of ['stop', 'tick'] as const) {
         if (step === 'tick') await ctx.tick();
-        const after = await workerItems(ctx);
-        if (kept === null) {
-          expect(after).toEqual([]);
+        if (kept) expect(await itemsOf(ctx, subject, true)).toContain(alert);
+        else {
+          // An untaken wrap-up's worker is never flagged; the host-load item only clears.
+          expect(await itemsOf(ctx, subject, setup === 'host load')).toEqual([]);
           expect(await openSystemBlocks(ctx)).toEqual([]);
-        } else expect(after.some((key) => key.startsWith(kept))).toBe(true);
+        }
       }
-      if (kept === null) {
+      if (!kept) {
         await expectMovedClose(ctx, id);
         expect(await ctx.openTurn()).toBeNull();
       }

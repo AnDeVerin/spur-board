@@ -974,20 +974,28 @@ export async function reconcileItems(
   // health of its last state raises and holds no stuck or input flag. Before that close the
   // open turn kept the session in `stalled`.
   const turnTasks = new Set(turns.map((turn) => turn.task_id));
-  const unaddressedDone = new Set(
+  // Only the latest turn of the current Done visit counts: a later wrap-up, taken or not, starts
+  // over, so an older close cannot withdraw a newer alert.
+  const latestDoneTurns = new Map(
     (
       await trx
         .selectFrom('turn')
         .innerJoin('task', 'task.id', 'turn.task_id')
-        .select('turn.task_id')
-        .where('turn.closed_reason', '=', 'moved')
-        .where('turn.acked_at', 'is', null)
-        .where('turn.role', '=', 'worker')
+        .select(['turn.task_id', 'turn.acked_at', 'turn.role', 'turn.closed_reason'])
         .where('turn.column', '=', 'done')
         .where('task.column', '=', 'done')
         .whereRef('turn.epoch', '=', 'task.column_epoch')
+        .orderBy('turn.id')
         .execute()
-    ).map((turn) => turn.task_id),
+    ).map((turn) => [turn.task_id, turn]),
+  );
+  const unaddressedDone = new Set(
+    [...latestDoneTurns.values()]
+      .filter(
+        (turn) =>
+          turn.closed_reason === 'moved' && turn.acked_at === null && turn.role === 'worker',
+      )
+      .map((turn) => turn.task_id),
   );
   const stoppedInDone = new Set(
     subjects
