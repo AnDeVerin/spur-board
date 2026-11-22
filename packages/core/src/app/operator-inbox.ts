@@ -1,5 +1,4 @@
-import { columnTurnTimings, RESERVED_PROJECT, type Config, type Via } from '@spur-board/contracts';
-import { sql } from 'kysely';
+import { RESERVED_PROJECT, type Config, type Via } from '@spur-board/contracts';
 import { z } from 'zod';
 import {
   BLOCK_KEY,
@@ -21,6 +20,12 @@ import type { Trx } from './board-utils.ts';
 import { answeredVia, answeredViaColumn } from './blocks.ts';
 import { itemSubjects } from './items.ts';
 import { TASKLESS_ITEM_URL } from './item-raise.ts';
+import {
+  noSessionFields,
+  noSessionText,
+  waitingTurns,
+  type NoSession,
+} from './operator-inbox-no-session.ts';
 import { deliveredRefSchema } from './outbox.ts';
 import type { Query } from './queries.ts';
 
@@ -50,6 +55,7 @@ interface Entry {
   task: string | null;
   column?: Row<'turn'>['column'];
   answeredVia?: Via | null;
+  noSession?: NoSession;
   handledAt?: string;
 }
 
@@ -247,68 +253,6 @@ function sourceText(
   };
 }
 
-/** The board project and column a `no-session:<project>:<column>` key names. */
-function noSessionColumn(key: string): { project: string; column: string } {
-  const rest = key.slice(NO_SESSION_KEY.length);
-  const last = rest.lastIndexOf(':');
-  return { project: rest.slice(0, last), column: rest.slice(last + 1) };
-}
-
-/**
- * Untaken orchestrator turns of non-archived tasks with a ringing turn notification, as the
- * reconcile counts them, by `<project>:<column>`: one batched read, run only when an open
- * `no-session:` item is listed.
- */
-async function waitingTurns(trx: Trx, items: readonly Item[]): Promise<Map<string, number>> {
-  if (!items.some((item) => item.item_key.startsWith(NO_SESSION_KEY))) return new Map();
-  const rows = await trx
-    .selectFrom('turn')
-    .innerJoin('task', 'task.id', 'turn.task_id')
-    .select(['task.project', 'turn.column', (eb) => eb.fn.count<number>('turn.id').as('waiting')])
-    .where('task.membership', '!=', 'archived')
-    .where('turn.closed_at', 'is', null)
-    .where('turn.acked_at', 'is', null)
-    .where(sql<boolean>`turn.role = 'orchestrator:' || turn."column"`)
-    .where((eb) =>
-      eb.exists(
-        eb
-          .selectFrom('notification')
-          .select('notification.id')
-          .whereRef('notification.turn_id', '=', 'turn.id')
-          .where('notification.kind', '=', 'turn')
-          .where('notification.acked_at', 'is', null)
-          .where('notification.exhausted_at', 'is', null),
-      ),
-    )
-    .groupBy(['task.project', 'turn.column'])
-    .execute();
-  return new Map(rows.map((row) => [`${row.project}:${row.column}`, row.waiting]));
-}
-
-/**
- * The text of a `no-session:` item: while open, its stored text with the waiting turns and the
- * whole minutes since `fact_at` read now; a cleared one keeps its stored text. The action names
- * the column's Spur project.
- */
-function noSessionText(
-  item: Item,
-  config: Config,
-  waiting: ReadonlyMap<string, number>,
-  now: number,
-): { condition: string; action: string } {
-  const { project, column } = noSessionColumn(item.item_key);
-  const spur = columnTurnTimings(config, project, column)?.orchestrator;
-  const action = `start a session in ${spur === undefined ? 'its Spur project' : `Spur project ${spur}`}, or take over its turns with board inbox ack`;
-  const since = item.fact_at === null ? NaN : Date.parse(item.fact_at);
-  if (item.cleared_at !== null || Number.isNaN(since)) return { condition: item.text, action };
-  const minutes = Math.max(0, Math.floor((now - since) / 60_000));
-  const count = waiting.get(`${project}:${column}`) ?? 0;
-  return {
-    condition: `${item.text}; ${String(count)} waiting, no live session for ${String(minutes)} min`,
-    action,
-  };
-}
-
 const ENDED_TURN_KEY = 'ended-turn:';
 
 /** The turn id an `ended-turn:<turnId>:<session>` key names. */
@@ -464,15 +408,17 @@ export function createOperatorInbox(deps: {
         const subject = subjects.get(item.id);
         const task = subject?.task ?? null;
         if (task?.membership === 'archived') return undefined;
+        const noSession = kind === 'board_observation' && item.item_key.startsWith(NO_SESSION_KEY);
         const { condition, action } = item.item_key.startsWith(SOURCE_KEY)
           ? sourceText(item, sourceById.get(item.item_key.slice(SOURCE_KEY.length)))
-          : kind === 'board_observation' && item.item_key.startsWith(NO_SESSION_KEY)
+          : noSession
             ? noSessionText(item, config, waiting, clock.now())
             : {
                 condition: item.text,
                 action: ACTIONS[kind](item, { block, task, operatorTurn: operatorTurnOf(item) }),
               };
         const url = itemUrl(item, deliveries);
+        const fields = noSession ? noSessionFields(item, task?.key, config, waiting) : undefined;
         return {
           id: `I${String(item.id)}`,
           project: subject?.project ?? RESERVED_PROJECT,
@@ -483,6 +429,7 @@ export function createOperatorInbox(deps: {
           at: item.raised_at,
           task: task?.key ?? null,
           ...(url === undefined ? {} : { url }),
+          ...(fields === undefined ? {} : { noSession: fields }),
           ...(item.cleared_at === null ? {} : { handledAt: item.cleared_at }),
         };
       };

@@ -203,6 +203,33 @@ export const BLOCK_KEY = 'block:';
 export const CONVERSATION_KEY = 'conversation:';
 /** The item of a named-orchestrator column whose untaken turns have no live session to ring. */
 export const NO_SESSION_KEY = 'no-session:';
+
+/** What a no-session item's summary records: its column, Spur project and oldest ringing turn. */
+export interface NoSessionSummary {
+  project: string;
+  column: string;
+  spur: string;
+  turn: number;
+  ringAt: string;
+}
+
+/** The stored summary of a no-session item; `parseNoSessionSummary` reads it back. */
+export function noSessionSummary(summary: NoSessionSummary): string {
+  return `${summary.project} ${summary.column}: turns wait for a live session of Spur project ${summary.spur}; oldest T${String(summary.turn)} since ${summary.ringAt}`;
+}
+
+// The Spur project is greedy: it runs to the last `; oldest T<n> since <time>`.
+const NO_SESSION_SUMMARY =
+  /^(\S+) (\S+): turns wait for a live session of Spur project (.+); oldest T(\d+) since (\S+)$/;
+
+/** The fields `noSessionSummary` wrote, or undefined for other text or an unreadable ring time. */
+export function parseNoSessionSummary(text: string): NoSessionSummary | undefined {
+  const match = NO_SESSION_SUMMARY.exec(text);
+  if (!match) return undefined;
+  const [, project = '', column = '', spur = '', turn = '', ringAt = ''] = match;
+  if (Number.isNaN(Date.parse(ringAt))) return undefined;
+  return { project, column, spur, turn: Number(turn), ringAt };
+}
 /** The item of a github-rules task whose PR head GitHub has left undecided in External Review. */
 export const REVIEW_RULE_KEY = 'review-rule:';
 /** The item of a task waiting in External Review with no new external review round for its quietAfterMs. */

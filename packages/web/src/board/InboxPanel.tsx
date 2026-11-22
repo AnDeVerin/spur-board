@@ -24,58 +24,6 @@ interface CloseState {
 
 const closable = (entry: Entry) =>
   browserOperations['item.close'].input.safeParse({ item: entry.id }).success;
-/** A column orchestrator with no live session to ring, read from its board observation text. */
-interface NoSession {
-  column: string;
-  expects: string;
-  /** The waiting turns and the whole minutes without a live session. */
-  waiting?: { count: number; minutes: number };
-  /** The oldest waiting turn and when it was raised. */
-  oldest?: { turn: string; at: string };
-}
-// The wording of core `turnsWithoutSession` (app/fromYou.ts) and `noSessionText`
-// (app/operator-inbox.ts). Text that no longer matches falls back to the generic row.
-const NO_SESSION = /^(\S+) (\S+): turns wait for a live session of Spur project /;
-const NAMED_ACTION =
-  /^start a session in Spur project (.+), or take over its turns with board inbox ack$/;
-const OLDEST = /^oldest (T\d+) since (\S+)$/;
-const WAITING = /^(\d+) waiting, no live session for (\d+) min$/;
-
-/** The no-session reading of an entry's description (action removed), or undefined. */
-function noSession(entry: Entry, description: string, handled: boolean): NoSession | undefined {
-  if (entry.kind !== 'board_observation') return undefined;
-  const match = NO_SESSION.exec(description);
-  if (!match || match[1] !== entry.project) return undefined;
-  // Structured only when the reading is unambiguous: the name is the text up to the first `; `,
-  // equal to the name the action gives, if any; a known clause comes next; and each known kind
-  // appears once. Anything else, such as a Spur project name holding `; `, is the generic row.
-  // Core adds the waiting clause to open items only, so a handled one holding it is ambiguous.
-  const [expects = '', ...clauses] = description.slice(match[0].length).split('; ');
-  const named = entry.action === undefined ? undefined : NAMED_ACTION.exec(entry.action)?.[1];
-  const [next] = clauses;
-  if (
-    expects === '' ||
-    (named !== undefined && named !== expects) ||
-    (next !== undefined && !OLDEST.test(next) && !WAITING.test(next)) ||
-    clauses.filter((clause) => OLDEST.test(clause)).length > 1 ||
-    clauses.filter((clause) => WAITING.test(clause)).length > (handled ? 0 : 1)
-  )
-    return undefined;
-  const found: NoSession = { column: match[2] ?? '', expects };
-  // Clauses come in any order; one the web does not know is left out.
-  for (const clause of clauses) {
-    const oldest = OLDEST.exec(clause);
-    if (
-      oldest?.[1] !== undefined &&
-      oldest[2] !== undefined &&
-      !Number.isNaN(Date.parse(oldest[2]))
-    )
-      found.oldest = { turn: oldest[1], at: oldest[2] };
-    const waiting = WAITING.exec(clause);
-    if (waiting) found.waiting = { count: Number(waiting[1]), minutes: Number(waiting[2]) };
-  }
-  return found;
-}
 const turns = (count: number) => (count === 1 ? '1 turn waits' : `${String(count)} turns wait`);
 
 const rowOf = (box: HTMLElement | null, id: string) =>
@@ -221,40 +169,33 @@ export function InboxPanel({
       suffix !== undefined && entry.text.endsWith(suffix)
         ? entry.text.slice(0, -suffix.length)
         : entry.text;
-    const known = noSession(entry, description, handled);
-    // A handled one keeps its title, first sentence and oldest turn id as plain text: no count,
-    // ages, action or clears-itself line, since its command could take a turn now held.
-    const oldest = handled ? undefined : known?.oldest;
-    const waiting = handled ? undefined : known?.waiting;
-    const tail =
-      waiting !== undefined
-        ? ` ${[
-            turns(waiting.count),
-            oldest === undefined
+    const known = entry.noSession;
+    const minutes =
+      known === undefined ? 0 : Math.max(0, Math.floor((now - Date.parse(known.since)) / 60_000));
+    // A handled one keeps its title, first sentence and oldest turn id: no count, ages, action or
+    // clears-itself line, since its command could take a turn now held. An open row names the
+    // oldest turn's age only while it still waits untaken.
+    const oldestAt = handled ? undefined : known?.oldestAt;
+    const tail = handled
+      ? known?.oldestTurn === undefined
+        ? ''
+        : ` The oldest turn was ${known.oldestTurn}.`
+      : known?.waiting === undefined
+        ? ''
+        : ` ${[
+            turns(known.waiting),
+            known.oldestTurn === undefined || oldestAt === undefined
               ? undefined
-              : `the oldest, ${oldest.turn}, for ${age(oldest.at, now)}`,
-            `no live session for ${String(waiting.minutes)} min`,
+              : `the oldest, ${known.oldestTurn}, for ${age(oldestAt, now)}`,
+            `no live session for ${String(minutes)} min`,
           ]
             .filter((part) => part !== undefined)
-            .join('; ')}.`
-        : oldest !== undefined
-          ? ` The oldest turn, ${oldest.turn}, waits for ${age(oldest.at, now)}.`
-          : handled && known?.oldest !== undefined
-            ? ` The oldest turn was ${known.oldest.turn}.`
-            : '';
-    // A handled no-session item read as generic keeps no action: its command could take a
-    // turn now held.
-    const withholdAction =
-      handled &&
-      entry.kind === 'board_observation' &&
-      NO_SESSION.exec(description)?.[1] === entry.project;
+            .join('; ')}.`;
     const body =
       known === undefined ? (
         <>
           <span>{description}</span>
-          {!withholdAction && entry.action !== undefined && (
-            <span className={styles.action}>{entry.action}</span>
-          )}
+          {entry.action !== undefined && <span className={styles.action}>{entry.action}</span>}
         </>
       ) : (
         <>
@@ -264,16 +205,19 @@ export function InboxPanel({
               {handled ? 'Had no session' : 'No session'} to ring for {known.column}
             </span>
           </span>
-          {handled ? (
+          {known.spurProject === undefined ? (
+            // Without a known Spur project the sentence naming it is left out.
+            tail !== '' && <span className={styles.description}>{tail.trimStart()}</span>
+          ) : handled ? (
             <span className={styles.description}>
               The {known.column} orchestrator, the Spur project{' '}
-              <strong className={styles.expects}>{known.expects}</strong>, had no live session.
+              <strong className={styles.expects}>{known.spurProject}</strong>, had no live session.
               {tail}
             </span>
           ) : (
             <span className={styles.description}>
               The {known.column} orchestrator is the Spur project{' '}
-              <strong className={styles.expects}>{known.expects}</strong>, and it has no live
+              <strong className={styles.expects}>{known.spurProject}</strong>, and it has no live
               session.{tail}
             </span>
           )}
@@ -306,7 +250,7 @@ export function InboxPanel({
           {handled && (
             <span>Handled{entry.answeredVia ? ` · answered via ${entry.answeredVia}` : ''}</span>
           )}
-          <span className={styles.age}>{age(oldest?.at ?? entry.at, now)}</span>
+          <span className={styles.age}>{age(oldestAt ?? entry.at, now)}</span>
         </span>
         {body}
       </>
@@ -316,8 +260,8 @@ export function InboxPanel({
     // An active no-session row stays one task link from first render, so focus and the browser's
     // link actions hold. Its plain click waits for the board to load, then opens the column's
     // help, which links the oldest waiting turn, or the task when the column has no head.
-    const { task } = entry;
-    if (!handled && known !== undefined && task !== null) {
+    if (!handled && known !== undefined) {
+      const task = known.oldestTask;
       const click = noSessionClick(entry.project, known.column);
       return (
         <a
@@ -332,7 +276,7 @@ export function InboxPanel({
                 project: entry.project,
                 column: known.column,
                 task,
-                turn: known.oldest?.turn,
+                turn: known.oldestTurn,
               });
             });
           }}

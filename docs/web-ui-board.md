@@ -22,16 +22,16 @@ Header, left to right:
   attention, newest first within severity. Handled entries retain query order, marked handled
   with their answer channel when supplied. Supplied actions appear separately; an exact terminal
   `: <action>` is removed from the description. A column orchestrator with no live session reads
-  `No session to ring for <column>`, its Spur project, the turns waiting, the oldest one's `T<n>`
-  and age, and its minutes without one, then its action and
+  `No session to ring for <column>`, its Spur project when known, the turns waiting, the oldest
+  one's `T<n>` and age, and its minutes without one, then its action and
   `It clears itself when a session appears.` It closes the inbox and opens that column's help on
   **Who** (choosing its project, its head in view), which links the oldest turn's task;
   a spine opens the task. Cleared, it moves to handled as `Had no session to ring for <column>`, in
   the past tense with the oldest `T<n>` and no action, and opens that task. A re-raise for the same
-  column replaces it. Text it cannot read keeps the plain row, which also drops the action once
-  handled. Before the first success, the panel says inbox data is unavailable; later failures retain
-  data. Task rows open above the retained panel and select their project when config arrives. Task
-  close focuses its row or panel Close if removed; panel close focuses the header inbox button.
+  column replaces it. An entry without `noSession` keeps the plain row, with its action. Before the
+  first success, the panel says inbox data is unavailable; later failures retain data. Task rows
+  open above the retained panel and select their project when config arrives. Task close focuses
+  its row or panel Close if removed; panel close focuses the header inbox button.
   Back/Forward follow these layers. Task-less active and handled rows with a known HTTP(S)
   destination open it in a new tab on click or Enter, retaining the inbox. Task navigation wins over
   a URL. Rows without a safe destination stay

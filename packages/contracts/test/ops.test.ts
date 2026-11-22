@@ -1000,11 +1000,12 @@ describe('snapshot', () => {
     // task.wait gains end and web, optional for, reason and output wait, the ended outcome, and
     // the not_operator and no_active_wait codes. #841 rewords the task.wait description, its
     // guidance and its reason field: wait only on what the Board cannot see, not on what it watches,
-    // unless your own next step needs the watched fact, and names mergeability. #799 adds state
-    // and since to status.get unlinkedSessions, and leaves lifecycle, health, healthSince and
-    // rateLimitResetAt out of ended and absent ones.
+    // unless your own next step needs the watched fact, and names mergeability. #771 adds the
+    // optional noSession fields to inbox.operator entries and a no-session item to its example.
+    // #799 adds state and since to status.get unlinkedSessions, and leaves lifecycle, health,
+    // healthSince and rateLimitResetAt out of ended and absent ones.
     expect(await catalogVersion(baseline)).toBe(
-      '413c63bc851a1df0d93e5c8e31e1d5a315282f3c13546b2fd6c9dcc8cb5dbb3f',
+      '1275df5ba239754041fd1fe1025081066b68508049fa0a6eb60f191bb1caeea2',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
