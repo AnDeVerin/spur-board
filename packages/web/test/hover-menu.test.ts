@@ -30,7 +30,8 @@ afterEach(() => {
   container.remove();
 });
 
-function mount(props: { value?: Choice; defaultOpen?: boolean } = {}) {
+type MountProps = { value?: Choice; defaultOpen?: boolean; open?: boolean };
+function mount(props: MountProps & { onOpenChange?: (open: boolean) => void } = {}) {
   act(() => {
     root.render(
       createElement(HoverMenu<Choice>, { label: 'Theme', icon: 'moon', items, onSelect, ...props }),
@@ -256,20 +257,7 @@ describe('HoverMenu controlled', () => {
     onOpenChange = vi.fn<(open: boolean) => void>();
   });
   const render = (open: boolean) => {
-    act(() => {
-      root.render(
-        createElement(HoverMenu<Choice>, {
-          label: 'Theme',
-          icon: 'moon',
-          items,
-          value: 'dark',
-          onSelect,
-          open,
-          onOpenChange,
-          defaultOpen: !open,
-        }),
-      );
-    });
+    mount({ value: 'dark', open, onOpenChange, defaultOpen: !open });
   };
   /** Runs `step` and expects one `onOpenChange(next)` from it. */
   const reports = (next: boolean, step: () => void) => {
