@@ -145,7 +145,7 @@ export function feedText(segments: readonly FeedSegment[]): string {
 
 /**
  * `segments`, when set, is the line's rich form of `text`; a mismatch is never sent. `blockType`
- * is the type of an operator block whose line links its thread.
+ * is the type of the operator block the line stands for; lines queued before it existed lack it.
  */
 const feedLineWithLinkPayload = feedLinePayload
   .extend({
@@ -787,19 +787,22 @@ export async function enqueueConversationOpen(
 }
 
 /**
- * The live `conversation.open` row of a block's operator thread and the block's type, or null when
- * the block has no such row.
+ * A block's type and the live `conversation.open` row of its operator thread, null when it has no
+ * such row; null when the block does not exist.
  */
 export async function blockThread(
   trx: Trx,
   blockId: number,
-): Promise<{ parent: number; blockType: BlockType } | null> {
+): Promise<{ parent: number | null; blockType: BlockType } | null> {
   const row = await trx
-    .selectFrom('outbox')
-    .innerJoin('block', (join) => join.on('block.id', '=', blockId))
+    .selectFrom('block')
+    .leftJoin('outbox', (join) =>
+      join
+        .on('outbox.dedupe_key', '=', `conversation.open:block:${String(blockId)}`)
+        .on('outbox.state', '!=', 'dead'),
+    )
     .select(['outbox.id', 'block.type'])
-    .where('outbox.dedupe_key', '=', `conversation.open:block:${String(blockId)}`)
-    .where('outbox.state', '!=', 'dead')
+    .where('block.id', '=', blockId)
     .executeTakeFirst();
   return row === undefined ? null : { parent: row.id, blockType: row.type };
 }

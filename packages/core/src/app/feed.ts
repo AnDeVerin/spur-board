@@ -35,12 +35,12 @@ export function capPoints(text: string, max: number): string {
 
 /**
  * Raise one item generation. A repeated raise of an active key is idempotent. An operator block's
- * `thread` row holds the feed line until it is delivered.
+ * line carries the block's type, and its `thread.parent` row holds the line until it is delivered.
  */
 export async function raiseItem(
   trx: Trx,
   input: RaiseItemInput,
-  thread: { parent: number; blockType: BlockType } | null = null,
+  thread: { parent: number | null; blockType: BlockType } | null = null,
 ): Promise<Row<'operator_item'>> {
   return raiseItemWith(trx, input, (t, line) =>
     thread === null
@@ -192,8 +192,10 @@ function resolvedLine(by: ActorId, at: string, config: Config): RichTextInline[]
 
 /**
  * A feed line: its key, linked when it has a url, then its segments, or its text, as a quote. An
- * operator block's line sent under its delivered `thread` ends with what Close does and, for a
- * question, that a reply in the thread answers it; a reply to any other block type is refused.
+ * operator block's line says what Close does right under the key, so a long reason cannot push the
+ * warning off the message with the Close button. Under its delivered `thread` it links the
+ * thread, and for a question says that a reply there answers it; a reply to any other block type
+ * is refused. A line queued before the block type was stored names no type.
  */
 export function feedLineBody(
   payload: Pick<FeedLinePayload, 'key' | 'url' | 'text' | 'segments' | 'blockType'> & {
@@ -209,32 +211,33 @@ export function feedLineBody(
         url === undefined ? { kind: 'text', text: key } : { kind: 'link', url, text: key },
       ],
     },
-    { kind: 'quote', children: segments ?? [{ kind: 'text', text }] },
   ];
-  if (thread != null && itemKey?.startsWith(OPERATOR_BLOCK_KEY) === true) {
+  if (itemKey?.startsWith(OPERATOR_BLOCK_KEY) === true) {
     const block = `B${itemKey.slice(OPERATOR_BLOCK_KEY.length)}`;
-    const link: RichTextInline = {
-      kind: 'link',
-      url: thread.permalink,
-      text: `the ${block} thread`,
-    };
+    const close =
+      blockType === 'needs_input'
+        ? `Close closes ${block} without an answer.`
+        : blockType === undefined
+          ? `Close unblocks ${block} without an answer.`
+          : `Close unblocks ${block}.`;
+    const link: RichTextInline | null =
+      thread == null ? null : { kind: 'link', url: thread.permalink, text: `the ${block} thread` };
     // A paragraph, not context: Slack leaves context out of the text screen readers read.
     body.push({
       kind: 'paragraph',
       children:
-        blockType === 'needs_input'
-          ? [
-              { kind: 'text', text: 'Reply in ' },
-              link,
-              { kind: 'text', text: ` to answer it. Close closes ${block} without an answer.` },
-            ]
-          : [
-              { kind: 'text', text: 'See ' },
-              link,
-              { kind: 'text', text: `. Close unblocks ${block}.` },
-            ],
+        link === null
+          ? [{ kind: 'text', text: close }]
+          : blockType === 'needs_input'
+            ? [
+                { kind: 'text', text: 'Reply in ' },
+                link,
+                { kind: 'text', text: ` to answer it. ${close}` },
+              ]
+            : [{ kind: 'text', text: 'See ' }, link, { kind: 'text', text: `. ${close}` }],
     });
   }
+  body.push({ kind: 'quote', children: segments ?? [{ kind: 'text', text }] });
   return body;
 }
 
