@@ -72,6 +72,7 @@ import {
 } from './dispatch.ts';
 import { closeTurns, rerouteDemotedWorkerTurn } from './turns.ts';
 import { countCancelledChecks, NO_CANCELS } from './cancelled-checks.ts';
+import { countedChecks } from '../domain/gates.ts';
 import { recordReviewRule } from './review-rule.ts';
 import { recordApprovalPairs } from './approval-watch.ts';
 
@@ -567,8 +568,8 @@ function comparableFacts(
  * cancelled-check count; `reviewRule` is the full read's review rule of a github-rules source.
  * Returns true when this poll confirmed a cancelled check as red, or changed the review rule with
  * the facts unchanged: no fact event dispatches the PR's tasks then. A `checks_changed` row names
- * the cancels still in their grace window and the ones this poll confirms; a confirm with the
- * checks unchanged still writes one, with `from` equal to `to`.
+ * the cancels still in their grace window and the ones this poll confirms; a confirm of a counted
+ * check (`countedChecks`) with the checks unchanged still writes one, with `from` equal to `to`.
  */
 async function pr(
   trx: Trx,
@@ -648,6 +649,10 @@ async function pr(
       ? NO_CANCELS
       : await countCancelledChecks(trx, source, fact, scheduled);
   const confirmed = cancels.confirmed.length > 0;
+  // A confirm writes a row only for a cancel among the checks History and the gate count.
+  const confirmRow = countedChecks(fact).some(
+    (check) => check.state === 'cancelled' && cancels.confirmed.includes(check.name),
+  );
   // Only a github-rules project's source keeps a review rule row; others make no call.
   const ruled =
     approvalRuleOf(project) === 'github-rules' &&
@@ -723,7 +728,7 @@ async function pr(
     }
   }
   await applyPendingReopen(trx, fact, at);
-  if (!changed && !confirmed) return ruled;
+  if (!changed && !confirmRow) return confirmed || ruled;
   const links = await trx
     .selectFrom('link')
     .select(['task_id'])
@@ -745,7 +750,7 @@ async function pr(
         to: fact.headSha,
       });
     const from = previous === null ? null : checksJson(previous);
-    if ((from !== null && from !== checksJson(fact)) || confirmed)
+    if ((from !== null && from !== checksJson(fact)) || confirmRow)
       await emit(trx, 'checks_changed', task.project, task.id, at, {
         repo: fact.repo,
         pr: fact.number,

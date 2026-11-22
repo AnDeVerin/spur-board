@@ -7622,6 +7622,36 @@ describe('checksGate', () => {
     expect((await ctx.moves()).slice(before)).toEqual([RED_RETURN]);
   });
 
+  it.each([
+    {
+      name: 'optional check beside a green required one turns red with no row and no move',
+      checks: { checks: [{ name: 'lint', state: 'cancelled' as const, completedAt: at(40) }] },
+      rows: [],
+      moves: [],
+    },
+    {
+      name: 'check counted with none required turns red with one row and a return to Dev',
+      checks: {
+        requiredChecks: [],
+        checks: [{ name: 'lint', state: 'cancelled' as const, completedAt: at(40) }],
+      },
+      rows: ['Checks on o/r#7: 1 failed: lint; lint cancelled, now counts as red'],
+      moves: [RED_RETURN],
+    },
+  ])('checksGate external-review: a cancelled $name', async (row) => {
+    const ctx = await pastProductReview(GATED);
+    const before = (await ctx.moves()).length;
+    await ctx.pr(row.checks);
+    const sighted = (await checkRows(ctx)).length;
+    await ctx.github();
+    await ctx.github();
+    expect(await cancelCount(ctx)).toEqual([
+      { headSha: A, cancelled: [{ name: 'lint', completedAt: at(40), polls: 2 }] },
+    ]);
+    expect((await checkRows(ctx)).slice(sighted)).toEqual(row.rows);
+    expect((await ctx.moves()).slice(before)).toEqual(row.moves);
+  });
+
   it('checksGate external-review: a new run after a cancel keeps the task in place', async () => {
     const ctx = await pastProductReview(GATED);
     await ctx.pr(ci('cancelled', 40));

@@ -150,17 +150,25 @@ function noCiWaives(pr: TaskGateFacts['pr'], project: GateProject): boolean {
 }
 
 /**
- * The verdict over the required checks on head, or, when none is required, over every check on
- * head except skipped ones. No check gives pending, and red wins over pending. `waived` (from
- * `noCiWaives`, so the head has no checks) gives green.
+ * The checks the gate and History count: the required checks on head, or, when none is required,
+ * every check on head except skipped ones.
+ */
+export function countedChecks<T extends { state: CheckState }>(pr: {
+  checks: readonly T[];
+  requiredChecks: readonly T[];
+}): readonly T[] {
+  return pr.requiredChecks.length > 0
+    ? pr.requiredChecks
+    : pr.checks.filter((check) => check.state !== 'skipped');
+}
+
+/**
+ * The verdict over the counted checks (`countedChecks`). No check gives pending, and red wins over
+ * pending. `waived` (from `noCiWaives`, so the head has no checks) gives green.
  */
 function checksVerdict(pr: NonNullable<TaskGateFacts['pr']>, waived: boolean): Verdict {
   if (waived) return 'green';
-  const list =
-    pr.requiredChecks.length > 0
-      ? pr.requiredChecks
-      : pr.checks.filter((check) => check.state !== 'skipped');
-  const verdicts = list.map((check) => VERDICT[check.state]);
+  const verdicts = countedChecks(pr).map((check) => VERDICT[check.state]);
   if (verdicts.includes('red')) return 'red';
   if (verdicts.length === 0 || verdicts.includes('pending')) return 'pending';
   return 'green';

@@ -32,8 +32,8 @@ closed the turn; every other close names `system`.
 `task_reordered` is journaled but not listed in History.
 
 Checks count the required ones, else all but skipped. Right of `dev`
-(`checksGate`), a cancelled check counts as pending until the second complete
-poll after its sighting turns it red; that poll adds one checks row. A facts row
+(`checksGate`), a cancelled check among them counts as pending until the second
+complete poll after its sighting turns it red; that poll adds one checks row. A facts row
 leaves out what other rows say (head, checks, PR state, mergeability, reviews,
 ticket status) and update and activity times; with nothing else changed it is
 not shown.

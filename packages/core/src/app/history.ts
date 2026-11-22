@@ -9,7 +9,7 @@ import {
 } from '@spur-board/contracts';
 import type { Selectable } from 'kysely';
 import { z } from 'zod';
-import { VERDICT } from '../domain/gates.ts';
+import { VERDICT, countedChecks } from '../domain/gates.ts';
 import type { EventTable } from '../store/schema.ts';
 import { eventActor } from './board-utils.ts';
 import { END_WORDS } from './status.ts';
@@ -266,10 +266,7 @@ function checksSummary(payload: Payload<'checks_changed'>) {
   const lists = checksSchema.safeParse(parsedJson(payload.to));
   if (!lists.success) return null;
   const [checks, requiredChecks] = lists.data;
-  const list =
-    requiredChecks.length > 0
-      ? requiredChecks
-      : checks.filter((check) => check.state !== 'skipped');
+  const list = countedChecks({ checks, requiredChecks });
   const head = `Checks on ${ref(payload.repo, payload.pr)}`;
   if (list.length === 0) return `${head}: none`;
   const waiting = new Set(payload.waiting);
