@@ -325,8 +325,26 @@ function doctorFetch(fail?: string, prs: readonly unknown[] = []): typeof fetch 
         return Promise.resolve(Response.json({ error: 'Daemon is starting' }, { status: 503 }));
       if (fail === 'spur.send.ok')
         return Promise.resolve(Response.json({ id: 'spur-board-doctor-probe' }));
+      // Like a real fetch body, it errors when read after the request signal aborts.
+      const signal = init.signal;
+      const text = JSON.stringify({ error: 'Session not found: spur-board-doctor-probe' });
       return Promise.resolve(
-        Response.json({ error: 'Session not found: spur-board-doctor-probe' }, { status: 404 }),
+        new Response(
+          new ReadableStream(
+            {
+              pull(controller) {
+                if (signal?.aborted === true) {
+                  controller.error(signal.reason);
+                  return;
+                }
+                controller.enqueue(new TextEncoder().encode(text));
+                controller.close();
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { status: 404, headers: { 'content-type': 'application/json' } },
+        ),
       );
     }
     if (path.endsWith('/info')) {
@@ -334,6 +352,12 @@ function doctorFetch(fail?: string, prs: readonly unknown[] = []): typeof fetch 
       expect(init?.signal).toBeInstanceOf(AbortSignal);
       expect(init?.body).toBeUndefined();
       if (fail === 'spur.version.reject') return Promise.reject(new TypeError('fetch failed'));
+      if (fail === 'spur.version.stalled-fetch')
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new Error('aborted'));
+          });
+        });
       if (fail === 'spur.version.stalled-body')
         return Promise.resolve(new Response(new ReadableStream({ start() {} })));
       if (fail === 'spur.version.404')
@@ -1031,6 +1055,55 @@ describe('daemon doctor checks', () => {
       blocking: false,
       fix: spurVersionUnread,
     });
+  });
+
+  it.each(['spur.version.stalled-body', 'spur.version.stalled-fetch'])(
+    'keeps the other Spur checks passing while /info stalls (%s)',
+    async (mode) => {
+      const report = await runDaemonDoctor(
+        doctorContext({ operator: true, slack: false }),
+        '1.2.3',
+        doctorFetch(mode),
+        { deadlineMs: 250 },
+      );
+      const byId = new Map(report.checks.map((check) => [check.id, check]));
+      expect(byId.get('spur.api')).toMatchObject({ status: 'pass', blocking: false });
+      expect(byId.get('spur.send')).toMatchObject({ status: 'pass', blocking: false });
+      expect(byId.get('spur.version')).toEqual({
+        id: 'spur.version',
+        status: 'warning',
+        blocking: false,
+        fix: spurVersionUnread,
+      });
+    },
+  );
+
+  it('starts the Spur version probe before the GitHub probes answer', async () => {
+    const events: string[] = [];
+    const fallback = doctorFetch();
+    const fetcher: typeof fetch = (input, init) => {
+      const url = new URL(
+        input instanceof URL ? input.href : input instanceof Request ? input.url : input,
+      );
+      const github = url.host === 'api.github.com' || url.pathname === '/graphql';
+      if (url.pathname.endsWith('/info')) events.push('start:info');
+      if (!github) return fallback(input, init);
+      return new Promise<Response>((resolve) => {
+        setTimeout(() => {
+          events.push('end:github');
+          resolve(fallback(input, init));
+        }, 50);
+      });
+    };
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false }),
+      '1.2.3',
+      fetcher,
+    );
+    expect(events).toContain('end:github');
+    expect(events.indexOf('start:info')).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf('start:info')).toBeLessThan(events.indexOf('end:github'));
+    expect(report.checks.find((check) => check.id === 'spur.version')?.status).toBe('pass');
   });
 
   it('names the minimum Spur version in README, SETUP and the setup skill', () => {

@@ -767,6 +767,33 @@ function spurVersionCheck(version: string | null): Check {
   );
 }
 
+// Only the validated version leaves this call: /info also names local paths.
+function readSpurVersion(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  deadlineMs: number,
+  baseUrl: string,
+): Promise<string | null> {
+  return deadlineCall(
+    ctx,
+    deadlineMs,
+    'doctor.spur.version',
+    'Spur version read failed',
+    async (signal) => {
+      const response = await fetcher(new URL('info', apiBaseUrl(baseUrl)), {
+        method: 'GET',
+        signal,
+      });
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        return null;
+      }
+      const parsed = spurInfoWire.safeParse(await response.json());
+      return parsed.success ? parsed.data.version : null;
+    },
+  );
+}
+
 async function request(
   ctx: ModuleContext<Store>,
   fetcher: typeof fetch,
@@ -924,6 +951,8 @@ export async function runDaemonDoctor(
   const { config, secrets } = ctx;
   const checks: Check[] = [];
   const spurUi = spurUiCheck(ctx, fetcher, deadlineMs);
+  // Started first so a slow /info overlaps the GitHub probes instead of following them.
+  const spurVersion = readSpurVersion(ctx, fetcher, deadlineMs, config.adapters.spur.baseUrl);
   if (config.web.port !== undefined)
     checks.push(
       webListening?.() === true
@@ -996,45 +1025,30 @@ export async function runDaemonDoctor(
     SPUR_PROBE_SESSION,
     'spur-board doctor probe',
   );
-  const [spur, spurSend, spurVersion] = await Promise.all([
+  // Each probe reads its own answer as it arrives, so no body read waits on another probe.
+  const [spurOk, spurSend] = await Promise.all([
     request(
       ctx,
       fetcher,
       deadlineMs,
       'spur',
       new URL('sessions', apiBaseUrl(config.adapters.spur.baseUrl)),
-    ),
-    request(ctx, fetcher, deadlineMs, 'spur.send', probe.url, probe.init),
-    // Only the validated version leaves this call: /info also names local paths.
-    deadlineCall(
-      ctx,
-      deadlineMs,
-      'doctor.spur.version',
-      'Spur version read failed',
-      async (signal) => {
-        const response = await fetcher(new URL('info', apiBaseUrl(config.adapters.spur.baseUrl)), {
-          method: 'GET',
-          signal,
-        });
-        if (!response.ok) {
-          await response.body?.cancel().catch(() => undefined);
-          return null;
-        }
-        const parsed = spurInfoWire.safeParse(await response.json());
-        return parsed.success ? parsed.data.version : null;
-      },
-    ),
+    ).then((response) => response?.ok === true),
+    request(ctx, fetcher, deadlineMs, 'spur.send', probe.url, probe.init).then(async (response) => {
+      if (response === null) return { reachable: false, ok: false };
+      if (response.status !== 404) {
+        await response.body?.cancel().catch(() => undefined);
+        return { reachable: true, ok: false };
+      }
+      const error = await spurErrorText(response);
+      return { reachable: true, ok: error?.startsWith('Session not found') ?? false };
+    }),
   ]);
-  checks.push(check('spur.api', spur?.ok === true, 'Start or correct the configured Spur API.'));
-  const spurSendOk =
-    spurSend?.status === 404 &&
-    ((await spurErrorText(spurSend))?.startsWith('Session not found') ?? false);
-  if (spurSend !== null && spurSend.status !== 404)
-    await spurSend.body?.cancel().catch(() => undefined);
+  checks.push(check('spur.api', spurOk, 'Start or correct the configured Spur API.'));
   checks.push(
-    check('spur.send', spurSendOk, spurSend === null ? SPUR_SEND_UNREACHABLE_FIX : SPUR_SEND_FIX),
+    check('spur.send', spurSend.ok, spurSend.reachable ? SPUR_SEND_FIX : SPUR_SEND_UNREACHABLE_FIX),
   );
-  checks.push(spurVersionCheck(spurVersion));
+  checks.push(spurVersionCheck(await spurVersion));
 
   if (!slackConfigured) {
     checks.push(
