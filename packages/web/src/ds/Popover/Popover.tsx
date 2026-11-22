@@ -96,10 +96,11 @@ import styles from './Popover.module.css';
  * in view. At the default layer, left open while a `SidePanel` opens by keyboard, it draws above
  * that panel (`--z-menu` over `--z-panel`), though inert; a mouse press closes it. At
  * `layer="panel"` a `HoverMenu` outside it, as one in its anchor, opens over it, and a `SidePanel`
- * opened while it is open draws over it (same z, the layer portals later in `body`). Its root is a stacking context: a `HoverMenu` inside stacks
- * within the panel. Beside the title its menu may extend past the panel; in `actions`, which
- * scrolls sideways when its content is wider than the room beside Close (Close always stays in
- * the panel), and in the body, the scroll box clips it.
+ * opened while it is open draws over it (same z, the SidePanel's layer portals later in `body`).
+ * Its root is a stacking context: a `HoverMenu` inside stacks within the panel. Beside the title
+ * its menu may extend past the panel; in `actions`, which scrolls sideways when its content is
+ * wider than the room beside Close (Close always stays in the panel), and in the body, the scroll
+ * box clips it.
  */
 export function Popover({
   open,
