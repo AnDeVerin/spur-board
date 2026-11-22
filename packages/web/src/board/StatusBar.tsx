@@ -28,10 +28,9 @@ const join = (...names: (string | undefined)[]) => names.filter(Boolean).join(' 
 
 /**
  * The status bar: the services trigger, with a dot when a host reading is at 80% or more, and
- * one button per service on the left, the theme menu
- * and the daemon version on the right. The services panel is open while the address has
- * `?open=services`; it renders after the footer, so the footer is attached when the panel mounts
- * and stays live while it is open.
+ * one button per service on the left, the theme menu and the daemon version on the right. The
+ * services panel is open while the address has `?open=services`; it renders after the footer, so
+ * the footer is attached when the panel mounts and stays live while it is open.
  */
 export function StatusBar({
   data,
