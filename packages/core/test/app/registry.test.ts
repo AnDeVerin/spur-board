@@ -1803,12 +1803,12 @@ it('shows unlinked sessions in a terminal lifecycle as ended and keeps the lifec
       detailLifecycle: 'killed',
       end: { endReason: 'kill', endedAt: iso(now - 2 * DAY) },
     },
-    // Finished 10 days ago but still listed: ended, yet the hide rule keeps it shown.
+    // Finished and last seen 10 days ago, still listed: ended, yet the hide rule keeps it shown.
     {
       id: 'errored-1',
       lifecycle: 'errored',
       finishedAt: iso(now - 10 * DAY),
-      lastSeen: iso(now),
+      lastSeen: iso(now - 10 * DAY),
       ...listed,
       rateLimited: false,
       state: 'ended',
@@ -1896,6 +1896,7 @@ it('shows unlinked sessions in a terminal lifecycle as ended and keeps the lifec
     for (const expected of cases) {
       const row = result.unlinkedSessions.find((session) => session.id === expected.id);
       const label = `${expected.id} detail=${String(detail)}`;
+      expect(row, `${label} listed`).toBeDefined();
       expect(row, label).toMatchObject({ state: expected.state, since: expected.since });
       if (expected.state === 'live') {
         expect(row, label).toMatchObject({ lifecycle: expected.lifecycle, health: 'working' });
