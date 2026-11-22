@@ -114,6 +114,13 @@ describe('sweepStaleRuns', () => {
   const otherHostDeadPid = { ...complete(200), machineId: 'machine-b' };
   const noMachine = { pid: 100, createdAt: 1, startTicks: '5000', bootId: 'boot-old', pidNs: NS };
   const partial = { pid: 200, createdAt: 1 };
+  // A complete record whose owner pid is absent, or the full sweeper identity, minus one field:
+  // a missing field is never proof the owner is gone, so a young root stays.
+  const without = <T extends object>(value: T, field: keyof T): Partial<T> =>
+    Object.fromEntries(Object.entries(value).filter(([key]) => key !== field)) as Partial<T>;
+  const deadWithout = (field: keyof OwnerRecord) => without(complete(200), field);
+  const selfWithout = (field: 'bootId' | 'pidNs' | 'machineId') =>
+    without({ bootId: BOOT, pidNs: NS, machineId: MACHINE }, field);
 
   // Every keep or remove decision: remove at once only on proof the owner is gone, keep while
   // its pid exists, and fall back to age only without any liveness signal.
@@ -188,6 +195,84 @@ describe('sweepStaleRuns', () => {
       hours: 25,
       self: { bootId: BOOT },
       removed: true,
+    },
+    {
+      name: 'dead owner, record without boot',
+      owner: deadWithout('bootId'),
+      hours: 0,
+      removed: false,
+    },
+    {
+      name: 'dead owner, record without namespace',
+      owner: deadWithout('pidNs'),
+      hours: 0,
+      removed: false,
+    },
+    {
+      name: 'dead owner, record without start ticks',
+      owner: deadWithout('startTicks'),
+      hours: 0,
+      removed: false,
+    },
+    {
+      name: 'dead owner, record without host',
+      owner: deadWithout('machineId'),
+      hours: 0,
+      removed: false,
+    },
+    {
+      name: 'dead owner, non-numeric start ticks',
+      owner: complete(200, 'abc'),
+      hours: 0,
+      removed: false,
+    },
+    {
+      name: 'dead owner, sweeper without boot',
+      owner: complete(200),
+      hours: 0,
+      self: selfWithout('bootId'),
+      removed: false,
+    },
+    {
+      name: 'dead owner, sweeper without namespace only',
+      owner: complete(200),
+      hours: 0,
+      self: selfWithout('pidNs'),
+      removed: false,
+    },
+    {
+      name: 'dead owner, sweeper without host only',
+      owner: complete(200),
+      hours: 0,
+      self: selfWithout('machineId'),
+      removed: false,
+    },
+    {
+      name: 'dead owner, record and sweeper without namespace',
+      owner: deadWithout('pidNs'),
+      hours: 0,
+      self: selfWithout('pidNs'),
+      removed: false,
+    },
+    {
+      name: 'dead owner, record and sweeper without host',
+      owner: deadWithout('machineId'),
+      hours: 0,
+      self: selfWithout('machineId'),
+      removed: false,
+    },
+    { name: 'pid 0, young', owner: complete(0), hours: 0, removed: false },
+    {
+      name: 'non-integer pid, young',
+      owner: { ...complete(200), pid: 1.5 },
+      hours: 0,
+      removed: false,
+    },
+    {
+      name: 'non-numeric createdAt, young',
+      owner: JSON.stringify({ ...complete(200), createdAt: '1' }),
+      hours: 0,
+      removed: false,
     },
   ])('$name: removed $removed', ({ owner, hours, removed, self, busy }) => {
     const dir = parent();
