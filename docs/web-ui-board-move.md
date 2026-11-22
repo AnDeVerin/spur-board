@@ -55,7 +55,8 @@ MCP or an operator-role Spur session reads the same.
 Time and Key show no grip and keep their sort. A card outside a Backlog band cannot be dragged
 there; trying it, or dragging a Backlog card over its own part, reads
 `Cards keep the chosen sort. To reorder by hand, switch to Manual.`, whose button switches the
-column to Manual. A Backlog card still drags to another part in any sort.
+column to Manual. It shows under a refusal, which stays until Dismiss. A Backlog card still
+drags to another part in any sort.
 
 ## Mirrored part
 

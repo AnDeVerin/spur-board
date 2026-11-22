@@ -77,6 +77,11 @@ export function movedKeys(
   return new Set(shared.filter((_, index) => !kept.has(index)));
 }
 
+/** Whether two manual orders hold the same keys in the same places: no key moved. */
+export function sameOrder(before: readonly string[], after: readonly string[]) {
+  return before.length === after.length && before.every((key, index) => key === after[index]);
+}
+
 /** The failure line under a column head for a reorder the daemon refused or never took. */
 function causeText(cause: unknown) {
   if (cause instanceof ProblemError && cause.code === 'order_anchor_invalid')
@@ -86,13 +91,15 @@ function causeText(cause: unknown) {
   return 'The board did not answer.';
 }
 
-type Notice = { kind: 'hint'; key: string } | { kind: 'failed'; key: string; cause: string };
 interface ColumnState {
   /** This tab's reorder from its gesture until the Board shows it; other gestures wait. */
   pending: { key: string } | undefined;
   /** A released reorder's row from the read that released it: no tint while that row shows. */
   released: Map<string, BoardRow>;
-  notice: Notice | undefined;
+  /** The last refused reorder, until Dismiss or a newer refusal in the column. */
+  failed: { key: string; cause: string } | undefined;
+  /** The card whose drag in Time or Key shows how to reorder, until a drag start or sort change. */
+  hint: string | undefined;
   /** The drop line's gap while an own card hovers over the manual list. */
   line: number | undefined;
   /** The hidden status line: where the last own reorder put the card. */
@@ -107,7 +114,8 @@ interface ColumnState {
 const fresh = (): ColumnState => ({
   pending: undefined,
   released: new Map(),
-  notice: undefined,
+  failed: undefined,
+  hint: undefined,
   line: undefined,
   live: '',
   refocus: undefined,
@@ -206,7 +214,7 @@ export function useOrders(orderIntent: OrderIntent, columns: readonly BoardColum
         if (rows.includes(row)) skip.add(key);
         else entry.released.delete(key);
       const now = rows.map((row) => row.key);
-      if (entry.order)
+      if (entry.order && !sameOrder(entry.order, now))
         for (const key of movedKeys(entry.order, now, skip)) {
           tint(column.id, key);
           changed = true;
@@ -261,14 +269,13 @@ export function useOrders(orderIntent: OrderIntent, columns: readonly BoardColum
           }),
         (cause: unknown) => {
           entry.pending = undefined;
-          entry.notice = { kind: 'failed', key: input.task, cause: causeText(cause) };
+          entry.failed = { key: input.task, cause: causeText(cause) };
           bump();
         },
       );
   };
   const clearHints = () => {
-    for (const entry of store.current.columns.values())
-      if (entry.notice?.kind === 'hint') entry.notice = undefined;
+    for (const entry of store.current.columns.values()) entry.hint = undefined;
   };
 
   return {
@@ -298,8 +305,8 @@ export function useOrders(orderIntent: OrderIntent, columns: readonly BoardColum
         onDragOver: (event) => {
           if (!own()) return;
           if (!manual) {
-            if (entry.notice?.kind !== 'hint') {
-              entry.notice = { kind: 'hint', key: store.current.drag?.key ?? '' };
+            if (entry.hint === undefined) {
+              entry.hint = store.current.drag?.key ?? '';
               bump();
             }
             return;
@@ -330,7 +337,7 @@ export function useOrders(orderIntent: OrderIntent, columns: readonly BoardColum
           send(id, placement(keys, drag.key, gap));
         },
       };
-      const notice = entry.notice;
+      const { failed, hint } = entry;
       const dismiss = (key: string, button: HTMLElement) => {
         const section = button.closest('section');
         const card = [...(section?.querySelectorAll('[data-key]') ?? [])].find(
@@ -339,52 +346,56 @@ export function useOrders(orderIntent: OrderIntent, columns: readonly BoardColum
         const target =
           card?.querySelector('a') ?? section?.querySelector('[aria-label^="Sort "] button');
         if (target instanceof HTMLElement) target.focus();
-        entry.notice = undefined;
+        entry.failed = undefined;
         bump();
       };
       return {
         zone,
         busy: entry.pending !== undefined,
         line: manual ? entry.line : undefined,
-        /** The hint or the failure under the column head, until its end. */
-        notice:
-          notice?.kind === 'hint' ? (
-            <p role="status" className={styles.hint}>
-              {HINT}
-              <button
-                type="button"
-                className={`${styles.hintAction ?? ''} ${focusRing}`}
-                onClick={() => {
-                  entry.notice = undefined;
-                  entry.refocus = notice.key;
-                  setSort('manual');
-                  bump();
-                }}
-              >
-                switch to Manual
-              </button>
-              .
-            </p>
-          ) : notice?.kind === 'failed' ? (
-            <div className={styles.notice}>
-              <Banner
-                variant="error"
-                icon="back"
-                detail={`${notice.cause} The card stays where it was.`}
-                action={
-                  <Button
-                    onClick={(event) => {
-                      dismiss(notice.key, event.currentTarget);
-                    }}
-                  >
-                    Dismiss
-                  </Button>
-                }
-              >
-                {shortKey(notice.key)} not moved
-              </Banner>
-            </div>
-          ) : null,
+        /** Under the column head: the failure until Dismiss, then the hint until its end. */
+        notice: (
+          <>
+            {failed && (
+              <div className={styles.notice}>
+                <Banner
+                  variant="error"
+                  icon="back"
+                  detail={`${failed.cause} The card stays where it was.`}
+                  action={
+                    <Button
+                      onClick={(event) => {
+                        dismiss(failed.key, event.currentTarget);
+                      }}
+                    >
+                      Dismiss
+                    </Button>
+                  }
+                >
+                  {shortKey(failed.key)} not moved
+                </Banner>
+              </div>
+            )}
+            {hint !== undefined && (
+              <p role="status" className={styles.hint}>
+                {HINT}
+                <button
+                  type="button"
+                  className={`${styles.hintAction ?? ''} ${focusRing}`}
+                  onClick={() => {
+                    entry.hint = undefined;
+                    entry.refocus = hint;
+                    setSort('manual');
+                    bump();
+                  }}
+                >
+                  switch to Manual
+                </button>
+                .
+              </p>
+            )}
+          </>
+        ),
         /** The hidden status line of a Manual column, mounted while it shows Manual. */
         live: manual && (
           <p className={styles.hidden} role="status">
@@ -393,8 +404,8 @@ export function useOrders(orderIntent: OrderIntent, columns: readonly BoardColum
         ),
         /** A sort change ends the column's hint. */
         sorted() {
-          if (entry.notice?.kind !== 'hint') return;
-          entry.notice = undefined;
+          if (entry.hint === undefined) return;
+          entry.hint = undefined;
           bump();
         },
         /** The order props of card `row`, at `index` of `rows`, merged with its band's. */
@@ -455,7 +466,7 @@ export function useOrders(orderIntent: OrderIntent, columns: readonly BoardColum
                 if (!manual && !banded) {
                   // Outside a band a Time or Key card has nowhere to go: say how to reorder.
                   event.preventDefault();
-                  entry.notice = { kind: 'hint', key: row.key };
+                  entry.hint = row.key;
                 } else store.current.drag = { key: row.key, from: id };
                 bump();
               },

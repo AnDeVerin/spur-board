@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { movedKeys, ORDER_TINT_MS } from '../src/board/ColumnOrder.tsx';
+import { movedKeys, ORDER_TINT_MS, sameOrder } from '../src/board/ColumnOrder.tsx';
 import { envelope, hello, status, type Daemon } from './board-fixtures.ts';
 import { all, mountEachTest, settle } from './board-harness.ts';
 import { link, wrap } from './board-move-helpers.ts';
@@ -139,5 +139,18 @@ describe('movedKeys', () => {
     );
     expect(movedKeys(['a', 'b'], ['b', 'c'], new Set())).toEqual(new Set());
     expect(movedKeys([], ['a'], new Set())).toEqual(new Set());
+  });
+});
+
+describe('sameOrder', () => {
+  it.each([
+    [[], [], true],
+    [['a', 'b'], ['a', 'b'], true],
+    [['a', 'b'], ['b', 'a'], false],
+    [['a', 'b'], ['a', 'b', 'c'], false],
+    [['a', 'b', 'c'], ['a', 'b'], false],
+    [['a'], ['b'], false],
+  ])('%j and %j: %s', (before, after, same) => {
+    expect(sameOrder(before, after)).toBe(same);
   });
 });

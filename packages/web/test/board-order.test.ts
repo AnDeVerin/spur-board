@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { envelope, hello, problem, row, status } from './board-fixtures.ts';
+import { envelope, hello, problem, row, status, type Daemon } from './board-fixtures.ts';
 import { all, mountEachTest, one, press, settle } from './board-harness.ts';
 import {
   board,
   form,
   forms,
   KEY,
+  keysIn,
   link,
   MIRRORED,
   MIRRORED_ROWS,
@@ -264,6 +265,72 @@ describe('manual order: a refused reorder', () => {
     expect(document.activeElement).toBe(
       column('todo').querySelector('[aria-label^="Sort "] button'),
     );
+  });
+
+  // Picks `label` in the sort menu of `section`.
+  const choose = (section: Element, label: string) => {
+    const letter = section.querySelector('[aria-label^="Sort "] button');
+    if (!letter) throw new Error('no sort letter');
+    press(letter, 'click');
+    const option = [...section.querySelectorAll('[role="menuitemradio"]')].find(
+      (found) => found.textContent === label,
+    );
+    if (!option) throw new Error(`no ${label}`);
+    press(option, 'click');
+  };
+  const FIVE = 'ex/repo#5';
+  it.each([
+    ['Time and a drag', 'Time', false],
+    ['Key and a drag', 'Key', false],
+    ['Time and a Backlog drag over its own part', 'Time', true],
+    ['a later reorder in Manual', undefined, false],
+  ] as const)('stays until Dismiss after %s', async (_, sort, banded) => {
+    let calls = 0;
+    const refuseFirst = (fake: Daemon) => {
+      const answer = fake.routes['task.order'];
+      fake.routes['task.order'] = (input) =>
+        calls++ === 0 ? problem('order_anchor_invalid', 409) : answer(input);
+    };
+    const mounted = banded
+      ? await board(
+          THREE,
+          [...ROWS, row(FIVE, 'todo', { columnEnteredAt: '2026-11-15T12:00:00.000Z' })],
+          refuseFirst,
+          { 'board-sort:a:todo': 'manual' },
+        )
+      : await manualBoard([A, B, C], undefined, refuseFirst);
+    mounted.d.send(hello);
+    await settle();
+    const section = banded ? part('todo') : column('todo');
+    const [first, second] = banded ? keysIn('todo') : keysOf('todo');
+    if (!first || !second) throw new Error('no two cards');
+    step(second, 'ArrowUp');
+    await settle();
+    const refused = () => section.querySelector('[role="alert"]')?.textContent ?? '';
+    expect(refused()).toContain(`${second.slice(second.indexOf('#'))} not moved`);
+    if (sort === undefined) {
+      step(second, 'ArrowUp');
+      await settle();
+      expect(mounted.orders).toHaveLength(2);
+    } else {
+      choose(section, sort);
+      if (banded) {
+        drag(link(first), 'dragstart');
+        const cards = section.querySelector(css('body'));
+        if (!cards) throw new Error('no todo cards');
+        drag(cards, 'dragover');
+        drag(link(first), 'dragend');
+      } else expect(drag(link(first), 'dragstart').defaultPrevented).toBe(true);
+      expect(section.contains(hint() ?? null)).toBe(true);
+      // The refusal first, then the hint.
+      const alert = section.querySelector('[role="alert"]');
+      expect(
+        (alert?.compareDocumentPosition(hint() as Node) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    expect(refused()).toContain(`${second.slice(second.indexOf('#'))} not moved`);
+    press(buttonIn(section, 'Dismiss'), 'click');
+    expect(section.querySelector('[role="alert"]')).toBeNull();
   });
 });
 
