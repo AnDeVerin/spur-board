@@ -123,6 +123,16 @@ const turn = (kind: Turn['kind'], column: ColumnId, ...reasons: GateReason[]): T
 });
 const wrapUp = turn('wrap_up', 'done');
 const nothing: Result = { moves: [], turn: null };
+/** External Review under `approvalRule: github-rules`. */
+const ruled = (board: Board): Board =>
+  board.map((c) => (c.id === 'external-review' ? { ...c, approvalRule: 'github-rules' } : c));
+/** Approved past Product Review, with GitHub blocking the merge on one unresolved thread. */
+const blockedOnThreads = () => ({
+  marks: [submit('dev'), mark('review'), mark('product-review')],
+  externalReviewApproved: true,
+  unresolvedThreads: 1,
+  reviewRule: { approved: true, changesRequested: false, decision: 'unresolved_threads' as const },
+});
 
 const cases: [string, Changes, Result][] = [
   [
@@ -706,6 +716,53 @@ const cases: [string, Changes, Result][] = [
         right('external-review', 'ready-to-merge'),
         left('ready-to-merge', 'dev', 'unresolved_threads'),
       ],
+      turn: turn('entry', 'dev', 'unresolved_threads', 'no_submit_on_head'),
+    },
+  ],
+  [
+    'GitHub blocking on unresolved threads returns External Review to Dev under github-rules',
+    {
+      column: 'external-review',
+      board: ruled(disable(ALL, 'ready-for-dev', 'qa', 'ready-to-merge')),
+      facts: blockedOnThreads(),
+    },
+    {
+      moves: [left('external-review', 'dev', 'unresolved_threads')],
+      turn: turn('entry', 'dev', 'unresolved_threads', 'no_submit_on_head'),
+    },
+  ],
+  [
+    'GitHub blocking with every thread resolved holds External Review under github-rules',
+    {
+      column: 'external-review',
+      board: ruled(disable(ALL, 'ready-for-dev', 'qa', 'ready-to-merge')),
+      facts: {
+        ...blockedOnThreads(),
+        unresolvedThreads: 0,
+        reviewRule: { approved: true, changesRequested: false, decision: 'blocked' },
+      },
+    },
+    nothing,
+  ],
+  [
+    'a taken QA turn holds a github-rules unresolved-thread return',
+    {
+      column: 'qa',
+      board: ruled(disable(ALL, 'ready-for-dev')),
+      facts: blockedOnThreads(),
+      turn: { visit: 'unclosed', open: true },
+    },
+    nothing,
+  ],
+  [
+    'GitHub blocking on unresolved threads returns QA to Dev under github-rules',
+    {
+      column: 'qa',
+      board: ruled(disable(ALL, 'ready-for-dev')),
+      facts: blockedOnThreads(),
+    },
+    {
+      moves: [left('qa', 'dev', 'unresolved_threads')],
       turn: turn('entry', 'dev', 'unresolved_threads', 'no_submit_on_head'),
     },
   ],

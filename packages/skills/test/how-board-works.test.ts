@@ -83,7 +83,7 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
         /an unresolved review thread, outdated\s*or by anyone, returns the task to Dev, whose turn lists each thread link/,
         /worker fixes or answers, then resolves each; reviewers never do/,
         /Dev submit on the same head moves right, keeping marks and approval/,
-        /approval's inline notes are threads; it still passes External Review/,
+        /approval's inline notes are threads; it still passes External Review\. Under\s+`github-rules`, GitHub blocking on threads returns the task to\s+Dev from\s+External Review on/,
         /Feedback excludes\s+bots, approvals and `projects\[\]\.operatorGithubLogin`\s+\(agents'\s+account\), so worker\s+thread replies never count/,
         /never count; others' posts do\./,
         /repo owner's and the human operator's own accounts count too, unless one is\s+that login/,
@@ -378,8 +378,8 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
       expect(row.cells[2], label).not.toBe('');
       expect(row.cells[5], label).not.toBe('');
     }
-    const action = (kind: string, prefix?: string) =>
-      rows.find((row) => row.kind === kind && row.prefix === prefix)?.cells[2] ?? '';
+    const action = (kind: string, prefix?: string, cell = 2) =>
+      rows.find((row) => row.kind === kind && row.prefix === prefix)?.cells[cell] ?? '';
     expect(action('cycle_limit')).toBe('not listed: shown as its block');
     expect(action('board_observation', 'operator-block:')).toBe('not listed: shown as its block');
     expect(action('anomaly')).toMatch(
@@ -392,6 +392,7 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
       /; listed only when the block is not addressed to you; otherwise shown as its block$/,
     );
     expect(action('turn')).toBe('listed as its `T…` entry');
+    expect(action('board_observation', 'review-rule:', 1)).toMatch(/every thread resolved.*to Dev/);
     expect(action('board_observation', 'filter:')).toContain(
       '`board unlink <task> --pr <pr> --reason <reason>`',
     );

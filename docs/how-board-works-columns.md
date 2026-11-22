@@ -25,18 +25,20 @@ Exact reason in events; one line in history.
 `--correct` repairs enabled non-Done columns then settles gates. Dev return:
 `board return <turn> <reason>`. QA: `board submit <turn> <sha>` records evidence.
 
-| Column            | Position source                | Who moves                    | Command                                                       |
-| ----------------- | ------------------------------ | ---------------------------- | ------------------------------------------------------------- |
-| `todo`            | New/reopened; manual           | Dispatcher/operator          | `board move <task> todo --reason <text> --key <key>`          |
-| `triage`          | Manual                         | Operator                     | `board move <task> triage --reason <text> --key <key>`        |
-| `ready-for-dev`   | Manual or Project mirror       | Operator/mirror              | `board move <task> ready-for-dev --reason <text> --key <key>` |
-| `dev`             | Work start/gate failure/return | Dispatcher/executor/operator | `board move <task> dev --correct --reason <text>`             |
-| `review`          | Gates: internal review         | Dispatcher/operator          | `board move <task> review --correct --reason <text>`          |
-| `product-review`  | Gates: product review          | Dispatcher/operator          | `board move <task> product-review --correct --reason <text>`  |
-| `external-review` | Gates: external approval       | Dispatcher/operator          | `board move <task> external-review --correct --reason <text>` |
-| `qa`              | Gates: QA confirmation         | Dispatcher/operator          | `board move <task> qa --correct --reason <text>`              |
-| `ready-to-merge`  | Gates: merge                   | Dispatcher/operator          | `board move <task> ready-to-merge --correct --reason <text>`  |
-| `done`            | Completion: PR/ticket facts    | Dispatcher                   | None (automatic)                                              |
+<!-- prettier-ignore-start -->
+| Column | Position source | Who moves | Command |
+| --- | --- | --- | --- |
+| `todo` | New/reopened; manual | Dispatcher/operator | `board move <task> todo --reason <text> --key <key>` |
+| `triage` | Manual | Operator | `board move <task> triage --reason <text> --key <key>` |
+| `ready-for-dev` | Manual or Project mirror | Operator/mirror | `board move <task> ready-for-dev --reason <text> --key <key>` |
+| `dev` | Work start/gate failure/return | Dispatcher/executor/operator | `board move <task> dev --correct --reason <text>` |
+| `review` | Gates: internal review | Dispatcher/operator | `board move <task> review --correct --reason <text>` |
+| `product-review` | Gates: product review | Dispatcher/operator | `board move <task> product-review --correct --reason <text>` |
+| `external-review` | Gates: external approval | Dispatcher/operator | `board move <task> external-review --correct --reason <text>` |
+| `qa` | Gates: QA confirmation | Dispatcher/operator | `board move <task> qa --correct --reason <text>` |
+| `ready-to-merge` | Gates: merge | Dispatcher/operator | `board move <task> ready-to-merge --correct --reason <text>` |
+| `done` | Completion: PR/ticket facts | Dispatcher | None (automatic) |
+<!-- prettier-ignore-end -->
 
 Order: one per column, board-wide; arrivals go last. Operator:
 `board order <task> --before <task> --key <key>` (`--after`, `--top`, `--bottom`);
@@ -105,7 +107,9 @@ gates that column and those right of it: an unresolved review thread, outdated
 or by anyone, returns the task to Dev, whose turn lists each thread link. The
 worker fixes or answers, then resolves each; reviewers never do. A
 Dev submit on the same head moves right, keeping marks and approval. An
-approval's inline notes are threads; it still passes External Review.
+approval's inline notes are threads; it still passes External Review. Under
+`github-rules`, GitHub blocking on threads returns the task to Dev from
+External Review on.
 
 Review/Product Review mark lasts across visits on the current head. QA submissions
 also survive returns and corrections to Dev on the same head. Other visit
