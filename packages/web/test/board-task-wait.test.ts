@@ -13,7 +13,7 @@ const wait = { reason: 'a free stand', since: AT, wakesAt: WAKES };
 const taken = { by: 'agent:rev/rev-1', at: AT };
 const TEXT = 'waiting: a free stand · wakes 13:30';
 
-const strip = () => dialog().querySelector<HTMLElement>('[role="group"][aria-label^="waiting:"]');
+const strip = () => dialog().querySelector<HTMLElement>('[role="img"][aria-label^="waiting:"]');
 const shown = () => {
   const found = strip();
   if (!found) throw new Error('no wait strip');
@@ -24,6 +24,7 @@ describe('wait strip', () => {
   it('shows the active wait under the chips and above Why, named in full', async () => {
     await open(orchestratorTaskGet({ taken, wait }), undefined, minutesBefore(20));
     const found = shown();
+    expect(found.getAttribute('role')).toBe('img');
     expect(found.getAttribute('aria-label')).toBe(`${TEXT} (in 20m)`);
     expect(found.textContent).toBe(`${TEXT} (in 20m)`);
     expect(found.querySelector('p')?.getAttribute('aria-hidden')).toBe('true');

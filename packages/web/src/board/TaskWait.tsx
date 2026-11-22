@@ -9,8 +9,10 @@ import styles from './TaskWait.module.css';
 
 /**
  * `waiting: <reason> · wakes <hh:mm> (in 20m)`, named in full for assistive technology by the
- * group's label, with the visible line hidden from it so the text is read once; the relative time
- * keeps the full text colour, as dimmed it falls below AA contrast. Nothing while
+ * label of an image role: an image's children are ignored, so the text is read once, and
+ * browse-mode screen readers do not skip it as they can a labelled group with no readable
+ * content. The relative time keeps the full text colour, as dimmed it falls below AA contrast.
+ * Nothing while
  * the Turn section's re-read is stale or no agent holder waits; the right end stays free for an
  * action.
  */
@@ -28,7 +30,7 @@ export function TaskWait({
   const text = `waiting: ${wait.reason} · wakes ${clockTime(wait.wakesAt)}`;
   const relative = `(${until(wait.wakesAt, now)})`;
   return (
-    <div role="group" aria-label={`${text} ${relative}`} className={styles.strip}>
+    <div role="img" aria-label={`${text} ${relative}`} className={styles.strip}>
       <span className={styles.icon} aria-hidden="true">
         <Icon name="clock" />
       </span>
