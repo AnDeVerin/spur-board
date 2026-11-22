@@ -15,6 +15,7 @@ import {
 import { clearItem, raiseItem } from '../../src/app/feed.ts';
 import type { OperationHandlers } from '../../src/app/operations.ts';
 import { openTempStore } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 import { liveSession } from '../support/conversation.ts';
 import { bestProjectSession, selectNotificationRecipient } from '../../src/app/doorbells.ts';
 import { blockAddressee, escalateBlock } from '../../src/domain/blocks/blocks.ts';
@@ -41,6 +42,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
@@ -192,6 +194,7 @@ it.each([
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     const store = openTempStore('board-column-policy-').store;
@@ -946,6 +949,7 @@ it('rolls sources and the daemon into one health row per service', async () => {
       },
     ],
     operator: { slack: 'operator' },
+    slack: SLACK_ON,
     digest: { tz: 'UTC' },
     thresholds: { staleMultiplier: 10 },
   });
@@ -2191,6 +2195,7 @@ it('allowlists effective configuration and applies status project visibility', a
       { name: 'desk', role: 'operator' },
     ],
     operator: { slack: 'operator' },
+    slack: SLACK_ON,
     digest: { tz: 'UTC' },
   });
   // Simulate future runtime fields after validation: none may enter the explicit projection.
@@ -2293,6 +2298,7 @@ it('config.get gives a Jira project its ticket browse base', async () => {
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     Object.assign(effective.projects[0]?.tracker ?? {}, extra);
@@ -2347,6 +2353,7 @@ it('config.get reports resolved web origins', async () => {
     const effective = configSchema.parse({
       projects: [config.projects[0]],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
       ...(web === undefined ? {} : { web }),
     });
@@ -2899,6 +2906,7 @@ it('reports a GitHub Project mirror in config.get, status.get and columns.descri
       },
     ],
     operator: { slack: 'operator' },
+    slack: SLACK_ON,
     digest: { tz: 'UTC' },
     thresholds: { staleMultiplier: 10 },
   });

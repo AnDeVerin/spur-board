@@ -5,6 +5,7 @@ import { SpurRejectedError } from '../../src/app/sender.ts';
 import { requestSkillReload, skillReloads } from '../../src/app/skill-reload.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { openTempStore } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const AT = new Date('2026-11-04T09:00:01.000Z');
 const TEXT =
@@ -31,6 +32,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const stores: Store[] = [];

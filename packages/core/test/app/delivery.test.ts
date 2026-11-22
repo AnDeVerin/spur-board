@@ -45,7 +45,7 @@ import {
   type ObservedGateway,
   type ObservedSpur,
 } from '../support/observe.ts';
-import { slackOffConfig, testConfig } from '../support/config.ts';
+import { SLACK_ON, slackOffConfig, testConfig } from '../support/config.ts';
 
 const PERSONA: Persona = { name: 'worker', role: 'worker' };
 
@@ -1776,6 +1776,7 @@ describe('dependencies', () => {
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     const inbound = createInbound({
