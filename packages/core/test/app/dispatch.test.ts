@@ -115,6 +115,8 @@ type Options = {
   sharedRepo?: boolean | 'github-rules';
   /** The board is To Do, Dev, this column and Done, all with no executor bound. */
   unbound?: 'review' | 'product-review' | 'qa' | 'ready-to-merge';
+  /** `health.hostLoad.sessions`: how many sessions in error keep a host-load episode. */
+  hostLoadSessions?: number;
 };
 
 function boardConfig(options: Options = {}) {
@@ -214,6 +216,9 @@ function boardConfig(options: Options = {}) {
     ],
     operator: { slack: 'operator' },
     digest: { tz: 'UTC' },
+    ...(options.hostLoadSessions === undefined
+      ? {}
+      : { health: { hostLoad: { sessions: options.hostLoadSessions } } }),
   });
 }
 
@@ -509,7 +514,8 @@ function board(options: Options = {}) {
       observe(`github:proj:${repo}`, [], complete, startedAt, blind),
     /**
      * A complete Spur poll: the reviewers always, the worker while `worker` is not `none`; the
-     * session ids in `gone` are left out; `workerPatch` overrides the worker's facts.
+     * session ids in `gone` are left out; `workerPatch` overrides the worker's facts and `extra`
+     * adds sessions.
      */
     spur: (
       worker: 'live' | 'ended' | 'none' | 'unlinked' = 'live',
@@ -518,6 +524,7 @@ function board(options: Options = {}) {
       startedAt?: string,
       blind = false,
       workerPatch: Partial<SessionFacts> = {},
+      extra: readonly SessionFacts[] = [],
     ) =>
       observe(
         'spur',
@@ -540,6 +547,7 @@ function board(options: Options = {}) {
               ]),
           { kind: 'session' as const, facts: sessionFacts('rev-1', 'rev') },
           { kind: 'session' as const, facts: sessionFacts('coord-1', 'coord') },
+          ...extra.map((facts) => ({ kind: 'session' as const, facts })),
           ...(options.curator === true
             ? [{ kind: 'session' as const, facts: sessionFacts('cur-1', 'cur') }]
             : []),
@@ -2881,34 +2889,89 @@ describe('a merged PR and the ticket', () => {
     await expectOpen(ctx, id);
   });
 
+  /** The open operator items naming worker-1, by key. */
+  const workerItems = async (ctx: Board) =>
+    (
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select('item_key')
+        .where('item_key', 'like', '%worker-1%')
+        .where('cleared_at', 'is', null)
+        .execute()
+    ).map((item) => item.item_key);
+
   it.each([
-    ['error', 'errorAfterMs'],
-    ['needs_input', 'needsInputAfterMs'],
+    ['error', 'untaken wrap-up', null],
+    ['needs_input', 'untaken wrap-up', null],
+    ['error', 'host load', null],
+    ['needs_input', 'no wrap-up', 'health:1:worker-1:needs_input'],
+    ['needs_input', 'Review turn', 'health:1:worker-1:needs_input'],
+    ['needs_input', 'open wrap-up', 'health:1:worker-1:needs_input'],
   ] as const)(
-    'closes an untaken Done wrap-up for a worker stopped in %s health and flags it nowhere',
-    async (health, threshold) => {
-      const ctx = await inDev();
-      const id = await untakenWrapUp(ctx);
-      // Spur keeps the smoothed health of the stopped worker past its flag threshold.
-      const healthSince = ctx.at();
-      ctx.wait(ctx.config().health[threshold]);
-      await ctx.spur('live', true, [], undefined, false, {
-        lifecycle: 'stopped',
-        health,
-        healthSince,
-      });
-      await expectMovedClose(ctx, id);
-      ctx.wait(ctx.config().health[threshold]);
-      await ctx.tick();
-      expect(
+    'a worker stopped in %s health (%s) loses its flags only with the wrap-up it left',
+    async (health, setup, kept) => {
+      const options = {
+        ...(setup === 'host load' ? { hostLoadSessions: 1 } : {}),
+        ...(setup === 'no wrap-up' ? { doneOrchestrator: 'operator' } : {}),
+      };
+      // In Review the reviewer's open turn leaves worker-1 out of the stall scan.
+      const ctx = await (setup === 'Review turn' ? inReview(options) : inDev(options));
+      const { health: limits } = ctx.config();
+      // Worker-2, linked last, takes the wrap-up's rings, so worker-1 is not its stalled executor.
+      const extra =
+        setup === 'host load' || setup === 'open wrap-up'
+          ? [sessionFacts('worker-2', 'worker')]
+          : [];
+      let id = -1;
+      if (setup === 'no wrap-up') {
+        await ctx.pr({ state: 'merged' });
+        await ctx.ticket('closed');
+        expect((await ctx.task()).column).toBe('done');
+        expect(await ctx.openTurn()).toBeNull();
+      } else if (setup !== 'Review turn') id = await untakenWrapUp(ctx);
+      // Spur keeps the smoothed health of the worker past its flag threshold.
+      const unhealthy = { health, healthSince: ctx.at() };
+      await ctx.spur('live', true, [], undefined, false, unhealthy, extra);
+      ctx.wait(
+        setup === 'host load'
+          ? limits.hostLoad.maxEpisodeMs + limits.errorAfterMs
+          : limits[health === 'error' ? 'errorAfterMs' : 'needsInputAfterMs'],
+      );
+      await ctx.spur('live', true, [], undefined, false, unhealthy, extra);
+      const before = await workerItems(ctx);
+      if (setup === 'host load') {
+        expect(before).toEqual(['health:1:worker-1:stuck_worker']);
+        expect(await openSystemBlocks(ctx)).toHaveLength(1);
+        // A host-load episode that holds the stuck-worker block of a session still in error.
+        const episode = JSON.stringify({ startedAt: Date.parse(ctx.at()) });
         await ctx.store.db
-          .selectFrom('operator_item')
-          .select(['item_key', 'kind'])
-          .where('item_key', 'like', '%worker-1%')
-          .execute(),
-      ).toEqual([]);
-      expect(await openSystemBlocks(ctx)).toEqual([]);
-      expect(await ctx.openTurn()).toBeNull();
+          .insertInto('meta')
+          .values({ key: 'host_load_episode', value: episode })
+          .onConflict((oc) => oc.column('key').doUpdateSet({ value: episode }))
+          .execute();
+      } else if (kept === null) expect(before).toEqual([]);
+      else expect(before.some((key) => key.startsWith(kept))).toBe(true);
+      await ctx.spur(
+        'live',
+        true,
+        [],
+        undefined,
+        false,
+        { ...unhealthy, lifecycle: 'stopped' },
+        setup === 'host load' ? [sessionFacts('worker-2', 'worker', true)] : extra,
+      );
+      for (const step of ['stop', 'tick'] as const) {
+        if (step === 'tick') await ctx.tick();
+        const after = await workerItems(ctx);
+        if (kept === null) {
+          expect(after).toEqual([]);
+          expect(await openSystemBlocks(ctx)).toEqual([]);
+        } else expect(after.some((key) => key.startsWith(kept))).toBe(true);
+      }
+      if (kept === null) {
+        await expectMovedClose(ctx, id);
+        expect(await ctx.openTurn()).toBeNull();
+      }
     },
   );
 

@@ -969,9 +969,26 @@ export async function reconcileItems(
   const resting = await restingHolders(trx, config, now);
   const restingIdle = (flag: { kind: string; taskId: string; sessionId: string }) =>
     flag.kind === 'worker_idle' && resting.has(`${flag.taskId}:${flag.sessionId}`);
-  // A worker stopped without an end time on a Done task with no open turn has nothing left to
-  // answer: the retained Spur health of its last state raises no stuck or input flag.
+  // A worker stopped without an end time on a Done task whose untaken wrap-up closed with no
+  // recipient left (`closeUnaddressedDoneTurns`) has nothing left to answer: the retained Spur
+  // health of its last state raises and holds no stuck or input flag. Before that close the
+  // open turn kept the session in `stalled`.
   const turnTasks = new Set(turns.map((turn) => turn.task_id));
+  const unaddressedDone = new Set(
+    (
+      await trx
+        .selectFrom('turn')
+        .innerJoin('task', 'task.id', 'turn.task_id')
+        .select('turn.task_id')
+        .where('turn.closed_reason', '=', 'moved')
+        .where('turn.acked_at', 'is', null)
+        .where('turn.role', '=', 'worker')
+        .where('turn.column', '=', 'done')
+        .where('task.column', '=', 'done')
+        .whereRef('turn.epoch', '=', 'task.column_epoch')
+        .execute()
+    ).map((turn) => turn.task_id),
+  );
   const stoppedInDone = new Set(
     subjects
       .filter(
@@ -980,6 +997,7 @@ export async function reconcileItems(
           subject.lifecycle === 'stopped' &&
           subject.endedAt === null &&
           taskById.get(Number(subject.taskId))?.column === 'done' &&
+          unaddressedDone.has(Number(subject.taskId)) &&
           !turnTasks.has(Number(subject.taskId)),
       )
       .map((subject) => `${subject.taskId}:${subject.id}`),
@@ -1125,7 +1143,8 @@ export async function reconcileItems(
               subject.endedAt === null &&
               subject.health === 'error' &&
               subject.role !== 'other' &&
-              !stalled.has(`${subject.taskId}:${subject.id}`),
+              !stalled.has(`${subject.taskId}:${subject.id}`) &&
+              !stoppedInDone.has(`${subject.taskId}:${subject.id}`),
           )
           .map((subject) =>
             healthKey(Number(subject.taskId), {

@@ -104,9 +104,9 @@ curator questions move to operator.
 
 A taken turn is reminded, then flagged stuck, after `health.idleInDevAfterMs` of quiet;
 a named column orchestrator's turn uses the column's
-`quietTurnAfterMs` instead. When the column's untaken turns have no live session to ring for
-its `noRecipientAfterMs` (default 10 minutes, counted from the later of the ring and the
-last session able to take them: its first end, absence or finished state), the operator gets one `no-session:` inbox item per column.
+`quietTurnAfterMs`. When the column's untaken turns have no live session to ring for
+its `noRecipientAfterMs` (default 10 minutes, from the later of the ring's creation and the
+loss of the last eligible recipient: its first end, absence or finished state), the operator gets one `no-session:` inbox item per column.
 
 A holder can [wait on its turn](how-board-works-waits.md).
 
