@@ -1,11 +1,13 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { COLUMNS } from '../../contracts/src/index.ts';
 
 const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
 const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.url));
 const troubleshootingPath = fileURLToPath(new URL('../../../TROUBLESHOOTING.md', import.meta.url));
 const runbookPath = fileURLToPath(new URL('../../../docs/runbook.md', import.meta.url));
+const docsUrl = new URL('../../../docs/', import.meta.url);
 const updatePath = fileURLToPath(new URL('../setup/references/update.md', import.meta.url));
 const publicGuides = [readmePath, setupGuidePath, troubleshootingPath, runbookPath].map((path) =>
   readFileSync(path, 'utf8'),
@@ -13,6 +15,19 @@ const publicGuides = [readmePath, setupGuidePath, troubleshootingPath, runbookPa
 const updateRun = readFileSync(updatePath, 'utf8');
 
 describe('public guide contents', () => {
+  it('introduces newcomers with every built-in column and working links', () => {
+    const overview = readFileSync(new URL('overview.md', docsUrl), 'utf8').replace(/\s+/g, ' ');
+    for (const column of COLUMNS) expect(overview).toContain(column.name);
+    const links = [...overview.matchAll(/\]\(([^)]+)\)/g)]
+      .map((match) => match[1] ?? '')
+      .filter((target) => !/^https?:/.test(target));
+    expect(links).toEqual(expect.arrayContaining(['../SETUP.md', 'configuration.md']));
+    for (const target of links) {
+      const path = fileURLToPath(new URL(target.split('#')[0] ?? '', docsUrl));
+      expect(existsSync(path), target).toBe(true);
+    }
+  });
+
   it('documents worker session links and the PR-author login', () => {
     const setup = publicGuides[1];
     expect(setup).toContain('open PRs under');
