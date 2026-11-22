@@ -182,9 +182,8 @@ export async function wakeWaitingTurns(trx: Trx, config: Config, at: Date): Prom
  * The `taskId:sessionId` pairs whose `worker_idle` stays off: the agent holder of an unclosed turn
  * while it waits, and for `health.idleInDevAfterMs` after a wait that ran out (`woken` or
  * `limit`) or that the operator ended (`ended`). Only those ends come after the take with the
- * holder still live: a take ends the wait
- * at its own time, and submit or close leave no unclosed turn. A holder whose session ended gets
- * none.
+ * holder still live: a take ends the wait at its own time, and submit or close leave no unclosed
+ * turn. A holder whose session ended gets none.
  */
 export async function restingHolders(trx: Trx, config: Config, now: number): Promise<Set<string>> {
   const turns = await trx

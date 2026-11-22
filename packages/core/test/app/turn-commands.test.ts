@@ -451,6 +451,12 @@ async function taken(options: Parameters<typeof setup>[0] = {}) {
   return ctx;
 }
 
+/** The `source_key`s of the rings that tell a holder the operator ended its wait. */
+const endRings = async (ctx: Awaited<ReturnType<typeof setup>>) =>
+  (await ctx.store.db.selectFrom('notification').select('source_key').execute())
+    .map((row) => row.source_key)
+    .filter((key) => key.includes(':ended:'));
+
 /** `submitConfirmMs` past `AT`: when a pending submit stops waiting for a PR. */
 const PENDING_UNTIL = new Date(Date.parse(AT) + 180_000).toISOString();
 
@@ -3113,16 +3119,12 @@ describe('operator takeover', () => {
       const ctx = await setup({ reviewOrchestrator: 'operator' });
       await ctx.openTurn();
       await ctx.ack(OPS_1);
-      const keys = async () =>
-        (await ctx.store.db.selectFrom('notification').select('source_key').execute())
-          .map((row) => row.source_key)
-          .filter((key) => key.includes(':ended:'));
       await ctx.wait(OPS_1, 'wait-1', 30, 'operator check');
       await expect(ctx.endWait(OPS_1, 'end-1')).resolves.toEqual({ turn: 'T1', waits: 1 });
-      expect(await keys()).toEqual([]);
+      expect(await endRings(ctx)).toEqual([]);
       await ctx.wait(OPS_1, 'wait-2', 30, 'operator check');
       await ctx.endWait('operator', 'end-2');
-      expect(await keys()).toEqual([`turn:1:ended:ops-1:${AT}`]);
+      expect(await endRings(ctx)).toEqual([`turn:1:ended:ops-1:${AT}`]);
     });
 
     it.each(BINDINGS)(
@@ -3283,12 +3285,6 @@ describe('task.wait', () => {
     });
     expect((await ends(ctx)).at(-1)?.payload).toMatchObject({ turn: 'T1', outcome });
   });
-
-  /** The `source_key`s of the rings that tell a holder the operator ended its wait. */
-  const endRings = async (ctx: Awaited<ReturnType<typeof setup>>) =>
-    (await ctx.store.db.selectFrom('notification').select('source_key').execute())
-      .map((row) => row.source_key)
-      .filter((key) => key.includes(':ended:'));
 
   it('ends the active wait for the operator and replays a repeat with the same key', async () => {
     for (const actor of ['operator', OPS_1] as const) {

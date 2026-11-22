@@ -1,5 +1,6 @@
 // The inputs and outputs of the writes that take, close and wait on a turn: `inbox.ack`,
-// `task.submit`, `task.return` and `task.wait`. The catalog and the browser operations share these objects (`ops.test.ts`).
+// `task.submit`, `task.return` and `task.wait`. The catalog and the browser operations share
+// these objects (`ops.test.ts`).
 import { z } from 'zod';
 import { SUBMISSION_BASES } from '../enums.ts';
 import { commitShaSchema } from '../facts.ts';
