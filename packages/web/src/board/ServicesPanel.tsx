@@ -78,9 +78,10 @@ function runs(boxes: readonly PanelBox[]) {
 }
 
 /**
- * The services panel: a left SidePanel with the shared boxes (daemon, host, slack, spur), then one
- * group per project headed by its id, all from the last good `status.get`. A bar button scrolls to
- * its service's worst box. `keepLive` is the status bar, rendered before it.
+ * The services panel: a left SidePanel with the shared boxes (daemon, host, slack when a Slack
+ * services row exists, spur), then one group per project headed by its id, all from the last good
+ * `status.get`. A bar button scrolls to its service's worst box. `keepLive` is the status bar,
+ * rendered before it.
  */
 export function ServicesPanel({
   snapshot,

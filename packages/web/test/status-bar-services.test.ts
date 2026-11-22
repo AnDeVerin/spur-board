@@ -88,12 +88,7 @@ describe('status bar indicators', () => {
   });
 
   it('a service with no row reads unknown', () => {
-    expect(labels(status())).toEqual([
-      'daemon: unknown',
-      'slack: unknown',
-      'github: unknown',
-      'spur: unknown',
-    ]);
+    expect(labels(status())).toEqual(['daemon: unknown', 'github: unknown', 'spur: unknown']);
     const jiraSource = status(undefined, [polled('jira:a')], { services: HEALTHY });
     expect(labels(jiraSource).at(-1)).toBe('jira: unknown');
     expect(indicators(snap(jiraSource), time).at(-1)?.tone).toBe('unknown');
@@ -103,7 +98,8 @@ describe('status bar indicators', () => {
     const blind = status(undefined, [polled(PR), polled(ISSUES, { blindReason: 'auth' })], {
       services: [service('github', 'failing')],
     });
-    const [, , github] = indicators(snap(blind), time);
+    // No slack row: github is the second button.
+    const [, github] = indicators(snap(blind), time);
     expect(github).toMatchObject({ label: 'github: blind: auth', tone: 'error' });
     const boxes = panelBoxes(snap(blind), time);
     expect(boxes.find((item) => item.id === ISSUES)?.health).toEqual({
@@ -115,24 +111,19 @@ describe('status bar indicators', () => {
     const budget = status(undefined, [polled(PR, { waitsForBudget: true }), polled(ISSUES)], {
       services: [service('github', 'degraded', { reason: `${PR} waits for its rate budget` })],
     });
-    const [, , waiting] = indicators(snap(budget), time);
+    const [, waiting] = indicators(snap(budget), time);
     expect(waiting?.label).toBe('github: waits for rate budget');
     expect(waiting?.title).toBe(`github: waits for rate budget · ${PR} waits for its rate budget`);
 
     const stale = polled(PR, { stale: true });
     const warming = polled(ISSUES, { warmingUp: true });
     const degraded = { services: [service('github', 'degraded')] };
-    expect(labels(status(undefined, [stale, warming], degraded))[2]).toBe('github: stale');
-    expect(labels(status(undefined, [warming, stale], degraded))[2]).toBe('github: warming up');
+    expect(labels(status(undefined, [stale, warming], degraded))[1]).toBe('github: stale');
+    expect(labels(status(undefined, [warming, stale], degraded))[1]).toBe('github: warming up');
   });
 
   it('reads unknown before the first status and while the daemon does not answer', () => {
-    expect(labels(undefined)).toEqual([
-      'daemon: unknown',
-      'slack: unknown',
-      'github: unknown',
-      'spur: unknown',
-    ]);
+    expect(labels(undefined)).toEqual(['daemon: unknown', 'github: unknown', 'spur: unknown']);
     const at = Date.parse(T);
     expect(labels(healthy(), { readFailed: true, lastGoodAt: at })).toEqual([
       `daemon: no answer since ${T_TEXT}`,
@@ -163,6 +154,17 @@ describe('status bar indicators', () => {
 });
 
 describe('services panel rows', () => {
+  it('shows the slack box only when status has a slack services row', () => {
+    const slackBox = (value: unknown, extra: Extra = {}) =>
+      panelBoxes(snap(value, extra), time).find((box) => box.id === 'slack');
+    const services = HEALTHY.filter((row) => row.service !== 'slack');
+    expect(slackBox(status(undefined, [], { services }))).toBeUndefined();
+    expect(slackBox(undefined, { readFailed: true })).toBeUndefined();
+    expect(slackBox(healthy(), { readFailed: true })?.rows).toEqual([
+      { key: 'Unknown while the daemon does not answer.', note: true },
+    ]);
+  });
+
   it('maps each source field to a row', () => {
     const later = '2026-11-15T14:45:00.000Z';
     expect(
