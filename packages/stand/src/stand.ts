@@ -55,6 +55,7 @@ import { createFakeSpur, requestUrl, type FakeSpur, type FakeSpurState } from '.
 import { createFakes, type FakesState } from './fakes/fetch.ts';
 import { createGithubIssuesFake } from './fakes/github-issues.ts';
 import { createGithubPrFake } from './fakes/github-pr.ts';
+import { createFakeHost } from './fakes/host.ts';
 import { createJiraFake } from './fakes/jira.ts';
 import { proxyRefusal, readLiveBoard, refusal, StandRefusedError } from './guards.ts';
 import {
@@ -640,6 +641,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   const clock = { now: () => base.now() + offsetMs };
   // The GraphQL fake answers each issue's Project item from the GitHub Issues fake built with it.
   let issues: ReturnType<typeof createGithubIssuesFake> | undefined;
+  // The host every daemon of this stand samples; a reset restores its default readings.
+  const host = createFakeHost();
   // Outlives every daemon of this stand; a reset clears its state, not the object.
   const fakes = createFakes({
     now: () => clock.now(),
@@ -738,6 +741,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
           standVersion(fileURLToPath(new URL('../../../', import.meta.url))),
         startAdapters: runner.start,
         sessionFetcher: standFetch,
+        hostProbe: host.probe,
         spur: createSpurPort({ baseUrl: spurBaseUrl, fetch: standFetch }),
         ...(options.tick === undefined ? {} : { tick: options.tick }),
         webRoot: options.webRoot ?? WEB_DIST,
@@ -988,10 +992,11 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     fake(body: { system: string; verb: string; args: unknown }): Promise<RouteResult> {
       if (body.system === 'github' || body.system === 'jira')
         return Promise.resolve(fakes.control(body));
+      if (body.system === 'host') return Promise.resolve(host.control(body.verb, body.args));
       if (body.system !== 'spur')
         return Promise.resolve({
           status: 400,
-          body: { error: 'Unknown fake system.', systems: ['spur', 'github', 'jira'] },
+          body: { error: 'Unknown fake system.', systems: ['spur', 'github', 'jira', 'host'] },
         });
       return Promise.resolve(
         current === undefined
@@ -1153,6 +1158,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       violationsCleared += fakes.violations().total;
       // Before the new runner starts, so its first poll sees clean state.
       fakes.reset();
+      host.reset();
       if (hit !== undefined) fakes.restore(hit.fakes);
       current = await startDaemon(hit?.spur);
       if (name !== undefined && hit !== undefined) scenario = { name, entities: hit.entities };

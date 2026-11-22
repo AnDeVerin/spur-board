@@ -143,6 +143,30 @@ describe('stand fake spur', () => {
   });
 });
 
+describe('stand fake host', () => {
+  it.each([
+    ['a trailing --home', (dir: string) => ['fake', 'host', 'disk', '95', '/', '--home', dir]],
+    ['a leading --home', (dir: string) => ['fake', '--home', dir, 'host', 'disk', '95', '/']],
+  ])('sends the reading to the stand named by %s', async (_name, args) => {
+    const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
+    const result = await runCli(args(dir));
+    expect(result.code, result.stderr).toBe(0);
+    expect(fake).toHaveBeenCalledExactlyOnceWith({
+      system: 'host',
+      verb: 'disk',
+      args: { percent: 95, mount: '/' },
+    });
+  });
+
+  it('exits 2 on a bad percent without calling the stand', async () => {
+    const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
+    const result = await runCli(['fake', 'host', 'disk', 'abc', '--home', dir]);
+    expect(result.code).toBe(2);
+    expect(result.stderr.split('\n')[0]).toMatch(/fake host disk needs a percent/);
+    expect(fake).not.toHaveBeenCalled();
+  });
+});
+
 describe('stand fake github issue project-status', () => {
   it('sends one status to the issue fake', async () => {
     const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });

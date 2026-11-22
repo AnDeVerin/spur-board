@@ -18,6 +18,7 @@ import { scrubEnv } from '@spur-board/testkit';
 import { z } from 'zod';
 import { callLocal, MAX_SHIFT_MS } from './control.ts';
 import { parseFakeArgs } from './fake-spur.ts';
+import { parseFakeHostArgs } from './fakes/host.ts';
 import { liveBoardDirs, proxyRefusal, refusal, StandRefusedError } from './guards.ts';
 import {
   isLive,
@@ -115,6 +116,11 @@ const USAGE = `Usage: pnpm stand <command>
                                   fail a route until clear; delay needs --ms (1-60000)
   fake spur clear                 drop every failure rule
   fake spur inspect               print sessions, rules, requests, sends and violations
+  fake host cpu|ram|disk <percent> [<mount>]
+                                  set what the daemon samples: CPU or RAM percent used, or a disk
+                                  volume's (mount / by default, a new mount adds a volume); lasts
+                                  until reset or seed, which restore CPU 10, RAM 50, / at 50
+  fake host inspect               print the fake host readings
   fake github fail <mode> [--times n]
                                   delay <ms>, refuse, hang, auth (401), rate-limit <seconds>,
                                   server-error [status] or clear; lasts until clear or reset, or
@@ -935,6 +941,12 @@ async function main(argv: string[]): Promise<number> {
       });
       const body = fakeBody(positionals, values);
       return control(target(values.home ?? parsed.home), '/fake', body, FAKE_TIMEOUT_MS);
+    }
+    if (parsed.rest[0] === 'host') {
+      const host = parseFakeHostArgs(parsed.rest);
+      if (!host.ok) throw new UsageError(host.error);
+      const { home, ...body } = host.value;
+      return control(target(home ?? parsed.home), '/fake', body, FAKE_TIMEOUT_MS);
     }
     const fake = parseFakeArgs(parsed.rest);
     if (!fake.ok) throw new UsageError(fake.error);
