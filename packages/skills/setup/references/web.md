@@ -1,10 +1,13 @@
 # Optional browser access
 
-Web is off by default. Enable it only on a private network limited to the operator's devices.
-Anyone reaching the port can run web-bound reads and the ten writes, `comment.add`,
-`block.answer`, `block.followup`, `item.close`, `task.move`, `task.order`, `inbox.ack`,
-`task.submit`, `task.return` and `task.wait`, as operator without a token. Browser Host/Origin checks do not authenticate
-network members or local OS users.
+Web is off by default. The web UI has no login of its own: anyone reaching the port can run
+web-bound reads and the ten writes, `comment.add`, `block.answer`, `block.followup`,
+`item.close`, `task.move`, `task.order`, `inbox.ack`, `task.submit`, `task.return` and
+`task.wait`, as operator without a token. Browser Host/Origin checks do not authenticate
+network members or local OS users. The daemon binds it to `127.0.0.1`; another machine reaches
+it only through an authenticating reverse proxy or an SSH tunnel, as
+[Remote access through Caddy with basic auth](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#remote-access-through-caddy-with-basic-auth)
+shows.
 
 Set `web.port` and `web.publicOrigin` together in config.yaml:
 

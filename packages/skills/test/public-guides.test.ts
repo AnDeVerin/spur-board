@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
+import { APP_FILES } from '../../../scripts/package.ts';
+import { type Config, resolveWebOrigin } from '../../contracts/src/index.ts';
 
 const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
 const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.url));
@@ -11,8 +14,91 @@ const publicGuides = [readmePath, setupGuidePath, troubleshootingPath, runbookPa
   readFileSync(path, 'utf8'),
 );
 const updateRun = readFileSync(updatePath, 'utf8');
+const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
+const security = read('../../../SECURITY.md');
+const webUi = read('../../../docs/web-ui.md');
+const setupWeb = read('../setup/references/web.md');
+const webDocs = [...publicGuides, security, webUi, setupWeb];
+
+/** The text from `heading` up to the next heading of the same or a higher level. */
+function section(text: string | undefined, heading: string): string {
+  const level = /^#+/.exec(heading)?.[0].length ?? 0;
+  const [, rest] = (text ?? '').split(`${heading}\n`);
+  expect(rest, heading).toBeDefined();
+  const end = rest?.search(new RegExp(`^#{1,${String(level)}} `, 'm')) ?? -1;
+  return end === -1 ? (rest ?? '') : (rest?.slice(0, end) ?? '');
+}
+const flat = (text: string) => text.replace(/\s+/g, ' ');
+const caddyLink = '#remote-access-through-caddy-with-basic-auth)';
+const browserAccess = section(publicGuides[1], '### Optional browser access');
+const caddySection = section(browserAccess, '#### Remote access through Caddy with basic auth');
+const listening = section(publicGuides[2], '### web.listening');
 
 describe('public guide contents', () => {
+  it('says the UI ships in the package and is off by default', () => {
+    for (const doc of webDocs) expect(doc).not.toContain('supplied separately');
+    expect(flat(browserAccess)).toContain('npm package ships the built web UI');
+    expect(flat(browserAccess)).toContain('off by default');
+  });
+
+  it.each([
+    ['SETUP Optional browser access', browserAccess],
+    ['runbook web listener', section(publicGuides[3], '## 6. Optional web listener')],
+    ['setup skill web reference', setupWeb],
+    ['web UI Opening it', section(webUi, '## Opening it')],
+    ['TROUBLESHOOTING web.listening', listening],
+    ['SECURITY Optional web listener', section(security, '### Optional web listener')],
+  ])('warns that the web UI has no login in %s', (_name, text) => {
+    for (const token of [
+      'no login of its own',
+      'operator',
+      '`127.0.0.1`',
+      'authenticating reverse proxy',
+      'SSH tunnel',
+      caddyLink,
+    ])
+      expect(flat(text)).toContain(token);
+  });
+
+  it('ships one Caddy sample that matches the listener', () => {
+    const fence = /```caddyfile\n([\s\S]*?)```/g;
+    expect(webDocs.flatMap((doc) => [...doc.matchAll(fence)])).toHaveLength(1);
+    const sample = [...caddySection.matchAll(fence)][0];
+    const body = sample?.[1] ?? '';
+    for (const token of ['basic_auth', 'reverse_proxy 127.0.0.1:7777'])
+      expect(body).toContain(token);
+    expect(/@appfiles path (.+)/.exec(body)?.[1]?.split(' ')).toEqual(
+      APP_FILES.map((file) => `/${file}`),
+    );
+    const after = caddySection.slice((sample?.index ?? 0) + (sample?.[0].length ?? 0));
+    const yaml = /```yaml\n([\s\S]*?)```/.exec(after)?.[1] ?? '';
+    const origin = resolveWebOrigin((parse(yaml) as { web: Config['web'] }).web);
+    expect(origin).toBe('https://board.example.com');
+    expect(/^(\S+) \{/.exec(body)?.[1]).toBe(new URL(origin ?? 'x:').host);
+    for (const token of ['/v1/events', '15 seconds', '`caddy hash-password`', 'no path'])
+      expect(flat(caddySection)).toContain(token);
+    for (const token of ['ssh -L 7777:127.0.0.1:7777', '`publicOrigin: http://127.0.0.1:7777`'])
+      expect(caddySection).toContain(token);
+  });
+
+  it('names both certificate variants and the boundary they leave', () => {
+    for (const token of ['`tls internal`', '`80`', '`443`', '`bind`', 'root.crt'])
+      expect(caddySection).toContain(token);
+    const boundary = flat(section(security, '### Optional web listener'));
+    for (const token of ['authenticating reverse proxy', 'private network', 'SSH login'])
+      expect(boundary).toContain(token);
+    expect(security).not.toContain('doctor and event routes');
+  });
+
+  it('says what doctor checks for the web listener and what it does not', () => {
+    for (const text of [caddySection, listening])
+      for (const token of [
+        '`web`',
+        '`web.listening`',
+        'Neither check probes the proxy, its authentication or TLS.',
+      ])
+        expect(flat(text)).toContain(token);
+  });
   it('documents worker session links and the PR-author login', () => {
     const setup = publicGuides[1];
     expect(setup).toContain('open PRs under');
