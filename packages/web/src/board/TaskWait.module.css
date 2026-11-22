@@ -11,7 +11,9 @@
   color: var(--color-text-attention);
 }
 /* Items sit at the top, so a wrapped reason keeps the icon on its first line. */
-.strip > svg {
+.icon {
+  display: flex;
+  flex: none;
   color: var(--color-status-attention);
 }
 /* The holder's reason can be one unbroken word of up to 200 characters. */

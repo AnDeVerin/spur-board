@@ -28,7 +28,9 @@ export function TaskWait({
   const relative = `(${until(wait.wakesAt, now)})`;
   return (
     <div role="group" aria-label={`${text} ${relative}`} className={styles.strip}>
-      <Icon name="clock" />
+      <span className={styles.icon} aria-hidden="true">
+        <Icon name="clock" />
+      </span>
       <p className={styles.text}>
         {text} {relative}
       </p>
