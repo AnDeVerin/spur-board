@@ -28,29 +28,31 @@ raises no question. Shadow mode is a safe way to watch a new project before you 
 
 ## Columns, gates and turns
 
-A project uses some of ten built-in columns, always in this order: To Do (`todo`), Triage
-(`triage`), Ready for Dev (`ready-for-dev`), Dev (`dev`), Review (`review`), Product Review
-(`product-review`), External Review (`external-review`), QA (`qa`), Ready to Merge
-(`ready-to-merge`) and Done (`done`). To Do, Dev and Done are always on; Triage is off unless the
-project lists it; a column that is turned off is skipped with its gate.
+The Board has ten built-in columns, in this order: To Do (`todo`), Triage (`triage`), Ready for
+Dev (`ready-for-dev`), Dev (`dev`), Review (`review`), Product Review (`product-review`), External
+Review (`external-review`), QA (`qa`), Ready to Merge (`ready-to-merge`) and Done (`done`). To Do,
+Dev and Done are always on; Triage is off unless listed; a column turned off is skipped with its
+gate.
 
-To Do, Triage and Ready for Dev form the Todo group. New and reopened tasks enter To Do, and the
-Board never moves a task between Todo-group columns; only you do. In the web UI two or three
-adjacent Todo-group columns sit under one Backlog band; To Do alone stays a plain column.
+To Do, Triage and Ready for Dev form the Todo group. New and reopened tasks enter To Do; the
+dispatcher never moves a task between Todo-group columns. When Ready for Dev mirrors a GitHub
+Project status, each complete Project read moves idle tasks between those two columns, even in
+shadow mode; manual moves there fail with `column_mirrored`; change the Project status instead.
+The web UI groups two or three adjacent Todo-group columns under one Backlog band; To Do alone
+stays a plain column.
 
-A task leaves the Todo group when work starts: an open pull request, or a live linked worker. After
-that, gates move it. Each gate is a fact: an open non-draft pull request, passing checks, no
-conflict, handled feedback and a submit for Dev; a review mark on the current head for Review and
-Product Review; an external approval for External Review; a submit for QA; a merge for Ready to
-Merge. Gates are cumulative: when an earlier gate fails again, the task goes back to the leftmost
-failing column.
+A task leaves the Todo group when work starts: an open pull request or a live linked worker. Then
+gates move it: for Dev an open non-draft pull request, passing checks, no conflict, handled
+feedback and a submit; for Review and Product Review a review mark on the current head; for
+External Review an external approval; for QA a submit; for Ready to Merge a merge. A gate that fails
+again sends the task back to the leftmost failing column.
 
 Done has two routes: a merged pull request with a done ticket, or a done ticket with no open linked
 pull request and no live worker. A merged pull request alone holds the task until the ticket is
-done; for GitHub Issues, the issue must be closed.
+done; a GitHub issue must be closed.
 
-A task has at most one open turn. Its executor takes it with `board inbox ack` and closes it with
-`board submit` (the work on this head is done) or `board return` (findings go back to Dev).
+A task has at most one open turn; its executor takes it with `board inbox ack`. Only that session
+closes it, with `board submit` or `board return` (findings go back to Dev).
 
 ## Who works on a task
 
@@ -69,9 +71,10 @@ A column with no orchestrator falls back: Dev goes to the live worker, else to y
 Review, QA and Ready to Merge go to you; External Review opens no turn; Done opens a wrap-up turn
 only for a live worker.
 
-An agent with a question uses `board ask`. The question goes to the column orchestrator, then the
-curator, then you. Only you can move a task with `board move`, and only you can clear a task that
-hit its cycle limit.
+An agent with a question uses `board ask`. The question goes to one addressee: the column
+orchestrator, else the curator, else you. It stays there until answered; an addressee who cannot
+answer passes it on with `board escalate`, from orchestrator to curator to you. Only you can move a
+task with `board move`, and only you can clear a task that hit its cycle limit.
 
 ## Spur, Slack and the web UI
 
@@ -89,10 +92,11 @@ Spur project with role `operator`, which needs no token, or from the web UI. Que
 in `board inbox operator` and the web inbox. A token for an operator session outside Spur is
 approved in Slack, so that route needs Slack.
 
-The web UI is optional too, and off until you set `web.port`. It shows the columns, each task's
-**Why it is here**, the inbox and service health, and lets you answer, comment, take turns and
-move tasks between Backlog parts. It listens on `127.0.0.1` behind a private reverse proxy: anyone who reaches it acts as
-the operator without a token.
+The web UI is optional too, and off until you set `web.port` and `web.publicOrigin`; the config
+needs both or neither. It shows the columns, each task's **Why it is here**, the inbox and service
+health, and lets you answer, comment, take turns and move tasks between Backlog parts. It listens
+on `127.0.0.1` behind a private reverse proxy: anyone who reaches it acts as the operator without a
+token.
 
 ## A task from To Do to Done
 
@@ -107,10 +111,11 @@ shows no Backlog band.
    pass and there is no feedback, so it runs `board submit` with the head commit.
 4. Dev's gates pass and the task moves to Review. The reviewer's doorbell rings for a turn with the
    reason `review: no_review_on_head`.
-5. The reviewer finds a bug and runs `board return` with its findings. The task goes back to Dev
-   and the worker gets the findings in a new turn.
-6. The worker pushes a fix and submits the new head. The task returns to Review, and this time the
-   reviewer submits: that submit is the review mark on the current head.
+5. The reviewer acks the turn, finds a bug and runs `board return` with its findings. The task
+   goes back to Dev and the worker gets the findings in a new turn.
+6. The worker acks the new turn, pushes a fix and submits the new head. The task returns to Review
+   with a new turn; the reviewer acks it and this time submits: that submit is the review mark on
+   the current head.
 7. Review's gate passes, but Done needs more than gates. The task waits in Review until you merge
    the pull request. The merge closes issue 12, and the merged pull request with a done ticket
    moves the task to Done.
