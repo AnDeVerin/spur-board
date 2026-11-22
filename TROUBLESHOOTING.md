@@ -365,7 +365,8 @@ the command answers from another app or Board, see
 This check appears instead of the four Slack integration checks above when `slack.channels` is
 not set. It passes, without blocking, when `operator.slack` is not set either: the Board runs
 without Slack. Questions addressed to the operator wait in `board inbox operator` and the web
-inbox, and only Spur sessions reach the Board, since a token request needs Slack approval.
+inbox. Approving a new token needs Slack, so outside Spur only tokens approved while Slack was on
+reach the Board, and they keep working until `board token revoke`.
 
 To turn Slack off on an existing install, remove `SLACK_BOT_TOKEN` and `SLACK_API_URL` from
 `secrets.env` as well as the `operator.slack` and `slack` blocks: with either secret and no Slack

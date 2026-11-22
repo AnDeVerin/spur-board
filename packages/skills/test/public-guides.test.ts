@@ -69,6 +69,9 @@ describe('public guide contents', () => {
     const check = troubleshooting?.split('### slack.configured')[1]?.split(' ### ')[0];
     expect(check).toContain('the Board runs without Slack');
     expect(check).toContain('Slack is partly configured');
+    expect(check).toContain('Approving a new token needs Slack');
+    expect(check).toContain('keep working until `board token revoke`');
+    expect(check).not.toContain('only Spur sessions reach the Board');
     expect(check).toContain('remove `SLACK_BOT_TOKEN` and `SLACK_API_URL` from `secrets.env`');
     expect(flat('../../../SECURITY.md')).toContain('only Slack can approve a request');
     expect(flat('../setup/SKILL.md')).toContain('ask whether the operator wants Slack');
