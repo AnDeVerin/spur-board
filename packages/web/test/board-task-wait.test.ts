@@ -26,6 +26,8 @@ describe('wait strip', () => {
     const found = shown();
     expect(found.getAttribute('aria-label')).toBe(`${TEXT} (in 20m)`);
     expect(found.textContent).toBe(`${TEXT} (in 20m)`);
+    expect(found.querySelector('p')?.getAttribute('aria-hidden')).toBe('true');
+    expect(found.querySelectorAll(':scope > :not([aria-hidden="true"])')).toHaveLength(0);
     expect(found.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
     expect(found.previousElementSibling?.querySelector('a[href]')).not.toBeNull();
     expect(found.nextElementSibling?.textContent).toContain('Why it is here');

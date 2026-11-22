@@ -8,8 +8,9 @@ import { until } from './task-model.ts';
 import styles from './TaskWait.module.css';
 
 /**
- * `waiting: <reason> · wakes <hh:mm> (in 20m)`, named in full for assistive technology; the
- * relative time keeps the full text colour, as dimmed it falls below AA contrast. Nothing while
+ * `waiting: <reason> · wakes <hh:mm> (in 20m)`, named in full for assistive technology by the
+ * group's label, with the visible line hidden from it so the text is read once; the relative time
+ * keeps the full text colour, as dimmed it falls below AA contrast. Nothing while
  * the Turn section's re-read is stale or no agent holder waits; the right end stays free for an
  * action.
  */
@@ -31,7 +32,7 @@ export function TaskWait({
       <span className={styles.icon} aria-hidden="true">
         <Icon name="clock" />
       </span>
-      <p className={styles.text}>
+      <p className={styles.text} aria-hidden="true">
         {text} {relative}
       </p>
     </div>
