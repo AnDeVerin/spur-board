@@ -1033,7 +1033,7 @@ describe('daemon doctor checks', () => {
     });
   });
 
-  it('names the minimum Spur version in README and SETUP', () => {
+  it('names the minimum Spur version in README, SETUP and the setup skill', () => {
     const read = (name: string): string =>
       readFileSync(new URL(`../../../${name}`, import.meta.url), 'utf8');
     const normalize = (text: string): string =>
@@ -1043,6 +1043,9 @@ describe('daemon doctor checks', () => {
     expect(normalize(needs)).toContain(minimum);
     const step = read('SETUP.md').split('\n## 1. ')[1]?.split('\n## 2. ')[0] ?? '';
     expect(normalize(step)).toContain(minimum);
+    const inspect = normalize(read('packages/skills/setup/references/inspect.md'));
+    expect(inspect).toContain(minimum);
+    expect(inspect).toContain('restart the Spur daemon');
     const guide = read('TROUBLESHOOTING.md');
     const doctor = guide.split('## Doctor checks\n')[1]?.split('\n## ')[0] ?? '';
     const section = normalize(doctor.split('### spur.version\n')[1]?.split('\n### ')[0] ?? '');
