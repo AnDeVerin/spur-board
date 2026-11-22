@@ -12,7 +12,10 @@ export const inboxNoSessionSchema = z
     spurProject: z
       .string()
       .min(1)
-      .describe('Spur project of the column orchestrator, from the board config.'),
+      .optional()
+      .describe(
+        'Spur project of the column orchestrator the observation recorded, else the current binding; absent when neither is known.',
+      ),
     oldestTask: taskKeySchema.describe('Task of the oldest waiting turn when the item was raised.'),
     since: z.iso
       .datetime()
@@ -25,12 +28,14 @@ export const inboxNoSessionSchema = z
       .describe('Open entries only: untaken orchestrator turns waiting in the column now.'),
     oldestTurn: turnIdSchema
       .optional()
-      .describe('The oldest waiting turn when the item was raised, when the board can find it.'),
+      .describe(
+        'The oldest waiting turn the observation recorded; on an open entry whose record cannot be read, the waiting turn of its task.',
+      ),
     oldestAt: z.iso
       .datetime()
       .optional()
       .describe(
-        'Open entries only: when the oldest waiting turn rang, ISO 8601 UTC, while it still waits untaken.',
+        'Open entries only: when that turn rang, ISO 8601 UTC, while it still waits untaken.',
       ),
   })
   .describe(

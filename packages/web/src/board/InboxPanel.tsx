@@ -205,7 +205,10 @@ export function InboxPanel({
               {handled ? 'Had no session' : 'No session'} to ring for {known.column}
             </span>
           </span>
-          {handled ? (
+          {known.spurProject === undefined ? (
+            // Without a known Spur project the sentence naming it is left out.
+            tail !== '' && <span className={styles.description}>{tail.trimStart()}</span>
+          ) : handled ? (
             <span className={styles.description}>
               The {known.column} orchestrator, the Spur project{' '}
               <strong className={styles.expects}>{known.spurProject}</strong>, had no live session.

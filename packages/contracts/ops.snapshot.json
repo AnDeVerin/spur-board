@@ -1,5 +1,5 @@
 {
-  "version": "87a2d4219c9bbd01dfe06f0ca2eac4792d0c441d55f6b03103fc306ef007022e",
+  "version": "65fa6a0ed5b2c90419d54c48a66f3558004096b3b86d24bb2f52fc89a40f4c20",
   "grants": [
     "operator",
     "project-agent",
@@ -7726,9 +7726,9 @@
                       "description": "Column whose orchestrator turns have no session to ring."
                     },
                     "spurProject": {
+                      "description": "Spur project of the column orchestrator the observation recorded, else the current binding; absent when neither is known.",
                       "type": "string",
-                      "minLength": 1,
-                      "description": "Spur project of the column orchestrator, from the board config."
+                      "minLength": 1
                     },
                     "oldestTask": {
                       "type": "string",
@@ -7748,19 +7748,19 @@
                       "maximum": 9007199254740991
                     },
                     "oldestTurn": {
-                      "description": "The oldest waiting turn when the item was raised, when the board can find it.",
+                      "description": "The oldest waiting turn the observation recorded; on an open entry whose record cannot be read, the waiting turn of its task.",
                       "type": "string",
                       "maxLength": 16,
                       "pattern": "^T[1-9]\\d{0,14}$"
                     },
                     "oldestAt": {
-                      "description": "Open entries only: when the oldest waiting turn rang, ISO 8601 UTC, while it still waits untaken.",
+                      "description": "Open entries only: when that turn rang, ISO 8601 UTC, while it still waits untaken.",
                       "type": "string",
                       "format": "date-time",
                       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                     }
                   },
-                  "required": ["project", "column", "spurProject", "oldestTask", "since"],
+                  "required": ["project", "column", "oldestTask", "since"],
                   "additionalProperties": false,
                   "description": "On a board_observation no-session item only: the column with no live session to ring; absent when the board cannot read it."
                 }
@@ -7913,9 +7913,9 @@
                       "description": "Column whose orchestrator turns have no session to ring."
                     },
                     "spurProject": {
+                      "description": "Spur project of the column orchestrator the observation recorded, else the current binding; absent when neither is known.",
                       "type": "string",
-                      "minLength": 1,
-                      "description": "Spur project of the column orchestrator, from the board config."
+                      "minLength": 1
                     },
                     "oldestTask": {
                       "type": "string",
@@ -7935,19 +7935,19 @@
                       "maximum": 9007199254740991
                     },
                     "oldestTurn": {
-                      "description": "The oldest waiting turn when the item was raised, when the board can find it.",
+                      "description": "The oldest waiting turn the observation recorded; on an open entry whose record cannot be read, the waiting turn of its task.",
                       "type": "string",
                       "maxLength": 16,
                       "pattern": "^T[1-9]\\d{0,14}$"
                     },
                     "oldestAt": {
-                      "description": "Open entries only: when the oldest waiting turn rang, ISO 8601 UTC, while it still waits untaken.",
+                      "description": "Open entries only: when that turn rang, ISO 8601 UTC, while it still waits untaken.",
                       "type": "string",
                       "format": "date-time",
                       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                     }
                   },
-                  "required": ["project", "column", "spurProject", "oldestTask", "since"],
+                  "required": ["project", "column", "oldestTask", "since"],
                   "additionalProperties": false,
                   "description": "On a board_observation no-session item only: the column with no live session to ring; absent when the board cannot read it."
                 },

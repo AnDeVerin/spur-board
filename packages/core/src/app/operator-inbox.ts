@@ -21,7 +21,6 @@ import { answeredVia, answeredViaColumn } from './blocks.ts';
 import { itemSubjects } from './items.ts';
 import { TASKLESS_ITEM_URL } from './item-raise.ts';
 import {
-  handledOldestTurns,
   noSessionFields,
   noSessionText,
   waitingTurns,
@@ -356,8 +355,8 @@ export function createOperatorInbox(deps: {
       const sourceIds = items.flatMap((item) =>
         item.item_key.startsWith(SOURCE_KEY) ? [item.item_key.slice(SOURCE_KEY.length)] : [],
       );
-      const [referenced, subjects, sources, deliveries, waiting, operatorTurns, handledTurns] =
-        await Promise.all([
+      const [referenced, subjects, sources, deliveries, waiting, operatorTurns] = await Promise.all(
+        [
           blockIds.length === 0
             ? Promise.resolve([])
             : trx
@@ -383,8 +382,8 @@ export function createOperatorInbox(deps: {
           deliveryUrls(trx, items),
           waitingTurns(trx, openItems),
           endedOperatorTurns(trx, items),
-          handledOldestTurns(trx, items),
-        ]);
+        ],
+      );
       const blockById = new Map(referenced.map((block) => [block.id, block]));
       const sourceById = new Map(sources.map((state) => [state.source, state]));
 
@@ -419,9 +418,7 @@ export function createOperatorInbox(deps: {
                 action: ACTIONS[kind](item, { block, task, operatorTurn: operatorTurnOf(item) }),
               };
         const url = itemUrl(item, deliveries);
-        const fields = noSession
-          ? noSessionFields(item, task?.key, config, waiting, handledTurns.get(item.id))
-          : undefined;
+        const fields = noSession ? noSessionFields(item, task?.key, config, waiting) : undefined;
         return {
           id: `I${String(item.id)}`,
           project: subject?.project ?? RESERVED_PROJECT,

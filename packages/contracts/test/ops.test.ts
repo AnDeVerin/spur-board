@@ -1003,7 +1003,7 @@ describe('snapshot', () => {
     // unless your own next step needs the watched fact, and names mergeability. #771 adds the
     // optional noSession fields to inbox.operator entries and a no-session item to its example.
     expect(await catalogVersion(baseline)).toBe(
-      'e50e7b0b169409e3e492b8a5b7ae7ac967268ece337e4602a879280dad6ab937',
+      'f2e3f0681fcf9e0d188db25e57ed0c94761a3c4ceccf6a2ae3fb43e856088c66',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

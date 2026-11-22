@@ -208,6 +208,39 @@ describe('inbox no-session item', () => {
     expect(row('I7').getAttribute('href')).toBe('?open=ex%2Frepo%237');
   });
 
+  it('leaves out the Spur project sentence on an active row without a Spur project', async () => {
+    const d = daemon();
+    const unnamed = fields();
+    delete unnamed['spurProject'];
+    serveInbox(d, [entry('I7', unnamed)]);
+    await openInbox(d);
+    expect(lines('I7')).toEqual([
+      'No session to ring for qa',
+      '2 turns wait; the oldest, T524, for 1h 36m; no live session for 14 min.',
+      ACTION,
+      CLEARS,
+    ]);
+    expect(row('I7').querySelector('strong')).toBeNull();
+  });
+
+  it('leaves out the Spur project sentence and the action on a handled row without a Spur project', async () => {
+    const d = daemon();
+    const unnamed = past();
+    delete unnamed['spurProject'];
+    serveInbox(
+      d,
+      [],
+      [
+        entry('I7', { ...unnamed, oldestTurn: 'T524' }, { handledAt: HANDLED_AT }),
+        entry('I8', unnamed, { handledAt: HANDLED_AT }),
+      ],
+    );
+    await openInbox(d);
+    expect(lines('I7')).toEqual(['Had no session to ring for qa', 'The oldest turn was T524.']);
+    expect(lines('I8')).toEqual(['Had no session to ring for qa']);
+    expect(row('I7').querySelector('strong')).toBeNull();
+  });
+
   // An entry stored or served without the fields: its text is not read.
   it('keeps the generic row with its action for an active entry without the fields', async () => {
     const d = daemon();

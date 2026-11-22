@@ -1,7 +1,7 @@
 import { columnTurnTimings, inboxNoSessionSchema, type Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import type { z } from 'zod';
-import { NO_SESSION_KEY } from '../domain/fromYou.ts';
+import { NO_SESSION_KEY, parseNoSessionSummary } from '../domain/fromYou.ts';
 import type { Row } from '../store/schema.ts';
 import type { Trx } from './board-utils.ts';
 
@@ -23,6 +23,8 @@ export interface Waiting {
   count: Map<string, number>;
   /** Each waiting turn and when it first rang, by `<task id>:<column>`. */
   turnOf: Map<string, { turn: number; rangAt: string }>;
+  /** Ids of the waiting turns. */
+  ids: Set<number>;
 }
 
 /**
@@ -30,7 +32,7 @@ export interface Waiting {
  * reconcile counts them: one batched read, run only when an open `no-session:` item is listed.
  */
 export async function waitingTurns(trx: Trx, items: readonly Item[]): Promise<Waiting> {
-  const waiting: Waiting = { count: new Map(), turnOf: new Map() };
+  const waiting: Waiting = { count: new Map(), turnOf: new Map(), ids: new Set() };
   if (!items.some((item) => item.item_key.startsWith(NO_SESSION_KEY))) return waiting;
   const rows = await trx
     .selectFrom('turn')
@@ -55,52 +57,13 @@ export async function waitingTurns(trx: Trx, items: readonly Item[]): Promise<Wa
   for (const row of rows) {
     const key = `${row.project}:${row.column}`;
     waiting.count.set(key, (waiting.count.get(key) ?? 0) + 1);
+    waiting.ids.add(row.id);
     waiting.turnOf.set(`${String(row.task_id)}:${row.column}`, {
       turn: row.id,
       rangAt: row.rang_at,
     });
   }
   return waiting;
-}
-
-/**
- * The orchestrator turn each cleared `no-session:` item was raised for, by item id: its task's
- * turn in the item's column opened by `raised_at` and still unclosed then, the highest id on a tie.
- * One batched read, run only when such an item is listed.
- */
-export async function handledOldestTurns(
-  trx: Trx,
-  items: readonly Item[],
-): Promise<Map<number, number>> {
-  const cleared = items.filter(
-    (item) =>
-      item.cleared_at !== null && item.task_id !== null && item.item_key.startsWith(NO_SESSION_KEY),
-  );
-  if (cleared.length === 0) return new Map();
-  const rows = await trx
-    .selectFrom('operator_item')
-    .innerJoin('turn', 'turn.task_id', 'operator_item.task_id')
-    .select(['operator_item.id as item_id', 'operator_item.item_key', 'turn.column', 'turn.id'])
-    .where(
-      'operator_item.id',
-      'in',
-      cleared.map((item) => item.id),
-    )
-    .where(sql<boolean>`turn.role = 'orchestrator:' || turn."column"`)
-    .whereRef('turn.created_at', '<=', 'operator_item.raised_at')
-    .where((eb) =>
-      eb.or([
-        eb('turn.closed_at', 'is', null),
-        eb('turn.closed_at', '>', eb.ref('operator_item.raised_at')),
-      ]),
-    )
-    .execute();
-  const found = new Map<number, number>();
-  for (const row of rows) {
-    if (noSessionColumn(row.item_key).column !== row.column) continue;
-    found.set(row.item_id, Math.max(found.get(row.item_id) ?? 0, row.id));
-  }
-  return found;
 }
 
 /**
@@ -128,37 +91,45 @@ export function noSessionText(
 }
 
 /**
- * The fields of a `no-session:` item, read like `noSessionText`: the waiting count and the
- * oldest turn's ring time while open, the turn it was raised for once cleared. Undefined when
- * the key, column binding, task or `fact_at` cannot be read.
+ * The fields of a `no-session:` item: the Spur project and oldest turn its summary recorded, else
+ * the column's binding and, while open, the task's waiting turn; while open also the waiting count
+ * and the turn's ring time while that turn still waits. Undefined when the key, task or `fact_at`
+ * cannot be read.
  */
 export function noSessionFields(
   item: Item,
   task: string | undefined,
   config: Config,
   waiting: Waiting,
-  handledTurn: number | undefined,
 ): NoSession | undefined {
   const { project, column } = noSessionColumn(item.item_key);
-  const spurProject = columnTurnTimings(config, project, column)?.orchestrator;
   const since = item.fact_at === null ? NaN : Date.parse(item.fact_at);
-  if (spurProject === undefined || task === undefined || Number.isNaN(since)) return undefined;
+  if (task === undefined || Number.isNaN(since)) return undefined;
+  const parsed = parseNoSessionSummary(item.text);
+  const recorded = parsed?.project === project && parsed.column === column ? parsed : undefined;
+  const spurProject = recorded?.spur ?? columnTurnTimings(config, project, column)?.orchestrator;
   const open = item.cleared_at === null;
   const ringing =
-    open && item.task_id !== null
+    open && recorded === undefined && item.task_id !== null
       ? waiting.turnOf.get(`${String(item.task_id)}:${column}`)
       : undefined;
-  const turn = open ? ringing?.turn : handledTurn;
-  const rangAt = ringing === undefined ? NaN : Date.parse(ringing.rangAt);
-  const parsed = inboxNoSessionSchema.safeParse({
+  const turn = recorded?.turn ?? ringing?.turn;
+  const rangAt = !open
+    ? NaN
+    : recorded === undefined
+      ? Date.parse(ringing?.rangAt ?? '')
+      : waiting.ids.has(recorded.turn)
+        ? Date.parse(recorded.ringAt)
+        : NaN;
+  const fields = inboxNoSessionSchema.safeParse({
     project,
     column,
-    spurProject,
+    ...(spurProject === undefined ? {} : { spurProject }),
     oldestTask: task,
     since: new Date(since).toISOString(),
     ...(open ? { waiting: waiting.count.get(`${project}:${column}`) ?? 0 } : {}),
     ...(turn === undefined ? {} : { oldestTurn: `T${String(turn)}` }),
     ...(Number.isNaN(rangAt) ? {} : { oldestAt: new Date(rangAt).toISOString() }),
   });
-  return parsed.success ? parsed.data : undefined;
+  return fields.success ? fields.data : undefined;
 }

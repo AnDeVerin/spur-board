@@ -38,10 +38,11 @@ with its items. Each entry is `attention` or `failure`. Every item entry
 block and turn entries have none. `handled` keeps the last 24 h, at most 20,
 newest first, with the same actions; handled blocks carry `answeredVia`.
 Archived tasks are left out.
-A `no-session:` item carries `noSession`: `project`, `column`, `spurProject`,
-`oldestTask`, `since`, and `oldestTurn` when known; open entries add
-`waiting` and, while the oldest turn still waits, `oldestAt`. It is absent
-when its column, binding, task or start time cannot be read.
+A `no-session:` item carries `noSession`: `project`, `column`, `oldestTask`,
+`since`, and the `spurProject` and `oldestTurn` it recorded (else the current
+binding and, while open, the task's waiting turn) when known; open entries add
+`waiting` and, while that turn still waits, `oldestAt`. It is absent when its
+column, task or start time cannot be read.
 
 The actions use `board answer <block> <text>`,
 `board unblock <block> --reason <reason>`,
