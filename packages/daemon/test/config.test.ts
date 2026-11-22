@@ -1,6 +1,6 @@
-import { chmodSync } from 'node:fs';
+import { chmodSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, onTestFinished } from 'vitest';
 import { ConfigError, loadConfig, resolvePaths } from '../src/config.ts';
 import { makeHome, SHARED_SPUR_PROJECT_CONFIG_YAML, VALID_CONFIG_YAML } from './home.ts';
 
@@ -59,6 +59,29 @@ describe('resolvePaths', () => {
     expect(resolvePaths({ XDG_CONFIG_HOME: '', XDG_DATA_HOME: 'data' }, '/h')).toEqual(
       resolvePaths({}, '/h'),
     );
+  });
+});
+
+describe('makeHome cleanup', () => {
+  it('removes a home made in a test when the test finishes', () => {
+    let home = '';
+    onTestFinished(() => {
+      expect(existsSync(home), home).toBe(false);
+    });
+    home = makeHome();
+    expect(existsSync(join(home, 'config.yaml'))).toBe(true);
+  });
+
+  describe('at describe scope', () => {
+    let home = '';
+    afterAll(() => {
+      expect(existsSync(home), home).toBe(false);
+    });
+    home = makeHome();
+
+    it('keeps the home while the suite runs', () => {
+      expect(existsSync(join(home, 'config.yaml'))).toBe(true);
+    });
   });
 });
 

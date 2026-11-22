@@ -1,9 +1,19 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
+import { currentIdentity, writeOwner } from '../src/sweep.ts';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 
@@ -22,6 +32,7 @@ it('a run started with secrets, proxies and foreign dirs in env passes env.test.
       '--project',
       'unit',
       'packages/testkit/test/env.test.ts',
+      'packages/core/test/support/store.test.ts',
       '--reporter',
       'json',
       '--outputFile',
@@ -64,6 +75,99 @@ it('a run started with secrets, proxies and foreign dirs in env passes env.test.
   };
   expect(summary.numPassedTests).toBeGreaterThanOrEqual(3);
   expect(summary.numFailedTests).toBe(0);
-  // Teardown removed the nested run's temp root.
-  expect(readdirSync(nestedTmp).filter((name) => name.startsWith('spur-board-test-'))).toEqual([]);
+  // Teardown removed the nested run's temp root, and tests left nothing beside it.
+  expect(readdirSync(nestedTmp)).toEqual([]);
 }, 60_000);
+
+function write(dir: string, name: string, content: string): void {
+  const path = join(dir, name);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
+}
+
+it.skipIf(process.platform !== 'linux')(
+  'a run whose workers get another TMPDIR and HOME keeps temp dirs under its root and sweeps dead runs',
+  () => {
+    const repo = mkdtempSync(join(tmpdir(), 'repin-repo-'));
+    try {
+      const parent = join(repo, 'parent-tmp');
+      const decoy = join(repo, 'decoy-tmp');
+      mkdirSync(parent);
+      mkdirSync(decoy);
+      write(repo, 'package.json', '{"type":"module"}');
+      cpSync(join(root, 'vitest.config.ts'), join(repo, 'base.config.ts'));
+      write(
+        repo,
+        'vitest.config.ts',
+        `import base from './base.config.ts';
+const env = { TMPDIR: ${JSON.stringify(decoy)}, HOME: ${JSON.stringify(decoy)} };
+export default { ...base, test: { ...base.test, env } };
+`,
+      );
+      cpSync(join(root, 'packages/testkit/src'), join(repo, 'packages/testkit/src'), {
+        recursive: true,
+      });
+      symlinkSync(join(root, 'node_modules'), join(repo, 'node_modules'), 'dir');
+      write(
+        repo,
+        'packages/web/node_modules/vite/bin/vite.js',
+        `import { mkdirSync } from 'node:fs';
+mkdirSync(process.argv[process.argv.indexOf('--outDir') + 1], { recursive: true });
+`,
+      );
+      write(
+        repo,
+        'packages/core/test/leak.test.ts',
+        `import { mkdtempSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { expect, inject, it } from 'vitest';
+it('makes temp dirs under the run root', () => {
+  const runRoot = inject('harnessRoot') + '/';
+  expect(homedir().startsWith(runRoot), homedir()).toBe(true);
+  for (const prefix of ['board-', 'core-', 'web-api-', 'block-', 'daemon-home-']) {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    expect(dir.startsWith(runRoot), dir).toBe(true);
+  }
+});
+`,
+      );
+
+      // A root whose owner is gone, and one owned by this live worker.
+      const exited = spawnSync(process.execPath, ['-e', '']);
+      const dead = join(parent, 'spur-board-test-dead');
+      mkdirSync(join(dead, 'tmp'), { recursive: true });
+      writeFileSync(
+        join(dead, 'owner.json'),
+        JSON.stringify({
+          pid: exited.pid,
+          createdAt: Date.now(),
+          startTicks: '1',
+          ...currentIdentity(),
+        }),
+      );
+      const live = join(parent, 'spur-board-test-live');
+      mkdirSync(join(live, 'tmp'), { recursive: true });
+      writeOwner(live);
+
+      const result = spawnSync(
+        process.execPath,
+        [join(root, 'node_modules/vitest/vitest.mjs'), 'run', '--project', 'unit'],
+        {
+          cwd: repo,
+          encoding: 'utf8',
+          env: { ...process.env, TMPDIR: parent, GITHUB_ACTIONS: 'false' },
+        },
+      );
+
+      const output = result.stdout + result.stderr;
+      expect(result.status, output).toBe(0);
+      expect(output).toContain('testkit: re-pinned');
+      expect(readdirSync(decoy)).toEqual([]);
+      expect(readdirSync(parent)).toEqual(['spur-board-test-live']);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  },
+  60_000,
+);
