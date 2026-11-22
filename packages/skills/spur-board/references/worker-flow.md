@@ -39,8 +39,8 @@
   and their submit or return then fails `not_turn_taker`. Take it over with the keyed ack
   only when that exact session is shown ended: `board status --detail` lists a session whose
   `spurProject` and `id` match `taken.by`, with `endedAt` set or a `lifecycle` of `killed`,
-  `stopped`, `errored` or `completed`. A missing row or a count is not proof: leave the turn;
-  the operator can take it over.
+  `errored` or `completed`. A missing row or a count is not proof: leave the turn; the operator
+  can take it over.
 - Test the turn's `head`, then keyed `board submit <turn> <sha>`: `--basis tested` (the default),
   `--basis skipped --reason <text>`, or `--basis carried --from <sha> --reason <text>` for work
   tested on an earlier head. `--from` must name a SHA with a tested submission on this task, or
