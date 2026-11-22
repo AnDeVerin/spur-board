@@ -338,7 +338,7 @@ describe('board task cards', () => {
     ]);
   });
 
-  it('a waiting turn row carries data-waiting and the full tail as its title', async () => {
+  it('a waiting turn row reads clock, wake time, then reason, and names the full label', async () => {
     const reason = 'r'.repeat(200);
     const wait = { reason, since: '2026-11-15T14:01:00.000Z', wakesAt: '2026-11-15T14:31:00.000Z' };
     const d = daemon();
@@ -348,25 +348,55 @@ describe('board task cards', () => {
         turn: turn({ ...taken, wait, stalledSince: '2026-11-15T13:25:00.000Z' }),
       }),
       row('ex/repo#9', 'dev', { turn: turn(taken) }),
+      row('ex/repo#10', 'dev', { turn: turn({ ...taken, wait: { ...wait, reason: '  ' } }) }),
     ]);
     mount(d, {}, () => NOW);
     await settle();
+    const card = (key: string) => one(`main a[title="${key}"]`);
     const turnRow = (key: string) => {
-      const found = one(`main a[title="${key}"]`).querySelector('[id$="-turn"]');
+      const found = card(key).querySelector('[id$="-turn"]');
       if (found === null) throw new Error(`no turn row on ${key}`);
       return found;
     };
     const tail = (key: string) => turnRow(key).querySelector('[data-kind]');
-    const full = `waiting: ${reason}, wakes 14:31`;
+    const full = `Waiting: ${reason}. Wakes 14:31 (in 26m)`;
     expect(turnRow('ex/repo#7').hasAttribute('data-waiting')).toBe(true);
     expect(tail('ex/repo#7')?.getAttribute('title')).toBe(full);
-    expect(tail('ex/repo#7')?.textContent).toBe(full);
     expect(tail('ex/repo#7')?.getAttribute('data-kind')).toBe('agent');
+    // Clock icon, then the time, then the reason; only the hidden label is read aloud.
+    const parts = [...(tail('ex/repo#7')?.children ?? [])];
+    expect(parts.map((part) => part.tagName.toLowerCase())).toEqual([
+      'svg',
+      'span',
+      'span',
+      'span',
+    ]);
+    expect(parts.map((part) => part.getAttribute('aria-hidden'))).toEqual([
+      'true',
+      'true',
+      'true',
+      null,
+    ]);
+    expect(parts.map((part) => part.textContent)).toEqual(['', 'wakes 14:31 ·', reason, full]);
+    // What assistive technology reads from the described turn row: text outside aria-hidden.
+    const read = turnRow('ex/repo#7').cloneNode(true) as Element;
+    for (const hidden of read.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+    expect(read.textContent.replace(/^T\d+ /, '')).toBe(`worker crew-ada ${full}`);
+    expect(card('ex/repo#7').getAttribute('aria-describedby')).toContain(turnRow('ex/repo#7').id);
+    // A whitespace-only reason: no dot and no reason span.
+    const blank = [...(tail('ex/repo#10')?.children ?? [])];
+    expect(blank.map((part) => part.textContent)).toEqual([
+      '',
+      'wakes 14:31',
+      'Waiting. Wakes 14:31 (in 26m)',
+    ]);
     for (const key of ['ex/repo#8', 'ex/repo#9']) {
       expect(turnRow(key).hasAttribute('data-waiting')).toBe(false);
       expect(tail(key)?.hasAttribute('title')).toBe(false);
+      expect(tail(key)?.children).toHaveLength(0);
     }
     expect(tail('ex/repo#8')?.textContent).toBe('stalled · 40m');
+    expect(tail('ex/repo#9')?.textContent).toBe('taken · 5m');
   });
 
   it('ages freeze while stale', async () => {

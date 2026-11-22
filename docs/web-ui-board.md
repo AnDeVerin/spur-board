@@ -97,8 +97,8 @@ Columns follow configuration order:
   - The turn line: turn, executor and age. The left rail takes its colour: blue while an agent works
     on it; yellow for your turn (`open`, or `taken` once you hold it), or not taken (dashed
     rail, hollow dot); red when stalled; none without a turn. An operator session holding your
-    turn reads like an agent. Ages stop while the data is stale. A `board wait` adds line 2,
-    `waiting: <reason>, wakes <hh:mm>` (UTC), cut short when narrow, full on hover; stall wins.
+    turn reads like an agent. Ages stop while the data is stale. A `board wait` adds amber line
+    2: clock `wakes <hh:mm> · <reason>` (UTC), reason cut when narrow, full on hover; stall wins.
 - Unconfigured columns: a trailing count opens a list of task keys, titles and original columns.
   Rows open the task view and keep status order. At zero, both are absent.
 

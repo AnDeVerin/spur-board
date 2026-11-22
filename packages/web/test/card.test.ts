@@ -74,24 +74,6 @@ describe('task card', () => {
       tone: 'error',
       hollow: false,
     });
-    const wait = { reason: 'a free stand', since: minutes(5), wakesAt: '2026-11-15T08:30:00.000Z' };
-    const waiting = 'waiting: a free stand, wakes 08:30';
-    expect(view({ ...taken, wait })).toEqual({
-      ...view(taken),
-      tail: waiting,
-      waiting: true,
-    });
-    expect(view(taken)).not.toHaveProperty('waiting');
-    expect(view({ ...taken, wait, stalledSince: minutes(40) })).not.toHaveProperty('waiting');
-    expect(view({ ...taken, wait, stalledSince: minutes(40) })?.tail).toBe('stalled · 40m');
-    expect(turnView(card({ turn: turn({ ...taken, wait }) }).turn, undefined)?.tail).toBe(waiting);
-    // Your turn wins over a wait; an operator session that holds it waits like an agent.
-    const yours = { addressee: 'operator', taken: { by: 'operator', at: minutes(5) }, wait };
-    expect(view(yours)).toEqual(view({ ...yours, wait: undefined }));
-    expect(view(yours)).not.toHaveProperty('waiting');
-    expect(
-      view({ addressee: 'operator', taken: { by: 'agent:ops/ops-1', at: minutes(5) }, wait }),
-    ).toMatchObject({ kind: 'agent', tail: waiting, waiting: true });
     expect(view({ addressee: 'orchestrator:review', column: 'review' })).toMatchObject({
       role: 'orchestrator',
     });

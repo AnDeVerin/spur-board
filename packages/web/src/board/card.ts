@@ -3,6 +3,7 @@ import type { ChipTone, IconName, StatusDotTone } from '../ds/index.ts';
 import { safeExternalUrl, sessionLinkHref, ticketBrowseHref } from '../lib/links.ts';
 import { approvalChip, approvalSuffix, approvalSummary } from './approvals.ts';
 import { clockTime, formatDataTime, type BoardRow } from './model.ts';
+import { until } from './task-model.ts';
 
 type Turn = NonNullable<BoardRow['turn']>;
 type PrSummary = NonNullable<BoardRow['prSummary']>[number];
@@ -57,16 +58,26 @@ export interface TurnView {
   name: string;
   /**
    * `taken · 5m` (an agent's, or yours once you hold it), `open · 2h`, `not taken · 1d`,
-   * `stalled · 40m`, or `waiting: <reason>, wakes <hh:mm>` while an agent holder waits.
+   * `stalled · 40m`, or `waiting: <reason>, wakes <hh:mm>` while an agent holder waits; the card
+   * draws a waiting line from `wake`, `reason` and `label` instead.
    */
   tail: string;
   tone: StatusDotTone;
   hollow: boolean;
   /** The holder waits on the taken turn: the tail names the reason and the UTC wake time. */
   waiting?: true;
+  /** While waiting, the card's line starts with `wakes <hh:mm>` (UTC), then the reason. */
+  wake?: string;
+  /** While waiting, the trimmed reason; absent when it is only whitespace. */
+  reason?: string;
+  /**
+   * While waiting, the line's tooltip and accessible text:
+   * `Waiting: <reason>. Wakes <hh:mm> (in 20m)`, `(now)` once due, no parenthetical without `now`.
+   */
+  label?: string;
 }
 
-/** `waiting: <reason>, wakes <hh:mm>`, the wait as the card and the Turn section write it. */
+/** `waiting: <reason>, wakes <hh:mm>`, the wait as the Turn section writes it; the card's `tail`. */
 export const waitText = (wait: Pick<NonNullable<Turn['wait']>, 'reason' | 'wakesAt'>) =>
   `waiting: ${wait.reason}, wakes ${clockTime(wait.wakesAt)}`;
 
@@ -107,7 +118,10 @@ export function turnView(turn: Turn | null, now: number | undefined): TurnView |
       hollow: false,
     };
   const wait = shownWait(turn);
-  if (wait !== undefined)
+  if (wait !== undefined) {
+    const time = clockTime(wait.wakesAt);
+    const reason = wait.reason.trim();
+    const relative = now === undefined ? '' : ` (${until(wait.wakesAt, now)})`;
     return {
       ...common,
       kind: 'agent',
@@ -115,7 +129,11 @@ export function turnView(turn: Turn | null, now: number | undefined): TurnView |
       tone: 'working',
       hollow: false,
       waiting: true,
+      wake: `wakes ${time}`,
+      ...(reason === '' ? {} : { reason }),
+      label: `Waiting${reason === '' ? '' : `: ${reason}`}. Wakes ${time}${relative}`,
     };
+  }
   if (turn.taken !== null)
     return {
       ...common,
