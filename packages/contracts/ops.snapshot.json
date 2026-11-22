@@ -1,5 +1,5 @@
 {
-  "version": "f2bda7c94f22a97ec16a79605ff9e1ad9ef1fe06fbd9b2b6bdf09701f7d18fd2",
+  "version": "f13750e6cae9224021f6fef42651cba227bd8be27b16404613a51edf2e6177ad",
   "grants": [
     "operator",
     "project-agent",
@@ -11426,8 +11426,8 @@
       "mcp": {
         "name": "task_wait",
         "key": "idempotencyKey",
-        "whenToUse": "You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time.",
-        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev.",
+        "whenToUse": "You hold a turn. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Give whole minutes and the reason; the Board rings you with the reason when the wait ends, and submit, return or a close ends it earlier. Waits per turn are capped by count and total time.",
+        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.",
         "destructive": true
       },
       "slack": null,
@@ -11468,7 +11468,7 @@
             "minLength": 1,
             "maxLength": 200,
             "pattern": "\\S",
-            "description": "What you wait for, up to 200 characters; the wake ring repeats it."
+            "description": "What you wait for, up to 200 characters; the wake ring repeats it. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it."
           }
         },
         "required": ["turn", "for", "reason"],

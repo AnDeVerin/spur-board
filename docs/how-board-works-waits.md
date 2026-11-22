@@ -2,8 +2,11 @@
 
 ## Start a wait
 
-When you hold a taken, open turn and must re-check an outside condition later, such as a busy
-test stand, wait instead of sitting quiet:
+Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot,
+high machine load, a deploy, an outside service. Not on your own work (review fixes, tests,
+checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.
+
+To wait on a taken, open turn you hold, instead of sitting quiet:
 `board wait <turn> --for <minutes> --reason <text> --key <key>` (MCP `task_wait`).
 
 - `--for` is whole minutes, 1 to 120. `--reason` is up to 200 characters and not blank.

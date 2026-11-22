@@ -117,7 +117,9 @@ export const taskWaitInputSchema = z.strictObject({
     .min(1)
     .max(200)
     .regex(/\S/)
-    .describe('What you wait for, up to 200 characters; the wake ring repeats it.'),
+    .describe(
+      'What you wait for, up to 200 characters; the wake ring repeats it. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.',
+    ),
 });
 export const taskWaitOutputSchema = z.strictObject({
   turn: turnIdSchema.describe('The waiting turn.'),

@@ -69,7 +69,7 @@ Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `re
 Purpose: Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends.
 Arguments: `<turn>`.
 Flags: `--for <value>`, `--reason <value>`, `--key <key>`, `--json`.
-Use when: You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time.
-Avoid when: Use `board submit <turn> <sha>` to hand in finished work, or `board return <turn> <reason>` to send the task back to Dev.
+Use when: You hold a turn. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Give whole minutes and the reason; the Board rings you with the reason when the wait ends, and submit, return or a close ends it earlier. Waits per turn are capped by count and total time.
+Avoid when: Use `board submit <turn> <sha>` to hand in finished work, or `board return <turn> <reason>` to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.
 Example: `board wait T4 --for 30 --reason "waiting for a free test stand" --key wait-PROJ-123-30-minutes-1432` — Wait 30 minutes for a free test stand.
 Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `turn_wait_limit`, `task_archived`, `idempotency_key_mismatch`.

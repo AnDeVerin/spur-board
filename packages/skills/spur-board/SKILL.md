@@ -23,8 +23,10 @@ Ack T<number> first with keyed
 `board inbox ack <entries>`; only its acking session may submit or return.
 On `turn_closed`, act only on a turn `board inbox` lists. Shadow mode opens no turn:
 `board submit <task> <sha>`.
-To re-check an outside condition instead of sitting quiet, keyed
-`board wait <turn> --for <minutes> --reason <text>`; the Board rings you when the wait ends.
+Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot,
+high machine load, a deploy, an outside service. Not on your own work (review fixes, tests,
+checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.
+Keyed `board wait <turn>`; the Board rings you when it ends.
 
 - Dev worker: ack, then keyed `board submit <turn> <sha>` for the PR head. Answer each external comment the turn hands you with a new head or a reasoned reply; a reply alone submits the same head.
   Re-request review only from reviewers whose threads your push closed.
