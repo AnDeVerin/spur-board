@@ -12,7 +12,10 @@
   caller's `trx`. A new kind gets its payload schema, `KIND_SPACE` and `KIND_PRIORITY` entries
   there; the space comes from the kind, never from the payload.
 - A row that must follow another (reply, close, edit) sets `parent_outbox_id` to the thread's
-  latest row; none is written under a dead one. A row under a dead parent dies `superseded`,
+  latest row; none is written under a dead one. A conversation row retired as `slack off` by a
+  start without Slack (`retireGatewayRows` in `packages/core/src/app/sender.ts`) is not the
+  latest: a later reply or close follows the last row before it (`notRetired` in
+  `packages/core/src/app/outbox.ts`). A row under a dead parent dies `superseded`,
   except a `feed.line` under its block's dead or `post_failed` `conversation.open` while the
   block is still open: it loses the parent and posts without the thread link
   (`detachAbandonedThreads` in `packages/core/src/app/sender.ts`; it finds the block by the
