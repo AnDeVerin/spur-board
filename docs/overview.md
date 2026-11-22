@@ -78,7 +78,7 @@ hit its cycle limit.
 Spur runs the agent sessions. The Board reads the session list and links a session to a task by a
 label on the session, its pull request or its branch. The Spur projects it serves are listed in
 `projects[].spurProjects`, or board-wide in the top-level `spurProjects`. A doorbell is a message
-the Board sends into a session through Spur; it repeats up to three times until the session
+the Board sends into a session through Spur; it rings up to three times until the session
 acknowledges it. Agents talk back through the `board` CLI or `board mcp`.
 
 Slack is optional. With it, items for you appear as feed lines, questions to you open threads that
