@@ -14,7 +14,7 @@ A submit needs no green checks. Running checks hold the task at the `checksGate`
 `checksGate` right of Dev, a cancelled run counts as running for about two GitHub poll intervals
 first. Only the latest run of each check counts, so a rerun on the same head replaces a
 cancelled run. When the PR has required checks, only those count, and the Board does not watch the
-others. While GitHub computes mergeability, the task holds at Dev's exit; a conflict returns it to
+others. While GitHub computes mergeability, the task waits where it is (at Dev's exit while in Dev); a conflict returns it to
 Dev with a new turn.
 
 To wait on a taken, open turn you hold, instead of sitting quiet:
