@@ -247,6 +247,31 @@ describe('web design assets and policy', () => {
     for (const block of guarded) rest = rest.replace(block, '');
     expect(rest).not.toContain(':hover');
   });
+  it('Tabs keeps the selected underline tab bright on hover', () => {
+    // A selector's weight: its classes, attributes and pseudo-classes; `:where()` counts none.
+    const weight = (selector: string) => {
+      let rest = selector;
+      for (let at = rest.indexOf(':where('); at !== -1; at = rest.indexOf(':where(')) {
+        let depth = 0;
+        let end = at + ':where'.length;
+        do {
+          if (rest[end] === '(') depth += 1;
+          if (rest[end] === ')') depth -= 1;
+          end += 1;
+        } while (depth > 0 && end < rest.length);
+        rest = rest.slice(0, at) + rest.slice(end);
+      }
+      return (rest.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) ?? []).length;
+    };
+    const selectors = cssRules(read('src/ds/Tabs/Tabs.module.css')).map((rule) => rule.selector);
+    const hover = selectors.find((selector) => selector.startsWith('.underline .tab:hover'));
+    expect(hover).toBeDefined();
+    expect(selectors).toContain(".underline .tab[aria-selected='true']");
+    // The selected rule comes later, so equal weight lets it win over hover.
+    expect(weight(hover ?? '')).toBeLessThanOrEqual(
+      weight(".underline .tab[aria-selected='true']"),
+    );
+  });
   it.each(['.trigger:focus-visible', '.item:focus-visible'])(
     'HoverMenu %s uses the ds ring',
     (selector) => {
