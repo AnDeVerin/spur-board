@@ -249,12 +249,17 @@ describe('controls and form fields', () => {
   });
 
   it.each([
-    { tag: 'textarea', field: () => createElement(TextArea, { value: 'draft', onChange }) },
+    {
+      tag: 'textarea',
+      value: '>draft</textarea>',
+      field: () => createElement(TextArea, { value: 'draft', onChange }),
+    },
     {
       tag: 'input',
+      value: 'value="draft"',
       field: () => createElement(TextInput, { value: 'draft', onChange, label: 'Commit' }),
     },
-  ])('form row links label, hint and error to the $tag field', ({ tag, field }) => {
+  ])('form row links label, hint and error to the $tag field', ({ tag, value, field }) => {
     const hint = 'The agent reads it on its next turn';
     const error = 'Not sent: the daemon did not answer.';
     const row = (note: { hint: string } | { hint: string; error: string }) =>
@@ -279,7 +284,7 @@ describe('controls and form fields', () => {
       expect(html).toMatch(
         new RegExp(`<p[^>]*id="${escapeRegExp(describedBy)}"[^>]*>${escapeRegExp(text)}</p>`),
       );
-      expect(html).toContain('draft');
+      expect(html).toContain(value);
       const order = ['<label', `<${tag}`, text, '>Send</button>'].map((part) => html.indexOf(part));
       expect(
         order.every((at, index) => at >= 0 && (index === 0 || at > (order[index - 1] ?? 0))),

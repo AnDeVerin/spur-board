@@ -6,8 +6,9 @@ import styles from './TextInput.module.css';
 /**
  * A controlled single-line field in the TextArea field style, e.g. the header filter. Standalone,
  * `label` becomes its `aria-label`. Inside a FormRow it takes the row's id, `aria-describedby` and
- * `aria-invalid`, the row's label names it and `label` is ignored. `icon` leads the field. A clear action shows while there is a value
- * and the field is enabled; it empties the field and returns focus to it.
+ * `aria-invalid`, the row's label names it and `label` is ignored. `icon` leads the field. A
+ * clear action shows while there is a value and the field is enabled; it empties the field and
+ * returns focus to it.
  */
 export function TextInput({
   value,
