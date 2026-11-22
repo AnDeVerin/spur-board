@@ -12,7 +12,7 @@ import {
 import type { HelpRequest } from './ColumnHelp.tsx';
 import { Columns, type ColumnsView } from './Columns.tsx';
 import { Header } from './Header.tsx';
-import { InboxPanel } from './InboxPanel.tsx';
+import { InboxPanel, type NoSessionClick } from './InboxPanel.tsx';
 import { taskParam } from './task-model.ts';
 import { TaskView, type TaskTitle } from './TaskView.tsx';
 import styles from './Board.module.css';
@@ -174,8 +174,8 @@ export function Board({ data }: { data: BoardData }) {
   const requested =
     helpRequest !== null && snapshot.project === helpRequest.project ? helpRequest : null;
   const requestedHead = requested !== null && hasHead(view, requested.column);
-  // Once the requested project's view settles without the column's head, or its read fails, the
-  // task opens from the board instead: `task.get` does not need `status.get`.
+  // After a switch, once the requested project's view settles without the column's head, or its
+  // read fails, the task opens from the board instead: `task.get` does not need `status.get`.
   useEffect(() => {
     if (requested === null || requestedHead || view.kind === 'loading') return;
     setHelpRequest(null);
@@ -187,13 +187,21 @@ export function Board({ data }: { data: BoardData }) {
     history.pushState({ inbox: true, project }, '', openHref(task));
     setOpenKey(task);
   };
-  // No head to open: an unknown project, or the shown project's view settled without the
-  // column's head. The no-session row then stays a task link and the task opens over the inbox.
-  const opensTask = (project: string, column: string) =>
-    snapshot.config?.projects.some(({ id }) => id === project) !== true ||
-    (snapshot.project === project && view.kind !== 'loading' && !hasHead(view, column));
+  // Nothing until config.get answers and the shown project's view settles. Then the shown
+  // project's row opens the column's help, or its task over the inbox when there is no head to
+  // open (an unknown project or column, a spine, a failed read); another project's row asks for
+  // help and the effect above decides once that project's view settles.
+  const noSessionClick = (project: string, column: string): NoSessionClick =>
+    snapshot.config === undefined || view.kind === 'loading'
+      ? 'wait'
+      : !snapshot.config.projects.some(({ id }) => id === project) ||
+          (snapshot.project === project && !hasHead(view, column))
+        ? 'task'
+        : 'help';
   const onColumnHelp = (request: HelpRequest) => {
-    if (opensTask(request.project, request.column)) {
+    const click = noSessionClick(request.project, request.column);
+    if (click === 'wait') return;
+    if (click === 'task') {
       openFromInbox(request.project, request.task);
       return;
     }
@@ -322,7 +330,7 @@ export function Board({ data }: { data: BoardData }) {
             if (entry.task !== null) openFromInbox(entry.project, entry.task);
           }}
           onColumnHelp={onColumnHelp}
-          opensTask={opensTask}
+          noSessionClick={noSessionClick}
         />
       )}
       {task !== undefined && (

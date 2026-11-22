@@ -261,19 +261,6 @@ describe('inbox no-session row column help', () => {
     expect(history.state).toBeNull();
   });
 
-  it('spine in the shown project keeps the inbox and opens the task', async () => {
-    const { d } = board(() => Promise.resolve(envelope(status(rowsA(false)))));
-    await openInbox(d);
-    const link = document.querySelector('[data-inbox-id="I7"]');
-    expect(link?.tagName).toBe('A');
-    expect(link?.getAttribute('href')).toBe(TASK_SEARCH);
-    await clickRow();
-    expect(labels()).toEqual(['Inbox', expect.anything()]);
-    expect(dialogs().at(-1)?.textContent).toContain('#7');
-    expect(location.search).toBe(TASK_SEARCH);
-    expect(history.state).toEqual({ inbox: true, project: 'a' });
-  });
-
   it('spine after a switch opens the task from the board', async () => {
     const { d } = board(() => Promise.resolve(envelope(status(rowsA(false)))));
     await openInbox(d, 'b');
@@ -299,20 +286,63 @@ describe('inbox no-session row column help', () => {
     expect(history.state).toBeNull();
   });
 
-  it('a failed first read of the shown project opens the task from the board', async () => {
-    const held = deferred();
-    const { d } = board(() => held.promise);
-    await openInbox(d);
-    expect(document.querySelector('[data-inbox-id="I7"]')?.tagName).toBe('BUTTON');
-    await clickRow();
-    expect(dialogs()).toHaveLength(0);
-    held.resolve(Response.json({ broken: true }, { status: 500 }));
+  // The row is one task link from first render; a plain click waits for the configuration and
+  // the shown project's first status read, then opens the help or the task over the inbox.
+  it.each([
+    ['inbox before config', 0, undefined, 'nothing'],
+    ['config before status', 1, undefined, 'nothing'],
+    ['shown status failed', 2, () => Response.json({ broken: true }, { status: 500 }), 'task'],
+    ['settled with head', 2, () => envelope(status(rowsA())), 'help'],
+    ['settled without head', 2, () => envelope(status(rowsA(false))), 'task'],
+  ] as const)('load state %s', async (_, steps, answer, click) => {
+    const held = { config: deferred(), status: deferred() };
+    const { d } = board(() => held.status.promise);
+    d.routes['config.get'] = () => held.config.promise;
+    history.replaceState(null, '', '/?open=inbox');
+    mount(d, { 'board-project': 'a' }, () => NOW);
     await settle();
-    expect(dialogs()).toHaveLength(1);
-    expect(labels()).not.toContain('Inbox');
-    expect(dialogs()[0]?.textContent).toContain('#7');
-    expect(location.search).toBe(TASK_SEARCH);
-    expect(history.state).toBeNull();
+    const first = document.querySelector<HTMLElement>('[data-inbox-id="I7"]');
+    if (!first) throw new Error('no row I7');
+    act(() => {
+      first.focus();
+    });
+    if (steps > 0) held.config.resolve(envelope(CONFIG));
+    await settle();
+    if (answer) held.status.resolve(answer());
+    await settle();
+    const found = document.querySelector('[data-inbox-id="I7"]');
+    expect(found).toBe(first);
+    expect(document.activeElement).toBe(first);
+    expect(first.tagName).toBe('A');
+    expect(first.getAttribute('href')).toBe(TASK_SEARCH);
+    expect(first.getAttribute('aria-disabled')).toBe(click === 'nothing' ? 'true' : null);
+    expect(first.getAttribute('aria-haspopup')).toBe(click === 'help' ? 'dialog' : null);
+    // A modified click stays the browser's: no handler cancels it. The test cancels it last, at
+    // the window, so happy-dom does not follow the link.
+    let prevented: boolean | undefined;
+    const last = (event: Event) => {
+      prevented = event.defaultPrevented;
+      event.preventDefault();
+    };
+    addEventListener('click', last);
+    press(first, 'click', { ctrlKey: true });
+    removeEventListener('click', last);
+    expect(prevented).toBe(false);
+    expect(labels()).toEqual(['Inbox']);
+    await clickRow();
+    if (click === 'nothing') {
+      expect(labels()).toEqual(['Inbox']);
+      expect(location.search).toBe('?open=inbox');
+      expect(history.state).toBeNull();
+    } else if (click === 'help') {
+      expect(labels()).toEqual(['qa']);
+      expect(help().querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Who');
+    } else {
+      expect(labels()).toEqual(['Inbox', expect.anything()]);
+      expect(dialogs().at(-1)?.textContent).toContain('#7');
+      expect(location.search).toBe(TASK_SEARCH);
+      expect(history.state).toEqual({ inbox: true, project: 'a' });
+    }
   });
 
   it('Back reopens the inbox without help; Forward closes it', async () => {

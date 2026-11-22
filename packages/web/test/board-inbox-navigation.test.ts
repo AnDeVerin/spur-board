@@ -60,7 +60,7 @@ describe('inbox task navigation without configuration', () => {
             onClose: () => undefined,
             onOpen: () => undefined,
             onColumnHelp: () => undefined,
-            opensTask: () => false,
+            noSessionClick: () => 'task' as const,
             closeItem: () => ({ run: () => Promise.resolve() }),
           }),
         );
