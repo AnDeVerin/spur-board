@@ -52,13 +52,8 @@ const guideTexts = guideNames.map((name) => readFileSync(`${refsPath}/${name}`, 
 const skill = readFileSync(skillPath, 'utf8');
 const workerFlow = readFileSync(`${refsPath}/worker-flow.md`, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
-const publicGuides = [
-  readmePath,
-  setupGuidePath,
-  troubleshootingPath,
-  runbookPath,
-  overviewPath,
-].map((path) => readFileSync(path, 'utf8'));
+const guidePaths = [readmePath, setupGuidePath, troubleshootingPath, runbookPath, overviewPath];
+const publicGuides = guidePaths.map((path) => readFileSync(path, 'utf8'));
 const setupNames = [
   'access.md',
   'inspect.md',
