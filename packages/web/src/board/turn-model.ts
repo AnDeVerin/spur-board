@@ -73,13 +73,13 @@ export const closable = (turn: BoardTask['turn']) =>
   turn?.addressee.startsWith('orchestrator:') === true || turn?.addressee === 'operator'
     ? turn
     : undefined;
-export function shaError(value: string, what: string): string | undefined {
+function shaError(value: string, what: string): string | undefined {
   if (value === '') return `Enter ${what}.`;
   return SHA.test(value)
     ? undefined
     : 'Enter the full lowercase commit SHA: 40 to 64 characters, 0-9 and a-f.';
 }
-export function reasonError(value: string, max: number): string | undefined {
+function reasonError(value: string, max: number): string | undefined {
   if (value.trim() === '') return 'Enter a reason.';
   return value.length > max
     ? `The reason must be ${max.toLocaleString('en-US')} characters or fewer.`
