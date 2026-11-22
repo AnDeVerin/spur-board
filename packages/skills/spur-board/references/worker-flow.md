@@ -37,8 +37,8 @@
   `agent:<project>/$SPUR_SESSION`) needs no ack.
 - Leave any turn whose `taken.by` names the operator or another session, even one that has
   ended: an ack would take it back and the holder's submit or return then fails
-  `not_turn_taker`. The operator takes such a turn over (keyed `board inbox ack` from
-  `board inbox operator`).
+  `not_turn_taker`. The operator takes such a turn over with keyed `board inbox ack`, taking
+  its T<number> from `board task <task>` (or `board inbox operator`).
 - Test the turn's `head`, then keyed `board submit <turn> <sha>`: `--basis tested` (the default),
   `--basis skipped --reason <text>`, or `--basis carried --from <sha> --reason <text>` for work
   tested on an earlier head. `--from` must name a SHA with a tested submission on this task, or
