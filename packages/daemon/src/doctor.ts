@@ -951,7 +951,7 @@ export async function runDaemonDoctor(
   const { config, secrets } = ctx;
   const checks: Check[] = [];
   const spurUi = spurUiCheck(ctx, fetcher, deadlineMs);
-  // Started first so a slow /info overlaps the GitHub probes instead of following them.
+  // Started first and awaited last, so a slow /info overlaps every other probe.
   const spurVersion = readSpurVersion(ctx, fetcher, deadlineMs, config.adapters.spur.baseUrl);
   if (config.web.port !== undefined)
     checks.push(
@@ -1048,7 +1048,8 @@ export async function runDaemonDoctor(
   checks.push(
     check('spur.send', spurSend.ok, spurSend.reachable ? SPUR_SEND_FIX : SPUR_SEND_UNREACHABLE_FIX),
   );
-  checks.push(spurVersionCheck(await spurVersion));
+  // Awaited last, so a slow /info delays no other check; it keeps its place after spur.send.
+  const spurVersionAt = checks.length;
 
   if (!slackConfigured) {
     checks.push(
@@ -1178,5 +1179,6 @@ export async function runDaemonDoctor(
   checks.push(curatorSessionsCheck(await curatorSessions(ctx.store.db, config)));
   checks.push(orchestratorSessionsCheck(await orchestratorSessions(ctx.store.db, config)));
   checks.push(await spurUi);
+  checks.splice(spurVersionAt, 0, spurVersionCheck(await spurVersion));
   return { version: productVersion, checks };
 }

@@ -1078,32 +1078,40 @@ describe('daemon doctor checks', () => {
     },
   );
 
-  it('starts the Spur version probe before the GitHub probes answer', async () => {
+  it.each([
+    ['jira', (path: string) => path.endsWith('/myself')],
+    ['github', (path: string, host: string) => host === 'api.github.com' || path === '/graphql'],
+    ['spur.api', (path: string) => path.endsWith('/sessions')],
+    ['spur.send', (path: string) => path.endsWith('/send')],
+    ['slack.auth', (path: string) => path.endsWith('/auth.test')],
+    ['slack channels', (path: string) => path.endsWith('/conversations.info')],
+    ['slack.command', (path: string) => path.endsWith('/apps.manifest.export')],
+  ])('starts the %s probe before a stalled /info settles', async (_group, matches) => {
     const events: string[] = [];
-    const fallback = doctorFetch();
+    const fallback = doctorFetch('spur.version.stalled-fetch');
     const fetcher: typeof fetch = (input, init) => {
       const url = new URL(
         input instanceof URL ? input.href : input instanceof Request ? input.url : input,
       );
-      const github = url.host === 'api.github.com' || url.pathname === '/graphql';
-      if (url.pathname.endsWith('/info')) events.push('start:info');
-      if (!github) return fallback(input, init);
-      return new Promise<Response>((resolve) => {
-        setTimeout(() => {
-          events.push('end:github');
-          resolve(fallback(input, init));
-        }, 50);
-      });
+      if (url.pathname.endsWith('/info'))
+        return fallback(input, init).finally(() => events.push('settle:info'));
+      if (matches(url.pathname, url.host)) events.push('start:group');
+      return fallback(input, init);
     };
-    const report = await runDaemonDoctor(
-      doctorContext({ operator: true, slack: false }),
-      '1.2.3',
-      fetcher,
-    );
-    expect(events).toContain('end:github');
-    expect(events.indexOf('start:info')).toBeGreaterThanOrEqual(0);
-    expect(events.indexOf('start:info')).toBeLessThan(events.indexOf('end:github'));
-    expect(report.checks.find((check) => check.id === 'spur.version')?.status).toBe('pass');
+    const report = await runDaemonDoctor(doctorContext({ operator: true }), '1.2.3', fetcher, {
+      deadlineMs: 250,
+    });
+    expect(events).toContain('settle:info');
+    expect(events.indexOf('start:group')).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf('start:group')).toBeLessThan(events.indexOf('settle:info'));
+    const ids = report.checks.map((check) => check.id);
+    expect(ids.indexOf('spur.version')).toBe(ids.indexOf('spur.send') + 1);
+    expect(report.checks.find((check) => check.id === 'spur.version')).toEqual({
+      id: 'spur.version',
+      status: 'warning',
+      blocking: false,
+      fix: spurVersionUnread,
+    });
   });
 
   it('names the minimum Spur version in README, SETUP and the setup skill', () => {
