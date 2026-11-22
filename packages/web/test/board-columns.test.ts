@@ -311,6 +311,11 @@ describe('column sort', () => {
       ['T', 'Sorted by time in the column', null],
       ['↓', 'Newest in the column first', 'Newest in the column first. Click to reverse.'],
     ]);
+    // A Time and Key change keeps both buttons, so a clicked direction keeps its focus. toBe, not
+    // toEqual: toEqual compares DOM nodes by isEqualNode and passes for a remounted button.
+    const [timeLetter, timeDirection] = sortButtons('dev');
+    expect(timeLetter).toBe(letter);
+    expect(timeDirection).toBe(direction);
     choose('dev', 'Manual');
     // Manual has no direction; Time or Key from Manual starts ascending.
     expect(sortText('dev')).toEqual(['M']);

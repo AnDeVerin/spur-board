@@ -1,6 +1,6 @@
-// Shared by the manual order tests: board-order.test.ts, board-order-band.test.ts and
-// board-order-stream.test.ts. Project `a` on the fixture config (todo, dev, review, done), its todo
-// column in Manual holding #1, #2 and #3 at positions 1, 2 and 3.
+// Shared by the manual order tests: board-order.test.ts and board-order-stream.test.ts. Project `a`
+// on the fixture config (todo, dev, review, done), its todo column in Manual holding #1, #2 and #3
+// at positions 1, 2 and 3.
 import { act } from 'react';
 import cardStyles from '../src/board/Card.module.css';
 import styles from '../src/board/Columns.module.css';
