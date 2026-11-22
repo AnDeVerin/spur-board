@@ -1813,6 +1813,15 @@ it('shows an unlinked completed or killed session without an end time as ended s
       }
     }
     expect(result.hiddenUnlinkedSessions).toBe(200);
+    if (detail) {
+      expect(row('done-1')).toMatchObject({ endReason: 'complete', endedAt: iso(now - DAY) });
+      expect(row('killed-1')).toMatchObject({ endReason: 'kill', endedAt: iso(now - 2 * DAY) });
+    } else {
+      for (const id of ['done-1', 'killed-1']) {
+        expect(row(id)).not.toHaveProperty('endReason');
+        expect(row(id)).not.toHaveProperty('endedAt');
+      }
+    }
   }
 });
 

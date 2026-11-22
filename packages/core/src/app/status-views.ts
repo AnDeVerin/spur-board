@@ -337,8 +337,14 @@ export function unlinkedSessionView(
   if (detail) {
     const view = sessionView(facts);
     if (live) return { ...view, ...shown };
-    const { id, spurProject, branch, pr, links, lastActivityAt, endedAt, endReason } = view;
+    const { id, spurProject, branch, pr, links, lastActivityAt } = view;
     const rings = view.queuedRings === undefined ? {} : { queuedRings: view.queuedRings };
+    // Spur lists a completed or killed session without an end time: its state tells the outcome.
+    const finished = session.state === 'completed' || session.state === 'killed';
+    const { endedAt, endReason }: Pick<SessionFacts, 'endedAt' | 'endReason'> =
+      view.endReason === null && finished
+        ? { endedAt: shown.since, endReason: session.state === 'completed' ? 'complete' : 'kill' }
+        : view;
     return {
       id,
       spurProject,
