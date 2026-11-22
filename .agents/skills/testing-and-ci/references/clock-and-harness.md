@@ -30,7 +30,23 @@ Every test runs through the root config, so all of these hold:
   real user manager; a test that needs a user bus sets one explicitly.
   It builds fresh production assets before workers in provided `webAssetsRoot`; tests inject
   that path. Failure/teardown removes it. `packages/testkit/test/web-assets.test.ts` pins this.
-- `packages/testkit/src/setup.ts` installs the network guard in each worker: a connection to a
-  non-local host throws.
-- Pinned by `packages/testkit/test/env.test.ts` and
+- Global setup writes an owner record into its root (pid, start ticks, boot id, pid
+  namespace) and, before it creates the root, removes the `spur-board-test-*` roots of dead runs from
+  `tmpdir()` and `/tmp` (`packages/testkit/src/sweep.ts`): owner gone, pid reused or earlier
+  boot. A root without an owner record goes after 3 h of age, a root in another pid namespace or
+  with a record missing a field after 24 h; age is the newer mtime of the root and its tmp directory.
+  It never follows symlinks, skips other users' entries and never removes a live run's root.
+- `packages/testkit/src/setup.ts` re-pins `HOME`, `TMPDIR` and the XDG directories in each
+  worker to the run root from `inject('harnessRoot')`, prints a `testkit: re-pinned` line on
+  stderr when a runner handed the worker other values, and throws when global setup did not
+  run. Then it installs the network guard: a connection to a non-local host throws.
+- Temp-dir helpers remove what they make: `openTempStore` (`packages/core/test/support/store.ts`)
+  and `makeHome` (`packages/daemon/test/home.ts`) remove their directory after the test's
+  afterEach hooks, or in the suite's afterAll when called outside a test. A new helper that
+  makes a temp dir does the same.
+- Vitest's own transformed-module copies (`join(tmpdir(), <random>)`, made by the main process
+  before global setup) stay outside the run root; Vitest removes them on close, a killed run
+  leaks them.
+- Pinned by `packages/testkit/test/env.test.ts`, `packages/testkit/test/sweep.test.ts`,
+  `packages/testkit/test/env.integration.test.ts` and
   `packages/testkit/test/network.integration.test.ts`.
