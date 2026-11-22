@@ -90,6 +90,11 @@ describe('public guide contents', () => {
     expect(security).not.toContain('doctor and event routes');
   });
 
+  it('says any proxy must pass Host and Origin unchanged', () => {
+    for (const text of [caddySection, section(publicGuides[3], '## 6. Optional web listener')])
+      expect(flat(text)).toContain('must pass the `Host` and `Origin` headers unchanged');
+  });
+
   it('says what doctor checks for the web listener and what it does not', () => {
     for (const text of [caddySection, listening])
       for (const token of [

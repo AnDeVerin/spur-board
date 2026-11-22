@@ -202,8 +202,9 @@ Caddy passes the `Host` and `Origin` headers on unchanged; when either differs f
 origin, the daemon answers 403.
 
 Live updates come from `GET /v1/events`. Caddy flushes `text/event-stream` responses at once
-and sets no read timeout, so the sample needs no extra directive. Another proxy needs response
-buffering off for that path and a read timeout above 15 seconds, the heartbeat interval.
+and sets no read timeout, so the sample needs no extra directive. Another proxy must pass the
+`Host` and `Origin` headers unchanged, keep response buffering off for `/v1/events`, and set a
+read timeout above 15 seconds, the heartbeat interval.
 
 Pick one of two certificate variants:
 
