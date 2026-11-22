@@ -214,6 +214,8 @@ export {
 } from './tokens.ts';
 export {
   DOCTOR_FIX_MAX,
+  SLACK_OFF_FIX,
+  SLACK_PARTLY_FIX,
   SPUR_MIN_VERSION,
   doctorReportSchema,
   remoteDoctorReportSchema,

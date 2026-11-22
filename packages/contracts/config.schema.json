@@ -485,15 +485,15 @@
       }
     },
     "operator": {
+      "description": "The operator. Leave it out, with slack.channels, to run without Slack: questions addressed to the operator are then read in board inbox operator and the web inbox. Add operator.slack back before board rollback to a version that requires it.",
       "type": "object",
       "properties": {
         "slack": {
+          "description": "Slack user ID of the operator, such as U0123456789. Required once slack.channels is set. Slack commands, button presses and messages from anyone else are denied. A feed line the operator resolves names this user.",
           "type": "string",
-          "minLength": 1,
-          "description": "Slack user ID of the operator, such as U0123456789. Slack commands, button presses and messages from anyone else are denied. A feed line the operator resolves names this user."
+          "minLength": 1
         }
       },
-      "required": ["slack"],
       "additionalProperties": false
     },
     "slack": {
@@ -900,6 +900,6 @@
       "additionalProperties": false
     }
   },
-  "required": ["projects", "operator", "digest"],
+  "required": ["projects", "digest"],
   "additionalProperties": false
 }

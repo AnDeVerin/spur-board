@@ -250,7 +250,7 @@ describe('operator item feed', () => {
       kind: 'paragraph',
       children: [
         { kind: 'text', text: '✓ Resolved by ' },
-        { kind: 'mention', user: config.operator.slack },
+        { kind: 'mention', user: 'operator' },
         { kind: 'text', text: ' at 10:00' },
       ],
     });

@@ -18,6 +18,8 @@ import {
   defaultAddressee,
   mirrorSourceId,
   readyMirrorOf,
+  requiredSecretKeys,
+  slackConfigured,
 } from '../src/index.ts';
 import { walk as walkJsonSchema } from './json-schema-walk.ts';
 
@@ -162,6 +164,14 @@ describe('fixtures', () => {
       { id: 'ready-to-merge', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
       { id: 'done', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
     ]);
+  });
+
+  it('parses the no-Slack project with Slack off and only the GitHub token required', () => {
+    const config = configSchema.parse(readFixture('no-slack-project.yaml'));
+    expect(config.operator).toBeUndefined();
+    expect(config.slack.channels).toEqual({});
+    expect(slackConfigured(config)).toBe(false);
+    expect(requiredSecretKeys(config)).toEqual(['GITHUB_TOKEN']);
   });
 
   it('parses the github-issues project and fills the defaults', () => {
@@ -1468,10 +1478,16 @@ describe('invalid configs', () => {
       'health',
     ],
     [
-      'missing operator',
-      withoutOperator(),
-      'Invalid input: expected object, received undefined',
-      'operator',
+      'slack.channels.feed without operator',
+      { ...withoutOperator(), slack: { channels: { feed: 'C0000000001' } } },
+      "Set operator.slack, the operator's Slack user ID, when slack.channels is set",
+      'operator.slack',
+    ],
+    [
+      'slack.channels.orchestrators with an empty operator',
+      validConfig({}, { operator: {}, slack: { channels: { orchestrators: 'C0000000001' } } }),
+      "Set operator.slack, the operator's Slack user ID, when slack.channels is set",
+      'operator.slack',
     ],
     [
       'a short name repeated across two board projects',
