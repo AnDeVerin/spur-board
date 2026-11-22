@@ -19,6 +19,9 @@ import {
   remoteDoctorReportSchema,
   requiredSecretKeys,
   SKILL_RELOAD_NAMED_MAX,
+  SLACK_OFF_FIX,
+  SLACK_PARTLY_FIX,
+  slackConfigured,
   sortSkillFiles,
   successEnvelopeSchema,
   type Config,
@@ -954,25 +957,22 @@ export async function runDoctor(
         }
       : secrets,
   );
-  const slackConfigured = Boolean(
-    config.slack.channels.feed || config.slack.channels.orchestrators,
-  );
+  const slackOn = slackConfigured(config);
   if (remote === null) {
     checks.push(
-      ...remoteIdSet(slackConfigured)
+      ...remoteIdSet(slackOn)
         .filter((id) => id !== 'secrets')
-        .map((id) =>
-          warning(
-            id,
-            id === 'slack.configured'
-              ? 'Slack is not configured: questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to configure slack.channels.'
-              : 'Start the daemon, then rerun board doctor to complete this check.',
-          ),
-        ),
+        .map((id): DoctorCheck => {
+          if (id !== 'slack.configured')
+            return warning(id, 'Start the daemon, then rerun board doctor to complete this check.');
+          return config.operator?.slack === undefined
+            ? { id, status: 'pass', blocking: false, fix: SLACK_OFF_FIX }
+            : warning(id, SLACK_PARTLY_FIX);
+        }),
     );
   } else {
     const localIds = new Set([...checks.map((check) => check.id), 'versions']);
-    checks.push(...remoteMerge(remote.checks, localIds, slackConfigured));
+    checks.push(...remoteMerge(remote.checks, localIds, slackOn));
   }
   const availableVersions = [
     ...(currentBoard.exitCode === 0 ? [currentBoard.stdout.trim()] : []),
