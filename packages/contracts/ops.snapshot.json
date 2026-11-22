@@ -1,5 +1,5 @@
 {
-  "version": "60dced1913f41f1c31187d40be94c407973070f6cf96fcd1d3df5d9412a943d9",
+  "version": "2cbb6876bc020f1b98b5061a076f969494e6c456bbbd6a79121abc2289979d81",
   "grants": [
     "operator",
     "project-agent",
@@ -11486,8 +11486,8 @@
       "mcp": {
         "name": "task_wait",
         "key": "idempotencyKey",
-        "whenToUse": "You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time. As the operator, pass end to end a holder's active wait early; the holder is rung.",
-        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev.",
+        "whenToUse": "You hold a turn. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Give whole minutes and the reason; the Board rings you with the reason when the wait ends, and submit, return or a close ends it earlier. Waits per turn are capped by count and total time. As the operator, pass end to end a holder's active wait early; the holder is rung.",
+        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.",
         "destructive": true
       },
       "slack": null,
@@ -11529,7 +11529,7 @@
             "maximum": 120
           },
           "reason": {
-            "description": "What you wait for, up to 200 characters; the wake ring repeats it. Required unless end.",
+            "description": "What you wait for, up to 200 characters; the wake ring repeats it. Required unless end. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.",
             "type": "string",
             "minLength": 1,
             "maxLength": 200,

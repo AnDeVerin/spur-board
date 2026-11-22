@@ -125,7 +125,7 @@ export const taskWaitInputSchema = z.strictObject({
     .regex(/\S/)
     .optional()
     .describe(
-      'What you wait for, up to 200 characters; the wake ring repeats it. Required unless end.',
+      'What you wait for, up to 200 characters; the wake ring repeats it. Required unless end. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.',
     ),
   end: z
     .boolean()
