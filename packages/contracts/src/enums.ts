@@ -223,7 +223,7 @@ export type SubmissionBasis = (typeof SUBMISSION_BASES)[number];
  * when the task moved on (it also covers returns and mode switches recorded by older versions),
  * `corrected` by the operator's column correction, `rerouted` to another executor,
  * `mode_changed` by a dispatcher mode switch, `archived` with the task. `moved` also closes a
- * Done wrap-up turn whose holder session ended.
+ * Done wrap-up turn whose holder session ended, or an untaken one with no recipient left.
  */
 export const TURN_OUTCOMES = [
   'submitted',

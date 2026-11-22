@@ -40,7 +40,8 @@ pre-update backup restore; the migrated database has no downgrade guarantee.
 After a catalog upgrade, restart the daemon and MCP clients together.
 
 A new head closes taken turns outside Dev and Done; taken Dev turns and Done
-wrap-up turns survive pushes, and a wrap-up turn closes when its holder ends.
+wrap-up turns survive pushes, and a wrap-up turn closes when its holder ends or,
+untaken, no recipient is left.
 Right of Dev, red CI, a draft, a conflict, an external comment or an unresolved
 thread where required returns the task to Dev at once, unless a turn is taken; then after its submit or return.
 The Dev turn hands the comments, beside a return's `code` block.
@@ -79,7 +80,7 @@ resolve the held turn. Start a replacement worker, retake an operator turn
 actual holder replacement, archive or departure from the column visit. Existing
 ended-holder stall blocks withdraw with a recorded reason,
 even while Spur is blind. Removing a link alone leaves the taken turn unresolved.
-Done wrap-up turns still close. A stopped session without
+A stopped session without
 an end time stays subject to live stall timing above.
 
 ## Doorbells

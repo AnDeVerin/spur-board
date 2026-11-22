@@ -56,6 +56,7 @@ import {
   curatorSession,
   earliestTime,
   LINKED_FINISHED_STATES,
+  linkedSession,
   moveBlockToAddressee,
   selectNotificationRecipient,
 } from './doorbells.ts';
@@ -293,7 +294,8 @@ async function turnsWithoutSession(
 /**
  * Reconciles every item in the caller's observation or tick transaction. It first closes each
  * Done wrap-up turn whose holder session ended (`closeEndedDoneTurns`), so no stall item is
- * raised for it.
+ * raised for it, and, while Spur is current, each untaken one left with no recipient
+ * (`closeUnaddressedDoneTurns`).
  */
 export async function reconcileItems(
   trx: Trx,
@@ -304,10 +306,19 @@ export async function reconcileItems(
   /** Fresh complete Spur batch after startup or an expired observation interval. */
   spurContinuityStartAt?: number,
 ): Promise<void> {
-  await closeEndedDoneTurns(trx, new Date(now));
-  const candidates: ItemCandidate[] = [];
   const sources = await trx.selectFrom('source_state').selectAll().execute();
   const sourceById = new Map(sources.map((state) => [state.source, state]));
+  const spur = sourceById.get('spur');
+  const spurBlind = spur !== undefined && spur.blind_reason !== null;
+  const spurExpired =
+    spur?.last_complete_at != null &&
+    now >
+      Date.parse(spur.last_complete_at) +
+        config.adapters.spur.intervalMs * config.thresholds.staleMultiplier;
+  await closeEndedDoneTurns(trx, new Date(now));
+  if (!(spurBlind || !spurComplete || spurExpired))
+    await closeUnaddressedDoneTurns(trx, config, new Date(now));
+  const candidates: ItemCandidate[] = [];
   for (const source of sources) {
     if (source.blind_reason === null) continue;
     // A stale tracker shows as a status flag only; stale Spur also blinds worker health.
@@ -473,8 +484,6 @@ export async function reconcileItems(
       source: null,
       priority: ITEM_POLICY.post_failed.priority,
     });
-  const spur = sourceById.get('spur');
-  const spurBlind = spur !== undefined && spur.blind_reason !== null;
   const sessionLinks = await trx
     .selectFrom('link')
     .innerJoin('session_snapshot', 'session_snapshot.id', 'link.session_id')
@@ -747,11 +756,6 @@ export async function reconcileItems(
     observationRow === undefined
       ? { blind: false, observedAt: null, resumedAt: null }
       : parseJson(stallObservationSchema, observationRow.value);
-  const spurExpired =
-    spur?.last_complete_at != null &&
-    now >
-      Date.parse(spur.last_complete_at) +
-        config.adapters.spur.intervalMs * config.thresholds.staleMultiplier;
   const observation =
     spurBlind || !spurComplete || spurExpired
       ? {
@@ -1320,6 +1324,36 @@ async function closeEndedDoneTurns(trx: Trx, at: Date): Promise<void> {
       .execute();
     const reason = `turn T${String(turn.id)} closed: its holder ${sessionId} ended in Done`;
     for (const item of items) await clearReconciled(trx, item, at, reason);
+  }
+}
+
+/**
+ * Closes, as `moved`, each untaken worker-role Done wrap-up turn of an unarchived Done task when
+ * no recipient is left: no live worker session is linked to the task and Done has no
+ * orchestrator. The caller runs it only while Spur is current, so a missed session end does not
+ * close a turn a live worker still holds.
+ */
+async function closeUnaddressedDoneTurns(trx: Trx, config: Config, at: Date): Promise<void> {
+  const turns = await trx
+    .selectFrom('turn')
+    .innerJoin('task', 'task.id', 'turn.task_id')
+    .select(['turn.task_id', 'task.project'])
+    .where('turn.closed_at', 'is', null)
+    .where('turn.acked_at', 'is', null)
+    .where('turn.role', '=', 'worker')
+    .where('turn.column', '=', 'done')
+    .where('task.column', '=', 'done')
+    .where('task.membership', '!=', 'archived')
+    .orderBy('turn.id')
+    .execute();
+  for (const turn of turns) {
+    const project = config.projects.find((candidate) => candidate.id === turn.project);
+    if (project === undefined) continue;
+    const orchestrator =
+      project.columns.find((column) => column.id === 'done')?.orchestrator ?? 'none';
+    if (orchestrator !== 'none') continue;
+    if ((await linkedSession(trx, turn.task_id, 'worker')) !== undefined) continue;
+    await closeTurns(trx, { taskId: turn.task_id, reason: 'moved', at });
   }
 }
 
