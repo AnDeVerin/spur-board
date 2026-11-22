@@ -555,107 +555,119 @@ describe('daemon process', () => {
     }
   }, 30_000);
 
-  it('delivers Spur doorbells without Slack and leaves gateway rows pending', async () => {
-    const sends: { session: string; body: unknown }[] = [];
-    const spurApi = createServer((req, res) => {
-      const chunks: Buffer[] = [];
-      req.on('data', (chunk: Buffer) => chunks.push(chunk));
-      req.on('end', () => {
-        const match = /^\/sessions\/([^/]+)\/send$/.exec(req.url ?? '');
-        res.setHeader('Content-Type', 'application/json');
-        if (req.method === 'POST' && match?.[1] !== undefined) {
-          const session = decodeURIComponent(match[1]);
-          sends.push({ session, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
-          res.end(JSON.stringify({ id: session }));
-          return;
-        }
-        res.statusCode = 404;
-        res.end(JSON.stringify({ error: `Route not found: ${req.method ?? ''} ${req.url ?? ''}` }));
+  it.each([
+    ['no operator', VALID_CONFIG_YAML.replace('operator:\n  slack: U0000000000\n', '')],
+    ['operator.slack only', VALID_CONFIG_YAML],
+  ])(
+    'delivers Spur doorbells with Slack off and writes no gateway rows (%s)',
+    async (_, config) => {
+      const sends: { session: string; body: unknown }[] = [];
+      const spurApi = createServer((req, res) => {
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk: Buffer) => chunks.push(chunk));
+        req.on('end', () => {
+          const match = /^\/sessions\/([^/]+)\/send$/.exec(req.url ?? '');
+          res.setHeader('Content-Type', 'application/json');
+          if (req.method === 'POST' && match?.[1] !== undefined) {
+            const session = decodeURIComponent(match[1]);
+            sends.push({ session, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+            res.end(JSON.stringify({ id: session }));
+            return;
+          }
+          res.statusCode = 404;
+          res.end(
+            JSON.stringify({ error: `Route not found: ${req.method ?? ''} ${req.url ?? ''}` }),
+          );
+        });
       });
-    });
-    onTestFinished(() => {
-      spurApi.close();
-    });
-    spurApi.listen(0, '127.0.0.1');
-    await once(spurApi, 'listening');
-    const { port } = spurApi.address() as AddressInfo;
-    const home = makeHome({
-      config: `${VALID_CONFIG_YAML}adapters:\n  spur:\n    baseUrl: http://127.0.0.1:${String(port)}\n`,
-    });
-    const store = openStore(join(home, 'board.sqlite'));
-    await store.transaction(async (trx) => {
-      for (const [kind, key, payload] of [
-        [
-          'doorbell',
-          'doorbell:test',
-          { session: 'worker-1', text: 'o/r#101 block B1: check board inbox' },
-        ],
-        [
-          'feed.line',
-          'feed.line:test',
-          {
-            key: 'o/r#101',
-            title: 'Test',
-            text: 'pending',
-            persona: { name: 'board', role: 'board' },
-            itemKey: 'test',
-          },
-        ],
-      ] as const) {
-        await trx
-          .insertInto('outbox')
-          .values({
-            kind,
-            dedupe_key: key,
-            payload: JSON.stringify(payload),
-            state: 'pending',
-            next_at: new Date().toISOString(),
-            last_error: null,
-            external_ref: null,
-            parent_outbox_id: null,
-            first_attempt_at: null,
-            first_delivery_at: null,
-          })
-          .execute();
-      }
-    });
-    await store.close();
-    // The systemd user manager's PATH has no ~/.local/bin, where Spur installs its CLI.
-    const child = spawnDaemon(home, { PATH: '/usr/bin:/bin' });
-    await waitForLine(child, 'daemon ready');
-    await expect.poll(() => sends.length, { timeout: 10_000 }).toBeGreaterThan(0);
-    const exited = once(child, 'exit');
-    child.kill('SIGTERM');
-    expect((await exited)[0]).toBe(0);
-    expect(sends).toEqual([
-      { session: 'worker-1', body: { message: 'o/r#101 block B1: check board inbox' } },
-    ]);
-    const result = openStore(join(home, 'board.sqlite'));
-    try {
-      const rows = await result.db
-        .selectFrom('outbox')
-        .select(['kind', 'state', 'payload'])
-        .execute();
-      expect(
-        rows.filter((row) => row.kind === 'doorbell').map(({ kind, state }) => ({ kind, state })),
-      ).toEqual([{ kind: 'doorbell', state: 'done' }]);
-      expect(
-        rows
-          .filter((row) => row.kind === 'feed.line')
-          .map((row) => ({
-            state: row.state,
-            itemKey: (JSON.parse(row.payload) as { itemKey: string }).itemKey,
-          }))
-          .sort((a, b) => a.itemKey.localeCompare(b.itemKey)),
-      ).toEqual([
-        { state: 'pending', itemKey: 'source:github-issues:board:example-org/board' },
-        { state: 'pending', itemKey: 'source:github:board:example-org/board' },
-        { state: 'pending', itemKey: 'test' },
+      onTestFinished(() => {
+        spurApi.close();
+      });
+      spurApi.listen(0, '127.0.0.1');
+      await once(spurApi, 'listening');
+      const { port } = spurApi.address() as AddressInfo;
+      const home = makeHome({
+        config: `${config}adapters:\n  spur:\n    baseUrl: http://127.0.0.1:${String(port)}\n`,
+      });
+      const store = openStore(join(home, 'board.sqlite'));
+      await store.transaction(async (trx) => {
+        for (const [kind, key, payload] of [
+          [
+            'doorbell',
+            'doorbell:test',
+            { session: 'worker-1', text: 'o/r#101 block B1: check board inbox' },
+          ],
+          [
+            'feed.line',
+            'feed.line:test',
+            {
+              key: 'o/r#101',
+              title: 'Test',
+              text: 'pending',
+              persona: { name: 'board', role: 'board' },
+              itemKey: 'test',
+            },
+          ],
+        ] as const) {
+          await trx
+            .insertInto('outbox')
+            .values({
+              kind,
+              dedupe_key: key,
+              payload: JSON.stringify(payload),
+              state: 'pending',
+              next_at: new Date().toISOString(),
+              last_error: null,
+              external_ref: null,
+              parent_outbox_id: null,
+              first_attempt_at: null,
+              first_delivery_at: null,
+            })
+            .execute();
+        }
+      });
+      await store.close();
+      // The systemd user manager's PATH has no ~/.local/bin, where Spur installs its CLI.
+      const child = spawnDaemon(home, { PATH: '/usr/bin:/bin' });
+      await waitForLine(child, 'daemon ready');
+      await expect.poll(() => sends.length, { timeout: 10_000 }).toBeGreaterThan(0);
+      const exited = once(child, 'exit');
+      child.kill('SIGTERM');
+      expect((await exited)[0]).toBe(0);
+      expect(sends).toEqual([
+        { session: 'worker-1', body: { message: 'o/r#101 block B1: check board inbox' } },
       ]);
-    } finally {
-      await result.close();
-    }
-  }, 30_000);
+      const result = openStore(join(home, 'board.sqlite'));
+      try {
+        const rows = await result.db
+          .selectFrom('outbox')
+          .select(['kind', 'dedupe_key', 'state', 'last_error'])
+          .orderBy('id')
+          .execute();
+        expect(rows).toEqual([
+          { kind: 'doorbell', dedupe_key: 'doorbell:test', state: 'done', last_error: null },
+          {
+            kind: 'feed.line',
+            dedupe_key: 'feed.line:test',
+            state: 'dead',
+            last_error: 'slack off',
+          },
+        ]);
+        const items = await result.db
+          .selectFrom('operator_item')
+          .select(['item_key', 'line_outbox_id'])
+          .orderBy('item_key')
+          .execute();
+        expect(items).toEqual([
+          { item_key: 'source:github-issues:board:example-org/board', line_outbox_id: null },
+          { item_key: 'source:github:board:example-org/board', line_outbox_id: null },
+        ]);
+      } finally {
+        await result.close();
+      }
+    },
+    30_000,
+  );
 
   it('waits for a held delivery on SIGTERM before closing the store', async () => {
     const api = await startFakeSlackApi();

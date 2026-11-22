@@ -13,12 +13,15 @@ import {
   DOCTOR_FIX_MAX,
   MIRROR_FAILURES,
   SLACK_BOT_SCOPES,
+  SLACK_OFF_FIX,
+  SLACK_PARTLY_FIX,
   SPUR_MIN_VERSION,
   apiBaseUrl,
   approvalRuleOf,
   configBindings,
   readyMirrorOf,
   requiredSecretKeys,
+  slackConfigured,
   type Config,
   type MirrorFailureCode,
   type ReadyMirror,
@@ -962,9 +965,6 @@ export async function runDaemonDoctor(
   const jiraTrackers = config.projects.flatMap((project) =>
     project.tracker.type === 'jira' ? [project.tracker] : [],
   );
-  const slackConfigured = Boolean(
-    config.slack.channels.feed || config.slack.channels.orchestrators,
-  );
   // Started first so the link samples and rule reads run alongside the credential probes.
   const linkSamples = sampleLinks(ctx, fetcher, deadlineMs, secrets['GITHUB_TOKEN']);
   const ruled = ruledRepos(config).length > 0;
@@ -1051,12 +1051,11 @@ export async function runDaemonDoctor(
   // Awaited last, so a slow /info delays no other check; it keeps its place after spur.send.
   const spurVersionAt = checks.length;
 
-  if (!slackConfigured) {
+  if (!slackConfigured(config)) {
     checks.push(
-      warning(
-        'slack.configured',
-        'Slack is not configured: questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to configure slack.channels.',
-      ),
+      config.operator?.slack === undefined
+        ? { id: 'slack.configured', status: 'pass', blocking: false, fix: SLACK_OFF_FIX }
+        : warning('slack.configured', SLACK_PARTLY_FIX),
     );
   } else {
     const botToken = secrets['SLACK_BOT_TOKEN'];

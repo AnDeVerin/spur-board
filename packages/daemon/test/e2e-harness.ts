@@ -26,6 +26,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: { channels: { orchestrators: 'C000000001', feed: 'C000000002' } },
   digest: { tz: 'UTC' },
   http: { port: 0 },
 });
@@ -173,7 +174,7 @@ export async function createE2eHarness(
     handle = await startInProcessDaemon({
       paths,
       acquireLock: () => ({ release() {} }),
-      loadConfig: () => ({ config, secrets: {} }),
+      loadConfig: () => ({ config, secrets: { SLACK_BOT_TOKEN: 'xoxb-test' } }),
       writeErr(text) {
         throw new Error(text);
       },

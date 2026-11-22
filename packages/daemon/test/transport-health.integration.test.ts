@@ -177,6 +177,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: { channels: { orchestrators: 'C000000001', feed: 'C000000002' } },
   digest: { tz: 'UTC' },
   http: { port: 0 },
 });
@@ -220,7 +221,7 @@ async function compose(
     );
     return {
       config,
-      secrets: {},
+      secrets: { SLACK_BOT_TOKEN: 'xoxb-test' },
       store: name === 'outbox' && options.outboxStore ? options.outboxStore(store) : store,
       log,
       clock,

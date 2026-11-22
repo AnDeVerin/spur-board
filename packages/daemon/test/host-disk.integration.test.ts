@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
 import { tickBoard, type Store } from '@spur-board/core';
+import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { acquireLock, startInProcessDaemon, type InProcessDaemon } from '../src/in-process.ts';
 import { countingHostProbe } from './in-process-web.ts';
@@ -17,6 +18,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: { channels: { orchestrators: 'C000000001', feed: 'C000000002' } },
   digest: { tz: 'UTC' },
   http: { port: 0 },
 });
@@ -51,7 +53,7 @@ function start(): Promise<InProcessDaemon> {
       dbFile: join(home, 'board.sqlite'),
       lockFile: join(home, 'board.lock'),
     },
-    loadConfig: () => ({ config, secrets: {} }),
+    loadConfig: () => ({ config, secrets: { SLACK_BOT_TOKEN: 'xoxb-test' } }),
     acquireLock,
     clock: { now: () => Date.now() },
     stdout: { write() {} },
@@ -62,6 +64,7 @@ function start(): Promise<InProcessDaemon> {
       tick: tickBoard,
       startAdapters: () => ({ stop: () => Promise.resolve() }),
       hostProbe: fullDisk(),
+      gateway: createFakeGateway({ profile: 'slack-like' }),
     },
   });
 }
