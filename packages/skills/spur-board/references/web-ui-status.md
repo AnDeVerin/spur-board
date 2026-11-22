@@ -30,6 +30,12 @@ Service dots follow `status.get` health: green healthy, amber degraded, red fail
 - `unknown`, with a hollow dot, for a service with no health row, for all before the first status
   read, and for all but the daemon while the daemon does not answer.
 
+The **services** trigger shows its own dot when a host reading is at 80% used or more: amber, or
+red at 90%, for the worst of CPU, RAM and every disk volume. Its name and tooltip then read
+`services: <readings>`, each reading at that level joined by `·`, such as
+`services: disk / 91% used, 8.7 GiB free`. Below 80%, and while the daemon does not answer, it
+has no dot and reads `services`.
+
 The bar follows each `status` stream message, about every 30 s, and reads nothing itself.
 
 ## Services panel

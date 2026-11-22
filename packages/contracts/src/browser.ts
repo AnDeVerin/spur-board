@@ -37,6 +37,7 @@ import { taskTurnSchema, latestSubmissionSchema } from './ops/turn-schemas.ts';
 import { errorDetailSchema } from './errors.ts';
 export { successEnvelopeSchema } from './errors.ts';
 export { JIRA_PROJECT_KEY, REF_NUMBER } from './ids.ts';
+export { HOST_USAGE_LEVELS, hostUsageLevel, type HostUsageLevel } from './host-usage.ts';
 export const problemSchema = errorDetailSchema.extend({
   type: z.url(),
   title: z.string(),

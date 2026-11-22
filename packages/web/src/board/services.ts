@@ -1,3 +1,4 @@
+import { HOST_USAGE_LEVELS, hostUsageLevel } from '@spur-board/contracts/browser';
 import type { IconName, MeterThresholds, StatusDotTone } from '../ds/index.ts';
 import type { Output } from '../lib/api.ts';
 import type { BoardSnapshot } from './data.ts';
@@ -146,7 +147,7 @@ export type PanelRow =
 
 const NONE = '—';
 const BUDGET: MeterThresholds = { warn: 0.2, error: 0.05, worse: 'low' };
-const USAGE: MeterThresholds = { warn: 0.8, error: 0.9, worse: 'high' };
+const USAGE: MeterThresholds = { ...HOST_USAGE_LEVELS, worse: 'high' };
 
 /** Rows of one source box: polls, blind reason, freshness, points and budget. */
 export function sourceRows(
@@ -261,6 +262,42 @@ export function hostRows(host: BoardStatus['host'], hostLoad: BoardStatus['hostL
   ];
   if (hostLoad !== null) rows.push({ key: hostLoad, status: 'wait' });
   return rows;
+}
+
+/** The status bar dot of the host: the worst reading's level and the readings at warn or error. */
+export interface HostAlert {
+  tone: 'warn' | 'error';
+  /** Each reading at warn or error, CPU, RAM, then volumes in the daemon's order. */
+  text: string;
+}
+
+/** The host dot over CPU, RAM and every volume; null when every reading is below warn or unknown. */
+export function hostAlert(host: BoardStatus['host']): HostAlert | null {
+  if (host === null) return null;
+  const readings: { percent: number; text: (used: string) => string }[] = [];
+  if (host.cpuPercent !== null)
+    readings.push({ percent: host.cpuPercent, text: (used) => `CPU ${used}% used` });
+  const { memory } = host;
+  if (memory !== null)
+    readings.push({
+      percent: memory.usedPercent,
+      text: (used) => `RAM ${used}% used, ${formatBytes(memory.availableBytes)} free`,
+    });
+  for (const volume of host.volumes)
+    readings.push({
+      percent: volume.usedPercent,
+      text: (used) =>
+        `disk ${volume.mount} ${used}% used, ${formatBytes(volume.availableBytes)} free`,
+    });
+  let tone: HostAlert['tone'] | null = null;
+  const texts: string[] = [];
+  for (const reading of readings) {
+    const level = hostUsageLevel(reading.percent);
+    if (level === 'ok') continue;
+    if (level === 'error' || tone === null) tone = level;
+    texts.push(reading.text(String(Math.floor(reading.percent))));
+  }
+  return tone === null ? null : { tone, text: texts.join(' · ') };
 }
 
 /** One panel box: a service, the host or one source. */

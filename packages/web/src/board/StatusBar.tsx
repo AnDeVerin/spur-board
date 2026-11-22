@@ -11,7 +11,7 @@ import {
 import { footerVersion } from '../lib/version.ts';
 import type { BoardData } from './data.ts';
 import { formatDataTime, openHref } from './model.ts';
-import { indicators, type ServiceName } from './services.ts';
+import { hostAlert, indicators, type ServiceName } from './services.ts';
 import { ServicesPanel, type ScrollRequest } from './ServicesPanel.tsx';
 import styles from './StatusBar.module.css';
 
@@ -27,7 +27,8 @@ const isOpen = () => new URLSearchParams(location.search).get('open') === OPEN;
 const join = (...names: (string | undefined)[]) => names.filter(Boolean).join(' ');
 
 /**
- * The status bar: the services trigger and one button per service on the left, the theme menu
+ * The status bar: the services trigger, with a dot when a host reading is at 80% or more, and
+ * one button per service on the left, the theme menu
  * and the daemon version on the right. The services panel is open while the address has
  * `?open=services`; it renders after the footer, so the footer is attached when the panel mounts
  * and stays live while it is open.
@@ -77,6 +78,9 @@ export function StatusBar({
     setOpen(false);
   };
   const version = footerVersion(snapshot.status);
+  // The host dot: none on a failed read, which leaves the last status in place.
+  const host = snapshot.readFailed ? null : hostAlert(snapshot.status?.host ?? null);
+  const triggerLabel = host === null ? OPEN : `${OPEN}: ${host.text}`;
   return (
     <>
       <footer ref={footer} className={join(quiet, styles.bar)} aria-label="Board status">
@@ -84,7 +88,8 @@ export function StatusBar({
           ref={trigger}
           className={join(focusRing, styles.trigger)}
           type="button"
-          aria-label="services"
+          aria-label={triggerLabel}
+          title={host === null ? undefined : triggerLabel}
           aria-expanded={open}
           onClick={() => {
             if (open) hide();
@@ -93,6 +98,7 @@ export function StatusBar({
         >
           <Icon name="pulse" />
           <span className={styles.label}>services</span>
+          {host && <StatusDot tone={host.tone} />}
         </button>
         {indicators(snapshot, formatDataTime).map((item) => (
           <button
