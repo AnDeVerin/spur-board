@@ -2,6 +2,7 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { RichText } from '@spur-board/contracts';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createSender, enqueueConversationOpen, openStore, type Store } from '../../src/index.ts';
@@ -36,6 +37,23 @@ async function setup() {
   const fake = createFakeGateway({ profile: 'slack-like' });
   const observed = observeGateway(fake, file);
   return { store, fake, observed };
+}
+
+/**
+ * A message's accessible text: Slack moves trailing context blocks out of the top-level `text`
+ * that screen readers and notifications read (`splitContext` in gateway-slack `render.ts`).
+ */
+function messageText(body: RichText): string {
+  let end = body.length;
+  while (end > 0 && body[end - 1]?.kind === 'context') end--;
+  return body
+    .slice(0, end)
+    .map((block) =>
+      block.kind === 'code_block'
+        ? block.text
+        : block.children.map((part) => (part.kind === 'mention' ? part.user : part.text)).join(''),
+    )
+    .join('\n\n');
 }
 
 describe('operator block feed line', () => {
@@ -136,8 +154,14 @@ describe('operator block feed line', () => {
       expect(permalink).toEqual(expect.any(String));
       const block = `B${String(blockId)}`;
       const link = { kind: 'link', url: permalink, text: `the ${block} thread` };
-      expect(ctx.observed.requests[2]?.body.at(-1)).toEqual({
-        kind: 'context',
+      const body = ctx.observed.requests[2]?.body ?? [];
+      // Screen readers and notifications read the message text, which leaves context blocks out.
+      const words = hint(block)
+        .map((part) => (typeof part === 'string' ? link.text : part.text))
+        .join('');
+      expect(messageText(body)).toContain(words);
+      expect(body.at(-1)).toEqual({
+        kind: 'paragraph',
         children: hint(block).map((part) => (part === 'link' ? link : part)),
       });
       expect(ctx.observed.violations).toEqual([]);

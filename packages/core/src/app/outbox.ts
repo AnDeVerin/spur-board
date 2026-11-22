@@ -130,6 +130,14 @@ const segment = z.discriminatedUnion('kind', [
 ]);
 export type FeedSegment = z.output<typeof segment>;
 
+/**
+ * A field of an outbox row's payload, or null when the payload is not JSON: `json_extract` throws
+ * on one, and one unreadable row must not fail a lookup made for another row.
+ */
+export function payloadField<T>(path: `$.${string}`) {
+  return sql<T | null>`case when json_valid(payload) then json_extract(payload, ${path}) end`;
+}
+
 /** The plain summary of `segments`: what is scanned, stored on the item and struck. */
 export function feedText(segments: readonly FeedSegment[]): string {
   return segments.map((part) => part.text).join('');
@@ -831,7 +839,7 @@ export async function enqueueConversationReply(
     .selectFrom('outbox')
     .select(['id', 'state'])
     .where('kind', 'in', ['conversation.open', 'conversation.reply', 'conversation.close'])
-    .where(sql<number>`json_extract(payload, '$.blockId')`, '=', blockId)
+    .where(payloadField<number>('$.blockId'), '=', blockId)
     .orderBy('id', 'desc')
     .limit(1)
     .executeTakeFirst();
@@ -871,14 +879,14 @@ export async function enqueueConversationClose(
     .selectFrom('outbox')
     .select(['id', 'state'])
     .where('kind', 'in', ['conversation.open', 'conversation.reply'])
-    .where(sql<number>`json_extract(payload, '$.blockId')`, '=', input.blockId)
+    .where(payloadField<number>('$.blockId'), '=', input.blockId)
     .orderBy('id', 'desc')
     .executeTakeFirst();
   const open = await trx
     .selectFrom('outbox')
     .select(['id', 'state'])
     .where('kind', '=', 'conversation.open')
-    .where(sql<number>`json_extract(payload, '$.blockId')`, '=', input.blockId)
+    .where(payloadField<number>('$.blockId'), '=', input.blockId)
     .executeTakeFirst();
   const parent = tail?.state === 'dead' ? null : (tail?.id ?? null);
   const conversations = await trx

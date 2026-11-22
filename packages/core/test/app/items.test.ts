@@ -1288,24 +1288,69 @@ describe('operator block feed line', () => {
     );
   });
 
-  it('drops the line under an unreadable thread and keeps sending other rows', async () => {
+  /** Feed lines of `B<blockId>`'s alert and of an unrelated item, by key. */
+  const feedLine = async (ctx: Ctx, key: string) =>
+    (await rows(ctx, 'outbox')).find((r) => r.kind === 'feed.line' && r.payload.includes(key));
+  // One thread row whose payload is not JSON must not cost its own alert, another block's
+  // Close or the sender's other rows.
+  it.each([
+    {
+      outcome: 'its own line posts without the thread link',
+      check: async (ctx: Ctx, broken: number) => {
+        expect(await feedLine(ctx, `operator-block:${String(broken)}`)).toMatchObject(sent);
+        const posted = ctx.gateway.platform
+          .messages()
+          .filter((m) => m.root && m.text.includes('Which version?'));
+        expect(posted.map((m) => m.text.includes('thread'))).toEqual([false]);
+      },
+    },
+    {
+      outcome: "Close on another block's alert closes that block",
+      check: async (ctx: Ctx, broken: number, healthy: { blockId: number; item: number }) => {
+        await ctx.close(`I${String(healthy.item)}`);
+        expect((await blockRow(ctx, healthy.blockId)).state).toBe('unblocked');
+        expect((await blockRow(ctx, broken)).state).toBe('open');
+        expect(await closes(ctx)).toHaveLength(1);
+      },
+    },
+    {
+      outcome: 'the sender keeps sending other rows',
+      check: async (ctx: Ctx) => {
+        expect((await feedLine(ctx, 'source:github'))?.state).toBe('done');
+      },
+    },
+  ])('with an unreadable thread row, $outcome', async ({ check }) => {
     const ctx = await setup();
-    await asked(ctx);
+    const broken = await asked(ctx);
+    const { block } = await ctx.apply(
+      blocks.ask,
+      { task: KEY, text: 'Which branch?' },
+      AGENT,
+      'ask-2',
+    );
+    await ctx.tick();
+    const healthy = (await ctx.store.db
+      .selectFrom('operator_item')
+      .select('id')
+      .where('item_key', '=', `operator-block:${block.id.slice(1)}`)
+      .executeTakeFirstOrThrow()) satisfies { id: number };
     await ctx.store.db
       .updateTable('outbox')
       .set({ payload: '{' })
-      .where('kind', '=', 'conversation.open')
+      .where('dedupe_key', '=', `conversation.open:block:${String(broken.blockId)}`)
       .execute();
     await raise(ctx, { key: 'source:github', kind: 'board_observation' });
-    await ctx.sender.tick();
-    ctx.advance(60_000);
-    await ctx.sender.tick();
-    const outbox = await rows(ctx, 'outbox');
-    expect(outbox.find((r) => r.kind === 'conversation.open')?.state).toBe('dead');
-    const line = (key: string) =>
-      outbox.find((r) => r.kind === 'feed.line' && r.payload.includes(key));
-    expect(line('operator-block:')).toMatchObject(dropped);
-    expect(line('source:github')?.state).toBe('done');
+    for (let i = 0; i < 3; i++) {
+      await ctx.sender.tick();
+      ctx.advance(60_000);
+    }
+    const open = await ctx.store.db
+      .selectFrom('outbox')
+      .select('state')
+      .where('dedupe_key', '=', `conversation.open:block:${String(broken.blockId)}`)
+      .executeTakeFirstOrThrow();
+    expect(open.state).toBe('dead');
+    await check(ctx, broken.blockId, { blockId: Number(block.id.slice(1)), item: healthy.id });
   });
 
   it('leaves the block of an archived task open', async () => {

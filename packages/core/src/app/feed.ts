@@ -218,8 +218,9 @@ export function feedLineBody(
       url: thread.permalink,
       text: `the ${block} thread`,
     };
+    // A paragraph, not context: Slack leaves context out of the text screen readers read.
     body.push({
-      kind: 'context',
+      kind: 'paragraph',
       children:
         blockType === 'needs_input'
           ? [

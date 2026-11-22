@@ -28,6 +28,7 @@ import {
   KIND_SPACE,
   OUTBOX_KINDS,
   outboxBodySchema,
+  payloadField,
   renderBody,
   rescanStoredPost,
   type DeliveredRef,
@@ -372,8 +373,8 @@ export function createSender(options: SenderOptions): Sender {
    * A feed line waits for its block's thread only to link it. When the thread post failed for good
    * or died while its block is still open (its failed post closed or blocked), the line goes on
    * without a parent, and so without the link. A thread that died because its block closed takes
-   * its line with it. A thread whose payload is not JSON names no block: its line dies with it,
-   * and the guard keeps `json_extract` from throwing and stalling every later claim.
+   * its line with it. The block comes from the thread's dedupe key, not its payload, so a thread
+   * whose payload is not JSON still releases its line and cannot stall a claim.
    */
   async function detachAbandonedThreads(trx: Trx): Promise<void> {
     await trx
@@ -385,11 +386,7 @@ export function createSender(options: SenderOptions): Sender {
         eb
           .selectFrom('outbox as parent')
           .innerJoin('block', (join) =>
-            join.on(
-              sql<number>`case when json_valid(parent.payload) then json_extract(parent.payload, '$.blockId') end`,
-              '=',
-              sql.ref('block.id'),
-            ),
+            join.on('parent.dedupe_key', '=', sql<string>`'conversation.open:block:' || block.id`),
           )
           .select('parent.id')
           .where('parent.kind', '=', 'conversation.open')
@@ -831,8 +828,8 @@ export function createSender(options: SenderOptions): Sender {
               .selectFrom('outbox')
               .select('id')
               .where('kind', '=', 'conversation.close')
-              .where(sql<number>`json_extract(payload, '$.blockId')`, '=', body.payload.blockId)
-              .where(sql<string>`json_extract(payload, '$.targetConversation')`, '=', conversation)
+              .where(payloadField<number>('$.blockId'), '=', body.payload.blockId)
+              .where(payloadField<string>('$.targetConversation'), '=', conversation)
               .executeTakeFirst();
             if (explicit !== undefined) {
               await trx
@@ -840,11 +837,7 @@ export function createSender(options: SenderOptions): Sender {
                 .set({ state: 'dead', last_error: 'superseded' })
                 .where('parent_outbox_id', '=', c.id)
                 .where('kind', '=', 'conversation.close')
-                .where(
-                  sql<string | null>`json_extract(payload, '$.targetConversation')`,
-                  'is',
-                  null,
-                )
+                .where(payloadField<string>('$.targetConversation'), 'is', null)
                 .where('state', '=', 'pending')
                 .execute();
             }
