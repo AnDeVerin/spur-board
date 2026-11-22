@@ -4,14 +4,13 @@ import { inject } from 'vitest';
 import { DIRS } from './global-setup.ts';
 import { installNetworkGuard } from './network.ts';
 
-function parentCommand(): string {
+/** The parent's pid and executable name; never its arguments, which can carry secrets. */
+function parentProcess(): string {
+  const pid = String(process.ppid);
   try {
-    return readFileSync(`/proc/${String(process.ppid)}/cmdline`, 'utf8')
-      .replaceAll('\0', ' ')
-      .trim()
-      .slice(0, 200);
+    return `${pid} ${readFileSync(`/proc/${pid}/comm`, 'utf8').trim()}`;
   } catch {
-    return 'unknown';
+    return pid;
   }
 }
 
@@ -43,7 +42,7 @@ function pinRunDirs(): void {
     process.stderr.write(
       `testkit: re-pinned HOME, TMPDIR and XDG_* to ${root} (TMPDIR was ${String(previousTmp)}, ` +
         `STRYKER_MUTATOR_WORKER=${String(process.env['STRYKER_MUTATOR_WORKER'])}, ` +
-        `parent: ${parentCommand()})\n`,
+        `parent: ${parentProcess()})\n`,
     );
   }
 }

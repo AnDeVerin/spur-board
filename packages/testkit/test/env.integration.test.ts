@@ -162,7 +162,10 @@ it('makes temp dirs under the run root', () => {
 
       const output = result.stdout + result.stderr;
       expect(result.status, output).toBe(0);
-      expect(output).toContain('testkit: re-pinned');
+      const pinned = output.split('\n').find((line) => line.includes('testkit: re-pinned'));
+      expect(pinned, output).toMatch(/parent: \d+/);
+      // The parent's arguments (here the vitest entry point) never reach the log.
+      expect(pinned).not.toContain('vitest.mjs');
       expect(readdirSync(decoy)).toEqual([]);
       expect(readdirSync(parent)).toEqual(['spur-board-test-live']);
     } finally {

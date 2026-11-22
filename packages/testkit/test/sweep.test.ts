@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  rmSync,
   statSync,
   symlinkSync,
   utimesSync,
@@ -12,9 +13,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import {
   type OwnerRecord,
+  type PidProbe,
   type ProcReader,
   readStartTicks,
   sweepStaleRuns,
@@ -24,164 +26,191 @@ import {
 const HOUR = 60 * 60 * 1000;
 const BOOT = 'boot-a';
 const NS = 'pid:[4026531836]';
+const MACHINE = 'machine-a';
 
 function statLine(pid: number, ticks: string, comm = 'node'): string {
   // Fields 3..21 then field 22 (start ticks) and a few more.
   return `${String(pid)} (${comm}) S ${Array(18).fill('0').join(' ')} ${ticks} 0 0\n`;
 }
 
-/** Pids in `live` run with those start ticks; pids in `hidden` exist but their stat is unreadable. */
-function fakeProc(live: Record<number, string>, hidden: number[] = []): ProcReader {
-  return {
-    stat: (pid) => {
-      if (hidden.includes(pid)) return undefined;
-      return pid in live ? statLine(pid, live[pid] ?? '') : null;
-    },
-    bootId: () => BOOT,
-    pidNs: () => NS,
-  };
-}
+/** What the fake host says about each pid; any other pid is absent. */
+const PIDS: Record<number, PidProbe> = {
+  100: { stat: statLine(100, '5000') },
+  300: 'exists',
+  400: 'unknown',
+  500: { stat: 'garbage' },
+};
 
-/** A fresh parent, canonical so it matches the paths the sweep returns under a symlinked TMPDIR. */
-function parent(): string {
-  return realpathSync(mkdtempSync(join(tmpdir(), 'sweep-')));
+const proc: ProcReader = {
+  probe: (pid) => PIDS[pid] ?? 'absent',
+  bootId: () => BOOT,
+  pidNs: () => NS,
+  machineId: () => MACHINE,
+};
+
+/** A fresh canonical dir (it matches the paths the sweep returns under a symlinked TMPDIR). */
+function parent(prefix = 'sweep-'): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  onTestFinished(() => {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // Global teardown removes whatever is left.
+    }
+  });
+  return dir;
 }
 
 /** A root in `dir` whose root and tmp mtimes are `ageMs` before `base`. */
 function root(
   dir: string,
   name: string,
-  owner: Partial<OwnerRecord> | null,
+  owner: Partial<OwnerRecord> | string | null,
   base: number,
   ageMs = 0,
 ) {
   const path = join(dir, `spur-board-test-${name}`);
   mkdirSync(join(path, 'tmp'), { recursive: true });
-  if (owner) writeFileSync(join(path, 'owner.json'), JSON.stringify(owner));
+  if (owner !== null) {
+    const text = typeof owner === 'string' ? owner : JSON.stringify(owner);
+    writeFileSync(join(path, 'owner.json'), text);
+  }
   const at = new Date(base - ageMs);
   utimesSync(join(path, 'tmp'), at, at);
   utimesSync(path, at, at);
   return path;
 }
 
-const complete = (pid: number, startTicks: string): OwnerRecord => ({
+const complete = (pid: number, startTicks = '5000'): OwnerRecord => ({
   pid,
   createdAt: 1,
   startTicks,
   bootId: BOOT,
   pidNs: NS,
+  machineId: MACHINE,
 });
 
-function sweepAt(dir: string, base: number, after: number, proc: ProcReader, extra = {}) {
-  return sweepStaleRuns({ parents: [dir], now: () => base + after, proc, ...extra });
+function sweepAt(dir: string, base: number, proc: ProcReader, extra = {}) {
+  return sweepStaleRuns({ parents: [dir], now: () => base, proc, ...extra });
+}
+
+interface Row {
+  name: string;
+  owner: Partial<OwnerRecord> | string | null;
+  hours: number;
+  removed: boolean;
+  /** Sweeper identity; defaults to the fake host's. */
+  self?: { bootId?: string; pidNs?: string; machineId?: string };
+  /** The root's tmp was written just now. */
+  busy?: boolean;
 }
 
 describe('sweepStaleRuns', () => {
   const base = Date.now();
-  // Pid 100 runs with start ticks 5000, pid 200 is gone, pid 300 runs with an unreadable stat.
-  const proc = fakeProc({ 100: '5000' }, [300]);
+  const otherBoot = { ...complete(100), bootId: 'boot-old' };
+  const otherNs = { ...complete(200), pidNs: 'pid:[1]' };
+  const otherNsAndBoot = { ...complete(100), pidNs: 'pid:[1]', bootId: 'boot-container' };
+  const otherHost = { ...complete(100), bootId: 'boot-other-host', machineId: 'machine-b' };
+  const otherHostDeadPid = { ...complete(200), machineId: 'machine-b' };
+  const noMachine = { pid: 100, createdAt: 1, startTicks: '5000', bootId: 'boot-old', pidNs: NS };
+  const partial = { pid: 200, createdAt: 1 };
 
-  it.each([
-    { name: 'live owner', owner: complete(100, '5000'), hours: 0, removed: false },
-    { name: 'dead owner', owner: complete(200, '5000'), hours: 0, removed: true },
+  // Every keep or remove decision: remove at once only on proof the owner is gone, keep while
+  // its pid exists, and fall back to age only without any liveness signal.
+  it.each<Row>([
+    { name: 'no owner record, young', owner: null, hours: 2, removed: false },
+    { name: 'no owner record, old', owner: null, hours: 4, removed: true },
+    {
+      name: 'no owner record, old but tmp fresh',
+      owner: null,
+      hours: 4,
+      busy: true,
+      removed: false,
+    },
+    { name: 'unparseable owner record, young', owner: '{not json', hours: 2, removed: false },
+    { name: 'unparseable owner record, old', owner: '{not json', hours: 4, removed: true },
+    { name: 'live owner', owner: complete(100), hours: 0, removed: false },
+    { name: 'live owner, old', owner: complete(100), hours: 25, removed: false },
+    { name: 'owner absent', owner: complete(200), hours: 0, removed: true },
     { name: 'reused pid', owner: complete(100, '4999'), hours: 0, removed: true },
+    { name: 'owner stat unparseable', owner: complete(500), hours: 25, removed: false },
     {
-      name: 'earlier boot, same pid namespace',
-      owner: { ...complete(100, '5000'), bootId: 'boot-old' },
+      name: 'owner exists, stat unreadable, young',
+      owner: complete(300),
       hours: 0,
-      removed: true,
+      removed: false,
     },
+    { name: 'owner exists, stat unreadable, old', owner: complete(300), hours: 25, removed: false },
+    { name: 'owner state unknown, young', owner: complete(400), hours: 23, removed: false },
+    { name: 'owner state unknown, old', owner: complete(400), hours: 25, removed: true },
+    { name: 'earlier boot, same host and namespace', owner: otherBoot, hours: 0, removed: true },
+    { name: 'other host, young', owner: otherHost, hours: 23, removed: false },
+    { name: 'other host, old', owner: otherHost, hours: 25, removed: true },
     {
-      name: 'foreign pid namespace, young',
-      owner: { ...complete(200, '5000'), pidNs: 'pid:[1]' },
+      name: 'other host, same boot, pid absent',
+      owner: otherHostDeadPid,
       hours: 23,
       removed: false,
     },
+    { name: 'record without host, young', owner: noMachine, hours: 23, removed: false },
+    { name: 'record without host, old', owner: noMachine, hours: 25, removed: true },
     {
-      name: 'foreign pid namespace, old',
-      owner: { ...complete(200, '5000'), pidNs: 'pid:[1]' },
+      name: 'sweeper without host, young',
+      owner: complete(200),
+      hours: 23,
+      self: { bootId: BOOT, pidNs: NS },
+      removed: false,
+    },
+    {
+      name: 'sweeper without host, old',
+      owner: complete(200),
       hours: 25,
+      self: { bootId: BOOT, pidNs: NS },
       removed: true,
     },
+    { name: 'other pid namespace, young', owner: otherNs, hours: 23, removed: false },
+    { name: 'other pid namespace, old', owner: otherNs, hours: 25, removed: true },
+    { name: 'other namespace and boot, young', owner: otherNsAndBoot, hours: 23, removed: false },
+    { name: 'other namespace and boot, old', owner: otherNsAndBoot, hours: 25, removed: true },
+    { name: 'pid and createdAt only, 1 h', owner: partial, hours: 1, removed: false },
+    { name: 'pid and createdAt only, 23 h', owner: partial, hours: 23, removed: false },
+    { name: 'pid and createdAt only, 25 h', owner: partial, hours: 25, removed: true },
     {
-      name: 'foreign pid namespace and other boot id, young',
-      owner: { ...complete(100, '5000'), pidNs: 'pid:[1]', bootId: 'boot-container' },
+      name: 'sweeper without namespace, young',
+      owner: complete(200),
       hours: 23,
+      self: { bootId: BOOT },
       removed: false,
     },
     {
-      name: 'foreign pid namespace and other boot id, old',
-      owner: { ...complete(100, '5000'), pidNs: 'pid:[1]', bootId: 'boot-container' },
+      name: 'sweeper without namespace, old',
+      owner: complete(200),
       hours: 25,
+      self: { bootId: BOOT },
       removed: true,
     },
-    {
-      name: 'unreadable owner stat, young',
-      owner: complete(300, '5000'),
-      hours: 23,
-      removed: false,
-    },
-    { name: 'unreadable owner stat, old', owner: complete(300, '5000'), hours: 25, removed: true },
-  ])('$name: removed $removed', ({ owner, hours, removed }) => {
+  ])('$name: removed $removed', ({ owner, hours, removed, self, busy }) => {
     const dir = parent();
     const path = root(dir, 'run', owner, base, hours * HOUR);
-    expect(sweepAt(dir, base, 0, proc)).toEqual(removed ? [path] : []);
+    if (busy) utimesSync(join(path, 'tmp'), new Date(base), new Date(base));
+    expect(sweepAt(dir, base, proc, self ? { self } : {})).toEqual(removed ? [path] : []);
     expect(existsSync(path)).toBe(!removed);
-  });
-
-  it('keeps a root without owner until 3 h, and while its tmp is fresh', () => {
-    const dir = parent();
-    const young = root(dir, 'young', null, base, 2 * HOUR);
-    const old = root(dir, 'old', null, base, 4 * HOUR);
-    const busy = root(dir, 'busy', null, base, 4 * HOUR);
-    utimesSync(join(busy, 'tmp'), new Date(base), new Date(base));
-    writeFileSync(join(dir, 'spur-board-test-junk'), 'x');
-    const unparsed = root(dir, 'unparsed', null, base, 4 * HOUR);
-    writeFileSync(join(unparsed, 'owner.json'), '{not json');
-    utimesSync(unparsed, new Date(base - 4 * HOUR), new Date(base - 4 * HOUR));
-    expect(sweepAt(dir, base, 0, proc).sort()).toEqual([old, unparsed].sort());
-    expect(existsSync(young)).toBe(true);
-    expect(existsSync(busy)).toBe(true);
-  });
-
-  it('decides a pid and createdAt only record by age alone', () => {
-    const record = { pid: 200, createdAt: 1 };
-    // Pid 200 is not running and bootId is missing: neither counts as a mismatch.
-    for (const [hours, kept] of [
-      [1, true],
-      [23, true],
-      [25, false],
-    ] as const) {
-      const dir = parent();
-      const path = root(dir, 'partial', record, base, hours * HOUR);
-      sweepAt(dir, base, 0, proc);
-      expect(existsSync(path), `${String(hours)} h`).toBe(kept);
-    }
-  });
-
-  it('decides by age alone when the sweeper has no identity of its own', () => {
-    const dir = parent();
-    const young = root(dir, 'young', complete(200, '5000'), base, 23 * HOUR);
-    const old = root(dir, 'old', complete(200, '5000'), base, 25 * HOUR);
-    expect(sweepAt(dir, base, 0, proc, { self: { bootId: BOOT } })).toEqual([old]);
-    expect(existsSync(young)).toBe(true);
   });
 
   it('never follows a symlink and skips other uids, other names and files', () => {
     const dir = parent();
-    const target = root(dir, 'target-x', complete(200, '5000'), base);
-    const elsewhere = mkdtempSync(join(tmpdir(), 'sweep-elsewhere-'));
-    const moved = join(elsewhere, 'spur-board-test-moved');
+    const target = root(dir, 'target-x', complete(200), base);
+    const moved = join(parent('sweep-elsewhere-'), 'spur-board-test-moved');
     mkdirSync(moved);
-    writeFileSync(join(moved, 'owner.json'), JSON.stringify(complete(200, '5000')));
+    writeFileSync(join(moved, 'owner.json'), JSON.stringify(complete(200)));
     symlinkSync(moved, join(dir, 'spur-board-test-link'));
     const other = join(dir, 'other-dir');
     mkdirSync(other);
     writeFileSync(join(dir, 'spur-board-test-file'), 'x');
     const uid = statSync(dir).uid;
-    expect(sweepAt(dir, base, 0, proc, { uid: uid + 1 })).toEqual([]);
+    expect(sweepAt(dir, base, proc, { uid: uid + 1 })).toEqual([]);
     expect(existsSync(target)).toBe(true);
-    expect(sweepAt(dir, base, 0, proc, { uid })).toEqual([target]);
+    expect(sweepAt(dir, base, proc, { uid })).toEqual([target]);
     expect(existsSync(join(moved, 'owner.json'))).toBe(true);
     expect(existsSync(other)).toBe(true);
     expect(readFileSync(join(dir, 'spur-board-test-file'), 'utf8')).toBe('x');
@@ -189,8 +218,8 @@ describe('sweepStaleRuns', () => {
 
   it('skips the sweep when the uid is unknown and a missing parent', () => {
     const dir = parent();
-    const dead = root(dir, 'dead', complete(200, '5000'), base);
-    expect(sweepAt(dir, base, 0, proc, { uid: undefined })).toEqual([]);
+    const dead = root(dir, 'dead', complete(200), base);
+    expect(sweepAt(dir, base, proc, { uid: undefined })).toEqual([]);
     expect(existsSync(dead)).toBe(true);
     expect(() =>
       sweepStaleRuns({ parents: [join(dir, 'missing')], proc, now: () => base }),
