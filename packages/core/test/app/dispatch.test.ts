@@ -4903,6 +4903,29 @@ describe('external change-request rounds', () => {
       reads: true,
     },
     {
+      name: 'External Review course check 2, a return on a head after a Dev round',
+      options: { externalReview: true, externalCourseCheck: 2 },
+      start: async (options: Options) => {
+        const ctx = await inDev(options);
+        await devRound(ctx, A);
+        await resubmit(ctx, B);
+        await resubmit(ctx, B);
+        expect((await ctx.task()).column).toBe('review');
+        await quietRequest(ctx, B);
+        return ctx;
+      },
+      final: EXTERNAL_COMMENTS,
+      counter: 'external-review',
+      // The earlier round on head A brings the count of the return on head B to the check.
+      course: 2,
+      item: 'course-check:1:external-review',
+      heads: [
+        '- change request by reviewer on aaaaaaa',
+        '- return to Dev from review for external comments on bbbbbbb (current head)',
+      ],
+      reads: true,
+    },
+    {
       name: 'External Review course check 10, its executor return',
       options: { externalReview: true, externalCourseCheck: 10, externalOrchestrator: 'coord' },
       start: pastProductReview,
