@@ -1001,8 +1001,8 @@ describe('snapshot', () => {
     // the not_operator and no_active_wait codes. #841 rewords the task.wait description, its
     // guidance and its reason field: wait only on what the Board cannot see, not on what it watches,
     // unless your own next step needs the watched fact, and names mergeability. #799 adds state
-    // and since to status.get unlinkedSessions, and leaves lifecycle, health and healthSince out
-    // of ended and absent ones.
+    // and since to status.get unlinkedSessions, and leaves lifecycle, health, healthSince and
+    // rateLimitResetAt out of ended and absent ones.
     expect(await catalogVersion(baseline)).toBe(
       '413c63bc851a1df0d93e5c8e31e1d5a315282f3c13546b2fd6c9dcc8cb5dbb3f',
     );

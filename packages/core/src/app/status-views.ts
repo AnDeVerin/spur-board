@@ -306,12 +306,16 @@ export function sessionView(fact: SessionFacts) {
   return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
 }
 
+type UnlinkedSessionState = z.output<
+  typeof statusOutputSchema
+>['unlinkedSessions'][number]['state'];
+
 /**
  * Whether an unlinked session is live, ended or gone from Spur's list, and since when. Ended wins
  * over absent; a listed completed or killed session ended when it finished.
  */
 export function unlinkedSessionState(session: Row<'session_snapshot'>): {
-  state: 'live' | 'ended' | 'absent';
+  state: UnlinkedSessionState;
   since: string | null;
 } {
   if (session.ended_at !== null) return { state: 'ended', since: session.ended_at };
