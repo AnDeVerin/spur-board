@@ -2796,7 +2796,9 @@ describe('dispatcher scenarios', () => {
 
       await ack(stub, turn.id);
       expect((await stubTurn(1)).taken).toMatchObject({ by: `agent:stand-qa/${stub}` });
-      expect((await stubSubmit(turn.id, qaHead(1))).task.column).toBe('ready-to-merge');
+      expect((await stubSubmit(turn.id, qaHead(1), { basis: 'tested' })).task.column).toBe(
+        'ready-to-merge',
+      );
       expect(await qaSubmission(1)).toMatchObject({ basis: 'tested', from: null, reason: null });
       const item = (await status(current())).items.find(
         ({ key, summary }) => /^turn:\d+$/.test(key) && summary.includes(` on ${qaIssue(1)}: `),
@@ -2866,21 +2868,52 @@ describe('dispatcher scenarios', () => {
       await seed('qa-stub-orchestrator');
       const skipped = 'No testable surface: an offline export script.';
       const carried = 'Only docs changed since the tested head.';
+      const stub = as('orchestrator');
       const [one, two] = [await stubTurn(1), await stubTurn(2)];
-      await ack(as('orchestrator'), one.id);
-      await ack(as('orchestrator'), two.id);
-      const submitted = [
-        await stubSubmit(one.id, qaHead(1), { basis: 'skipped', reason: skipped }),
-        await stubSubmit(two.id, qaHead(2), {
-          basis: 'carried',
-          from: qaHead(2),
-          reason: carried,
-        }),
-      ];
-      expect(submitted.map(({ task }) => task.column)).toEqual([
+      await ack(stub, one.id);
+      await ack(stub, two.id);
+      expect(
+        (await stubSubmit(one.id, qaHead(1), { basis: 'skipped', reason: skipped })).task.column,
+      ).toBe('ready-to-merge');
+      expect((await stubSubmit(two.id, qaHead(2), { basis: 'tested' })).task.column).toBe(
         'ready-to-merge',
-        'ready-to-merge',
-      ]);
+      );
+
+      // Issue 2 gets a new head and walks back to QA on it, so its carried submit names the
+      // earlier tested head.
+      const next = 'e'.repeat(40);
+      await github('push', { number: 2, sha: next });
+      await github('ci-green', { number: 2 });
+      await poll();
+      /** Takes `session`'s open turn of `column` on issue 2 once it is on `next`; its ID. */
+      async function take(session: string, column: string): Promise<string> {
+        let turn: TurnView | undefined;
+        await vi.waitFor(
+          async () => {
+            await poll();
+            turn = (await sessionOp<Inbox>(session, 'inbox.get')).turns.find(
+              (entry) => entry.task === qaIssue(2) && entry.column === column,
+            );
+            expect(turn?.head).toBe(next);
+          },
+          { timeout: 20_000, interval: 200 },
+        );
+        await ack(session, turn?.id ?? '');
+        return turn?.id ?? '';
+      }
+      await submit(as('worker'), await take(as('worker'), 'dev'), next);
+      await submit(stub, await take(stub, 'review'), next);
+      await submit(stub, await take(stub, 'product-review'), next);
+      await github('review', { number: 2, state: 'APPROVED' });
+      expect(
+        (
+          await stubSubmit(await take(stub, 'qa'), next, {
+            basis: 'carried',
+            from: qaHead(2),
+            reason: carried,
+          })
+        ).task.column,
+      ).toBe('ready-to-merge');
       expect(await qaSubmission(1)).toMatchObject({
         column: 'qa',
         basis: 'skipped',
@@ -2890,6 +2923,7 @@ describe('dispatcher scenarios', () => {
       });
       expect(await qaSubmission(2)).toMatchObject({
         column: 'qa',
+        sha: next,
         basis: 'carried',
         from: qaHead(2),
         reason: carried,
@@ -2985,9 +3019,16 @@ describe('dispatcher scenarios', () => {
       await seed('qa-stub-orchestrator');
       const noSession = async () =>
         (await status(current())).items.filter(({ key }) => key.startsWith('no-session:'));
+      // The stub stays live for five minutes after the rings were created, under the 22 minutes
+      // that exhaust a ring series, so the timer must start at the session loss, not the rings.
+      const live = 5 * 60_000;
+      await ok(current(), '/clock', { shiftMs: live });
+      await poll();
+      expect(await noSession()).toEqual([]);
       await spur('session', { id: as('orchestrator'), status: 'killed', state: 'killed' });
       await poll();
       expect(await noSession()).toEqual([]);
+      // Fourteen minutes from the rings, one minute short of ten from the session loss.
       await ok(current(), '/clock', { shiftMs: DEFAULT_NO_RECIPIENT_AFTER_MS - 60_000 });
       await poll();
       expect(await noSession()).toEqual([]);
@@ -3061,8 +3102,11 @@ describe('dispatcher scenarios', () => {
       expect(
         closed
           .filter(({ payload }) => (JSON.parse(payload) as { turn: string }).turn === turn.id)
-          .map(({ actor }) => actor),
-      ).toEqual(['operator']);
+          .map(({ actor, payload }) => ({
+            actor,
+            outcome: (JSON.parse(payload) as { outcome: string }).outcome,
+          })),
+      ).toEqual([{ actor: 'operator', outcome: 'submitted' }]);
     },
     TIMEOUT,
   );
