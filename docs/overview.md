@@ -36,10 +36,11 @@ Dev and Done are always on; Triage is off unless listed; a disabled column is sk
 
 To Do, Triage and Ready for Dev form the Todo group. New and reopened tasks enter To Do; the
 dispatcher never moves a task between Todo-group columns. When Ready for Dev mirrors a GitHub
-Project status, each complete Project read moves idle tasks between it and To Do, even in shadow
-mode; manual moves there fail with `column_mirrored`; change the issue's status in the Project
-instead. The web UI groups two or three adjacent Todo-group columns under one Backlog band; To Do
-alone stays a plain column.
+Project status, the Board places idle tasks between it and To Do from the Project, even in shadow
+mode; to move one, change the issue's status in the GitHub Project ([mirror
+example](configuration.md#example-mirror-a-github-project-status-to-ready-for-dev)). The web UI
+groups two or three adjacent Todo-group columns under one Backlog band; To Do alone stays a plain
+column.
 
 A task leaves the Todo group when work starts: an open pull request or a live linked worker. Then
 gates move it, by default: for Dev an open non-draft pull request, passing checks, no conflict,
@@ -83,25 +84,25 @@ cycle limit.
 ## Spur, Slack and the web UI
 
 Spur runs the agent sessions. The Board reads the session list and links a session to a task by a
-label on the session, its pull request or its branch. Each Board project lists its Spur projects in
-`projects[].spurProjects`; an operator or orchestrator that serves every project can go in the
-top-level `spurProjects` instead. A doorbell is a message the Board sends into a session through
-Spur; it rings up to three times until the session acknowledges it. Agents talk back through the
-`board` CLI or `board mcp`.
+label on the session, its pull request or its branch. Each Board project lists the Spur projects it
+uses, each with a role; an operator or orchestrator can also serve every project at once
+([Orchestrator projects](configuration.md#orchestrator-projects)). A doorbell is a message the Board
+sends into a session through Spur; it rings up to three times until the session acknowledges it.
+Agents talk back through the `board` CLI or `board mcp`.
 
-Slack is optional. With it, items for you appear as feed lines, questions to you open threads that
-you answer by replying, and an `@shortName` message starts a conversation with a Spur project.
+Slack is optional; [Create the Slack app and
+configuration](../SETUP.md#3-create-the-slack-app-and-configuration) sets it up. With it, items for
+you appear as feed lines, questions to you open threads that you answer by replying, and an
+`@shortName` message starts a conversation with a Spur project. Without it, you work from a Spur
+project with role `operator`, which needs no token, or from the web UI, and questions to you wait in
+`board inbox operator` and the web inbox. A token for an operator session outside Spur is approved
+in Slack, so that route needs Slack.
 
-The Board runs without a Slack app. With no Slack channels configured, the operator works from a
-Spur project with role `operator`, which needs no token, or from the web UI. Questions to you wait
-in `board inbox operator` and the web inbox. A token for an operator session outside Spur is
-approved in Slack, so that route needs Slack.
-
-The web UI is optional too, and off until you set `web.port` and `web.publicOrigin`; the config
-needs both or neither. It shows the columns, each task's **Why it is here**, the inbox and service
-health, and lets you answer, comment, take turns and move tasks between Backlog parts. It listens
-on `127.0.0.1` behind a private reverse proxy: anyone who reaches it acts as the operator without a
-token.
+The web UI is optional too, and off until you turn it on ([Optional browser
+access](../SETUP.md#optional-browser-access)). It shows the columns, each task's **Why it is here**,
+the inbox and service health, and lets you answer, comment, take turns and move tasks between
+Backlog parts. It belongs behind a private reverse proxy: anyone who reaches it acts as the operator
+without a token.
 
 ## A task from To Do to Done
 
