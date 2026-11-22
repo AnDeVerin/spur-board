@@ -1541,7 +1541,8 @@ async function observeTurnEpisode(trx: Trx, turnId: number, fact: SessionFacts |
 /**
  * The stopped session an untaken turn of `role` with no live recipient is diagnosed against: the
  * newest stopped, present session linked to the task in that role, or for a column orchestrator
- * turn one of the column's orchestrator project `target`.
+ * turn one of the column's orchestrator project `target`. It runs on every reconcile, so each
+ * query is scoped to the task's links or to that project.
  */
 async function stoppedExecutor(
   trx: Trx,
@@ -1549,27 +1550,32 @@ async function stoppedExecutor(
   role: string,
   target: string | undefined,
 ): Promise<Row<'session_snapshot'> | undefined> {
-  const stopped = await trx
+  const newestStopped = trx
     .selectFrom('session_snapshot')
-    .selectAll()
-    .where('state', '=', 'stopped')
-    .where('ended_at', 'is', null)
-    .where('absent_since', 'is', null)
-    .orderBy('first_seen', 'desc')
-    .orderBy('id')
-    .execute();
-  for (const row of stopped) {
-    const linked = await trx
-      .selectFrom('link')
-      .select('id')
-      .where('task_id', '=', taskId)
-      .where('session_id', '=', row.id)
-      .where('role', '=', role === 'worker' ? 'worker' : 'orchestrator')
-      .where('banned', '=', 0)
-      .executeTakeFirst();
-    if (linked !== undefined || (role !== 'worker' && row.spur_project === target)) return row;
-  }
-  return undefined;
+    .selectAll('session_snapshot')
+    .where('session_snapshot.state', '=', 'stopped')
+    .where('session_snapshot.ended_at', 'is', null)
+    .where('session_snapshot.absent_since', 'is', null)
+    .orderBy('session_snapshot.first_seen', 'desc')
+    .orderBy('session_snapshot.id')
+    .limit(1);
+  const linked = await newestStopped
+    .innerJoin('link', 'link.session_id', 'session_snapshot.id')
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'session')
+    .where('link.role', '=', role === 'worker' ? 'worker' : 'orchestrator')
+    .where('link.banned', '=', 0)
+    .executeTakeFirst();
+  if (role === 'worker' || target === undefined) return linked;
+  const inProject = await newestStopped
+    .where('session_snapshot.spur_project', '=', target)
+    .executeTakeFirst();
+  if (linked === undefined || inProject === undefined) return linked ?? inProject;
+  // The earlier of the two in the scan order: newest first seen, then the lower id.
+  return inProject.first_seen > linked.first_seen ||
+    (inProject.first_seen === linked.first_seen && inProject.id < linked.id)
+    ? inProject
+    : linked;
 }
 
 function healthKey(taskId: number, flag: SessionHealthFlag): string {
