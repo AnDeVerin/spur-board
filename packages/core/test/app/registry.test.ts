@@ -1816,7 +1816,7 @@ it('shows unlinked sessions in a terminal lifecycle as ended and keeps the lifec
       detailLifecycle: 'errored',
       end: { endReason: null, endedAt: null },
     },
-    // A later lookup got 404: ended since then, the stored end reason stays.
+    // A later lookup got 404: ended since it finished, the stored end time and reason stay.
     ...(['completed', 'killed', 'errored'] as const).map((lifecycle): Case => ({
       id: `vanished-${lifecycle}`,
       lifecycle,
@@ -1825,10 +1825,36 @@ it('shows unlinked sessions in a terminal lifecycle as ended and keeps the lifec
       ...vanished,
       rateLimited: false,
       state: 'ended',
-      since: iso(now - DAY),
+      since: iso(now - 2 * DAY),
       detailLifecycle: lifecycle,
       end: { endReason: 'vanished', endedAt: iso(now - DAY) },
     })),
+    // Listed completed days before the 404: the old finish is not read as recent.
+    {
+      id: 'vanished-late',
+      lifecycle: 'completed',
+      finishedAt: iso(now - 5 * DAY),
+      lastSeen: iso(now - 5 * DAY),
+      ...vanished,
+      rateLimited: false,
+      state: 'ended',
+      since: iso(now - 5 * DAY),
+      detailLifecycle: 'completed',
+      end: { endReason: 'vanished', endedAt: iso(now - DAY) },
+    },
+    // Vanished with no finish time: ended since the end time.
+    {
+      id: 'vanished-unfinished',
+      lifecycle: 'running',
+      finishedAt: null,
+      lastSeen: iso(now - 2 * DAY),
+      ...vanished,
+      rateLimited: false,
+      state: 'ended',
+      since: iso(now - DAY),
+      detailLifecycle: null,
+      end: { endReason: 'vanished', endedAt: iso(now - DAY) },
+    },
     {
       id: 'running-live',
       lifecycle: 'running',

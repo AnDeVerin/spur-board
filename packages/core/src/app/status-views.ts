@@ -19,6 +19,7 @@ import type { z } from 'zod';
 import type { Store } from '../store/store.ts';
 import type { ApprovalView } from './approval-watch.ts';
 import { eventActor, parseDefaultBranch, projectForSource } from './board-utils.ts';
+import { earliestTime } from './doorbells.ts';
 import { turnWaitView } from './turn-waits.ts';
 
 /** The column groups with their built-in columns in canonical order, the same for every project. */
@@ -315,13 +316,20 @@ const TERMINAL_LIFECYCLES: readonly string[] = ['completed', 'killed', 'errored'
 
 /**
  * Whether an unlinked session is live, ended or gone from Spur's list, and since when. Ended wins
- * over absent; a listed completed, killed or errored session ended when it finished.
+ * over absent; a session ended at the earlier of its finish and end times, and a listed completed,
+ * killed or errored session ended when it finished.
  */
 function unlinkedSessionState(session: Row<'session_snapshot'>): {
   state: UnlinkedSessionState;
   since: string | null;
 } {
-  if (session.ended_at !== null) return { state: 'ended', since: session.ended_at };
+  if (session.ended_at !== null) {
+    // A later lookup can stamp ended_at polls after Spur listed the session finished.
+    return {
+      state: 'ended',
+      since: earliestTime([session.finished_at, session.ended_at]) ?? session.ended_at,
+    };
+  }
   if (TERMINAL_LIFECYCLES.includes(session.state)) {
     return { state: 'ended', since: session.finished_at ?? session.last_seen };
   }
