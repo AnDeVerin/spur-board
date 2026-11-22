@@ -174,9 +174,10 @@ export async function click(label: string) {
   press(button(label), 'click');
   await settle();
 }
-/** The primary button of the open form and the paragraph right before it. */
+/** The primary button of the open form and the line its `aria-describedby` names. */
 export function confirmation() {
   const primary = form().querySelector<HTMLButtonElement>('button[type="submit"]');
-  const line = primary?.parentElement?.previousElementSibling;
+  const id = primary?.getAttribute('aria-describedby');
+  const line = id ? document.getElementById(id) : null;
   return { primary, line: line?.tagName === 'P' ? line.textContent : undefined };
 }

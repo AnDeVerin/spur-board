@@ -85,6 +85,20 @@ export function reasonError(value: string, max: number): string | undefined {
     ? `The reason must be ${max.toLocaleString('en-US')} characters or fewer.`
     : undefined;
 }
+export type FieldErrors = Partial<Record<'sha' | 'from' | 'reason', string | undefined>>;
+/** The errors of a submit or return form's input, `sha` and `from` trimmed; none means send. */
+export function fieldErrors(
+  form: 'submit' | 'return',
+  input: { sha: string; from: string; basis: Basis; reason: string },
+): FieldErrors {
+  const { sha, from, basis, reason } = input;
+  if (form === 'return') return { reason: reasonError(reason, 20_000) };
+  return {
+    sha: shaError(sha, 'the commit you tested'),
+    from: basis === 'carried' ? shaError(from, 'the commit the tested work comes from') : undefined,
+    reason: basis === 'tested' ? undefined : reasonError(reason, 2000),
+  };
+}
 
 /**
  * The fold summary names an actor by its session alone, cut to `BRIEF_MAX` characters, so a long

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   Banner,
   Button,
@@ -26,25 +34,24 @@ import {
   closedDetail,
   closedNotice,
   commitDefault,
+  fieldErrors,
   isBasis,
   openSummary,
   closable,
   PHASE,
-  reasonError,
   RETURNABLE,
-  shaError,
   submitConfirmation,
   UNAVAILABLE,
   REFRESHING,
   UNSETTLED,
   STALE,
   type Basis,
+  type FieldErrors,
 } from './turn-model.ts';
 import styles from './TaskTurn.module.css';
 
 type Turn = NonNullable<BoardTask['turn']>;
 type Form = 'submit' | 'return';
-type FieldErrors = Partial<Record<'sha' | 'from' | 'reason', string | undefined>>;
 /** The turn a form opened on; the section keeps it until a form opens on a newer turn. */
 interface Bound {
   turn: Turn;
@@ -112,6 +119,7 @@ export function TaskTurn({
   const noticeRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<'field' | Form | 'status'>(undefined);
   const turnsRef = useRef<HTMLDivElement>(null);
+  const confirmId = useId();
   // A newer turn's actions come first once one is enabled: the read may have closed the bound turn.
   const firstActions = useCallback(
     () =>
@@ -241,17 +249,7 @@ export function TaskTurn({
     if (inFlight || !bound || !boundOpen || blocked !== undefined || !form) return;
     const commit = sha.trim();
     const source = from.trim();
-    const found: FieldErrors =
-      form === 'submit'
-        ? {
-            sha: shaError(commit, 'the commit you tested'),
-            from:
-              basis === 'carried'
-                ? shaError(source, 'the commit the tested work comes from')
-                : undefined,
-            reason: basis === 'tested' ? undefined : reasonError(reason, 2000),
-          }
-        : { reason: reasonError(reason, 20_000) };
+    const found = fieldErrors(form, { sha: commit, from: source, basis, reason });
     setErrors(found);
     if (Object.values(found).some((error) => error !== undefined)) return;
     const input = {
@@ -414,8 +412,9 @@ export function TaskTurn({
               label="Basis"
               tabs={BASES}
               value={basis}
+              disabled={fieldsOff}
               onChange={(chosen) => {
-                if (fieldsOff || !isBasis(chosen)) return;
+                if (!isBasis(chosen)) return;
                 setBasis(chosen);
                 setErrors({});
               }}
@@ -455,13 +454,19 @@ export function TaskTurn({
             {refusal}
           </Banner>
         )}
-        <p className={styles.confirm}>
+        <p id={confirmId} className={styles.confirm}>
           {form === 'submit'
             ? submitConfirmation(turn, columns)
             : `This closes ${turn.id} in your name and returns the task to dev. It cannot be undone, and it counts toward the cycle limit.`}
         </p>
         <div className={styles.buttons} ref={cancelRow}>
-          <Button type="submit" variant="primary" disabled={sendOff} busy={inFlight}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={sendOff}
+            busy={inFlight}
+            describedBy={confirmId}
+          >
             {inFlight ? PHASE[phase] : form === 'submit' ? 'Submit' : 'Return to dev'}
           </Button>
           <Button disabled={inFlight} onClick={cancel}>

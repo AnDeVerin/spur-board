@@ -102,10 +102,20 @@ describe('Turn section sends', () => {
     check('Taking the turn');
     await settle();
     check('Closing the turn');
+    expect(commit().hasAttribute('aria-label')).toBe(false);
+    const tabs = [...turnSection().querySelectorAll<HTMLElement>('[role="tab"]')];
+    expect(tabs.map((tab) => tab.getAttribute('aria-disabled'))).toEqual(['true', 'true', 'true']);
+    const selectedTab = () => turnSection().querySelector('[role="tab"][aria-selected="true"]');
+    const tested = selectedTab();
+    if (!(tested instanceof HTMLElement)) throw new Error('no selected tab');
+    tested.focus();
+    const focused = document.activeElement;
+    press(tested, 'keydown', { key: 'ArrowRight' });
+    await settle();
+    expect(selectedTab()?.textContent).toBe('Tested');
+    expect(document.activeElement).toBe(focused);
     await choose('Skipped');
-    expect(turnSection().querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe(
-      'Tested',
-    );
+    expect(selectedTab()?.textContent).toBe('Tested');
     release();
     await settle();
     expect(text()).toContain('T5 submitted.');
