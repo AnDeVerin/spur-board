@@ -43,6 +43,9 @@ verbs and scenario names; this card keeps the rules and traps.
   prints its fake Slack message number `<n>`; follow up or `close` it with
   `fake slack click <n> answer --text`.
 - `fake github` commands and their traps: read `references/github-fake.md`.
+- `fake host cpu|ram|disk <percent> [<mount>]` sets what the daemon samples, from CPU 10, RAM 50
+  and `/` at 50; reset and seed restore these. Samples come every 30 s of real time, not stand
+  clock time: a `host-disk:` item needs two at 90% or more, then a tick (`pnpm stand poll`).
 
 ## Violations and reset
 
