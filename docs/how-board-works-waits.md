@@ -5,7 +5,7 @@
 Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load,
 someone else's deploy, an outside service you call. Not on your own work (review fixes, tests,
 checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.
-Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges):
+Not on what the Board watches (CI runs in any state, reviews, approvals, mergeability, merges):
 submit the head and stop; red checks or other needs bring a new Dev turn.
 If your next step needs it (you merge, or shadow mode), wait for it.
 
@@ -14,7 +14,8 @@ A submit needs no green checks. Running checks hold the task at the `checksGate`
 `checksGate` right of Dev, a cancelled run counts as running for about two GitHub poll intervals
 first. Only the latest run of each check counts, so a rerun on the same head replaces a
 cancelled run. When the PR has required checks, only those count, and the Board does not watch the
-others.
+others. While GitHub computes mergeability, the task holds at Dev's exit; a conflict returns it to
+Dev with a new turn.
 
 To wait on a taken, open turn you hold, instead of sitting quiet:
 `board wait <turn> --for <minutes> --reason <text> --key <key>` (MCP `task_wait`).

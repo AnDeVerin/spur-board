@@ -1000,9 +1000,9 @@ describe('snapshot', () => {
     // task.wait gains end and web, optional for, reason and output wait, the ended outcome, and
     // the not_operator and no_active_wait codes. #841 rewords the task.wait description, its
     // guidance and its reason field: wait only on what the Board cannot see, not on what it watches,
-    // unless your own next step needs the watched fact.
+    // unless your own next step needs the watched fact, and names mergeability.
     expect(await catalogVersion(baseline)).toBe(
-      '52dcca9e2debc3e04351392f674e0b524c10e572a332e5bdc8272fca85fc51ad',
+      '8175cfcf752cceb2dbfd6482928be28e67efd25a3c2bfaac860e96964c17050e',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

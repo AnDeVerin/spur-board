@@ -26,7 +26,7 @@ On `turn_closed`, act only on a turn `board inbox` lists. Shadow mode opens no t
 Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load,
 someone else's deploy, an outside service you call. Not on your own work (review fixes, tests,
 checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.
-Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges):
+Not on what the Board watches (CI runs in any state, reviews, approvals, mergeability, merges):
 submit the head and stop; red checks or other needs bring a new Dev turn.
 If your next step needs it (you merge, or shadow mode), wait for it.
 Keyed `board wait <turn> --for <min> --reason <text>`; a ring wakes you.
@@ -39,7 +39,7 @@ Keyed `board wait <turn> --for <min> --reason <text>`; a ring wakes you.
   `board ask <task> <text>` first.
 - Column orchestrator: ack, then keyed `board submit <turn> <sha>` for the reviewed head, or
   `board return <turn> <reason>` naming what to change for Dev. Never push.
-- Operator (the operator token or an operator Spur project's session): keyed
+- Operator (operator token or an operator Spur project's session): keyed
   `board inbox ack <entries>` with the T<number> from `board inbox operator` (not
   `board inbox`) or `board task <task>` takes a turn addressed to the operator or an open orchestrator turn, taken or not; then
   submit or return it.

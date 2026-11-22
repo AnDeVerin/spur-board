@@ -1406,7 +1406,7 @@ export const OPERATIONS = [
       whenToUse:
         "You hold a turn. Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load, someone else's deploy, an outside service you call. Give whole minutes and the reason; the Board rings you with the reason when the wait ends, and submit, return or a close ends it earlier. Waits per turn are capped by count and total time. As the operator, pass end to end a holder's active wait early; the holder is rung.",
       whenNotToUse:
-        'Use task_submit to hand in finished work, or task_return to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it. Not on what the Board watches (CI runs in any state, reviews, approvals, conflicts, merges): submit the head and stop; red checks or other needs bring a new Dev turn. If your next step needs it (you merge, or shadow mode), wait for it.',
+        'Use task_submit to hand in finished work, or task_return to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it. Not on what the Board watches (CI runs in any state, reviews, approvals, mergeability, merges): submit the head and stop; red checks or other needs bring a new Dev turn. If your next step needs it (you merge, or shadow mode), wait for it.',
     },
     input: taskWaitInputSchema,
     output: taskWaitOutputSchema,
