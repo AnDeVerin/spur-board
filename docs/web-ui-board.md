@@ -55,10 +55,10 @@ Columns follow configuration order:
   the filter only dims.
 - The executor line is a button with an icon for who moves a task here. It opens column help,
   **Who** first, then **Rules**, read from `columns.describe` on each open: a skeleton while it
-  reads, an error in the panel if it fails. Escape, an outside click, Close, a second click or
-  focus leaving the head and panel close it, so one panel is open at most. A column whose Spur project (orchestrator or curator) has no live
-  session turns the line attention-coloured with ` · no live session`. Spines have no help; Backlog parts
-  do.
+  reads, an error in the panel if it fails. Escape, Close, an outside or second click, focus
+  leaving head and panel, or a sort menu opening close it; help opening closes a sort menu: one
+  is open at most. A column whose Spur project has no live session turns the line
+  attention-coloured with ` · no live session`. Spines have no help; Backlog parts do.
 - An empty column collapses to a spine with its name and `0`.
 - Two or three adjacent Todo-group columns (`todo`, `triage`, `ready-for-dev`) sit under one
   `Backlog` band with their total count; `todo` alone stays a plain column. Each part's head

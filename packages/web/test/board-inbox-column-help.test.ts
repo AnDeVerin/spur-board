@@ -232,6 +232,8 @@ describe('inbox no-session row column help', () => {
     await settle();
     expect(location.search).toBe(TASK_SEARCH);
     expect(dialogs().at(-1)?.textContent).toContain('#7');
+    // The task view's focus move closed the help: no help stays open under a SidePanel.
+    expect(trigger('qa').getAttribute('aria-expanded')).toBe('false');
   });
 
   it('a later open from the trigger shows no oldest link', async () => {

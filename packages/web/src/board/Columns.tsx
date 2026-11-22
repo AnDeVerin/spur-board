@@ -1,7 +1,7 @@
-import { useId, useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { Button, focusRing, Icon, quiet, Skeleton, StatusDot, TextToggle } from '../ds/index.ts';
 import { age } from './card.ts';
-import { ColumnHead, MirrorNotice } from './ColumnHead.tsx';
+import { ColumnHead, MirrorNotice, type HeadSurface } from './ColumnHead.tsx';
 import type { HelpRequest } from './ColumnHelp.tsx';
 import type { ColumnsState } from './columns-data.ts';
 import {
@@ -96,6 +96,9 @@ interface Shared {
   helpRequest: HelpRequest | null;
   /** The head opened its help for `helpRequest`. */
   onHelpTaken: () => void;
+  /** The one column help panel or sort menu open on the board. */
+  surface: HeadSurface;
+  setSurface: Dispatch<SetStateAction<HeadSurface>>;
 }
 
 /** A column's order, read once from `sorts` and stored on each change. */
@@ -201,6 +204,8 @@ function Column({
         helpRequest={shared.helpRequest}
         onHelpTaken={shared.onHelpTaken}
         onOpen={shared.onOpen}
+        surface={shared.surface}
+        setSurface={shared.setSurface}
       />
       {part && <MirrorNotice column={column} />}
       {column.id !== 'done' && order.notice}
@@ -262,6 +267,8 @@ function GroupSection({ column, band, ...shared }: { column: BoardColumn; band: 
         helpRequest={shared.helpRequest}
         onHelpTaken={shared.onHelpTaken}
         onOpen={shared.onOpen}
+        surface={shared.surface}
+        setSurface={shared.setSurface}
       />
       <MirrorNotice column={column} />
       {order.notice}
@@ -400,6 +407,7 @@ export function Columns({
   onHelpTaken: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [surface, setSurface] = useState<HeadSurface>(null);
   const listId = useId();
   const orders = useOrders(orderIntent, view.kind === 'columns' ? view.columns : undefined);
   const shared = {
@@ -415,6 +423,8 @@ export function Columns({
     onHelpOpen,
     helpRequest,
     onHelpTaken,
+    surface,
+    setSurface,
   };
   switch (view.kind) {
     case 'failed':

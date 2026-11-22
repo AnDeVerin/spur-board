@@ -24,16 +24,21 @@ const SORT_HINT: Record<Exclude<ColumnSort, 'manual'>, string> = {
 
 /**
  * A column head's sort: the field's letter, T time in the column, K key or M manual, opens a menu
- * of the three; Time and Key add a quiet button that reverses the direction.
+ * of the three; Time and Key add a quiet button that reverses the direction. The head owns the
+ * menu's `open`, so opening it closes column help and help opening closes it.
  */
 export function SortControl({
   id,
   sort,
   onChange,
+  open,
+  onOpenChange,
 }: {
   id: string;
   sort: ColumnSort;
   onChange: (sort: ColumnSort) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
   const field: Field = sort === 'manual' ? 'manual' : sort.startsWith('key') ? 'key' : 'time';
   // Time and Key keep the direction; coming from Manual they start ascending.
@@ -46,6 +51,8 @@ export function SortControl({
         items={FIELDS}
         value={field}
         opens="down"
+        open={open}
+        onOpenChange={onOpenChange}
         onSelect={(next) => {
           if (next === 'manual') onChange('manual');
           else onChange(`${next === 'key' ? 'key' : 'entered'}-${direction}`);
