@@ -57,12 +57,14 @@ export function Tabs({
     // Arrows step over enabled tabs in the key's direction and wrap, from a disabled tab too.
     let next: number | undefined;
     if (event.key === 'ArrowRight') next = enabled.find((i) => i > index) ?? enabled[0];
-    if (event.key === 'ArrowLeft') next = enabled.findLast((i) => i < index) ?? enabled.at(-1);
-    if (event.key === 'Home') next = enabled[0];
-    if (event.key === 'End') next = enabled.at(-1);
+    else if (event.key === 'ArrowLeft') next = enabled.findLast((i) => i < index) ?? enabled.at(-1);
+    else if (event.key === 'Home') next = enabled[0];
+    else if (event.key === 'End') next = enabled.at(-1);
+    else return;
+    // A tab key never scrolls the page, even with no enabled tab to move to.
+    event.preventDefault();
     const target = next === undefined ? undefined : tabs[next];
     if (!target) return;
-    event.preventDefault();
     onChange(target.value);
     document.getElementById(tabId(id, target.value))?.focus();
   };

@@ -214,11 +214,16 @@ describe('Tabs', () => {
         if (!found) throw new Error(`no tab ${value}`);
         return found;
       };
+      /** Presses `k` on the tab; true when the tab suppressed the key's default action. */
       const key = (value: string, k: string) => {
         tab(value).focus();
+        let kept = true;
         act(() => {
-          tab(value).dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+          kept = tab(value).dispatchEvent(
+            new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }),
+          );
         });
+        return !kept;
       };
       const click = (value: string) => {
         act(() => {
@@ -260,9 +265,11 @@ describe('Tabs', () => {
     it('do nothing on a disabled list', () => {
       const { onChange, tab, key, click, unmount } = mount(true);
       for (const k of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) {
-        key('a', k);
+        // The default stays suppressed, so Home and End never scroll the page.
+        expect(key('a', k), k).toBe(true);
         expect(document.activeElement, k).toBe(tab('a'));
       }
+      expect(key('a', 'Enter')).toBe(false);
       click('a');
       click('c');
       expect(onChange).not.toHaveBeenCalled();
