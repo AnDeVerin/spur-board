@@ -80,8 +80,8 @@ export function Focused() {
 }
 export function Disabled() {
   return (
-    <div className={quiet}>
-      <p style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
+    <div>
+      <p className={quiet} style={{ margin: 0, color: 'var(--color-text-tertiary)' }}>
         Disabled list: dimmed; arrow keys, Home, End, clicks and hover do nothing; Tab skips the
         tabs to the panel.
       </p>
