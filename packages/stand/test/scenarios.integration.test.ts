@@ -17,7 +17,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { COLUMN_IDS, type ColumnId } from '@spur-board/contracts';
+import { COLUMN_IDS, DEFAULT_NO_RECIPIENT_AFTER_MS, type ColumnId } from '@spur-board/contracts';
 import { migrationsDir, openStore } from '@spur-board/core';
 import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -296,6 +296,7 @@ describe('scenarios', () => {
       'external-review-quiet',
       'qa-carried',
       'qa-skipped',
+      'qa-stub-orchestrator',
       'approval-stale',
       'approval-stale-quiet',
       'approval-multi',
@@ -2718,6 +2719,350 @@ describe('dispatcher scenarios', () => {
         { timeout: 20_000, interval: 100 },
       );
       expect((await status(current())).items.map((item) => item.key)).not.toContain(key);
+    },
+    TIMEOUT,
+  );
+
+  /** A call under `x-board-session: <session>` that may be refused: its status and error code. */
+  async function refused(session: string, id: string, input: object) {
+    const response = await fetch(`${current().daemonUrl}/v1/ops/${id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-board-session': session },
+      body: JSON.stringify({ input, key: randomUUID() }),
+    });
+    // The HTTP answer is an RFC 9457 problem with the error code at the top level.
+    const body = (await response.json()) as { code?: string };
+    return { status: response.status, code: body.code };
+  }
+  const qaIssue = (number: number) => `stand-org/board#${String(number)}`;
+  /** The head of PR #n in `qa-stub-orchestrator`: its digit 40 times. */
+  const qaHead = (number: number) => String(number).repeat(40);
+  /** The stub orchestrator's open turn on issue `number`. */
+  async function stubTurn(number: number): Promise<TurnView> {
+    const { turns } = await sessionOp<Inbox>(as('orchestrator'), 'inbox.get');
+    const turn = turns.find(({ task }) => task === qaIssue(number));
+    if (turn === undefined) throw new Error(`no stub turn on ${qaIssue(number)}`);
+    return turn;
+  }
+  const stubSubmit = (turn: string, sha: string, basis: object = {}) =>
+    sessionOp<{ task: { column: string } }>(
+      as('orchestrator'),
+      'task.submit',
+      { turn, sha, ...basis },
+      randomUUID(),
+    );
+  const stubReturn = (turn: string, reason: string) =>
+    sessionOp<{ task: { column: string }; block: { id: string; type: string } }>(
+      as('orchestrator'),
+      'task.return',
+      { turn, reason },
+      randomUUID(),
+    );
+  const columnOf = async (number: number) =>
+    (await status(current())).tasks.find(({ key }) => key === qaIssue(number))?.column;
+  async function qaSubmission(number: number) {
+    const { tasks } = await op<{ tasks: { key: string; qaSubmission?: unknown }[] }>(
+      current(),
+      'status.get',
+      { project: 'stand' },
+    );
+    return tasks.find(({ key }) => key === qaIssue(number))?.qaSubmission;
+  }
+
+  it(
+    'qa-stub-orchestrator: a rung QA turn, acked and submitted tested, reaches Ready to Merge',
+    async () => {
+      await up();
+      await seed('qa-stub-orchestrator');
+      const config = YAML.parse(configText(current())) as {
+        projects: { id: string; columns: { id: string }[]; dispatcher?: { mode: string } }[];
+      };
+      const project = config.projects.find(({ id }) => id === 'stand');
+      expect(project?.columns.map(({ id }) => id)).toEqual(COLUMN_IDS);
+      expect(project?.dispatcher?.mode).toBe('on');
+      const stub = as('orchestrator');
+      const turn = await stubTurn(1);
+      expect(turn).toMatchObject({
+        column: 'qa',
+        reason: 'qa: no_submit_on_head',
+        head: qaHead(1),
+        taken: null,
+      });
+      expect(
+        (await inspect(current())).sends.filter(
+          ({ session, message }) => session === stub && message.includes(`turn ${turn.id}:`),
+        ),
+      ).not.toEqual([]);
+
+      await ack(stub, turn.id);
+      expect((await stubTurn(1)).taken).toMatchObject({ by: `agent:stand-qa/${stub}` });
+      expect((await stubSubmit(turn.id, qaHead(1))).task.column).toBe('ready-to-merge');
+      expect(await qaSubmission(1)).toMatchObject({ basis: 'tested', from: null, reason: null });
+      const item = (await status(current())).items.find(
+        ({ key, summary }) => /^turn:\d+$/.test(key) && summary.includes(` on ${qaIssue(1)}: `),
+      );
+      expect(item?.summary).toMatch(/: ready-to-merge: not_merged$/);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'qa-stub-orchestrator: a return with a reason opens a worker code block and sends the task to Dev',
+    async () => {
+      await up();
+      await seed('qa-stub-orchestrator');
+      const turn = await stubTurn(1);
+      await ack(as('orchestrator'), turn.id);
+      const reason = 'Export fails on an empty list.';
+      const back = await stubReturn(turn.id, reason);
+      expect(back.task.column).toBe('dev');
+      expect(back.block.type).toBe('code');
+      const { blocks } = await op<{
+        blocks: { id: string; state: string; addressee: string; type: string }[];
+      }>(current(), 'task.get', { task: ISSUE });
+      expect(blocks.find(({ id }) => id === back.block.id)).toMatchObject({
+        state: 'open',
+        addressee: 'worker',
+        type: 'code',
+      });
+      expect(await mustTurn(as('worker'))).toMatchObject({
+        column: 'dev',
+        reason: 'dev: no_submit_on_head',
+        returned: { from: 'qa', reason, block: back.block.id },
+      });
+      expect((await turnRow(turnNumber(turn.id))).closed_reason).toBe('returned');
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'qa-stub-orchestrator: a new head closes the taken QA turn and a late submit gets turn_closed',
+    async () => {
+      await up();
+      await seed('qa-stub-orchestrator');
+      const stub = as('orchestrator');
+      const turn = await stubTurn(1);
+      await ack(stub, turn.id);
+      await github('push', { sha: B });
+      await poll();
+      expect(await column()).toBe('dev');
+      expect((await mustTurn(as('worker'))).reason).toMatch(
+        /^dev: checks_pending, no_submit_on_head/,
+      );
+      expect((await turnRow(turnNumber(turn.id))).closed_reason).toBe('moved');
+      expect(await refused(stub, 'task.submit', { turn: turn.id, sha: B })).toEqual({
+        status: 409,
+        code: 'turn_closed',
+      });
+      expect([await columnOf(2), await columnOf(3)]).toEqual(['qa', 'qa']);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'qa-stub-orchestrator: skipped and carried submits record their basis',
+    async () => {
+      await up();
+      await seed('qa-stub-orchestrator');
+      const skipped = 'No testable surface: an offline export script.';
+      const carried = 'Only docs changed since the tested head.';
+      const [one, two] = [await stubTurn(1), await stubTurn(2)];
+      await ack(as('orchestrator'), one.id);
+      await ack(as('orchestrator'), two.id);
+      const submitted = [
+        await stubSubmit(one.id, qaHead(1), { basis: 'skipped', reason: skipped }),
+        await stubSubmit(two.id, qaHead(2), {
+          basis: 'carried',
+          from: qaHead(2),
+          reason: carried,
+        }),
+      ];
+      expect(submitted.map(({ task }) => task.column)).toEqual([
+        'ready-to-merge',
+        'ready-to-merge',
+      ]);
+      expect(await qaSubmission(1)).toMatchObject({
+        column: 'qa',
+        basis: 'skipped',
+        from: null,
+        reason: skipped,
+        testedOrigin: null,
+      });
+      expect(await qaSubmission(2)).toMatchObject({
+        column: 'qa',
+        basis: 'carried',
+        from: qaHead(2),
+        reason: carried,
+        testedOrigin: qaHead(2),
+      });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'qa-stub-orchestrator: a return to Dev on the same head and back opens no second QA turn',
+    async () => {
+      await up();
+      await seed('qa-stub-orchestrator');
+      const stub = as('orchestrator');
+      const turn = await stubTurn(1);
+      await ack(stub, turn.id);
+      expect((await stubSubmit(turn.id, qaHead(1))).task.column).toBe('ready-to-merge');
+      const qaTurns = (await turnsIn('qa')).length;
+
+      await github('comment');
+      await poll();
+      expect(await column()).toBe('dev');
+      let dev: TurnView | undefined;
+      await vi.waitFor(
+        async () => {
+          dev = await mustTurn(as('worker'));
+          expect(dev.reason).toBe('dev: external_comments, no_submit_on_head');
+        },
+        { timeout: 20_000, interval: 100 },
+      );
+      const before = (await moves()).length;
+      await ack(as('worker'), dev?.id ?? '');
+      expect((await submit(as('worker'), dev?.id ?? '', qaHead(1))).task.column).toBe(
+        'ready-to-merge',
+      );
+      const after = (await fromTo()).slice(before);
+      expect(after.map(([, , reason]) => reason)).toEqual(after.map(() => 'gate_passed'));
+      expect(after.at(-1)).toEqual(['qa', 'ready-to-merge', 'gate_passed']);
+      expect(await turnsIn('qa')).toHaveLength(qaTurns);
+      expect(await turnOf(stub)).toBeUndefined();
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'qa-stub-orchestrator: one session holds three taken QA turns and closes them out of order',
+    async () => {
+      await up();
+      await seed('qa-stub-orchestrator');
+      const stub = as('orchestrator');
+      const [one, two, three] = [await stubTurn(1), await stubTurn(2), await stubTurn(3)];
+      await sessionOp(
+        stub,
+        'inbox.ack',
+        { entries: [one, two, three].map(({ id }) => ({ id })) },
+        randomUUID(),
+      );
+      /** The stub's open turns as `[id, taken by]`, by issue number. */
+      const held = async () =>
+        (await sessionOp<Inbox>(stub, 'inbox.get')).turns
+          .toSorted((a, b) => a.task.localeCompare(b.task))
+          .map(({ id, taken }) => [id, taken?.by]);
+      const by = `agent:stand-qa/${stub}`;
+      expect(await held()).toEqual([
+        [one.id, by],
+        [two.id, by],
+        [three.id, by],
+      ]);
+
+      expect((await stubSubmit(three.id, qaHead(3))).task.column).toBe('ready-to-merge');
+      expect(await held()).toEqual([
+        [one.id, by],
+        [two.id, by],
+      ]);
+      expect((await stubReturn(one.id, 'Export fails on an empty list.')).task.column).toBe('dev');
+      expect(await held()).toEqual([[two.id, by]]);
+      expect((await stubSubmit(two.id, qaHead(2))).task.column).toBe('ready-to-merge');
+      expect(await held()).toEqual([]);
+      expect([await columnOf(1), await columnOf(2), await columnOf(3)]).toEqual([
+        'dev',
+        'ready-to-merge',
+        'ready-to-merge',
+      ]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'qa-stub-orchestrator: with no live orchestrator session the operator item appears and clears',
+    async () => {
+      await up();
+      await seed('qa-stub-orchestrator');
+      const noSession = async () =>
+        (await status(current())).items.filter(({ key }) => key.startsWith('no-session:'));
+      await spur('session', { id: as('orchestrator'), status: 'killed', state: 'killed' });
+      await poll();
+      expect(await noSession()).toEqual([]);
+      await ok(current(), '/clock', { shiftMs: DEFAULT_NO_RECIPIENT_AFTER_MS - 60_000 });
+      await poll();
+      expect(await noSession()).toEqual([]);
+
+      await ok(current(), '/clock', { shiftMs: 120_000 });
+      await poll();
+      await vi.waitFor(
+        async () => {
+          const raised = await noSession();
+          expect(raised.map(({ key }) => key)).toEqual(['no-session:stand:qa']);
+          expect(raised[0]?.summary).toContain(
+            'turns wait for a live session of Spur project stand-qa',
+          );
+        },
+        { timeout: 20_000, interval: 100 },
+      );
+
+      await spur('session', {
+        id: 'stand-qa-2',
+        project: 'stand-qa',
+        status: 'running',
+        state: 'working',
+      });
+      await poll();
+      await vi.waitFor(
+        async () => {
+          expect(await noSession()).toEqual([]);
+        },
+        { timeout: 20_000, interval: 100 },
+      );
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'qa-stub-orchestrator: the operator takes over a taken QA turn and submits it',
+    async () => {
+      await up();
+      await seed('qa-stub-orchestrator');
+      const stub = as('orchestrator');
+      const turn = await stubTurn(1);
+      await ack(stub, turn.id);
+      await op(current(), 'inbox.ack', { entries: [{ id: turn.id }] }, randomUUID());
+      expect((await turnRow(turnNumber(turn.id))).acked_by).toBe('operator');
+      const late = { turn: turn.id, sha: qaHead(1) };
+      expect(await refused(stub, 'task.submit', late)).toEqual({
+        status: 409,
+        code: 'not_turn_taker',
+      });
+      expect(
+        (
+          await op<{ task: { column: string } }>(
+            current(),
+            'task.submit',
+            { turn: turn.id, sha: qaHead(1) },
+            randomUUID(),
+          )
+        ).task.column,
+      ).toBe('ready-to-merge');
+      expect(await refused(stub, 'task.submit', late)).toEqual({
+        status: 409,
+        code: 'turn_closed',
+      });
+      const closed = await withStore((store) =>
+        store.db
+          .selectFrom('event')
+          .select(['actor', 'payload'])
+          .where('kind', '=', 'turn_closed')
+          .execute(),
+      );
+      expect(
+        closed
+          .filter(({ payload }) => (JSON.parse(payload) as { turn: string }).turn === turn.id)
+          .map(({ actor }) => actor),
+      ).toEqual(['operator']);
     },
     TIMEOUT,
   );

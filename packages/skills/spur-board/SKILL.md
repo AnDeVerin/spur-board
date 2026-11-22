@@ -43,7 +43,7 @@ Keyed `board wait <turn> --for <min> --reason <text>`; a ring wakes you.
 
 ## Worker flow
 
-Read [the worker flow](references/worker-flow.md) for session links, asks, updates, "back" code blocks, exit codes and own-session answers.
+Read [the worker flow](references/worker-flow.md) for links, asks, updates, "back" code blocks, exit codes, own-session answers, QA turns.
 
 - On doorbell, read `board inbox` and the addressed C<number>@<revision> comment or B<number>
   block. Once handled, ack its revision, ID or ring N<number>-<ring> with keyed

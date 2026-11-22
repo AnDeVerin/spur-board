@@ -19,6 +19,19 @@ echo and keeps the command's own stderr and exit code, while `pnpm -s` does not 
 
 Agents read the skills `qa-stand`, `qa-seed` and `qa-report` before a QA round.
 
+## Scenarios
+
+`pnpm stand help` lists every scenario name; each one's seed and summary live in
+`packages/stand/src/scenarios/`. `pnpm stand:scenarios <name>...` runs the stand tests of the
+named scenarios only.
+
+- `qa-stub-orchestrator` turns on all ten columns, with Review, Product Review and QA run by the
+  `stand-qa` role session (`--as orchestrator`), the stub QA orchestrator, and Ready to Merge by
+  the operator. Issues 1-3 each wait in QA on an untaken turn rung to that session. Its tests
+  drive one QA round per case: tested, skipped and carried submits, a return, a new head, three
+  turns held at once, the operator's takeover, and the `no-session:` item while no live
+  `stand-qa` session exists.
+
 ## Driving pnpm stand mcp from a shell
 
 `pnpm stand mcp --as <role>` serves MCP over stdio: one JSON-RPC message per line in, one reply

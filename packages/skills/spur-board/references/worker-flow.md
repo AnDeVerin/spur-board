@@ -29,3 +29,20 @@
   replies. Add no other answer comment or reply.
 - Only the asking session may `--withdraw`. A replacement session posts provenance in a
   keyed `board comment` and leaves the block open.
+
+## QA orchestrator contract
+
+- On a ring, read `board inbox` and take the QA turn with keyed `board inbox ack <entries>`.
+- Test the turn's `head`, then keyed `board submit <turn> <sha>`: `--basis tested` (the default),
+  `--basis carried --from <sha> --reason <text>` for work tested on an earlier head, or
+  `--basis skipped --reason <text>`. Failed: keyed `board return <turn> <reason>` naming what to fix.
+- One session may hold several QA turns; close each by its own T<number>, in any order.
+- `turn_closed` (a new head moved the task) or `not_turn_taker` (the operator took the turn over):
+  stop that round, re-read `board inbox`, act only on a turn it lists, then wait for the next ring.
+
+```sh
+board inbox
+board inbox ack T12 --key inbox-ack-PROJ-7-qa-take-0905
+board submit T12 0123456789abcdef0123456789abcdef01234567 --basis tested --key submit-PROJ-7-qa-tested-0940
+board return T13 "Export fails on an empty list." --key return-PROJ-8-qa-return-0941
+```

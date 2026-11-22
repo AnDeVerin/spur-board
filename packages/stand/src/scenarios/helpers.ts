@@ -1,5 +1,5 @@
 // Helpers the scenario files share; kept apart from `index.ts`, which imports every scenario.
-import type { ScenarioFakes, Settled } from './index.ts';
+import type { Board, ScenarioFakes, Settled } from './index.ts';
 
 const STAND_REPO = 'stand-org/board';
 
@@ -55,4 +55,23 @@ export async function sendsTo(
   return sends
     .filter((send) => send.session === session && send.message.includes(text))
     .map(({ message }) => message);
+}
+
+/** Waits up to `ms` for the role's open turn on issue `number` whose reason is `reason`; its id. */
+export async function turnOn(
+  board: Board,
+  role: 'worker' | 'orchestrator',
+  number: number,
+  reason: string,
+  ms: number,
+): Promise<string> {
+  const task = issueKey(number);
+  let id: string | undefined;
+  await board.until(`${role} turn ${reason} on ${task}`, ms, async () => {
+    const { turns } = await board.call(role, 'inbox.get', {});
+    id = turns.find((turn) => turn.task === task && turn.reason === reason)?.id;
+    return id !== undefined;
+  });
+  if (id === undefined) throw new Error(`no ${role} turn ${reason} on ${task}`);
+  return id;
 }
