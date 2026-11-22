@@ -79,9 +79,9 @@ resolve the held turn. Start a replacement worker, retake an operator turn
 (`board inbox ack`), or archive the task. The item clears on turn closure,
 actual holder replacement, archive or departure from the column visit. Existing
 ended-holder stall blocks withdraw with a recorded reason,
-even while Spur is blind. Removing a link alone leaves the taken turn unresolved.
-A stopped session without
-an end time stays subject to live stall timing above.
+even while Spur is blind. Removing a link alone leaves a taken turn unresolved.
+Stopped sessions with no end time keep stall timing;
+untaken Done wrap-ups close.
 
 ## Doorbells
 

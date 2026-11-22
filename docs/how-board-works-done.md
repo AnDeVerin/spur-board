@@ -55,7 +55,9 @@ column's orchestrator (`projects[].columns[].orchestrator`); none for an operato
 neither a live worker nor a Done orchestrator is available. It closes like any turn (submit, the task leaving Done, archive), and
 also when its holder session ends: that close shows `turn_closed` outcome `moved`, and the
 holder's end raises no stall block on it. An untaken wrap-up turn closes the same way when no
-recipient is left: its worker session ended, no other live worker is linked to the task and
-Done has no orchestrator. That close waits for a complete Spur read, not while Spur is blind or
-stale; a turn already left open closes on the first such read. After an end, a live worker
+recipient is left: no live worker is linked to the task (its worker ended, stopped without an
+end time, or was unlinked) and Done has no orchestrator. That close raises no stall question
+and waits for a complete Spur read, not while Spur is blind or stale; a turn already left open
+closes on the first such read. If wrap-up work remains, resume or relink a worker. After an
+end, a live worker
 still linked to the task, or the Done orchestrator, gets a new one.

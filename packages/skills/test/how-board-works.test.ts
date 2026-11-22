@@ -285,7 +285,7 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
         /opens one wrap-up turn \(`done: wrap up`\)/,
         /closes like any turn \(submit, the task leaving Done, archive\), and\s+also when its holder session ends/,
         /`turn_closed` outcome `moved`/,
-        /holder's end raises no stall block on\s+it\. An untaken wrap-up turn closes the same way when no\s+recipient is left: its worker session ended, no other live worker is linked to the task and\s+Done has no orchestrator\. That close waits for a complete Spur read/,
+        /holder's end raises no stall block on\s+it\. An untaken wrap-up turn closes the same way when no\s+recipient is left: no live worker is linked to the task \(its worker ended, stopped without an\s+end time, or was unlinked\) and Done has no orchestrator\. That close raises no stall question\s+and waits for a complete Spur read/,
       ],
       keys: ['projects[].columns[].orchestrator'],
     },
