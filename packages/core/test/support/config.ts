@@ -1,7 +1,8 @@
 import { configSchema } from '@spur-board/contracts';
+import { SLACK_ON_CONFIG } from '@spur-board/gateway-testkit';
 
-/** Both Slack channels set, so the board writes Slack messages: spread into a test config. */
-export const SLACK_ON = { channels: { orchestrators: 'C000000001', feed: 'C000000002' } };
+/** The `slack` block that turns Slack on, so the board writes gateway rows. */
+export const SLACK_ON = SLACK_ON_CONFIG;
 
 /** A parsed one-project GitHub-issues config; parsing applies the schema defaults. */
 export const testConfig = configSchema.parse({
