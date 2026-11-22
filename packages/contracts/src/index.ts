@@ -101,6 +101,7 @@ export {
   type SlackBinding,
 } from './ops/define.ts';
 export { commentSchema, type Comment } from './ops/schemas.ts';
+export { inboxNoSessionSchema } from './ops/inbox-schemas.ts';
 export { turnHandedSchema, type SubmissionView } from './ops/turn-schemas.ts';
 export { defaultBranchViewSchema, type DefaultBranchView } from './ops/source-view-schema.ts';
 export { OPERATIONS, type OperationId } from './ops/catalog.ts';

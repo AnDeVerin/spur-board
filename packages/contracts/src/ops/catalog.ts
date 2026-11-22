@@ -646,6 +646,27 @@ export const OPERATIONS = [
               task: null,
             },
             {
+              id: 'I10',
+              project: 'web',
+              kind: 'board_observation',
+              severity: 'attention',
+              text: 'web review: turns wait for a live session of Spur project web-orch; oldest T4 since 2026-01-05T09:00:00.000Z; 2 waiting, no live session for 30 min: start a session in Spur project web-orch, or take over its turns with board inbox ack',
+              action:
+                'start a session in Spur project web-orch, or take over its turns with board inbox ack',
+              at,
+              task: 'PROJ-125',
+              noSession: {
+                project: 'web',
+                column: 'review',
+                spurProject: 'web-orch',
+                oldestTask: 'PROJ-125',
+                since: '2026-01-05T09:15:00.000Z',
+                waiting: 2,
+                oldestTurn: 'T4',
+                oldestAt: '2026-01-05T09:00:00.000Z',
+              },
+            },
+            {
               id: 'T5',
               project: 'web',
               kind: 'turn',

@@ -4,6 +4,39 @@ import { blockIdSchema, itemIdSchema, taskKeySchema, turnIdSchema } from '../ids
 
 // The entries of `inbox.operator`.
 
+/** What a `no-session:` board observation is about, read from the store when the inbox is read. */
+export const inboxNoSessionSchema = z
+  .strictObject({
+    project: z.string().min(1).describe('Board project of the column.'),
+    column: z.enum(COLUMN_IDS).describe('Column whose orchestrator turns have no session to ring.'),
+    spurProject: z
+      .string()
+      .min(1)
+      .describe('Spur project of the column orchestrator, from the board config.'),
+    oldestTask: taskKeySchema.describe('Task of the oldest waiting turn when the item was raised.'),
+    since: z.iso
+      .datetime()
+      .describe('Since when the column has had no live session, ISO 8601 UTC.'),
+    waiting: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe('Open entries only: untaken orchestrator turns waiting in the column now.'),
+    oldestTurn: turnIdSchema
+      .optional()
+      .describe('The oldest waiting turn when the item was raised, when the board can find it.'),
+    oldestAt: z.iso
+      .datetime()
+      .optional()
+      .describe(
+        'Open entries only: when the oldest waiting turn rang, ISO 8601 UTC, while it still waits untaken.',
+      ),
+  })
+  .describe(
+    'On a board_observation no-session item only: the column with no live session to ring; absent when the board cannot read it.',
+  );
+
 /** One entry of the operator inbox: an operator item, a block addressed to the operator or a turn. */
 export const inboxEntrySchema = z
   .strictObject({
@@ -50,6 +83,7 @@ export const inboxEntrySchema = z
       .describe(
         'On a block: web, slack, cli or mcp when the closing write arrived that way (cli and mcp as the board client reported it), else null; absent on other entries.',
       ),
+    noSession: inboxNoSessionSchema.optional(),
   })
   .describe('One entry of the operator inbox.');
 

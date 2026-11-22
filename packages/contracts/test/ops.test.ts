@@ -998,9 +998,10 @@ describe('snapshot', () => {
     // config.get. #815 says which items item.close also closes the block of. #826 rewords the
     // task.wait guidance and its reason field. #827 lets the operator end a turn's wait early:
     // task.wait gains end and web, optional for, reason and output wait, the ended outcome, and
-    // the not_operator and no_active_wait codes.
+    // the not_operator and no_active_wait codes. #771 adds the optional noSession fields to
+    // inbox.operator entries and a no-session item to its example.
     expect(await catalogVersion(baseline)).toBe(
-      '3ad59710b67aa2c492ee3c0401303bc962dc9a0a53c19a62cd271ca18fe82117',
+      '1fce29964257401edf45ce7666fd898e63efe8885257b30768d423065a66fdd5',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

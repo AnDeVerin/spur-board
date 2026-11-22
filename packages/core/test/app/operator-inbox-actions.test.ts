@@ -319,6 +319,7 @@ describe('inbox.operator actions', () => {
         await task(trx, { project: 'first', key: 'o/first#2' }),
         await task(trx, { project: 'first', key: 'o/first#3', membership: 'archived' }),
       ];
+      const turnIds: number[] = [];
       for (const [index, taskId] of tasks.entries()) {
         const row = await trx
           .insertInto('turn')
@@ -339,6 +340,7 @@ describe('inbox.operator actions', () => {
           })
           .returning('id')
           .executeTakeFirstOrThrow();
+        turnIds.push(row.id);
         await trx
           .insertInto('notification')
           .values({
@@ -378,19 +380,90 @@ describe('inbox.operator actions', () => {
         .set({ fact_at: ago(14.5) })
         .where('item_key', 'like', 'no-session:%')
         .execute();
-      return { open, cleared };
+      return { open, cleared, oldest: turnIds[0] };
     });
 
     const { items, handled } = await inbox();
 
     const action =
       'start a session in Spur project first-orch, or take over its turns with board inbox ack';
-    expect(items.find((entry) => entry.id === ids.open)).toMatchObject({
+    const open = items.find((entry) => entry.id === ids.open);
+    expect(open).toMatchObject({
       text: `${text}; 2 waiting, no live session for 14 min: ${action}`,
       action,
     });
-    expect(handled.find((entry) => entry.id === ids.cleared)).toMatchObject({
+    expect(open?.noSession).toEqual({
+      project: 'first',
+      column: 'review',
+      spurProject: 'first-orch',
+      oldestTask: 'o/first#1',
+      since: ago(14.5),
+      waiting: 2,
+      oldestTurn: `T${String(ids.oldest)}`,
+      oldestAt: ago(30),
+    });
+    const cleared = handled.find((entry) => entry.id === ids.cleared);
+    expect(cleared).toMatchObject({
       text: `${text}: start a session in its Spur project, or take over its turns with board inbox ack`,
+    });
+    expect(cleared).not.toHaveProperty('noSession');
+  });
+
+  it('names the turn a handled no-session item was raised for, without the waiting fields', async () => {
+    const { store, inbox } = setup();
+    const ids = await store.transaction(async (trx) => {
+      const taskId = await task(trx, { project: 'first', key: 'o/first#1' });
+      const reviewTurn = async (seq: number, createdAt: string, closedAt: string | null) => {
+        const row = await trx
+          .insertInto('turn')
+          .values({
+            task_id: taskId,
+            column: 'review',
+            epoch: 1,
+            seq,
+            role: 'orchestrator:review',
+            reason: 'Review the PR',
+            handed: '[]',
+            acked_by: null,
+            acked_at: null,
+            closed_at: closedAt,
+            closed_reason: closedAt === null ? null : 'moved',
+            created_at: createdAt,
+            head_sha: null,
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+        return row.id;
+      };
+      // Closed before the raise, the one raised for, and one opened after the clear.
+      await reviewTurn(1, ago(200), ago(150));
+      const raisedFor = await reviewTurn(2, ago(90), ago(30));
+      await reviewTurn(3, ago(20), null);
+      const id = await item(trx, {
+        key: 'no-session:first:review',
+        kind: 'board_observation',
+        taskId,
+        text: 'first review: turns wait for a live session of Spur project first-orch',
+        raisedAt: ago(80),
+        clearedAt: ago(30),
+      });
+      await trx
+        .updateTable('operator_item')
+        .set({ fact_at: ago(85) })
+        .where('item_key', '=', 'no-session:first:review')
+        .execute();
+      return { id, raisedFor };
+    });
+
+    const { handled } = await inbox();
+
+    expect(handled.find((entry) => entry.id === ids.id)?.noSession).toEqual({
+      project: 'first',
+      column: 'review',
+      spurProject: 'first-orch',
+      oldestTask: 'o/first#1',
+      since: ago(85),
+      oldestTurn: `T${String(ids.raisedFor)}`,
     });
   });
 
