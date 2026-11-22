@@ -75,7 +75,7 @@ function signalProbe(pid: number): 'absent' | 'exists' | 'unknown' {
   }
 }
 
-function probePid(pid: number): PidProbe {
+export function probePid(pid: number): PidProbe {
   try {
     return { stat: readFileSync(`/proc/${String(pid)}/stat`, 'utf8') };
   } catch (error) {

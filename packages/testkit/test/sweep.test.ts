@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import {
+  currentIdentity,
   type OwnerRecord,
   type PidProbe,
   type ProcReader,
@@ -337,7 +338,12 @@ describe.skipIf(process.platform !== 'linux')('real /proc', () => {
     child.kill('SIGKILL');
     await exited;
 
-    expect(sweepStaleRuns({ parents: [dir] })).toEqual([gone]);
+    // Without the full host identity (a container without a machine id, say) the sweep has no
+    // proof the child is gone and keeps its young root under the 24 h rule.
+    const self = currentIdentity();
+    const provable = Boolean(self.bootId && self.pidNs && self.machineId);
+    expect(sweepStaleRuns({ parents: [dir] })).toEqual(provable ? [gone] : []);
+    expect(existsSync(gone)).toBe(!provable);
     expect(existsSync(mine)).toBe(true);
   });
 });

@@ -133,7 +133,10 @@ it('makes temp dirs under the run root', () => {
 `,
       );
 
-      // A root whose owner is gone, and one owned by this live worker.
+      // A root whose owner is gone, and one owned by this live worker. Without the full host
+      // identity (a container without a machine id, say) the sweep keeps the young dead root.
+      const self = currentIdentity();
+      const provable = Boolean(self.bootId && self.pidNs && self.machineId);
       const exited = spawnSync(process.execPath, ['-e', '']);
       const dead = join(parent, 'spur-board-test-dead');
       mkdirSync(join(dead, 'tmp'), { recursive: true });
@@ -167,7 +170,9 @@ it('makes temp dirs under the run root', () => {
       // The parent's arguments (here the vitest entry point) never reach the log.
       expect(pinned).not.toContain('vitest.mjs');
       expect(readdirSync(decoy)).toEqual([]);
-      expect(readdirSync(parent)).toEqual(['spur-board-test-live']);
+      expect(readdirSync(parent).sort()).toEqual(
+        provable ? ['spur-board-test-live'] : ['spur-board-test-dead', 'spur-board-test-live'],
+      );
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
