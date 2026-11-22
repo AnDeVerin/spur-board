@@ -73,6 +73,21 @@ export function Disclosure() {
     </Shown>
   );
 }
+export function DescribedBy() {
+  const id = useId();
+  return (
+    <Shown caption="Described by the line above it: Tab to it and a screen reader reads the line after the name">
+      <div style={{ display: 'grid', gap: 'var(--space-2)', justifyItems: 'start' }}>
+        <p id={id} style={{ margin: 0 }}>
+          This closes T5 in your name and moves it to Done. It cannot be undone.
+        </p>
+        <Button variant="primary" describedBy={id}>
+          Close the turn
+        </Button>
+      </div>
+    </Shown>
+  );
+}
 export function Focused() {
   return (
     <Shown caption="Press Tab: each button shows the focus ring">

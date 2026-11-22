@@ -8,7 +8,8 @@ export type ButtonVariant = 'primary' | 'outlined';
  * focusable, exposes `aria-busy` and ignores clicks, including form submission. While `busy`,
  * pass children naming the action in flight, e.g. "Sending": busy and disabled look alike.
  * `expanded` and `controls` make it a disclosure trigger: they render `aria-expanded` and
- * `aria-controls` (the id of the shown or hidden region) only when passed.
+ * `aria-controls` (the id of the shown or hidden region) only when passed. `describedBy` renders
+ * `aria-describedby`: the id of a line that says what the action does, e.g. a confirmation.
  *
  * Keep it free of hooks: the click guard test calls the component directly.
  */
@@ -19,6 +20,7 @@ export function Button({
   busy = false,
   expanded,
   controls,
+  describedBy,
   onClick,
   children,
 }: {
@@ -28,6 +30,7 @@ export function Button({
   busy?: boolean | undefined;
   expanded?: boolean | undefined;
   controls?: string | undefined;
+  describedBy?: string | undefined;
   onClick?: ((event: MouseEvent<HTMLButtonElement>) => void) | undefined;
   children: ReactNode;
 }) {
@@ -43,6 +46,7 @@ export function Button({
       aria-disabled={busy || undefined}
       aria-expanded={expanded}
       aria-controls={controls}
+      aria-describedby={describedBy}
       onClick={(event) => {
         if (busy) {
           event.preventDefault();

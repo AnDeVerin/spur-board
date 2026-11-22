@@ -175,6 +175,7 @@ const controlExamples = (folder: string) =>
   examples[`../src/ds/${folder}/${folder}.examples.tsx`] ?? {};
 const markup = (element: ReactElement) => renderToStaticMarkup(element);
 const attribute = (html: string, name: string) => new RegExp(`${name}="([^"]+)"`).exec(html)?.[1];
+const onChange = () => undefined;
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 describe('controls and form fields', () => {
@@ -182,11 +183,11 @@ describe('controls and form fields', () => {
     expect(
       Object.fromEntries(controlFolders.map((f) => [f, Object.keys(controlExamples(f))])),
     ).toEqual({
-      Button: ['Primary', 'Outlined', 'Disabled', 'Busy', 'Disclosure', 'Focused'],
+      Button: ['Primary', 'Outlined', 'Disabled', 'Busy', 'Disclosure', 'DescribedBy', 'Focused'],
       FormRow: ['Answer', 'Error', 'Sending', 'Disabled', 'SendFails', 'NarrowActions'],
       IconButton: ['Close', 'InActions', 'Disabled', 'Focused'],
       TextArea: ['Empty', 'Typing', 'Disabled', 'Focused'],
-      TextInput: ['Empty', 'WithValue', 'Disabled', 'Focused'],
+      TextInput: ['Empty', 'WithValue', 'Disabled', 'InFormRow', 'Focused'],
     });
   });
 
@@ -231,6 +232,13 @@ describe('controls and form fields', () => {
     expect(html({ expanded: true })).toMatch(/^<button[^>]* aria-expanded="true">/);
   });
 
+  it('button renders aria-describedby only when passed', () => {
+    const html = (props: Partial<ComponentProps<typeof Button>>) =>
+      markup(createElement(Button, { ...props, children: 'Close the turn' }));
+    expect(html({ describedBy: 'line' })).toMatch(/^<button[^>]* aria-describedby="line"/);
+    expect(html({})).not.toContain('aria-describedby');
+  });
+
   it('icon button names itself from label and hides its icon', () => {
     const html = markup(createElement(IconButton, { icon: 'x', label: 'Close' }));
     expect(html).toMatch(/^<button[^>]*type="button"/);
@@ -240,7 +248,13 @@ describe('controls and form fields', () => {
     expectTypeOf<{ icon: 'x' }>().not.toExtend<ComponentProps<typeof IconButton>>();
   });
 
-  it('form row links label, hint and error to the field', () => {
+  it.each([
+    { tag: 'textarea', field: () => createElement(TextArea, { value: 'draft', onChange }) },
+    {
+      tag: 'input',
+      field: () => createElement(TextInput, { value: 'draft', onChange, label: 'Commit' }),
+    },
+  ])('form row links label, hint and error to the $tag field', ({ tag, field }) => {
     const hint = 'The agent reads it on its next turn';
     const error = 'Not sent: the daemon did not answer.';
     const row = (note: { hint: string } | { hint: string; error: string }) =>
@@ -249,31 +263,33 @@ describe('controls and form fields', () => {
           label: 'Answer B89',
           ...note,
           actions: createElement(Button, { children: 'Send' }),
-          children: createElement(TextArea, { value: 'draft', onChange: () => undefined }),
+          children: field(),
         }),
       );
+    const fieldTag = (html: string) => new RegExp(`<${tag}[^>]*>`).exec(html)?.[0] ?? '';
     for (const [html, text] of [
       [row({ hint }), hint],
       [row({ hint, error }), error],
     ] as const) {
       const id = attribute(html, 'for');
       expect(id).toBeDefined();
-      expect(attribute(/<textarea[^>]*>/.exec(html)?.[0] ?? '', 'id')).toBe(id);
-      const describedBy = attribute(html, 'aria-describedby') ?? '';
+      expect(attribute(fieldTag(html), 'id')).toBe(id);
+      expect(fieldTag(html)).not.toContain('aria-label');
+      const describedBy = attribute(fieldTag(html), 'aria-describedby') ?? '';
       expect(html).toMatch(
         new RegExp(`<p[^>]*id="${escapeRegExp(describedBy)}"[^>]*>${escapeRegExp(text)}</p>`),
       );
-      expect(html).toContain('>draft</textarea>');
-      const order = ['<label', '<textarea', text, '<button'].map((part) => html.indexOf(part));
+      expect(html).toContain('draft');
+      const order = ['<label', `<${tag}`, text, '>Send</button>'].map((part) => html.indexOf(part));
       expect(
         order.every((at, index) => at >= 0 && (index === 0 || at > (order[index - 1] ?? 0))),
       ).toBe(true);
     }
     const plain = row({ hint });
-    expect(plain).not.toContain('aria-invalid');
+    expect(fieldTag(plain)).not.toContain('aria-invalid');
     expect(plain).not.toContain('role="alert"');
     const failed = row({ hint, error });
-    expect(failed).toContain('aria-invalid="true"');
+    expect(fieldTag(failed)).toContain('aria-invalid="true"');
     expect(failed).toContain('role="alert"');
     expect(failed).not.toContain(hint);
   });
@@ -291,6 +307,7 @@ describe('controls and form fields', () => {
         }),
       );
     const empty = input('');
+    expect(/<input[^>]*>/.exec(empty)?.[0]).not.toMatch(/ id=|aria-describedby|aria-invalid/);
     expect(empty).not.toContain('aria-label="Clear"');
     expect(empty).toContain('aria-label="Filter tasks"');
     expect(empty).toContain('placeholder="Task key, session or block id"');

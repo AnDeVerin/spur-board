@@ -15,8 +15,9 @@ export function useFormRowField(): FormRowField | undefined {
 
 /**
  * A labelled field row: label, the field, a hint or an error line, then the actions. The field
- * inside (a TextArea) takes its id and `aria-describedby` from the row. An `error` replaces the
- * hint and never touches the field's value. The row is a `div`; the screen owns the `<form>`.
+ * inside (a TextArea or TextInput) takes its id and `aria-describedby` from the row. An `error`
+ * replaces the hint and never touches the field's value. The row is a `div`; the screen owns the
+ * `<form>`.
  */
 export function FormRow({
   label,

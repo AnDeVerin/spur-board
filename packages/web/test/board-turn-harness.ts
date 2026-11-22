@@ -132,16 +132,17 @@ export const form = () => {
 export const text = () => turnSection().textContent;
 export const summary = () =>
   turnSection().querySelector('[id$="-title"]')?.nextElementSibling?.textContent;
-export const commit = () => {
-  const found = turnSection().querySelector<HTMLInputElement>('input[aria-label="Commit"]');
-  if (!found) throw new Error('no Commit field');
+/** The input a row `<label>` names through its `for`, so a lookup proves the link. */
+const labelled = (name: string) => {
+  const label = [...turnSection().querySelectorAll('label')].find(
+    (candidate) => candidate.textContent === name,
+  );
+  const found = label?.htmlFor ? document.getElementById(label.htmlFor) : null;
+  if (!(found instanceof HTMLInputElement)) throw new Error(`no ${name} field`);
   return found;
 };
-export const source = () => {
-  const found = turnSection().querySelector<HTMLInputElement>('input[aria-label="Carried from"]');
-  if (!found) throw new Error('no Carried from field');
-  return found;
-};
+export const commit = () => labelled('Commit');
+export const source = () => labelled('Carried from');
 export const reason = () => {
   const found = turnSection().querySelector('textarea');
   if (!found) throw new Error('no Reason field');
