@@ -25,7 +25,7 @@ Header, left to right:
   `No session to ring for <column>`, its Spur project, the turns waiting, the oldest one's `T<n>`
   and age, and its minutes without one, then its action and
   `It clears itself when a session appears.` It closes the inbox and opens that column's help on
-  **Who** (choosing its project, scrolling its head into view), which links the oldest turn's task;
+  **Who** (choosing its project, its head in view), which links the oldest turn's task;
   a spine opens the task. Cleared, it moves to handled as `Had no session to ring for <column>`, in
   the past tense with the oldest `T<n>` and no action, and opens that task. A re-raise for the same
   column replaces it. Text it cannot read keeps the plain row, which also drops the action once
