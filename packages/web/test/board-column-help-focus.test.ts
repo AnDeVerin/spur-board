@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 // Column help closes when focus leaves its head and panel, so at most one panel is open on the
 // board and none stays over the Inbox. One header surface is open at most: opening a column's
-// sort menu closes column help and opening help closes a sort menu (#838). Split from
-// board-column-help.test.ts for its size.
+// sort menu closes column help and opening help closes a sort menu (#838); the surface that held
+// focus hands it to its trigger, and a sort control that goes with the last task leaves no menu to
+// reopen. Split from board-column-help.test.ts for its size.
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import styles from '../src/board/Columns.module.css';
-import { daemon, envelope, hello, row, status, type Daemon } from './board-fixtures.ts';
+import { config, daemon, envelope, hello, row, status, type Daemon } from './board-fixtures.ts';
 import { all, mount, mountEachTest, press, serve, settle } from './board-harness.ts';
 
 mountEachTest();
@@ -206,15 +207,39 @@ describe('one header surface at a time', () => {
     expect(document.activeElement).toBe(letter('review'));
   });
 
-  it.each(['review', 'dev'])(
-    'a hover open of %s moves focus from the help panel to its trigger',
-    async (id) => {
+  // Whichever surface held focus unmounts when a hover takes the slot: focus goes to its trigger.
+  it.each([
+    {
+      path: 'help, then a hover on its own letter',
+      hovered: 'review',
+      trigger: () => actor('review'),
+    },
+    {
+      path: 'help, then a hover on another letter',
+      hovered: 'dev',
+      trigger: () => actor('review'),
+    },
+    { path: 'a sort menu opened by ArrowDown', hovered: 'dev', trigger: () => letter('review') },
+    { path: 'a sort menu opened by a click', hovered: 'dev', trigger: () => letter('review') },
+  ])(
+    '$path, then a hover open: focus moves to the closed surface trigger',
+    async ({ path, hovered, trigger }) => {
       await reviewHelp();
-      hover(letter(id));
+      if (path.includes('ArrowDown')) {
+        act(() => {
+          letter('review').focus();
+        });
+        press(letter('review'), 'keydown', { key: 'ArrowDown' });
+      } else if (path.includes('click')) press(letter('review'), 'click', { detail: 1 });
       await settle();
-      expect(document.activeElement).toBe(actor('review'));
+      if (path.startsWith('a sort'))
+        expect(document.activeElement?.getAttribute('aria-checked')).toBe('true');
+      hover(letter(hovered));
+      await settle();
+      expect(document.activeElement).toBe(trigger());
       expect(dialogs()).toHaveLength(0);
-      expect(letter(id).getAttribute('aria-expanded')).toBe('true');
+      expect(menus()).toHaveLength(1);
+      expect(letter(hovered).getAttribute('aria-expanded')).toBe('true');
     },
   );
 
@@ -301,6 +326,51 @@ describe('one header surface at a time', () => {
     await invalidate();
     expect(letter('dev').textContent).toBe('T');
     expect(dialogs()).toHaveLength(0);
+    expect(menus()).toHaveLength(0);
+  });
+
+  it('a folded section that empties under its open sort menu does not reopen it on refill', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const [a, b] = config.projects;
+    if (!a || !b) throw new Error('fixture config has two projects');
+    const columns = [
+      { id: 'todo', executor: { kind: 'dispatcher', name: null }, group: 'todo' },
+      { id: 'ready-for-dev', executor: { kind: 'dispatcher', name: null }, group: 'todo' },
+      { id: 'dev', executor: { kind: 'worker', name: null } },
+    ];
+    const backlog = {
+      ...config,
+      projects: [
+        { ...a, columns },
+        { ...b, columns },
+      ],
+    };
+    const d: Daemon = daemon();
+    const full = [row('T-1', 'todo'), row('R-1', 'ready-for-dev'), row('D-1', 'dev')];
+    serve(d, full, backlog);
+    let rows = full;
+    d.routes['status.get'] = () => Promise.resolve(envelope(status(rows)));
+    mount(d, { 'board-fold:a:todo': 'folded' });
+    await settle();
+    d.send(hello);
+    await settle();
+    press(letter('todo'), 'click', { detail: 1 });
+    await settle();
+    expect(letter('todo').getAttribute('aria-expanded')).toBe('true');
+    const invalidate = async () => {
+      d.send(`event: invalidate\ndata: ${JSON.stringify({ projects: ['a'], tasks: [] })}\n\n`);
+      await settle();
+      await act(() => vi.advanceTimersByTimeAsync(400));
+      await settle();
+    };
+    rows = full.filter((task) => task.key !== 'T-1');
+    await invalidate();
+    // The section head stays; only its sort control goes.
+    expect(all('main h3').map((label) => label.textContent)).toContain('todo');
+    expect(menus()).toHaveLength(0);
+    rows = full;
+    await invalidate();
+    expect(letter('todo').getAttribute('aria-expanded')).toBe('false');
     expect(menus()).toHaveLength(0);
   });
 });

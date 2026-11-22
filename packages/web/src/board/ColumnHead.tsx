@@ -68,9 +68,10 @@ export type HeadSurface = { owner: string; kind: 'help' | 'sort' } | null;
  *
  * `surface` holds the one help panel or sort menu open on the board: opening either, by any
  * trigger, hover included, closes the other, and a close clears only its own surface. Help sits at
- * the panel layer, under the sort menu. When another surface closes this help while focus was
- * inside its panel and that focus is lost, focus moves to the trigger; a menu opened by click or
- * key then moves it on to its checked item.
+ * the panel layer, under the sort menu. When another surface closes this head's help or sort menu
+ * while focus was inside it and that focus is lost, focus moves to its trigger, the help trigger
+ * or the sort letter; a menu opened by click or key then moves it on to its checked item. The
+ * sort menu closes when its control goes with the column's last task.
  */
 export function ColumnHead({
   column,
@@ -127,23 +128,32 @@ export function ColumnHead({
     [change],
   );
   const scope = useHelpScope(open, setOpen);
-  // Whether the last focus inside the scope was in the panel rather than the head.
-  const inPanel = useRef(false);
-  const wasOpen = useRef(open);
+  // The surface the last focus inside the scope was in: the help panel, the sort menu or neither.
+  const focusIn = useRef<'help' | 'sort' | null>(null);
+  const was = useRef({ help: open, sort: sortOpen });
   // Before the passive effects: a menu opened by click or key moves focus on after this.
   useLayoutEffect(() => {
+    const now = { help: open, sort: sortOpen };
+    const kind = focusIn.current;
     const active = document.activeElement;
     if (
-      wasOpen.current &&
-      !open &&
+      kind !== null &&
+      was.current[kind] &&
+      !now[kind] &&
       surface !== null &&
-      inPanel.current &&
       (active === null || active === document.body || !active.isConnected)
     )
-      actor.current?.focus({ preventScroll: true });
-    wasOpen.current = open;
-    if (!open) inPanel.current = false;
-  }, [open, surface]);
+      (kind === 'help'
+        ? actor.current
+        : head.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]')
+      )?.focus({ preventScroll: true });
+    was.current = now;
+    if (kind !== null && !now[kind]) focusIn.current = null;
+  }, [open, sortOpen, surface]);
+  // The sort control goes with the last task; its menu must not reopen when a task returns.
+  useEffect(() => {
+    if (sortOpen && column.rows.length === 0) change('sort', false);
+  }, [sortOpen, column.rows.length, change]);
   const [tab, setTab] = useState<HelpTab>('who');
   const tabsId = useId();
   const [oldest, setOldest] = useState<OldestTurn | undefined>(undefined);
@@ -173,7 +183,11 @@ export function ColumnHead({
       ref={scope}
       className={styles.helpScope}
       onFocus={(event) => {
-        inPanel.current = !(head.current?.contains(event.target) ?? false);
+        focusIn.current = !(head.current?.contains(event.target) ?? false)
+          ? 'help'
+          : head.current?.querySelector('[role="menu"]')?.contains(event.target)
+            ? 'sort'
+            : null;
       }}
     >
       <div ref={head} className={classes(styles.head, quiet)}>
