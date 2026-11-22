@@ -188,3 +188,17 @@ it('keeps the drop line above the first card inside the column scrollport', () =
   );
   expect(declarations('board/Columns.module.css', '.groupCards', false).gap).toBe('var(--space-2)');
 });
+
+it('keeps the drop line below the last card inside a scrolled column', () => {
+  // Scrolled to the bottom, the last card ends one padding above the scrollport edge. The gap
+  // plus the shared negative top margin would put the line below that edge, so as the last
+  // child of .body or .groupCards it takes the whole gap back and sits right under the card.
+  expect(declarations('board/Columns.module.css', '.dropLine:last-child', false)).toEqual({
+    margin: 'calc(-1 * var(--space-2)) 0 0',
+  });
+  expect(declarations('board/Columns.module.css', '.body', false)).toMatchObject({
+    gap: 'var(--space-2)',
+    padding: 'calc(2 * var(--space-0-25))',
+  });
+  expect(declarations('board/Columns.module.css', '.groupCards', false).gap).toBe('var(--space-2)');
+});

@@ -373,6 +373,12 @@
 .dropLine:first-child {
   margin: 0 0 calc(-1 * var(--space-2));
 }
+/* Below the last card the gap and the negative top margin would put the line under the
+   scrollport's bottom edge once the column is scrolled to the end. It takes the card gap back
+   from above and sits right under the card, so the scroll height grows by its height only. */
+.dropLine:last-child {
+  margin: calc(-1 * var(--space-2)) 0 0;
+}
 /* Why a drag in Time or Key moved nothing, with the way to Manual. */
 .hint {
   flex: none;
