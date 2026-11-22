@@ -172,3 +172,19 @@ it('times the moved tint by --duration-pulse in CSS and in the timer, without it
     /animation:\s*none;/,
   );
 });
+
+it('keeps the drop line above the first card inside the column scrollport', () => {
+  // Between cards the line sits in the card gap, centred by its negative margins.
+  expect(declarations('board/Columns.module.css', '.dropLine', false)).toMatchObject({
+    height: 'var(--size-rail)',
+    margin: 'calc(-1 * var(--space-1)) 0',
+  });
+  // As the first child of .body or .groupCards a negative top margin would clip it.
+  expect(declarations('board/Columns.module.css', '.dropLine:first-child', false)).toEqual({
+    margin: '0 0 calc(-1 * var(--space-2))',
+  });
+  expect(declarations('board/Columns.module.css', '.body', false).padding).toBe(
+    'calc(2 * var(--space-0-25))',
+  );
+  expect(declarations('board/Columns.module.css', '.groupCards', false).gap).toBe('var(--space-2)');
+});

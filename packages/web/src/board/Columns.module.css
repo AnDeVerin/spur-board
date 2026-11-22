@@ -367,6 +367,12 @@
   margin: calc(-1 * var(--space-1)) 0;
   background: var(--color-status-working);
 }
+/* Above the first card the line has no gap to sit in: a negative top margin would put it above
+   the scrollport, clipped. It starts at the top and takes the card gap from below instead, so the
+   cards move by its height as they do between cards. */
+.dropLine:first-child {
+  margin: 0 0 calc(-1 * var(--space-2));
+}
 /* Why a drag in Time or Key moved nothing, with the way to Manual. */
 .hint {
   flex: none;
