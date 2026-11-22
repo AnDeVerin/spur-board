@@ -37,7 +37,11 @@ Slack is optional. To run without it, skip the Slack app and leave `operator` an
 Spur project with role `operator` is the operator: questions addressed to you wait in
 `board inbox operator` and the web inbox. Items and blocks raised while Slack is off get no Slack
 line when you add Slack later. Add `operator.slack` back before `board rollback` to a version
-that requires it. To use Slack, read on.
+that requires it. Without Slack, skip [Slack app](#slack-app) and continue at
+[Configuration and secrets](#configuration-and-secrets); the rest of this section applies either
+way.
+
+### Slack app
 
 Choose private channels for the orchestrators and feed roles. The app must be invited before it
 can see a private channel. The example names `#orchestrators` and `#board-feed` are defaults,
@@ -63,9 +67,13 @@ board slack manifest --app-name acme-board --command /acme-board
 The manifest does not create the app-level token. Create one with `connections:write` in the
 app settings. Install the app to the workspace to obtain its bot token (`xoxb-…`); put that
 value in `SLACK_BOT_TOKEN`. Put the app-level `connections:write` token (`xapp-…`) in
-`SLACK_APP_TOKEN`. Store channel IDs, the chosen app name and slash command, project details,
-and the operator's Slack user ID in `config.yaml`. For example, replace every placeholder with
-your own values:
+`SLACK_APP_TOKEN`.
+
+### Configuration and secrets
+
+Store project details in `config.yaml`. With Slack, also store the channel IDs, the chosen app
+name and slash command, and the operator's Slack user ID; without Slack, leave out the `operator`
+and `slack` blocks of the example. For example, replace every placeholder with your own values:
 
 ```yaml
 projects:
@@ -188,7 +196,8 @@ an operator session outside Spur, choose a folder and request a named token ther
 board token create --name <name> --into <folder>
 ```
 
-Without Slack, use a Spur project marked `operator`: a token request needs Slack approval.
+Without Slack, use a Spur project marked `operator`: a token request needs Slack approval. A token
+approved while Slack was on keeps working after Slack is removed, until `board token revoke`.
 Approve the request in Slack before using the token; the Slack prompt shows the same
 `requestHash` the command printed, so approve only a request whose hash matches. The CLI looks for the folder's
 `.spur-board/token` while walking upward from the current directory, stopping at the root of

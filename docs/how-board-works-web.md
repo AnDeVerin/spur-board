@@ -50,7 +50,7 @@ adjacent Todo-group columns show under one Backlog band that folds into one colu
 `done` lists every done task. The status bar holds one health button per service (daemon,
 slack when a Slack gateway is configured, github, spur, and jira when configured), coloured from the `services` rows of
 `status.get`, the persistent Light/Dark/Auto theme choice and the daemon version; its services
-panel (`?open=services`) shows daemon, host, gateway and spur rows, then per-source rows grouped by project, from the same read. It uses local JetBrains Mono fonts and the
+panel (`?open=services`) shows daemon and host rows, a gateway row when a Slack gateway is configured, and a spur row, then per-source rows grouped by project, from the same read. It uses local JetBrains Mono fonts and the
 V1 prototype tokens. Failed reads keep the last good data on screen under an error banner with
 its time; stream failures reconnect with capped backoff and show offline after five failed
 attempts while continuing recovery. Reconnects retain valid SSE cursors, including ID-only
