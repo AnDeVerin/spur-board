@@ -7,6 +7,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { openStore, requestToken } from '@spur-board/core';
 import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
@@ -629,8 +630,23 @@ describe('daemon process', () => {
       await store.close();
       // The systemd user manager's PATH has no ~/.local/bin, where Spur installs its CLI.
       const child = spawnDaemon(home, { PATH: '/usr/bin:/bin' });
+      // Each completed sender tick logs one `outbox.tick` external call.
+      const ticks: string[] = [];
+      createInterface({ input: child.stdout }).on('line', (line) => {
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          return;
+        }
+        if (parsed['call'] === 'outbox.tick') ticks.push(String(parsed['outcome']));
+      });
       await waitForLine(child, 'daemon ready');
       await expect.poll(() => sends.length, { timeout: 10_000 }).toBeGreaterThan(0);
+      // The issue asks for no Slack rows over several ticks, not just up to the first doorbell.
+      const ticksAtSend = ticks.length;
+      await expect.poll(() => ticks.length - ticksAtSend, { timeout: 10_000 }).toBeGreaterThan(2);
+      expect(ticks.filter((outcome) => outcome !== 'ok')).toEqual([]);
       const exited = once(child, 'exit');
       child.kill('SIGTERM');
       expect((await exited)[0]).toBe(0);
