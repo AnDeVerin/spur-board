@@ -6,6 +6,7 @@ import { ProblemError } from '../lib/api.ts';
 import type { BoardData, BoardSnapshot } from './data.ts';
 import { BoardUnavailableError } from './intents.ts';
 import { open } from './Card.tsx';
+import type { HelpRequest } from './ColumnHelp.tsx';
 import { openHref, shortKey } from './model.ts';
 import { age } from './task-model.ts';
 import styles from './InboxPanel.module.css';
@@ -87,6 +88,7 @@ export function InboxPanel({
   now,
   onClose,
   onOpen,
+  onColumnHelp,
   closeItem,
 }: {
   snapshot: BoardSnapshot;
@@ -95,6 +97,8 @@ export function InboxPanel({
   now: number;
   onClose: () => void;
   onOpen: (entry: Entry) => void;
+  /** An active no-session row asks for its column's help, on Who. */
+  onColumnHelp: (request: HelpRequest) => void;
   closeItem: BoardData['closeItemIntent'];
 }) {
   const [selected, select] = useState('all');
@@ -304,6 +308,27 @@ export function InboxPanel({
     );
     const className = `${styles.row ?? ''} ${quiet} ${focusRing}`;
     const url = entry.url === undefined ? null : safeExternalUrl(entry.url);
+    // An active no-session row opens its column's help, which links the oldest waiting turn.
+    const { task } = entry;
+    if (!handled && known !== undefined && task !== null)
+      return (
+        <button
+          type="button"
+          className={className}
+          aria-haspopup="dialog"
+          data-inbox-id={entry.id}
+          onClick={() => {
+            onColumnHelp({
+              project: entry.project,
+              column: known.column,
+              task,
+              turn: known.oldest?.turn,
+            });
+          }}
+        >
+          {content}
+        </button>
+      );
     if (entry.task === null && url !== null)
       return (
         <a

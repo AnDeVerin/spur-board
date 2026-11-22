@@ -59,6 +59,7 @@ describe('inbox task navigation without configuration', () => {
             now: 0,
             onClose: () => undefined,
             onOpen: () => undefined,
+            onColumnHelp: () => undefined,
             closeItem: () => ({ run: () => Promise.resolve() }),
           }),
         );

@@ -10,8 +10,9 @@ import {
 } from '../ds/index.ts';
 import { sessionLinkHref } from '../lib/links.ts';
 import { age } from './card.ts';
+import { open } from './Card.tsx';
 import type { BoardColumns, ColumnsState } from './columns-data.ts';
-import { frozenDetail, type BoardColumn, type MirrorSource } from './model.ts';
+import { frozenDetail, openHref, shortKey, type BoardColumn, type MirrorSource } from './model.ts';
 import { conditionWords } from './task-model.ts';
 import styles from './ColumnHelp.module.css';
 
@@ -21,6 +22,20 @@ type Session = NonNullable<DescribedColumn['executor']['session']>;
 
 /** The tabs of a column help panel, Who first. */
 export type HelpTab = 'who' | 'rules';
+
+/**
+ * An inbox no-session row asks to open a column's help on Who: the column of `project`, the task
+ * of its oldest waiting turn and that turn's id when the row names it.
+ */
+export interface HelpRequest {
+  project: string;
+  column: string;
+  task: string;
+  turn?: string | undefined;
+}
+
+/** The oldest waiting turn the Who tab links, from the inbox row that opened the panel. */
+export type OldestTurn = Pick<HelpRequest, 'task' | 'turn'>;
 
 const classes = (...names: (string | undefined)[]) => names.filter(Boolean).join(' ');
 
@@ -325,6 +340,8 @@ export function ColumnHelp({
   columns,
   now,
   spurUiOrigin,
+  oldest,
+  onOpen,
 }: {
   column: BoardColumn;
   part: boolean;
@@ -334,6 +351,10 @@ export function ColumnHelp({
   /** The time of the last good read: a mirror's read age counts to it. */
   now: number | undefined;
   spurUiOrigin: string | null;
+  /** Linked above the Who body, whatever state the read is in. */
+  oldest?: OldestTurn | undefined;
+  /** A plain click on the oldest turn's link opens its task. */
+  onOpen?: ((key: string) => void) | undefined;
 }) {
   const help = columns?.help;
   const loading = help === undefined || help === 'loading';
@@ -371,6 +392,20 @@ export function ColumnHelp({
   else body = <RulesHelp project={described.project} column={described.column} />;
   return (
     <TabPanel tabsId={tabsId} value={tab}>
+      {tab === 'who' && oldest !== undefined && (
+        <p className={styles.oldest}>
+          <a
+            className={focusRing}
+            href={openHref(oldest.task)}
+            onClick={(event) => {
+              open(event, oldest.task, onOpen ?? (() => undefined));
+            }}
+          >
+            Oldest waiting turn {oldest.turn === undefined ? '' : `${oldest.turn} `}on{' '}
+            {shortKey(oldest.task)}
+          </a>
+        </p>
+      )}
       <div aria-busy={loading ? true : undefined}>{body}</div>
     </TabPanel>
   );

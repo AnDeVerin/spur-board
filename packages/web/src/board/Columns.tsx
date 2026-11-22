@@ -2,6 +2,7 @@ import { useId, useRef, useState, type ReactNode } from 'react';
 import { Button, focusRing, Icon, quiet, Skeleton, StatusDot, TextToggle } from '../ds/index.ts';
 import { age } from './card.ts';
 import { ColumnHead, MirrorNotice } from './ColumnHead.tsx';
+import type { HelpRequest } from './ColumnHelp.tsx';
 import type { ColumnsState } from './columns-data.ts';
 import {
   boardLayout,
@@ -88,6 +89,10 @@ interface Shared {
   columns: ColumnsState | undefined;
   /** A column help panel opened: read `columns.describe` again. */
   onHelpOpen: () => void;
+  /** An inbox row asks this column's head to open its help; null otherwise. */
+  helpRequest: HelpRequest | null;
+  /** The head opened its help for `helpRequest`. */
+  onHelpTaken: () => void;
 }
 
 /** A column's order, read once from `sorts` and stored on each change. */
@@ -163,6 +168,9 @@ function Column({
         now={now}
         spurUiOrigin={shared.spurUiOrigin}
         onHelpOpen={shared.onHelpOpen}
+        helpRequest={shared.helpRequest}
+        onHelpTaken={shared.onHelpTaken}
+        onOpen={shared.onOpen}
       />
       {part && <MirrorNotice column={column} />}
       {column.id === 'done' ? (
@@ -210,6 +218,9 @@ function GroupSection({ column, band, ...shared }: { column: BoardColumn; band: 
         now={shared.now}
         spurUiOrigin={shared.spurUiOrigin}
         onHelpOpen={shared.onHelpOpen}
+        helpRequest={shared.helpRequest}
+        onHelpTaken={shared.onHelpTaken}
+        onOpen={shared.onOpen}
       />
       <MirrorNotice column={column} />
       {dropNote(band, column.id)}
@@ -313,6 +324,8 @@ export function Columns({
   moveUnavailable,
   columns,
   onHelpOpen,
+  helpRequest,
+  onHelpTaken,
 }: {
   view: ColumnsView;
   /** Each column's order; a click reorders that column only. */
@@ -335,6 +348,10 @@ export function Columns({
   columns: ColumnsState | undefined;
   /** A column help panel opened. */
   onHelpOpen: () => void;
+  /** An inbox row asks a column head to open its help; null otherwise. */
+  helpRequest: HelpRequest | null;
+  /** The head opened its help for `helpRequest`. */
+  onHelpTaken: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const listId = useId();
@@ -348,6 +365,8 @@ export function Columns({
     onOpen,
     columns,
     onHelpOpen,
+    helpRequest,
+    onHelpTaken,
   };
   switch (view.kind) {
     case 'failed':

@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Banner, focusRing, Icon, Popover, quiet, Tabs } from '../ds/index.ts';
 import {
   actorIcon,
@@ -6,7 +6,9 @@ import {
   describedColumn,
   noLiveSession,
   useHelpScope,
+  type HelpRequest,
   type HelpTab,
+  type OldestTurn,
 } from './ColumnHelp.tsx';
 import type { ColumnsState } from './columns-data.ts';
 import {
@@ -45,7 +47,9 @@ export function MirrorNotice({ column }: { column: BoardColumn }) {
  * the trigger of the column help panel, which sits right after the head and follows it. Focus
  * moving anywhere outside the head and its panel closes the panel: a keyboard user tabbing to
  * the Inbox button or to another column's trigger leaves no panel open behind them, so at most
- * one panel is open and none stays over the Inbox.
+ * one panel is open and none stays over the Inbox. A `helpRequest` for this column, from an inbox
+ * row, opens the panel on Who as the trigger would, scrolls the head into view and links the
+ * request's oldest waiting turn; `onHelpTaken` then clears the request.
  */
 export function ColumnHead({
   column,
@@ -56,6 +60,9 @@ export function ColumnHead({
   now,
   spurUiOrigin,
   onHelpOpen,
+  helpRequest,
+  onHelpTaken,
+  onOpen,
 }: {
   column: BoardColumn;
   part: boolean;
@@ -65,6 +72,9 @@ export function ColumnHead({
   now: number | undefined;
   spurUiOrigin: string | null;
   onHelpOpen: () => void;
+  helpRequest: HelpRequest | null;
+  onHelpTaken: () => void;
+  onOpen: (key: string) => void;
 }) {
   const Label = part ? 'h3' : 'h2';
   const head = useRef<HTMLDivElement>(null);
@@ -73,6 +83,18 @@ export function ColumnHead({
   const scope = useHelpScope(open, setOpen);
   const [tab, setTab] = useState<HelpTab>('who');
   const tabsId = useId();
+  const [oldest, setOldest] = useState<OldestTurn | undefined>(undefined);
+  useEffect(() => {
+    if (helpRequest?.column !== column.id) return;
+    // The trigger takes focus first, so the panel moves it on to Close as for a click.
+    actor.current?.focus({ preventScroll: true });
+    head.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    setTab('who');
+    setOldest({ task: helpRequest.task, turn: helpRequest.turn });
+    setOpen(true);
+    onHelpOpen();
+    onHelpTaken();
+  }, [helpRequest, column.id, onHelpOpen, onHelpTaken]);
   const frozen = part ? mirrorFrozen(column) : undefined;
   let title = `How ${column.id} works: who acts and the rules`;
   let warn: string | undefined;
@@ -107,6 +129,7 @@ export function ColumnHead({
                 return;
               }
               setTab('who');
+              setOldest(undefined);
               setOpen(true);
               onHelpOpen();
             }}
@@ -146,6 +169,8 @@ export function ColumnHead({
           columns={columns}
           now={now}
           spurUiOrigin={spurUiOrigin}
+          oldest={oldest}
+          onOpen={onOpen}
         />
       </Popover>
     </div>

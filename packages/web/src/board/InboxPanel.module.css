@@ -17,6 +17,18 @@
   color: var(--color-text-primary);
   overflow-wrap: anywhere;
 }
+/* A no-session row is a button: it keeps the row's box, text and colour. */
+button.row {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  text-align: start;
+  cursor: pointer;
+  appearance: none;
+}
 .entry:hover {
   background: var(--color-row-hover);
 }

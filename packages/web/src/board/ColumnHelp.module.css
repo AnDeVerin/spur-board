@@ -80,3 +80,11 @@
 .state {
   padding-top: var(--space-2);
 }
+/* The oldest waiting turn an inbox row opened the panel for, above the Who body. */
+.oldest {
+  margin: 0;
+  padding-top: var(--space-2);
+}
+.oldest a {
+  color: var(--color-text-primary);
+}

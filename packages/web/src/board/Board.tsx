@@ -9,6 +9,7 @@ import {
   openHref,
   type BoardBanner,
 } from './model.ts';
+import type { HelpRequest } from './ColumnHelp.tsx';
 import { Columns, type ColumnsView } from './Columns.tsx';
 import { Header } from './Header.tsx';
 import { InboxPanel } from './InboxPanel.tsx';
@@ -39,6 +40,10 @@ function columnsView(snapshot: BoardSnapshot): ColumnsView {
     unknown: snapshot.status.tasks.filter((row) => !ids.has(row.column)),
   };
 }
+
+/** Whether the view shows a head for `column`: a column with tasks; a spine has none. */
+const hasHead = (view: ColumnsView, column: string) =>
+  view.kind === 'columns' && view.columns.some((c) => c.id === column && c.rows.length > 0);
 
 /** The ticket title comes from the held `status.get` row; the task view reads no other. */
 function taskTitle(snapshot: BoardSnapshot, task: TaskState): TaskTitle {
@@ -106,8 +111,12 @@ export function Board({ data }: { data: BoardData }) {
   const [pendingProject, setPendingProject] = useState(inboxProject);
   // The update banner's Reload was pressed and the page is about to go.
   const [reloadPressed, setReloadPressed] = useState(false);
+  // An inbox no-session row's column help, waiting for that project's columns and head.
+  const [helpRequest, setHelpRequest] = useState<HelpRequest | null>(null);
   const inboxTrigger = useRef<HTMLSpanElement>(null);
   const wasInboxOpen = useRef(inboxOpen);
+  // The inbox closed for a column help, which takes focus instead of the Inbox button.
+  const skipInboxFocus = useRef(false);
   // The task key whose card takes focus after close when the task view returned it nowhere.
   const closed = useRef<string | null>(null);
   useEffect(() => {
@@ -115,6 +124,7 @@ export function Board({ data }: { data: BoardData }) {
       setOpenKey(taskParam(location.search));
       setInboxOpen(inboxBackground());
       setPendingProject(inboxProject());
+      setHelpRequest(null);
     };
     addEventListener('popstate', onPop);
     return () => {
@@ -135,7 +145,9 @@ export function Board({ data }: { data: BoardData }) {
     data.open(openKey);
   }, [data, openKey]);
   useEffect(() => {
-    if (wasInboxOpen.current && !inboxOpen) inboxTrigger.current?.querySelector('button')?.focus();
+    if (wasInboxOpen.current && !inboxOpen && !skipInboxFocus.current)
+      inboxTrigger.current?.querySelector('button')?.focus();
+    skipInboxFocus.current = false;
     wasInboxOpen.current = inboxOpen;
   }, [inboxOpen]);
   const onHistory = useCallback(
@@ -159,6 +171,38 @@ export function Board({ data }: { data: BoardData }) {
   }, [task, inboxOpen]);
   const list = banners(snapshot);
   const view = columnsView(snapshot);
+  const requested =
+    helpRequest !== null && snapshot.project === helpRequest.project ? helpRequest : null;
+  const requestedHead = requested !== null && hasHead(view, requested.column);
+  // Once the requested project's view settles without the column's head, the task opens from
+  // the board instead; a failed read drops the request and its banner stays.
+  useEffect(() => {
+    if (requested === null || requestedHead || view.kind === 'loading') return;
+    setHelpRequest(null);
+    if (view.kind === 'failed') return;
+    history.pushState(null, '', openHref(requested.task));
+    setOpenKey(requested.task);
+  }, [requested, requestedHead, view.kind]);
+  const openFromInbox = (project: string, task: string) => {
+    setPendingProject(project);
+    history.pushState({ inbox: true, project }, '', openHref(task));
+    setOpenKey(task);
+  };
+  const onColumnHelp = (request: HelpRequest) => {
+    const known = snapshot.config?.projects.some(({ id }) => id === request.project) === true;
+    const shown = snapshot.project === request.project && view.kind !== 'loading';
+    // No head to open in the shown project: the inbox stays and the task opens over it.
+    if (!known || (shown && !hasHead(view, request.column))) {
+      openFromInbox(request.project, request.task);
+      return;
+    }
+    history.pushState(null, '', withoutOpen());
+    skipInboxFocus.current = true;
+    setInboxOpen(false);
+    setOpenKey(null);
+    if (snapshot.project !== request.project) data.choose(request.project);
+    setHelpRequest(request);
+  };
   const project = snapshot.config?.projects.find(({ id }) => id === task?.value?.task.project);
   const boardBanner = (banner: BoardBanner) => (
     <Banner
@@ -201,6 +245,7 @@ export function Board({ data }: { data: BoardData }) {
         projects={snapshot.config?.projects}
         project={chosenProject(snapshot)}
         onChoose={(project) => {
+          setHelpRequest(null);
           data.choose(project);
         }}
         filter={filter}
@@ -211,6 +256,7 @@ export function Board({ data }: { data: BoardData }) {
         inboxOpen={inboxOpen}
         onInbox={() => {
           history.pushState(null, '', openHref('inbox'));
+          setHelpRequest(null);
           setInboxOpen(true);
           setOpenKey(null);
         }}
@@ -253,6 +299,10 @@ export function Board({ data }: { data: BoardData }) {
           onHelpOpen={() => {
             data.readColumns();
           }}
+          helpRequest={requestedHead ? requested : null}
+          onHelpTaken={() => {
+            setHelpRequest(null);
+          }}
         />
       </main>
       {inboxOpen && (
@@ -267,11 +317,9 @@ export function Board({ data }: { data: BoardData }) {
             setOpenKey(null);
           }}
           onOpen={(entry) => {
-            if (entry.task === null) return;
-            setPendingProject(entry.project);
-            history.pushState({ inbox: true, project: entry.project }, '', openHref(entry.task));
-            setOpenKey(entry.task);
+            if (entry.task !== null) openFromInbox(entry.project, entry.task);
           }}
+          onColumnHelp={onColumnHelp}
         />
       )}
       {task !== undefined && (

@@ -23,17 +23,18 @@ Header, left to right:
   with their answer channel when supplied. Supplied actions appear separately; an exact terminal
   `: <action>` is removed from the description. A column orchestrator with no live session reads
   `No session to ring for <column>`, its Spur project, the turns waiting, the oldest one's `T<n>`
-  and age, and how long it has had no live session, then its action and
-  `It clears itself when a session appears.`; it opens the oldest waiting turn's task and moves to
-  handled once it is cleared, reading `Had no session to ring for <column>` and saying in the past
-  tense its Spur project had no live session, with the oldest turn's `T<n>` and no action. A
-  re-raise for the same column replaces it; the earlier item is not listed. Text it cannot read
-  keeps the plain row, which also drops the action once handled. Before the first success, the panel
-  says inbox data is unavailable; later failures retain data. Task rows open above the retained
-  panel and select their project when config arrives. Task close focuses its row or panel Close if
-  removed; panel close focuses the header inbox button. Back/Forward follow these layers. Task-less
-  active and handled rows with a known HTTP(S) destination open it in a new tab on click or Enter,
-  retaining the inbox. Task navigation wins over a URL. Rows without a safe destination stay
+  and age, and its minutes without one, then its action and
+  `It clears itself when a session appears.` It closes the inbox and opens that column's help on
+  **Who** (choosing its project, scrolling its head into view), which links the oldest turn's task;
+  a spine opens the task. Cleared, it moves to handled as `Had no session to ring for <column>`, in
+  the past tense with the oldest `T<n>` and no action, and opens that task. A re-raise for the same
+  column replaces it. Text it cannot read keeps the plain row, which also drops the action once
+  handled. Before the first success, the panel says inbox data is unavailable; later failures retain
+  data. Task rows open above the retained panel and select their project when config arrives. Task
+  close focuses its row or panel Close if removed; panel close focuses the header inbox button.
+  Back/Forward follow these layers. Task-less active and handled rows with a known HTTP(S)
+  destination open it in a new tab on click or Enter, retaining the inbox. Task navigation wins over
+  a URL. Rows without a safe destination stay
   focusable. Each active item entry (`I<n>`) has a quiet `Close I<n>` below its
   row that sends one `item.close`, as Slack's Close does: a ledger item's block closes with it and a
   failed post stays unsent. Blocks, turns and handled entries have none. It reads `Closing I<n>`
@@ -46,8 +47,7 @@ Header, left to right:
 Columns follow configuration order:
 
 - Fitting rows centre; wider rows scroll horizontally from the left.
-- Columns are 320px wide, 248px at 760px or narrower. Card accent rails are 2px wide;
-  empty-column spines stay compact.
+- Columns are 320px wide, 248px at 760px or narrower. Card accent rails are 2px wide.
 - A column header shows name, task count and executor (kind, then name), then two sort buttons.
   `T`/`K` sorts by time in the column or by key; `↑`/`↓` reverses. `T ↑`, the default, puts the
   longest in the column first; `K ↑` the lowest key, numbers compared as numbers. Rows without a
