@@ -16,7 +16,8 @@ type OpId =
   | 'task.submit'
   | 'task.return'
   | 'task.move'
-  | 'task.order';
+  | 'task.order'
+  | 'task.wait';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
 export const envelope = (value: unknown) => Response.json({ ok: true, requestId: 'r1', value });
@@ -426,6 +427,7 @@ export function daemon(tasks: unknown[] = ROWS) {
       delete opened.answeredVia;
       return Promise.resolve(envelope({ task: taskGet().task, block: opened }));
     },
+    'task.wait': (input) => Promise.resolve(envelope({ turn: input['turn'], waits: 1 })),
     'item.close': (input) =>
       Promise.resolve(
         envelope({

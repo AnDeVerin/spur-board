@@ -32,12 +32,13 @@ describe('error catalog', () => {
     });
   });
 
-  it('pins the 31 codes in order, with HTTP status and exit code', () => {
+  it('pins the 40 codes in order, with HTTP status and exit code', () => {
     const table = Object.entries(ERRORS).map(([code, { status, exit }]) => [code, status, exit]);
     expect(table).toEqual([
       ['usage', 400, 2],
       ['wrong_id_kind', 400, 2],
       ['forbidden', 403, 1],
+      ['not_operator', 403, 1],
       ['not_found', 404, 1],
       ['not_implemented', 501, 1],
       ['block_not_open', 409, 1],
@@ -47,6 +48,7 @@ describe('error catalog', () => {
       ['turn_closed', 409, 1],
       ['not_turn_taker', 409, 1],
       ['turn_wait_limit', 409, 1],
+      ['no_active_wait', 409, 1],
       ['submit_basis_invalid', 409, 1],
       ['submit_source_not_tested', 409, 1],
       ['head_mismatch', 409, 1],

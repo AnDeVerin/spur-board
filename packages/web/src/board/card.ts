@@ -70,6 +70,15 @@ export interface TurnView {
 export const waitText = (wait: Pick<NonNullable<Turn['wait']>, 'reason' | 'wakesAt'>) =>
   `waiting: ${wait.reason}, wakes ${clockTime(wait.wakesAt)}`;
 
+/**
+ * The wait the card shows: a taken turn's, unless the operator token holds a turn addressed to
+ * the operator (that line reads as yours, with no wait).
+ */
+export function shownWait(turn: Pick<Turn, 'addressee' | 'taken' | 'wait'>) {
+  if (turn.taken === null) return undefined;
+  return turn.addressee === 'operator' && turn.taken.by === 'operator' ? undefined : turn.wait;
+}
+
 /** The turn line; null when no turn is open. */
 export function turnView(turn: Turn | null, now: number | undefined): TurnView | null {
   if (turn === null) return null;
@@ -97,11 +106,12 @@ export function turnView(turn: Turn | null, now: number | undefined): TurnView |
       tone: 'warn',
       hollow: false,
     };
-  if (turn.taken !== null && turn.wait !== undefined)
+  const wait = shownWait(turn);
+  if (wait !== undefined)
     return {
       ...common,
       kind: 'agent',
-      tail: waitText(turn.wait),
+      tail: waitText(wait),
       tone: 'working',
       hollow: false,
       waiting: true,

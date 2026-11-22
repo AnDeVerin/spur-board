@@ -359,6 +359,12 @@ async function setup(
       ),
     wait: (actor: ActorId, key: string, minutes: number, reason: string, turn = 'T1') =>
       apply(registry['task.wait'], { turn, for: minutes, reason }, actor, key),
+    /** `task.wait` on T1 with `input`, by default the end of its wait. */
+    endWait: (
+      actor: ActorId,
+      key: string,
+      input: { end?: boolean; for?: number; reason?: string } = { end: true },
+    ) => apply(registry['task.wait'], { turn: 'T1', ...input }, actor, key),
     inbox: (actor: ActorId) => query(registry['inbox.get'], {}, actor),
     move: (column: Exclude<ColumnId, 'done'>, actor: ActorId = 'operator', key = 'move-1') =>
       apply(
@@ -444,6 +450,12 @@ async function taken(options: Parameters<typeof setup>[0] = {}) {
   await ctx.ack(REV_1);
   return ctx;
 }
+
+/** The `source_key`s of the rings that tell a holder the operator ended its wait. */
+const endRings = async (ctx: Awaited<ReturnType<typeof setup>>) =>
+  (await ctx.store.db.selectFrom('notification').select('source_key').execute())
+    .map((row) => row.source_key)
+    .filter((key) => key.includes(':ended:'));
 
 /** `submitConfirmMs` past `AT`: when a pending submit stops waiting for a PR. */
 const PENDING_UNTIL = new Date(Date.parse(AT) + 180_000).toISOString();
@@ -3103,6 +3115,18 @@ describe('operator takeover', () => {
       },
     );
 
+    it('rings no operator session that ends its own wait, and rings it once when the token ends it', async () => {
+      const ctx = await setup({ reviewOrchestrator: 'operator' });
+      await ctx.openTurn();
+      await ctx.ack(OPS_1);
+      await ctx.wait(OPS_1, 'wait-1', 30, 'operator check');
+      await expect(ctx.endWait(OPS_1, 'end-1')).resolves.toEqual({ turn: 'T1', waits: 1 });
+      expect(await endRings(ctx)).toEqual([]);
+      await ctx.wait(OPS_1, 'wait-2', 30, 'operator check');
+      await ctx.endWait('operator', 'end-2');
+      expect(await endRings(ctx)).toEqual([`turn:1:ended:ops-1:${AT}`]);
+    });
+
     it.each(BINDINGS)(
       'refuses a worker ack of a %s operator turn with not_found',
       async (binding) => {
@@ -3262,6 +3286,89 @@ describe('task.wait', () => {
     expect((await ends(ctx)).at(-1)?.payload).toMatchObject({ turn: 'T1', outcome });
   });
 
+  it('ends the active wait for the operator and replays a repeat with the same key', async () => {
+    for (const actor of ['operator', OPS_1] as const) {
+      const ctx = await taken();
+      await ctx.wait(REV_1, 'wait-1', 30, REASON);
+      await expect(ctx.endWait(actor, 'end-1')).resolves.toEqual({ turn: 'T1', waits: 1 });
+      expect(await ctx.turn()).toMatchObject({
+        wait_until: null,
+        wait_ended_at: AT,
+        wait_count: 1,
+        waited_ms: 0,
+        acked_by: REV_1,
+        closed_at: null,
+      });
+      expect(await ends(ctx)).toEqual([
+        {
+          kind: 'turn_wait_ended',
+          payload: { turn: 'T1', outcome: 'ended', waitedMs: 0, waits: 1 },
+        },
+      ]);
+      expect(await endRings(ctx)).toEqual([`turn:1:ended:rev-1:${AT}`]);
+      const after = await ctx.tables();
+      await expect(ctx.endWait(actor, 'end-1')).resolves.toEqual({ turn: 'T1', waits: 1 });
+      expect(await ctx.tables()).toEqual(after);
+    }
+  });
+
+  it('refuses an end by a non-operator, with no wait, on a closed or archived turn and with bad input, writing nothing', async () => {
+    const refuses = async (
+      ctx: Awaited<ReturnType<typeof setup>>,
+      call: () => Promise<unknown>,
+      code: string,
+    ) => {
+      const before = await ctx.tables();
+      await expect(call()).rejects.toMatchObject({ code });
+      // A denied grant journals only `operation_denied`.
+      expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(before));
+      if (code !== 'forbidden') expect(await ctx.tables()).toEqual(before);
+    };
+
+    const ctx = await taken();
+    await ctx.wait(REV_1, 'wait-1', 30, REASON);
+    await refuses(ctx, () => ctx.endWait(REV_1, 'e-holder'), 'not_operator');
+    await refuses(ctx, () => ctx.endWait(REV_2, 'e-other'), 'not_operator');
+    await refuses(ctx, () => ctx.endWait(WORKER_1, 'e-worker'), 'not_operator');
+    await refuses(ctx, () => ctx.endWait(QA_1, 'e-qa'), 'forbidden');
+    await refuses(ctx, () => ctx.endWait('operator', 'e-for', { end: true, for: 5 }), 'usage');
+    await refuses(
+      ctx,
+      () => ctx.endWait('operator', 'e-reason', { end: true, reason: REASON }),
+      'usage',
+    );
+    await refuses(ctx, () => ctx.endWait('operator', 'e-none', {}), 'usage');
+    await refuses(ctx, () => ctx.endWait('operator', 'e-false', { end: false }), 'usage');
+
+    const notTaken = await setup();
+    await notTaken.openTurn();
+    await refuses(notTaken, () => notTaken.endWait('operator', 'e-1'), 'no_active_wait');
+    const notWaiting = await taken();
+    await refuses(notWaiting, () => notWaiting.endWait('operator', 'e-1'), 'no_active_wait');
+
+    const missing = await setup();
+    await refuses(missing, () => missing.endWait('operator', 'e-1'), 'not_found');
+
+    const earlier = await taken();
+    await earlier.wait(REV_1, 'wait-1', 30, REASON);
+    await earlier.store.transaction(async (trx) => {
+      await trx.updateTable('task').set({ column_epoch: 1 }).execute();
+    });
+    await refuses(earlier, () => earlier.endWait('operator', 'e-1'), 'turn_closed');
+
+    const closed = await taken();
+    await closed.wait(REV_1, 'wait-1', 30, REASON);
+    await scanTransaction(closed.store, closed.config, (trx) =>
+      closeTurns(trx, { taskId: 1, reason: 'moved', at: new Date(AT) }),
+    );
+    await refuses(closed, () => closed.endWait('operator', 'e-1'), 'turn_closed');
+
+    const archived = await taken();
+    await archived.wait(REV_1, 'wait-1', 30, REASON);
+    await archived.store.db.updateTable('task').set({ membership: 'archived' }).execute();
+    await refuses(archived, () => archived.endWait('operator', 'e-1'), 'task_archived');
+  });
+
   it('shows the wait in status, task.get, why and the holder inbox', async () => {
     const ctx = await taken();
     await ctx.wait(REV_1, 'wait-1', 30, REASON);
@@ -3275,17 +3382,19 @@ describe('task.wait', () => {
   it('lists the wait start and end before the close in history', async () => {
     const ctx = await taken();
     await ctx.wait(REV_1, 'wait-1', 30, REASON);
+    await ctx.endWait('operator', 'end-1');
+    await ctx.wait(REV_1, 'wait-2', 30, REASON);
     ctx.commits(A);
     await ctx.submit(REV_1, A, 'submit-1');
     const kinds = ['turn_wait_started', 'turn_wait_ended', 'turn_closed'];
-    expect(
-      (await ctx.history())
-        .filter((event) => kinds.includes(event.kind))
-        .map((event) => event.summary),
-    ).toEqual([
+    const history = (await ctx.history()).filter((event) => kinds.includes(event.kind));
+    expect(history.map((event) => event.summary)).toEqual([
+      `Turn T1 waits until ${WAKES}: ${REASON}`,
+      'Turn T1 wait ended: ended',
       `Turn T1 waits until ${WAKES}: ${REASON}`,
       'Turn T1 wait ended: submitted',
       'Turn T1 closed: submitted',
     ]);
+    expect(history[1]).toMatchObject({ actor: 'operator' });
   });
 });

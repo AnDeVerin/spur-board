@@ -3,7 +3,16 @@
 ## Slack now
 
 `slack.channels.feed`: curator answers and operator items,
-except delivery/health items and blocks. An `external-quiet:` item line
+except delivery/health items and the block items: anomaly, cycle limit,
+course check and conversation waiting. A block addressed to you by others
+gets a feed line once its thread is out; the line links the thread, or comes
+without the link when the thread post fails for good. A thread blocked as a
+secret gets a blocked-post item, which takes the line's place. A reply
+in the thread answers a question block; on another block type it is not processed
+and raises an item. Close on that line closes the block without an answer, as
+your unblock with the reason `closed by the operator from the feed`; on an
+already closed block it only clears the line. Every block line says what Close
+does above the block's reason. An `external-quiet:` item line
 ends with its inbox action.
 `slack.channels.orchestrators`: block threads addressed to the operator by
 others. Answer in the existing block thread. A later reply on an answered

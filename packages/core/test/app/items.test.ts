@@ -1069,6 +1069,400 @@ describe('ledger item', () => {
   });
 });
 
+describe('operator block feed line', () => {
+  /** A worker question to the operator, its feed line raised and both delivered. */
+  async function asked(ctx: Ctx) {
+    const { block } = await ctx.apply(
+      blocks.ask,
+      { task: KEY, text: 'Which version?' },
+      AGENT,
+      'ask',
+    );
+    await ctx.tick();
+    const raised = await ctx.store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', '=', `operator-block:${block.id.slice(1)}`)
+      .executeTakeFirstOrThrow();
+    return { block: block.id, blockId: Number(block.id.slice(1)), item: raised.id };
+  }
+  const blockRow = (ctx: Ctx, id: number) =>
+    ctx.store.db
+      .selectFrom('block')
+      .select(['state', 'outcome', 'outcome_reason', 'unblocked_by'])
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+  const unblocked = async (ctx: Ctx) =>
+    (await rows(ctx, 'event')).filter((event) => event.kind === 'block_unblocked');
+  const closes = async (ctx: Ctx) =>
+    (await rows(ctx, 'outbox')).filter((row) => row.kind === 'conversation.close');
+
+  it('closes the block from a Slack Close press', async () => {
+    const ctx = await setup();
+    const { blockId, item: itemId } = await asked(ctx);
+    await ctx.gateway.start((event) => ctx.inbound.sink(event));
+    await ctx.sender.tick();
+    ctx.advance(1001);
+    await ctx.sender.tick();
+    const line = (await rows(ctx, 'outbox')).find((row) => row.kind === 'feed.line');
+    expect(line?.state).toBe('done');
+    const { message } = JSON.parse(line?.external_ref ?? '{}') as { message: string };
+    await ctx.gateway.platform.inject({
+      kind: 'action',
+      message: messageRefSchema.parse(message),
+      actionId: `item:${String(itemId)}:close`,
+      author: userIdSchema.parse('operator'),
+    });
+    await ctx.gateway.platform.settle();
+    await ctx.gateway.stop();
+    expect((await item(ctx, itemId)).cleared_at).not.toBeNull();
+    expect(await blockRow(ctx, blockId)).toEqual({
+      state: 'unblocked',
+      outcome: 'reason',
+      outcome_reason: 'closed by the operator from the feed',
+      unblocked_by: 'operator',
+    });
+    const [event, ...more] = await unblocked(ctx);
+    expect(more).toEqual([]);
+    expect([event?.actor, event?.via]).toEqual(['operator', 'slack']);
+    expect(await closes(ctx)).toHaveLength(1);
+    // A redelivery of the same press and a second press change nothing.
+    const action = `item:${String(itemId)}:close`;
+    const key = event?.request_id ?? '';
+    await ctx.inbound.sink(press({ key, actionId: action }));
+    await ctx.inbound.sink(press({ key: 'second-press', actionId: action }));
+    expect(await unblocked(ctx)).toHaveLength(1);
+    expect(await closes(ctx)).toHaveLength(1);
+  });
+
+  it('only clears the line when the block is already closed', async () => {
+    const ctx = await setup();
+    const { block, blockId, item: itemId } = await asked(ctx);
+    await ctx.apply(blocks.unblock, { block, mode: 'reason', reason: 'Not now.' }, 'operator');
+    await ctx.close(`I${String(itemId)}`);
+    expect((await item(ctx, itemId)).cleared_at).not.toBeNull();
+    expect(await blockRow(ctx, blockId)).toMatchObject({
+      outcome_reason: 'Not now.',
+      unblocked_by: 'operator',
+    });
+    expect(await unblocked(ctx)).toHaveLength(1);
+    expect(await closes(ctx)).toHaveLength(1);
+  });
+
+  it('leaves a block addressed to an agent open', async () => {
+    const ctx = await setup();
+    const { blockId, item: itemId } = await asked(ctx);
+    await ctx.store.db
+      .updateTable('block')
+      .set({ addressee_role: 'worker' })
+      .where('id', '=', blockId)
+      .execute();
+    await ctx.close(`I${String(itemId)}`);
+    expect((await item(ctx, itemId)).cleared_at).not.toBeNull();
+    expect((await blockRow(ctx, blockId)).state).toBe('open');
+    expect(await unblocked(ctx)).toEqual([]);
+  });
+
+  /** Fails the thread post for good and returns the ids of its row and its `post_failed` item. */
+  async function failThread(ctx: Ctx) {
+    ctx.gateway.platform.failNextPermanently({ scope: 'message', reason: 'invalid_blocks' });
+    await ctx.sender.tick();
+    await ctx.tick();
+    const open = await ctx.store.db
+      .selectFrom('outbox')
+      .selectAll()
+      .where('kind', '=', 'conversation.open')
+      .executeTakeFirstOrThrow();
+    expect(open.state).toBe('post_failed');
+    const failed = await ctx.store.db
+      .selectFrom('operator_item')
+      .select('id')
+      .where('item_key', '=', `delivery:${String(open.id)}`)
+      .executeTakeFirstOrThrow();
+    return { open, failed: `I${String(failed.id)}` };
+  }
+
+  /** Fails the thread post for good, then blocks its retry as a secret. */
+  async function blockThread(ctx: Ctx) {
+    const { open, failed } = await failThread(ctx);
+    const secret = ['xoxb', '123', 'abc'].join('-');
+    await ctx.store.db
+      .updateTable('outbox')
+      .set({ payload: open.payload.replace('Which version?', secret) })
+      .where('id', '=', open.id)
+      .execute();
+    await ctx.retry(failed);
+  }
+
+  const sent = { state: 'done', parent_outbox_id: null, last_error: null };
+  const dropped = { state: 'dead', last_error: 'superseded' };
+  it.each([
+    {
+      thread: 'its post fails for good',
+      lose: async (ctx: Ctx) => {
+        await failThread(ctx);
+      },
+      line: sent,
+      open: 'post_failed',
+      alert: true,
+      edit: undefined,
+    },
+    {
+      thread: 'its failed post is closed',
+      lose: async (ctx: Ctx) => {
+        await ctx.close((await failThread(ctx)).failed);
+      },
+      line: sent,
+      open: 'dead',
+      alert: true,
+      edit: undefined,
+    },
+    // A thread blocked as a secret makes its post_blocked item the block's line (#38), so the
+    // alert clears: struck when the sender posted it first, cancelled when reconcile ran first.
+    {
+      thread: 'its retry is blocked as a secret, sender first',
+      lose: async (ctx: Ctx) => {
+        await blockThread(ctx);
+        await ctx.sender.tick();
+      },
+      line: sent,
+      open: 'dead',
+      alert: false,
+      edit: 'done',
+    },
+    {
+      thread: 'its retry is blocked as a secret, reconcile first',
+      lose: async (ctx: Ctx) => {
+        await blockThread(ctx);
+        await ctx.tick();
+      },
+      line: dropped,
+      open: 'dead',
+      alert: false,
+      edit: 'dead',
+    },
+    {
+      thread: 'its block is closed',
+      lose: async (ctx: Ctx, block: string) => {
+        await ctx.apply(blocks.unblock, { block, mode: 'reason', reason: 'Not now.' }, 'operator');
+      },
+      line: dropped,
+      open: 'dead',
+      alert: false,
+      edit: 'dead',
+    },
+  ])('sends or drops the line when $thread', async ({ thread, lose, line, open, alert, edit }) => {
+    const ctx = await setup();
+    const { block, blockId, item: itemId } = await asked(ctx);
+    await lose(ctx, block);
+    ctx.advance(60_000);
+    await ctx.sender.tick();
+    await ctx.tick();
+    ctx.advance(60_000);
+    await ctx.sender.tick();
+    const outbox = await rows(ctx, 'outbox');
+    const row = outbox.find((r) => r.kind === 'feed.line' && r.payload.includes('operator-block:'));
+    expect(row).toMatchObject(line);
+    expect(outbox.find((r) => r.kind === 'conversation.open')?.state).toBe(open);
+    expect((await item(ctx, itemId)).cleared_at === null).toBe(alert);
+    // A cleared alert strikes its posted line, or cancels it unsent.
+    const strike = outbox.find(
+      (r) => r.kind === 'feed.line.edit' && r.parent_outbox_id === row?.id,
+    );
+    expect(strike?.state).toBe(edit);
+    // A blocked thread's post_blocked item stays raised for its still open block.
+    const blocked = await ctx.store.db
+      .selectFrom('operator_item')
+      .select(['block_id', 'cleared_at'])
+      .where('kind', '=', 'post_blocked')
+      .execute();
+    expect(blocked).toEqual(
+      thread.includes('secret') ? [{ block_id: blockId, cleared_at: null }] : [],
+    );
+    const posted = ctx.gateway.platform
+      .messages()
+      .filter((m) => m.root && m.text.includes('Which version?'));
+    // A line without its thread posts with no link to it.
+    expect(posted.map((m) => m.text.includes('thread'))).toEqual(
+      line.state === 'done' ? [false] : [],
+    );
+  });
+
+  /** Feed lines of `B<blockId>`'s alert and of an unrelated item, by key. */
+  const feedLine = async (ctx: Ctx, key: string) =>
+    (await rows(ctx, 'outbox')).find((r) => r.kind === 'feed.line' && r.payload.includes(key));
+  // One thread row whose payload is not JSON must not cost its own alert, another block's
+  // Close or the sender's other rows.
+  it.each([
+    {
+      outcome: 'its own line posts without the thread link',
+      check: async (ctx: Ctx, broken: number) => {
+        expect(await feedLine(ctx, `operator-block:${String(broken)}`)).toMatchObject(sent);
+        const posted = ctx.gateway.platform
+          .messages()
+          .filter((m) => m.root && m.text.includes('Which version?'));
+        expect(posted.map((m) => m.text.includes('thread'))).toEqual([false]);
+      },
+    },
+    {
+      outcome: "Close on another block's alert closes that block",
+      check: async (ctx: Ctx, broken: number, healthy: { blockId: number; item: number }) => {
+        await ctx.close(`I${String(healthy.item)}`);
+        expect((await blockRow(ctx, healthy.blockId)).state).toBe('unblocked');
+        expect((await blockRow(ctx, broken)).state).toBe('open');
+        expect(await closes(ctx)).toHaveLength(1);
+      },
+    },
+    {
+      outcome: 'the sender keeps sending other rows',
+      check: async (ctx: Ctx) => {
+        expect((await feedLine(ctx, 'source:github'))?.state).toBe('done');
+      },
+    },
+  ])('with an unreadable thread row, $outcome', async ({ check }) => {
+    const ctx = await setup();
+    const broken = await asked(ctx);
+    const { block } = await ctx.apply(
+      blocks.ask,
+      { task: KEY, text: 'Which branch?' },
+      AGENT,
+      'ask-2',
+    );
+    await ctx.tick();
+    const healthy = (await ctx.store.db
+      .selectFrom('operator_item')
+      .select('id')
+      .where('item_key', '=', `operator-block:${block.id.slice(1)}`)
+      .executeTakeFirstOrThrow()) satisfies { id: number };
+    await ctx.store.db
+      .updateTable('outbox')
+      .set({ payload: '{' })
+      .where('dedupe_key', '=', `conversation.open:block:${String(broken.blockId)}`)
+      .execute();
+    await raise(ctx, { key: 'source:github', kind: 'board_observation' });
+    for (let i = 0; i < 3; i++) {
+      await ctx.sender.tick();
+      ctx.advance(60_000);
+    }
+    const open = await ctx.store.db
+      .selectFrom('outbox')
+      .select('state')
+      .where('dedupe_key', '=', `conversation.open:block:${String(broken.blockId)}`)
+      .executeTakeFirstOrThrow();
+    expect(open.state).toBe('dead');
+    await check(ctx, broken.blockId, { blockId: Number(block.id.slice(1)), item: healthy.id });
+  });
+
+  it('leaves the block of an archived task open', async () => {
+    const ctx = await setup();
+    const { blockId, item: itemId } = await asked(ctx);
+    await ctx.store.transaction((trx) =>
+      trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute(),
+    );
+    await ctx.close(`I${String(itemId)}`);
+    expect((await item(ctx, itemId)).cleared_at).not.toBeNull();
+    expect((await blockRow(ctx, blockId)).state).toBe('open');
+    expect(await unblocked(ctx)).toEqual([]);
+  });
+});
+
+describe('who closes an operator block from its feed line', () => {
+  const project = (id: string, spur: { name: string; role: 'operator' | 'worker' }) => ({
+    id,
+    tracker: { type: 'github-issues', repo: `${id}/r`, milestone: 'M1' },
+    repos: [`${id}/r`],
+    operatorGithubLogin: 'operator',
+    spurProjects: [spur],
+  });
+  const boards = {
+    // A board-wide operator, alpha with its own operator and beta without one.
+    wide: configSchema.parse({
+      spurProjects: [{ name: 'board-ops', role: 'operator' }],
+      projects: [
+        project('alpha', { name: 'alpha-ops', role: 'operator' }),
+        project('beta', { name: 'beta-web', role: 'worker' }),
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    }),
+    // No board-wide operator: alpha's operator acts on the board as a whole.
+    sole: configSchema.parse({
+      projects: [project('alpha', { name: 'alpha-ops', role: 'operator' })],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    }),
+  };
+
+  /** An open project-level block of `subject` to the operator and its feed line's item. */
+  async function board(name: keyof typeof boards, subject: string) {
+    const cfg = boards[name];
+    const store = openTempStore('core-items-authority-').store;
+    stores.push(store);
+    const clock = { now: () => START };
+    const at = new Date(START).toISOString();
+    const { blockId, itemId } = await scanTransaction(store, cfg, async (trx) => {
+      const block = await trx
+        .insertInto('block')
+        .values({
+          task_id: null,
+          project: subject,
+          type: 'needs_input',
+          reason: 'Which release?',
+          author: AGENT,
+          addressee_role: 'operator',
+          target_column: null,
+          state: 'open',
+          outcome: null,
+          outcome_reason: null,
+          repeat_of: null,
+          unblocked_by: null,
+          unblocked_at: null,
+          created_at: at,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const raised = await raiseItem(trx, {
+        itemKey: `operator-block:${String(block.id)}`,
+        kind: 'board_observation',
+        text: `${subject}: Which release?`,
+        url: '',
+        taskId: null,
+        blockId: null,
+        at: new Date(START),
+      });
+      return { blockId: block.id, itemId: raised.id };
+    });
+    const registry = createOperationRegistry({ config: cfg, clock, completeSince: new Map() });
+    const apply = createApply({ store, clock, config: cfg });
+    return { store, registry, apply, blockId, item: `I${String(itemId)}` };
+  }
+
+  const alphaOps: ActorId = 'agent:alpha-ops/ops-1';
+  const boardOps: ActorId = 'agent:board-ops/ops-1';
+  it.each([
+    { board: 'wide', subject: 'alpha', actor: alphaOps, block: 'unblocked' },
+    { board: 'wide', subject: 'beta', actor: boardOps, block: 'unblocked' },
+    { board: 'wide', subject: 'gone', actor: 'operator', block: 'unblocked' },
+    { board: 'wide', subject: 'gone', actor: boardOps, block: 'open' },
+    { board: 'sole', subject: 'alpha', actor: alphaOps, block: 'unblocked' },
+    { board: 'sole', subject: 'gone', actor: alphaOps, block: 'open' },
+  ] as const)(
+    'on a $board board, $actor closing a $subject block line leaves it $block',
+    async ({ board: name, subject, actor, block }) => {
+      const ctx = await board(name, subject);
+      await ctx.apply(ctx.registry['item.close'], { item: ctx.item }, actor, 'close');
+      const items = await ctx.store.db.selectFrom('operator_item').select('cleared_at').execute();
+      expect(items.map((row) => row.cleared_at === null)).toEqual([false]);
+      const row = await ctx.store.db
+        .selectFrom('block')
+        .select('state')
+        .where('id', '=', ctx.blockId)
+        .executeTakeFirstOrThrow();
+      expect(row.state).toBe(block);
+    },
+  );
+});
+
 describe('an item with no task on a board without a board-wide operator', () => {
   const split = configSchema.parse({
     projects: ['alpha', 'beta'].map((id) => ({

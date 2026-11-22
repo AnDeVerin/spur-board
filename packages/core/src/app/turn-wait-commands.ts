@@ -1,22 +1,44 @@
 import type { Config } from '@spur-board/contracts';
+import { isOperator } from './authorize.ts';
 import { emit } from './board-utils.ts';
 import { CommandError, type Mutation } from './commands.ts';
-import { takenTurn, turnVisitTarget } from './turn-commands.ts';
-import { endTurnWait, waitsUsed } from './turn-waits.ts';
+import { takenTurn, turnVisitTarget, unclosedTurn } from './turn-commands.ts';
+import { endTurnWait, endWaitEarly, waitsUsed } from './turn-waits.ts';
 
 /**
  * `task.wait`: the holder of a taken, open turn waits on an outside condition. An active wait is
  * replaced: it ends `closed` and its time counts. Past the turn's count or total time limit the
  * call is refused; otherwise the wait lasts `for` minutes, cut to the time left of the total, and
  * the turn's unsent reminders are dropped, so the board stays quiet until the tick wakes it.
+ * With `end`, the operator ends the turn's active wait instead (`endWaitEarly`).
  */
 export function createTurnWaitMutation({ config }: { config: Config }): Mutation<'task.wait'> {
   return {
     id: 'task.wait',
     resolveTargets: (trx, input) => turnVisitTarget(trx, input.turn),
     async run(trx, input, ctx) {
-      const { turn, task } = await takenTurn(trx, input.turn, ctx);
       const at = new Date(ctx.at);
+      if (input.end === true) {
+        if (input.for !== undefined || input.reason !== undefined) {
+          throw new CommandError('usage', 'Pass end alone, without for or reason.');
+        }
+        const { turn, task } = await unclosedTurn(trx, input.turn);
+        if (!isOperator(ctx.actor, config, task.project)) {
+          throw new CommandError(
+            'not_operator',
+            `Ask the operator to end the wait on ${input.turn}.`,
+          );
+        }
+        if (turn.wait_until === null) {
+          throw new CommandError('no_active_wait', `Turn ${input.turn} is not waiting.`);
+        }
+        await endWaitEarly(trx, { turn, project: task.project, at, actor: ctx.actor });
+        return { turn: input.turn, waits: turn.wait_count };
+      }
+      if (input.for === undefined || input.reason === undefined) {
+        throw new CommandError('usage', 'Pass for and reason to wait, or end to end the wait.');
+      }
+      const { turn, task } = await takenTurn(trx, input.turn, ctx);
       const waitedMs = await endTurnWait(trx, {
         turn,
         project: task.project,

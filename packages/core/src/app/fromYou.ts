@@ -25,6 +25,7 @@ import {
   DEFAULT_BRANCH_KEY,
   fingerprint,
   ITEM_POLICY,
+  itemBlockRef,
   NO_SESSION_KEY,
   OPERATOR_BLOCK_KEY,
   orderItems,
@@ -49,6 +50,7 @@ import {
   type Trx,
 } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
+import { blockThread } from './outbox.ts';
 import {
   bestProjectSession,
   curatorSession,
@@ -1193,7 +1195,14 @@ export async function reconcileItems(
     };
     if (ITEM_POLICY[candidate.kind].block && task !== null && task !== undefined)
       await raiseAnomaly(trx, config, task, input, stallExecutors.get(candidate.key));
-    else await raiseItem(trx, { ...input, taskId: candidate.taskId, blockId: null });
+    else {
+      // An operator block's line waits for its thread, so it can link it.
+      const blockId = candidate.key.startsWith(OPERATOR_BLOCK_KEY)
+        ? itemBlockRef({ item_key: candidate.key, block_id: null })
+        : undefined;
+      const thread = blockId === undefined ? null : await blockThread(trx, blockId);
+      await raiseItem(trx, { ...input, taskId: candidate.taskId, blockId: null }, thread);
+    }
   }
 }
 

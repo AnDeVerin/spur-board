@@ -1,5 +1,5 @@
 {
-  "version": "82b21ec16a7025ede7cd8c1ec4b1aef4640343b5c5fb58016bfe74a7e76a6662",
+  "version": "2cbb6876bc020f1b98b5061a076f969494e6c456bbbd6a79121abc2289979d81",
   "grants": [
     "operator",
     "project-agent",
@@ -87,6 +87,35 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#forbidden",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "not_operator": {
+      "status": 403,
+      "exit": 1,
+      "message": "Only the operator may end a turn's wait early.",
+      "hint": "Ask the operator to end the wait; as its holder, submit or return the turn, or start a shorter wait.",
+      "recovery": {
+        "action": "Ask the operator to end the wait.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#not_operator",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -348,6 +377,35 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#turn_wait_limit",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "no_active_wait": {
+      "status": 409,
+      "exit": 1,
+      "message": "The turn has no active wait; it ended or never started.",
+      "hint": "Read the turn with `board task <KEY>`; there is no wait left to end.",
+      "recovery": {
+        "action": "Read the turn before ending its wait again.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#no_active_wait",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -8772,7 +8830,7 @@
     {
       "id": "item.close",
       "kind": "mutation",
-      "description": "Close a \"from you\" item without acting on it.",
+      "description": "Close a \"from you\" item without retrying; some block items close their block.",
       "grants": [{ "grant": "operator" }],
       "preconditions": null,
       "errors": [
@@ -8790,7 +8848,7 @@
       "mcp": {
         "name": "item_close",
         "key": "idempotencyKey",
-        "whenToUse": "Dismiss an item without retrying.",
+        "whenToUse": "Dismiss an item without retrying. An anomaly, cycle_limit or course_check item also closes its block; an operator-block: item closes its block when you may unblock it.",
         "whenNotToUse": "Use item_retry to try again.",
         "destructive": true
       },
@@ -11400,7 +11458,7 @@
     {
       "id": "task.wait",
       "kind": "mutation",
-      "description": "Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends.",
+      "description": "Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends. The operator can end the active wait early.",
       "grants": [
         { "grant": "task-worker" },
         { "grant": "column-orchestrator" },
@@ -11411,11 +11469,13 @@
         "usage",
         "wrong_id_kind",
         "forbidden",
+        "not_operator",
         "not_found",
         "not_implemented",
         "turn_closed",
         "not_turn_taker",
         "turn_wait_limit",
+        "no_active_wait",
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
@@ -11426,12 +11486,12 @@
       "mcp": {
         "name": "task_wait",
         "key": "idempotencyKey",
-        "whenToUse": "You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time.",
-        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev.",
+        "whenToUse": "You hold a turn. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Give whole minutes and the reason; the Board rings you with the reason when the wait ends, and submit, return or a close ends it earlier. Waits per turn are capped by count and total time. As the operator, pass end to end a holder's active wait early; the holder is rung.",
+        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.",
         "destructive": true
       },
       "slack": null,
-      "web": null,
+      "web": true,
       "examples": [
         {
           "summary": "Wait 30 minutes for a free test stand",
@@ -11445,6 +11505,11 @@
             },
             "waits": 1
           }
+        },
+        {
+          "summary": "End a turn's wait early as the operator",
+          "input": { "turn": "T4", "end": true },
+          "output": { "turn": "T4", "waits": 1 }
         }
       ],
       "input": {
@@ -11455,23 +11520,27 @@
             "type": "string",
             "maxLength": 16,
             "pattern": "^T[1-9]\\d{0,14}$",
-            "description": "Turn ID you took (T4)."
+            "description": "Turn ID you took (T4); with end, the turn whose wait you end as the operator."
           },
           "for": {
+            "description": "Whole minutes to wait, 1 to 120; the turn total cap may shorten it. Required unless end.",
             "type": "integer",
             "minimum": 1,
-            "maximum": 120,
-            "description": "Whole minutes to wait, 1 to 120; the turn total cap may shorten it."
+            "maximum": 120
           },
           "reason": {
+            "description": "What you wait for, up to 200 characters; the wake ring repeats it. Required unless end. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.",
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
-            "pattern": "\\S",
-            "description": "What you wait for, up to 200 characters; the wake ring repeats it."
+            "pattern": "\\S"
+          },
+          "end": {
+            "description": "Operator only: end the turn's active wait now instead of starting one; pass no for or reason.",
+            "type": "boolean"
           }
         },
-        "required": ["turn", "for", "reason"],
+        "required": ["turn"],
         "additionalProperties": false
       },
       "output": {
@@ -11485,6 +11554,7 @@
             "description": "The waiting turn."
           },
           "wait": {
+            "description": "The wait just started; absent after end.",
             "type": "object",
             "properties": {
               "reason": {
@@ -11506,17 +11576,16 @@
               }
             },
             "required": ["reason", "since", "wakesAt"],
-            "additionalProperties": false,
-            "description": "The active wait of the turn."
+            "additionalProperties": false
           },
           "waits": {
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991,
-            "description": "Waits the turn has started, this one included."
+            "description": "Waits the turn has started, this one or the ended one included."
           }
         },
-        "required": ["turn", "wait", "waits"],
+        "required": ["turn", "waits"],
         "additionalProperties": false
       }
     },

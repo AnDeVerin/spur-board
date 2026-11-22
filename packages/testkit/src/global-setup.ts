@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TestProject } from 'vitest/node';
 import { scrubEnv } from './env.ts';
+import { ROOT_PREFIX, sweepStaleRuns, writeOwner } from './sweep.ts';
 
 declare module 'vitest' {
   interface ProvidedContext {
@@ -12,7 +13,8 @@ declare module 'vitest' {
   }
 }
 
-const DIRS = {
+/** Run-root subdirectory for each pinned variable; `setup.ts` re-pins workers from it. */
+export const DIRS = {
   HOME: 'home',
   TMPDIR: 'tmp',
   XDG_CONFIG_HOME: 'config',
@@ -29,7 +31,10 @@ const DIRS = {
 export default function setup(project: TestProject): () => void {
   scrubEnv(process.env);
 
-  const root = mkdtempSync(join(tmpdir(), 'spur-board-test-'));
+  // Remove the roots of dead runs before this run adds its own; live runs are never touched.
+  sweepStaleRuns();
+  const root = mkdtempSync(join(tmpdir(), ROOT_PREFIX));
+  writeOwner(root);
   for (const name of Object.keys(process.env)) {
     if (name.startsWith('XDG_')) {
       Reflect.deleteProperty(process.env, name);

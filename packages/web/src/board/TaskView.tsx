@@ -18,6 +18,7 @@ import { TaskHistory } from './TaskHistory.tsx';
 import { TaskMove } from './MoveForm.tsx';
 import { TaskTurn } from './TaskTurn.tsx';
 import { TaskApprovals } from './TaskApprovals.tsx';
+import { TaskWait } from './TaskWait.tsx';
 import { TaskSection, TaskSectionsProvider, type TaskSections } from './TaskSection.tsx';
 import { mirrorRefusal, shortKey, type BoardColumnConfig } from './model.ts';
 import {
@@ -71,6 +72,7 @@ export function TaskView({
   commentIntent,
   submitTurnIntent,
   returnTurnIntent,
+  endWaitIntent,
   drafts,
   refreshTask,
   moveIntent,
@@ -88,6 +90,7 @@ export function TaskView({
   commentIntent: BoardData['commentIntent'];
   submitTurnIntent: BoardData['submitTurnIntent'];
   returnTurnIntent: BoardData['returnTurnIntent'];
+  endWaitIntent: BoardData['endWaitIntent'];
   drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
   moveIntent: BoardData['moveIntent'];
@@ -235,6 +238,16 @@ export function TaskView({
                     />
                   )}
                 </div>
+                {value !== undefined && (
+                  <TaskWait
+                    turn={value.turn}
+                    now={now}
+                    stale={turnStale}
+                    endWaitIntent={endWaitIntent}
+                    refreshTask={refreshTask}
+                    unavailable={unavailable}
+                  />
+                )}
                 {value !== undefined && (
                   <TaskSection id="why" title="Why it is here" summary={whySummary(value)}>
                     <KeyValueBox rows={whyRows(value, columns, now, turnStale)} />

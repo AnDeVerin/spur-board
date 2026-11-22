@@ -2,10 +2,12 @@
 import { createHash } from 'node:crypto';
 import {
   actorIdSchema,
+  BLOCK_TYPES,
   conversationRefSchema,
   messageRefSchema,
   PERSONA_ROLES,
   type ActorId,
+  type BlockType,
   type ConversationRef,
   type Persona,
   type Action,
@@ -128,15 +130,27 @@ const segment = z.discriminatedUnion('kind', [
 ]);
 export type FeedSegment = z.output<typeof segment>;
 
+/**
+ * A field of an outbox row's payload, or null when the payload is not JSON: `json_extract` throws
+ * on one, and one unreadable row must not fail a lookup made for another row.
+ */
+export function payloadField<T>(path: `$.${string}`) {
+  return sql<T | null>`case when json_valid(payload) then json_extract(payload, ${path}) end`;
+}
+
 /** The plain summary of `segments`: what is scanned, stored on the item and struck. */
 export function feedText(segments: readonly FeedSegment[]): string {
   return segments.map((part) => part.text).join('');
 }
 
-/** `segments`, when set, is the line's rich form of `text`; a mismatch is never sent. */
+/**
+ * `segments`, when set, is the line's rich form of `text`; a mismatch is never sent. `blockType`
+ * is the type of the operator block the line stands for; lines queued before it existed lack it.
+ */
 const feedLineWithLinkPayload = feedLinePayload
   .extend({
     itemId: id.optional(),
+    blockType: z.enum(BLOCK_TYPES).optional(),
     url: z.url().optional(),
     actions: z.array(actionPayload).optional(),
     exchange: exchange.optional(),
@@ -342,7 +356,10 @@ export async function enqueueSkillReload(
   return row.inserted;
 }
 
-/** The key includes the item raise, so a restart cannot add a second line. */
+/**
+ * The key includes the item raise, so a restart cannot add a second line. A line with a `parent`
+ * waits for that row's delivery and dies with it.
+ */
 export async function enqueueFeedLine(
   trx: Trx,
   input: {
@@ -356,8 +373,10 @@ export async function enqueueFeedLine(
     taskId: number | null;
     actions?: readonly Action[];
     segments?: readonly FeedSegment[];
+    blockType?: BlockType;
     at: Date;
   },
+  parent: number | null = null,
 ): Promise<number | null> {
   const row = await insertOutbox(trx, {
     kind: 'feed.line',
@@ -373,8 +392,9 @@ export async function enqueueFeedLine(
       ...(input.url === '' ? {} : { url: input.url }),
       actions: input.actions,
       ...(input.segments === undefined ? {} : { segments: input.segments }),
+      ...(input.blockType === undefined ? {} : { blockType: input.blockType }),
     },
-    parent: null,
+    parent,
     at: input.at,
   });
   return row.id;
@@ -766,6 +786,27 @@ export async function enqueueConversationOpen(
   return row.id;
 }
 
+/**
+ * A block's type and the live `conversation.open` row of its operator thread, null when it has no
+ * such row; null when the block does not exist.
+ */
+export async function blockThread(
+  trx: Trx,
+  blockId: number,
+): Promise<{ parent: number | null; blockType: BlockType } | null> {
+  const row = await trx
+    .selectFrom('block')
+    .leftJoin('outbox', (join) =>
+      join
+        .on('outbox.dedupe_key', '=', `conversation.open:block:${String(blockId)}`)
+        .on('outbox.state', '!=', 'dead'),
+    )
+    .select(['outbox.id', 'block.type'])
+    .where('block.id', '=', blockId)
+    .executeTakeFirst();
+  return row === undefined ? null : { parent: row.id, blockType: row.type };
+}
+
 /** The thread an operator conversation was started in; undefined for every other block. */
 async function operatorThread(trx: Trx, blockId: number): Promise<ConversationRef | undefined> {
   const row = await trx
@@ -801,7 +842,7 @@ export async function enqueueConversationReply(
     .selectFrom('outbox')
     .select(['id', 'state'])
     .where('kind', 'in', ['conversation.open', 'conversation.reply', 'conversation.close'])
-    .where(sql<number>`json_extract(payload, '$.blockId')`, '=', blockId)
+    .where(payloadField<number>('$.blockId'), '=', blockId)
     .orderBy('id', 'desc')
     .limit(1)
     .executeTakeFirst();
@@ -841,14 +882,14 @@ export async function enqueueConversationClose(
     .selectFrom('outbox')
     .select(['id', 'state'])
     .where('kind', 'in', ['conversation.open', 'conversation.reply'])
-    .where(sql<number>`json_extract(payload, '$.blockId')`, '=', input.blockId)
+    .where(payloadField<number>('$.blockId'), '=', input.blockId)
     .orderBy('id', 'desc')
     .executeTakeFirst();
   const open = await trx
     .selectFrom('outbox')
     .select(['id', 'state'])
     .where('kind', '=', 'conversation.open')
-    .where(sql<number>`json_extract(payload, '$.blockId')`, '=', input.blockId)
+    .where(payloadField<number>('$.blockId'), '=', input.blockId)
     .executeTakeFirst();
   const parent = tail?.state === 'dead' ? null : (tail?.id ?? null);
   const conversations = await trx

@@ -186,8 +186,15 @@ export const turnReminderKey = (turnId: number, session: string, takenAt: string
 export const turnWakeKey = (turnId: number, session: string, since: string) =>
   `turn:${String(turnId)}:wake:${session}:${since}`;
 
-/** Whether a `turn_reminder` row is the wake ring of a wait. */
-export const isTurnWakeKey = (key: string) => /^turn:\d+:wake:/.test(key);
+/**
+ * The key of the ring that tells `session` the operator ended its wait on a turn, started at
+ * `since`, early. Like the wake ring, a `turn_reminder` row that rings once.
+ */
+export const turnEndedKey = (turnId: number, session: string, since: string) =>
+  `turn:${String(turnId)}:ended:${session}:${since}`;
+
+/** Whether a `turn_reminder` row is the wake or end ring of a wait. */
+export const isTurnWakeKey = (key: string) => /^turn:\d+:(wake|ended):/.test(key);
 
 const isTurnKind = (kind: Notification['kind']) => kind === 'turn' || kind === 'turn_reminder';
 
@@ -232,7 +239,7 @@ export async function cancelledRingState(
  * its take, so each ownership episode gets its own reminder and no episode gets a second. A
  * reminder of the take cancelled unsent is replaced by a fresh one: its row gets a new id, so the
  * new ring does not reuse the outbox key of a ring the sender already killed. A wait's wake ring
- * passes its own `wakeKey` (`turnWakeKey`).
+ * passes its own `wakeKey` (`turnWakeKey`, or `turnEndedKey` for the operator's early end).
  */
 export async function registerTurnReminder(
   trx: Trx,
@@ -936,7 +943,7 @@ async function noRecipientEnd(trx: Trx, n: Notification): Promise<string | null>
 
 /**
  * A ring never carries comment or reason text, only where to look; the one exception is a wait's
- * wake ring, which repeats the reason the holder gave itself, on one line.
+ * wake or end ring, which repeats the reason the holder gave itself, on one line.
  */
 async function ringText(
   trx: Trx,
@@ -953,7 +960,8 @@ async function ringText(
       .where('id', '=', n.turn_id)
       .executeTakeFirst();
     const reason = (turn?.wait_reason ?? '').replace(/\s+/g, ' ').trim();
-    return `${key} turn T${String(n.turn_id)} wait ended: ${reason}; check board inbox ${suffix}`;
+    const by = n.source_key.includes(':ended:') ? ' by the operator' : '';
+    return `${key} turn T${String(n.turn_id)} wait ended${by}: ${reason}; check board inbox ${suffix}`;
   }
   if (n.kind === 'turn_reminder')
     return `${key} turn T${String(n.turn_id)} is still open: check board inbox ${suffix}`;

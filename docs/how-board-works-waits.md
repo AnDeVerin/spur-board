@@ -2,8 +2,11 @@
 
 ## Start a wait
 
-When you hold a taken, open turn and must re-check an outside condition later, such as a busy
-test stand, wait instead of sitting quiet:
+Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot,
+high machine load, a deploy, an outside service. Not on your own work (review fixes, tests,
+checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.
+
+To wait on a taken, open turn you hold, instead of sitting quiet:
 `board wait <turn> --for <minutes> --reason <text> --key <key>` (MCP `task_wait`).
 
 - `--for` is whole minutes, 1 to 120. `--reason` is up to 200 characters and not blank.
@@ -21,7 +24,7 @@ Until the wait ends the Board raises no quiet-turn reminder, no `stuck-turn:` it
 next reconcile. `stuck_worker`, `needs_input`, turn-stall and ended-holder items still fire.
 
 `worker_idle` also stays off for `health.idleInDevAfterMs` after the wait runs out (`woken` or
-`limit`), while you still hold the open turn. A take, a submit or a close grants no grace.
+`limit`) or the operator ends it (`ended`), while you still hold the open turn. A take, a submit or a close grants no grace.
 
 `board status`, `board task <task> --why`, `board inbox` and `task.get` show the active wait on
 the turn as `wait: {reason, since, wakesAt}`; it is absent with no active wait.
@@ -40,12 +43,34 @@ dropped when the turn closes or is taken. The quiet clock restarts at the wake, 
 reminder and then `stuck-turn:` follow if you stay quiet. If this take's reminder was already
 delivered, no second reminder comes before the `stuck-turn:` item (one reminder per take).
 
+## End a wait early
+
+The operator can end the active wait on an open turn at once: `board wait <turn> --end --key <key>`
+(MCP `task_wait` with `end: true`), or `End wait` on the task panel's wait strip.
+
+- Pass `--end` alone: with `--for` or `--reason` the call answers `usage`, as does a call with
+  none of the three.
+- The holder or another session with a grant gets `not_operator`; a caller with no grant
+  `forbidden`. A turn with no active wait answers `no_active_wait`, a closed turn or one of an
+  earlier column visit `turn_closed`, an archived task `task_archived`. A refusal writes nothing.
+- The answer is `{turn, waits}`. The wait ends `ended`, and the time it ran counts toward the
+  turn's limits.
+
+An agent holder is rung once, by the wake ring's rules:
+
+`<KEY> turn T<n> wait ended by the operator: <reason>; check board inbox (N<id>-<ring>)`
+
+No ring goes to the operator token, to an operator session that ends its own wait, to a worker
+whose task link the operator removed or to a holder whose session ended. The quiet clock
+restarts at the end, as after a wake.
+
 ## How a wait ends
 
 | Outcome     | When                                                                                                                     |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `woken`     | its time ran out; an agent holder is rung                                                                                |
 | `limit`     | its time ran out and the turn's waits reached a limit; an agent holder is rung                                           |
+| `ended`     | the operator ended it early; an agent holder is rung                                                                     |
 | `submitted` | the holder submitted the turn                                                                                            |
 | `closed`    | a return, move, correction, archive or other close; a take or takeover; a new wait; the holder's session ended (no ring) |
 

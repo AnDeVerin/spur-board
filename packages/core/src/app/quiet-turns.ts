@@ -154,7 +154,7 @@ export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Prom
  * `remindStuckTurns` registers it by: its holder's current take is quiet for `stuckTurnAfterMs`.
  * Otherwise the sender defers it, so a question opened after it was queued holds it until the
  * question closes and a fresh quiet period passes, and blind Spur holds it until Spur reports again.
- * A wait's wake ring is due unless Spur is blind. Every other ring is due.
+ * A wait's wake or end ring is due unless Spur is blind. Every other ring is due.
  */
 export async function ringDue(
   trx: Trx,

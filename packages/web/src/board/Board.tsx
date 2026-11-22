@@ -298,6 +298,7 @@ export function Board({ data }: { data: BoardData }) {
           commentIntent={data.commentIntent}
           submitTurnIntent={data.submitTurnIntent}
           returnTurnIntent={data.returnTurnIntent}
+          endWaitIntent={data.endWaitIntent}
           drafts={data.drafts}
           refreshTask={data.refreshTask}
           sections={{ get: data.sectionOpen, set: data.setSectionOpen }}

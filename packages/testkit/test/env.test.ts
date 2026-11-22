@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { homedir, tmpdir, userInfo } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, inject, it } from 'vitest';
 import { isScrubbed } from '../src/env.ts';
 
@@ -61,6 +62,13 @@ describe('temp dirs', () => {
       expect(value?.startsWith(root), name).toBe(true);
     }
     expect(process.env['XDG_DATA_DIRS']).toBeUndefined();
+  });
+
+  it('records the Vitest main process as the owner of the per-run root', () => {
+    const owner = JSON.parse(readFileSync(join(inject('harnessRoot'), 'owner.json'), 'utf8')) as {
+      pid: number;
+    };
+    expect(owner.pid).toBe(process.ppid);
   });
 });
 

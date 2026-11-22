@@ -1,5 +1,6 @@
-// The inputs and outputs of the writes that take and close a turn: `inbox.ack`, `task.submit` and
-// `task.return`. The catalog and the browser operations share these objects (`ops.test.ts`).
+// The inputs and outputs of the writes that take, close and wait on a turn: `inbox.ack`,
+// `task.submit`, `task.return` and `task.wait`. The catalog and the browser operations share
+// these objects (`ops.test.ts`).
 import { z } from 'zod';
 import { SUBMISSION_BASES } from '../enums.ts';
 import { commitShaSchema } from '../facts.ts';
@@ -106,27 +107,41 @@ export const taskReturnOutputSchema = z.strictObject({
 /** Longest one wait may last, in minutes. */
 const WAIT_MINUTES_MAX = 120;
 export const taskWaitInputSchema = z.strictObject({
-  turn: turnIdSchema.describe('Turn ID you took (T4).'),
+  turn: turnIdSchema.describe(
+    'Turn ID you took (T4); with end, the turn whose wait you end as the operator.',
+  ),
   for: z
     .int()
     .min(1)
     .max(WAIT_MINUTES_MAX)
-    .describe('Whole minutes to wait, 1 to 120; the turn total cap may shorten it.'),
+    .optional()
+    .describe(
+      'Whole minutes to wait, 1 to 120; the turn total cap may shorten it. Required unless end.',
+    ),
   reason: z
     .string()
     .min(1)
     .max(200)
     .regex(/\S/)
-    .describe('What you wait for, up to 200 characters; the wake ring repeats it.'),
+    .optional()
+    .describe(
+      'What you wait for, up to 200 characters; the wake ring repeats it. Required unless end. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.',
+    ),
+  end: z
+    .boolean()
+    .optional()
+    .describe(
+      "Operator only: end the turn's active wait now instead of starting one; pass no for or reason.",
+    ),
 });
 export const taskWaitOutputSchema = z.strictObject({
   turn: turnIdSchema.describe('The waiting turn.'),
-  wait: turnWaitSchema,
-  waits: z.int().min(1).describe('Waits the turn has started, this one included.'),
+  wait: turnWaitSchema.optional().describe('The wait just started; absent after end.'),
+  waits: z.int().min(1).describe('Waits the turn has started, this one or the ended one included.'),
 });
 
 /**
- * The three writes as `browserOperations` entries (`../browser.ts`), kept beside their schemas: the
+ * The four writes as `browserOperations` entries (`../browser.ts`), kept beside their schemas: the
  * web Turn section calls them, and the catalog shares the same schema objects.
  */
 export const turnWriteOperations = {
@@ -147,5 +162,11 @@ export const turnWriteOperations = {
     kind: 'mutation',
     input: taskReturnInputSchema,
     output: taskReturnOutputSchema,
+  },
+  'task.wait': {
+    id: 'task.wait',
+    kind: 'mutation',
+    input: taskWaitInputSchema,
+    output: taskWaitOutputSchema,
   },
 } as const;

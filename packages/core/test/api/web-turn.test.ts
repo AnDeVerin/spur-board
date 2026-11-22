@@ -79,6 +79,7 @@ const WRITES = [
   { id: 'inbox.ack', input: { entries: [{ id: 'T9' }] } },
   { id: 'task.submit', input: { turn: 'T9', sha: 'a'.repeat(40) } },
   { id: 'task.return', input: { turn: 'T9', reason: 'Fix the parser.' } },
+  { id: 'task.wait', input: { turn: 'T9', end: true } },
 ];
 
 it.each(WRITES)(
@@ -105,8 +106,8 @@ it.each(WRITES)('refuses $id on the web without a key', async ({ id, input }) =>
   expect(runOperation).not.toHaveBeenCalled();
 });
 
-it('takes an orchestrator turn and returns it through the web, journaled as operator via web', async () => {
-  const { store, post } = await setup();
+/** Opens the Review turn of an active task in Review; its ID. */
+async function reviewTurn(store: Awaited<ReturnType<typeof setup>>['store']) {
   await store.db
     .insertInto('task')
     .values({ ...sampleRows.task, membership: 'active', archive_reason: null, column: 'review' })
@@ -116,7 +117,34 @@ it('takes an orchestrator turn and returns it through the web, journaled as oper
     return openTurn(trx, { task, reason: 'Review', handed: [], at: new Date(AT), config });
   });
   const turn = await store.db.selectFrom('turn').select('id').executeTakeFirstOrThrow();
-  const id = `T${String(turn.id)}`;
+  return `T${String(turn.id)}`;
+}
+
+it('ends a turn wait through the web with a key, journaled as operator via web', async () => {
+  const { store, post } = await setup();
+  const id = await reviewTurn(store);
+  expect((await post('inbox.ack', { entries: [{ id }] }, 'web-ack')).statusCode).toBe(200);
+  const input = { turn: id, for: 30, reason: 'waiting for a free test stand' };
+  expect((await post('task.wait', input, 'web-wait')).statusCode).toBe(200);
+  const ended = await post('task.wait', { turn: id, end: true }, 'web-end');
+  expect(ended.statusCode).toBe(200);
+  expect(ended.json()).toMatchObject({ value: { turn: id, waits: 1 } });
+  // The same key answers the stored result instead of a no_active_wait refusal.
+  const again = await post('task.wait', { turn: id, end: true }, 'web-end');
+  expect(again.statusCode).toBe(200);
+  expect(again.json()).toMatchObject({ value: { turn: id, waits: 1 } });
+  const history = await post('task.history', { task: sampleRows.task.key });
+  const events = history.json<{
+    value: { events: { kind: string; actor: string; via?: string }[] };
+  }>().value.events;
+  expect(events.filter((event) => event.kind === 'turn_wait_ended')).toEqual([
+    expect.objectContaining({ actor: 'operator', via: 'web' }),
+  ]);
+});
+
+it('takes an orchestrator turn and returns it through the web, journaled as operator via web', async () => {
+  const { store, post } = await setup();
+  const id = await reviewTurn(store);
   const ack = await post('inbox.ack', { entries: [{ id }] }, 'web-ack');
   expect(ack.statusCode).toBe(200);
   expect(ack.json()).toMatchObject({ value: { acked: [id] } });

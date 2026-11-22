@@ -1024,6 +1024,12 @@ describe('catalog commands', () => {
     expect(unblock.stdout).toMatch(/--key <key>\s+Idempotency key for this action/);
     expect(unblock.stdout).toMatch(/--json\s+Print JSON output or a JSON error/);
 
+    const wait = capture();
+    expect(await runCli(['wait', '--help'], { env: {}, io: wait.io })).toBe(0);
+    expect(wait.stdout).toContain('board wait T4 --end');
+    expect(wait.stdout).toMatch(/--end\s+Operator only/);
+    expect(wait.stdout).not.toContain('--end <value>');
+
     for (const command of ['link', 'unlink']) {
       const help = capture();
       expect(await runCli([command, '--help'], { env: {}, io: help.io })).toBe(0);

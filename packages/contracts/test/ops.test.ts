@@ -146,7 +146,7 @@ describe('catalog', () => {
     ])
       expect(field.safeParse([bad]).success, JSON.stringify(bad)).toBe(false);
   });
-  it('defaults web off and exposes exactly the screen reads and nine operator writes', () => {
+  it('defaults web off and exposes exactly the screen reads and ten operator writes', () => {
     expect(
       OPERATIONS.filter((op) => op.web !== null)
         .map((op) => op.id)
@@ -168,6 +168,7 @@ describe('catalog', () => {
       'task.order',
       'task.return',
       'task.submit',
+      'task.wait',
     ]);
     expect(
       OPERATIONS.filter((op) => op.kind === 'mutation' && op.web !== null)
@@ -183,6 +184,7 @@ describe('catalog', () => {
       'task.order',
       'task.return',
       'task.submit',
+      'task.wait',
     ]);
     expect(OPERATIONS.find((op) => op.id === 'schema.get')?.web).toBeNull();
     expect(catalogSnapshotBody(OPERATIONS).operations.every((op) => Object.hasOwn(op, 'web'))).toBe(
@@ -802,7 +804,14 @@ describe('grants', () => {
       'mutation',
       [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, operator],
       null,
-      [...archived, 'turn_closed', 'not_turn_taker', 'turn_wait_limit'],
+      [
+        ...archived,
+        'not_operator',
+        'turn_closed',
+        'not_turn_taker',
+        'turn_wait_limit',
+        'no_active_wait',
+      ],
     ],
     [
       'task.move',
@@ -986,9 +995,12 @@ describe('snapshot', () => {
     // operator kind of unbound columns in config.get and the no-turn Done without a live worker.
     // #804 adds task.wait, the optional turn wait in turn views, the turn_wait_limit code and the
     // turn wait event kinds. #810 adds the optional projects[].columns[].quietAfterMs to
-    // config.get.
+    // config.get. #815 says which items item.close also closes the block of. #826 rewords the
+    // task.wait guidance and its reason field. #827 lets the operator end a turn's wait early:
+    // task.wait gains end and web, optional for, reason and output wait, the ended outcome, and
+    // the not_operator and no_active_wait codes.
     expect(await catalogVersion(baseline)).toBe(
-      'd83666ace4f306a8034b6403263e90439b4a38810ef6bd2baee38fd055065f7c',
+      '3ad59710b67aa2c492ee3c0401303bc962dc9a0a53c19a62cd271ca18fe82117',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

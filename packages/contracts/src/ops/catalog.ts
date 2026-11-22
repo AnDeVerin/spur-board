@@ -907,9 +907,10 @@ export const OPERATIONS = [
     id: 'item.close',
     web: true,
     kind: 'mutation',
-    description: 'Close a "from you" item without acting on it.',
+    description: 'Close a "from you" item without retrying; some block items close their block.',
     mcp: {
-      whenToUse: 'Dismiss an item without retrying.',
+      whenToUse:
+        'Dismiss an item without retrying. An anomaly, cycle_limit or course_check item also closes its block; an operator-block: item closes its block when you may unblock it.',
       whenNotToUse: 'Use item_retry to try again.',
     },
     input: itemInputSchema,
@@ -1400,23 +1401,26 @@ export const OPERATIONS = [
     id: 'task.wait',
     kind: 'mutation',
     description:
-      'Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends.',
+      'Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends. The operator can end the active wait early.',
     mcp: {
       whenToUse:
-        'You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time.',
+        "You hold a turn. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Give whole minutes and the reason; the Board rings you with the reason when the wait ends, and submit, return or a close ends it earlier. Waits per turn are capped by count and total time. As the operator, pass end to end a holder's active wait early; the holder is rung.",
       whenNotToUse:
-        'Use task_submit to hand in finished work, or task_return to send the task back to Dev.',
+        'Use task_submit to hand in finished work, or task_return to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.',
     },
     input: taskWaitInputSchema,
     output: taskWaitOutputSchema,
+    web: true,
     grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, { grant: 'operator' }],
     errors: [
       'wrong_id_kind',
+      'not_operator',
       'not_found',
       'task_archived',
       'turn_closed',
       'not_turn_taker',
       'turn_wait_limit',
+      'no_active_wait',
     ],
     cli: { command: 'wait', args: ['turn'] },
     slack: null,
@@ -1433,6 +1437,11 @@ export const OPERATIONS = [
           },
           waits: 1,
         },
+      },
+      {
+        summary: "End a turn's wait early as the operator",
+        input: { turn: 'T4', end: true },
+        output: { turn: 'T4', waits: 1 },
       },
     ],
   }),

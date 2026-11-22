@@ -2,13 +2,15 @@ import {
   parseActorId,
   userIdSchema,
   type ActorId,
+  type BlockType,
   type Config,
   type RichText,
+  type RichTextBlock,
   type RichTextInline,
 } from '@spur-board/contracts';
 import type { Row } from '../store/schema.ts';
 import type { Trx } from './board-utils.ts';
-import { fingerprint, itemLineText } from '../domain/fromYou.ts';
+import { fingerprint, itemLineText, OPERATOR_BLOCK_KEY } from '../domain/fromYou.ts';
 import { isOperator } from './authorize.ts';
 import { TASKLESS_FEED_KEY, journal, raiseItemWith, type RaiseItemInput } from './item-raise.ts';
 import {
@@ -31,9 +33,20 @@ export function capPoints(text: string, max: number): string {
   return points.length <= max ? text : `${points.slice(0, max - 1).join('')}…`;
 }
 
-/** Raise one item generation. A repeated raise of an active key is idempotent. */
-export async function raiseItem(trx: Trx, input: RaiseItemInput): Promise<Row<'operator_item'>> {
-  return raiseItemWith(trx, input, enqueueFeedLine);
+/**
+ * Raise one item generation. A repeated raise of an active key is idempotent. An operator block's
+ * line carries the block's type, and its `thread.parent` row holds the line until it is delivered.
+ */
+export async function raiseItem(
+  trx: Trx,
+  input: RaiseItemInput,
+  thread: { parent: number | null; blockType: BlockType } | null = null,
+): Promise<Row<'operator_item'>> {
+  return raiseItemWith(trx, input, (t, line) =>
+    thread === null
+      ? enqueueFeedLine(t, line)
+      : enqueueFeedLine(t, { ...line, blockType: thread.blockType }, thread.parent),
+  );
 }
 
 /**
@@ -178,21 +191,54 @@ function resolvedLine(by: ActorId, at: string, config: Config): RichTextInline[]
 }
 
 /**
- * A feed line: its key, linked when it has a url, then its segments, or its text, as a quote.
+ * A feed line: its key, linked when it has a url, then its segments, or its text, as a quote. An
+ * operator block's line says what Close does right under the key, so a long reason cannot push the
+ * warning off the message with the Close button. Under its delivered `thread` it links the
+ * thread, and for a question says that a reply there answers it; a reply to any other block type
+ * is refused. A line queued before the block type was stored names no type.
  */
 export function feedLineBody(
-  payload: Pick<FeedLinePayload, 'key' | 'url' | 'text' | 'segments'>,
+  payload: Pick<FeedLinePayload, 'key' | 'url' | 'text' | 'segments' | 'blockType'> & {
+    itemKey?: string;
+  },
+  thread?: { permalink: string } | null,
 ): RichText {
-  const { key, url, text, segments } = payload;
-  return [
+  const { key, url, text, segments, itemKey, blockType } = payload;
+  const body: RichTextBlock[] = [
     {
       kind: 'paragraph',
       children: [
         url === undefined ? { kind: 'text', text: key } : { kind: 'link', url, text: key },
       ],
     },
-    { kind: 'quote', children: segments ?? [{ kind: 'text', text }] },
   ];
+  if (itemKey?.startsWith(OPERATOR_BLOCK_KEY) === true) {
+    const block = `B${itemKey.slice(OPERATOR_BLOCK_KEY.length)}`;
+    const close =
+      blockType === 'needs_input'
+        ? `Close closes ${block} without an answer.`
+        : blockType === undefined
+          ? `Close unblocks ${block} without an answer.`
+          : `Close unblocks ${block}.`;
+    const link: RichTextInline | null =
+      thread == null ? null : { kind: 'link', url: thread.permalink, text: `the ${block} thread` };
+    // A paragraph, not context: Slack leaves context out of the text screen readers read.
+    body.push({
+      kind: 'paragraph',
+      children:
+        link === null
+          ? [{ kind: 'text', text: close }]
+          : blockType === 'needs_input'
+            ? [
+                { kind: 'text', text: 'Reply in ' },
+                link,
+                { kind: 'text', text: ` to answer it. ${close}` },
+              ]
+            : [{ kind: 'text', text: 'See ' }, link, { kind: 'text', text: `. ${close}` }],
+    });
+  }
+  body.push({ kind: 'quote', children: segments ?? [{ kind: 'text', text }] });
+  return body;
 }
 
 /** A cleared line: its key line, the struck summary and who resolved it when; no actions. */

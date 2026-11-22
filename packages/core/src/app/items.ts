@@ -1,17 +1,20 @@
-import { assertNever, type Config } from '@spur-board/contracts';
+import { assertNever, OPERATIONS, type Config } from '@spur-board/contracts';
 import { z } from 'zod';
-import { isItemKind, itemBlockRef, ITEM_POLICY } from '../domain/fromYou.ts';
+import { isItemKind, itemBlockRef, ITEM_POLICY, OPERATOR_BLOCK_KEY } from '../domain/fromYou.ts';
 import type { Row } from '../store/schema.ts';
 import { projectForSource, type Trx } from './board-utils.ts';
-import type { ResolvedTarget } from './authorize.ts';
-import { closeBlockIfOpen, subjectTarget } from './blocks.ts';
+import { authorize, type ResolvedTarget } from './authorize.ts';
+import { closeBlockIfOpen, createBlockMutations, subjectTarget } from './blocks.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
-import { CommandError, type Mutation } from './commands.ts';
+import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import { restartNotification, ringCommentId } from './doorbells.ts';
 import { clearItem, dismissItem } from './feed.ts';
 import { requeuePostFailed, retryTransport } from './sender.ts';
 
 type Item = Row<'operator_item'>;
+
+/** The reason an operator block closes with when the operator closes its feed line. */
+const FEED_CLOSE_REASON = 'closed by the operator from the feed';
 
 /** Re-applies an `inbound_failure` item's stored event in `trx`; the caller clears the item. */
 export type ReapplyInbound = (trx: Trx, itemId: number, at: string) => Promise<void>;
@@ -364,6 +367,40 @@ export function createItemMutations(deps: {
   close: Mutation<'item.close'>;
 } {
   const resolveTargets = (trx: Trx, input: { item: string }) => itemTarget(trx, deps.config, input);
+  const unblock = createBlockMutations(deps.config).unblock;
+  const unblockGrants = OPERATIONS.find((op) => op.id === 'block.unblock')?.grants ?? [];
+  /**
+   * Closes the open operator-addressed block an `operator-block:` item names, as the operator's
+   * unblock. A closed block, an agent's block, an archived task or a caller `block.unblock` would
+   * refuse (a session whose project no longer holds the block) leaves the block as it is.
+   */
+  async function closeOperatorBlock(trx: Trx, item: Item, ctx: CommandContext): Promise<void> {
+    const blockId = itemBlockRef(item);
+    if (blockId === undefined) return;
+    const block = await trx
+      .selectFrom('block')
+      .select(['state', 'addressee_role', 'task_id'])
+      .where('id', '=', blockId)
+      .executeTakeFirst();
+    if (block?.state !== 'open' || block.addressee_role !== 'operator') return;
+    if (block.task_id !== null) {
+      const task = await trx
+        .selectFrom('task')
+        .select('membership')
+        .where('id', '=', block.task_id)
+        .executeTakeFirstOrThrow();
+      if (task.membership === 'archived') return;
+    }
+    const input = {
+      mode: 'reason',
+      block: `B${String(blockId)}`,
+      reason: FEED_CLOSE_REASON,
+    } as const;
+    const [target = { kind: 'missing' }] = await unblock.resolveTargets(trx, input, ctx.actor);
+    const state = { config: deps.config, target, mode: input.mode };
+    if (authorize(unblockGrants, ctx.actor, state).status !== 'allowed') return;
+    await unblock.run(trx, input, ctx);
+  }
   /** Runs the retry behind the item's kind; false when the item must stay raised. */
   async function retryAction(trx: Trx, item: Item, at: string): Promise<boolean> {
     const closeHint = `close it with \`board item close I${String(item.id)}\`.`;
@@ -449,6 +486,8 @@ export function createItemMutations(deps: {
             const reason = `closed as item I${String(item.id)}`;
             await closeBlockIfOpen(trx, item.block_id, ctx, 'reason', reason);
           }
+          if (item.item_key.startsWith(OPERATOR_BLOCK_KEY))
+            await closeOperatorBlock(trx, item, ctx);
         }
         return view(item, task);
       },

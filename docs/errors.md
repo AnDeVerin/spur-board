@@ -104,6 +104,40 @@ Example:
 }
 ```
 
+## not_operator
+
+Only the operator may end a turn's wait early.
+
+HTTP: 403  
+Exit code: 1  
+Hint: Ask the operator to end the wait; as its holder, submit or return the turn, or start a shorter wait.  
+Recovery: Ask the operator to end the wait.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "not_operator",
+    "requestId": "req-example-123",
+    "message": "Only the operator may end a turn's wait early.",
+    "hint": "Ask the operator to end the wait; as its holder, submit or return the turn, or start a shorter wait.",
+    "docs": "docs/errors.md#not_operator",
+    "recovery": {
+      "action": "Ask the operator to end the wait.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## not_found
 
 The project, task, block, comment or item does not exist.
@@ -401,6 +435,40 @@ Example:
     "docs": "docs/errors.md#turn_wait_limit",
     "recovery": {
       "action": "Submit or return the turn instead of waiting again.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
+## no_active_wait
+
+The turn has no active wait; it ended or never started.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Read the turn with `board task <KEY>`; there is no wait left to end.  
+Recovery: Read the turn before ending its wait again.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "no_active_wait",
+    "requestId": "req-example-123",
+    "message": "The turn has no active wait; it ended or never started.",
+    "hint": "Read the turn with `board task <KEY>`; there is no wait left to end.",
+    "docs": "docs/errors.md#no_active_wait",
+    "recovery": {
+      "action": "Read the turn before ending its wait again.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."

@@ -28,6 +28,7 @@ import {
   KIND_SPACE,
   OUTBOX_KINDS,
   outboxBodySchema,
+  payloadField,
   renderBody,
   rescanStoredPost,
   type DeliveredRef,
@@ -369,6 +370,33 @@ export function createSender(options: SenderOptions): Sender {
   }
 
   /**
+   * A feed line waits for its block's thread only to link it. When the thread post failed for good
+   * or died while its block is still open (its failed post closed or blocked), the line goes on
+   * without a parent, and so without the link. A thread that died because its block closed takes
+   * its line with it. The block comes from the thread's dedupe key, not its payload, so a thread
+   * whose payload is not JSON still releases its line and cannot stall a claim.
+   */
+  async function detachAbandonedThreads(trx: Trx): Promise<void> {
+    await trx
+      .updateTable('outbox')
+      .set({ parent_outbox_id: null })
+      .where('kind', '=', 'feed.line')
+      .where('state', 'in', ['pending', 'post_failed'])
+      .where('parent_outbox_id', 'in', (eb) =>
+        eb
+          .selectFrom('outbox as parent')
+          .innerJoin('block', (join) =>
+            join.on('parent.dedupe_key', '=', sql<string>`'conversation.open:block:' || block.id`),
+          )
+          .select('parent.id')
+          .where('parent.kind', '=', 'conversation.open')
+          .where('parent.state', 'in', ['post_failed', 'dead'])
+          .where('block.state', '=', 'open'),
+      )
+      .execute();
+  }
+
+  /**
    * Raising or refreshing health for `spaces` suspends the 30-min window of every waiting row
    * there, so a row that retried before the outage gets a full window once the space recovers.
    */
@@ -438,6 +466,7 @@ export function createSender(options: SenderOptions): Sender {
       }
     }
     await kill(trx, stale, 'superseded');
+    await detachAbandonedThreads(trx);
     await cascade(trx);
 
     let ranThreshold = false;
@@ -697,7 +726,7 @@ export function createSender(options: SenderOptions): Sender {
                 : c.body.kind === 'feed.line' && c.body.payload.exchange !== undefined
                   ? exchangeBody({ ...c.body.payload, exchange: c.body.payload.exchange })
                   : c.body.kind === 'feed.line'
-                    ? feedLineBody(c.body.payload)
+                    ? feedLineBody(c.body.payload, c.parent)
                     : renderBody(c.body.payload.key, c.body.payload.text),
         ...((body.kind === 'feed.line' || body.kind === 'feed.line.edit') &&
         body.payload.actions !== undefined
@@ -799,8 +828,8 @@ export function createSender(options: SenderOptions): Sender {
               .selectFrom('outbox')
               .select('id')
               .where('kind', '=', 'conversation.close')
-              .where(sql<number>`json_extract(payload, '$.blockId')`, '=', body.payload.blockId)
-              .where(sql<string>`json_extract(payload, '$.targetConversation')`, '=', conversation)
+              .where(payloadField<number>('$.blockId'), '=', body.payload.blockId)
+              .where(payloadField<string>('$.targetConversation'), '=', conversation)
               .executeTakeFirst();
             if (explicit !== undefined) {
               await trx
@@ -808,11 +837,7 @@ export function createSender(options: SenderOptions): Sender {
                 .set({ state: 'dead', last_error: 'superseded' })
                 .where('parent_outbox_id', '=', c.id)
                 .where('kind', '=', 'conversation.close')
-                .where(
-                  sql<string | null>`json_extract(payload, '$.targetConversation')`,
-                  'is',
-                  null,
-                )
+                .where(payloadField<string>('$.targetConversation'), 'is', null)
                 .where('state', '=', 'pending')
                 .execute();
             }

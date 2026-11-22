@@ -9,6 +9,7 @@ import {
   linkChips,
   taskParam,
   timeInColumn,
+  until,
   whyRows,
   whySummary,
 } from '../src/board/task-model.ts';
@@ -206,6 +207,18 @@ describe('header facts', () => {
     [-3, '0m'],
   ])('age %d minutes reads %s', (minutes, text) => {
     expect(age(at(minutes), NOW)).toBe(text);
+  });
+
+  it.each([
+    [-20, 'in 20m'],
+    [-65, 'in 1h 5m'],
+    [-120, 'in 2h'],
+    [-(2 * 1440 + 30), 'in 2d'],
+    [-0.5, 'in 1m'],
+    [0, 'now'],
+    [10, 'now'],
+  ])('a wake %d minutes ago reads %s', (minutes, text) => {
+    expect(until(at(minutes), NOW)).toBe(text);
   });
 
   it('time in column reads the held row entry and is absent without one in the same column', () => {

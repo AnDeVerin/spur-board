@@ -12,8 +12,12 @@
   caller's `trx`. A new kind gets its payload schema, `KIND_SPACE` and `KIND_PRIORITY` entries
   there; the space comes from the kind, never from the payload.
 - A row that must follow another (reply, close, edit) sets `parent_outbox_id` to the thread's
-  latest row; none is written under a dead one. A row under a dead parent dies `superseded`.
-  A `feed.line.edit` written before its line is sent means the item was cleared: the sender
+  latest row; none is written under a dead one. A row under a dead parent dies `superseded`,
+  except a `feed.line` under its block's dead or `post_failed` `conversation.open` while the
+  block is still open: it loses the parent and posts without the thread link
+  (`detachAbandonedThreads` in `packages/core/src/app/sender.ts`; it finds the block by the
+  thread's dedupe key). A `feed.line.edit` written
+  before its line is sent means the item was cleared: the sender
   cancels both. A gateway row with `uncertain=1` is never cancelled as stale (it may be posted):
   it goes with `maybeSent`, then its dependents.
 - A doorbell's delivered ring count lives in `notification`, not `outbox.attempts`: transport
@@ -49,6 +53,10 @@
   so every later scheduled run would carry that key or `via`.
 - Event kinds and payloads follow `working-with-contracts`. JSON columns are read and written
   through `parseJson` / `toJson`.
+- In SQL, a lookup over the thread rows of every block reads a payload field through `payloadField`
+  (`packages/core/src/app/outbox.ts`): `json_extract` throws on a payload that is not JSON, and
+  one such row would fail the transaction of an unrelated close or claim
+  (`packages/core/test/app/items.test.ts`, "with an unreadable thread row").
 - A column that records who did something holds an `ActorId` (`packages/core/src/store/schema.ts`):
   `operator`, `system`, or agent:project/session for an agent. Never write the bare kind there.
   This covers `submission.author`, `block.author`, `block.unblocked_by`, `comment.author`,

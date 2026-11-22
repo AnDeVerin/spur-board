@@ -1,6 +1,6 @@
 import { createMutationIntent, ProblemError, type createApi, type Output } from '../lib/api.ts';
 
-/** `closeItemIntent` or `moveIntent` refused to send because the board is unavailable. */
+/** `closeItemIntent`, `moveIntent` or `endWaitIntent` refused to send: the board is unavailable. */
 export class BoardUnavailableError extends Error {
   constructor() {
     super('the board is unavailable.');
@@ -13,7 +13,7 @@ export class BoardUnavailableError extends Error {
  * after a confirmed run calls `onConfirm` to re-read; later runs then return at once.
  */
 export function createBoardIntent(api: ReturnType<typeof createApi>, unavailable: () => boolean) {
-  return <K extends 'item.close' | 'task.move' | 'task.order'>(
+  return <K extends 'item.close' | 'task.move' | 'task.order' | 'task.wait'>(
     id: K,
     input: Parameters<typeof createMutationIntent<K>>[2],
     onConfirm: (value: Output<K>) => void,

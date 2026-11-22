@@ -11,10 +11,11 @@ import type { ApiOptions } from './server.ts';
 import { createEventHub, installEventStream } from './sse.ts';
 
 /**
- * The Turn section's writes take and close a turn; the operator caller would otherwise get a
- * fresh key per request, so a keyless retry could take or close a turn again.
+ * The task panel's turn writes take and close a turn or end its wait; the operator caller would
+ * otherwise get a fresh key per request, so a keyless retry could take or close a turn again or
+ * end a later wait.
  */
-const KEYED_WEB_WRITES = new Set(['inbox.ack', 'task.submit', 'task.return']);
+const KEYED_WEB_WRITES = new Set(['inbox.ack', 'task.submit', 'task.return', 'task.wait']);
 
 export interface WebOptions extends Pick<
   ApiOptions,

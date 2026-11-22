@@ -9,9 +9,10 @@ import {
 } from '@spur-board/contracts';
 import type { Selectable } from 'kysely';
 import { z } from 'zod';
-import { VERDICT } from '../domain/gates.ts';
+import { VERDICT, countedChecks } from '../domain/gates.ts';
 import type { EventTable } from '../store/schema.ts';
 import { eventActor } from './board-utils.ts';
+import { sameRun } from './cancelled-checks.ts';
 import { END_WORDS } from './status.ts';
 import { turnSummary } from './task-turns.ts';
 
@@ -257,23 +258,39 @@ function factsSummary(entity: Entity, previous: Facts | undefined): string | nul
   return `${entity.prefix}: ${texts.join(', ')}${more(named.length)}`;
 }
 
-/** `Checks on <ref>:` with the failed names, or the green and pending counts. */
+/**
+ * `Checks on <ref>:` with the failed names, or the green and pending counts. A cancelled check
+ * whose run (name and completion time) the row lists as `waiting` counts as pending; a clause names
+ * the counted cancels whose run this poll confirmed, then the ones still waiting.
+ */
 function checksSummary(payload: Payload<'checks_changed'>) {
   const lists = checksSchema.safeParse(parsedJson(payload.to));
   if (!lists.success) return null;
   const [checks, requiredChecks] = lists.data;
-  const list =
-    requiredChecks.length > 0
-      ? requiredChecks
-      : checks.filter((check) => check.state !== 'skipped');
+  const list = countedChecks({ checks, requiredChecks });
   const head = `Checks on ${ref(payload.repo, payload.pr)}`;
   if (list.length === 0) return `${head}: none`;
-  const failed = list.filter((check) => VERDICT[check.state] === 'red').map(({ name }) => name);
+  const listed = (check: (typeof list)[number], runs: Payload<'checks_changed'>['waiting']) =>
+    check.state === 'cancelled' && (runs ?? []).some((run) => sameRun(run, check));
+  const clause = (runs: Payload<'checks_changed'>['waiting'], text: string) => {
+    const counted = [
+      ...new Set(list.filter((check) => listed(check, runs)).map(({ name }) => name)),
+    ];
+    return counted.length === 0
+      ? ''
+      : `; ${counted.slice(0, NAMED_CHANGES).join(', ')}${more(counted.length)} cancelled, ${text}`;
+  };
+  const clauses =
+    clause(payload.confirmed, 'now counts as red') +
+    clause(payload.waiting, 'waiting for a new run');
+  const failed = list
+    .filter((check) => VERDICT[check.state] === 'red' && !listed(check, payload.waiting))
+    .map(({ name }) => name);
   if (failed.length > 0)
-    return `${head}: ${String(failed.length)} failed: ${failed.slice(0, NAMED_CHANGES).join(', ')}${more(failed.length)}`;
+    return `${head}: ${String(failed.length)} failed: ${failed.slice(0, NAMED_CHANGES).join(', ')}${more(failed.length)}${clauses}`;
   const green = list.filter((check) => VERDICT[check.state] === 'green').length;
   const pending = list.length - green;
-  return `${head}: ${String(green)}/${String(list.length)} green${pending > 0 ? `, ${String(pending)} pending` : ''}`;
+  return `${head}: ${String(green)}/${String(list.length)} green${pending > 0 ? `, ${String(pending)} pending` : ''}${clauses}`;
 }
 
 const gates = (gate: readonly string[] | undefined) =>

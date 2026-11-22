@@ -118,12 +118,8 @@ function current(turn: Turn, task: Task): boolean {
   return turn.closed_at === null && turn.column === task.column && turn.epoch === task.column_epoch;
 }
 
-/** The refusals both operations share, in order: archived, closed, not the taker. */
-export async function takenTurn(
-  trx: Trx,
-  id: string,
-  ctx: CommandContext,
-): Promise<{ turn: Turn; task: Task }> {
+/** The refusals every turn write shares, in order: not found, archived, closed. */
+export async function unclosedTurn(trx: Trx, id: string): Promise<{ turn: Turn; task: Task }> {
   const turn = await turnById(trx, id);
   if (turn === undefined) throw new CommandError('not_found', 'Check the turn ID.');
   const task = await taskById(trx, turn.task_id);
@@ -136,6 +132,16 @@ export async function takenTurn(
       `Turn ${id} is closed; read your open turns with \`board inbox\`.`,
     );
   }
+  return { turn, task };
+}
+
+/** The refusals the holder's writes share, in order: those of `unclosedTurn`, not the taker. */
+export async function takenTurn(
+  trx: Trx,
+  id: string,
+  ctx: CommandContext,
+): Promise<{ turn: Turn; task: Task }> {
+  const { turn, task } = await unclosedTurn(trx, id);
   if (turn.acked_by === null || turn.acked_by !== ctx.actor) {
     throw new CommandError(
       'not_turn_taker',

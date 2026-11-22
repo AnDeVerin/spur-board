@@ -1433,7 +1433,10 @@ describe('board update', () => {
           marker,
         }),
       ],
-      { env: { PATH: process.env['PATH'] ?? '/usr/bin' }, stdio: ['ignore', 'ignore', 'pipe'] },
+      {
+        env: { PATH: process.env['PATH'] ?? '/usr/bin', TMPDIR: tmpdir() },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      },
     );
     let parentErr = '';
     parent.stderr.setEncoding('utf8').on('data', (text: string) => {
