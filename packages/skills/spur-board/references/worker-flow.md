@@ -37,8 +37,9 @@
   `--basis carried --from <sha> --reason <text>` for work tested on an earlier head, or
   `--basis skipped --reason <text>`. Failed: keyed `board return <turn> <reason>` naming what to fix.
 - One session may hold several QA turns; close each by its own T<number>, in any order.
-- `turn_closed` (a new head moved the task) or `not_turn_taker` (the operator took the turn over):
-  stop that round, re-read `board inbox`, act only on a turn it lists, then wait for the next ring.
+- `turn_closed` (a new head, or the operator closed the turn) or `not_turn_taker` (the operator
+  took the turn over): stop that round, re-read `board inbox`, act only on a turn it lists, then
+  wait for the next ring.
 
 ```sh
 board inbox
