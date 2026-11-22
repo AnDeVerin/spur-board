@@ -51,8 +51,8 @@ import {
 import {
   courseCounter,
   courseKeyPrefix,
-  cycleEvents,
   cycleKeyPrefix,
+  movesReplay,
   raiseCourseDue,
   replayOnce,
   shadowCourseCheck,
@@ -265,8 +265,10 @@ export async function moveLeft(
   const column = project?.columns.find((entry) => entry.id === task.column);
   if (project?.dispatcher.mode !== 'on' || column === undefined || uncounted(reason))
     return { task: moved, limitReached: false };
-  // The cycle limit counts returns alone: PR history is read only for a course count that is on.
-  const cycle = countCycles(await cycleEvents(trx, task.id), task.column, Infinity).count;
+  // The cycle limit counts returns alone. Its replay bounds the course count from above, so PR
+  // history is read only for a course count that may reach its check.
+  const bound = await movesReplay(trx, task.id, project);
+  const cycle = countCycles(bound.cycle, task.column, Infinity).count;
   if (cycle >= column.cycleLimit) {
     await raiseCycleLimit(trx, { task: moved, column: task.column, at, config });
     return { task: moved, limitReached: true };
@@ -284,6 +286,7 @@ export async function moveLeft(
       },
       project,
     ),
+    bound,
   });
   return { task: moved, limitReached: course !== null };
 }

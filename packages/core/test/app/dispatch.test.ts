@@ -8,6 +8,7 @@ import {
   type CheckGateColumn,
   type ColumnId,
   type EventKind,
+  type GateReason,
   type PrFacts,
   type PrPoller,
   type PrReviewRule,
@@ -29,7 +30,7 @@ import {
 import { registerTurnReminder, ringStillCurrent } from '../../src/app/doorbells.ts';
 import { archiveTask } from '../../src/app/archive.ts';
 import { returnCounts } from '../../src/app/course-check.ts';
-import { dispatchTasks } from '../../src/app/dispatch.ts';
+import { dispatchTasks, moveLeft } from '../../src/app/dispatch.ts';
 import { mayCount } from '../../src/app/external-rounds.ts';
 import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
@@ -4760,9 +4761,233 @@ describe('external change-request rounds', () => {
     },
   );
 
+  /** A change request by the external reviewer on `head`, journaled in a poll that moves nothing. */
+  async function quietRequest(ctx: Board, head: string) {
+    ctx.wait(1_000);
+    const submittedAt = ctx.at();
+    await ctx.pr(
+      {
+        reviews: [{ reviewer: EXTERNAL, state: 'changes_requested', commitSha: head, submittedAt }],
+        feedback: [
+          {
+            kind: 'review',
+            id: `r-quiet-${submittedAt}`,
+            author: { login: EXTERNAL, type: 'user' },
+            postedAt: submittedAt,
+          },
+        ],
+      },
+      false,
+    );
+  }
+
+  const PUSH_ONLY = { reason: 'gate_broken', gate: ['no_submit_on_head'] } as const;
+  const EXECUTOR = { block: 'B999' } as const;
+  const EXTERNAL_COMMENTS = { reason: 'gate_broken', gate: ['external_comments'] } as const;
+
+  it.each([
+    {
+      name: 'Review course check off, a push-only return',
+      options: { courseCheck: 0 },
+      start: inReview,
+      final: PUSH_ONLY,
+      counter: 'review',
+      course: 0,
+      item: null,
+      reads: false,
+    },
+    {
+      name: 'Review course check 10, a push-only return',
+      options: { courseCheck: 10 },
+      start: inReview,
+      final: PUSH_ONLY,
+      counter: 'review',
+      course: 0,
+      item: null,
+      reads: false,
+    },
+    {
+      name: 'Review course check 3, a second executor return',
+      options: { courseCheck: 3 },
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await cycle(ctx);
+        await resubmit(ctx, B);
+        return ctx;
+      },
+      final: EXECUTOR,
+      counter: 'review',
+      course: 2,
+      item: null,
+      reads: false,
+    },
+    {
+      name: 'Review course check 3, a third executor return',
+      options: { courseCheck: 3 },
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await cycle(ctx);
+        await resubmit(ctx, B);
+        await cycle(ctx);
+        await resubmit(ctx, C);
+        return ctx;
+      },
+      final: EXECUTOR,
+      counter: 'review',
+      course: 3,
+      item: 'course-check:1:review',
+      heads: [
+        '- return to Dev from review on aaaaaaa',
+        '- return to Dev from review on bbbbbbb',
+        '- return to Dev from review on ccccccc (current head)',
+      ],
+      reads: true,
+    },
+    {
+      name: 'Review cycle limit 1, an executor return',
+      options: { cycleLimit: 1 },
+      start: inReview,
+      final: EXECUTOR,
+      counter: 'review',
+      course: 1,
+      item: 'cycle-limit:1:review',
+      reads: false,
+    },
+    {
+      name: 'External Review course check 10, an external-comments return from Review',
+      options: { externalReview: true, externalCourseCheck: 10 },
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await quietRequest(ctx, A);
+        return ctx;
+      },
+      final: EXTERNAL_COMMENTS,
+      counter: 'external-review',
+      course: 1,
+      item: null,
+      reads: false,
+    },
+    {
+      name: 'External Review course check 1, an external-comments return from Review',
+      options: { externalReview: true, externalCourseCheck: 1 },
+      start: async (options: Options) => {
+        const ctx = await inReview(options);
+        await quietRequest(ctx, A);
+        return ctx;
+      },
+      final: EXTERNAL_COMMENTS,
+      counter: 'external-review',
+      course: 1,
+      item: 'course-check:1:external-review',
+      heads: ['- return to Dev from review for external comments on aaaaaaa (current head)'],
+      reads: true,
+    },
+    {
+      name: 'External Review course check 2, a return on the head of a Dev round',
+      options: { externalReview: true, externalCourseCheck: 2 },
+      start: async (options: Options) => {
+        const ctx = await inDev(options);
+        await devRound(ctx, B);
+        // The first submit hands the change request over; the second reaches Review.
+        await resubmit(ctx, B);
+        await resubmit(ctx, B);
+        expect((await ctx.task()).column).toBe('review');
+        await quietRequest(ctx, B);
+        return ctx;
+      },
+      final: EXTERNAL_COMMENTS,
+      counter: 'external-review',
+      // The round and the return share head B, so External Review counts it once.
+      course: 1,
+      item: null,
+      reads: true,
+    },
+    {
+      name: 'External Review course check 10, its executor return',
+      options: { externalReview: true, externalCourseCheck: 10, externalOrchestrator: 'coord' },
+      start: pastProductReview,
+      final: EXECUTOR,
+      counter: 'external-review',
+      course: 1,
+      item: null,
+      reads: false,
+    },
+  ] satisfies {
+    name: string;
+    options: Options;
+    start: (options: Options) => Promise<Board>;
+    final: { reason?: 'gate_broken'; gate?: readonly GateReason[]; block?: string };
+    counter: ColumnId;
+    course: number;
+    item: string | null;
+    heads?: string[];
+    reads: boolean;
+  }[])(
+    'a return through moveLeft reads PR history only for a course count it may reach: $name',
+    async ({ options, start, final, counter, course, item, heads, reads }) => {
+      const ctx = await start({ cycleLimit: 10, ...options });
+      ctx.wait(60_000);
+      const queries: CompiledQuery[] = [];
+      const logged = new Kysely<Tables>({
+        dialect: new SqliteDialect({ database: rawDatabase(ctx.file) }),
+        log: (event) => {
+          queries.push(event.query);
+        },
+      });
+      let limitReached: boolean;
+      try {
+        // A move needs the scan transaction the poll runs in, here on the logged connection.
+        const store = {
+          transaction: <T>(fn: (trx: Kysely<Tables>) => Promise<T>) =>
+            logged.transaction().execute(fn),
+        } as Store;
+        ({ limitReached } = await scanTransaction(
+          store,
+          ctx.config(),
+          async (trx) => {
+            const task = await trx
+              .selectFrom('task')
+              .selectAll()
+              .where('id', '=', 1)
+              .executeTakeFirstOrThrow();
+            return moveLeft(trx, {
+              task,
+              to: 'dev',
+              at: new Date(ctx.at()),
+              actor: 'system',
+              config: ctx.config(),
+              ...final,
+            });
+          },
+          { now: () => Date.parse(ctx.at()) },
+        ));
+      } finally {
+        await logged.destroy();
+      }
+      expect((await ctx.task()).column).toBe('dev');
+      expect((await returnCounts(ctx.store.db, 1, counter, project(options))).course).toBe(course);
+      const open = await ctx.store.db
+        .selectFrom('operator_item')
+        .select('item_key')
+        .where('cleared_at', 'is', null)
+        .where('kind', 'in', ['course_check', 'cycle_limit'])
+        .execute();
+      expect(open.map((entry) => entry.item_key)).toEqual(item === null ? [] : [item]);
+      expect(limitReached).toBe(item !== null);
+      if (heads !== undefined) {
+        const { reason } = await courseBlock(ctx);
+        for (const line of heads) expect(reason).toContain(line);
+        expect(reason).not.toContain('unknown head');
+      }
+      // A read of PR history binds the `pr_facts_changed` kind; the SQL text alone may name it.
+      const facts = queries.filter((query) => query.parameters.includes('pr_facts_changed'));
+      expect(facts.length > 0).toBe(reads);
+    },
+  );
+
   it.each([
     { name: 'course checks off', courseCheck: 0, reads: 0 },
-    { name: "Review's course check on", courseCheck: 10, reads: 1 },
+    { name: "Review's course check below its count", courseCheck: 10, reads: 0 },
   ])(
     'a return in a dispatcher pass reads PR history only for a course count: $name',
     async ({ courseCheck, reads }) => {
@@ -4808,7 +5033,7 @@ describe('external change-request rounds', () => {
         from: 'review',
         gate: ['no_submit_on_head'],
       });
-      // A read of PR history asks for the `pr_facts_changed` kind; the cycle events alone do not.
+      // A read of PR history asks for the `pr_facts_changed` kind; the moves-only replay does not.
       const facts = queries.filter((query) => query.parameters.includes('pr_facts_changed'));
       expect(facts).toHaveLength(reads);
     },

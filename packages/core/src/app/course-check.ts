@@ -106,11 +106,13 @@ export type CourseReplay = { cycle: CycleEvent[]; course: CourseLog; externalHea
 const reviewsSchema = prFactsSchema.shape.reviews;
 
 /**
- * The task's cycle events alone, as `courseRounds` gives them: its moves and limit resets, with
- * no PR history read. Enough for a cycle limit, which counts returns and nothing else.
+ * The task's journal replayed with no PR history read: its moves, resets and external rounds.
+ * `cycle` is exact, enough for a cycle limit. `course` is an upper bound of each counter's count,
+ * exact outside External Review: with no head known, no return is deduplicated against a counted
+ * head. A bound below a course check rules it out; it never goes to `courseSummary`.
  */
-export async function cycleEvents(trx: Trx, taskId: number): Promise<CycleEvent[]> {
-  return (await courseRounds(trx, taskId, { columns: [], operatorGithubLogin: '' }, false)).cycle;
+export function movesReplay(trx: Trx, taskId: number, project: Project): Promise<CourseReplay> {
+  return courseRounds(trx, taskId, project, false);
 }
 
 /**
@@ -123,7 +125,7 @@ export async function cycleEvents(trx: Trx, taskId: number): Promise<CycleEvent[
  * bounces on is still unhandled and is the return's cause. External Review counts each head of
  * external feedback (rounds and such returns) once, resets ignored; a later one on a counted
  * head adds to the cycle events only. `externalHeads` are those heads. With `history` false it
- * reads no PR history and gives the cycle events alone.
+ * reads no PR history: every return's head is unknown, so only external rounds are deduplicated.
  */
 async function courseRounds(
   trx: Trx,
@@ -173,7 +175,7 @@ async function courseRounds(
       'in',
       history
         ? ['task_moved', 'from_you_cleared', 'external_round', 'pr_facts_changed']
-        : ['task_moved', 'from_you_cleared'],
+        : ['task_moved', 'from_you_cleared', 'external_round'],
     )
     .orderBy('id')
     .execute();
@@ -205,8 +207,7 @@ async function courseRounds(
       const reset = cleared.success ? resetOf.get(cleared.data.item) : undefined;
       if (reset === undefined || !isColumn(reset.column)) continue;
       if (reset.count === 'cycle') replay.cycle.push({ kind: 'limit_reset', column: reset.column });
-      else if (history)
-        queue.push({ entry: { kind: 'reset', counter: reset.column }, external: false });
+      else queue.push({ entry: { kind: 'reset', counter: reset.column }, external: false });
     } else if (row.kind === 'external_round') {
       const round = eventPayloadSchemas.external_round.safeParse(JSON.parse(row.payload));
       if (round.success) queue.push({ entry: externalRound(round.data, project), external: true });
@@ -217,7 +218,7 @@ async function courseRounds(
       const event = moved.success ? counted(moved.data, moved.data.block !== undefined) : null;
       if (event?.kind !== 'return') continue;
       replay.cycle.push(event);
-      if (!history || countCycles([event], event.column, Infinity).count === 0) continue;
+      if (countCycles([event], event.column, Infinity).count === 0) continue;
       const counter = courseCounter(event, project);
       const external = counter === EXTERNAL_COUNTER && externalCause(event.causes);
       const pr = active();
@@ -348,11 +349,15 @@ export async function raiseCourseDue(
     counter: ColumnId;
     /** The task's replay when the caller already read it. */
     replay?: CourseReplay;
+    /** A `movesReplay` already read: below the threshold, no full replay is read. */
+    bound?: CourseReplay;
   },
 ): Promise<Row<'operator_item'> | null> {
-  const { task, project, config, at, counter } = input;
+  const { task, project, config, at, counter, bound } = input;
   const threshold = project.columns.find((column) => column.id === counter)?.courseCheck ?? 0;
   if (threshold <= 0) return null;
+  const below = bound !== undefined && roundsSince(bound.course, counter).length < threshold;
+  if (input.replay === undefined && below) return null;
   const replay = input.replay ?? (await courseRounds(trx, task.id, project));
   const count = roundsSince(replay.course, counter).length;
   if (count < threshold) return null;
