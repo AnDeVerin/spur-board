@@ -52,7 +52,7 @@ describe('board wait guidance', () => {
     ['docs/how-board-works-waits.md', read('../../../docs/how-board-works-waits.md')],
   ])('says how checks move the task after a submit in %s', (_name, text) => {
     expect(normalise(text)).toContain(
-      "A submit needs no green checks. Running checks hold the task at the `checksGate` column's exit (Dev by default); red checks, a cancelled run included, return it to Dev with a new turn. With `checksGate` right of Dev, a cancelled run counts as running for about two GitHub poll intervals first. Only the latest run of each check counts, so a rerun on the same head replaces a cancelled run. When the PR has required checks, only those count; a check outside them that the task needs is your own work: watch it before you submit.",
+      "A submit needs no green checks. Running checks hold the task at the `checksGate` column's exit (Dev by default); red checks, a cancelled run included, return it to Dev with a new turn. With `checksGate` right of Dev, a cancelled run counts as running for about two GitHub poll intervals first. Only the latest run of each check counts, so a rerun on the same head replaces a cancelled run. When the PR has required checks, only those count, and the Board does not watch the others.",
     );
   });
 });
