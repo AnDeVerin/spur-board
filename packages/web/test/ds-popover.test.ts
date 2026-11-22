@@ -538,15 +538,18 @@ describe('Popover', () => {
     expect(popover()).toBeDefined();
   });
 
-  it('has six examples; only Open and FollowsColumn start open', () => {
+  it('has seven examples; only Open, FollowsColumn and PanelLayer start open', () => {
     const module = popoverExamples['../src/ds/Popover/Popover.examples.tsx'] ?? {};
-    expect(Object.keys(module).sort()).toEqual(
-      ['Closed', 'FlipsAbove', 'FollowsColumn', 'LongContent', 'Open', 'WindowEdge'].sort(),
-    );
+    const names = 'Closed FlipsAbove FollowsColumn LongContent Open PanelLayer WindowEdge';
+    expect(Object.keys(module).sort()).toEqual(names.split(' '));
     for (const [name, Example] of Object.entries(module)) {
       render(createElement(Fragment, null));
       render(createElement(Example));
-      expect(dialogs(), name).toHaveLength(name === 'Open' || name === 'FollowsColumn' ? 1 : 0);
+      expect(dialogs(), name).toHaveLength(/^(Open|FollowsColumn|PanelLayer)$/.test(name) ? 1 : 0);
+      // PanelLayer's panel sits at --z-panel with its anchor's sort menu open over it, no click.
+      const layer = name === 'PanelLayer' ? 'panel' : null;
+      for (const dialog of dialogs()) expect(dialog.getAttribute('data-layer'), name).toBe(layer);
+      expect(document.querySelectorAll('[role="menu"]'), name).toHaveLength(layer ? 1 : 0);
       expect(document.activeElement, name).toBe(document.body);
     }
   });

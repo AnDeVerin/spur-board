@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { Button } from '../Button/Button.tsx';
+import { HoverMenu, type HoverMenuItem } from '../HoverMenu/HoverMenu.tsx';
 import { TabPanel, Tabs, type TabItem } from '../Tabs/Tabs.tsx';
 import { Popover } from './Popover.tsx';
 
@@ -32,12 +33,14 @@ function HelpPopover({
   anchor,
   trigger,
   lines,
+  layer = 'menu',
 }: {
   open: boolean;
   onClose: () => void;
   anchor: RefObject<HTMLElement | null>;
   trigger: RefObject<HTMLElement | null>;
   lines: number;
+  layer?: 'menu' | 'panel';
 }) {
   const id = useId();
   const [tab, setTab] = useState('who');
@@ -49,6 +52,7 @@ function HelpPopover({
       anchor={anchor}
       trigger={trigger}
       title="Review"
+      layer={layer}
       actions={<Tabs id={id} label="Column help" tabs={helpTabs} value={tab} onChange={setTab} />}
     >
       <TabPanel tabsId={id} value={tab}>
@@ -160,6 +164,64 @@ export function FollowsColumn() {
         anchor={anchor}
         trigger={trigger}
         lines={4}
+      />
+    </div>
+  );
+}
+
+type Field = 'time' | 'key' | 'manual';
+const fields: readonly HoverMenuItem<Field>[] = [
+  { value: 'time', label: 'Time' },
+  { value: 'key', label: 'Key' },
+  { value: 'manual', label: 'Manual' },
+];
+
+export function PanelLayer() {
+  const { anchor, trigger, hold } = useAnchor();
+  const [open, setOpen] = useState(true);
+  const [sort, setSort] = useState<Field>('time');
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-2)', ...reserved }}>
+      <p style={caption}>
+        Starts open at layer panel (--z-panel), under a column head whose sort menu (--z-menu) drops
+        over the panel, so each item can be clicked.
+      </p>
+      <div
+        ref={hold}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: 'var(--size-column)',
+        }}
+      >
+        <Button
+          expanded={open}
+          onClick={() => {
+            setOpen(!open);
+          }}
+        >
+          Review
+        </Button>
+        <HoverMenu
+          label="Sort review"
+          text={(fields.find((field) => field.value === sort)?.label ?? '').slice(0, 1)}
+          items={fields}
+          value={sort}
+          onSelect={setSort}
+          opens="down"
+          defaultOpen
+        />
+      </div>
+      <HelpPopover
+        open={open}
+        onClose={() => {
+          setOpen(false);
+        }}
+        anchor={anchor}
+        trigger={trigger}
+        lines={4}
+        layer="panel"
       />
     </div>
   );

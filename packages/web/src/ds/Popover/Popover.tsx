@@ -87,14 +87,16 @@ import styles from './Popover.module.css';
  *
  * The body is not a tab stop: its content must be focusable or sit in a `TabPanel`.
  *
- * Stacking and limits: the panel is `position: fixed` at `--z-menu`, rendered in place (no
- * portal). A `transform`, `filter` or `contain` ancestor of the panel becomes its containing
- * block: the position follows it, but the panel's width (`100%` is that ancestor's), the
- * ancestor's overflow clipping and `--z-menu` stacking within its stacking context do not escape
- * it. A `display: contents` wrapper clips nothing. An anchor spanning both edges of an empty
- * visible area (a scroller wholly outside the window) counts as in view. Left open while a
- * `SidePanel` opens by keyboard, it draws above that panel (`--z-menu` over `--z-panel`), though
- * inert; a mouse press closes it. Its root is a stacking context: a `HoverMenu` inside stacks
+ * Stacking and limits: the panel is `position: fixed` at `--z-menu`, or at `--z-panel` with
+ * `layer="panel"`, rendered in place (no portal). A `transform`, `filter` or `contain` ancestor
+ * of the panel becomes its containing block: the position follows it, but the panel's width
+ * (`100%` is that ancestor's), the ancestor's overflow clipping and its z stacking within its
+ * stacking context do not escape it. A `display: contents` wrapper clips nothing. An anchor
+ * spanning both edges of an empty visible area (a scroller wholly outside the window) counts as
+ * in view. At the default layer, left open while a `SidePanel` opens by keyboard, it draws above
+ * that panel (`--z-menu` over `--z-panel`), though inert; a mouse press closes it. At
+ * `layer="panel"` a `HoverMenu` outside it, as one in its anchor, opens over it, and a `SidePanel`
+ * opened while it is open draws over it (same z, the layer portals later in `body`). Its root is a stacking context: a `HoverMenu` inside stacks
  * within the panel. Beside the title its menu may extend past the panel; in `actions`, which
  * scrolls sideways when its content is wider than the room beside Close (Close always stays in
  * the panel), and in the body, the scroll box clips it.
@@ -109,6 +111,8 @@ export function Popover({
   trigger: RefObject<HTMLElement | null>;
   title: ReactNode;
   actions?: ReactNode;
+  /** `panel` stacks it at `--z-panel`, under the menus of its anchor; default `menu`. */
+  layer?: 'menu' | 'panel';
   children: ReactNode;
 }) {
   if (!open) return null;
@@ -124,6 +128,7 @@ function OpenPopover({
   trigger,
   title,
   actions,
+  layer = 'menu',
   children,
 }: {
   onClose: () => void;
@@ -131,6 +136,7 @@ function OpenPopover({
   trigger: RefObject<HTMLElement | null>;
   title: ReactNode;
   actions?: ReactNode;
+  layer?: 'menu' | 'panel';
   children: ReactNode;
 }) {
   const titleId = useId();
@@ -382,6 +388,7 @@ function OpenPopover({
       role="dialog"
       aria-labelledby={titleId}
       data-away="pending"
+      data-layer={layer === 'panel' ? 'panel' : undefined}
     >
       <div ref={header} className={styles.header}>
         <span id={titleId} className={styles.title}>

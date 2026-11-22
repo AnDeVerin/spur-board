@@ -25,6 +25,10 @@ function rule(selector: string): string[] {
 }
 
 describe('Popover styles', () => {
+  it('stacks at the panel level with layer="panel", under the menus', () => {
+    expect(rule(".root[data-layer='panel']")).toEqual(['z-index: var(--z-panel)']);
+  });
+
   it('keeps inside the window next to its anchor, at the menu level', () => {
     const root = rule('.root');
     expect(root).toEqual(

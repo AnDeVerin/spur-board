@@ -41,6 +41,11 @@
   border: var(--size-hairline) solid var(--color-border-strong);
   box-shadow: var(--shadow-popover);
 }
+
+/* layer="panel": under the menus of its anchor, such as a column head's sort menu. */
+.root[data-layer='panel'] {
+  z-index: var(--z-panel);
+}
 /* Not placed yet, or the anchor out of view or not attached: the panel is not rendered, so no
    descendant can show itself and its controls leave the tab order. */
 .root[data-away] {
