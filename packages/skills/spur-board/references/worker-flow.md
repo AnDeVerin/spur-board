@@ -32,13 +32,15 @@
 
 ## QA orchestrator contract
 
-- On a ring, read `board inbox` and take each QA turn whose `taken` is null with keyed
-  `board inbox ack <entries>`. Your own (`taken.by` is `agent:<project>/$SPUR_SESSION`) needs no
-  ack. Leave a turn whose `taken.by` names the operator or a live session: an ack takes it
-  back and their submit or return then fails `not_turn_taker`. A holder session has finished
-  when `board status --detail` shows its `endedAt`, or a `lifecycle` of `killed`, `stopped`,
-  `errored` or `completed`, or no longer lists it, or its task row's `state` counts it
-  `ended (gone)`. Only then take its turn over with the keyed ack.
+- On start and on each ring, read `board inbox` and take each QA turn whose `taken` is null
+  with keyed `board inbox ack <entries>`. Your own (`taken.by` is
+  `agent:<project>/$SPUR_SESSION`) needs no ack.
+- Leave a turn whose `taken.by` names the operator or another session: an ack takes it back
+  and their submit or return then fails `not_turn_taker`. Take it over with the keyed ack
+  only when that exact session is shown ended: `board status --detail` lists a session whose
+  `spurProject` and `id` match `taken.by`, with `endedAt` set or a `lifecycle` of `killed`,
+  `stopped`, `errored` or `completed`. A missing row or a count is not proof: leave the turn;
+  the operator can take it over.
 - Test the turn's `head`, then keyed `board submit <turn> <sha>`: `--basis tested` (the default),
   `--basis skipped --reason <text>`, or `--basis carried --from <sha> --reason <text>` for work
   tested on an earlier head. `--from` must name a SHA with a tested submission on this task, or
