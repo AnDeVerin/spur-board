@@ -114,7 +114,8 @@ function untilAborted<T>(
  * path whose read fails is left out of `volumes`, with one warning per path. Volumes are deduped
  * by device and listed least free bytes first; `disk` is the first. Stop aborts pending disk
  * reads instead of waiting for them, and that run writes nothing. `onSample` gets each sample
- * after `read` returns it; its failure is the run's error and leaves the sample readable.
+ * once it is stored, so `read` already returns it; its failure is the run's error and leaves the
+ * sample readable.
  */
 export function createHostSampler(options: {
   probe: HostProbe;
