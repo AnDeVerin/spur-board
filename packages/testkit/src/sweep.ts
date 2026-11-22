@@ -31,7 +31,7 @@ export interface ProcReader {
   pidNs(): string | undefined;
 }
 
-export interface Identity {
+interface Identity {
   bootId?: string | undefined;
   pidNs?: string | undefined;
 }
@@ -136,7 +136,7 @@ function isStale(root: string, now: number, proc: ProcReader, self: Identity): b
   return ticks !== undefined && ticks !== record.startTicks;
 }
 
-export interface SweepOptions {
+interface SweepOptions {
   /** Directories to scan; defaults to `tmpdir()` and `/tmp`. */
   parents?: string[];
   now?: () => number;
