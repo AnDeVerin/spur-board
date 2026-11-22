@@ -125,7 +125,7 @@ export const taskWaitInputSchema = z.strictObject({
     .regex(/\S/)
     .optional()
     .describe(
-      'What you wait for, up to 200 characters; the wake ring repeats it. Required unless end. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.',
+      "What you wait for, up to 200 characters; the wake ring repeats it. Required unless end. Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load, someone else's deploy, an outside service you call. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it. Not on what the Board watches (CI runs in any state, reviews, approvals, mergeability, merges): submit the head and stop; red checks or other needs bring a new Dev turn. If your next step needs it (you merge, or shadow mode), wait for it.",
     ),
   end: z
     .boolean()

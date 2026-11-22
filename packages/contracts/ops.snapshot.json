@@ -1,5 +1,5 @@
 {
-  "version": "d5d53cb6e0fd0cc02bb656de827b1ea1d394c98ebbe68f36aa320afba5849b86",
+  "version": "87a2d4219c9bbd01dfe06f0ca2eac4792d0c441d55f6b03103fc306ef007022e",
   "grants": [
     "operator",
     "project-agent",
@@ -11604,7 +11604,7 @@
     {
       "id": "task.wait",
       "kind": "mutation",
-      "description": "Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends. The operator can end the active wait early.",
+      "description": "Wait on a turn the caller took for what the Board cannot see; the Board stays quiet, then rings the holder when the wait ends. The operator can end the active wait early.",
       "grants": [
         { "grant": "task-worker" },
         { "grant": "column-orchestrator" },
@@ -11632,8 +11632,8 @@
       "mcp": {
         "name": "task_wait",
         "key": "idempotencyKey",
-        "whenToUse": "You hold a turn. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Give whole minutes and the reason; the Board rings you with the reason when the wait ends, and submit, return or a close ends it earlier. Waits per turn are capped by count and total time. As the operator, pass end to end a holder's active wait early; the holder is rung.",
-        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.",
+        "whenToUse": "You hold a turn. Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load, someone else's deploy, an outside service you call. Give whole minutes and the reason; the Board rings you with the reason when the wait ends, and submit, return or a close ends it earlier. Waits per turn are capped by count and total time. As the operator, pass end to end a holder's active wait early; the holder is rung.",
+        "whenNotToUse": "Use task_submit to hand in finished work, or task_return to send the task back to Dev. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it. Not on what the Board watches (CI runs in any state, reviews, approvals, mergeability, merges): submit the head and stop; red checks or other needs bring a new Dev turn. If your next step needs it (you merge, or shadow mode), wait for it.",
         "destructive": true
       },
       "slack": null,
@@ -11675,7 +11675,7 @@
             "maximum": 120
           },
           "reason": {
-            "description": "What you wait for, up to 200 characters; the wake ring repeats it. Required unless end. Wait only on a condition you cannot change and must re-check: a busy test stand, no free slot, high machine load, a deploy, an outside service. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it.",
+            "description": "What you wait for, up to 200 characters; the wake ring repeats it. Required unless end. Wait only on what the Board cannot see: a busy test stand, no free slot, high machine load, someone else's deploy, an outside service you call. Not on your own work (review fixes, tests, checks, rebasing): work holding the turn, so a stall reaches the operator; a wait hides it. Not on what the Board watches (CI runs in any state, reviews, approvals, mergeability, merges): submit the head and stop; red checks or other needs bring a new Dev turn. If your next step needs it (you merge, or shadow mode), wait for it.",
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
