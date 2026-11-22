@@ -66,10 +66,10 @@ Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `re
 
 ### `board wait`
 
-Purpose: Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends.
+Purpose: Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends. The operator can end the active wait early.
 Arguments: `<turn>`.
-Flags: `--for <value>`, `--reason <value>`, `--key <key>`, `--json`.
-Use when: You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time.
+Flags: `--for <value>`, `--reason <value>`, `--end`, `--key <key>`, `--json`.
+Use when: You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time. As the operator, pass end to end a holder's active wait early; the holder is rung.
 Avoid when: Use `board submit <turn> <sha>` to hand in finished work, or `board return <turn> <reason>` to send the task back to Dev.
 Example: `board wait T4 --for 30 --reason "waiting for a free test stand" --key wait-PROJ-123-30-minutes-1432` — Wait 30 minutes for a free test stand.
-Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `turn_wait_limit`, `task_archived`, `idempotency_key_mismatch`.
+Other errors: `wrong_id_kind`, `not_operator`, `not_found`, `turn_closed`, `not_turn_taker`, `turn_wait_limit`, `no_active_wait`, `task_archived`, `idempotency_key_mismatch`.

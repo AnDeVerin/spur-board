@@ -111,6 +111,13 @@ export const ERRORS = {
     hint: 'Check which role may run the operation in `board schema`, or ask the operator.',
     recovery: noRetry('Use an allowed role or ask the operator for access.'),
   }),
+  not_operator: spec('not_operator', {
+    status: 403,
+    exit: EXIT_CODES.refused,
+    message: "Only the operator may end a turn's wait early.",
+    hint: 'Ask the operator to end the wait; as its holder, submit or return the turn, or start a shorter wait.',
+    recovery: noRetry('Ask the operator to end the wait.'),
+  }),
   not_found: spec('not_found', {
     status: 404,
     exit: EXIT_CODES.refused,
@@ -175,6 +182,13 @@ export const ERRORS = {
     message: 'The turn has used its waits: the count or the total wait time reached the limit.',
     hint: 'Submit or return the turn; the operator gets an inbox item once the wait ends.',
     recovery: noRetry('Submit or return the turn instead of waiting again.'),
+  }),
+  no_active_wait: spec('no_active_wait', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The turn has no active wait; it ended or never started.',
+    hint: 'Read the turn with `board task <KEY>`; there is no wait left to end.',
+    recovery: noRetry('Read the turn before ending its wait again.'),
   }),
   submit_basis_invalid: spec('submit_basis_invalid', {
     status: 409,

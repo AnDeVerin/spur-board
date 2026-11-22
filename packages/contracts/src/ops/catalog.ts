@@ -1401,23 +1401,26 @@ export const OPERATIONS = [
     id: 'task.wait',
     kind: 'mutation',
     description:
-      'Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends.',
+      'Wait on a turn the caller took for an outside condition; the Board stays quiet, then rings the holder when the wait ends. The operator can end the active wait early.',
     mcp: {
       whenToUse:
-        'You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time.',
+        "You hold a turn and must re-check an outside condition later, such as a busy test stand: wait for whole minutes with the reason instead of sitting quiet. The Board rings you with the reason when the wait ends; submit, return or a close ends it earlier. Waits per turn are capped by count and total time. As the operator, pass end to end a holder's active wait early; the holder is rung.",
       whenNotToUse:
         'Use task_submit to hand in finished work, or task_return to send the task back to Dev.',
     },
     input: taskWaitInputSchema,
     output: taskWaitOutputSchema,
+    web: true,
     grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }, { grant: 'operator' }],
     errors: [
       'wrong_id_kind',
+      'not_operator',
       'not_found',
       'task_archived',
       'turn_closed',
       'not_turn_taker',
       'turn_wait_limit',
+      'no_active_wait',
     ],
     cli: { command: 'wait', args: ['turn'] },
     slack: null,
@@ -1434,6 +1437,11 @@ export const OPERATIONS = [
           },
           waits: 1,
         },
+      },
+      {
+        summary: "End a turn's wait early as the operator",
+        input: { turn: 'T4', end: true },
+        output: { turn: 'T4', waits: 1 },
       },
     ],
   }),

@@ -3294,14 +3294,32 @@ describe('turns', () => {
     const REASON = 'waiting for a free test stand';
     const MINUTE = 60_000;
 
-    /** `task.wait` for `actor` at the board's current time. */
-    function waitOp(ctx: Board, minutes: number, reason: string, key: string, actor = worker) {
-      const registry = createOperationRegistry({
+    /** The registry's `task.wait` at the board's current time. */
+    function waitMutation(ctx: Board) {
+      return createOperationRegistry({
         config: ctx.config,
         clock: { now: () => ctx.now().getTime() },
         completeSince: new Map(),
-      });
-      return ctx.apply(registry['task.wait'], { turn: 'T1', for: minutes, reason }, actor, key);
+      })['task.wait'];
+    }
+
+    /** `task.wait` for `actor` at the board's current time; the wait it started. */
+    async function waitOp(
+      ctx: Board,
+      minutes: number,
+      reason: string,
+      key: string,
+      actor = worker,
+    ) {
+      const input = { turn: 'T1', for: minutes, reason };
+      const { wait, ...rest } = await ctx.apply(waitMutation(ctx), input, actor, key);
+      if (wait === undefined) throw new Error('task.wait started no wait');
+      return { ...rest, wait };
+    }
+
+    /** `task.wait` with `end` for `actor`, the operator by default, at the board's current time. */
+    function endOp(ctx: Board, key: string, actor: ActorId = 'operator') {
+      return ctx.apply(waitMutation(ctx), { turn: 'T1', end: true }, actor, key);
     }
 
     /** One board tick; with `spur` Spur counts as completely polled now. */
@@ -3478,35 +3496,129 @@ describe('turns', () => {
       ]);
     });
 
-    it.each([
-      { link: 'kept', rings: 1 },
-      { link: 'removed', rings: 0 },
-    ])('rings a worker whose link was $link $rings times at the wake', async ({ link, rings }) => {
+    it('rings once when the operator ends the wait and restarts the quiet clock there', async () => {
       const ctx = await setup({ config: policyBoard('none') });
       await takenByWorker(ctx);
       await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
-      await waitOp(ctx, 30, REASON, 'wait-1');
-      if (link === 'removed')
-        await ctx.store.transaction((trx) =>
-          trx
-            .updateTable('link')
-            .set({ banned: 1 })
-            .where('entity', '=', 'session')
-            .where('session_id', '=', 'worker-1')
-            .execute(),
-        );
+      const { wait } = await waitOp(ctx, 30, REASON, 'wait-1');
       const sent = ctx.sent.length;
-      ctx.advance(30 * MINUTE);
+      ctx.advance(20 * MINUTE);
+      expect(await endOp(ctx, 'end-1')).toEqual({ turn: 'T1', waits: 1 });
       await boardTick(ctx);
       await step(ctx);
 
-      expect(await waitEnds(ctx)).toEqual([
-        { turn: 'T1', outcome: 'woken', waitedMs: 30 * MINUTE, waits: 1 },
+      const ended = (await reminders(ctx)).filter((notice) =>
+        notice.source_key.includes(':ended:'),
+      );
+      expect(ended).toEqual([
+        expect.objectContaining({
+          source_key: `turn:1:ended:worker-1:${wait.since}`,
+          author_session: 'worker-1',
+          rings: 1,
+        }),
       ]);
-      const wakes = (await reminders(ctx)).filter((notice) => notice.source_key.includes(':wake:'));
-      expect(wakes).toHaveLength(rings);
-      expect(ctx.sent.slice(sent)).toHaveLength(rings);
+      expect(ctx.sent.slice(sent)).toEqual([
+        {
+          session: 'worker-1',
+          text: `${KEY} turn T1 wait ended by the operator: ${REASON}; check board inbox (N${String(ended[0]?.id)}-1)`,
+        },
+      ]);
+      expect((await turns(ctx))[0]).toMatchObject({ wait_until: null, waited_ms: 20 * MINUTE });
+      expect(await waitEnds(ctx)).toEqual([
+        { turn: 'T1', outcome: 'ended', waitedMs: 20 * MINUTE, waits: 1 },
+      ]);
+
+      ctx.advance(IDLE - 1);
+      await boardTick(ctx);
+      await step(ctx);
+      expect(ctx.sent).toHaveLength(sent + 1);
+
+      ctx.advance(1);
+      await boardTick(ctx);
+      await step(ctx);
+      expect(ctx.sent.slice(sent + 1)).toEqual([
+        {
+          session: 'worker-1',
+          text: expect.stringMatching(
+            /^o\/r#101 turn T1 is still open: check board inbox/,
+          ) as unknown,
+        },
+      ]);
     });
+
+    it('counts the ended time toward the total', async () => {
+      const base = policyBoard('none');
+      const limited = configSchema.parse({
+        ...base,
+        health: { ...base.health, turnWait: { maxWaits: 8, maxTotalMs: 40 * MINUTE } },
+      });
+      const ctx = await setup({ config: limited });
+      await takenByWorker(ctx);
+      await waitOp(ctx, 30, REASON, 'wait-1');
+      ctx.advance(20 * MINUTE);
+      await endOp(ctx, 'end-1');
+      const { wait } = await waitOp(ctx, 30, REASON, 'wait-2');
+      expect(Date.parse(wait.wakesAt) - Date.parse(wait.since)).toBe(20 * MINUTE);
+    });
+
+    it('rings no operator token that took the turn over when it ends its wait', async () => {
+      const ctx = await setup({ config: policyBoard() });
+      await addSession(ctx, 'qa-1', 'qa');
+      await open(ctx);
+      await step(ctx);
+      await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-1', 'ack-qa-1');
+      await ctx.apply(ctx.ops.ack, T1, 'operator', 'ack-operator');
+      await waitOp(ctx, 30, REASON, 'wait-1', 'operator');
+      ctx.advance(10 * MINUTE);
+      const sent = ctx.sent.length;
+      await endOp(ctx, 'end-1');
+      await step(ctx);
+
+      expect(await waitEnds(ctx)).toEqual([
+        { turn: 'T1', outcome: 'ended', waitedMs: 10 * MINUTE, waits: 1 },
+      ]);
+      expect(
+        (await reminders(ctx)).filter((notice) => notice.source_key.includes(':ended:')),
+      ).toEqual([]);
+      expect(ctx.sent).toHaveLength(sent);
+    });
+
+    it.each([
+      { link: 'kept', rings: 1, end: 'wake' },
+      { link: 'removed', rings: 0, end: 'wake' },
+      { link: 'kept', rings: 1, end: 'operator end' },
+      { link: 'removed', rings: 0, end: 'operator end' },
+    ])(
+      'rings a worker whose link was $link $rings times at the $end',
+      async ({ link, rings, end }) => {
+        const ctx = await setup({ config: policyBoard('none') });
+        await takenByWorker(ctx);
+        await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+        await waitOp(ctx, 30, REASON, 'wait-1');
+        if (link === 'removed')
+          await ctx.store.transaction((trx) =>
+            trx
+              .updateTable('link')
+              .set({ banned: 1 })
+              .where('entity', '=', 'session')
+              .where('session_id', '=', 'worker-1')
+              .execute(),
+          );
+        const sent = ctx.sent.length;
+        const waited = end === 'wake' ? 30 * MINUTE : 10 * MINUTE;
+        ctx.advance(waited);
+        if (end !== 'wake') await endOp(ctx, 'end-1');
+        await boardTick(ctx);
+        await step(ctx);
+
+        const outcome = end === 'wake' ? 'woken' : 'ended';
+        expect(await waitEnds(ctx)).toEqual([{ turn: 'T1', outcome, waitedMs: waited, waits: 1 }]);
+        const marker = end === 'wake' ? ':wake:' : ':ended:';
+        const rung = (await reminders(ctx)).filter((notice) => notice.source_key.includes(marker));
+        expect(rung).toHaveLength(rings);
+        expect(ctx.sent.slice(sent)).toHaveLength(rings);
+      },
+    );
 
     it('limits the number of waits and raises one operator item', async () => {
       const base = policyBoard('none');

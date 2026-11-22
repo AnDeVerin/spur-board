@@ -620,6 +620,7 @@ describe('authorize catalog grants', () => {
       'findings',
       'anchor',
       'for',
+      'end',
     ];
     const keys = new Set<string>();
     for (const entry of OPERATIONS) {

@@ -25,4 +25,6 @@
 - `submit_source_not_tested`: Choose a tested submission SHA on this task, or a carried SHA with a tested origin; otherwise test or explicitly skip with a reason.
 - `head_mismatch`: Push the commit to the task's pull request branch and submit the head GitHub shows.
 - `return_not_allowed`: In Dev, ask with `board ask` instead.
+- `not_operator`: Ask the operator to end the wait; as its holder, submit or return the turn, or start a shorter wait.
 - `turn_wait_limit`: Submit or return the turn; the operator gets an inbox item once the wait ends.
+- `no_active_wait`: Read the turn with `board task <KEY>`; there is no wait left to end.

@@ -8,11 +8,12 @@ import type { Selectable } from 'kysely';
 import type { ItemCandidate } from '../domain/fromYou.ts';
 import type { Row, TaskTable } from '../store/schema.ts';
 import { emit, type Trx } from './board-utils.ts';
-import { registerTurnReminder, turnWakeKey } from './doorbells.ts';
+import { registerTurnReminder, turnEndedKey, turnWakeKey } from './doorbells.ts';
 
-// The holder's wait on a taken turn (`task.wait`): how it ends, the tick that wakes it, the
-// holders it keeps `worker_idle` off for, the operator item past the limits and its view. A wait
-// is active exactly while `wait_until` is set; its end keeps `wait_reason` for the wake ring.
+// The holder's wait on a taken turn (`task.wait`): how it ends, the operator's early end, the tick
+// that wakes it, the holders it keeps `worker_idle` off for, the operator item past the limits and
+// its view. A wait is active exactly while `wait_until` is set; its end keeps `wait_reason` for
+// the wake and end rings.
 
 type Turn = Row<'turn'>;
 type WaitingTurn = Pick<
@@ -65,6 +66,30 @@ export async function endTaskTurnWaits(
     .where('turn.wait_until', 'is not', null)
     .execute();
   for (const turn of waiting) await endTurnWait(trx, { ...input, turn, project: turn.project });
+}
+
+/**
+ * The operator ends the active wait of `turn` early, as `ended`: its time counts toward the turn's
+ * limits. An agent holder gets one ring saying so, unless it ended the wait itself, its session
+ * ended, or it holds a worker turn whose session link the operator removed.
+ */
+export async function endWaitEarly(
+  trx: Trx,
+  input: { turn: Turn; project: string; at: Date; actor: ActorId },
+): Promise<void> {
+  const { turn, project, at, actor } = input;
+  await endTurnWait(trx, { turn, project, outcome: 'ended', at, actor });
+  const session = holderSession(turn);
+  if (session === null || turn.wait_since === null || actor === turn.acked_by) return;
+  if (await sessionEnded(trx, session)) return;
+  if (workerUnlinked(await unlinkedSessions(trx), turn, session)) return;
+  await registerTurnReminder(
+    trx,
+    turn,
+    session,
+    at,
+    turnEndedKey(turn.id, session, turn.wait_since),
+  );
 }
 
 /** Whether the turn's waits reached the count or the total time limit. */
@@ -156,7 +181,8 @@ export async function wakeWaitingTurns(trx: Trx, config: Config, at: Date): Prom
 /**
  * The `taskId:sessionId` pairs whose `worker_idle` stays off: the agent holder of an unclosed turn
  * while it waits, and for `health.idleInDevAfterMs` after a wait that ran out (`woken` or
- * `limit`). Only those ends come after the take with the holder still live: a take ends the wait
+ * `limit`) or that the operator ended (`ended`). Only those ends come after the take with the
+ * holder still live: a take ends the wait
  * at its own time, and submit or close leave no unclosed turn. A holder whose session ended gets
  * none.
  */
