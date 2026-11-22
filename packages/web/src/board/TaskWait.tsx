@@ -91,6 +91,7 @@ function WaitStrip({
   const mounted = useRef(true);
   // A call, so a check after an await is not narrowed by the one before it.
   const live = () => mounted.current;
+  // The latest re-read's timer, for the unmount cleanup only.
   const deadline = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // One intent per strip: a retry reuses its key, and after a confirmed end only re-reads.
   const intent = useRef<ReturnType<BoardData['endWaitIntent']> | undefined>(undefined);
@@ -108,11 +109,13 @@ function WaitStrip({
   }, [handoff]);
   const reread = () =>
     new Promise<boolean>((resolve) => {
-      deadline.current = setTimeout(() => {
+      // Each re-read clears only its own timer: a late answer to an earlier one keeps a retry's.
+      const timer = setTimeout(() => {
         resolve(false);
       }, REREAD_LIMIT_MS);
+      deadline.current = timer;
       void refreshTask().then((read) => {
-        clearTimeout(deadline.current);
+        clearTimeout(timer);
         resolve(read);
       });
     });

@@ -215,6 +215,34 @@ describe('End wait', () => {
     expect(ends(calls)).toHaveLength(1);
   });
 
+  it('keeps the limit of a retried re-read when the first re-read fails late', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { d } = await open(orchestratorTaskGet({ taken, wait }));
+    let failFirst: (() => void) | undefined;
+    d.routes['task.get'] = () =>
+      new Promise<Response>((resolve) => {
+        failFirst = () => {
+          resolve(Response.json({ broken: true }, { status: 500 }));
+        };
+        d.routes['task.get'] = never;
+      });
+    await end();
+    await act(() => vi.advanceTimersByTimeAsync(REREAD_LIMIT_MS));
+    await settle();
+    expect(control().getAttribute('aria-busy')).toBeNull();
+    await end();
+    expect(control().getAttribute('aria-busy')).toBe('true');
+    if (!failFirst) throw new Error('the first re-read was not sent');
+    failFirst();
+    await settle();
+    expect(control().getAttribute('aria-busy')).toBe('true');
+    await act(() => vi.advanceTimersByTimeAsync(REREAD_LIMIT_MS));
+    await settle();
+    expect(control().getAttribute('aria-busy')).toBeNull();
+    expect(control().textContent).toBe('End wait for T5');
+    expect(alert()?.textContent).toBe('The wait ended, but the task could not be re-read.');
+  });
+
   it('refuses while the board is unavailable and drops the line once it is back', async () => {
     const { d, calls } = await open(orchestratorTaskGet({ taken, wait }));
     const statusGet = d.routes['status.get'];
