@@ -34,6 +34,8 @@ import {
   summarizePr,
   sourceInterval,
   sourceView,
+  unlinkedSessionState,
+  unlinkedSessionView,
 } from './status-views.ts';
 
 /** End reasons in the words of the "worker ended" item (`ENDED_WORKER_LABELS`, fromYou.ts). */
@@ -353,22 +355,14 @@ export async function getStatus(
       ) && !allLinks.some((link) => link.entity === 'session' && link.session_id === session.id),
   );
   /** Ended, or omitted by complete Spur polls, for longer than the window. */
-  const hiddenSession = (session: (typeof sessionRows)[number]) => {
-    const ended =
-      session.ended_at !== null ||
-      session.state === 'completed' ||
-      session.state === 'killed' ||
-      session.absent_since !== null;
-    return ended && pastWindow(session.ended_at ?? session.absent_since ?? session.last_seen);
-  };
+  const hiddenSession = (session: (typeof sessionRows)[number]) =>
+    unlinkedSessionState(session).state !== 'live' &&
+    pastWindow(session.ended_at ?? session.absent_since ?? session.last_seen);
   const unlinkedSessions = sessionRows
     .filter((session) => !hiddenSession(session))
-    .map((session) => {
-      const facts = parseJson(sessionFactsSchema, session.detail);
-      if (detail) return sessionView(facts);
-      const { id, spurProject, branch, lifecycle, health } = facts;
-      return { id, spurProject, branch, lifecycle, health };
-    });
+    .map((session) =>
+      unlinkedSessionView(session, parseJson(sessionFactsSchema, session.detail), detail),
+    );
   const sourceIds = (scope: readonly Config['projects'][number][], mirrors: boolean) =>
     new Set([
       'spur',

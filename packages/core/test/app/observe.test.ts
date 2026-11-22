@@ -606,6 +606,27 @@ describe('accepted observation', () => {
           .executeTakeFirst(),
       ).toEqual({ ended_at: new Date(now).toISOString(), end_reason: 'vanished' });
       expect((await core.context('spur')).observe.sessions).toEqual([]);
+      expect(
+        await store.db
+          .selectFrom('session_snapshot')
+          .select(['ended_at', 'absent_since'])
+          .where('id', '=', 'cur-1')
+          .executeTakeFirst(),
+      ).toEqual({
+        ended_at: new Date(now).toISOString(),
+        absent_since: new Date(now).toISOString(),
+      });
+      // Ended wins over absent when one poll both omits the session and finds it gone.
+      const status = await getStatus({
+        store,
+        config: curated,
+        clock,
+        completeSince: core.completeSince,
+      });
+      expect(status.unlinkedSessions.find((session) => session.id === 'cur-1')).toMatchObject({
+        state: 'ended',
+        since: new Date(now).toISOString(),
+      });
     },
   );
 
@@ -681,6 +702,14 @@ describe('accepted observation', () => {
       'live-1',
     ]);
     expect(fresh.hiddenUnlinkedSessions).toBe(0);
+    const idle = fresh.unlinkedSessions.find((session) => session.id === 'idle-1');
+    expect(idle).toMatchObject({ state: 'absent', since: recovered });
+    expect(idle).not.toHaveProperty('lifecycle');
+    expect(idle).not.toHaveProperty('health');
+    expect(fresh.unlinkedSessions.find((session) => session.id === 'live-1')).toMatchObject({
+      state: 'live',
+      since: null,
+    });
     now += 7 * 24 * 60 * 60 * 1000 + 60_000;
     await poll(['live-1']);
     expect(await absentSince()).toBe(recovered);

@@ -1,5 +1,5 @@
 {
-  "version": "d8c4e9a575e4ad81597e80d9da2ff9a3fff152414efc88404fe02171d0a0bc9a",
+  "version": "9076b5bf8e2ff3cc45e620dbf76852dd7a53ac6e6b9fb87782def72e9f5b17b8",
   "grants": [
     "operator",
     "project-agent",
@@ -4008,13 +4008,29 @@
                     "additionalProperties": false,
                     "description": "One board ring waiting in the session queue."
                   }
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["live", "ended", "absent"],
+                  "description": "live while listed by Spur; ended once it ended, vanished, or Spur lists it completed or killed; absent once a complete Spur poll left it out of the list."
+                },
+                "since": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "When the session ended or left the list, ISO 8601 UTC; null while live."
                 }
               },
-              "required": ["id", "spurProject", "branch", "lifecycle", "health"],
+              "required": ["id", "spurProject", "branch", "state", "since"],
               "additionalProperties": false,
-              "description": "A session without a task link; fields beyond its identity need detail."
+              "description": "A session without a task link; fields beyond its identity need detail. Ended and absent sessions leave out lifecycle, health, healthSince and rateLimitResetAt in both modes."
             },
-            "description": "Observed sessions without a task link; ones ended, or gone from Spur's session list, for over 7 days are left out."
+            "description": "Observed sessions without a task link, each with its state (live, ended or absent) and since when; ones ended, or gone from Spur's session list, for over 7 days are left out."
           },
           "hiddenUnlinkedPrs": {
             "type": "integer",

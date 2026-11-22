@@ -1487,7 +1487,9 @@ it('keeps the default status for 100 tasks under the budget and lists every item
     'health',
     'id',
     'lifecycle',
+    'since',
     'spurProject',
+    'state',
   ]);
 
   const detail = await query(status, { detail: true }, 'operator');
@@ -1715,6 +1717,23 @@ it('hides unlinked PRs and sessions finished over 7 days ago and counts them', a
     expect(result.hiddenUnlinkedSessions).toBe(200);
     const task = result.tasks.find((row) => row.key === 'o/first#1');
     expect([task?.prCount, task?.sessionCount]).toEqual([1, 1]);
+    const row = (id: string) => result.unlinkedSessions.find((session) => session.id === id);
+    const sixDaysAgo = new Date(clock.now() - 6 * DAY).toISOString();
+    expect(row('live-old')).toMatchObject({
+      state: 'live',
+      since: null,
+      lifecycle: 'running',
+      health: 'working',
+    });
+    if (detail) expect(row('live-old')).toHaveProperty('healthSince');
+    expect(row('ended-6d')).toMatchObject({ state: 'ended', since: sixDaysAgo });
+    expect(row('gone-6d')).toMatchObject({ state: 'absent', since: sixDaysAgo });
+    expect(row('gone-late')).toMatchObject({ state: 'absent', since: sixDaysAgo });
+    for (const id of ['ended-6d', 'gone-6d', 'gone-late']) {
+      for (const key of ['lifecycle', 'health', 'healthSince', 'rateLimitResetAt']) {
+        expect(row(id)).not.toHaveProperty(key);
+      }
+    }
   }
   const all = await status({});
   expect(all.unlinkedSessions.map((session) => session.id).sort()).toEqual(listedSessions);
@@ -1731,6 +1750,70 @@ it('hides no session as gone from the list until a complete Spur poll omits it',
   expect(ids).not.toContain('completed-0');
   expect(ids).not.toContain('ended-0');
   expect(result.hiddenUnlinkedSessions).toBe(150);
+  expect(result.unlinkedSessions.find((session) => session.id === 'gone-0')?.state).toBe('live');
+});
+
+it('shows an unlinked completed or killed session without an end time as ended since it finished', async () => {
+  const store = openTempStore('board-registry-').store;
+  stores.push(store);
+  const status = await seedUnlinkedAges(store, true);
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const now = clock.now();
+  const sessionRow = (
+    id: string,
+    lifecycle: 'completed' | 'killed',
+    finishedAt: string | null,
+    lastSeen: string,
+    rateLimited: boolean,
+  ) => ({
+    id,
+    spur_project: 'first-worker',
+    branch: `worker/${id}`,
+    pr: null,
+    raw_state: lifecycle,
+    state: lifecycle,
+    first_seen: iso(now - 3 * DAY),
+    last_seen: lastSeen,
+    ended_at: null,
+    end_reason: null,
+    detail: JSON.stringify({
+      id,
+      spurProject: 'first-worker',
+      branch: `worker/${id}`,
+      pr: null,
+      links: {},
+      lifecycle,
+      health: rateLimited ? 'rate_limited' : 'working',
+      healthSince: iso(now - 3 * DAY),
+      ...(rateLimited ? { rateLimitResetAt: iso(now + 60 * 60 * 1000) } : {}),
+      lastActivityAt: null,
+      endedAt: null,
+      endReason: null,
+    }),
+    source: 'spur',
+    observed_at: iso(now),
+    absent_since: null,
+    finished_at: finishedAt,
+  });
+  await store.db
+    .insertInto('session_snapshot')
+    .values([
+      sessionRow('done-1', 'completed', iso(now - DAY), iso(now), true),
+      sessionRow('killed-1', 'killed', null, iso(now - 2 * DAY), false),
+    ])
+    .execute();
+  for (const detail of [false, true]) {
+    const result = await status({ project: 'first', detail });
+    const row = (id: string) => result.unlinkedSessions.find((session) => session.id === id);
+    expect(row('done-1')).toMatchObject({ state: 'ended', since: iso(now - DAY) });
+    expect(row('killed-1')).toMatchObject({ state: 'ended', since: iso(now - 2 * DAY) });
+    for (const id of ['done-1', 'killed-1']) {
+      for (const key of ['lifecycle', 'health', 'healthSince', 'rateLimitResetAt']) {
+        expect(row(id)).not.toHaveProperty(key);
+      }
+    }
+    expect(result.hiddenUnlinkedSessions).toBe(200);
+  }
 });
 
 it('reports the effective bindings of the projects a caller may see', async () => {

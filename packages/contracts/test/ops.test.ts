@@ -1000,9 +1000,11 @@ describe('snapshot', () => {
     // task.wait gains end and web, optional for, reason and output wait, the ended outcome, and
     // the not_operator and no_active_wait codes. #841 rewords the task.wait description, its
     // guidance and its reason field: wait only on what the Board cannot see, not on what it watches,
-    // unless your own next step needs the watched fact, and names mergeability.
+    // unless your own next step needs the watched fact, and names mergeability. #799 adds state
+    // and since to status.get unlinkedSessions, and leaves lifecycle, health and healthSince out
+    // of ended and absent ones.
     expect(await catalogVersion(baseline)).toBe(
-      '8175cfcf752cceb2dbfd6482928be28e67efd25a3c2bfaac860e96964c17050e',
+      '413c63bc851a1df0d93e5c8e31e1d5a315282f3c13546b2fd6c9dcc8cb5dbb3f',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

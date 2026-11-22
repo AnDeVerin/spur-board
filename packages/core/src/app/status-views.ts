@@ -306,6 +306,52 @@ export function sessionView(fact: SessionFacts) {
   return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
 }
 
+/**
+ * Whether an unlinked session is live, ended or gone from Spur's list, and since when. Ended wins
+ * over absent; a listed completed or killed session ended when it finished.
+ */
+export function unlinkedSessionState(session: Row<'session_snapshot'>): {
+  state: 'live' | 'ended' | 'absent';
+  since: string | null;
+} {
+  if (session.ended_at !== null) return { state: 'ended', since: session.ended_at };
+  if (session.state === 'completed' || session.state === 'killed') {
+    return { state: 'ended', since: session.finished_at ?? session.last_seen };
+  }
+  if (session.absent_since !== null) return { state: 'absent', since: session.absent_since };
+  return { state: 'live', since: null };
+}
+
+/** An unlinked session row: ended and absent ones leave out their last live lifecycle and health. */
+export function unlinkedSessionView(
+  session: Row<'session_snapshot'>,
+  facts: SessionFacts,
+  detail: boolean,
+) {
+  const shown = unlinkedSessionState(session);
+  const live = shown.state === 'live';
+  if (detail) {
+    const view = sessionView(facts);
+    if (live) return { ...view, ...shown };
+    const { id, spurProject, branch, pr, links, lastActivityAt, endedAt, endReason } = view;
+    const rings = view.queuedRings === undefined ? {} : { queuedRings: view.queuedRings };
+    return {
+      id,
+      spurProject,
+      branch,
+      pr,
+      links,
+      lastActivityAt,
+      endedAt,
+      endReason,
+      ...rings,
+      ...shown,
+    };
+  }
+  const { id, spurProject, branch, lifecycle, health } = facts;
+  return { id, spurProject, branch, ...shown, ...(live ? { lifecycle, health } : {}) };
+}
+
 /** Order group visits in their own slots, preserving non-group relative ordering. */
 export function orderTodoGroupRows(
   rows: Row<'task'>[],
