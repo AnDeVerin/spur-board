@@ -35,8 +35,10 @@
 - On a ring, read `board inbox` and take each QA turn whose `taken` is null with keyed
   `board inbox ack <entries>`. Your own (`taken.by` is `agent:<project>/$SPUR_SESSION`) needs no
   ack. Leave a turn whose `taken.by` names the operator or a live session: an ack takes it
-  back and their submit or return then fails `not_turn_taker`. Take one over with the ack only
-  once its holder session has ended: `board status --detail` shows that session's `endedAt`.
+  back and their submit or return then fails `not_turn_taker`. A holder session has finished
+  when `board status --detail` shows its `endedAt`, or a `lifecycle` of `killed`, `stopped`,
+  `errored` or `completed`, or no longer lists it, or its task row's `state` counts it
+  `ended (gone)`. Only then take its turn over with the keyed ack.
 - Test the turn's `head`, then keyed `board submit <turn> <sha>`: `--basis tested` (the default),
   `--basis skipped --reason <text>`, or `--basis carried --from <sha> --reason <text>` for work
   tested on an earlier head. `--from` must name a SHA with a tested submission on this task, or
