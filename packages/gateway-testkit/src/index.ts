@@ -1,4 +1,4 @@
-export { SLACK_ON_CONFIG, createFakeGateway } from './fake.ts';
+export { createFakeGateway } from './fake.ts';
 export type {
   FakeGateway,
   FakeGatewayOptions,

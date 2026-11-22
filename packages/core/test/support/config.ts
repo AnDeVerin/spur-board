@@ -1,5 +1,5 @@
 import { configSchema } from '@spur-board/contracts';
-import { SLACK_ON_CONFIG } from '@spur-board/gateway-testkit';
+import { SLACK_ON_CONFIG } from '@spur-board/gateway-testkit/config';
 
 /** The `slack` block that turns Slack on, so the board writes gateway rows. */
 export const SLACK_ON = SLACK_ON_CONFIG;
