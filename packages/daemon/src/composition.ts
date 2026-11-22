@@ -8,6 +8,7 @@ import {
   firstPollDone,
   purgeEndedTokenRequests,
   purgeExpiredCommands,
+  recordHostDisk,
   tickBoard,
   type SpurPort,
   type Store,
@@ -89,6 +90,8 @@ export function createDaemonModules(
     probe: ports.hostProbe ?? createHostProbe(ports.dataDir),
     clock: hostCtx.clock,
     log: hostCtx.log,
+    // Disk episodes live in the store, so every reconcile and a restart see them.
+    onSample: (sample) => recordHostDisk(hostCtx.store, sample),
   });
   // Set by the web listener once bound and by each completed tick; status.get and config.get read them.
   let webPort: number | undefined;

@@ -9,6 +9,7 @@ import { openStore, type Store } from '@spur-board/core';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { runCli, type CliIo } from '../../cli/src/cli.ts';
 import { startInProcessDaemon, type InProcessDaemon } from '../src/in-process.ts';
+import { countingHostProbe } from './in-process-web.ts';
 
 const START = Date.parse('2026-11-04T08:00:00.000Z');
 const TASK_KEY = 'PROJ-123';
@@ -178,6 +179,8 @@ export async function createE2eHarness(
       },
       ports: {
         gateway,
+        // Fixed figures below 80 %, so no test depends on the machine's real disk.
+        hostProbe: countingHostProbe(),
         spur: {
           send(session, text) {
             sends.push({ session, text });

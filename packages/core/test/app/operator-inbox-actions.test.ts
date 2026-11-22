@@ -412,4 +412,22 @@ describe('inbox.operator actions', () => {
       text: `${text}: open the failing run; fix or revert`,
     });
   });
+
+  it('keeps a taskless host-disk item at attention with the fallback action', async () => {
+    const { store, inbox } = setup();
+    const text = 'host disk /: 95% used, 8.7 GiB free';
+    const id = await store.transaction((trx) =>
+      item(trx, { key: 'host-disk:/', kind: 'board_observation', text }),
+    );
+
+    const { items } = await inbox();
+
+    const action = 'check the task, then close the item';
+    expect(items.find((entry) => entry.id === id)).toMatchObject({
+      kind: 'board_observation',
+      severity: 'attention',
+      action,
+      text: `${text}: ${action}`,
+    });
+  });
 });

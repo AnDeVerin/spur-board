@@ -9,6 +9,7 @@ import type { Clock } from './logger.ts';
 
 export { loadConfig, readConfig, resolvePaths, type Paths } from './config.ts';
 export { acquireLock } from './lock.ts';
+export type { HostProbe } from './host-metrics.ts';
 export { createSpurPort } from './spur-port.ts';
 
 export interface InProcessOptions {

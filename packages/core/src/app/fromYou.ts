@@ -62,6 +62,7 @@ import {
 import { curatorProject } from './authorize.ts';
 import { TASKLESS_ITEM_URL, type RaiseItemInput } from './item-raise.ts';
 import { externalQuietItems } from './external-quiet.ts';
+import { hostDiskItems } from './host-disk.ts';
 import { reviewRuleItems } from './review-rule.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { quietTurns, stuckTurnAfterMs } from './quiet-turns.ts';
@@ -1067,6 +1068,7 @@ export async function reconcileItems(
   candidates.push(...quiet.candidates);
   heldKeys.push(...quiet.held);
   candidates.push(...(await turnWaitItems(trx, config, taskById)));
+  candidates.push(...(await hostDiskItems(trx)));
   const ordered = orderItems(candidates);
   const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {

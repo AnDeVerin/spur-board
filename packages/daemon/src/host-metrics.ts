@@ -113,15 +113,17 @@ function untilAborted<T>(
  * `read` never samples. A metric whose read fails is null, with one warning per metric; a disk
  * path whose read fails is left out of `volumes`, with one warning per path. Volumes are deduped
  * by device and listed least free bytes first; `disk` is the first. Stop aborts pending disk
- * reads instead of waiting for them, and that run writes nothing.
+ * reads instead of waiting for them, and that run writes nothing. `onSample` gets each sample
+ * after `read` returns it; its failure is the run's error and leaves the sample readable.
  */
 export function createHostSampler(options: {
   probe: HostProbe;
   clock: Clock;
   log: Pick<Logger, 'warn' | 'error'>;
   intervalMs?: number;
+  onSample?: (sample: HostSample) => Promise<void> | void;
 }): { module: Module; read(): HostSample | null } {
-  const { probe, clock, log, intervalMs = HOST_SAMPLE_MS } = options;
+  const { probe, clock, log, intervalMs = HOST_SAMPLE_MS, onSample } = options;
   let last: HostSample | null = null;
   let previousCpu: { idle: number; total: number } | undefined;
   const warned = new Set<Metric>();
@@ -180,7 +182,7 @@ export function createHostSampler(options: {
       });
     });
     volumes.sort((a, b) => a.availableBytes - b.availableBytes);
-    last = {
+    const taken: HostSample = {
       sampledAt,
       cpuPercent,
       memory:
@@ -197,6 +199,8 @@ export function createHostSampler(options: {
       disk: volumes[0] ?? null,
       volumes,
     };
+    last = taken;
+    await onSample?.(taken);
   };
   const own = new AbortController();
   const job = createJob({

@@ -123,6 +123,36 @@ describe('host sampler', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('calls onSample with each sample and keeps it readable when onSample rejects', async () => {
+    vi.useFakeTimers({ now: START });
+    const log = logger();
+    const seen: { sample: unknown; read: unknown }[] = [];
+    const sampler = createHostSampler({
+      probe: countingHostProbe(CPU),
+      clock: { now: () => Date.now() },
+      log,
+      onSample: (sample) => {
+        seen.push({ sample, read: sampler.read() });
+        return seen.length === 1 ? Promise.reject(new Error('store busy')) : undefined;
+      },
+    });
+    await sampler.module.start(new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.read).toBe(seen[0]?.sample);
+    expect(sampler.read()).toBe(seen[0]?.sample);
+    expect(log.error).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(seen).toHaveLength(2);
+    expect(hostSchema.parse(sampler.read())).toMatchObject({
+      sampledAt: new Date(START + 30_000).toISOString(),
+      cpuPercent: 50,
+    });
+    expect(sampler.read()).toBe(seen[1]?.sample);
+    expect(log.error).toHaveBeenCalledTimes(1);
+    await sampler.module.stop();
+  });
+
   it('measures each distinct volume once, least available first', async () => {
     // `/home` has less free space but a lower percent than `/`, and `/` comes first by path.
     const small = figures(2, '/home', 1000, 900, 200);

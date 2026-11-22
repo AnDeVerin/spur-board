@@ -49,6 +49,7 @@ export { createObservationCore } from './app/observe.ts';
 export { getStatus } from './app/status.ts';
 export { curatorSessions, orchestratorSessions, firstPollDone } from './app/doctor.ts';
 export { tickBoard } from './app/tick.ts';
+export { recordHostDisk, type HostDiskSample } from './app/host-disk.ts';
 export { createInbound, getOperatorItem, type Inbound } from './app/inbound.ts';
 export {
   enqueueConversationOpen,
