@@ -310,23 +310,29 @@ type UnlinkedSessionState = z.output<
   typeof statusOutputSchema
 >['unlinkedSessions'][number]['state'];
 
+/** Lifecycles after which Spur's session is over, even while Spur still lists it. */
+const TERMINAL_LIFECYCLES: readonly string[] = ['completed', 'killed', 'errored'];
+
 /**
  * Whether an unlinked session is live, ended or gone from Spur's list, and since when. Ended wins
- * over absent; a listed completed or killed session ended when it finished.
+ * over absent; a listed completed, killed or errored session ended when it finished.
  */
-export function unlinkedSessionState(session: Row<'session_snapshot'>): {
+function unlinkedSessionState(session: Row<'session_snapshot'>): {
   state: UnlinkedSessionState;
   since: string | null;
 } {
   if (session.ended_at !== null) return { state: 'ended', since: session.ended_at };
-  if (session.state === 'completed' || session.state === 'killed') {
+  if (TERMINAL_LIFECYCLES.includes(session.state)) {
     return { state: 'ended', since: session.finished_at ?? session.last_seen };
   }
   if (session.absent_since !== null) return { state: 'absent', since: session.absent_since };
   return { state: 'live', since: null };
 }
 
-/** An unlinked session row: ended and absent ones leave out their last live lifecycle and health. */
+/**
+ * An unlinked session row: ended and absent ones leave out health and their last live lifecycle;
+ * in detail they keep a terminal lifecycle, which tells completion from kill or error.
+ */
 export function unlinkedSessionView(
   session: Row<'session_snapshot'>,
   facts: SessionFacts,
@@ -339,6 +345,9 @@ export function unlinkedSessionView(
     if (live) return { ...view, ...shown };
     const { id, spurProject, branch, pr, links, lastActivityAt } = view;
     const rings = view.queuedRings === undefined ? {} : { queuedRings: view.queuedRings };
+    const terminal = TERMINAL_LIFECYCLES.includes(session.state)
+      ? { lifecycle: view.lifecycle }
+      : {};
     // Spur lists a completed or killed session without an end time: its state tells the outcome.
     const finished = session.state === 'completed' || session.state === 'killed';
     const { endedAt, endReason }: Pick<SessionFacts, 'endedAt' | 'endReason'> =
@@ -351,6 +360,7 @@ export function unlinkedSessionView(
       branch,
       pr,
       links,
+      ...terminal,
       lastActivityAt,
       endedAt,
       endReason,

@@ -457,7 +457,7 @@ export const statusUnlinkedSessionSchema = statusSessionFactsSchema
     state: z
       .enum(UNLINKED_SESSION_STATES)
       .describe(
-        'live while listed by Spur; ended once it ended, vanished, or Spur lists it completed or killed; absent once a complete Spur poll left it out of the list.',
+        'live while listed by Spur; ended once it ended, vanished, or Spur lists it completed, killed or errored; absent once a complete Spur poll left it out of the list.',
       ),
     since: z.iso
       .datetime()
@@ -465,7 +465,7 @@ export const statusUnlinkedSessionSchema = statusSessionFactsSchema
       .describe('When the session ended or left the list, ISO 8601 UTC; null while live.'),
   })
   .describe(
-    'A session without a task link; fields beyond its identity need detail. Ended and absent sessions leave out lifecycle, health, healthSince and rateLimitResetAt in both modes.',
+    'A session without a task link. Compact rows carry id, spurProject, branch, state and since, plus lifecycle and health while live. Detail rows add the other session facts; ended and absent rows keep a completed, killed or errored lifecycle but leave out health, healthSince and rateLimitResetAt.',
   );
 
 export const statusItemSchema = itemViewSchema

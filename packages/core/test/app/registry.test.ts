@@ -1753,73 +1753,168 @@ it('hides no session as gone from the list until a complete Spur poll omits it',
   expect(result.unlinkedSessions.find((session) => session.id === 'gone-0')?.state).toBe('live');
 });
 
-it('shows an unlinked completed or killed session without an end time as ended since it finished', async () => {
+it('shows unlinked sessions in a terminal lifecycle as ended and keeps the lifecycle in detail', async () => {
   const store = openTempStore('board-registry-').store;
   stores.push(store);
   const status = await seedUnlinkedAges(store, true);
   const iso = (ms: number) => new Date(ms).toISOString();
   const now = clock.now();
-  const sessionRow = (
-    id: string,
-    lifecycle: 'completed' | 'killed',
-    finishedAt: string | null,
-    lastSeen: string,
-    rateLimited: boolean,
-  ) => ({
-    id,
-    spur_project: 'first-worker',
-    branch: `worker/${id}`,
-    pr: null,
-    raw_state: lifecycle,
-    state: lifecycle,
-    first_seen: iso(now - 3 * DAY),
-    last_seen: lastSeen,
-    ended_at: null,
-    end_reason: null,
-    detail: JSON.stringify({
-      id,
-      spurProject: 'first-worker',
-      branch: `worker/${id}`,
-      pr: null,
-      links: {},
+  type Lifecycle = 'completed' | 'killed' | 'errored' | 'running';
+  interface Case {
+    id: string;
+    lifecycle: Lifecycle;
+    finishedAt: string | null;
+    lastSeen: string;
+    endedAt: string | null;
+    absentSince: string | null;
+    rateLimited: boolean;
+    state: 'live' | 'ended' | 'absent';
+    since: string | null;
+    /** Lifecycle in detail rows; null when left out. */
+    detailLifecycle: Lifecycle | null;
+    /** endReason and endedAt of non-live detail rows. */
+    end: { endReason: string | null; endedAt: string | null } | null;
+  }
+  const vanished = { endedAt: iso(now - DAY), absentSince: null };
+  const listed = { endedAt: null, absentSince: null };
+  const cases: Case[] = [
+    // Listed by Spur without an end time: ended since it finished, else since last seen.
+    {
+      id: 'done-1',
+      lifecycle: 'completed',
+      finishedAt: iso(now - DAY),
+      lastSeen: iso(now),
+      ...listed,
+      rateLimited: true,
+      state: 'ended',
+      since: iso(now - DAY),
+      detailLifecycle: 'completed',
+      end: { endReason: 'complete', endedAt: iso(now - DAY) },
+    },
+    {
+      id: 'killed-1',
+      lifecycle: 'killed',
+      finishedAt: null,
+      lastSeen: iso(now - 2 * DAY),
+      ...listed,
+      rateLimited: false,
+      state: 'ended',
+      since: iso(now - 2 * DAY),
+      detailLifecycle: 'killed',
+      end: { endReason: 'kill', endedAt: iso(now - 2 * DAY) },
+    },
+    // Finished 10 days ago but still listed: ended, yet the hide rule keeps it shown.
+    {
+      id: 'errored-1',
+      lifecycle: 'errored',
+      finishedAt: iso(now - 10 * DAY),
+      lastSeen: iso(now),
+      ...listed,
+      rateLimited: false,
+      state: 'ended',
+      since: iso(now - 10 * DAY),
+      detailLifecycle: 'errored',
+      end: { endReason: null, endedAt: null },
+    },
+    // A later lookup got 404: ended since then, the stored end reason stays.
+    ...(['completed', 'killed', 'errored'] as const).map((lifecycle): Case => ({
+      id: `vanished-${lifecycle}`,
       lifecycle,
-      health: rateLimited ? 'rate_limited' : 'working',
-      healthSince: iso(now - 3 * DAY),
-      ...(rateLimited ? { rateLimitResetAt: iso(now + 60 * 60 * 1000) } : {}),
-      lastActivityAt: null,
+      finishedAt: iso(now - 2 * DAY),
+      lastSeen: iso(now - DAY),
+      ...vanished,
+      rateLimited: false,
+      state: 'ended',
+      since: iso(now - DAY),
+      detailLifecycle: lifecycle,
+      end: { endReason: 'vanished', endedAt: iso(now - DAY) },
+    })),
+    {
+      id: 'running-live',
+      lifecycle: 'running',
+      finishedAt: null,
+      lastSeen: iso(now),
+      ...listed,
+      rateLimited: false,
+      state: 'live',
+      since: null,
+      detailLifecycle: 'running',
+      end: null,
+    },
+    {
+      id: 'running-absent',
+      lifecycle: 'running',
+      finishedAt: null,
+      lastSeen: iso(now - DAY),
       endedAt: null,
-      endReason: null,
-    }),
-    source: 'spur',
-    observed_at: iso(now),
-    absent_since: null,
-    finished_at: finishedAt,
-  });
+      absentSince: iso(now - DAY),
+      rateLimited: false,
+      state: 'absent',
+      since: iso(now - DAY),
+      detailLifecycle: null,
+      end: { endReason: null, endedAt: null },
+    },
+  ];
   await store.db
     .insertInto('session_snapshot')
-    .values([
-      sessionRow('done-1', 'completed', iso(now - DAY), iso(now), true),
-      sessionRow('killed-1', 'killed', null, iso(now - 2 * DAY), false),
-    ])
+    .values(
+      cases.map((row) => ({
+        id: row.id,
+        spur_project: 'first-worker',
+        branch: `worker/${row.id}`,
+        pr: null,
+        raw_state: row.lifecycle,
+        state: row.lifecycle,
+        first_seen: iso(now - 3 * DAY),
+        last_seen: row.lastSeen,
+        ended_at: row.endedAt,
+        end_reason: row.endedAt === null ? null : ('vanished' as const),
+        detail: JSON.stringify({
+          id: row.id,
+          spurProject: 'first-worker',
+          branch: `worker/${row.id}`,
+          pr: null,
+          links: {},
+          lifecycle: row.lifecycle,
+          health: row.rateLimited ? 'rate_limited' : 'working',
+          healthSince: iso(now - 3 * DAY),
+          ...(row.rateLimited ? { rateLimitResetAt: iso(now + 60 * 60 * 1000) } : {}),
+          lastActivityAt: null,
+          endedAt: row.endedAt,
+          endReason: row.endedAt === null ? null : 'vanished',
+        }),
+        source: 'spur',
+        observed_at: iso(now),
+        absent_since: row.absentSince,
+        finished_at: row.finishedAt,
+      })),
+    )
     .execute();
   for (const detail of [false, true]) {
     const result = await status({ project: 'first', detail });
-    const row = (id: string) => result.unlinkedSessions.find((session) => session.id === id);
-    expect(row('done-1')).toMatchObject({ state: 'ended', since: iso(now - DAY) });
-    expect(row('killed-1')).toMatchObject({ state: 'ended', since: iso(now - 2 * DAY) });
-    for (const id of ['done-1', 'killed-1']) {
-      for (const key of ['lifecycle', 'health', 'healthSince', 'rateLimitResetAt']) {
-        expect(row(id)).not.toHaveProperty(key);
-      }
-    }
     expect(result.hiddenUnlinkedSessions).toBe(200);
-    if (detail) {
-      expect(row('done-1')).toMatchObject({ endReason: 'complete', endedAt: iso(now - DAY) });
-      expect(row('killed-1')).toMatchObject({ endReason: 'kill', endedAt: iso(now - 2 * DAY) });
-    } else {
-      for (const id of ['done-1', 'killed-1']) {
-        expect(row(id)).not.toHaveProperty('endReason');
-        expect(row(id)).not.toHaveProperty('endedAt');
+    for (const expected of cases) {
+      const row = result.unlinkedSessions.find((session) => session.id === expected.id);
+      const label = `${expected.id} detail=${String(detail)}`;
+      expect(row, label).toMatchObject({ state: expected.state, since: expected.since });
+      if (expected.state === 'live') {
+        expect(row, label).toMatchObject({ lifecycle: expected.lifecycle, health: 'working' });
+        if (detail) expect(row, label).toHaveProperty('healthSince');
+        continue;
+      }
+      for (const key of ['health', 'healthSince', 'rateLimitResetAt']) {
+        expect(row, label).not.toHaveProperty(key);
+      }
+      if (detail && expected.detailLifecycle !== null) {
+        expect(row?.lifecycle, label).toBe(expected.detailLifecycle);
+      } else {
+        expect(row, label).not.toHaveProperty('lifecycle');
+      }
+      if (detail) {
+        expect(row, label).toMatchObject(expected.end ?? {});
+      } else {
+        expect(row, label).not.toHaveProperty('endReason');
+        expect(row, label).not.toHaveProperty('endedAt');
       }
     }
   }

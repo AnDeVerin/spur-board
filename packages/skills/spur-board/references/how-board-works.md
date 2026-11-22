@@ -74,4 +74,7 @@ Status `links` is always `{ticket, prs, sessions}`: the observed ticket URL or n
 URLs (also before observation), and effective session IDs. Banned links are excluded. Clients own
 session navigation. This replaces the former detail-only association array; use `board task PROJ-123`
 for the detailed association list. `board status --detail` adds full ticket, PR and session facts.
+Unlinked sessions are the exception: once one has ended or left Spur's list, its row drops health,
+health since and rate limit reset time, and keeps its lifecycle only when that is completed,
+killed or errored.
 The catalog version changes with these contracts; restart the daemon and live MCP sessions together.

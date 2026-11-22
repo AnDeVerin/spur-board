@@ -34,7 +34,6 @@ import {
   summarizePr,
   sourceInterval,
   sourceView,
-  unlinkedSessionState,
   unlinkedSessionView,
 } from './status-views.ts';
 
@@ -355,9 +354,15 @@ export async function getStatus(
       ) && !allLinks.some((link) => link.entity === 'session' && link.session_id === session.id),
   );
   /** Ended, or omitted by complete Spur polls, for longer than the window. */
-  const hiddenSession = (session: (typeof sessionRows)[number]) =>
-    unlinkedSessionState(session).state !== 'live' &&
-    pastWindow(session.ended_at ?? session.absent_since ?? session.last_seen);
+  const hiddenSession = (session: (typeof sessionRows)[number]) => {
+    // Its own predicate: a listed errored row shows as ended but stays visible past the window.
+    const ended =
+      session.ended_at !== null ||
+      session.state === 'completed' ||
+      session.state === 'killed' ||
+      session.absent_since !== null;
+    return ended && pastWindow(session.ended_at ?? session.absent_since ?? session.last_seen);
+  };
   const unlinkedSessions = sessionRows
     .filter((session) => !hiddenSession(session))
     .map((session) =>

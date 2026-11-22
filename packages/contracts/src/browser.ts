@@ -288,7 +288,7 @@ export const statusOutputSchema = z.strictObject({
   unlinkedSessions: z
     .array(statusUnlinkedSessionSchema)
     .describe(
-      "Observed sessions without a task link, each with its state (live, ended or absent) and since when; ones ended, or gone from Spur's session list, for over 7 days are left out.",
+      "Observed sessions without a task link, each with its state (live, ended or absent) and since when; ones ended, or gone from Spur's session list, for over 7 days are left out, but not an errored session Spur still lists.",
     ),
   hiddenUnlinkedPrs: z
     .int()

@@ -1,5 +1,5 @@
 {
-  "version": "f5960670fe2bb4a4a304f2d1526a82a612dc9caa85a8e9e9676e13fb217d87dd",
+  "version": "e4332a98e3436ca10e8b64d05b0c0a08376df1a290ac6191b91757a753af2974",
   "grants": [
     "operator",
     "project-agent",
@@ -4012,7 +4012,7 @@
                 "state": {
                   "type": "string",
                   "enum": ["live", "ended", "absent"],
-                  "description": "live while listed by Spur; ended once it ended, vanished, or Spur lists it completed or killed; absent once a complete Spur poll left it out of the list."
+                  "description": "live while listed by Spur; ended once it ended, vanished, or Spur lists it completed, killed or errored; absent once a complete Spur poll left it out of the list."
                 },
                 "since": {
                   "anyOf": [
@@ -4028,9 +4028,9 @@
               },
               "required": ["id", "spurProject", "branch", "state", "since"],
               "additionalProperties": false,
-              "description": "A session without a task link; fields beyond its identity need detail. Ended and absent sessions leave out lifecycle, health, healthSince and rateLimitResetAt in both modes."
+              "description": "A session without a task link. Compact rows carry id, spurProject, branch, state and since, plus lifecycle and health while live. Detail rows add the other session facts; ended and absent rows keep a completed, killed or errored lifecycle but leave out health, healthSince and rateLimitResetAt."
             },
-            "description": "Observed sessions without a task link, each with its state (live, ended or absent) and since when; ones ended, or gone from Spur's session list, for over 7 days are left out."
+            "description": "Observed sessions without a task link, each with its state (live, ended or absent) and since when; ones ended, or gone from Spur's session list, for over 7 days are left out, but not an errored session Spur still lists."
           },
           "hiddenUnlinkedPrs": {
             "type": "integer",
