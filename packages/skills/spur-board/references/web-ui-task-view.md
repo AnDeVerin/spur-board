@@ -108,11 +108,10 @@ submission.
   `Task not found.`
 - A failed read shows an error banner, `Could not load the task.`, with **Retry**, above the
   data loaded before. Offline with the task loaded, the dialog shows no banner: the Board's
-  offline banner says so.
+  offline banner says so, and the rows may be out of date.
 - History reads `task.history` only while its tab shows. A failed read shows
   `Could not load the history.` with **Retry** above the rows loaded before, with the same
-  offline rule, and the rows may be out of date. A task the daemon no longer knows shows
-  `Task not found.`
+  offline rule. A task the daemon no longer knows shows `Task not found.`
 - It rereads the task when the stream names it and whenever the UI rereads everything: a
   `reset`, the 30-second status frame, a changed journal head or daemon instance, and
   **Retry now**. A shown History rereads at the same moments.
