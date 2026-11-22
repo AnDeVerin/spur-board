@@ -58,6 +58,8 @@ holder's end raises no stall block on it. An untaken wrap-up turn closes the sam
 recipient is left: no live worker is linked to the task (its worker ended, stopped without an
 end time, or was unlinked) and Done has no orchestrator. That close raises no stall question
 and waits for a complete Spur read, not while Spur is blind or stale; a turn already left open
-closes on the first such read. If wrap-up work remains, resume or relink a worker. After an
+closes on the first such read. A worker Spur still lists as completed or errored without an end
+time counts as linked and live here, so its wrap-up stays open until Spur reports the end or the
+worker is unlinked. If wrap-up work remains, resume or relink a worker. After an
 end, a live worker
 still linked to the task, or the Done orchestrator, gets a new one.
