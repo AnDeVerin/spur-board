@@ -23,8 +23,8 @@ const UNCHECKED_MAX_AGE = 24 * HOUR;
 
 /** What the sweep reads from /proc; tests inject their own. */
 export interface ProcReader {
-  /** `/proc/<pid>/stat`, or undefined when the process does not exist. */
-  stat(pid: number): string | undefined;
+  /** `/proc/<pid>/stat`; null when the process does not exist, undefined when it is unknown. */
+  stat(pid: number): string | null | undefined;
   /** `/proc/sys/kernel/random/boot_id`, or undefined. */
   bootId(): string | undefined;
   /** The `/proc/self/ns/pid` link, or undefined. */
@@ -51,8 +51,32 @@ function attempt<T>(read: () => T): T | undefined {
   }
 }
 
+function errorCode(error: unknown): unknown {
+  return (error as NodeJS.ErrnoException | undefined)?.code;
+}
+
+/** True only when the kernel says no process has this pid; EPERM means it exists. */
+function processAbsent(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return errorCode(error) === 'ESRCH';
+  }
+}
+
+function readStat(pid: number): string | null | undefined {
+  try {
+    return readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
+  } catch (error) {
+    // A hidden or unreadable stat is unknown, not absent; ENOENT is checked against kill.
+    const code = errorCode(error);
+    return (code === 'ENOENT' || code === 'ESRCH') && processAbsent(pid) ? null : undefined;
+  }
+}
+
 const linuxProc: ProcReader = {
-  stat: (pid) => attempt(() => readFileSync(`/proc/${String(pid)}/stat`, 'utf8')),
+  stat: readStat,
   bootId: () =>
     attempt(() => readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()) || undefined,
   pidNs: () => attempt(() => readlinkSync('/proc/self/ns/pid')) || undefined,
@@ -88,7 +112,7 @@ export function writeOwner(root: string, options: WriteOwnerOptions = {}): void 
   const record: OwnerRecord = {
     pid,
     createdAt: now(),
-    startTicks: stat === undefined ? undefined : readStartTicks(stat),
+    startTicks: typeof stat === 'string' ? readStartTicks(stat) : undefined,
     ...currentIdentity(proc),
   };
   const file = join(root, OWNER_FILE);
@@ -128,10 +152,12 @@ function isStale(root: string, now: number, proc: ProcReader, self: Identity): b
   if (!complete || !nonEmpty(self.bootId) || !nonEmpty(self.pidNs)) {
     return age(root, now) > UNCHECKED_MAX_AGE;
   }
-  if (record.bootId !== self.bootId) return true;
+  // Another pid namespace may report its own boot id (a container), so only age decides there.
   if (record.pidNs !== self.pidNs) return age(root, now) > UNCHECKED_MAX_AGE;
+  if (record.bootId !== self.bootId) return true;
   const stat = proc.stat(record.pid ?? 0);
-  if (stat === undefined) return true;
+  if (stat === null) return true;
+  if (stat === undefined) return age(root, now) > UNCHECKED_MAX_AGE;
   const ticks = readStartTicks(stat);
   return ticks !== undefined && ticks !== record.startTicks;
 }
@@ -148,8 +174,9 @@ interface SweepOptions {
 }
 
 /**
- * Removes `spur-board-test-*` roots of runs that are gone: owner dead, pid reused or from an
- * earlier boot; roots without an owner record after 3 h; roots it cannot check after 24 h.
+ * Removes `spur-board-test-*` roots of runs that are gone: owner dead, pid reused or, in the
+ * same pid namespace, from an earlier boot; roots without an owner record after 3 h; roots it
+ * cannot check (another pid namespace, an incomplete record, an unreadable stat) after 24 h.
  * Never follows symlinks, never touches another uid's entries, never throws. Returns the
  * removed paths.
  */

@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   statSync,
   symlinkSync,
   utimesSync,
@@ -29,16 +30,21 @@ function statLine(pid: number, ticks: string, comm = 'node'): string {
   return `${String(pid)} (${comm}) S ${Array(18).fill('0').join(' ')} ${ticks} 0 0\n`;
 }
 
-function fakeProc(live: Record<number, string>): ProcReader {
+/** Pids in `live` run with those start ticks; pids in `hidden` exist but their stat is unreadable. */
+function fakeProc(live: Record<number, string>, hidden: number[] = []): ProcReader {
   return {
-    stat: (pid) => (pid in live ? statLine(pid, live[pid] ?? '') : undefined),
+    stat: (pid) => {
+      if (hidden.includes(pid)) return undefined;
+      return pid in live ? statLine(pid, live[pid] ?? '') : null;
+    },
     bootId: () => BOOT,
     pidNs: () => NS,
   };
 }
 
+/** A fresh parent, canonical so it matches the paths the sweep returns under a symlinked TMPDIR. */
 function parent(): string {
-  return mkdtempSync(join(tmpdir(), 'sweep-'));
+  return realpathSync(mkdtempSync(join(tmpdir(), 'sweep-')));
 }
 
 /** A root in `dir` whose root and tmp mtimes are `ageMs` before `base`. */
@@ -72,25 +78,55 @@ function sweepAt(dir: string, base: number, after: number, proc: ProcReader, ext
 
 describe('sweepStaleRuns', () => {
   const base = Date.now();
-  const proc = fakeProc({ 100: '5000' });
+  // Pid 100 runs with start ticks 5000, pid 200 is gone, pid 300 runs with an unreadable stat.
+  const proc = fakeProc({ 100: '5000' }, [300]);
 
-  it('removes a dead owner, a reused pid and an earlier boot; keeps a live owner', () => {
+  it.each([
+    { name: 'live owner', owner: complete(100, '5000'), hours: 0, removed: false },
+    { name: 'dead owner', owner: complete(200, '5000'), hours: 0, removed: true },
+    { name: 'reused pid', owner: complete(100, '4999'), hours: 0, removed: true },
+    {
+      name: 'earlier boot, same pid namespace',
+      owner: { ...complete(100, '5000'), bootId: 'boot-old' },
+      hours: 0,
+      removed: true,
+    },
+    {
+      name: 'foreign pid namespace, young',
+      owner: { ...complete(200, '5000'), pidNs: 'pid:[1]' },
+      hours: 23,
+      removed: false,
+    },
+    {
+      name: 'foreign pid namespace, old',
+      owner: { ...complete(200, '5000'), pidNs: 'pid:[1]' },
+      hours: 25,
+      removed: true,
+    },
+    {
+      name: 'foreign pid namespace and other boot id, young',
+      owner: { ...complete(100, '5000'), pidNs: 'pid:[1]', bootId: 'boot-container' },
+      hours: 23,
+      removed: false,
+    },
+    {
+      name: 'foreign pid namespace and other boot id, old',
+      owner: { ...complete(100, '5000'), pidNs: 'pid:[1]', bootId: 'boot-container' },
+      hours: 25,
+      removed: true,
+    },
+    {
+      name: 'unreadable owner stat, young',
+      owner: complete(300, '5000'),
+      hours: 23,
+      removed: false,
+    },
+    { name: 'unreadable owner stat, old', owner: complete(300, '5000'), hours: 25, removed: true },
+  ])('$name: removed $removed', ({ owner, hours, removed }) => {
     const dir = parent();
-    const dead = root(dir, 'dead', complete(200, '5000'), base);
-    const reused = root(dir, 'reused', complete(100, '4999'), base);
-    const boot = root(dir, 'boot', { ...complete(100, '5000'), bootId: 'boot-old' }, base);
-    const live = root(dir, 'live', complete(100, '5000'), base);
-    expect(sweepAt(dir, base, 0, proc).sort()).toEqual([boot, dead, reused].sort());
-    expect(existsSync(live)).toBe(true);
-  });
-
-  it('keeps a foreign pid namespace root until 24 h', () => {
-    const dir = parent();
-    const record = { ...complete(200, '5000'), pidNs: 'pid:[1]' };
-    const young = root(dir, 'young', record, base, 23 * HOUR);
-    const old = root(dir, 'old', record, base, 25 * HOUR);
-    expect(sweepAt(dir, base, 0, proc)).toEqual([old]);
-    expect(existsSync(young)).toBe(true);
+    const path = root(dir, 'run', owner, base, hours * HOUR);
+    expect(sweepAt(dir, base, 0, proc)).toEqual(removed ? [path] : []);
+    expect(existsSync(path)).toBe(!removed);
   });
 
   it('keeps a root without owner until 3 h, and while its tmp is fresh', () => {
