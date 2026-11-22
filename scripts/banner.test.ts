@@ -27,7 +27,7 @@ describe('Banner color bindings', () => {
     expect(values).toEqual([`var(${token})`]);
   });
 
-  it('keeps warning main text as the only attention text token consumer', () => {
+  it('keeps warning main text and the task wait strip as the only attention text token consumers', () => {
     const consumers = readdirSync(sourceRoot, { recursive: true, encoding: 'utf8' })
       .filter((file) => /\.(css|tsx?)$/.test(file))
       .flatMap((file) => {
@@ -35,7 +35,8 @@ describe('Banner color bindings', () => {
         const references = source.match(/var\(\s*--color-text-attention(?=\s*[,)]\s*)/g) ?? [];
         return references.map(() => file);
       });
-    // The binding table requires this sole reference to be the warning main color.
-    expect(consumers).toEqual(['ds/Banner/Banner.module.css']);
+    // The binding table requires the warning main color; #825 adds the wait strip's text on the
+    // same attention fill, which needs the same AA contrast.
+    expect(consumers).toEqual(['board/TaskWait.module.css', 'ds/Banner/Banner.module.css']);
   });
 });

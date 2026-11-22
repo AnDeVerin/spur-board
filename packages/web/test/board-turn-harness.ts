@@ -62,32 +62,37 @@ export const closedTurn = (outcome: string, by: string | null = 'agent:qa/qa-1')
 type Call = { op: string; input: Record<string, unknown>; key: string | undefined };
 /**
  * Opens ex/repo#7 on a fake daemon; `rows` are the chosen project's status rows (by default #7 in
- * Review with one open PR at `HEAD`).
+ * Review with one open PR at `HEAD`); `now` is the board clock.
  */
 export async function open(
   answer: unknown = orchestratorTaskGet(),
   rows: unknown[] = [row('ex/repo#7', 'review', { prs: [prFacts(HEAD)] })],
+  now?: () => number,
 ) {
   const d = daemon();
   const calls: Call[] = [];
   serve(d, rows, reviewConfig);
   setTask(d, answer);
   history.replaceState(null, '', '/?open=ex%2Frepo%237');
-  mount({
-    ...d,
-    fetcher: (url, init) => {
-      const path = url instanceof Request ? url.url : url.toString();
-      const read = ['.get', '.operator', '.describe'].some((suffix) => path.endsWith(suffix));
-      if (path.startsWith('/v1/ops/') && !read) {
-        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
-          input: Record<string, unknown>;
-          key?: string;
-        };
-        calls.push({ op: path.slice('/v1/ops/'.length), input: body.input, key: body.key });
-      }
-      return d.fetcher(url, init);
+  mount(
+    {
+      ...d,
+      fetcher: (url, init) => {
+        const path = url instanceof Request ? url.url : url.toString();
+        const read = ['.get', '.operator', '.describe'].some((suffix) => path.endsWith(suffix));
+        if (path.startsWith('/v1/ops/') && !read) {
+          const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+            input: Record<string, unknown>;
+            key?: string;
+          };
+          calls.push({ op: path.slice('/v1/ops/'.length), input: body.input, key: body.key });
+        }
+        return d.fetcher(url, init);
+      },
     },
-  });
+    {},
+    now,
+  );
   await settle();
   return { d, calls, writes: () => calls.filter((call) => call.op !== 'task.history') };
 }

@@ -39,7 +39,20 @@ export function taskParam(search: string): string | null {
 
 /** Minutes, hours and minutes, or days since `iso`, as the prototype writes ages. */
 export function age(iso: string, now: number): string {
-  const minutes = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
+  return span(Math.max(0, Math.round((now - Date.parse(iso)) / 60_000)));
+}
+
+/**
+ * Time from `now` to `iso`, as the wait strip writes its wake: `in 20m`, `in 1h 5m`, `in 2d`; a
+ * part minute left counts as a whole one, and a wake at or before now reads `now`.
+ */
+export function until(iso: string, now: number): string {
+  const minutes = Math.ceil((Date.parse(iso) - now) / 60_000);
+  return minutes <= 0 ? 'now' : `in ${span(minutes)}`;
+}
+
+/** Whole minutes as `Nm`, `Hh` or `Hh Mm`, or `Nd`. */
+function span(minutes: number): string {
   if (minutes < 60) return `${String(minutes)}m`;
   if (minutes < 1440) {
     const hours = String(Math.floor(minutes / 60));

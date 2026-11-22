@@ -1,7 +1,7 @@
 # Web UI: task view
 
 The task view of the [web UI](web-ui.md) shows one task in a dialog over the columns; on a
-narrow screen it fills the screen. It reads `task.get` with `why` and `detail` for the open task, `task.history` while History shows and, like
+narrow screen it fills the screen. It reads `task.get` with `why` and `detail` for the open task and, like
 the rest of the UI, refreshes from the event stream. It also offers the writes below.
 
 ## Opening it
@@ -19,22 +19,21 @@ is selected once configuration arrives. Back and Forward restore both layers.
   the active Now tab's weight and colour, then lowercase time since the task entered its
   column, from its card's status row: shadow moves and shadow corrections do not count, and a
   task that never moved counts from when it was added. Like the card, it counts to the last good
-  status read, so both show the same time. A task with no card in the chosen project, or a card
+  status read. A task with no card in the chosen project, or a card
   in another column, omits the time; no task data shows only the key.
   Now/History tabs and Close sit at its right.
-- `Now` starts with the ticket title. It comes from the task's card on the Board, so it reads as
-  a placeholder until the status read answers, and a task with no card in the chosen project has
-  no title line.
+- `Now` starts with the ticket title from the task's card: a placeholder until the status read
+  answers, none without a card in the chosen project.
 - Below the title come chips for the task's links: tickets, then pull requests, then sessions.
   They reuse the card's bordered PR status cells with ticket, PR and terminal icons. Soft fills
   and icon colours follow link kind: violet for tickets, green for PRs and blue for sessions,
-  with neutral text and borders, including links without a destination. A green PR link identifies
-  its kind regardless of the PR's checks or status. The current
+  with neutral text and borders, including links without a destination. A PR link stays green whatever
+  its checks or status. The current
   ticket uses its held card's Jira browse URL or safe observed URL, even without a browse base
   or task link; unsafe/missing destinations stay plain, outside Tab order.
   Long labels truncate with full accessible text and hover titles. Links use
   the focus ring; text brightens on hover, focus within and touch.
-  Pull requests written `<owner>/<repo>#<n>` open GitHub in a new tab. Sessions open
+  Pull requests written `<owner>/<repo>#<n>` open GitHub. Sessions open
   `<web.spurUiOrigin>/sessions/<session id>`; without that origin they stay plain.
   Extra tickets, and the current ticket without a matching held card, use these ref rules:
   `<owner>/<repo>#<n>` opens GitHub; a Jira key such as `PROJ-12` uses the project's
@@ -42,6 +41,9 @@ is selected once configuration arrives. Back and Forward restore both layers.
   Other ticket refs, Jira keys from another project, or Jira keys without a browse base stay plain.
   All links open new tabs.
 - A Backlog task, unless archived, shows `Move to` [part buttons](web-ui-board-move.md).
+- An agent holder's active wait, as on the card, adds an amber strip under the chips:
+  `waiting: <reason> · wakes <hh:mm>` (UTC), then `(in 20m)`/`(now)`. Long reasons
+  wrap; hidden while the Turn section re-reads.
 - `History` lists the task's journal events, newest first by event time; events at the same
   time keep the reverse of their journal order. Each row shows the time (UTC, `hh:mm dd/mm/yy`),
   the summary of what changed with who did it, and the raw event kind, such as `turn_taken`. An agent reads as its session;
@@ -107,7 +109,7 @@ submission.
   `Task not found.`
 - A failed read shows an error banner, `Could not load the task.`, with **Retry**, above the
   data loaded before. While the UI is offline and the task was loaded, no banner shows in the
-  dialog: the Board's offline banner says so, and the rows may be out of date.
+  dialog: the Board's offline banner says so.
 - History reads `task.history` only while its tab shows. A failed read shows
   `Could not load the history.` with **Retry** above the rows loaded before, with the same
   offline rule. A task the daemon no longer knows shows `Task not found.`
