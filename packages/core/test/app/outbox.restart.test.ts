@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BLOCK_TYPES, MEMBERSHIPS, type Persona } from '@spur-board/contracts';
 import { createFakeGateway, type FakeGateway, type FakeProfile } from '@spur-board/gateway-testkit';
+import { sql } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createSender,
@@ -501,5 +502,23 @@ describe('Slack off', () => {
     expect(ctx.observed.requests).toEqual([]);
     expect(ctx.spur.sends).toEqual([['sess-1', 'ping 1']]);
     expect((await outboxRow(ctx, ids.doorbell)).state).toBe('done');
+  });
+
+  it('retires a backlog above the SQLite parameter limit', async () => {
+    const ctx = setup('slack-like');
+    const payload = JSON.stringify({ key: 'o/r#1', title: 't', text: 'x', persona: PERSONA });
+    // One statement, so seeding binds two parameters, not one per row.
+    await sql`with recursive n(i) as (select 1 union all select i + 1 from n where i < 40000)
+      insert into outbox (kind, dedupe_key, payload, state, next_at)
+      select 'feed.line', 'feed.line:' || i, ${payload}, 'pending', ${ctx.fake.platform.now().toISOString()}
+      from n`.execute(ctx.store.db);
+    ctx.sender = createSender({ config: slackOffConfig, store: ctx.store, spur: ctx.spur.spur });
+    await ctx.sender.recover();
+    const states = await ctx.store.db
+      .selectFrom('outbox')
+      .select(['state', 'last_error', (eb) => eb.fn.countAll<number>().as('n')])
+      .groupBy(['state', 'last_error'])
+      .execute();
+    expect(states).toEqual([{ state: 'dead', last_error: 'slack off', n: 40000 }]);
   });
 });

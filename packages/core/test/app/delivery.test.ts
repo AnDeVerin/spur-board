@@ -780,6 +780,54 @@ describe('Slack off', () => {
     expect(await gatewayRows(ctx)).toBe(0);
   });
 
+  // A queued reply retired by a start without Slack is no thread's tail; a retired open leaves
+  // no thread, so nothing replies to it.
+  it.each([
+    ['a posted open', true],
+    ['a retired open', false],
+  ])('after Slack off and on, a thread with %s', async (_name, posted) => {
+    const ctx = setup('slack-like', 0);
+    const seed = await seedBlock(ctx);
+    const open = await enqueueOpen(ctx, seed);
+    if (posted) await ctx.sender.tick();
+    const queued = await enqueueReply(ctx, await addComment(ctx, seed, 'queued'));
+    const now = () => ctx.fake.platform.now();
+    const base = { store: ctx.store, spur: ctx.spur.spur, now };
+    await createSender({ ...base, config: slackOffConfig }).recover();
+    ctx.sender = createSender({ ...base, config: testConfig, gateway: ctx.observed.gateway });
+    await ctx.sender.recover();
+    expect(await outboxRow(ctx, queued)).toMatchObject({ state: 'dead', last_error: 'slack off' });
+    const sent = ctx.observed.requests.length;
+    const comment = await addComment(ctx, seed, 'after Slack is back');
+    const reply = await scanTransaction(ctx.store, testConfig, async (trx) => {
+      const id = await enqueueConversationReply(trx, {
+        commentId: comment,
+        persona: PERSONA,
+        at: now(),
+      });
+      await enqueueConversationClose(trx, {
+        blockId: seed.blockId,
+        outcome: 'done',
+        actor: 'operator',
+        at: now(),
+      });
+      return id;
+    });
+    await step(ctx);
+    await step(ctx);
+    const conversation = externalConversation(await outboxRow(ctx, open));
+    expect(ctx.observed.requests.slice(sent).map((request) => request.target)).toEqual(
+      posted
+        ? [
+            { kind: 'reply', conversation },
+            { kind: 'close', conversation },
+          ]
+        : [],
+    );
+    expect(reply === null).toBe(!posted);
+    expect(await outboxRow(ctx, queued)).toMatchObject({ state: 'dead', last_error: 'slack off' });
+  });
+
   it('still writes a doorbell', async () => {
     const ctx = setup();
     const id = await scanTransaction(ctx.store, slackOffConfig, (trx) =>
