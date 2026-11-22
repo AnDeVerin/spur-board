@@ -15,7 +15,7 @@ Warnings never block readiness or an update. Blocking failures retain these gate
 | `config`                                                                                                                                                                                              | Blocking: invalid daemon config.                                                                              |
 | `service.installed`, `service.node`, `service.running`, `flock`, `http.port`, `daemon.available`                                                                                                      | Blocking: runtime, lock, API and service prerequisites.                                                       |
 | `database.private`, `secrets`                                                                                                                                                                         | Blocking: private storage and configured credentials.                                                         |
-| `jira.credentials`, `github.credentials`, `spur.api`, `spur.send`                                                                                                                                     | Blocking when configured: polling, enrichment or doorbell work fails; GitHub throttle warnings stay advisory. |
+| `jira.credentials`, `github.credentials`, `spur.api`, `spur.send`, `spur.version`                                                                                                                     | Blocking when configured: polling, enrichment or doorbell work fails; GitHub throttle warnings stay advisory. |
 | `slack.auth`, `slack.orchestrators_member`, `slack.feed_member`, known `slack.command` mismatch                                                                                                       | Blocking when configured: delivery and inbound commands; unknown or unconfigured results warn.                |
 | `operator.path`                                                                                                                                                                                       | Blocking: no operator session or approved token for required operator work.                                   |
 | `web.listening`, `web.spurUiOrigin`, `path.current`, `path.spur`, `skills.codex_visibility`                                                                                                           | Warning: optional browser or agent tooling; the daemon continues.                                             |
@@ -325,6 +325,17 @@ so no agent receives it; it passes when Spur answers that the session is not fou
 means Spur is down or `adapters.spur.baseUrl` is wrong: start Spur or correct the URL. Any other
 answer means that Spur API does not accept doorbell sends: update Spur, or point
 `adapters.spur.baseUrl` at the Spur daemon. Restart the service after changing `config.yaml`.
+
+### spur.version
+
+The check reads `version` from `GET <adapters.spur.baseUrl>/info`, which the running Spur daemon
+answers. It passes at Spur 1.53.0 or newer, the oldest Spur with every Spur API the Board calls.
+Below that it fails and blocks: upgrade Spur to 1.53.0 or newer, then restart the Spur daemon and
+rerun `board doctor`. It warns without blocking when Spur gives no answer, is still starting, or
+reports a version that is not a release, such as `0.0.0-dev` or a source checkout without tags.
+`spur --version` shows the installed Spur CLI, not the running daemon: a Spur daemon that was not
+restarted after an upgrade still reports its old version here, so restart the Spur daemon after
+upgrading Spur.
 
 ### slack.auth
 

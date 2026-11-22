@@ -1,4 +1,4 @@
-import { AdapterError, type PollContext } from '@spur-board/contracts';
+import { AdapterError, SPUR_MIN_VERSION, type PollContext } from '@spur-board/contracts';
 import { createFakeCore } from '@spur-board/adapters/testing';
 import { SpurRejectedError } from '@spur-board/core';
 import { createSpurPort } from '@spur-board/daemon/in-process';
@@ -175,6 +175,30 @@ describe('sessions', () => {
     run(fake, 'session', { id: 'plain' });
     const plain = (await (await fake.fetch(`${sessionsUrl}/plain`)).json()) as object;
     expect(plain).not.toHaveProperty('stopReason');
+    expect(fake.violations().total).toBe(0);
+  });
+});
+
+describe('info', () => {
+  it('answers GET /info with the minimum Spur version and logs no violation', async () => {
+    const { fake, lines } = createFake();
+    const response = await fake.fetch(`${BASE}/info`, { method: 'GET' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      version: SPUR_MIN_VERSION,
+      lifecycleInstanceId: inspect(fake).instanceId,
+    });
+    expect(fake.violations()).toEqual({ total: 0, items: [] });
+    expect(lines).toEqual([]);
+    expect(inspect(fake).requests).toMatchObject([{ method: 'GET', path: '/info' }]);
+  });
+
+  it('fails /info alone under a 5xx rule for the info route', async () => {
+    const { fake } = createFake();
+    run(fake, 'fail', { mode: '5xx', route: 'info' });
+    expect((await fake.fetch(`${BASE}/info`)).status).toBe(503);
+    expect((await fake.fetch(sessionsUrl)).status).toBe(200);
     expect(fake.violations().total).toBe(0);
   });
 });

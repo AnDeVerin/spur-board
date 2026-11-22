@@ -45,8 +45,8 @@ or the CLI.
 ## What it needs
 
 Linux with systemd user services, Node 24.12+ (24.x) or 26.x, a running
-[Spur](https://github.com/ashugaev/spur), a Slack app, a GitHub token, and Jira credentials for
-Jira projects. The web console needs a private reverse proxy.
+[Spur](https://github.com/ashugaev/spur) 1.53.0 or newer, a Slack app, a GitHub token, and Jira
+credentials for Jira projects. The web console needs a private reverse proxy.
 
 ## Get started
 

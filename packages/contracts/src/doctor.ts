@@ -3,6 +3,12 @@ import { z } from 'zod';
 /** Longest `fix` text the daemon sends in one doctor check, in characters. */
 export const DOCTOR_FIX_MAX = 300;
 
+/**
+ * The oldest Spur release with every Spur API the Board calls: transition polling
+ * (`GET /sessions/transitions`, Spur #1447). Bump it with the feature that needs a newer Spur.
+ */
+export const SPUR_MIN_VERSION = '1.53.0';
+
 const DOCTOR_STATUSES = ['pass', 'fail', 'warning'] as const;
 
 const checkShape = {

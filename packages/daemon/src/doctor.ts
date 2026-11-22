@@ -13,6 +13,7 @@ import {
   DOCTOR_FIX_MAX,
   MIRROR_FAILURES,
   SLACK_BOT_SCOPES,
+  SPUR_MIN_VERSION,
   apiBaseUrl,
   approvalRuleOf,
   configBindings,
@@ -44,6 +45,10 @@ const SPUR_SEND_UNREACHABLE_FIX =
   'Start Spur or correct adapters.spur.baseUrl in config.yaml, then restart the service; the daemon sends doorbells to that Spur API.';
 const SPUR_SEND_FIX =
   'The Spur API at adapters.spur.baseUrl did not accept a doorbell send; update Spur or point adapters.spur.baseUrl at the Spur daemon.';
+const SPUR_VERSION_UNREAD_FIX = `Could not read a Spur release version from GET /info at adapters.spur.baseUrl. Start Spur, or make sure the running Spur daemon is ${SPUR_MIN_VERSION} or newer: upgrade Spur if needed, restart the Spur daemon, then rerun board doctor.`;
+// A Spur release, or the `git describe` form of a source checkout, which counts as its base tag.
+const SPUR_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-\d+-g[0-9a-f]+)?$/;
+const spurInfoWire = z.object({ version: z.string().max(64) });
 const GITHUB_FIX = 'Check the GitHub token and repository access.';
 const GITHUB_CHECKS_FIX =
   'Use a classic GitHub personal access token with the repo scope, authorized for organization SSO where required, to read check runs.';
@@ -742,6 +747,26 @@ async function operatorTokensCheck(ctx: ModuleContext<Store>, config: Config): P
     : warning('operator.tokens', line);
 }
 
+function spurVersionParts(version: string): number[] | null {
+  const parts = SPUR_VERSION.exec(version);
+  return parts === null ? null : parts.slice(1, 4).map(Number);
+}
+
+/** `spur.version` from the version the running Spur daemon reports, or null when unread. */
+function spurVersionCheck(version: string | null): Check {
+  const id = 'spur.version';
+  const parts = version === null ? null : spurVersionParts(version);
+  const min = spurVersionParts(SPUR_MIN_VERSION);
+  if (version === null || parts === null || min === null)
+    return warning(id, SPUR_VERSION_UNREAD_FIX);
+  const order = parts.map((part, index) => part - (min[index] ?? 0)).find((diff) => diff !== 0);
+  return check(
+    id,
+    (order ?? 0) >= 0,
+    `Spur ${version} is running, older than ${SPUR_MIN_VERSION}, the oldest Spur the Board supports; upgrade Spur to ${SPUR_MIN_VERSION} or newer, restart the Spur daemon, then rerun board doctor.`,
+  );
+}
+
 async function request(
   ctx: ModuleContext<Store>,
   fetcher: typeof fetch,
@@ -971,7 +996,7 @@ export async function runDaemonDoctor(
     SPUR_PROBE_SESSION,
     'spur-board doctor probe',
   );
-  const [spur, spurSend] = await Promise.all([
+  const [spur, spurSend, spurVersion] = await Promise.all([
     request(
       ctx,
       fetcher,
@@ -980,6 +1005,25 @@ export async function runDaemonDoctor(
       new URL('sessions', apiBaseUrl(config.adapters.spur.baseUrl)),
     ),
     request(ctx, fetcher, deadlineMs, 'spur.send', probe.url, probe.init),
+    // Only the validated version leaves this call: /info also names local paths.
+    deadlineCall(
+      ctx,
+      deadlineMs,
+      'doctor.spur.version',
+      'Spur version read failed',
+      async (signal) => {
+        const response = await fetcher(new URL('info', apiBaseUrl(config.adapters.spur.baseUrl)), {
+          method: 'GET',
+          signal,
+        });
+        if (!response.ok) {
+          await response.body?.cancel().catch(() => undefined);
+          return null;
+        }
+        const parsed = spurInfoWire.safeParse(await response.json());
+        return parsed.success ? parsed.data.version : null;
+      },
+    ),
   ]);
   checks.push(check('spur.api', spur?.ok === true, 'Start or correct the configured Spur API.'));
   const spurSendOk =
@@ -990,6 +1034,7 @@ export async function runDaemonDoctor(
   checks.push(
     check('spur.send', spurSendOk, spurSend === null ? SPUR_SEND_UNREACHABLE_FIX : SPUR_SEND_FIX),
   );
+  checks.push(spurVersionCheck(spurVersion));
 
   if (!slackConfigured) {
     checks.push(

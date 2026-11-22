@@ -7,9 +7,11 @@ Keep tokens out of chat, command history, and logs.
 ## 1. Inspect the machine and session
 
 Use Linux with systemd user services, `flock`, npm, Node 24.12+ (24.x) or 26.x, and a running
-Spur. Check the Node executable and `PATH` from a live Spur session; an interactive shell can
-use a different Node. Check Spur through its HTTP API or its CLI from your home folder. Running
-the Spur CLI inside a folder containing `spur.yaml` can attach that folder to the daemon.
+Spur 1.53.0 or newer. `board doctor` reads the running Spur daemon's version (check
+`spur.version`); restart the Spur daemon after upgrading Spur. Check the Node executable and
+`PATH` from a live Spur session; an interactive shell can use a different Node. Check Spur through
+its HTTP API or its CLI from your home folder. Running the Spur CLI inside a folder containing
+`spur.yaml` can attach that folder to the daemon.
 
 The default files are `$HOME/.config/spur-board/config.yaml` and
 `$HOME/.config/spur-board/secrets.env` (or under `$XDG_CONFIG_HOME/spur-board/`). `BOARD_HOME`

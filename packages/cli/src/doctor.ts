@@ -309,6 +309,7 @@ const remoteBaseIds = [
   'link.rules',
   'spur.api',
   'spur.send',
+  'spur.version',
   'operator.path',
   'operator.tokens',
   'curator.sessions',

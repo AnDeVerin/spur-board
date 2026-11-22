@@ -1,7 +1,7 @@
-// An in-memory Spur behind an injected `fetch`: the three routes the board calls, the failures a
-// scenario can inject, and a log of every request the board should not have made.
+// An in-memory Spur behind an injected `fetch`: the routes the board and its doctor call, the
+// failures a scenario can inject, and a log of every request the board should not have made.
 import { parseArgs } from 'node:util';
-import { apiBaseUrl, err, ok, type Result } from '@spur-board/contracts';
+import { SPUR_MIN_VERSION, apiBaseUrl, err, ok, type Result } from '@spur-board/contracts';
 import { z } from 'zod';
 import type { RouteResult } from './control.ts';
 
@@ -12,7 +12,7 @@ const MAX_BODY_TEXT = 200;
 const MAX_HOLD_MS = 60_000;
 const DEFAULT_5XX = 503;
 
-const ROUTE_NAMES = ['list', 'detail', 'send', 'transitions'] as const;
+const ROUTE_NAMES = ['list', 'detail', 'send', 'transitions', 'info'] as const;
 type RouteName = (typeof ROUTE_NAMES)[number];
 
 /** Spur's `assertSendableStatus`, plus `spawning`, which it queues before that gate. */
@@ -259,6 +259,7 @@ export function createFakeSpur(options: {
     const path = url.pathname.slice(base.pathname.length);
     if (method === 'GET' && path === 'sessions/transitions') return { name: 'transitions', id: '' };
     if (method === 'GET' && path === 'sessions') return { name: 'list', id: '' };
+    if (method === 'GET' && path === 'info') return { name: 'info', id: '' };
     const detail = /^sessions\/([^/]+)$/.exec(path)?.[1];
     if (method === 'GET' && detail !== undefined) return { name: 'detail', id: detail };
     const send = /^sessions\/([^/]+)\/send$/.exec(path)?.[1];
@@ -333,6 +334,12 @@ export function createFakeSpur(options: {
       const hasMore = Number(last.slice('fake-feed-'.length)) < sequence;
       return Response.json({ entries, nextCursor: hasMore ? last : cursor(sequence), hasMore });
     }
+    if (matched.name === 'info')
+      return Response.json({
+        ok: true,
+        version: SPUR_MIN_VERSION,
+        lifecycleInstanceId: instanceId(),
+      });
     if (matched.name === 'send') return answerSend(matched.id, body);
     if (matched.name === 'list')
       return Response.json(

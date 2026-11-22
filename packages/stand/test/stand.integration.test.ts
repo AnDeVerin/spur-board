@@ -2217,6 +2217,7 @@ describe('fake Spur in a running stand', () => {
     const byId = new Map(checks.map((check) => [check.id, check.status]));
     expect(byId.get('spur.api')).toBe('pass');
     expect(byId.get('spur.send')).toBe('pass');
+    expect(byId.get('spur.version')).toBe('pass');
   }, 60_000);
 
   it('reset replaces the fake and reports an empty log', async () => {

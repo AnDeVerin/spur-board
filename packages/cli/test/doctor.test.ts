@@ -35,6 +35,7 @@ const remoteIds = [
   'github.mirror',
   'spur.api',
   'spur.send',
+  'spur.version',
   'slack.auth',
   'slack.orchestrators_member',
   'slack.feed_member',
@@ -979,7 +980,7 @@ describe('board doctor', () => {
     expect(human.output()).not.toContain('\u001b');
   });
 
-  it.each(['spur.send', 'web.spurUiOrigin'])(
+  it.each(['spur.send', 'spur.version', 'web.spurUiOrigin'])(
     'warns about a known check the daemon did not report (%s)',
     async (missingId) => {
       const value = await run(
