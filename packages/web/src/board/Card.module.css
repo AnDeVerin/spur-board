@@ -16,6 +16,29 @@
 .wrap[data-dragging] > .links > a {
   opacity: var(--opacity-dimmed);
 }
+/* A reorder of the card waits for the Board to show it: dimmed as stale data is. */
+.wrap[data-pending] > .card {
+  opacity: var(--opacity-stale);
+}
+/* A card of a Manual column drags by hand. */
+.wrap[data-manual] > .card {
+  cursor: grab;
+}
+/* A card another viewer moved: a tint that fades, its note in the key row lasting as long. */
+.wrap[data-moved] > .card {
+  animation: moved var(--duration-pulse) ease-out;
+}
+@keyframes moved {
+  from {
+    background: var(--color-fill-working);
+    border-color: var(--color-status-working);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wrap[data-moved] > .card {
+    animation: none;
+  }
+}
 .wrap[data-turn='agent'] {
   --c: var(--color-status-working);
 }
@@ -86,6 +109,21 @@
   font-size: var(--text-micro);
   color: var(--color-text-tertiary);
   font-variant-numeric: tabular-nums;
+}
+/* The drag grip before the key, in Manual only. */
+.grip {
+  flex: none;
+  display: inline-flex;
+  margin-left: calc(-1 * var(--space-1));
+  color: var(--color-text-tertiary);
+}
+.wrap[data-manual]:hover .grip {
+  color: var(--color-text-primary);
+}
+.moved {
+  flex: none;
+  font-size: var(--text-micro);
+  color: var(--color-status-working);
 }
 /* One empty box per quick link, so the key never runs under them. */
 .spacer {

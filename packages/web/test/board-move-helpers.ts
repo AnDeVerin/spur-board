@@ -70,29 +70,37 @@ interface MoveBody {
 }
 
 /**
- * Mounts the board on `withConfig` and `rows`, recording each `task.move` request body; `setup`
- * changes routes before the first read.
+ * Mounts the board on `withConfig` and `rows`, recording each `task.move` and `task.order`
+ * request body; `setup` changes routes before the first read; `storage` seeds stored view state,
+ * such as a column's sort.
  */
 export async function board(
   withConfig: unknown = THREE,
   rows: unknown[] = ROWS,
   setup: (d: Daemon) => void = () => undefined,
+  storage: Record<string, string> = {},
 ) {
   const d: Daemon = daemon(rows);
   serve(d, rows, withConfig);
   setup(d);
   const moves: MoveBody[] = [];
-  mount({
-    ...d,
-    fetcher: (url, init) => {
-      const path = url instanceof Request ? url.url : url.toString();
-      if (path.endsWith('/task.move'))
-        moves.push(JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as MoveBody);
-      return d.fetcher(url, init);
+  const orders: MoveBody[] = [];
+  const stored = mount(
+    {
+      ...d,
+      fetcher: (url, init) => {
+        const path = url instanceof Request ? url.url : url.toString();
+        const body = () =>
+          JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as MoveBody;
+        if (path.endsWith('/task.move')) moves.push(body());
+        if (path.endsWith('/task.order')) orders.push(body());
+        return d.fetcher(url, init);
+      },
     },
-  });
+    storage,
+  );
   await settle();
-  return { d, moves };
+  return { d, moves, orders, stored };
 }
 
 /** The card link of `key` on the board. */

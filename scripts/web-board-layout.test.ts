@@ -155,3 +155,20 @@ it('gives task blocks a toned rail and band, hides the folded part and right-ali
   expect(rule('.foot > button')).toMatch(/margin-left:\s*auto;/);
   expect(css).not.toContain('.forYou');
 });
+
+it('times the moved tint by --duration-pulse in CSS and in the timer, without it under reduced motion', () => {
+  const read = (file: string) =>
+    readFileSync(new URL(`../packages/web/src/${file}`, import.meta.url), 'utf8');
+  const pulse = /--duration-pulse:\s*([\d.]+)s;/.exec(read('ds/tokens.css'))?.[1];
+  const timer = /export const ORDER_TINT_MS = (\d+);/.exec(read('board/ColumnOrder.tsx'))?.[1];
+  expect(pulse).toBeDefined();
+  expect(Number(timer)).toBe(Number(pulse) * 1000);
+  const css = read('board/Card.module.css');
+  const [wide = '', reduced = ''] = css.split('@media (prefers-reduced-motion: reduce) {');
+  expect(/\.wrap\[data-moved\] > \.card\s*\{([^}]+)\}/.exec(wide)?.[1]).toMatch(
+    /animation:\s*moved var\(--duration-pulse\) ease-out;/,
+  );
+  expect(/\.wrap\[data-moved\] > \.card\s*\{([^}]+)\}/.exec(reduced)?.[1]).toMatch(
+    /animation:\s*none;/,
+  );
+});

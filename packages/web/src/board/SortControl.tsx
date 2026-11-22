@@ -1,17 +1,31 @@
-import { focusRing } from '../ds/index.ts';
+import { focusRing, HoverMenu } from '../ds/index.ts';
 import type { ColumnSort } from './model.ts';
 import styles from './Columns.module.css';
 
 const classes = (...names: (string | undefined)[]) => names.filter(Boolean).join(' ');
 
-const SORT_HINT: Record<ColumnSort, string> = {
+type Field = 'time' | 'key' | 'manual';
+const FIELDS: readonly { value: Field; label: string }[] = [
+  { value: 'time', label: 'Time' },
+  { value: 'key', label: 'Key' },
+  { value: 'manual', label: 'Manual' },
+];
+const FIELD_LABEL: Record<Field, string> = {
+  time: 'Sorted by time in the column',
+  key: 'Sorted by key',
+  manual: 'Sorted by manual order',
+};
+const SORT_HINT: Record<Exclude<ColumnSort, 'manual'>, string> = {
   'entered-asc': 'Longest in the column first',
   'entered-desc': 'Newest in the column first',
   'key-asc': 'Lowest key first',
   'key-desc': 'Highest key first',
 };
 
-/** Two quiet buttons in a column head: the field, T time in the column or K key, and the direction. */
+/**
+ * A column head's sort: the field's letter, T time in the column, K key or M manual, opens a menu
+ * of the three; Time and Key add a quiet button that reverses the direction.
+ */
 export function SortControl({
   id,
   sort,
@@ -21,37 +35,37 @@ export function SortControl({
   sort: ColumnSort;
   onChange: (sort: ColumnSort) => void;
 }) {
-  const byKey = sort.startsWith('key');
-  const asc = sort.endsWith('-asc');
-  const direction = asc ? 'asc' : 'desc';
+  const field: Field = sort === 'manual' ? 'manual' : sort.startsWith('key') ? 'key' : 'time';
+  // Time and Key keep the direction; coming from Manual they start ascending.
+  const direction = sort.endsWith('-desc') ? 'desc' : 'asc';
   return (
     <div role="group" aria-label={`Sort ${id}`} className={styles.sort}>
-      <button
-        type="button"
-        className={classes(styles.sortButton, focusRing)}
-        aria-label={byKey ? 'Sorted by key' : 'Sorted by time in the column'}
-        title={
-          byKey
-            ? 'K: sorted by key. Click for T, time in the column.'
-            : 'T: sorted by time in the column. Click for K, key.'
-        }
-        onClick={() => {
-          onChange(byKey ? `entered-${direction}` : `key-${direction}`);
+      <HoverMenu
+        label={FIELD_LABEL[field]}
+        text={field === 'manual' ? 'M' : field === 'key' ? 'K' : 'T'}
+        items={FIELDS}
+        value={field}
+        opens="down"
+        onSelect={(next) => {
+          if (next === 'manual') onChange('manual');
+          else onChange(`${next === 'key' ? 'key' : 'entered'}-${direction}`);
         }}
-      >
-        {byKey ? 'K' : 'T'}
-      </button>
-      <button
-        type="button"
-        className={classes(styles.sortButton, focusRing)}
-        aria-label={SORT_HINT[sort]}
-        title={`${SORT_HINT[sort]}. Click to reverse.`}
-        onClick={() => {
-          onChange(`${byKey ? 'key' : 'entered'}-${asc ? 'desc' : 'asc'}`);
-        }}
-      >
-        {asc ? '↑' : '↓'}
-      </button>
+      />
+      {sort !== 'manual' && (
+        <button
+          type="button"
+          className={classes(styles.sortButton, focusRing)}
+          aria-label={SORT_HINT[sort]}
+          title={`${SORT_HINT[sort]}. Click to reverse.`}
+          onClick={() => {
+            onChange(
+              `${field === 'key' ? 'key' : 'entered'}-${direction === 'asc' ? 'desc' : 'asc'}`,
+            );
+          }}
+        >
+          {direction === 'asc' ? '↑' : '↓'}
+        </button>
+      )}
     </div>
   );
 }

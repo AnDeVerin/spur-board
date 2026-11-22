@@ -248,6 +248,7 @@ export function Board({ data }: { data: BoardData }) {
             setOpenKey(key);
           }}
           moveIntent={data.moveIntent}
+          orderIntent={data.orderIntent}
           moveUnavailable={unavailable(snapshot, MOVES)}
           columns={snapshot.columns}
           onHelpOpen={() => {

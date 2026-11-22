@@ -1,4 +1,9 @@
-import { taskMoveInputSchema, taskMoveOutputSchema } from './ops/move-schemas.ts';
+import {
+  taskMoveInputSchema,
+  taskMoveOutputSchema,
+  taskOrderInputSchema,
+  taskOrderOutputSchema,
+} from './ops/move-schemas.ts';
 import { turnWriteOperations } from './ops/turn-write-schemas.ts';
 /** Browser-safe operation schemas; never import the operation catalog here. */
 import { z } from 'zod';
@@ -443,6 +448,12 @@ export const browserOperations = {
     kind: 'mutation',
     input: taskMoveInputSchema,
     output: taskMoveOutputSchema,
+  },
+  'task.order': {
+    id: 'task.order',
+    kind: 'mutation',
+    input: taskOrderInputSchema,
+    output: taskOrderOutputSchema,
   },
   'columns.describe': {
     id: 'columns.describe',
