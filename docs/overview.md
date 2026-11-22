@@ -32,14 +32,14 @@ addressee. Shadow mode is a safe way to watch a new project before you trust it.
 There are ten built-in columns, in order: To Do (`todo`), Triage (`triage`), Ready for Dev
 (`ready-for-dev`), Dev (`dev`), Review (`review`), Product Review (`product-review`), External
 Review (`external-review`), QA (`qa`), Ready to Merge (`ready-to-merge`) and Done (`done`). To Do,
-Dev and Done are always on; Triage is off unless listed; a column turned off is skipped with its
-gate.
+Dev and Done are always on; Triage is off unless listed; a disabled column is skipped.
 
 To Do, Triage and Ready for Dev form the Todo group. New and reopened tasks enter To Do; the
 dispatcher never moves a task between Todo-group columns. When Ready for Dev mirrors a GitHub
-Project status, each complete Project read moves idle tasks between those two columns, even in
-shadow mode; manual moves there fail with `column_mirrored`. The web UI groups two or three adjacent
-Todo-group columns under one Backlog band; To Do alone stays a plain column.
+Project status, each complete Project read moves idle tasks between it and To Do, even in shadow
+mode; manual moves there fail with `column_mirrored`; change the issue's status in the Project
+instead. The web UI groups two or three adjacent Todo-group columns under one Backlog band; To Do
+alone stays a plain column.
 
 A task leaves the Todo group when work starts: an open pull request or a live linked worker. Then
 gates move it, by default: for Dev an open non-draft pull request, passing checks, no conflict,
@@ -52,8 +52,8 @@ Done has two routes: a merged pull request with a done ticket, or a done ticket 
 pull request and no live worker. A merged pull request alone holds the task until the ticket is done
 (a GitHub issue closed).
 
-A task has at most one open turn. The session that takes it with `board inbox ack` may close it with
-`board submit` or `board return`; you can take over an orchestrator's turn the same way.
+A task has at most one open turn. The session that takes it with `board inbox ack` closes it with
+`board submit` or `board return`; you can take over an orchestrator's turn.
 
 ## Who works on a task
 
