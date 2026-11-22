@@ -6,6 +6,9 @@
   Product Review and run Review, Product Review and Ready to Merge by `--as orchestrator`.
 - `qa-carried` and `qa-skipped` add QA (`--as orchestrator`) to the `dispatch-*` board; the card
   waits in Ready to Merge with the matching QA submission. `dispatch-happy-path` has no QA column.
+- `qa-stub-orchestrator` enables all ten columns: Review, Product Review and QA by
+  `--as orchestrator`, External Review with no turn, Ready to Merge the operator's. Issues 1-3
+  each wait in QA on an untaken turn; the conductor session is `--state waiting`, so rings go out.
 - `dispatch-unbound-review` leaves Review and QA unbound, with Ready to Merge the operator's: the
   task waits in Review on an operator turn item; the operator takes it with `board inbox ack T<n>`.
 - `approval-stale`, `approval-stale-quiet`, `approval-multi`, `approval-rewritten`,
