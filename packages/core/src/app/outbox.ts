@@ -6,6 +6,7 @@ import {
   conversationRefSchema,
   messageRefSchema,
   PERSONA_ROLES,
+  slackConfigured,
   type ActorId,
   type BlockType,
   type ConversationRef,
@@ -700,6 +701,8 @@ async function insertOutbox(
     if (payload === null || typeof payload !== 'object' || !('key' in payload)) {
       throw new Error('Invalid gateway outbox payload');
     }
+    // Slack off: no gateway will send the row, so it is not written. Doorbells still are.
+    if (!slackConfigured(scanConfig())) return { id: null, inserted: false };
     // Scan every payload string, including the outward text, title, name, URL and action labels.
     const rule = checkGatewayStrings(payloadStrings(payload));
     if (rule === SCAN_PENDING) return { id: null, inserted: false };

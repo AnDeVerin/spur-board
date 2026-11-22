@@ -1,4 +1,4 @@
-import { configSchema, type SessionFacts } from '@spur-board/contracts';
+import { configSchema, type Config, type SessionFacts } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   orchestratorSessions,
@@ -11,6 +11,7 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import type { ItemKind } from '../../src/domain/fromYou.ts';
 import { createObservationCore, getStatus, type Store } from '../../src/index.ts';
 import { openTempStore } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
 const config = configSchema.parse({
@@ -24,6 +25,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const sources = ['github-issues:board:o/r', 'github:board:o/r', 'spur'] as const;
@@ -32,8 +34,13 @@ const stores: Store[] = [];
 function setup() {
   const store = openTempStore('board-doctor-').store;
   stores.push(store);
-  const core = (productVersion: string) =>
-    createObservationCore({ store, config, clock: { now: () => Date.parse(at) }, productVersion });
+  const core = (productVersion: string, coreConfig: Config = config) =>
+    createObservationCore({
+      store,
+      config: coreConfig,
+      clock: { now: () => Date.parse(at) },
+      productVersion,
+    });
   return { store, core };
 }
 
@@ -215,6 +222,25 @@ describe('live feed announcement', () => {
     expect(await done()).toBe(true);
   });
 
+  it('Slack off writes neither the line nor the marker, so a later Slack-on poll posts it', async () => {
+    const { store, core } = setup();
+    const slackOff = configSchema.parse({ projects: config.projects, digest: { tz: 'UTC' } });
+    const off = core('1.2.3', slackOff);
+    for (const source of sources) await poll(off, source);
+    expect(await liveRows(store)).toHaveLength(0);
+    expect(
+      await store.db
+        .selectFrom('meta')
+        .select('value')
+        .where('key', '=', 'doctor_live_version')
+        .executeTakeFirst(),
+    ).toBeUndefined();
+
+    const on = core('1.2.3');
+    for (const source of sources) await poll(on, source);
+    expect((await liveRows(store)).map((row) => row.dedupe_key)).toEqual(['doctor:live:1.2.3']);
+  });
+
   it('rolls back the marker and feed row with the observation transaction', async () => {
     const { store } = setup();
     await expect(
@@ -249,6 +275,7 @@ const curatorConfig = configSchema.parse({
     spurProjects: id === 'delta' ? [] : [{ name: `cur-${id[0] ?? ''}`, role: 'curator' }],
   })),
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 

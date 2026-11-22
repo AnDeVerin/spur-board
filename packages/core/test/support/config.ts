@@ -1,5 +1,8 @@
 import { configSchema } from '@spur-board/contracts';
 
+/** Both Slack channels set, so the board writes Slack messages: spread into a test config. */
+export const SLACK_ON = { channels: { orchestrators: 'C000000001', feed: 'C000000002' } };
+
 /** A parsed one-project GitHub-issues config; parsing applies the schema defaults. */
 export const testConfig = configSchema.parse({
   projects: [
@@ -21,5 +24,12 @@ export const testConfig = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
+  digest: { tz: 'UTC' },
+});
+
+/** `testConfig` with Slack off: no operator and no slack block. */
+export const slackOffConfig = configSchema.parse({
+  projects: testConfig.projects,
   digest: { tz: 'UTC' },
 });

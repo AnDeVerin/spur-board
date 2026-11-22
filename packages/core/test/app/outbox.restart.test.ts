@@ -9,6 +9,7 @@ import {
   createSender,
   enqueueConversationOpen,
   openStore,
+  type OutboxKind,
   type Sender,
   type Store,
 } from '../../src/index.ts';
@@ -18,7 +19,8 @@ import {
   type ObservedGateway,
   type ObservedSpur,
 } from '../support/observe.ts';
-import { testConfig } from '../support/config.ts';
+import type { Row } from '../../src/store/schema.ts';
+import { slackOffConfig, testConfig } from '../support/config.ts';
 
 const PERSONA: Persona = { name: 'worker', role: 'worker' };
 const PROFILES: FakeProfile[] = ['slack-like', 'telegram-like'];
@@ -387,5 +389,117 @@ describe.each(PROFILES)('restart on %s', (profile) => {
     expect(markedRefs(ctx, key)).toHaveLength(outcome.threads[profile]);
     await expectOneConversation(ctx, id, key);
     await expectNoRowLost(ctx, 1);
+  });
+});
+
+describe('Slack off', () => {
+  /** Gateway rows in every state a Slack-on run can leave, a done line and a pending doorbell. */
+  async function seedRows(ctx: Ctx) {
+    const { id: open } = await enqueueOpen(ctx);
+    const thread = JSON.parse((await outboxRow(ctx, open)).payload) as Record<string, unknown>;
+    const at = ctx.fake.platform.now().toISOString();
+    return scanTransaction(ctx.store, testConfig, async (trx) => {
+      const insert = async (
+        kind: OutboxKind,
+        key: string,
+        payload: unknown,
+        row: Partial<Pick<Row<'outbox'>, 'state' | 'uncertain' | 'attempt_started'>> = {},
+        parent: number | null = null,
+      ): Promise<number> =>
+        (
+          await trx
+            .insertInto('outbox')
+            .values({
+              kind,
+              dedupe_key: key,
+              payload: JSON.stringify(payload),
+              state: 'pending',
+              next_at: at,
+              last_error: null,
+              external_ref: null,
+              parent_outbox_id: parent,
+              first_attempt_at: null,
+              ...row,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow()
+        ).id;
+      const comment = await trx
+        .insertInto('comment')
+        .values({
+          task_id: thread['taskId'] as number,
+          block_id: thread['blockId'] as number,
+          author: 'agent:proj/sess-2',
+          text: 'and more',
+          conversation_ref: null,
+          message_ref: null,
+          acked_revision: null,
+          created_at: at,
+          delivery_state: 'pending',
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const reply = { ...thread, title: undefined, text: 'and more', commentId: comment.id };
+      const line = (itemKey: string) => ({
+        key: 'o/r#101',
+        title: 'o/r#101 line',
+        text: 'needs you',
+        persona: PERSONA,
+        itemKey,
+      });
+      const ids = {
+        open,
+        reply: await insert('conversation.reply', 'reply', reply, {}, open),
+        failed: await insert('feed.line', 'failed', line('a'), { state: 'post_failed' }),
+        uncertain: await insert('feed.line', 'uncertain', line('b'), { uncertain: 1 }),
+        inFlight: await insert('feed.line', 'in-flight', line('c'), {
+          state: 'in_flight',
+          attempt_started: 1,
+        }),
+        done: await insert('feed.line', 'done', line('d'), { state: 'done' }),
+        doorbell: await insert('doorbell', 'doorbell:1', { session: 'sess-1', text: 'ping 1' }),
+      };
+      return { ids, comment: comment.id };
+    });
+  }
+
+  it('retires every unsent gateway row on a start without a gateway and keeps doorbells', async () => {
+    const ctx = setup('slack-like');
+    const { ids, comment } = await seedRows(ctx);
+    ctx.sender = createSender({
+      config: slackOffConfig,
+      store: ctx.store,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+    });
+    await ctx.sender.recover();
+    const rows = await ctx.store.db
+      .selectFrom('outbox')
+      .select(['id', 'state', 'last_error'])
+      .orderBy('id')
+      .execute();
+    const retired = { state: 'dead', last_error: 'slack off' };
+    expect(rows).toEqual([
+      { id: ids.open, ...retired },
+      { id: ids.reply, ...retired },
+      { id: ids.failed, ...retired },
+      { id: ids.uncertain, ...retired },
+      { id: ids.inFlight, ...retired },
+      { id: ids.done, state: 'done', last_error: null },
+      { id: ids.doorbell, state: 'pending', last_error: null },
+    ]);
+    const stored = await ctx.store.db
+      .selectFrom('comment')
+      .select('delivery_state')
+      .where('id', '=', comment)
+      .executeTakeFirstOrThrow();
+    expect(stored.delivery_state).toBe('superseded');
+
+    // Slack on again: nothing left from the Slack-off run is posted, the doorbell still rings.
+    await restart(ctx);
+    await step(ctx);
+    expect(ctx.observed.requests).toEqual([]);
+    expect(ctx.spur.sends).toEqual([['sess-1', 'ping 1']]);
+    expect((await outboxRow(ctx, ids.doorbell)).state).toBe('done');
   });
 });

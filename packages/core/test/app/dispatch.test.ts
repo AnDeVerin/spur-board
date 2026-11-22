@@ -36,6 +36,7 @@ import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blo
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { markTaskChanged } from '../../src/app/board-utils.ts';
 import { openTempStore, rawDatabase } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 // The dispatcher end to end through the observation core, the registry and the tick, on an
 // sb-like board: review by `rev`, product review by `coord`, ready to merge by the operator.
@@ -214,6 +215,7 @@ function boardConfig(options: Options = {}) {
         : []),
     ],
     operator: { slack: 'operator' },
+    slack: SLACK_ON,
     digest: { tz: 'UTC' },
   });
 }

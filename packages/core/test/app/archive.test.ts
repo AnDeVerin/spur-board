@@ -31,6 +31,7 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import type { Trx } from '../../src/app/board-utils.ts';
 import { observeGateway, observeSpur } from '../support/observe.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 /** A ring for a Slack answer as releases before the notification path stored it. */
 async function insertLegacyDoorbell(
@@ -69,6 +70,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const tracker = 'github-issues:board:o/r';

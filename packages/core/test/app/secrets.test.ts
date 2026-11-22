@@ -20,6 +20,7 @@ import { scanSecret, scanTransaction } from '../../src/app/secrets.ts';
 import type { SenderOptions } from '../../src/app/sender.ts';
 import type { Row } from '../../src/store/schema.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const KEY = 'o/r#101';
 const AT = new Date('2026-11-03T10:00:00.000Z');
@@ -44,6 +45,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const ops = createBlockMutations(config);
@@ -149,6 +151,7 @@ describe('gateway secret scan', () => {
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     const jiraOps = createBlockMutations(jiraConfig);

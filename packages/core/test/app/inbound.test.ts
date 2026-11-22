@@ -53,6 +53,7 @@ import {
   threadReply,
   topLevel,
 } from '../support/conversation.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const DAY_MS = 86_400_000;
 const now = Date.parse('2026-11-03T10:00:00.000Z');
@@ -69,6 +70,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const stores: Store[] = [];

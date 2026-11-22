@@ -22,6 +22,7 @@ import {
   priorAddressees,
   type CurrentBlock,
 } from '../../src/domain/blocks/blocks.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const question: CurrentBlock = {
   type: 'needs_input',
@@ -309,6 +310,7 @@ describe('conversation block ownership', () => {
           },
         ],
         operator: { slack: 'operator' },
+        slack: SLACK_ON,
         digest: { tz: 'UTC' },
       });
       await store.transaction(async (trx) => {

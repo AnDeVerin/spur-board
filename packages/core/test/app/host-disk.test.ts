@@ -4,6 +4,7 @@ import { dismissItem } from '../../src/app/feed.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { recordHostDisk, tickBoard, type HostDiskSample, type Store } from '../../src/index.ts';
 import { openTempStore } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const START = Date.parse('2026-11-03T10:00:00.000Z');
 const GIB = 2 ** 30;
@@ -18,6 +19,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 

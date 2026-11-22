@@ -982,11 +982,31 @@ export function createSender(options: SenderOptions): Sender {
     }
   }
 
+  /**
+   * Slack off: no gateway will send what earlier runs left, uncertain rows included, so they go
+   * dead and their comments superseded. Doorbells stay.
+   */
+  async function retireGatewayRows(trx: Trx): Promise<void> {
+    const rows = await trx
+      .selectFrom('outbox')
+      .select('id')
+      .where('kind', '!=', 'doorbell')
+      .where('state', 'in', ['pending', 'post_failed'])
+      .execute();
+    await kill(
+      trx,
+      rows.map((row) => row.id),
+      'slack off',
+    );
+    await cascade(trx);
+  }
+
   return {
     async recover() {
       const nowIso = now().toISOString();
       const failed = await scanTransaction(store, options.config, async (trx) => {
         await releaseOrphans(trx, nowIso);
+        if (gateway === undefined) await retireGatewayRows(trx);
         const rows = await trx
           .selectFrom('outbox')
           .select('id')
