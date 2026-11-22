@@ -34,8 +34,9 @@
 
 - On a ring, read `board inbox` and take each QA turn whose `taken` is null with keyed
   `board inbox ack <entries>`. Your own (`taken.by` is `agent:<project>/$SPUR_SESSION`) needs no
-  ack. Leave a turn whose `taken.by` names another holder, such as `operator`: an ack takes it
-  back and their submit or return then fails `not_turn_taker`.
+  ack. Leave a turn whose `taken.by` names the operator or a live session: an ack takes it
+  back and their submit or return then fails `not_turn_taker`. Take one over with the ack only
+  once its holder session has ended: `board status --detail` shows that session's `endedAt`.
 - Test the turn's `head`, then keyed `board submit <turn> <sha>`: `--basis tested` (the default),
   `--basis skipped --reason <text>`, or `--basis carried --from <sha> --reason <text>` for work
   tested on an earlier head. `--from` must name a SHA with a tested submission on this task, or
@@ -45,7 +46,7 @@
 - One session may hold several QA turns; close each by its own T<number>, in any order.
 - `turn_closed` (a new head, or the operator closed the turn) or `not_turn_taker` (the operator
   took the turn over): stop that round, re-read `board inbox`, act only on a listed turn that is
-  untaken or yours, leave one another holder has, then wait for the next ring.
+  untaken or yours, leave one the operator or a live session holds, then wait for the next ring.
 
 ```sh
 board inbox
