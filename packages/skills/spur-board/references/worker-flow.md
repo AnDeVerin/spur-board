@@ -34,8 +34,11 @@
 
 - On a ring, read `board inbox` and take the QA turn with keyed `board inbox ack <entries>`.
 - Test the turn's `head`, then keyed `board submit <turn> <sha>`: `--basis tested` (the default),
-  `--basis carried --from <sha> --reason <text>` for work tested on an earlier head, or
-  `--basis skipped --reason <text>`. Failed: keyed `board return <turn> <reason>` naming what to fix.
+  `--basis skipped --reason <text>`, or `--basis carried --from <sha> --reason <text>` for work
+  tested on an earlier head. `--from` must name a SHA with a tested submission on this task, or
+  one with a carried submission on this task whose origin was tested; a head you tested but never
+  submitted answers `submit_source_not_tested`.
+  Failed: keyed `board return <turn> <reason>` naming what to fix.
 - One session may hold several QA turns; close each by its own T<number>, in any order.
 - `turn_closed` (a new head, or the operator closed the turn) or `not_turn_taker` (the operator
   took the turn over): stop that round, re-read `board inbox`, act only on a turn it lists, then
@@ -45,5 +48,6 @@
 board inbox
 board inbox ack T12 --key inbox-ack-PROJ-7-qa-take-0905
 board submit T12 0123456789abcdef0123456789abcdef01234567 --basis tested --key submit-PROJ-7-qa-tested-0940
+board inbox ack T13 --key inbox-ack-PROJ-8-qa-take-0906
 board return T13 "Export fails on an empty list." --key return-PROJ-8-qa-return-0941
 ```
