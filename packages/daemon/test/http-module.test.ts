@@ -1093,8 +1093,10 @@ describe('daemon doctor checks', () => {
       const url = new URL(
         input instanceof URL ? input.href : input instanceof Request ? input.url : input,
       );
-      if (url.pathname.endsWith('/info'))
+      if (url.pathname.endsWith('/info')) {
+        events.push('start:info');
         return fallback(input, init).finally(() => events.push('settle:info'));
+      }
       if (matches(url.pathname, url.host)) events.push('start:group');
       return fallback(input, init);
     };
@@ -1103,6 +1105,9 @@ describe('daemon doctor checks', () => {
     });
     expect(events).toContain('settle:info');
     expect(events.indexOf('start:group')).toBeGreaterThanOrEqual(0);
+    // Started first, so its deadline overlaps every probe; awaited last, so it delays none.
+    expect(events.indexOf('start:info')).toBe(0);
+    expect(events.indexOf('start:info')).toBeLessThan(events.indexOf('start:group'));
     expect(events.indexOf('start:group')).toBeLessThan(events.indexOf('settle:info'));
     const ids = report.checks.map((check) => check.id);
     expect(ids.indexOf('spur.version')).toBe(ids.indexOf('spur.send') + 1);
