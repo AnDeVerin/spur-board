@@ -1,8 +1,8 @@
 # Web UI
 
 View the Board and freshness, answer operator questions, follow up on them, comment, close
-an operator inbox item, submit or return an orchestrator or operator turn, and move a task between Backlog
-parts.
+an operator inbox item, submit or return an orchestrator or operator turn, move a task between Backlog
+parts, and reorder a column's cards by hand.
 Archived tasks are read-only; other actions use CLI, MCP or Slack.
 
 ## Opening it
@@ -28,8 +28,8 @@ open-task `task.get`/`task.history` and `/v1/events`. The UI owns no data.
   view.
 - [Turn](web-ui-task-turn.md): take an orchestrator or operator turn and submit it or return it
   to Dev.
-- [Moving between Backlog parts](web-ui-board-move.md): the card menu, drop and task-view move
-  with a reason.
+- [Moving between Backlog parts and the manual order](web-ui-board-move.md): the card menu, drop
+  and task-view move with a reason, and the drag, keys and menu of Manual order.
 - [Approvals](web-ui-task-approvals.md): approval freshness in the task view and on the Ready to
   Merge card.
 

@@ -149,11 +149,14 @@ export function boardLayout(columns: readonly BoardColumn[]): BoardItem[] {
   return items;
 }
 
-/** How a column orders its rows: by the time in the column or by key, ascending or descending. */
-export type ColumnSort = 'entered-asc' | 'entered-desc' | 'key-asc' | 'key-desc';
+/**
+ * How a column orders its rows: by the time in the column or by key, ascending or descending, or
+ * in the manual order the board stores.
+ */
+export type ColumnSort = 'entered-asc' | 'entered-desc' | 'key-asc' | 'key-desc' | 'manual';
 /** Longest in the column first: the order each column starts in. */
 export const FIRST_SORT: ColumnSort = 'entered-asc';
-const SORTS: readonly string[] = ['entered-asc', 'entered-desc', 'key-asc', 'key-desc'];
+const SORTS: readonly string[] = ['entered-asc', 'entered-desc', 'key-asc', 'key-desc', 'manual'];
 export const isColumnSort = (value: unknown): value is ColumnSort =>
   typeof value === 'string' && SORTS.includes(value);
 
@@ -162,8 +165,11 @@ const collator = new Intl.Collator('en', { numeric: true });
 /**
  * A sorted copy of `rows`. Keys compare in full with numbers as numbers, so `#9` comes before
  * `#10`; rows with no time in the column come last in both time orders; ties keep input order.
+ * Manual follows `position`; rows without one, from an older daemon, come last.
  */
 export function sortRows(rows: readonly BoardRow[], sort: ColumnSort): BoardRow[] {
+  if (sort === 'manual')
+    return [...rows].sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity) || 0);
   const sign = sort.endsWith('-desc') ? -1 : 1;
   if (sort.startsWith('key'))
     return [...rows].sort((a, b) => sign * collator.compare(a.key, b.key));

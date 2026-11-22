@@ -360,6 +360,43 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+/* Where a card dropped in a Manual column lands. */
+.dropLine {
+  flex: none;
+  height: var(--size-rail);
+  margin: calc(-1 * var(--space-1)) 0;
+  background: var(--color-status-working);
+}
+/* Above the first card the line has no gap to sit in: a negative top margin would put it above
+   the scrollport, clipped. It starts at the top and takes the card gap from below instead, so the
+   cards move by its height as they do between cards. */
+.dropLine:first-child {
+  margin: 0 0 calc(-1 * var(--space-2));
+}
+/* Below the last card the gap and the negative top margin would put the line under the
+   scrollport's bottom edge once the column is scrolled to the end. It takes the card gap back
+   from above and sits right under the card, so the scroll height grows by its height only. */
+.dropLine:last-child {
+  margin: calc(-1 * var(--space-2)) 0 0;
+}
+/* Why a drag in Time or Key moved nothing, with the way to Manual. */
+.hint {
+  flex: none;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
+  background: var(--color-fill-attention);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
+.hintAction {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-text-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
 .dropNote {
   flex: none;
   margin: 0;

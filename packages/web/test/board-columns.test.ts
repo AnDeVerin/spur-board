@@ -26,6 +26,8 @@ const button = (text: string) => {
   return found;
 };
 const trigger = () => one('button[aria-controls]');
+/** Disclosure buttons in the board area; the sort letters' menu triggers are not. */
+const disclosures = () => all('main button[aria-controls]:not([aria-haspopup])');
 const type = (value: string) => {
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
@@ -55,7 +57,7 @@ describe('unknown board columns', () => {
     mount(d);
     await settle();
     const marker = button('2 tasks in unknown columns');
-    expect(all('main button[aria-controls]')).toEqual([marker]);
+    expect(disclosures()).toEqual([marker]);
     expect(marker.getAttribute('aria-expanded')).toBe('false');
     const list = one(`ul[id="${marker.getAttribute('aria-controls') ?? ''}"]`);
     expect(list.hidden).toBe(true);
@@ -84,7 +86,7 @@ describe('unknown board columns', () => {
       d.routes['status.get'] = () => Promise.resolve(envelope(status(rows)));
       mount(d);
       await settle();
-      expect(all('main button[aria-controls]')).toHaveLength(0);
+      expect(disclosures()).toHaveLength(0);
       expect(one('main').textContent).not.toContain('unknown columns');
     },
   );
@@ -145,7 +147,7 @@ describe('unknown board columns', () => {
       );
     d.send('event: reset\ndata: {}\n\n');
     await settle();
-    expect(all('main button[aria-controls]')).toHaveLength(0);
+    expect(disclosures()).toHaveLength(0);
     expect(all('main a').map((link) => link.title)).toEqual(['NEW-1']);
   });
 
@@ -189,6 +191,17 @@ const click = (id: string, index: number) => {
   if (!target) throw new Error(`no sort button ${String(index)} in ${id}`);
   press(target, 'click');
 };
+/** Opens the sort menu of column `id` from its letter and chooses `label`. */
+const choose = (id: string, label: string) => {
+  const [letter] = sortButtons(id);
+  if (!letter) throw new Error(`no sort letter in ${id}`);
+  press(letter, 'click');
+  const item = [...section(id).querySelectorAll('[role="menuitemradio"]')].find(
+    (option) => option.textContent === label,
+  );
+  if (!item) throw new Error(`no ${label} in the sort menu of ${id}`);
+  press(item, 'click');
+};
 const named = (target: Element) => [
   target.textContent,
   target.getAttribute('aria-label'),
@@ -230,6 +243,22 @@ describe('column sort', () => {
     expect(sortRows(input, sort).map((item) => item.key)).toEqual(expected);
     expect(input.map((item) => item.key)).toEqual(['ex/repo#10', 'ex/repo#9', 'ex/repo#100']);
   });
+  it('sortRows manual follows position and puts rows without one last in status order', () => {
+    const placed = typed([
+      row('ex/repo#1', 'todo', { position: 3 }),
+      row('ex/repo#2', 'todo'),
+      row('ex/repo#3', 'todo', { position: 1 }),
+      row('ex/repo#4', 'todo'),
+      row('ex/repo#5', 'todo', { position: 2 }),
+    ]);
+    expect(sortRows(placed, 'manual').map((item) => item.key)).toEqual([
+      'ex/repo#3',
+      'ex/repo#5',
+      'ex/repo#1',
+      'ex/repo#2',
+      'ex/repo#4',
+    ]);
+  });
 
   it('sortRows compares Jira keys as numbers and keeps ties in input order', () => {
     const jira = typed([row('ABC-10', 'dev'), row('ABC-9', 'dev')]);
@@ -241,22 +270,34 @@ describe('column sort', () => {
       expect(sortRows(tied, sort).map((item) => item.key)).toEqual(['A-2', 'A-1', 'A-3']);
   });
 
-  it('renders the sort group on non-empty columns with the prototype names', async () => {
+  it('renders the sort group on non-empty columns: a letter menu and the direction for T and K', async () => {
     mount(daemon());
     await settle();
     expect(
       all('[role="group"][aria-label^="Sort "]').map((g) => g.getAttribute('aria-label')),
     ).toEqual(['Sort dev', 'Sort done']);
     expect(all('main section[title] button')).toHaveLength(0);
-    const [field, direction] = sortButtons('dev');
-    if (!field || !direction) throw new Error('no dev sort buttons');
-    expect([named(field), named(direction)]).toEqual([
-      ['T', 'Sorted by time in the column', 'T: sorted by time in the column. Click for K, key.'],
+    const [letter, direction] = sortButtons('dev');
+    if (!letter || !direction) throw new Error('no dev sort buttons');
+    expect(letter.getAttribute('aria-haspopup')).toBe('menu');
+    expect([named(letter), named(direction)]).toEqual([
+      ['T', 'Sorted by time in the column', null],
       ['↑', 'Longest in the column first', 'Longest in the column first. Click to reverse.'],
     ]);
-    press(field, 'click');
-    expect([named(field), named(direction)]).toEqual([
-      ['K', 'Sorted by key', 'K: sorted by key. Click for T, time in the column.'],
+    press(letter, 'click');
+    expect(letter.getAttribute('aria-expanded')).toBe('true');
+    const items = () => [...section('dev').querySelectorAll('[role="menuitemradio"]')];
+    expect(items().map((item) => [item.textContent, item.getAttribute('aria-checked')])).toEqual([
+      ['Time', 'true'],
+      ['Key', 'false'],
+      ['Manual', 'false'],
+    ]);
+    const key = items()[1];
+    if (!key) throw new Error('no Key item');
+    press(key, 'click');
+    expect(letter.getAttribute('aria-expanded')).toBe('false');
+    expect([named(letter), named(direction)]).toEqual([
+      ['K', 'Sorted by key', null],
       ['↑', 'Lowest key first', 'Lowest key first. Click to reverse.'],
     ]);
     press(direction, 'click');
@@ -265,33 +306,43 @@ describe('column sort', () => {
       'Highest key first',
       'Highest key first. Click to reverse.',
     ]);
-    press(field, 'click');
-    expect([named(field), named(direction)]).toEqual([
-      ['T', 'Sorted by time in the column', 'T: sorted by time in the column. Click for K, key.'],
+    choose('dev', 'Time');
+    expect([named(letter), named(direction)]).toEqual([
+      ['T', 'Sorted by time in the column', null],
       ['↓', 'Newest in the column first', 'Newest in the column first. Click to reverse.'],
     ]);
-    // The head is not remounted, so a clicked button keeps its focus.
-    expect(sortButtons('dev')).toEqual([field, direction]);
+    // A Time and Key change keeps both buttons, so a clicked direction keeps its focus. toBe, not
+    // toEqual: toEqual compares DOM nodes by isEqualNode and passes for a remounted button.
+    const [timeLetter, timeDirection] = sortButtons('dev');
+    expect(timeLetter).toBe(letter);
+    expect(timeDirection).toBe(direction);
+    choose('dev', 'Manual');
+    // Manual has no direction; Time or Key from Manual starts ascending.
+    expect(sortText('dev')).toEqual(['M']);
+    expect(named(letter)).toEqual(['M', 'Sorted by manual order', null]);
+    choose('dev', 'Key');
+    expect(sortText('dev')).toEqual(['K', '↑']);
+    // The head is not remounted, so the letter keeps its place and focus.
+    expect(sortButtons('dev')[0]).toBe(letter);
   });
 
-  it('puts both buttons after the heading and before the rows, with the ds focus ring', async () => {
+  it('puts the letter and direction after the heading and before the rows, with the ds focus ring', async () => {
     mount(daemon());
     await settle();
     const dev = section('dev');
-    const [field, direction] = sortButtons('dev');
+    const [letter, direction] = sortButtons('dev');
     const actor = dev.querySelector('button[aria-haspopup="dialog"]');
     expect([...dev.querySelectorAll('button, a[href]')]).toEqual([
       actor,
-      field,
+      letter,
       direction,
       ...dev.querySelectorAll('a[href]'),
     ]);
     const heading = dev.querySelector('h2');
-    if (!heading || !field) throw new Error('no heading');
-    expect(heading.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect([actor, field, direction].every((item) => item?.classList.contains(focusRing))).toBe(
-      true,
-    );
+    if (!heading || !letter) throw new Error('no heading');
+    expect(heading.compareDocumentPosition(letter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The letter is the ds HoverMenu trigger, which draws the ds ring itself.
+    expect([actor, direction].every((item) => item?.classList.contains(focusRing))).toBe(true);
   });
 
   it('reorders one column, stores its order and restores it per project and column', async () => {
@@ -315,6 +366,15 @@ describe('column sort', () => {
     mount(d, { 'board-sort:a:done': 'key-desc' });
     await settle();
     expect(sortText('done')).toEqual(['K', '↓']);
+    remount();
+    const manual = mount(d, { 'board-sort:a:done': 'key-desc' });
+    await settle();
+    choose('dev', 'Manual');
+    expect(manual.get('board-sort:a:dev')).toBe('manual');
+    remount();
+    mount(d, { 'board-sort:a:dev': 'manual', 'board-sort:a:done': 'key-desc' });
+    await settle();
+    expect(sortText('dev')).toEqual(['M']);
     press(trigger(), 'click');
     press(button('b · dispatcher'), 'click');
     await settle();
@@ -402,8 +462,10 @@ describe('column sort', () => {
       };
     }
     for (const id of ['dev', 'done']) {
-      click(id, 0);
+      choose(id, 'Key');
       click(id, 1);
+      choose(id, 'Manual');
+      choose(id, 'Time');
     }
     await settle();
     expect(calls).toEqual([]);

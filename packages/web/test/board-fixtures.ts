@@ -16,6 +16,7 @@ type OpId =
   | 'task.submit'
   | 'task.return'
   | 'task.move'
+  | 'task.order'
   | 'task.wait';
 type Route = (input: Record<string, unknown>) => Promise<Response>;
 
@@ -404,6 +405,8 @@ export function daemon(tasks: unknown[] = ROWS) {
           settled: [],
         }),
       ),
+    'task.order': () =>
+      Promise.resolve(envelope({ task: taskGet().task, position: 1, previous: null, next: null })),
     'columns.describe': () => Promise.resolve(envelope({ projects: [] })),
     'inbox.ack': (input) =>
       Promise.resolve(

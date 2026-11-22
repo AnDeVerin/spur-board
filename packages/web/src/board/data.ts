@@ -10,7 +10,7 @@ import {
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
 import { createColumnView } from './column-view.ts';
 import { createColumnsRead, type ColumnsState } from './columns-data.ts';
-import { createBoardIntent, createHeldMoves } from './intents.ts';
+import { createBoardIntent, createHeldMoves, createOrderIntents } from './intents.ts';
 import { createSectionStore } from './sections.ts';
 import { createTurnIntent } from './turn-intent.ts';
 import { createUpdateCheck, type BoardUpdate, type UpdateOptions } from './update.ts';
@@ -149,6 +149,7 @@ export function createBoardData(options: BoardDataOptions) {
   let configIssued = 0;
   let inboxIssued = 0;
   let statusIssued = { seq: 0, project: '' };
+  const orders = createOrderIntents(() => statusIssued.seq);
   // Retry now stays busy until the reads issued after the press settle.
   let retryFrom: number | undefined;
   let retryWaits = new Set<'chain' | 'inbox'>();
@@ -189,6 +190,7 @@ export function createBoardData(options: BoardDataOptions) {
       statusUnreadable = cause instanceof UnreadableAnswerError;
       settleRetry('chain', seq);
       update(value ? { status: value, lastGoodAt: options.now() } : {});
+      orders.published(seq, value?.tasks);
     },
   );
   const columns = createColumnsRead(api, {
@@ -493,11 +495,14 @@ export function createBoardData(options: BoardDataOptions) {
             refreshTask();
           }),
       ),
+    /**
+     * Reorder a task within its column; each call owns one idempotent intent, refused as
+     * `closeItemIntent` is. A confirmed reorder re-reads the board; its `shown` settles on the
+     * first status read issued after the confirm (`createOrderIntents`).
+     */
+    orderIntent: orders.with(boardIntent, status.refresh),
     /** End an agent's wait on turn `turn` as the operator; refused as `closeItemIntent` is. */
-    endWaitIntent: (turn: string) =>
-      boardIntent('task.wait', { turn, end: true }, () => {
-        status.refresh();
-      }),
+    endWaitIntent: (turn: string) => boardIntent('task.wait', { turn, end: true }, status.refresh),
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
     /**
      * Open a task by key, or close it with null: read `task.get` with why and detail, then whenever the

@@ -13,7 +13,7 @@ export class BoardUnavailableError extends Error {
  * after a confirmed run calls `onConfirm` to re-read; later runs then return at once.
  */
 export function createBoardIntent(api: ReturnType<typeof createApi>, unavailable: () => boolean) {
-  return <K extends 'item.close' | 'task.move' | 'task.wait'>(
+  return <K extends 'item.close' | 'task.move' | 'task.order' | 'task.wait'>(
     id: K,
     input: Parameters<typeof createMutationIntent<K>>[2],
     onConfirm: (value: Output<K>) => void,
@@ -38,6 +38,42 @@ export function createBoardIntent(api: ReturnType<typeof createApi>, unavailable
         return pending;
       },
     };
+  };
+}
+
+type StatusRows = Output<'status.get'>['tasks'];
+type OrderInput = Parameters<typeof createMutationIntent<'task.order'>>[2];
+
+/**
+ * Reorders whose result the Board waits to show. `lastStatusRead` is the tag of the latest
+ * `status.get` issued; a confirmed reorder re-reads the board and its `shown` resolves on the
+ * first status published from a read issued after the confirm, with that read's rows, or
+ * `undefined` when that read failed. A read already in flight at the confirm never settles it.
+ */
+export function createOrderIntents(lastStatusRead: () => number) {
+  const waits = new Set<{ after: number; resolve: (rows: StatusRows | undefined) => void }>();
+  return {
+    /** A status read tagged `seq` published `rows`, or failed with `undefined`. */
+    published(seq: number, rows: StatusRows | undefined) {
+      for (const wait of waits)
+        if (seq > wait.after) {
+          waits.delete(wait);
+          wait.resolve(rows);
+        }
+    },
+    /** One `task.order` per call on `boardIntent`; a confirm calls `refresh` to re-read. */
+    with(boardIntent: ReturnType<typeof createBoardIntent>, refresh: () => void) {
+      return (input: OrderInput) => {
+        let shown: Promise<StatusRows | undefined> = Promise.resolve(undefined);
+        const intent = boardIntent('task.order', input, () => {
+          shown = new Promise((resolve) => {
+            waits.add({ after: lastStatusRead(), resolve });
+          });
+          refresh();
+        });
+        return { run: () => intent.run().then(() => ({ shown })) };
+      };
+    },
   };
 }
 

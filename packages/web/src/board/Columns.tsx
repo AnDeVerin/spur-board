@@ -17,6 +17,7 @@ import {
   type ColumnSort,
 } from './model.ts';
 import { Card, open } from './Card.tsx';
+import { mergeZone, useOrders } from './ColumnOrder.tsx';
 import type { BoardData } from './data.ts';
 import { bandProps, useBand, zone, type Band } from './MoveForm.tsx';
 import styles from './Columns.module.css';
@@ -79,6 +80,8 @@ function TaskLink({
 /** What every column, part and folded section of the board reads. */
 interface Shared {
   sorts: ColumnSorts;
+  /** The manual order of every column: drags, keys, menu items, notices and tints. */
+  orders: ReturnType<typeof useOrders>;
   filter: string;
   stale: boolean;
   now: number | undefined;
@@ -116,8 +119,17 @@ function dropNote(band: Band | undefined, part: ColumnId) {
   );
 }
 
-const cards = (rows: readonly BoardRow[], shared: Shared, band?: Band, part?: ColumnId) =>
-  rows.map((row) => (
+type ColumnOrder = ReturnType<Shared['orders']['column']>;
+
+/** The cards of a column in `rows` order, each with its order and band props, and the drop line. */
+function cards(
+  rows: readonly BoardRow[],
+  shared: Shared,
+  order: ColumnOrder,
+  band?: Band,
+  part?: ColumnId,
+) {
+  const list = rows.map((row, index) => (
     <Card
       key={row.key}
       row={row}
@@ -126,9 +138,17 @@ const cards = (rows: readonly BoardRow[], shared: Shared, band?: Band, part?: Co
       spurUiOrigin={shared.spurUiOrigin}
       ticketBrowseBase={shared.ticketBrowseBase}
       onOpen={shared.onOpen}
-      {...(band && part !== undefined ? bandProps(row, band, part) : {})}
+      {...order.card(
+        row,
+        index,
+        band && part !== undefined ? bandProps(row, band, part) : undefined,
+      )}
     />
   ));
+  if (order.line !== undefined)
+    list.splice(order.line, 0, <div key="drop-line" className={styles.dropLine} />);
+  return list;
+}
 
 function Column({
   column,
@@ -157,13 +177,23 @@ function Column({
     );
   }
   const rows = sortRows(column.rows, sort);
+  const order = shared.orders.column({
+    id: column.id,
+    rows,
+    sort,
+    setSort,
+    banded: band !== undefined,
+  });
   return (
     <section className={styles.column} data-stale={stale ? '' : undefined}>
       <ColumnHead
         column={column}
         part={part}
         sort={sort}
-        onSort={setSort}
+        onSort={(next) => {
+          setSort(next);
+          order.sorted();
+        }}
         columns={shared.columns}
         now={now}
         spurUiOrigin={shared.spurUiOrigin}
@@ -173,6 +203,7 @@ function Column({
         onOpen={shared.onOpen}
       />
       {part && <MirrorNotice column={column} />}
+      {column.id !== 'done' && order.notice}
       {column.id === 'done' ? (
         <ul className={classes(styles.body, styles.done, quiet)}>
           {rows.map((row) => (
@@ -191,11 +222,16 @@ function Column({
           ))}
         </ul>
       ) : (
-        <div className={styles.body} {...zone(band, column.id)}>
+        <div
+          className={styles.body}
+          aria-busy={order.busy || undefined}
+          {...mergeZone(zone(band, column.id), order.zone)}
+        >
           {dropNote(band, column.id)}
-          {cards(rows, shared, band, column.id)}
+          {cards(rows, shared, order, band, column.id)}
         </div>
       )}
+      {column.id !== 'done' && order.live}
     </section>
   );
 }
@@ -203,6 +239,8 @@ function Column({
 /** One part of a folded group: its head, then its cards or the word empty. */
 function GroupSection({ column, band, ...shared }: { column: BoardColumn; band: Band } & Shared) {
   const [sort, setSort] = useSort(column.id, shared.sorts);
+  const rows = sortRows(column.rows, sort);
+  const order = shared.orders.column({ id: column.id, rows, sort, setSort, banded: true });
   return (
     <section
       className={styles.groupSection}
@@ -213,7 +251,10 @@ function GroupSection({ column, band, ...shared }: { column: BoardColumn; band: 
         column={column}
         part
         sort={sort}
-        onSort={setSort}
+        onSort={(next) => {
+          setSort(next);
+          order.sorted();
+        }}
         columns={shared.columns}
         now={shared.now}
         spurUiOrigin={shared.spurUiOrigin}
@@ -223,14 +264,16 @@ function GroupSection({ column, band, ...shared }: { column: BoardColumn; band: 
         onOpen={shared.onOpen}
       />
       <MirrorNotice column={column} />
+      {order.notice}
       {dropNote(band, column.id)}
-      {column.rows.length === 0 ? (
+      {rows.length === 0 ? (
         <p className={classes(styles.groupEmpty, quiet)}>empty</p>
       ) : (
-        <div className={styles.groupCards}>
-          {cards(sortRows(column.rows, sort), shared, band, column.id)}
+        <div className={styles.groupCards} aria-busy={order.busy || undefined} {...order.zone}>
+          {cards(rows, shared, order, band, column.id)}
         </div>
       )}
+      {column.id !== 'done' && order.live}
     </section>
   );
 }
@@ -322,6 +365,7 @@ export function Columns({
   onOpen,
   moveIntent,
   moveUnavailable,
+  orderIntent,
   columns,
   onHelpOpen,
   helpRequest,
@@ -344,6 +388,8 @@ export function Columns({
   moveIntent: BoardData['moveIntent'];
   /** Why moves cannot be sent now; undefined while they can. */
   moveUnavailable: string | undefined;
+  /** Reorders a task within its column in Manual order. */
+  orderIntent: BoardData['orderIntent'];
   /** `columns.describe` of the shown project. */
   columns: ColumnsState | undefined;
   /** A column help panel opened. */
@@ -355,8 +401,10 @@ export function Columns({
 }) {
   const [expanded, setExpanded] = useState(false);
   const listId = useId();
+  const orders = useOrders(orderIntent, view.kind === 'columns' ? view.columns : undefined);
   const shared = {
     sorts,
+    orders,
     filter,
     stale,
     now,

@@ -1,4 +1,12 @@
-import { Fragment, useId, type MouseEvent, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useRef,
+  type DragEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import {
   Chip,
   focusRing,
@@ -128,23 +136,41 @@ function describedBy(status: PrStatus, id: string, hasMarkers: boolean, hasTurn:
   return ids.length === 0 ? undefined : ids.join(' ');
 }
 
-/** A Backlog card's menu: `Move to <part>…` for each other part of its band. */
+/** A card menu item: `top` and `bottom` of the manual order, or another Backlog part. */
+export type CardMove = 'top' | 'bottom' | BoardColumnConfig['id'];
+/**
+ * A card's menu: Move to top and Move to bottom in Manual, then `Move to <part>…` for each other
+ * part of a Backlog band.
+ */
 export interface CardMoves {
-  items: readonly HoverMenuItem<BoardColumnConfig['id']>[];
-  onSelect: (part: BoardColumnConfig['id']) => void;
+  items: readonly HoverMenuItem<CardMove>[];
+  onSelect: (move: CardMove) => void;
 }
-/** A Backlog card's drag: its link is the drag source; the board marks the card while it moves. */
+/** A card's drag: its link is the drag source; the board marks the card while it moves. */
 export interface CardDrag {
-  onStart: () => void;
+  /** May cancel the drag, as a Time or Key card outside a band does. */
+  onStart: (event: DragEvent<HTMLAnchorElement>) => void;
   onEnd: () => void;
   dragging: boolean;
+}
+/** A card in a column shown in Manual order: the grip, its keys and its reorder state. */
+export interface CardOrder {
+  /** Who moved it elsewhere, while its tint lasts. */
+  moved: string | undefined;
+  /** This tab's reorder of the card waits for the Board to show it. */
+  pending: boolean;
+  /** `Alt+ArrowUp` (-1) or `Alt+ArrowDown` (1) on the card link. */
+  onStep: (step: -1 | 1) => void;
+  /** Present when the card link should take focus: called once it has. */
+  focused: (() => void) | undefined;
 }
 
 /**
  * A task card: a link to `?open=<key>` holding the key, title, PR status, markers and turn line,
  * with the ticket, PR and Spur session links beside it, outside the card link. Dimmed, never
- * removed, when the filter misses. A Backlog card adds its `⋯` menu as the last quick link and
- * drags by its link; `children` (an open move form) renders last in the wrapper, outside the link.
+ * removed, when the filter misses. A card with `moves` adds its `⋯` menu as the last quick link;
+ * `drag` drags it by its link; `order` adds the grip, the `Alt+Arrow` keys and the moved note of a
+ * Manual column; `children` (an open move form) renders last in the wrapper, outside the link.
  */
 export function Card({
   row,
@@ -155,6 +181,7 @@ export function Card({
   onOpen,
   moves,
   drag,
+  order,
   children,
 }: {
   row: BoardRow;
@@ -167,9 +194,17 @@ export function Card({
   onOpen: (key: string) => void;
   moves?: CardMoves | undefined;
   drag?: CardDrag | undefined;
+  order?: CardOrder | undefined;
   children?: ReactNode;
 }) {
   const id = useId();
+  const link = useRef<HTMLAnchorElement>(null);
+  const focused = order?.focused;
+  useEffect(() => {
+    if (!focused) return;
+    link.current?.focus();
+    focused();
+  }, [focused]);
   const title = row.ticket?.title;
   const turn = turnView(row.turn, now);
   const status = prStatus(row);
@@ -181,8 +216,13 @@ export function Card({
       data-dimmed={matchesFilter(row, filter) ? undefined : ''}
       data-turn={turn?.kind ?? 'none'}
       data-dragging={drag?.dragging === true ? '' : undefined}
+      data-key={row.key}
+      data-manual={order ? '' : undefined}
+      data-moved={order?.moved === undefined ? undefined : ''}
+      data-pending={order?.pending === true ? '' : undefined}
     >
       <a
+        ref={link}
         className={classes(styles.card, focusRing)}
         href={openHref(row.key)}
         title={row.key}
@@ -193,14 +233,26 @@ export function Card({
         }}
         onDragStart={drag?.onStart}
         onDragEnd={drag?.onEnd}
+        onKeyDown={(event) => {
+          if (!order || !event.altKey) return;
+          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          order.onStep(event.key === 'ArrowUp' ? -1 : 1);
+        }}
       >
         <div className={styles.keyRow}>
+          {order && (
+            <span className={styles.grip}>
+              <Icon name="grip" />
+            </span>
+          )}
           <span className={styles.key}>{shortKey(row.key)}</span>
           {row.columnEnteredAt !== null && (
             <span className={styles.entered} title="Time in this column">
               {age(row.columnEnteredAt, now)}
             </span>
           )}
+          {order?.moved !== undefined && <span className={styles.moved}>{order.moved}</span>}
           {(links.length > 0 || moves) && (
             // Room for the quick links and the menu, which sit over the card's top right corner.
             <span className={styles.spacer} aria-hidden="true">

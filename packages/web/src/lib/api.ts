@@ -80,6 +80,7 @@ export function createMutationIntent<
     | 'task.submit'
     | 'task.return'
     | 'task.move'
+    | 'task.order'
     | 'task.wait',
 >(
   api: ReturnType<typeof createApi>,

@@ -155,3 +155,50 @@ it('gives task blocks a toned rail and band, hides the folded part and right-ali
   expect(rule('.foot > button')).toMatch(/margin-left:\s*auto;/);
   expect(css).not.toContain('.forYou');
 });
+
+it('times the moved tint by --duration-pulse in CSS and in the timer, without it under reduced motion', () => {
+  const read = (file: string) =>
+    readFileSync(new URL(`../packages/web/src/${file}`, import.meta.url), 'utf8');
+  const pulse = /--duration-pulse:\s*([\d.]+)s;/.exec(read('ds/tokens.css'))?.[1];
+  const timer = /export const ORDER_TINT_MS = (\d+);/.exec(read('board/ColumnOrder.tsx'))?.[1];
+  expect(pulse).toBeDefined();
+  expect(Number(timer)).toBe(Number(pulse) * 1000);
+  const css = read('board/Card.module.css');
+  const [wide = '', reduced = ''] = css.split('@media (prefers-reduced-motion: reduce) {');
+  expect(/\.wrap\[data-moved\] > \.card\s*\{([^}]+)\}/.exec(wide)?.[1]).toMatch(
+    /animation:\s*moved var\(--duration-pulse\) ease-out;/,
+  );
+  expect(/\.wrap\[data-moved\] > \.card\s*\{([^}]+)\}/.exec(reduced)?.[1]).toMatch(
+    /animation:\s*none;/,
+  );
+});
+
+it('keeps the drop line above the first card inside the column scrollport', () => {
+  // Between cards the line sits in the card gap, centred by its negative margins.
+  expect(declarations('board/Columns.module.css', '.dropLine', false)).toMatchObject({
+    height: 'var(--size-rail)',
+    margin: 'calc(-1 * var(--space-1)) 0',
+  });
+  // As the first child of .body or .groupCards a negative top margin would clip it.
+  expect(declarations('board/Columns.module.css', '.dropLine:first-child', false)).toEqual({
+    margin: '0 0 calc(-1 * var(--space-2))',
+  });
+  expect(declarations('board/Columns.module.css', '.body', false).padding).toBe(
+    'calc(2 * var(--space-0-25))',
+  );
+  expect(declarations('board/Columns.module.css', '.groupCards', false).gap).toBe('var(--space-2)');
+});
+
+it('keeps the drop line below the last card inside a scrolled column', () => {
+  // Scrolled to the bottom, the last card ends one padding above the scrollport edge. The gap
+  // plus the shared negative top margin would put the line below that edge, so as the last
+  // child of .body or .groupCards it takes the whole gap back and sits right under the card.
+  expect(declarations('board/Columns.module.css', '.dropLine:last-child', false)).toEqual({
+    margin: 'calc(-1 * var(--space-2)) 0 0',
+  });
+  expect(declarations('board/Columns.module.css', '.body', false)).toMatchObject({
+    gap: 'var(--space-2)',
+    padding: 'calc(2 * var(--space-0-25))',
+  });
+  expect(declarations('board/Columns.module.css', '.groupCards', false).gap).toBe('var(--space-2)');
+});

@@ -48,11 +48,11 @@ Columns follow configuration order:
 
 - Fitting rows centre; wider rows scroll horizontally from the left.
 - Columns are 320px wide, 248px at 760px or narrower. Card accent rails are 2px wide.
-- A column header shows name, task count and executor (kind, then name), then two sort buttons.
-  `T`/`K` sorts by time in the column or by key; `↑`/`↓` reverses. `T ↑`, the default, puts the
-  longest in the column first; `K ↑` the lowest key, numbers compared as numbers. Rows without a
-  time go last. The browser keeps the order per project and column. Spines have none; the filter
-  only dims.
+- A column header shows name, task count and executor (kind, then name), then a sort letter
+  menu: Time, Key or [Manual](web-ui-board-move.md#manual-order); `↑`/`↓` reverses `T`/`K`.
+  `T ↑`, the default, puts the longest in the column first; `K ↑` the lowest key, by number.
+  Rows without a time go last. The browser keeps it per project and column. Spines have none;
+  the filter only dims.
 - The executor line is a button with an icon for who moves a task here. It opens column help,
   **Who** first, then **Rules**, read from `columns.describe` on each open: a skeleton while it
   reads, an error in the panel if it fails. Escape, an outside click, Close, a second click or

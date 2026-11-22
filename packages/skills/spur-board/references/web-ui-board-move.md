@@ -1,6 +1,7 @@
-# Web UI: moving between Backlog parts
+# Web UI: moving and ordering cards
 
-How the [Board](web-ui-board.md) of the [web UI](web-ui.md) moves a task between Backlog parts.
+How the [Board](web-ui-board.md) of the [web UI](web-ui.md) moves a task between Backlog parts
+and orders the cards of a column by hand ([Manual order](#manual-order)).
 
 A card in a Backlog part moves to another part of its band with a reason, sent as one
 `task.move` (`manual`):
@@ -26,6 +27,36 @@ shows the outcome, another form for the task with the same part and reason joins
 reads `This task is already being moved. Wait until the Board shows it.`. While the daemon or
 live updates are unavailable the send is disabled and the hint adds why, then
 `Moves cannot be sent.`. Cancel always closes it.
+
+## Manual order
+
+`Manual` (`M`) in a column's sort menu orders it by the board's stored order, the `position` of
+`status.get`; tasks without one, from an older daemon, go last. Done only sorts. In Manual each
+card shows a grip before its key and reorders three ways, each sending one `task.order` with its
+own idempotency key:
+
+- Drag: a line marks where the card lands; the drop places it before the card under it, or
+  after the one above when it moves down. A drop at its own place sends nothing.
+- `Alt+Up` / `Alt+Down` on a focused card moves it one step; the card keeps focus.
+- The `⋯` menu, also on a narrow screen, lists `Move to top` and `Move to bottom`, disabled at
+  the ends, then a Backlog card's parts after a rule. Cards in a mirrored part reorder too.
+
+Nothing moves before a read shows the result. Until then the card is dimmed and the column
+takes no other reorder: its order items read `Wait until the Board shows the last reorder.`.
+A screen reader then hears `<short key> moved to <N> of <M>`. A refusal leaves the card in
+place and shows `<short key> not moved` under the column head with the cause, such as
+`The order changed on the board while you dragged.`, and `The card stays where it was.`, until
+Dismiss.
+
+A reorder this tab did not make, seen in a read, tints the moved card briefly with
+`moved by operator`. The note names the role, not a person or session: a reorder from the CLI,
+MCP or an operator-role Spur session reads the same.
+
+Time and Key show no grip and keep their sort. A card outside a Backlog band cannot be dragged
+there; trying it, or dragging a Backlog card over its own part, reads
+`Cards keep the chosen sort. To reorder by hand, switch to Manual.`, whose button switches the
+column to Manual. It shows under a refusal, which stays until Dismiss. A Backlog card still
+drags to another part in any sort.
 
 ## Mirrored part
 
