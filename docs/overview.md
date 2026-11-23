@@ -96,11 +96,9 @@ you appear as feed lines, questions to you open threads that you answer by reply
 `@shortName` message starts a conversation with a Spur project. Without it, you work from a Spur
 project with role `operator`, which needs no token, or from the web UI. Blocks and turns addressed
 to you then ring the live session of the operator Spur project serving their Board project, if one
-is running; either way they wait in `board inbox operator` and the web inbox ([Blocks and
-escalation](how-board-works-blocks.md#blocks-and-escalation)). You answer a block with
-`board answer`, or a task's block from its task view in the web UI; a question without a task
-needs `board answer`. A token for an operator session
-outside Spur is approved in Slack, so that route needs Slack.
+is running; either way they wait in `board inbox operator` and the web inbox. [Blocks and
+escalation](how-board-works-blocks.md#blocks-and-escalation) says how to answer or clear each kind.
+A token for an operator session outside Spur is approved in Slack, so that route needs Slack.
 
 The web UI is optional too, and off until you turn it on ([Optional browser
 access](../SETUP.md#optional-browser-access)). It shows the columns, each task's **Why it is here**,
