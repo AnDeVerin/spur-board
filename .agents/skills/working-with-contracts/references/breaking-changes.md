@@ -4,14 +4,17 @@
 
 - Every workspace package is private; only spur-board will be published. A change is breaking
   only when users see it.
-- User-visible: config keys and values, CLI/MCP/HTTP operations and their schemas, and data
-  stored in the journal or database.
+- User-visible: the surfaces the Breaking sentence under `## Versions and the changelog` in
+  `CONTRIBUTING.md` lists. In `packages/contracts` they are config keys and values, CLI/MCP/HTTP
+  operations and their schemas, `ERRORS` codes, and data stored in the journal or database.
 - User-visible breaks: renaming or removing a key, value, kind, field or operation; a new
   required config key, payload or envelope field; a tightened constraint; a changed meaning; a new
   required column; a `v` bump.
 - A user-visible break needs `!` after the scope in the PR title (`feat(contracts)!: #N ...`;
-  the squash commit takes the title) and Risk high with the migration described (Risk per
-  `gitflow`).
+  the squash commit takes the title), Risk high (`gitflow`), and the migration as the PR body
+  paragraph right above `Closes #N`, starting with `BREAKING CHANGE: ` and written per
+  `## Versions and the changelog` in `CONTRIBUTING.md`. Only that paragraph reaches the release
+  notes; Risk does not.
 - A user-visible rename of stored data or config starts with one expand PR. Contracts have no
   `.transform`; consumers map old to new in their own code. Writers in the expand PR emit only
   the new.
