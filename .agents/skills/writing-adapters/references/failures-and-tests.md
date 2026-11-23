@@ -9,7 +9,9 @@
   rules.
 - `nextDelay` in `packages/adapters/src/runner/policy.ts` waits `authRetryMs` after `auth` or
   `config`, until `retryAt` after a `throttled` failure that carries one, and backs off
-  exponentially otherwise, a `throttled` failure without `retryAt` included.
+  exponentially otherwise, a `throttled` failure without `retryAt` included. The exponential wait
+  caps at 15 min, or at the runner entry's `maxBackoffMs` (Spur: `SPUR_MAX_BACKOFF_MS`, 60 s),
+  unless the interval is longer.
 - `pollPr` retries a `transient` step-`poll` failure `DEMAND_RETRY_WAITS_MS` apart within
   `timeoutMs` (`packages/adapters/src/runner/runner.ts`).
 - Report remaining budget in `Batch.budget` and reported consumption in optional `Batch.usage`
@@ -17,7 +19,12 @@
   pauses each bucket below `github.reserveRemaining`.
 - GitHub, GitHub Issues and Jira requests run under `withTimeout` in
   `packages/adapters/src/runner/http.ts` (30 s unless the caller passes `timeoutMs`; the approval
-  watch passes 4 s): a timeout is `transient`, a caller abort passes through unchanged. Spur keeps its own 5 s timer.
+  watch passes 4 s): a timeout is `transient`, a caller abort passes through unchanged. Spur keeps
+  its own timers: 15 s for each `sessions/transitions` page, 5 s for `sessions` and
+  `sessions/<id>`.
+- A failed Spur request throws `SpurRequestError` (`packages/adapters/src/spur/spur.ts`) with
+  `path` (no query), `page` (transitions only) and `durationMs`, never `code`. A successful Spur
+  request slower than half its timeout calls `warn`.
 - `schedule` (`packages/adapters/src/runner/runner.ts`) caps a poll wait at 2147483647 ms, the
   setTimeout limit; a longer one fires after 1 ms.
 - A source whose failure reaches the operator by code throws `AdapterError` with `code` from
