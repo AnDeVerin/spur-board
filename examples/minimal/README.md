@@ -65,11 +65,10 @@ both files.
    git config --global user.email "you@example.com"
    ```
 
-5. Copy `config.yaml` into the Board config directory and replace the example values. `board`
-   reads it from `$BOARD_HOME` when that is set, else from `$XDG_CONFIG_HOME/spur-board` when
-   `XDG_CONFIG_HOME` is an absolute path, else from `$HOME/.config/spur-board`. Put
+5. Copy `config.yaml` to `~/.config/spur-board/config.yaml` and replace the example values. Put
    `GITHUB_TOKEN` in `secrets.env` in the same directory, with mode `0600`, as
-   [SETUP.md](../../SETUP.md#configuration-and-secrets) says. Then check the config:
+   [SETUP.md](../../SETUP.md#configuration-and-secrets) says. Using another config directory: see
+   [SETUP.md](../../SETUP.md#configuration-and-secrets). Then check the config:
 
    ```sh
    board doctor --offline

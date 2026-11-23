@@ -213,15 +213,6 @@ describe('examples/minimal prompts and README', () => {
       expect(readme).toContain(phrase);
   });
 
-  it('names the config directory order that board reads', () => {
-    for (const text of [readme, comments(configText).join('\n')]) {
-      const order = ['$BOARD_HOME', '$XDG_CONFIG_HOME/spur-board', '$HOME/.config/spur-board'];
-      const at = order.map((path) => text.indexOf(path));
-      expect(at.every((index) => index >= 0)).toBe(true);
-      expect([...at].sort((a, b) => a - b)).toEqual(at);
-    }
-  });
-
   it('runs the full board doctor only after the sessions start', () => {
     const doctorAt = readme.search(/^\s*board doctor$/m);
     expect(doctorAt).toBeGreaterThan(readme.indexOf('spur spawn example-operator'));

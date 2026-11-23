@@ -11,9 +11,7 @@ projects:
     # all three projects share it. With separate checkouts, put one project in the spur.yaml of each
     # checkout with `path: .`, or set an absolute path.
     path: .
-    # Set this to the repository's actual default branch in every project. GitHub closes the
-    # issue from "Closes #N" only when the PR merges into the default branch, and the task
-    # reaches Done only once its issue is closed.
+    # Set to your repository's default branch; workers open PRs against it.
     defaultBranch: main
     # codex works too; Codex reads the skill through the symlink below.
     defaultAgent: claude
