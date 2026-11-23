@@ -85,7 +85,7 @@ describe('public guide contents', () => {
   });
 
   it('names both certificate variants and the boundary they leave', () => {
-    for (const token of ['`tls internal`', '`80`', '`443`', '`bind`', 'root.crt'])
+    for (const token of ['`tls internal`', '`80`', '`443`', '`bind`', 'root.crt', '--network host'])
       expect(caddySection).toContain(token);
     const boundary = flat(section(security, '### Optional web listener'));
     for (const token of ['authenticating reverse proxy', 'private network', 'SSH login'])

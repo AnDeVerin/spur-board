@@ -169,8 +169,17 @@ Add to Home Screen.
 
 Run [Caddy](https://caddyserver.com/) 2.8 or newer on the Board host; older releases name the
 directive `basicauth`. Caddy serves HTTPS, asks for a user name and password, and passes each
-request to the loopback listener. Print a password hash with `caddy hash-password` and put it in
-the site block:
+request to the loopback listener.
+
+Caddy must run in the Board host's network namespace: a package install, or the official image
+with `--network host` on Linux. On Docker's default bridge network the container has its own
+loopback, so every proxied request fails with 502. For example:
+
+```sh
+docker run -d --network host -v <dir>/Caddyfile:/etc/caddy/Caddyfile:ro -v <dir>/data:/data caddy:2
+```
+
+Print a password hash with `caddy hash-password` and put it in the site block:
 
 ```caddyfile
 board.example.com {
@@ -220,7 +229,8 @@ Pick one of two certificate variants:
 
 In `board doctor --json`, the `web` check validates the settings offline and `web.listening`
 reports whether the loopback listener bound. Neither check probes the proxy, its authentication
-or TLS. The sample was tested with curl through a Caddy container, not from a phone.
+or TLS. The sample was tested with curl through a Caddy container with host networking, not from
+a phone.
 
 Without a proxy, an SSH tunnel works instead. It replaces the proxy setup, because the daemon
 accepts one origin: set `publicOrigin: http://127.0.0.1:7777` in place of
