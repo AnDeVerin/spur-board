@@ -161,10 +161,6 @@ describe('release policy', () => {
     );
     const [analyzer, notes] = config.plugins;
     expect(pluginName(analyzer ?? '')).toBe(require.resolve('./release-analyzer.ts'));
-    expect(pluginOptions(analyzer)['releaseRules']).toContainEqual({
-      breaking: true,
-      release: 'major',
-    });
     expect((pluginOptions(analyzer)['releaseRules'] as unknown[])[0]).toEqual({
       breaking: true,
       release: 'major',
