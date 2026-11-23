@@ -73,9 +73,16 @@ it('a run started with secrets, proxies and foreign dirs in env passes env.test.
   const summary = JSON.parse(readFileSync(report, 'utf8')) as {
     numPassedTests: number;
     numFailedTests: number;
+    testResults: { name: string; status: string; assertionResults: { status: string }[] }[];
   };
   expect(summary.numPassedTests).toBeGreaterThanOrEqual(3);
   expect(summary.numFailedTests).toBe(0);
+  // copy.test.ts makes temp dirs, so the empty TMPDIR below means something only if it ran.
+  const copy = summary.testResults.find((suite) =>
+    suite.name.endsWith('packages/core/test/store/copy.test.ts'),
+  );
+  expect(copy?.status).toBe('passed');
+  expect(copy?.assertionResults.some((test) => test.status === 'passed')).toBe(true);
   // Teardown removed the nested run's temp root, and tests left nothing beside it.
   expect(readdirSync(nestedTmp)).toEqual([]);
 }, 60_000);
@@ -104,6 +111,7 @@ describe('a run started in a package dir', () => {
       const output = result.stdout + result.stderr;
       expect(result.status, output).not.toBe(0);
       expect(output).toContain('testkit:');
+      expect(output).toContain('pnpm exec vitest run packages/core/test/');
       expect(readdirSync(nestedTmp)).toEqual([]);
     },
     60_000,
