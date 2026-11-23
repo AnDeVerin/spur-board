@@ -40,11 +40,11 @@ both files.
    spur connect spur.yaml
    ```
 
-   For Codex, set `defaultAgent: codex`, link `.agents/skills/spur-board` in the checkout to the
-   installed skill and uncomment `symlinks` in each project
-   ([TROUBLESHOOTING.md](../../TROUBLESHOOTING.md#sessionscodex_skill)). Spur refuses a project id
-   or `sessionPrefix` that another connected spur.yaml already uses: for a second copy of this
-   example, rename all three projects in both files.
+   For Codex, set `defaultAgent: codex`, after `board skills install` link
+   `.agents/skills/spur-board` in the checkout to the installed skill, and uncomment `symlinks` in
+   each project ([TROUBLESHOOTING.md](../../TROUBLESHOOTING.md#skillscodex_visibility)). Spur
+   refuses a project id or `sessionPrefix` that another connected spur.yaml already uses: for a
+   second copy of this example, rename all three projects in both files.
 
 4. Sign GitHub in for the agents, as the user that runs the Spur sessions and as the account set
    in `operatorGithubLogin`. The agents push branches and open PRs under it; they never merge.
