@@ -31,8 +31,10 @@ Middle mentions or Slack `<@U…>` address nobody; unknown names cause no lookup
 error. The operator checks short-name collisions with workspace names.
 A task key after the prefix attaches it.
 
-Read `board inbox`; reply via `board answer`. Each operator thread message rings again; `close` or ✅ in the
-thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`, top-level ones too,
+Read `board inbox`; reply via `board answer`. While an operator conversation is open, each
+operator reply in its thread rings the addressee again; a reply that is only `close` (or a ✅
+emoji as the message text) closes it without ringing. Later replies are recorded and ring nobody.
+Replies use `projects[].spurProjects[].displayName` and `icon`, top-level ones too,
 else project name and the icon of the author's role on the block's task: orchestrator only on its
 column's task, else curator or worker; `board` for operator. No session:
 `board status` lists it as waiting.

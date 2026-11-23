@@ -135,6 +135,8 @@ shows no Backlog band.
 
 ## Where to go next
 
+- [Quickstart](quickstart.md): from a fresh host to a first task in Done with the minimal
+  example.
 - [Manual setup](../SETUP.md): install the Board, write the config, start the service and link
   worker sessions.
 - [Configuration reference](configuration.md): every `config.yaml` field and its default.

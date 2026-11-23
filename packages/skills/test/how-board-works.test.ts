@@ -240,7 +240,7 @@ done|Completion: PR/ticket facts|Dispatcher|None (automatic)`);
         /operator checks short-name collisions with workspace names/,
         /task key after the prefix attaches/,
         /Replies\s+use\s*`projects\[\]\.spurProjects\[\]\.displayName`\s+and\s+`icon`/,
-        /`close` or ✅ in the\s*thread closes it/,
+        /While an operator conversation is open, each\s+operator reply in its thread rings the addressee again; a reply that is only `close` \(or a ✅\s+emoji as the message text\) closes it without ringing\. Later replies are recorded and ring nobody\./,
         /`board status` lists it as waiting/,
         /board-wide operator/,
         /top-level ones too,\s*else project name and the icon of the author's role on the block's task/,

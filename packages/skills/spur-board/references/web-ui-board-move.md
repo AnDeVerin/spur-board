@@ -7,11 +7,13 @@ A card in a Backlog part moves to another part of its band with a reason, sent a
 `task.move` (`manual`):
 
 - Its `⋯` menu (`Move <short key>`), the last of its links, lists `Move to <part>…` for each
-  other part. A tap or click opens it pinned with focus on the first item.
+  other part in the order the band shows them: left to right, or top to bottom when folded. A
+  tap or click opens it pinned with focus on the first item.
 - Dragging the card onto another part's cards, empty spine or folded section marks that part
   and, except on a spine, reads `Drop to move to <part>. A reason is asked.`; its own part,
   other columns and drags from elsewhere take nothing.
-- The task view's `Move to` row ([task view](web-ui-task-view.md)) does the same.
+- The task view's `Move to` row ([task view](web-ui-task-view.md)) does the same, in
+  configuration order.
 
 Each opens the form `Move <short key> to <part>: reason`, focused, with `Move to <part>` and
 Cancel: under the card from the menu or a drop, in the task view from its row. The send stays

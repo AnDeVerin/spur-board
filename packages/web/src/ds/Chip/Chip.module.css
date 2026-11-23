@@ -16,7 +16,7 @@
   overflow-wrap: anywhere;
 }
 .warn {
-  color: var(--color-status-attention);
+  color: var(--color-text-attention);
   border-color: var(--color-status-attention);
   background: var(--color-fill-attention);
 }

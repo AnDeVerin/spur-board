@@ -74,6 +74,7 @@ Follow [SETUP.md](SETUP.md) for the commands and file locations. Use
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) when a check fails.
 [examples/minimal](examples/minimal/) holds a complete Slack-free config, Spur projects and
 prompts for one repository with Todo, Dev, Review and Done.
+[Quickstart](docs/quickstart.md) walks that example from zero to a first task in Done.
 
 ## Reference
 

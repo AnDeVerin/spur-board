@@ -15,6 +15,7 @@ const configText = read('config.yaml');
 const spurText = read('projects.spur.yaml');
 const readme = read('README.md');
 const repoRoot = new URL('../../../', import.meta.url);
+const quickstart = read('docs/quickstart.md', repoRoot);
 
 // Per-project keys of Spur 1.62.3 spur.yaml.reference. The example may use only these.
 const SPUR_PROJECT_KEYS = new Set([
@@ -170,9 +171,12 @@ describe('examples/minimal prompts and README', () => {
     expect(steps(operator)).toContain('board inbox operator');
   });
 
-  it('passes a quoted prompt in every spur spawn of the README', () => {
+  it.each([
+    ['the README', readme],
+    ['docs/quickstart.md', quickstart],
+  ])('passes a quoted prompt in every spur spawn of %s', (_name, text) => {
     const { names } = example();
-    const occurrences = [...readme.matchAll(/spur spawn[^`\n]*/g)].map((m) => m[0].trim());
+    const occurrences = [...text.matchAll(/spur spawn[^`\n]*/g)].map((m) => m[0].trim());
     expect(occurrences.length).toBeGreaterThanOrEqual(1);
     expect(occurrences.filter((line) => !SPAWN_LINE.test(line))).toEqual([]);
     const spawned = new Set(occurrences.map((line) => SPAWN_LINE.exec(line)?.groups?.['id']));
@@ -213,13 +217,17 @@ describe('examples/minimal prompts and README', () => {
       expect(readme).toContain(phrase);
   });
 
-  it('runs the full board doctor only after the sessions start', () => {
-    const doctorAt = readme.search(/^\s*board doctor$/m);
-    expect(doctorAt).toBeGreaterThan(readme.indexOf('spur spawn example-operator'));
+  it.each([
+    ['the README', readme],
+    ['docs/quickstart.md', quickstart],
+  ])('runs the full board doctor only after the sessions start in %s', (_name, text) => {
+    const doctorAt = text.search(/^\s*board doctor$/m);
+    expect(doctorAt).toBeGreaterThan(text.indexOf('spur spawn example-operator'));
   });
 
   it('is linked from the guides', () => {
-    for (const guide of ['README.md', 'SETUP.md'])
+    for (const guide of ['README.md', 'SETUP.md', 'docs/quickstart.md'])
       expect(read(guide, repoRoot)).toContain('examples/minimal');
+    expect(readme).toContain('../../docs/quickstart.md');
   });
 });

@@ -8,6 +8,18 @@ export function Default() {
 export function Warn() {
   return <Chip tone="warn">stale</Chip>;
 }
+export function WarnOnAttentionRow() {
+  return (
+    <div
+      style={{
+        background: 'var(--color-fill-attention)',
+        padding: 'var(--space-2) var(--space-3)',
+      }}
+    >
+      watched <Chip tone="warn">back/</Chip>
+    </div>
+  );
+}
 export function You() {
   return <Chip tone="you">you</Chip>;
 }

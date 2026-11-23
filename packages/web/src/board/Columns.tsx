@@ -287,7 +287,9 @@ function GroupSection({ column, band, ...shared }: { column: BoardColumn; band: 
 
 /**
  * A group band over its parts. The band renders outside the fold branch, so a fold keeps the
- * toggle and its focus. Unfolded, each part is a column; folded, one column with a section each.
+ * toggle and its focus. Unfolded, each part is a column in configuration order; folded, one column
+ * with a section each, closest to Dev first, so the sections, `⋯` menu items and Tab order run
+ * `ready-for-dev`, `triage`, `todo`.
  */
 function ColumnGroup({
   id,
@@ -309,7 +311,8 @@ function ColumnGroup({
   const root = useRef<HTMLElement>(null);
   const titleId = useId();
   const total = parts.reduce((sum, part) => sum + part.rows.length, 0);
-  const band = useBand(parts, root, moveIntent, moveUnavailable);
+  const shown = folded ? [...parts].reverse() : parts;
+  const band = useBand(shown, root, moveIntent, moveUnavailable);
   const frozen = parts.some((part) => mirrorFrozen(part) !== undefined);
   return (
     <section
@@ -341,7 +344,7 @@ function ColumnGroup({
       </div>
       {folded ? (
         <div className={styles.stack}>
-          {parts.map((part) => (
+          {shown.map((part) => (
             <GroupSection key={part.id} column={part} band={band} {...shared} />
           ))}
         </div>

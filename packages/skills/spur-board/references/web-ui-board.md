@@ -28,12 +28,12 @@ Header, left to right:
   task; a spine opens the task. Cleared, it moves to handled as
   `Had no session to ring for <column>`, in the past tense with the oldest `T<n>` and no action, and
   opens that task. A re-raise for the same column replaces it. An entry without `noSession` keeps
-  the plain row, with its action. Before the first success, the panel says inbox data is
+  the plain row and action. Before a first success, the panel says inbox data is
   unavailable; later failures keep data. Task rows open the task view and task-less block rows the
   block panel over the retained panel, choosing their project when config arrives. Closing either
   focuses its row or panel Close if removed; inbox close focuses the inbox button. Back/Forward
   follow these layers. Other task-less rows with a known HTTP(S) destination open it in a new tab on
-  click or Enter, keeping the inbox. Task navigation wins over a URL. Rows without a safe
+  click or Enter, keeping the inbox. Task navigation wins over a URL; rows without a safe
   destination stay focusable. Each active item entry (`I<n>`) has a quiet `Close I<n>` below its row
   that sends one `item.close`, as Slack's Close does: a ledger item's block closes with it and a
   failed post stays unsent. Blocks, turns and handled entries have none. It reads `Closing I<n>`
@@ -45,8 +45,8 @@ Header, left to right:
 
 Columns follow configuration order:
 
-- Fitting rows centre; wider rows scroll horizontally from the left.
-- Columns are 320px wide, 248px at 760px or narrower. Card accent rails are 2px wide.
+- Fitting rows centre; wider rows scroll sideways from the left.
+- Columns are 320px wide, 248px at 760px or narrower. Card accent rails are 2px.
 - A column header shows name, task count and executor (kind, then name), then a sort letter
   menu: Time, Key or [Manual](web-ui-board-move.md#manual-order); `↑`/`↓` reverses `T`/`K`.
   `T ↑`, the default, puts the longest in the column first; `K ↑` the lowest key, by number.
@@ -59,17 +59,18 @@ Columns follow configuration order:
   is open at most. A column whose Spur project has no live session turns the line
   attention-coloured with ` · no live session`. Spines have no help; Backlog parts do.
 - An empty column collapses to a spine with its name and `0`.
-- Two or three adjacent Todo-group columns (`todo`, `triage`, `ready-for-dev`) sit under one
-  `Backlog` band with their total count; `todo` alone stays a plain column. Each part's head
-  reads `manual` instead of the executor, or `mirror · <Project>` with a mirror icon when a
-  GitHub Project places its tasks; its Who tab names the Project, field and last read. A mirror
-  that cannot be read is frozen: ` · frozen` on the line, a warning dot on the band and a notice
-  above the part's cards ([mirrored part](web-ui-board-move.md#mirrored-part)). The band's caret folds the group into one
-  column, a section per part (`empty` with no tasks), and unfolds it. The browser keeps the fold
-  per project; a fold reads nothing from the daemon.
-- A Backlog card moves to another part of its band with a reason: see
-  [moving between Backlog parts](web-ui-board-move.md).
-- `done` lists every done task in a compact scrolling list, each with its time in the column.
+- Two or three adjacent Todo-group columns sit under one `Backlog` band with their total; `todo`
+  alone stays a plain column. Each part's head reads `manual` instead of the executor, or
+  `mirror · <Project>` with a mirror icon when a GitHub Project places its tasks; its Who tab
+  names the Project, field and last read. A mirror that cannot be read is frozen: ` · frozen` on
+  the line, a warning dot on the band and a notice above the part's cards
+  ([mirrored part](web-ui-board-move.md#mirrored-part)). The band's caret folds the group to one
+  column, a section per part closest to Dev first (`ready-for-dev`, `triage`, `todo`; `empty`
+  with no tasks), and unfolds it to columns in configuration order. The browser keeps the fold
+  per project, with no daemon read.
+- A Backlog card moves to another part of its band with a reason
+  ([moving between Backlog parts](web-ui-board-move.md)).
+- `done` lists every done task, compact and scrolling, with its time in the column.
 - A card opens the task view on click or Enter, a new tab on a modified click. It shows the short
   key (full key on hover) and its time in the column, the ticket title, then:
   - Ticket, first pull request and Spur session links open new tabs; Tab reaches them after the
