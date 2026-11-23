@@ -160,21 +160,19 @@ export function externalReviews(pr: PrFacts, agentLogin: string): PrFacts['revie
 
 /**
  * The pending review requests a required review can come from, named by login or team slug in
- * GitHub's request order; empty unless the rule was read and GitHub reads the merge blocked. Only
- * users and teams count, never bots or a request stored by an earlier version without a kind.
- * Every such request counts when the rule requires a code owner review or approvals; otherwise
- * only one made because the reviewer owns changed code.
+ * GitHub's request order; empty unless the rule was read, requires a code owner review or
+ * approvals, and GitHub reads the merge blocked. Only users and teams count, never bots or a
+ * request stored by an earlier version without a kind. A rule with no review requirement waits for
+ * nobody, even for a code owner GitHub requested on its own: its block has another cause.
  */
 export function awaitedReviewers(
   pr: Pick<PrFacts, 'mergeState' | 'reviewRequests'>,
   rule: ReviewRule | null,
 ): string[] {
   if (rule === null || pr.mergeState !== 'blocked') return [];
-  const any = rule.codeOwners || (rule.approvals ?? 0) > 0;
+  if (!rule.codeOwners && (rule.approvals ?? 0) === 0) return [];
   return pr.reviewRequests.flatMap((request) =>
-    (request.kind === 'user' || request.kind === 'team') &&
-    request.id !== undefined &&
-    (any || request.asCodeOwner)
+    (request.kind === 'user' || request.kind === 'team') && request.id !== undefined
       ? [request.id]
       : [],
   );

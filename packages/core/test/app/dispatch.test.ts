@@ -8954,11 +8954,11 @@ describe('approvalRule github-rules', () => {
       reason: 'review_rule_blocked',
     },
     {
+      // GitHub requests a code owner on its own even when the rule needs no review.
       name: 'no approvals and no code owners, a code owner request',
       reviewRule: ruleWith({ approvals: 0, codeOwners: false }),
       reviewRequests: [{ kind: 'user', id: 'owner-a', asCodeOwner: true }],
-      reason: 'awaiting_required_reviewers',
-      awaited: ['owner-a'],
+      reason: 'review_rule_blocked',
     },
     {
       name: 'code owners required, only a bot requested',

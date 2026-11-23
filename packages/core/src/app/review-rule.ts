@@ -299,7 +299,8 @@ const upper = (value: string | null): string => (value === null ? 'null' : value
 /**
  * The items of github-rules tasks in External Review. A head GitHub blocks with every review thread
  * resolved and no awaited reviewer (`awaitedReviewers`), while the external approval is in place
- * and External Review has no orchestrator, raises one at once; its shown text carries GitHub's current values and nothing is written. Otherwise an
+ * and External Review has no orchestrator, raises one at once; its shown text carries GitHub's
+ * current values and nothing is written. Otherwise an
  * item comes for a head that has stayed undecided for `REVIEW_RULE_UNDECIDED_MS` and whose gate,
  * read as `readInput` reads it, still runs the clock: a
  * newer read of the head by another project's source can name someone to act first or carry

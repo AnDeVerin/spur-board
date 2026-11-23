@@ -33,8 +33,8 @@ describe('awaitedReviewers', () => {
       { ...RULE, approvals: null, codeOwners: true },
       ['dana', 'web-owners', 'owner-a'],
     ],
-    ['approvals 0', { ...RULE, approvals: 0 }, ['web-owners', 'owner-a']],
-    ['no approvals and no code owners', { ...RULE, approvals: null }, ['web-owners', 'owner-a']],
+    ['approvals 0', { ...RULE, approvals: 0 }, []],
+    ['no approvals and no code owners', { ...RULE, approvals: null }, []],
   ])(
     'a blocked PR under %s waits for the users and teams it counts, in request order',
     (_, rule, expected) => {
