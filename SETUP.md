@@ -182,8 +182,10 @@ Pick one of two certificate variants first:
 - Private name: the name resolves only on the operator's private network. Add `tls internal` to
   the site block so Caddy signs the certificate with its own local CA, and trust that CA's root
   certificate on the laptop: the package keeps it at
-  `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`. Limit who reaches the login
-  with `bind` to a private address or a firewall.
+  `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`, readable only by root and
+  the `caddy` user, so print it on the Board host with
+  `sudo cat /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`. Limit who reaches
+  the login with `bind` to a private address or a firewall.
 
 Then, in this order:
 
@@ -224,7 +226,8 @@ Then, in this order:
 5. Reload Caddy so it reads the new file: `sudo systemctl reload caddy`. If the service is not
    running, start it with `sudo systemctl start caddy`.
 6. Check from the laptop: `curl -sI https://board.example.com/` gives `401`. For a private name,
-   add `--cacert` with the root certificate copied from the Board host. Then open
+   add `--cacert` with the root certificate copied from the Board host; only root and the `caddy`
+   user can read it there, so print it with `sudo cat` on that path. Then open
    `https://board.example.com` in a browser and log in as `operator`.
 
 `web.publicOrigin` must be exactly the URL the laptop opens: `https://`, the site name, a

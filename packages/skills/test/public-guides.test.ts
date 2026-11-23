@@ -96,7 +96,7 @@ describe('public guide contents', () => {
     expect(steps.every((index) => index >= 0)).toBe(true);
     expect(steps).toEqual(steps.toSorted((a, b) => a - b));
     expect(caddySection).toContain(
-      '/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt',
+      '`sudo cat /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`',
     );
     expect(caddySection).not.toContain('docker run');
   });
