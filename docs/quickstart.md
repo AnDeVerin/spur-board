@@ -106,8 +106,8 @@ board doctor --offline
 **Success looks like:** the command exits 0 and every line starts with `PASS` or `WARNING`.
 
 **If it fails:** a `FAIL config` line names the field to fix
-([config](../TROUBLESHOOTING.md#config)); a `FAIL secrets` line is about `secrets.env`
-([secrets](../TROUBLESHOOTING.md#secrets)). Spur refuses a project id that another connected
+([config](../TROUBLESHOOTING.md#config)). The offline check does not read `secrets.env`; step 4
+does. Spur refuses a project id that another connected
 spur.yaml already uses: rename all three projects in both files
 ([Refused Spur session](../TROUBLESHOOTING.md#refused-spur-session)).
 [Configuration and secrets](../SETUP.md#configuration-and-secrets) covers another config directory and Jira projects.
@@ -120,8 +120,10 @@ board service install
 
 **Success looks like:** the output names the `unitFile` it wrote and whether it `changed`.
 
-**If it fails:** the install stops with exit 4 before it writes the unit when `http.port`, 4777 by
-default, is taken: see [http.port](../TROUBLESHOOTING.md#httpport) and, for a daemon that keeps
+**If it fails:** the install stops with exit 4 before it writes the unit when
+`~/.config/spur-board/secrets.env` is missing, unreadable or not mode `0600`: fix it as
+[secrets](../TROUBLESHOOTING.md#secrets) says and run the install again. It also stops with exit 4
+when `http.port`, 4777 by default, is taken: see [http.port](../TROUBLESHOOTING.md#httpport) and, for a daemon that keeps
 restarting, [EADDRINUSE](../TROUBLESHOOTING.md#eaddrinuse-the-daemon-restarts-every-5-seconds). A
 missing or failed unit: [service.installed](../TROUBLESHOOTING.md#serviceinstalled); the wrong
 Node: [service.node](../TROUBLESHOOTING.md#servicenode).
@@ -143,7 +145,9 @@ board doctor
 ```
 
 **Success looks like:** the command exits 0 with no `FAIL` line. `WARNING web.spurUiOrigin` is
-expected without a Spur UI origin. `path.spur` and `orchestrator.sessions` pass once the sessions
+expected without a Spur UI origin. `WARNING link.rules` is expected until the repository has a
+pull request by `operatorGithubLogin`; it never blocks
+([link.rules](../TROUBLESHOOTING.md#linkrules)). `path.spur` and `orchestrator.sessions` pass once the sessions
 are live; they warn when run before this step.
 
 **If it fails:** an old Spur: [spur.version](../TROUBLESHOOTING.md#spurversion). A token without
@@ -202,7 +206,10 @@ It lists a pull request whose body says `Closes #<N>`.
 **If it fails:** a task that stays in `todo` means the session is not linked:
 [Link worker sessions to tasks](../SETUP.md#6-link-worker-sessions-to-tasks). A pull request with no
 CI checks waits in Dev until you uncomment `reposWithoutCi` in `config.yaml`
-([config.yaml fields](configuration.md#configyaml-fields)). A worker that never gets its turn:
+([config.yaml fields](configuration.md#configyaml-fields)). A task that stays in `dev` with
+`dev: no_pr` after the pull request opened has no linked pull request: its author is not
+`operatorGithubLogin`, or its branch and title do not match the link rules
+([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker that never gets its turn:
 [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 8. Watch the reviewer review it
@@ -254,9 +261,8 @@ Run board status and tell me the column and turn reason of example-org/example-r
 **Success looks like:** `example-operator` reports the task in `done` with the turn reason
 `done: wrap up`. The worker finishes its Done turn.
 
-**If it fails:** a task that stays in Review has no linked pull request: its author is not
-`operatorGithubLogin`, or its branch and title do not match the link rules
-([link.rules](../TROUBLESHOOTING.md#linkrules)).
+**If it fails:** a task that stays in Review after the merge waits for the closed issue: check
+that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.
 
 ## Add more columns
 
