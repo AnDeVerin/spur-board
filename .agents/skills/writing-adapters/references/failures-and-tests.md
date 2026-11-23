@@ -24,10 +24,9 @@
   `sessions/<id>`.
 - Every Spur poll failure tied to a request throws `SpurRequestError`
   (`packages/adapters/src/spur/spur.ts`) with that request's `path` (no query), `page`
-  (transitions only) and `durationMs`, never `code`: a failed request, an HTTP status, and any
-  error while handling the response (wire schema, contract schema of the normalized facts,
-  position checks, a session listed twice). `atPlace` converts it, one `try` per request. A
-  successful Spur request slower than half its timeout calls `warn`.
+  (transitions only) and `durationMs`, never `code`: a failed request, an HTTP status, and a
+  response that fails its wire schema or the feed's position checks. A successful Spur request
+  slower than half its timeout calls `warn`.
 - `schedule` (`packages/adapters/src/runner/runner.ts`) caps a poll wait at 2147483647 ms, the
   setTimeout limit; a longer one fires after 1 ms.
 - A source whose failure reaches the operator by code throws `AdapterError` with `code` from
