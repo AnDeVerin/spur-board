@@ -110,7 +110,8 @@ The `spurProjects` name must match a live Spur project, and `digest.tz` is requi
 `operatorGithubLogin` to the GitHub account agents open PRs under: PR discovery keeps only PRs by
 that author, and it need not be the maintainer's own account. Use the
 [configuration reference](docs/configuration.md) and [JSON Schema](packages/contracts/config.schema.json)
-for fields and defaults.
+for fields and defaults. [examples/minimal](examples/minimal/) has a Slack-free `github-issues`
+config with Todo, Dev, Review and Done, and the Spur projects and prompts for it.
 
 For a `github-issues` project, the Board finds a PR's issue through `projects[].link`: the issues
 the PR closes, a pattern on its head branch, and a pattern on its title. Set those patterns to the
