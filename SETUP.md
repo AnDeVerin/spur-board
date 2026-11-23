@@ -227,11 +227,13 @@ accepts one origin: set `publicOrigin: http://127.0.0.1:7777` in place of
 `https://board.example.com`, restart the daemon, and on the laptop run:
 
 ```sh
-ssh -L 7777:127.0.0.1:7777 <user>@<board-host>
+ssh -L 127.0.0.1:7777:127.0.0.1:7777 <user>@<board-host>
 ```
 
 Then open `http://127.0.0.1:7777`, not `localhost`: the daemon compares the full host, so
-another name or local port gets 403. The SSH login is then the boundary.
+another name or local port gets 403. The explicit first `127.0.0.1` keeps the forward on the
+laptop's loopback even when its SSH client sets `GatewayPorts`, so the SSH login is then the
+boundary.
 
 ## 4. Install the service and choose operator access
 

@@ -77,7 +77,10 @@ describe('public guide contents', () => {
     expect(/^(\S+) \{/.exec(body)?.[1]).toBe(new URL(origin ?? 'x:').host);
     for (const token of ['/v1/events', '15 seconds', '`caddy hash-password`', 'no path'])
       expect(flat(caddySection)).toContain(token);
-    for (const token of ['ssh -L 7777:127.0.0.1:7777', '`publicOrigin: http://127.0.0.1:7777`'])
+    for (const token of [
+      'ssh -L 127.0.0.1:7777:127.0.0.1:7777',
+      '`publicOrigin: http://127.0.0.1:7777`',
+    ])
       expect(caddySection).toContain(token);
   });
 

@@ -64,7 +64,8 @@ act as the operator through web-bound reads and the ten writes, `comment.add`, `
 Another machine reaches the listener only through an authenticating reverse proxy, which must
 preserve the original `Host`, or an SSH tunnel. With the proxy, its authentication is the
 boundary: the only one for a public name, and for a private name a private network limited to
-the operator's devices is a second layer. With the tunnel, the SSH login is the boundary. See
+the operator's devices is a second layer. With a tunnel bound to the laptop's `127.0.0.1`, the
+SSH login is the boundary. See
 [Remote access through Caddy with basic auth](SETUP.md#remote-access-through-caddy-with-basic-auth).
 
 Exact Host and Origin checks, JSON POST bodies, cross-site fetch rejection and no CORS stop
