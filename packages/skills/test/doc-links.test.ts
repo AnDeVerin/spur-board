@@ -159,6 +159,7 @@ describe('newcomer entry points', () => {
         .replace(/\s+/g, ' ');
       for (const phrase of [
         'Linux with systemd user services',
+        '`flock` (util-linux)',
         'Node 24.12+ (24.x) or 26.x',
         `Spur ${SPUR_MIN_VERSION} or newer`,
         'a GitHub token',

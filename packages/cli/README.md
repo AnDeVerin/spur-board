@@ -9,7 +9,7 @@ server for agents, and optionally Slack for the human operator.
 
 ## What it needs
 
-Linux with systemd user services, Node 24.12+ (24.x) or 26.x, a running
+Linux with systemd user services and `flock` (util-linux), Node 24.12+ (24.x) or 26.x, a running
 [Spur](https://github.com/ashugaev/spur) 1.53.0 or newer, a GitHub token, Jira credentials for
 Jira projects, and optionally a Slack app. The optional web console has no login of its own and
 needs an authenticating reverse proxy or an SSH tunnel to reach it from another machine.
