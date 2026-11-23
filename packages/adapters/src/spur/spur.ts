@@ -18,7 +18,46 @@ import { z } from 'zod';
 import { classifyHttpFailure } from '../runner/http.ts';
 import { parseWire } from '../runner/wire.ts';
 
+/** The timeout of `GET sessions` and `GET sessions/<id>`. */
 const REQUEST_TIMEOUT_MS = 5_000;
+/** The timeout of one `GET sessions/transitions` page: Spur refreshes every session on each one. */
+const TRANSITIONS_TIMEOUT_MS = 15_000;
+/** The longest wait between two failed Spur polls, so Spur load episodes blind the board briefly. */
+export const SPUR_MAX_BACKOFF_MS = 60_000;
+
+/** Where a Spur request was when it failed: the path without its query, its page and its time. */
+interface SpurRequestPlace {
+  path: string;
+  /** The 1-based transitions page; only on `sessions/transitions`. */
+  page?: number | undefined;
+  durationMs: number;
+}
+
+/**
+ * A failed Spur request with its place. It never carries `code`: the runner would report it as a
+ * source failure.
+ */
+class SpurRequestError extends AdapterError {
+  readonly path: string;
+  declare readonly page?: number;
+  readonly durationMs: number;
+
+  constructor(
+    kind: AdapterError['kind'],
+    base: string,
+    place: SpurRequestPlace,
+    options: { retryAt?: Date | undefined; cause?: unknown } = {},
+  ) {
+    super(kind, `${base} on ${describePlace(place)} after ${String(place.durationMs)} ms`, options);
+    this.path = place.path;
+    if (place.page !== undefined) this.page = place.page;
+    this.durationMs = place.durationMs;
+  }
+}
+
+function describePlace(place: { path: string; page?: number | undefined }): string {
+  return place.page === undefined ? place.path : `${place.path} page ${String(place.page)}`;
+}
 const sessionWire = z.object({
   id: z.string().min(1),
   project: z.string().min(1),
@@ -70,6 +109,8 @@ export interface SpurAdapterOptions {
   flipSmoothingMs: number;
   now: () => number;
   fetch?: typeof fetch;
+  /** Receives a note about a successful request that took more than half its timeout. */
+  warn?: ((message: string) => void) | undefined;
   onNotice?: ((notice: SpurNotice) => void | Promise<void>) | undefined;
 }
 
@@ -94,11 +135,38 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
   const isKnownHealth = (value: string) => SESSION_HEALTH_STATES.some((state) => state === value);
   const isKnownStatus = (value: string) => SESSION_STATUSES.some((status) => status === value);
 
+  interface SpurResponse {
+    response: Response;
+    body?: unknown;
+    place: SpurRequestPlace;
+  }
+
+  /** The HTTP-status failure of a finished request, with its place. */
+  function httpFailure({ response, place }: SpurResponse): SpurRequestError {
+    const failure = classifyHttpFailure(
+      { status: response.status, headers: response.headers },
+      options.now(),
+    );
+    return new SpurRequestError(failure.kind, failure.message, place, {
+      retryAt: failure.retryAt,
+      cause: failure,
+    });
+  }
+
   async function request(
     path: string,
     signal: AbortSignal,
-  ): Promise<{ response: Response; body?: unknown }> {
+    timeoutMs: number,
+    page?: number,
+  ): Promise<SpurResponse> {
     if (signal.aborted) throw new Error('Spur poll aborted');
+    const started = options.now();
+    const placeName = path.split('?')[0] ?? path;
+    const place = (): SpurRequestPlace => ({
+      path: placeName,
+      ...(page === undefined ? {} : { page }),
+      durationMs: options.now() - started,
+    });
     const controller = new AbortController();
     let timedOut = false;
     const callerAborted = () => signal.aborted;
@@ -110,22 +178,34 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
     try {
       const response = await fetchImpl(new URL(path, base), { signal: controller.signal });
-      if (!response.ok && response.status !== 410 && response.status !== 400) return { response };
+      if (!response.ok && response.status !== 410 && response.status !== 400)
+        return { response, place: place() };
+      let body: unknown;
       try {
-        return { response, body: await response.json() };
+        body = await response.json();
       } catch (error) {
         if (controller.signal.aborted) throw error;
-        throw new AdapterError('transient', 'Invalid Spur response JSON', { cause: error });
+        throw new SpurRequestError('transient', 'Invalid Spur response JSON', place(), {
+          cause: error,
+        });
       }
+      const done = place();
+      if (response.ok && done.durationMs > timeoutMs / 2)
+        options.warn?.(
+          `Slow Spur request: ${describePlace(done)} took ${String(done.durationMs)} ms of a ${String(timeoutMs)} ms timeout`,
+        );
+      return { response, body, place: done };
     } catch (error) {
       if (callerAborted()) throw new Error('Spur poll aborted', { cause: error });
       if (didTimeOut())
-        throw new AdapterError('transient', 'Spur request timed out', { cause: error });
+        throw new SpurRequestError('transient', 'Spur request timed out', place(), {
+          cause: error,
+        });
       if (error instanceof AdapterError) throw error;
-      throw new AdapterError('transient', 'Spur request failed', { cause: error });
+      throw new SpurRequestError('transient', 'Spur request failed', place(), { cause: error });
     } finally {
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
@@ -215,10 +295,13 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
       for (let page = 0; page < 4; page++) {
         const query = new URLSearchParams({ limit: '1000', kinds: 'status,state' });
         if (cursor !== undefined) query.set('since', cursor);
-        const { response, body } = await request(
+        const transitions = await request(
           `sessions/transitions?${query.toString()}`,
           ctx.signal,
+          TRANSITIONS_TIMEOUT_MS,
+          page + 1,
         );
+        const { response, body } = transitions;
         if (
           page === 0 &&
           cursor !== undefined &&
@@ -239,11 +322,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
           sessionTransitions.length = 0;
           break;
         }
-        if (!response.ok)
-          throw classifyHttpFailure(
-            { status: response.status, headers: response.headers },
-            options.now(),
-          );
+        if (!response.ok) throw httpFailure(transitions);
         const feed = parseWire(transitionsWire, body, 'Invalid Spur transitions');
         for (const entry of feed.entries) {
           if (positions.has(entry.cursor) || entry.cursor === cursor)
@@ -270,32 +349,25 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
         cursor = feed.nextCursor;
         if (!feed.hasMore) break;
       }
-      const { response: listResponse, body: listBody } = await request('sessions', ctx.signal);
-      if (!listResponse.ok) {
-        throw classifyHttpFailure(
-          { status: listResponse.status, headers: listResponse.headers },
-          options.now(),
-        );
-      }
+      const list = await request('sessions', ctx.signal, REQUEST_TIMEOUT_MS);
+      const { response: listResponse, body: listBody } = list;
+      if (!listResponse.ok) throw httpFailure(list);
       const listed = parseWire(z.array(sessionWire), listBody, 'Invalid Spur response');
       const byId = new Map(listed.map((wire) => [wire.id, wire]));
       const detail = new Map<string, SessionWire | null>();
       for (const ref of ctx.observe.sessions) {
         if (byId.has(ref.id)) continue;
-        const { response, body } = await request(
+        const read = await request(
           `sessions/${encodeURIComponent(ref.id)}`,
           ctx.signal,
+          REQUEST_TIMEOUT_MS,
         );
+        const { response, body } = read;
         if (response.status === 404) {
           detail.set(ref.id, null);
           continue;
         }
-        if (!response.ok) {
-          throw classifyHttpFailure(
-            { status: response.status, headers: response.headers },
-            options.now(),
-          );
-        }
+        if (!response.ok) throw httpFailure(read);
         const wire = parseWire(sessionWire, body, 'Invalid Spur response');
         if (wire.id !== ref.id) {
           throw new AdapterError('transient', 'Unresolved Spur session detail');

@@ -15,7 +15,7 @@ import { createGithubIssuesAdapter } from './github/issues.ts';
 import { createGithubProjectAdapter } from './github/projectMirror.ts';
 import { createJiraAdapter } from './jira/jira.ts';
 import { startRunner, type PollFailure, type StartedRunner } from './runner/runner.ts';
-import { createSpurAdapter, type SpurNotice } from './spur/spur.ts';
+import { createSpurAdapter, SPUR_MAX_BACKOFF_MS, type SpurNotice } from './spur/spur.ts';
 
 export type { AdapterCore, SourceState } from '@spur-board/contracts';
 export type { AdapterRunner, PollFailure, StartedRunner } from './runner/runner.ts';
@@ -168,6 +168,7 @@ export function startAdapters(
           flipSmoothingMs: config.health.flipSmoothingMs,
           now: options.now,
           ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+          warn: options.warn,
           onNotice: (notice) => {
             const pending = Promise.resolve().then(() => options.onSpurNotice?.(notice));
             notices.add(pending);
@@ -178,6 +179,7 @@ export function startAdapters(
             return pending;
           },
         }),
+        maxBackoffMs: SPUR_MAX_BACKOFF_MS,
       },
     ],
     core,

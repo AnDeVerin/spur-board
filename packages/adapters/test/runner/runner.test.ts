@@ -283,6 +283,102 @@ describe('startAdapters', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  describe('Spur backoff cap', () => {
+    const jiraProjectConfig = () =>
+      configSchema.parse({
+        projects: [
+          {
+            id: 'web',
+            tracker: {
+              type: 'jira',
+              baseUrl: 'https://example.atlassian.net',
+              jql: 'project = PROJ',
+              projectKeys: ['PROJ'],
+              doneStatuses: ['Done'],
+              readyStatuses: ['Ready for Dev'],
+            },
+            repos: ['example-org/web'],
+            operatorGithubLogin: 'octocat',
+          },
+        ],
+        operator: { slack: 'U0000000000' },
+        digest: { tz: 'UTC' },
+      });
+    const emptyPage = () =>
+      Response.json({ entries: [], nextCursor: 'synthetic-empty', hasMore: false });
+    /** A request that only ends when its signal aborts. */
+    const hangRequest = (init: RequestInit | undefined) =>
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new Error('aborted'));
+        });
+      });
+    const startsOf = (starts: readonly [string, number][], source: string) =>
+      starts.filter(([id]) => id === source).map(([, ms]) => ms);
+
+    it('caps the Spur backoff at 60 s and keeps 15 min for GitHub and Jira', async () => {
+      random(0);
+      const starts: [string, number][] = [];
+      const core = createFakeCore({
+        context: (source) => {
+          starts.push([source, elapsed()]);
+          return context();
+        },
+      });
+      const fetcher: typeof fetch = (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        if (url.hostname === '127.0.0.1')
+          return url.pathname === '/sessions/transitions'
+            ? hangRequest(init)
+            : Promise.resolve(Response.json([]));
+        return Promise.resolve(Response.json({ message: 'down' }, { status: 503 }));
+      };
+      const runner = entry.startAdapters(jiraProjectConfig(), core, {
+        now: () => Date.now(),
+        fetch: fetcher,
+        secrets: { GITHUB_TOKEN: 'dummy-token', JIRA_EMAIL: 'a@example.test', JIRA_API_TOKEN: 'x' },
+      });
+      runners.push(runner);
+      await advanceTo(2_600_000);
+
+      const spur = startsOf(starts, 'spur');
+      expect(spur.slice(0, 5)).toEqual([0, 45_000, 120_000, 195_000, 270_000]);
+      expect(new Set(gaps(spur.slice(4)))).toEqual(new Set([75_000]));
+      expect(gaps(startsOf(starts, 'github:web:example-org/web')).slice(0, 4)).toEqual([
+        120_000, 240_000, 480_000, 900_000,
+      ]);
+      expect(gaps(startsOf(starts, 'jira:web')).slice(0, 4)).toEqual([
+        240_000, 480_000, 900_000, 900_000,
+      ]);
+    });
+
+    it('turns Spur stale while transitions time out and recovers within one cap', async () => {
+      random(0);
+      let hanging = true;
+      const core = createFakeCore();
+      const fetcher: typeof fetch = (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        if (url.pathname === '/sessions/transitions')
+          return hanging ? hangRequest(init) : Promise.resolve(emptyPage());
+        return Promise.resolve(Response.json([]));
+      };
+      const runner = entry.startAdapters(jiraProjectConfig(), core, {
+        now: () => Date.now(),
+        fetch: fetcher,
+      });
+      runners.push(runner);
+      const spurStates = () => core.states.filter((s) => s.source === 'spur');
+
+      await advanceTo(59_999);
+      expect(spurStates().some((s) => s.state.blind?.reason === 'stale')).toBe(false);
+      await advanceTo(60_000);
+      expect(spurStates().at(-1)?.state.blind?.reason).toBe('stale');
+      hanging = false;
+      await advanceTo(120_001);
+      expect(spurStates().at(-1)?.state.blind).toBeUndefined();
+    });
+  });
+
   it('waits for an outstanding Spur notice before stop completes', async () => {
     const config = configSchema.parse({
       projects: [
@@ -725,6 +821,25 @@ describe('budget', () => {
       ).toBe(budgetWait);
     },
   );
+
+  it('nextDelay caps a transient backoff at maxBackoffMs and at 15 min without it', () => {
+    random(0);
+    const delay = (failures: number, maxBackoffMs?: number) =>
+      nextDelay({
+        outcome: { kind: 'failed', error: new AdapterError('transient', 'down') },
+        intervalMs: 15_000,
+        failures,
+        authRetryMs: 900_000,
+        ...(maxBackoffMs === undefined ? {} : { maxBackoffMs }),
+        now: T0,
+      }).delayMs;
+    expect(Array.from({ length: 10 }, (_, failures) => delay(failures, 60_000))).toEqual([
+      30_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000,
+    ]);
+    expect(Array.from({ length: 6 }, (_, failures) => delay(failures))).toEqual([
+      30_000, 60_000, 120_000, 240_000, 480_000, 900_000,
+    ]);
+  });
 
   it('holds a source in budgetWaits from its budget pause until the paused poll starts', async () => {
     random(0);

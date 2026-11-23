@@ -73,6 +73,11 @@ interface RunnerEntry {
    * entry without it reports a failure only for an error that carries a code.
    */
   defaultFailureCode?: MirrorFailureCode | undefined;
+  /**
+   * The longest exponential wait after a failed poll, unless the interval is longer; without it
+   * the runner's 15 min default applies. Auth, config and throttled-with-retry waits ignore it.
+   */
+  maxBackoffMs?: number | undefined;
 }
 
 export interface AdapterRunner {
@@ -488,6 +493,7 @@ function runSource(
       failures,
       authRetryMs: config.sources.authRetryMs,
       reserveRemaining,
+      maxBackoffMs: entry.maxBackoffMs,
       now: now(),
     });
     failures = delay.failures;

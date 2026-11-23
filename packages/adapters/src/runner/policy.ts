@@ -41,6 +41,8 @@ export interface DelayInput {
   failures: number;
   authRetryMs: number;
   reserveRemaining?: number | undefined;
+  /** The longest exponential wait for this source; defaults to `MAX_BACKOFF_MS`. */
+  maxBackoffMs?: number | undefined;
   /** When the poll ended. */
   now: number;
 }
@@ -79,7 +81,7 @@ export function nextDelay(input: DelayInput): Delay {
       return { delayMs: Math.max(retryAt - now, intervalMs), failures, budgetWait: true };
   }
   const next = failures + 1;
-  const cap = Math.max(MAX_BACKOFF_MS, intervalMs);
+  const cap = Math.max(input.maxBackoffMs ?? MAX_BACKOFF_MS, intervalMs);
   return {
     delayMs: jitter(Math.min(intervalMs * 2 ** next, cap)),
     failures: next,

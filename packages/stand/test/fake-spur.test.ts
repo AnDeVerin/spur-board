@@ -329,7 +329,15 @@ describe('failure modes', () => {
       .poll(context())
       .catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(AdapterError);
-    expect(error).toMatchObject({ kind: 'transient', message: 'Spur request failed' });
+    expect(error).toMatchObject({
+      kind: 'transient',
+      message: expect.stringMatching(
+        /^Spur request failed on sessions\/transitions page 1 after \d+ ms$/,
+      ) as string,
+      path: 'sessions/transitions',
+      page: 1,
+      durationMs: expect.any(Number) as number,
+    });
     await expect(portFor(fake).send('s1', 'ping')).rejects.toThrow('Spur API unreachable');
   });
 
@@ -380,7 +388,15 @@ describe('failure modes', () => {
       .poll(context())
       .catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(AdapterError);
-    expect(error).toMatchObject({ kind: 'transient', message: 'HTTP 503' });
+    expect(error).toMatchObject({
+      kind: 'transient',
+      message: expect.stringMatching(
+        /^HTTP 503 on sessions\/transitions page 1 after \d+ ms$/,
+      ) as string,
+      path: 'sessions/transitions',
+      page: 1,
+      durationMs: expect.any(Number) as number,
+    });
     const sent = portFor(fake).send('s1', 'ping');
     await expect(sent).rejects.toThrow('Spur send failed with HTTP 503');
     await expect(sent).rejects.not.toBeInstanceOf(SpurRejectedError);

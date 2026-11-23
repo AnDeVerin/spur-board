@@ -541,6 +541,198 @@ describe('Spur adapter', () => {
     await assertion;
   });
 
+  describe('request timeouts and failure places', () => {
+    const emptyPage = () => response({ entries: [], nextCursor: 'c1', hasMore: false });
+    const hang = (init: RequestInit | undefined) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new Error('aborted'));
+        });
+      });
+    const after = (ms: number, make: () => Response) =>
+      new Promise<Response>((resolve) => {
+        setTimeout(() => {
+          resolve(make());
+        }, ms);
+      });
+    /** The real adapter: `transitions` answers the transitions route, `sessions` the rest. */
+    const routed = (
+      transitions: (init: RequestInit | undefined) => Promise<Response>,
+      sessions: (url: URL, init: RequestInit | undefined) => Promise<Response> = () =>
+        Promise.resolve(response([])),
+      warn?: (message: string) => void,
+    ) =>
+      createRealSpurAdapter({
+        ...adapterOptions,
+        ...(warn === undefined ? {} : { warn }),
+        fetch: (input, init) => {
+          const url = requestUrl(input);
+          return url.pathname === '/sessions/transitions' ? transitions(init) : sessions(url, init);
+        },
+      });
+    const settledFlag = (promise: Promise<unknown>) => {
+      const state = { settled: false };
+      promise.then(
+        () => (state.settled = true),
+        () => (state.settled = true),
+      );
+      return state;
+    };
+    const timedOutTransitions = {
+      kind: 'transient',
+      message: 'Spur request timed out on sessions/transitions page 1 after 15000 ms',
+      path: 'sessions/transitions',
+      page: 1,
+      durationMs: 15_000,
+    };
+
+    it('times out a transitions page after 15 seconds while waiting for headers', async () => {
+      const poll = routed(hang).poll(context());
+      const state = settledFlag(poll);
+      const assertion = expect(poll).rejects.toMatchObject(timedOutTransitions);
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(state.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await assertion;
+      await expect(poll).rejects.not.toHaveProperty('code', expect.anything());
+    });
+
+    it('times out a transitions page after 15 seconds while reading the body', async () => {
+      const adapter = routed((init) => {
+        const result = emptyPage();
+        vi.spyOn(result, 'json').mockImplementation(() => hang(init));
+        return Promise.resolve(result);
+      });
+      const poll = adapter.poll(context());
+      const state = settledFlag(poll);
+      const assertion = expect(poll).rejects.toMatchObject(timedOutTransitions);
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(state.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await assertion;
+    });
+
+    it('names the transitions page of a refused request', async () => {
+      const poll = routed(() => Promise.reject(new Error('ECONNREFUSED'))).poll(context());
+      await expect(poll).rejects.toMatchObject({
+        kind: 'transient',
+        message: 'Spur request failed on sessions/transitions page 1 after 0 ms',
+        path: 'sessions/transitions',
+        page: 1,
+        durationMs: 0,
+      });
+      await expect(poll).rejects.toBeInstanceOf(AdapterError);
+    });
+
+    it('names the transitions page of an invalid JSON response', async () => {
+      const poll = routed(() => Promise.resolve(new Response('not json'))).poll(context());
+      await expect(poll).rejects.toMatchObject({
+        kind: 'transient',
+        message: 'Invalid Spur response JSON on sessions/transitions page 1 after 0 ms',
+        path: 'sessions/transitions',
+        page: 1,
+      });
+    });
+
+    it('times out a session detail read after five seconds without a page', async () => {
+      const adapter = routed(
+        () => Promise.resolve(emptyPage()),
+        (url, init) => (url.pathname === '/sessions' ? Promise.resolve(response([])) : hang(init)),
+      );
+      const poll = adapter.poll(context(['ghost-1']));
+      const assertion = expect(poll).rejects.toMatchObject({
+        kind: 'transient',
+        message: 'Spur request timed out on sessions/ghost-1 after 5000 ms',
+        path: 'sessions/ghost-1',
+        durationMs: 5_000,
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await assertion;
+      await expect(poll).rejects.not.toHaveProperty('page');
+    });
+
+    it('names the list path of an HTTP 503 and keeps its kind', async () => {
+      const poll = createSpurAdapter({
+        ...adapterOptions,
+        fetch: () => Promise.resolve(response({ error: 'down' }, 503)),
+      }).poll(context());
+      await expect(poll).rejects.toMatchObject({
+        kind: 'transient',
+        message: 'HTTP 503 on sessions after 0 ms',
+        path: 'sessions',
+        durationMs: 0,
+      });
+      await expect(poll).rejects.not.toHaveProperty('page');
+      await expect(poll).rejects.not.toHaveProperty('code', expect.anything());
+    });
+
+    it('keeps the throttled kind and retry time of an HTTP 429 on the list', async () => {
+      const poll = createSpurAdapter({
+        ...adapterOptions,
+        fetch: () =>
+          Promise.resolve(
+            Response.json(
+              { error: 'slow down' },
+              { status: 429, headers: { 'retry-after': '30' } },
+            ),
+          ),
+      }).poll(context());
+      await expect(poll).rejects.toMatchObject({
+        kind: 'throttled',
+        message: 'HTTP 429 on sessions after 0 ms',
+        path: 'sessions',
+        retryAt: new Date(T0 + 30_000),
+      });
+      await expect(poll).rejects.not.toHaveProperty('code', expect.anything());
+    });
+
+    it('warns once about a transitions page slower than half its timeout', async () => {
+      const warn = vi.fn();
+      const poll = routed(() => after(7_501, emptyPage), undefined, warn).poll(context());
+      await vi.advanceTimersByTimeAsync(7_501);
+      await poll;
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        'Slow Spur request: sessions/transitions page 1 took 7501 ms of a 15000 ms timeout',
+      );
+    });
+
+    it('does not warn about a transitions page that took exactly half its timeout', async () => {
+      const warn = vi.fn();
+      const poll = routed(() => after(7_500, emptyPage), undefined, warn).poll(context());
+      await vi.advanceTimersByTimeAsync(7_500);
+      await poll;
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('warns about a list read slower than half its timeout', async () => {
+      const warn = vi.fn();
+      const poll = createSpurAdapter({
+        ...adapterOptions,
+        warn,
+        fetch: () => after(2_501, () => response([])),
+      }).poll(context());
+      await vi.advanceTimersByTimeAsync(2_501);
+      await poll;
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        'Slow Spur request: sessions took 2501 ms of a 5000 ms timeout',
+      );
+    });
+
+    it('does not warn about a list read that took exactly half its timeout', async () => {
+      const warn = vi.fn();
+      const poll = createSpurAdapter({
+        ...adapterOptions,
+        warn,
+        fetch: () => after(2_500, () => response([])),
+      }).poll(context());
+      await vi.advanceTimersByTimeAsync(2_500);
+      await poll;
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
   it('cancels an in-flight request without returning a batch', async () => {
     const controller = new AbortController();
     const adapter = createSpurAdapter({
