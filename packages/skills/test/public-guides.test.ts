@@ -194,6 +194,8 @@ describe('public guide contents', () => {
     const requests = [...quickstart.matchAll(/```text\n([\s\S]*?)```/g)].map((m) => m[1] ?? '');
     const invocations = requests.flatMap((text) => [...text.matchAll(/\bboard ([a-z][^.\n]*)/g)]);
     expect(invocations.length).toBeGreaterThan(0);
+    // Step 9's gate explanation needs --why; without it the request returns no gates.
+    expect(step(9)).toMatch(/\bboard task \S+ --why\b/);
     for (const [whole, rest = ''] of invocations) {
       const words = rest.split(/\s+/);
       const command = words[0] ?? '';
