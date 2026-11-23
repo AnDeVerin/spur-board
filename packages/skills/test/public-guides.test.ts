@@ -226,10 +226,7 @@ describe('public guide contents', () => {
   });
 
   it('documents the semver policy and the changelog', () => {
-    const section = flat('../../../CONTRIBUTING.md')
-      .split('## Versions and the changelog')[1]
-      ?.split(' ## ')[0];
-    expect(section).toBeDefined();
+    const policy = flat(section(read('../../../CONTRIBUTING.md'), '## Versions and the changelog'));
     for (const text of [
       'Breaking: the config schema, CLI commands and flags, MCP operations, HTTP API operations, error codes and their HTTP status or exit code, stored data and migrations, and web routes users bookmark.',
       'Not breaking: UI layout and wording.',
@@ -239,8 +236,8 @@ describe('public guide contents', () => {
       '`RELEASE_CHANGELOG_COMMIT`',
       '#867',
     ])
-      expect(section).toContain(text);
-    const readme = flat('../../../README.md');
+      expect(policy).toContain(text);
+    const readme = flat(read('../../../README.md'));
     expect(readme).toContain('[Changelog](CHANGELOG.md)');
     expect(readme).toContain('CONTRIBUTING.md#versions-and-the-changelog');
   });
