@@ -92,7 +92,8 @@ function remapIds(ids: unknown, testIds: Map<string, string>, file: string): unk
  * One full report from the reports of the mutation shards. Each shard mutates its own files, so a
  * file named by two reports throws. Stryker numbers tests per run, so the tests get new ids: one
  * per test file, name and location, shared by the shards that ran it, and the mutants' `coveredBy`
- * and `killedBy` follow. The shard configs differ only in `mutate`, which the merged config drops;
+ * and `killedBy` follow. Stryker numbers mutants per run too, so each mutant gets a new id unique
+ * in the merged report, as the report schema requires. The shard configs differ only in `mutate`, which the merged config drops;
  * any other field that differs between shards throws.
  */
 export function mergeMutationReports(reports: readonly unknown[]): Record<string, unknown> {
@@ -100,6 +101,7 @@ export function mergeMutationReports(reports: readonly unknown[]): Record<string
   const files: Record<string, unknown> = {};
   const testFiles: Record<string, { tests: unknown[] } & Record<string, unknown>> = {};
   const idByTest = new Map<string, string>();
+  let mutantCount = 0;
   let config: Record<string, unknown> | undefined;
   for (const [index, report] of reports.entries()) {
     const shard = isRecord(report) ? report['files'] : undefined;
@@ -157,6 +159,7 @@ export function mergeMutationReports(reports: readonly unknown[]): Record<string
           const killedBy = remapIds(mutant['killedBy'], testIds, name);
           return {
             ...mutant,
+            id: String(mutantCount++),
             ...(coveredBy === undefined ? {} : { coveredBy }),
             ...(killedBy === undefined ? {} : { killedBy }),
           };

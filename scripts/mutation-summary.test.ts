@@ -70,10 +70,12 @@ describe('mergeMutationReports', () => {
     const a = { files: { 'a.ts': { mutants: mutants('Killed') } } };
     const b = { files: { 'b.ts': { mutants: mutants('Survived') } } };
 
-    expect(mergeMutationReports([a, b])).toEqual({ files: { ...a.files, ...b.files } });
+    expect(mergeMutationReports([a, b])).toEqual({
+      files: { ...a.files, 'b.ts': { mutants: [{ ...b.files['b.ts'].mutants[0], id: '1' }] } },
+    });
   });
 
-  it('keeps the shared fields, drops the shard mutate and renumbers the tests', () => {
+  it('keeps the shared fields, drops the shard mutate and renumbers the tests and mutants', () => {
     const gates = {
       ...common,
       config: { mutate: ['gates.ts'], concurrency: 4 },
@@ -105,7 +107,8 @@ describe('mergeMutationReports', () => {
       },
     };
 
-    expect(mergeMutationReports([gates, rest])).toEqual({
+    const merged = mergeMutationReports([gates, rest]);
+    expect(merged).toEqual({
       ...common,
       config: { concurrency: 4 },
       testFiles: {
@@ -116,10 +119,13 @@ describe('mergeMutationReports', () => {
         'gates.ts': gates.files['gates.ts'],
         'rest.ts': {
           language: 'typescript',
-          mutants: [{ id: '0', status: 'Survived', coveredBy: ['2', '1'] }],
+          mutants: [{ id: '2', status: 'Survived', coveredBy: ['2', '1'] }],
         },
       },
     });
+    const files = merged['files'] as Record<string, { mutants: { id: string }[] }>;
+    const ids = Object.values(files).flatMap((file) => file.mutants.map((mutant) => mutant.id));
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('rejects shards that differ in a shared field or in config beyond mutate', () => {
@@ -254,7 +260,9 @@ describe('mutation-summary.ts CLI', () => {
     const result = run(['--out', out, ...shards]);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('Total score: 50.00%');
-    const merged = { files: { ...a.files, ...b.files } };
+    const merged = {
+      files: { ...a.files, 'b.ts': { mutants: [{ ...b.files['b.ts'].mutants[0], id: '1' }] } },
+    };
     expect(JSON.parse(readFileSync(join(out, 'mutation.json'), 'utf8'))).toEqual(merged);
     expect(readFileSync(join(out, 'mutation.html'), 'utf8')).toBe(
       strykerHtml(JSON.stringify(merged)),
