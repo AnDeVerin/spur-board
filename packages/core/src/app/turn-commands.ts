@@ -494,9 +494,9 @@ export function createTurnMutations(deps: {
   };
   /**
    * The operator's correction of a task's column. Refused for a column the project does not
-   * enable, and while the PR the dispatcher judges the task on (`judgedPr`) is merged, a
-   * conflict-linked merge included: the gates would put the task back at once. The gates then
-   * settle the task in the same transaction.
+   * enable. The gates then settle the task in the same transaction; when they send it straight to
+   * Done on a merged PR (`judgedPr`, a conflict-linked merge included), the correction is refused
+   * and rolled back, naming that PR. Every other settle, a move back to Dev included, stands.
    */
   const move: Mutation<'task.move'> = {
     id: 'task.move',
@@ -539,14 +539,6 @@ export function createTurnMutations(deps: {
             .join(', ')}.`,
         );
       }
-      const pr = (await judgedPr(trx, task.id, project))?.pr;
-      if (pr?.state === 'merged') {
-        const label = `${pr.repo}#${String(pr.number)}`;
-        throw new CommandError(
-          'move_not_allowed',
-          `Merged pull request ${label} sets the task's column: Done once its ticket is done, Dev while it stays open; unlink it first with \`board unlink ${task.key} --pr https://github.com/${pr.repo}/pull/${String(pr.number)} --reason <text>\`.`,
-        );
-      }
       const corrected = await correctColumn(trx, {
         taskId: task.id,
         to: input.column,
@@ -556,12 +548,25 @@ export function createTurnMutations(deps: {
         config,
       });
       const settled = await dispatched(trx, task.id, ctx.at, ctx.actor);
+      const moves = await moveViews(trx, task.id, { after: corrected.eventId });
+      // The gates sent the task straight to Done on a merged PR: the throw rolls the correction
+      // back, so no evidence is voided and no turn closed.
+      if (moves.some((entry) => entry.reason === 'merged')) {
+        // A merged move always judged the task on that merged PR.
+        const pr = (await judgedPr(trx, task.id, project))?.pr;
+        const ref =
+          pr == null ? '<url>' : `https://github.com/${pr.repo}/pull/${String(pr.number)}`;
+        throw new CommandError(
+          'move_not_allowed',
+          `Merged pull request ${pr == null ? '' : `${pr.repo}#${String(pr.number)} `}sets the task's column: its ticket is done, so the gates put the task back in Done; unlink it first with \`board unlink ${task.key} --pr ${ref} --reason <text>\`.`,
+        );
+      }
       return {
         task: taskView(settled),
         from: corrected.from,
         to: input.column,
         column: shadowColumn(settled),
-        settled: await moveViews(trx, task.id, { after: corrected.eventId }),
+        settled: moves,
       };
     },
   };

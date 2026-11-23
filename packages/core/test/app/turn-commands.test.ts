@@ -2632,20 +2632,18 @@ describe('task.move', () => {
     });
   });
 
-  it('refuses while a merged PR is the active PR', async () => {
+  // A refusal on a merged PR with a done ticket: `a correction with` in dispatch.test.ts.
+  it('corrects a task with a merged PR when the gates leave it in the corrected column', async () => {
     const ctx = await setup({
       column: 'done',
       mode: 'on',
       complete: true,
       pr: { state: 'merged' },
     });
-    const before = await ctx.tables();
 
-    const refused = ctx.move('dev');
+    const result = await ctx.move('dev');
 
-    await expect(refused).rejects.toMatchObject({ code: 'move_not_allowed' });
-    await expect(refused).rejects.toHaveProperty('hint', expect.stringContaining('board unlink'));
-    expect(await ctx.tables()).toEqual(before);
+    expect(result).toMatchObject({ from: 'done', to: 'dev', column: 'dev', settled: [] });
   });
 
   it('refuses a column the project does not enable', async () => {
