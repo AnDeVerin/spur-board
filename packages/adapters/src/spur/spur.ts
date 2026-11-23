@@ -153,27 +153,19 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
     });
   }
 
-  /**
-   * Any error raised while handling a finished request's response, as a failure of that request.
-   * An `AdapterError` keeps its kind, retry time and message. A zod error names only its first
-   * path and carries no cause, so no wire value reaches the log, as in `parseWire`.
-   */
-  function atPlace({ place }: SpurResponse, error: unknown): SpurRequestError {
-    if (error instanceof SpurRequestError) return error;
-    if (error instanceof AdapterError)
-      return new SpurRequestError(error.kind, error.message, place, {
-        retryAt: error.retryAt,
-        cause: error,
-      });
-    if (error instanceof z.ZodError) {
-      const path = (error.issues[0]?.path ?? []).map(String).join('.');
-      return new SpurRequestError(
-        'transient',
-        `Invalid Spur response at ${path || '(root)'}`,
-        place,
-      );
+  /** A failure a finished request's response showed, with that request's place. */
+  function failAt({ place }: SpurResponse, base: string): SpurRequestError {
+    return new SpurRequestError('transient', base, place);
+  }
+
+  /** `parseWire` over a finished request's body; a failure keeps its message and gains the place. */
+  function parseAt<S extends z.ZodType>(schema: S, { body, place }: SpurResponse, label: string) {
+    try {
+      return parseWire(schema, body, label);
+    } catch (error) {
+      if (!(error instanceof AdapterError)) throw error;
+      throw new SpurRequestError(error.kind, error.message, place, { cause: error });
     }
-    return new SpurRequestError('transient', 'Invalid Spur response', place, { cause: error });
   }
 
   async function request(
@@ -268,7 +260,6 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
     observedAt: string,
     state: HealthObservation,
     endReason: 'complete' | 'kill' | null,
-    at: readonly (string | number)[],
   ): SessionFacts {
     const links = Object.fromEntries(
       (wire.slots?.links ?? []).map(({ label, url }) => [label, url]),
@@ -287,30 +278,25 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
       }
     }
     const queuedRings = queuedBoardRings(wire);
-    return parseWire(
-      sessionFactsSchema,
-      {
-        id: wire.id,
-        spurProject: wire.project,
-        branch: wire.branch ?? null,
-        pr,
-        links,
-        lifecycle: wire.status,
-        health: state.stable,
-        healthSince: state.since,
-        ...(wire.state === 'rate_limited' &&
-        state.stable === 'rate_limited' &&
-        wire.rateLimitResetAt !== undefined
-          ? { rateLimitResetAt: wire.rateLimitResetAt }
-          : {}),
-        lastActivityAt: wire.lastActivityAt ?? null,
-        endedAt: endReason === null ? null : observedAt,
-        endReason,
-        ...(queuedRings.length > 0 ? { queuedRings } : {}),
-      },
-      'Invalid Spur session',
-      at,
-    );
+    return sessionFactsSchema.parse({
+      id: wire.id,
+      spurProject: wire.project,
+      branch: wire.branch ?? null,
+      pr,
+      links,
+      lifecycle: wire.status,
+      health: state.stable,
+      healthSince: state.since,
+      ...(wire.state === 'rate_limited' &&
+      state.stable === 'rate_limited' &&
+      wire.rateLimitResetAt !== undefined
+        ? { rateLimitResetAt: wire.rateLimitResetAt }
+        : {}),
+      lastActivityAt: wire.lastActivityAt ?? null,
+      endedAt: endReason === null ? null : observedAt,
+      endReason,
+      ...(queuedRings.length > 0 ? { queuedRings } : {}),
+    });
   }
 
   return {
@@ -331,65 +317,77 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
           page + 1,
         );
         const { response, body } = transitions;
-        try {
-          if (
-            page === 0 &&
-            cursor !== undefined &&
-            response.status === 400 &&
-            foreignCursorWire.safeParse(body).success
-          ) {
-            // A replacement stream cannot use the stored position. Bootstrap once; this failed
-            // request consumes one of the four slots, and only a validated batch replaces it.
-            cursor = undefined;
-            continue;
-          }
-          if (response.status === 410) {
-            cursor = parseWire(
-              z.object({ latestCursor: sourceCursorSchema }),
-              body,
-              'Invalid Spur expired cursor',
-            ).latestCursor;
-            sessionTransitions.length = 0;
-            break;
-          }
-          if (!response.ok) throw httpFailure(transitions);
-          const feed = parseWire(transitionsWire, body, 'Invalid Spur transitions');
-          for (const [index, entry] of feed.entries.entries()) {
-            if (positions.has(entry.cursor) || entry.cursor === cursor)
-              throw new AdapterError('transient', 'Repeated Spur transition position');
-            positions.add(entry.cursor);
-            sessionTransitions.push(
-              parseWire(
-                sessionTransitionSchema,
-                {
-                  position: entry.cursor,
-                  session: entry.sessionId,
-                  spurProject: entry.project,
-                  at: entry.at,
-                  links: Object.fromEntries(entry.links.map(({ label, url }) => [label, url])),
-                  dimension: entry.kind === 'status' ? 'lifecycle' : 'health',
-                  from: entry.from,
-                  to: entry.to,
-                  ...(entry.rateLimitResetAt === undefined
-                    ? {}
-                    : { rateLimitResetAt: entry.rateLimitResetAt }),
-                },
-                'Invalid Spur transition',
-                ['entries', index],
-              ),
-            );
-          }
-          if (feed.hasMore && (feed.nextCursor === cursor || feed.entries.length === 0))
-            throw new AdapterError('transient', 'Spur transitions made no progress');
-          cursor = feed.nextCursor;
-          if (!feed.hasMore) break;
-        } catch (error) {
-          throw atPlace(transitions, error);
+        if (
+          page === 0 &&
+          cursor !== undefined &&
+          response.status === 400 &&
+          foreignCursorWire.safeParse(body).success
+        ) {
+          // A replacement stream cannot use the stored position. Bootstrap once; this failed
+          // request consumes one of the four slots, and only a validated batch replaces it.
+          cursor = undefined;
+          continue;
         }
+        if (response.status === 410) {
+          cursor = parseAt(
+            z.object({ latestCursor: sourceCursorSchema }),
+            transitions,
+            'Invalid Spur expired cursor',
+          ).latestCursor;
+          sessionTransitions.length = 0;
+          break;
+        }
+        if (!response.ok) throw httpFailure(transitions);
+        const feed = parseAt(transitionsWire, transitions, 'Invalid Spur transitions');
+        for (const entry of feed.entries) {
+          if (positions.has(entry.cursor) || entry.cursor === cursor)
+            throw failAt(transitions, 'Repeated Spur transition position');
+          positions.add(entry.cursor);
+          sessionTransitions.push(
+            sessionTransitionSchema.parse({
+              position: entry.cursor,
+              session: entry.sessionId,
+              spurProject: entry.project,
+              at: entry.at,
+              links: Object.fromEntries(entry.links.map(({ label, url }) => [label, url])),
+              dimension: entry.kind === 'status' ? 'lifecycle' : 'health',
+              from: entry.from,
+              to: entry.to,
+              ...(entry.rateLimitResetAt === undefined
+                ? {}
+                : { rateLimitResetAt: entry.rateLimitResetAt }),
+            }),
+          );
+        }
+        if (feed.hasMore && (feed.nextCursor === cursor || feed.entries.length === 0))
+          throw failAt(transitions, 'Spur transitions made no progress');
+        cursor = feed.nextCursor;
+        if (!feed.hasMore) break;
       }
       const list = await request('sessions', ctx.signal, REQUEST_TIMEOUT_MS);
       const { response: listResponse } = list;
       if (!listResponse.ok) throw httpFailure(list);
+      const listed = parseAt(z.array(sessionWire), list, 'Invalid Spur response');
+      const byId = new Map(listed.map((wire) => [wire.id, wire]));
+      const detail = new Map<string, SessionWire | null>();
+      for (const ref of ctx.observe.sessions) {
+        if (byId.has(ref.id)) continue;
+        const read = await request(
+          `sessions/${encodeURIComponent(ref.id)}`,
+          ctx.signal,
+          REQUEST_TIMEOUT_MS,
+        );
+        const { response } = read;
+        if (response.status === 404) {
+          detail.set(ref.id, null);
+          continue;
+        }
+        if (!response.ok) throw httpFailure(read);
+        const wire = parseAt(sessionWire, read, 'Invalid Spur response');
+        if (wire.id !== ref.id) throw failAt(read, 'Unresolved Spur session detail');
+        detail.set(ref.id, wire);
+      }
+      if (ctx.signal.aborted) throw new Error('Spur poll aborted');
       const newInstanceId = listResponse.headers.get('x-spur-lifecycle-instance-id') ?? undefined;
       const restartNotice: SpurNotice | undefined =
         instanceId !== undefined && newInstanceId !== undefined && newInstanceId !== instanceId
@@ -405,49 +403,22 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
         : health;
       const next = new Map<string, HealthObservation>();
       const items: Batch['items'] = [];
-      let listed: SessionWire[];
-      try {
-        listed = parseWire(z.array(sessionWire), list.body, 'Invalid Spur response');
-        for (const [index, wire] of listed.entries()) {
-          if (next.has(wire.id))
-            throw new AdapterError('transient', `Duplicate Spur session ${wire.id}`);
-          const state = smooth(wire, observedAt, previous.get(wire.id));
-          next.set(wire.id, state);
-          items.push({ kind: 'session', facts: facts(wire, observedAt, state, null, [index]) });
-        }
-      } catch (error) {
-        throw atPlace(list, error);
+      for (const wire of listed) {
+        const state = smooth(wire, observedAt, previous.get(wire.id));
+        next.set(wire.id, state);
+        items.push({ kind: 'session', facts: facts(wire, observedAt, state, null) });
       }
-      const byId = new Map(listed.map((wire) => [wire.id, wire]));
-      const detail = new Map<string, SessionWire | null>();
-      for (const ref of ctx.observe.sessions) {
-        if (byId.has(ref.id) || detail.has(ref.id)) continue;
-        const read = await request(
-          `sessions/${encodeURIComponent(ref.id)}`,
-          ctx.signal,
-          REQUEST_TIMEOUT_MS,
-        );
-        const { response } = read;
-        if (response.status === 404) {
-          detail.set(ref.id, null);
-          continue;
-        }
-        if (!response.ok) throw httpFailure(read);
-        try {
-          const wire = parseWire(sessionWire, read.body, 'Invalid Spur response');
-          if (wire.id !== ref.id)
-            throw new AdapterError('transient', 'Unresolved Spur session detail');
-          const state = smooth(wire, observedAt, previous.get(wire.id));
-          const endReason =
-            wire.status === 'completed' ? 'complete' : wire.status === 'killed' ? 'kill' : null;
-          if (endReason === null) next.set(wire.id, state);
-          items.push({ kind: 'session', facts: facts(wire, observedAt, state, endReason, []) });
-          detail.set(ref.id, wire);
-        } catch (error) {
-          throw atPlace(read, error);
-        }
+      for (const wire of detail.values()) {
+        if (wire === null) continue;
+        const state = smooth(wire, observedAt, previous.get(wire.id));
+        const endReason =
+          wire.status === 'completed' ? 'complete' : wire.status === 'killed' ? 'kill' : null;
+        if (endReason === null) next.set(wire.id, state);
+        items.push({
+          kind: 'session',
+          facts: facts(wire, observedAt, state, endReason),
+        });
       }
-      if (ctx.signal.aborted) throw new Error('Spur poll aborted');
       const entities: Batch['entities'] = ctx.observe.sessions.map((ref) => ({
         ref,
         status: byId.has(ref.id) || detail.get(ref.id) !== null ? 'ok' : 'not_found',
