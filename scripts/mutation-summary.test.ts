@@ -289,6 +289,7 @@ describe('mutation.yml shards', () => {
   it('mutates every domain file once: the last shard takes what the others do not name', () => {
     const named = shards.slice(0, -1).map((shard) => shard.mutate);
     for (const file of named) expect(file).toMatch(/^packages\/core\/src\/domain\/[\w/-]+\.ts$/);
+    expect(new Set(named).size).toBe(named.length);
     expect(shards.at(-1)?.mutate.split(',')).toEqual([
       'packages/core/src/domain/**/*.ts',
       ...named.map((file) => `!${file}`),
