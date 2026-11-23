@@ -74,4 +74,4 @@ uses no `import`: `app.jsx` is a plain script compiled with the `DS.React` pragm
 - Never import from `design/` in app code, and never ship it.
 - A screen built from a prototype follows the `prototype` skill
   (`.agents/skills/prototype/SKILL.md`); differences between the two are decided by
-  [docs/design-system-decisions.md](../docs/design-system-decisions.md).
+  [docs/contributing/design-system-decisions.md](../docs/contributing/design-system-decisions.md).

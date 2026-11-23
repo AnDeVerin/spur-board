@@ -17,7 +17,7 @@ describe('isUiPath', () => {
     ['packages/web/src/x.tsx', true],
     ['packages/web/index.html', true],
     ['packages/web/src/test/x.ts', true],
-    ['docs/design-system-decisions.md', true],
+    ['docs/contributing/design-system-decisions.md', true],
     ['packages/web/test/a.test.ts', false],
     ['packages/web/gallery/x.tsx', false],
     ['packages/web/kit/x.ts', false],
@@ -240,7 +240,7 @@ describe('acceptance-gates.ts CLI', () => {
     const { box, gate } = uiPr();
     const head = box.commit({
       'packages/web/src/b.tsx': 'export const b = 1;\n',
-      'docs/design-system-decisions.md': 'x\n',
+      'docs/contributing/design-system-decisions.md': 'x\n',
     });
     box.merge();
     const result = box.run(body(gate, head));
@@ -248,7 +248,7 @@ describe('acceptance-gates.ts CLI', () => {
     const [error, ...rest] = errorLine(result.stdout);
     expect(rest).toEqual([]);
     expect(error).toContain(`tester ${gate}: UI files changed since this head:`);
-    expect(error).toContain('  - docs/design-system-decisions.md');
+    expect(error).toContain('  - docs/contributing/design-system-decisions.md');
     expect(error).toContain('  - packages/web/src/b.tsx');
     expect(error).not.toContain(`designer ${head}`);
     expect(error).toContain('the cap never excuses the final-head run');

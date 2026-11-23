@@ -5,9 +5,12 @@ import { describe, expect, it } from 'vitest';
 import { COLOUR_LIMIT, SIZE_LIMIT_PX, UNITLESS_LIMITS, deltaE2000, nearest } from './ds-nearest.ts';
 
 const SCRIPT = join(import.meta.dirname, 'ds-nearest.ts');
-const DOC = readFileSync(join(import.meta.dirname, '../docs/design-system-decisions.md'), 'utf8');
+const DOC = readFileSync(
+  join(import.meta.dirname, '../docs/contributing/design-system-decisions.md'),
+  'utf8',
+);
 // Pinned to the live tokens on purpose: a token change that moves these results also moves the
-// examples in docs/design-system-decisions.md.
+// examples in docs/contributing/design-system-decisions.md.
 const TOKENS = readFileSync(join(import.meta.dirname, '../packages/web/src/ds/tokens.css'), 'utf8');
 
 function lines(args: string[]): string[] {
@@ -291,7 +294,7 @@ describe('ds:nearest CLI', () => {
   });
 });
 
-describe('docs/design-system-decisions.md', () => {
+describe('docs/contributing/design-system-decisions.md', () => {
   it('states both thresholds and the review rule', () => {
     expect(DOC).toContain(`ΔE00 ≤ ${String(COLOUR_LIMIT)}`);
     expect(DOC).toContain(`≤ ${String(SIZE_LIMIT_PX)}px`);

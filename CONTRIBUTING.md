@@ -36,8 +36,8 @@ hooks.
   check, gets a line under `## Changed checks` in the PR body; the CI guardrails job fails
   otherwise and re-runs when the PR description is edited.
 - CI `acceptance-gates` - a PR that changes a UI file (under `packages/web/` outside `test/`,
-  `gallery/` and `kit/`, or `docs/design-system-decisions.md`) needs `## Acceptance gates` in
-  its body. Write the head SHA each gate last passed on, or `n/a` for a gate the task does not
+  `gallery/` and `kit/`, or `docs/contributing/design-system-decisions.md`) needs
+  `## Acceptance gates` in its body. Write the head SHA each gate last passed on, or `n/a` for a gate the task does not
   use; an applicable gate that has not passed is never `n/a`, and with no passed head CI stays
   red until a human decides. The section holds only the `tester:` and `designer:` lines; any
   other line fails. The job fails while a UI file changed after a named head and re-runs when the
@@ -138,7 +138,7 @@ narrow `@spur-board/contracts/browser` entry; the build rejects server/catalog m
 its asset graph. React and React DOM ship in those assets; Vite remains build tooling.
 The daemon loads `web/` next to its bundle at startup. Use the assembled/installed package
 for daemon-backed serving; a source daemon does not read `packages/web/dist` directly, except a
-stand, which passes it as its web root (`docs/qa-stand.md`).
+stand, which passes it as its web root (`docs/contributing/qa-stand.md`).
 
 For controlled shell states, exercise the shell with
 `node scripts/web-shell-qa.ts --port 4780` through a disposable session sidecar after building.

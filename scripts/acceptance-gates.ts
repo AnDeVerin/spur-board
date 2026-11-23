@@ -15,7 +15,7 @@ type Gate = (typeof GATES)[number];
 
 /** A UI file: under `packages/web/` outside its top-level `test/`, `gallery/` and `kit/`. */
 export function isUiPath(path: string): boolean {
-  if (path === 'docs/design-system-decisions.md') return true;
+  if (path === 'docs/contributing/design-system-decisions.md') return true;
   return path.startsWith('packages/web/') && !/^packages\/web\/(?:test|gallery|kit)\//.test(path);
 }
 

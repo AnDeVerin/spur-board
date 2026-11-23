@@ -3,7 +3,7 @@
 // to CIELAB under D65, no chromatic adaptation); sizes by the absolute px difference; a unitless
 // value by the difference to the unitless tokens of its family (`--<name>-*`). Exit 0 for any
 // computed result, 2 for a value the script refuses. Thresholds, reason codes and routes:
-// docs/design-system-decisions.md.
+// docs/contributing/design-system-decisions.md.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -22,7 +22,7 @@ export const UNITLESS_LIMITS: Readonly<Record<string, number>> = {
 };
 
 const TOKENS = join(import.meta.dirname, '../packages/web/src/ds/tokens.css');
-const DOC = 'docs/design-system-decisions.md';
+const DOC = 'docs/contributing/design-system-decisions.md';
 const DARK_BLOCK = ':root {';
 const LIGHT_BLOCK = ":root[data-theme='light'] {";
 const TIE = 1e-9;

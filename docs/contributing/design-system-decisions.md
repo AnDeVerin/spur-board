@@ -1,7 +1,7 @@
 # Design system decisions
 
 A screen is built from a prototype under `design/prototypes/<slice>/` (layout and rules in
-[design/README.md](../design/README.md)). The prototype and the build differ in places: a part
+[design/README.md](../../design/README.md)). The prototype and the build differ in places: a part
 the prototype hand-built that the design system already has, a value with no token, a kit older
 than the current `packages/web/src/ds/`. This page says who is right in each case, the reason
 code to record, and the PR section where each difference is listed for review.
