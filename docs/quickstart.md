@@ -95,8 +95,10 @@ spur connect spur.yaml
 ```
 
 Copy the contents of `config.yaml` to `~/.config/spur-board/config.yaml` and replace the same
-values. Put `GITHUB_TOKEN=<your token>` in `~/.config/spur-board/secrets.env` with mode `0600`.
-Then check the config:
+values. If your repository runs no CI checks, uncomment `reposWithoutCi` now: without it, a pull
+request with no checks waits in Dev, and the daemon reads the config only when it starts. Put
+`GITHUB_TOKEN=<your token>` in `~/.config/spur-board/secrets.env` with mode `0600`. Then check the
+config:
 
 ```sh
 chmod 600 ~/.config/spur-board/secrets.env
@@ -147,8 +149,9 @@ board doctor
 **Success looks like:** the command exits 0 with no `FAIL` line. `WARNING web.spurUiOrigin` is
 expected without a Spur UI origin. `WARNING link.rules` is expected until the repository has a
 pull request by `operatorGithubLogin`; it never blocks
-([link.rules](../TROUBLESHOOTING.md#linkrules)). `path.spur` and `orchestrator.sessions` pass once the sessions
-are live; they warn when run before this step.
+([link.rules](../TROUBLESHOOTING.md#linkrules)). `path.spur` and `orchestrator.sessions` must
+show `PASS` once the sessions are live; they warn when run before this step, and a warning does
+not change the exit code.
 
 **If it fails:** an old Spur: [spur.version](../TROUBLESHOOTING.md#spurversion). A token without
 `read:org`, or not authorized for SSO:
@@ -156,8 +159,10 @@ are live; they warn when run before this step.
 token cannot read:
 [GitHub check runs or review teams lack access](../TROUBLESHOOTING.md#github-check-runs-or-review-teams-lack-access).
 No live reviewer session:
-[orchestrator.sessions](../TROUBLESHOOTING.md#orchestratorsessions). Spur not found on the
-service's `PATH`: [path.spur](../TROUBLESHOOTING.md#pathspur).
+[orchestrator.sessions](../TROUBLESHOOTING.md#orchestratorsessions). `WARNING path.spur` with
+live sessions means `board` is missing from the `PATH` those sessions see, so the agents cannot
+query the Board or submit their turns: install the package with that session's Node and a prefix
+on that `PATH`, then rerun the check ([path.spur](../TROUBLESHOOTING.md#pathspur)).
 
 ### 6. Open a GitHub issue
 
@@ -205,7 +210,8 @@ It lists a pull request whose body says `Closes #<N>`.
 
 **If it fails:** a task that stays in `todo` means the session is not linked:
 [Link worker sessions to tasks](../SETUP.md#6-link-worker-sessions-to-tasks). A pull request with no
-CI checks waits in Dev until you uncomment `reposWithoutCi` in `config.yaml`
+CI checks waits in Dev until `reposWithoutCi` lists the repository: uncomment it in `config.yaml`
+and run `board service restart`, because the daemon reads the config only when it starts
 ([config.yaml fields](configuration.md#configyaml-fields)). A task that stays in `dev` with
 `dev: no_pr` after the pull request opened has no linked pull request: its author is not
 `operatorGithubLogin`, or its branch and title do not match the link rules
@@ -258,8 +264,9 @@ In the `example-operator` session, ask it to run `board status`:
 Run board status and tell me the column and turn reason of example-org/example-repo#<N>.
 ```
 
-**Success looks like:** `example-operator` reports the task in `done` with the turn reason
-`done: wrap up`. The worker finishes its Done turn.
+**Success looks like:** `example-operator` reports the task in `done`. While the worker is still
+wrapping up, the task also has an open turn with the reason `done: wrap up`; once the worker
+finishes, the task stays in `done` with no open turn.
 
 **If it fails:** a task that stays in Review after the merge waits for the closed issue: check
 that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.
