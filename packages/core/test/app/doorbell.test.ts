@@ -1245,11 +1245,9 @@ describe('rings held in the Spur queue', () => {
 
 /**
  * One board project with a `qa` orchestrator on `dev`, a `cur` curator and an `ops` operator;
- * `dev` adds turn timing keys to the dev column.
- */
-/**
- * The policy board. `slack: false` leaves Slack and the operator's Slack handle out;
- * `operator: 'top-level'` makes `ops` the board-wide operator instead of the project's own.
+ * `dev` adds turn timing keys to the dev column. `board.slack: false` leaves Slack and the
+ * operator's Slack handle out; `board.operator: 'top-level'` makes `ops` the board-wide operator
+ * instead of the project's own.
  */
 function policyBoard(
   devOrchestrator = 'qa',
