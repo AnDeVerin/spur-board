@@ -22,9 +22,11 @@
   watch passes 4 s): a timeout is `transient`, a caller abort passes through unchanged. Spur keeps
   its own timers: 15 s for each `sessions/transitions` page, 5 s for `sessions` and
   `sessions/<id>`.
-- A failed Spur request throws `SpurRequestError` (`packages/adapters/src/spur/spur.ts`) with
-  `path` (no query), `page` (transitions only) and `durationMs`, never `code`. A successful Spur
-  request slower than half its timeout calls `warn`.
+- Every Spur poll failure tied to a request throws `SpurRequestError`
+  (`packages/adapters/src/spur/spur.ts`) with that request's `path` (no query), `page`
+  (transitions only) and `durationMs`, never `code`: a failed request, an HTTP status, and a
+  response that fails its wire schema or the feed's position checks. A successful Spur request
+  slower than half its timeout calls `warn`.
 - `schedule` (`packages/adapters/src/runner/runner.ts`) caps a poll wait at 2147483647 ms, the
   setTimeout limit; a longer one fires after 1 ms.
 - A source whose failure reaches the operator by code throws `AdapterError` with `code` from
