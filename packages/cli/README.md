@@ -10,11 +10,12 @@ server for agents, and optionally Slack for the human operator.
 ## What it needs
 
 Linux with systemd user services and `flock` (util-linux), Node 24.12+ (24.x) or 26.x, a running
-[Spur](https://github.com/ashugaev/spur) 1.53.0 or newer, a GitHub token (a classic token with
-the `repo` and `read:org` scopes for private repositories, see
+[Spur](https://github.com/ashugaev/spur) 1.53.0 or newer, a GitHub token (a classic personal
+access token with the scopes listed in
 [SETUP.md](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#configuration-and-secrets)),
-Jira credentials for Jira projects, and optionally a Slack app. The optional web console has no login of its own and
-needs an authenticating reverse proxy or an SSH tunnel to reach it from another machine.
+Jira credentials for Jira projects, and optionally a Slack app. The optional web console has no
+login of its own and needs an authenticating reverse proxy or an SSH tunnel to reach it from
+another machine.
 
 ## Start here
 

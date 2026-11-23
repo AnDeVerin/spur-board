@@ -163,7 +163,6 @@ describe('newcomer entry points', () => {
         'Node 24.12+ (24.x) or 26.x',
         `Spur ${SPUR_MIN_VERSION} or newer`,
         'a GitHub token',
-        'the `repo` and `read:org` scopes',
         'optionally a Slack app',
         'optional web console',
       ])
@@ -181,6 +180,13 @@ describe('newcomer entry points', () => {
       for (const at of first) expect(at).toBeGreaterThan(start);
       expect([...first].sort((a, b) => a - b)).toEqual(first);
     }
+    const tokenLinks = [read('README.md'), npmReadme].map(
+      (text) => /\]\(([^)]*SETUP\.md#[^)]*)\)/.exec(section(text, '## What it needs'))?.[1],
+    );
+    expect(tokenLinks).toEqual([
+      'SETUP.md#configuration-and-secrets',
+      `${blob}SETUP.md#configuration-and-secrets`,
+    ]);
   });
 
   it('links the npm README only to absolute URLs of existing repo files', () => {
