@@ -47,26 +47,16 @@ const SPAWN_LINE = new RegExp(
   String.raw`^spur spawn(?: ${FLAG})* (?<id>[A-Za-z0-9_-]+)(?: ${FLAG})* "[^"]*\S[^"]*"$`,
 );
 
-function capture() {
-  const out: string[] = [];
-  const err: string[] = [];
-  const io: CliIo = {
-    isTTY: false,
-    stdout: (text) => out.push(text),
-    stderr: (text) => err.push(text),
-  };
-  return { io, out, err };
-}
-
 async function doctor(readText?: (path: string) => string) {
-  const output = capture();
+  const out: string[] = [];
+  const io: CliIo = { isTTY: false, stdout: (text) => out.push(text), stderr: () => {} };
   const exitCode = await runCli(['doctor', '--offline', '--json'], {
-    io: output.io,
+    io,
     home: '/nonexistent-home',
     env: { BOARD_HOME: exampleHome },
     ...(readText === undefined ? {} : { doctor: { readText } }),
   });
-  const checks = JSON.parse(output.out.join('')) as DoctorCheck[];
+  const checks = JSON.parse(out.join('')) as DoctorCheck[];
   return { exitCode, checks };
 }
 
@@ -123,9 +113,7 @@ describe('examples/minimal shape', () => {
   it('is one Slack-free github-issues project with Todo, Dev, Review and Done', () => {
     const { config, project, byRole } = example();
     const raw = YAML.parse(configText) as Record<string, unknown>;
-    expect(Object.keys(raw)).not.toContain('slack');
-    expect(Object.keys(raw)).not.toContain('operator');
-    expect(Object.keys(raw)).not.toContain('web');
+    for (const key of ['slack', 'operator', 'web']) expect(Object.keys(raw)).not.toContain(key);
     expect(config.projects).toHaveLength(1);
     expect(project.tracker.type).toBe('github-issues');
     if (project.tracker.type !== 'github-issues') return;
