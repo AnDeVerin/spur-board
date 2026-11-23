@@ -96,7 +96,8 @@ revoke the identity, delete the App's private keys or remove the App from both b
 unset the variable.
 
 If the changelog commit lands on `main` but the tag push fails, the next push to `main` releases
-that version again and replaces its untagged CHANGELOG.md entry.
+again, at that version or higher if the new commits raise the bump, and its entry replaces the
+untagged CHANGELOG.md entry.
 
 ## Web shell
 
