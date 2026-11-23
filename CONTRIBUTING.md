@@ -118,8 +118,9 @@ needed for serving or assembling output outside tests.
 Components use CSS Modules and custom properties from `packages/web/src/ds/tokens.css`. Shared
 components live in `packages/web/src/ds/` and are imported through `ds/index.ts`. Keep prototype
 token names and values. Raw hex/RGB literals outside the token file fail the style policy test.
-Primary, secondary, tertiary and status text meet 4.5:1; the attention chip is a deliberate
-prototype exemption. The shell uses secondary text. A container with tertiary text
+Primary, secondary, tertiary and status text meet 4.5:1. The warn chip text takes
+`--color-text-attention` and meets 4.5:1 on its fill and on two stacked attention fills;
+`scripts/web.test.ts` checks both. The shell uses secondary text. A container with tertiary text
 takes the `quiet` class from `ds/index.ts`; the `design-system` skill describes the pattern.
 
 To add a design system component:
