@@ -32,10 +32,11 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   `scripts/update-smoke.ts` updates and rolls back a global install through a loopback registry
   and a fake `systemctl`; `scripts/smoke-live.ts` talks to real Slack and runs by hand only.
 
-A test that wires several packages reaches each one through one path: its name or a relative
-path, never both. Stryker runs tests in a sandbox copy whose `node_modules` link back to the
-original tree, so there the two paths load two module copies, each with its own module state
-(`packages/stand/test/pr-recovery.integration.test.ts`).
+A test that wires several packages loads each runtime module through one path: its package name
+or a relative path, never both; type-only imports are exempt. Stryker runs tests in a sandbox
+copy whose `node_modules` link back to the original tree, so there the two paths load two copies
+of the module, each with its own state, as core's `AsyncLocalStorage` in
+`packages/core/src/app/secrets.ts` did (`packages/stand/test/pr-recovery.integration.test.ts`).
 
 ## Fakes, not module mocks
 
