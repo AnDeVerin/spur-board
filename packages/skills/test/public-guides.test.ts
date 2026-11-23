@@ -180,11 +180,26 @@ describe('public guide contents', () => {
     const facts: [number, string, boolean][] = [
       [7, '`links.prs`', 'prs' in task.links.shape],
       [9, '`review_on_head` gate met on the current head', /^\s*review_on_head: \{/m.test(gates)],
-      [9, '--why', true],
     ];
     for (const [n, fact, exists] of facts) {
       expect(exists, fact).toBe(true);
       expect(flat(step(n)), `step ${String(n)}: ${fact}`).toContain(fact);
+    }
+  });
+
+  it('asks the operator session only for registered board commands and flags', () => {
+    // skill-sync skips `text` fences, so check the requests to example-operator here, against the
+    // generated command reference.
+    const cli = read('../../../docs/cli.md');
+    const requests = [...quickstart.matchAll(/```text\n([\s\S]*?)```/g)].map((m) => m[1] ?? '');
+    const invocations = requests.flatMap((text) => [...text.matchAll(/\bboard ([a-z][^.\n]*)/g)]);
+    expect(invocations.length).toBeGreaterThan(0);
+    for (const [whole, rest = ''] of invocations) {
+      const words = rest.split(/\s+/);
+      const command = words[0] ?? '';
+      const flags = words.filter((word) => word.startsWith('--'));
+      const reference = section(cli, `### \`board ${command}\``);
+      for (const flag of flags) expect(reference, `${whole}: ${flag}`).toContain(`\`${flag}\``);
     }
   });
 
