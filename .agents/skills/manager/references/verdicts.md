@@ -48,8 +48,8 @@ Step numbers are the Loop steps in `references/gates.md`.
   Otherwise, per gate, `<passed head>` is the head of its last tester PASS or designer APPROVED,
   never a FAIL or CHANGES_REQUESTED head. No passed head, or
   `git diff --no-renames --name-only <passed head>..HEAD` (as CI) has a path under
-  `packages/web/` outside `test/`, `gallery/` and `kit/`; `docs/design-system-decisions.md`; or,
-  for an issue naming `design/prototypes/<slice>/`, that folder or the step 11 pairs file -> that
+  `packages/web/` outside `test/`, `gallery/` and `kit/`;
+  `docs/contributing/design-system-decisions.md`; or, for an issue naming `design/prototypes/<slice>/`, that folder or the step 11 pairs file -> that
   gate runs, in step order, from a worktree at HEAD, once per gate per task, outside its cap:
   `<verdict> on <sha> (final head)`.
   FAIL or CHANGES_REQUESTED -> `developer`; reruns count toward the cap, recorded after the

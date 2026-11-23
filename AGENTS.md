@@ -45,7 +45,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
   the named scenarios `seed` and `up --scenario` set up live in `src/scenarios/`; `recordings/`
   holds the live responses the fakes are checked against. Production packages never import it;
   the boundary lint is in `eslint.config.js`. Skills: `qa-stand`, `qa-seed` and `qa-report`;
-  sidecar example in `docs/qa-stand.md`.
+  sidecar example in `docs/contributing/qa-stand.md`.
 - `packages/testkit` - the shared Vitest harness: environment scrub, network guard, fresh
   production web assets for each run, prepared before workers, and a start-of-run sweep of
   dead runs' temp roots. Skill: `testing-and-ci`.
@@ -56,7 +56,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `design/` - screen prototypes, never built into the app or packed: `prototypes/<slice>/` mounts
   design system components from the git-ignored kit that `pnpm ds:build` writes; layout and rules
   in `design/README.md`, a minimal slice in `design/prototypes/_sample/`; building a screen from
-  one: skill `prototype`, decisions in `docs/design-system-decisions.md`.
+  one: skill `prototype`, decisions in `docs/contributing/design-system-decisions.md`.
 - A PR that adds a package or a root script updates this map. Adding a package, a dependency
   or a cross-package import: skill `working-in-the-monorepo`.
 
@@ -91,7 +91,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
   and build info) into the git-ignored kit folder under design/; see `design/README.md`.
 - `pnpm ds:nearest '<hex>' ['<light hex>'] | <n>px | <number> --family <name>` - nearest design
   token per theme and an in/out verdict; thresholds and reason codes in
-  `docs/design-system-decisions.md`.
+  `docs/contributing/design-system-decisions.md`.
 - `pnpm package:build` - build the web shell, bundle the CLI and daemon, then copy the binary,
   migrations and web assets.
 - `pnpm package:pack [directory]` - build, pack, and validate the npm tarball.

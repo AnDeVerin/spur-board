@@ -7,7 +7,7 @@ description: Build a screen from a prototype in design/prototypes/ - read and ru
 
 A prototype under `design/prototypes/<slice>/` is the spec for a screen. Who is right when the
 prototype and the design system differ, the reason codes and the PR section format live in
-`docs/design-system-decisions.md`; read it before the part map.
+`docs/contributing/design-system-decisions.md`; read it before the part map.
 
 ## Read and run
 
@@ -21,7 +21,7 @@ prototype and the design system differ, the reason codes and the PR section form
 ## Map before code
 
 - Before writing code, list each part of the screen: part, the ds component that covers it (or
-  none), and its reason code from `docs/design-system-decisions.md`.
+  none), and its reason code from `docs/contributing/design-system-decisions.md`.
 - A kit older than the current `packages/web/src/ds/` is checked with the older kit command in
   that doc, including its ancestor check.
 - A part shared by two or more screens, or listed as design system in the prototype README, goes
@@ -29,19 +29,20 @@ prototype and the design system differ, the reason codes and the PR section form
   ds components and tokens.
 - Any change under `packages/web/src/ds/` also loads the `design-system` skill.
 - A part from the README's Proposed parts table, and each control inside it, follows
-  `## Proposed parts` in `docs/design-system-decisions.md`.
+  `## Proposed parts` in `docs/contributing/design-system-decisions.md`.
 
 ## Values
 
 - Every `--proposed-*` value and every literal gets a decision: an existing token or a new one,
   named in `packages/web/src/ds/tokens.css` with a value in both themes. A structural literal
   and a media query width take the `structural literal` and `breakpoint` codes instead
-  (`docs/design-system-decisions.md`).
+  (`docs/contributing/design-system-decisions.md`).
 - Decide with `pnpm ds:nearest '<hex>'`, `pnpm ds:nearest '<dark hex>' '<light hex>'`,
   `pnpm ds:nearest <n>px` or `pnpm ds:nearest <number> --family <name>`; quote a hex.
   `verdict: in` with a token of the value's family means `nearest token`; otherwise look for an
   equal token of the value's family in `tokens.css` before `new token` (family rule in
-  `docs/design-system-decisions.md`). A refused value follows the route the script prints.
+  `docs/contributing/design-system-decisions.md`). A refused value follows the route the script
+  prints.
 
 ## Build
 
@@ -63,7 +64,7 @@ prototype and the design system differ, the reason codes and the PR section form
   (method in `gitflow`, History) and use the export.
 - Fill `## Design System decisions` in the PR body: one row per difference with its reason code
   and evidence, or the single line `None`. The format and a filled example are in
-  `docs/design-system-decisions.md`.
+  `docs/contributing/design-system-decisions.md`.
 - In a manager run, `tester` takes the pairs
   (`.agents/skills/qa-report/references/prototype-vs-build.md`); return the filled section after
   your output block.

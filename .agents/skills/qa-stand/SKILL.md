@@ -5,8 +5,8 @@ description: Run a disposable board stand for QA - up, down, status, logs, roles
 
 # QA stand
 
-A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-stand.md`).
-`pnpm stand help` prints every command and flag; this card keeps the rules, traps and order.
+A stand is a disposable board with fake Slack, Spur and GitHub APIs
+(`docs/contributing/qa-stand.md`). `pnpm stand help` prints every command and flag; this card keeps the rules, traps and order.
 
 ## Lifecycle
 
@@ -16,7 +16,7 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
   `controlUrl` and the seeded `scenario`. Keep `home`.
 - The JSON adds `webUrl` when the live `web.publicOrigin` has `{port}`; otherwise `up` says so
   on stderr and the stand is API-only. Build the UI first and `reset` after a rebuild
-  (`docs/qa-stand.md`, Browser QA).
+  (`docs/contributing/qa-stand.md`, Browser QA).
 - Commands find stands under the real path of `TMPDIR`: run them all with one `TMPDIR`. One live
   stand is picked by itself; several need `--home <dir>`.
 - Check the stand with `pnpm stand status` and read its logs with `pnpm stand logs`.
@@ -24,7 +24,7 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
   (`qa-report`).
 - `up` prunes dead stands; `down` acts on one stand. `pnpm stand down` every stand you started,
   on pass, fail or error; check with `pnpm stand status` that none is left.
-- A sidecar runs `pnpm stand up --foreground` (`docs/qa-stand.md`). Stop it with
+- A sidecar runs `pnpm stand up --foreground` (`docs/contributing/qa-stand.md`). Stop it with
   `pnpm stand down`, then stop the sidecar; a sidecar stop alone keeps the home: remove it with
   `pnpm stand down --home <dir>`.
 
@@ -34,7 +34,7 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
   default is `operator`. `--as` and `--home` go right after `board` or `mcp`:
   `pnpm stand board --as worker status`; later they pass to the board CLI.
 - The session each role carries, and the scenarios that change it: read `references/roles.md`.
-- Drive `pnpm stand mcp` from a shell with the example in `docs/qa-stand.md`.
+- Drive `pnpm stand mcp` from a shell with the example in `docs/contributing/qa-stand.md`.
 - The wrapper refuses `service`, `update`, `rollback`, `skills` and `token create` with exit 2:
   they act on the real machine or write outside the stand. Test token-file flows in
   `packages/core/test/api/cli-integration.test.ts`.

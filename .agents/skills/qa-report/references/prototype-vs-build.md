@@ -12,7 +12,7 @@ prototype state next to the built screen, in both themes, and give each pair a v
 
 - The handoff carries the prototype folder, the states to compare and the decisions section: the
   filled `## Design System decisions` section the developer returned
-  (`docs/design-system-decisions.md`).
+  (`docs/contributing/design-system-decisions.md`).
 - No states in the handoff: take the list from the issue, else every row of the slice README
   States table.
 - No decisions section: every visible difference is `finding`, and the report says the section
@@ -33,8 +33,8 @@ prototype state next to the built screen, in both themes, and give each pair a v
 ## The build
 
 - Open the build only at the `webUrl` that `pnpm stand up` printed through the board-stand
-  Sidecar (`qa-stand`, `docs/qa-stand.md`); never the live board's web address, never a loopback
-  server of the build.
+  Sidecar (`qa-stand`, `docs/contributing/qa-stand.md`); never the live board's web address,
+  never a loopback server of the build.
 - No stand `webUrl` -> FAIL with the reason "no stand webUrl"; a dry run needs none.
 - The browser tool cannot run, or cannot reach 127.0.0.1 -> FAIL with that reason.
 - Exception: a change whose visible UI is only in `packages/web/src/ds/` (the prototype

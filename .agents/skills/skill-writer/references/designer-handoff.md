@@ -8,7 +8,7 @@
 3. Layout - alignment, no overflow or clipping, works at narrow widths; changed controls reachable
    by keyboard with visible focus.
 4. Prototype - only when the handoff names `design/prototypes/<slice>/`. Read the slice README
-   and `docs/design-system-decisions.md`. Each part comes from an export of
+   and `docs/contributing/design-system-decisions.md`. Each part comes from an export of
    `packages/web/src/ds/index.ts` or has a `screen-local` row. Flag copied prototype markup or CSS:
    `proto.css` class names, `proposed-` or `data-proposed`, imports from `design/`. A visible
    difference with no row in the decisions section, or a row with an invalid reason code, is
@@ -20,5 +20,5 @@
    "merge `main` at `<sha>` and use `<Name>`".
 5. DS changes - only when the handoff carries the branch's `packages/web/src/ds/` patch. Each
    API change in it has its own decisions row with the code from `## Design system changes` in
-   `docs/design-system-decisions.md`; a missing row, a wrong code, `None` or no section is
-   MUST FIX.
+   `docs/contributing/design-system-decisions.md`; a missing row, a wrong code, `None` or no
+   section is MUST FIX.

@@ -14,7 +14,7 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 - Prototypes mount the same components from the kit as `DS.<Name>`; layout and rules:
   `design/README.md`.
 - Building a screen from a prototype: `prototype` skill; prototype vs `ds/` differences and reason
-  codes: `docs/design-system-decisions.md`.
+  codes: `docs/contributing/design-system-decisions.md`.
 
 ## Component rules
 
@@ -40,7 +40,7 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
   exact pin), not hand-written measuring (#776). CSS-only placement against the part's own
   trigger, as in `HoverMenu`, is exempt.
 - A ds API change takes its own decisions row, returned after your output in a manager
-  run: `docs/design-system-decisions.md`, `## Design system changes`.
+  run: `docs/contributing/design-system-decisions.md`, `## Design system changes`.
 
 ## Tokens and themes
 
@@ -49,8 +49,8 @@ description: Rules for packages/web/src/ds/ - components, examples, tokens, them
 - Dark is the default; light applies under `data-theme="light"` on the root element. Light
   overrides only `--color-*`.
 - Styles use tokens only, except structural literals and `@media` widths from `breakpoints`
-  (`docs/design-system-decisions.md`). A raw hex or `rgb()` color outside `tokens.css` fails
-  `scripts/web.test.ts`, which also scans the gallery sources.
+  (`docs/contributing/design-system-decisions.md`). A raw hex or `rgb()` color outside
+  `tokens.css` fails `scripts/web.test.ts`, which also scans the gallery sources.
 
 ## Kit and gallery
 
