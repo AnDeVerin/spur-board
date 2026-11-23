@@ -731,6 +731,86 @@ describe('Spur adapter', () => {
       await poll;
       expect(warn).not.toHaveBeenCalled();
     });
+
+    const badProjectPage = () =>
+      response({
+        entries: [
+          {
+            cursor: 'p1',
+            sessionId: wire.id,
+            project: 'my project',
+            at: at(0),
+            links: [],
+            kind: 'state',
+            from: 'working',
+            to: 'waiting',
+          },
+        ],
+        nextCursor: 'p1',
+        hasMore: false,
+      });
+    it.each([
+      {
+        name: 'a transitions timeout names its request',
+        transitions: hang,
+        afterMs: 15_000,
+        kind: 'transient',
+        place: {
+          message: 'Spur request timed out on sessions/transitions page 1 after 15000 ms',
+          path: 'sessions/transitions',
+          page: 1,
+          durationMs: 15_000,
+        },
+      },
+      {
+        name: 'a network failure names its request',
+        transitions: () => Promise.reject(new TypeError('fetch failed')),
+        afterMs: 0,
+        kind: 'transient',
+        place: {
+          message: 'Spur request failed on sessions/transitions page 1 after 0 ms',
+          path: 'sessions/transitions',
+          page: 1,
+          durationMs: 0,
+        },
+      },
+      {
+        // A transition that passes the wire schema but fails the contract schema.
+        name: 'an unknown error passes through unchanged',
+        transitions: () => Promise.resolve(badProjectPage()),
+        afterMs: 0,
+        kind: 'unexpected',
+        place: undefined,
+      },
+    ] as {
+      name: string;
+      transitions: (init: RequestInit | undefined) => Promise<Response>;
+      afterMs: number;
+      kind: PollFailure['kind'];
+      place: Record<string, unknown> | undefined;
+    }[])('$name', async (row) => {
+      const failures: PollFailure[] = [];
+      const runner = startRunner({
+        entries: [{ adapter: routed(row.transitions) }],
+        core: createFakeCore(),
+        config: defaults,
+        now: () => Date.now(),
+        onFailure: (failure) => failures.push(failure),
+      });
+      runners.push(runner);
+      await vi.advanceTimersByTimeAsync(row.afterMs);
+      expect(failures[0]).toMatchObject({ source: 'spur', step: 'poll', kind: row.kind });
+      const error = failures[0]?.error;
+      if (row.place === undefined) {
+        expect(error).not.toBeInstanceOf(AdapterError);
+        expect(error).not.toHaveProperty('path');
+        expect(error).not.toHaveProperty('durationMs');
+      } else {
+        expect(error).toBeInstanceOf(AdapterError);
+        expect(error).toMatchObject({ kind: row.kind, ...row.place });
+        expect(error).not.toHaveProperty('code', expect.anything());
+      }
+    });
   });
 
   it('cancels an in-flight request without returning a batch', async () => {
