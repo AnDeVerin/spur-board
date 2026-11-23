@@ -575,7 +575,9 @@ export async function reconcileItems(
     const newest = mergedAt.get(pr.task_id) ?? null;
     if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest)))
       mergedAt.set(pr.task_id, at);
-    mergedByTask.set(pr.task_id, [...(mergedByTask.get(pr.task_id) ?? []), { ...pr, facts, at }]);
+    const bucket = mergedByTask.get(pr.task_id);
+    if (bucket === undefined) mergedByTask.set(pr.task_id, [{ ...pr, facts, at }]);
+    else bucket.push({ ...pr, facts, at });
   }
   for (const [taskId, merged] of mergedByTask)
     for (const pr of eligibleMerges(merged)) {
