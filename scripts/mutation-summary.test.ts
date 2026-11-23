@@ -1,11 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { mergeMutationReports, summarizeMutation } from './mutation-summary.ts';
+import { mergeMutationReports, replaceHtmlReport, summarizeMutation } from './mutation-summary.ts';
 
 function mutants(...statuses: string[]) {
   return statuses.map((status, index) => ({ id: String(index), mutatorName: 'X', status }));
@@ -54,11 +54,97 @@ describe('summarizeMutation', () => {
 });
 
 describe('mergeMutationReports', () => {
+  const common = {
+    schemaVersion: '1.0',
+    thresholds: { high: 80, low: 60 },
+    projectRoot: '/repo',
+    framework: { name: 'StrykerJS', version: '10.1.1' },
+  };
+  const test = (id: string, name: string, line: number) => ({
+    id,
+    name,
+    location: { start: { line, column: 1 } },
+  });
+
   it('joins the files of every shard report', () => {
     const a = { files: { 'a.ts': { mutants: mutants('Killed') } } };
     const b = { files: { 'b.ts': { mutants: mutants('Survived') } } };
 
     expect(mergeMutationReports([a, b])).toEqual({ files: { ...a.files, ...b.files } });
+  });
+
+  it('keeps the shared fields, drops the shard mutate and renumbers the tests', () => {
+    const gates = {
+      ...common,
+      config: { mutate: ['gates.ts'], concurrency: 4 },
+      testFiles: {
+        'gates.test.ts': { source: 'g', tests: [test('0', 'gate', 3)] },
+        'shared.test.ts': { source: 's', tests: [test('1', 'shared', 7)] },
+      },
+      files: {
+        'gates.ts': {
+          language: 'typescript',
+          mutants: [
+            { id: '0', status: 'Killed', coveredBy: ['0', '1'], killedBy: ['1'] },
+            { id: '1', status: 'NoCoverage', coveredBy: [] },
+          ],
+        },
+      },
+    };
+    const rest = {
+      ...common,
+      config: { mutate: ['**/*.ts', '!gates.ts'], concurrency: 4 },
+      testFiles: {
+        'shared.test.ts': { source: 's', tests: [test('0', 'shared', 7), test('1', 'other', 9)] },
+      },
+      files: {
+        'rest.ts': {
+          language: 'typescript',
+          mutants: [{ id: '0', status: 'Survived', coveredBy: ['1', '0'] }],
+        },
+      },
+    };
+
+    expect(mergeMutationReports([gates, rest])).toEqual({
+      ...common,
+      config: { concurrency: 4 },
+      testFiles: {
+        'gates.test.ts': { source: 'g', tests: [test('0', 'gate', 3)] },
+        'shared.test.ts': { source: 's', tests: [test('1', 'shared', 7), test('2', 'other', 9)] },
+      },
+      files: {
+        'gates.ts': gates.files['gates.ts'],
+        'rest.ts': {
+          language: 'typescript',
+          mutants: [{ id: '0', status: 'Survived', coveredBy: ['2', '1'] }],
+        },
+      },
+    });
+  });
+
+  it('rejects shards that differ in a shared field or in config beyond mutate', () => {
+    const report = (extra: object) => ({ ...common, ...extra, files: {} });
+
+    expect(() =>
+      mergeMutationReports([report({}), report({ thresholds: { high: 90, low: 60 } })]),
+    ).toThrow('the shards differ in thresholds');
+    expect(() => mergeMutationReports([report({}), report({ system: { ci: true } })])).toThrow(
+      'the shards differ in system',
+    );
+    expect(() =>
+      mergeMutationReports([
+        report({ config: { mutate: ['a.ts'], concurrency: 4 } }),
+        report({ config: { mutate: ['b.ts'], concurrency: 2 } }),
+      ]),
+    ).toThrow('differ in config beyond mutate');
+  });
+
+  it('rejects a mutant that names a test its shard does not list', () => {
+    const report = {
+      files: { 'a.ts': { mutants: [{ id: '0', status: 'Killed', killedBy: ['5'] }] } },
+    };
+
+    expect(() => mergeMutationReports([report])).toThrow('a.ts names unknown test 5');
   });
 
   it('rejects a file named by two reports and a report without files', () => {
@@ -68,6 +154,37 @@ describe('mergeMutationReports', () => {
     expect(() => mergeMutationReports([a, { schemaVersion: '2' }])).toThrow(
       'missing a files object',
     );
+  });
+});
+
+/** The script part of a Stryker 10 HTML page (html-reporter.js) around its report line. */
+function strykerHtml(reportLiteral: string): string {
+  return [
+    '<script>',
+    "      const app = document.querySelector('mutation-test-report-app');",
+    `      app.report = ${reportLiteral};`,
+    '      function updateTheme() {',
+    '</script>',
+  ].join('\n');
+}
+
+describe('replaceHtmlReport', () => {
+  it('replaces the embedded report and breaks up tags as Stryker does', () => {
+    const report = { files: { 'a.ts': { source: 'if (a </script> b) $& $1' } } };
+    const page = replaceHtmlReport(strykerHtml('{"files":{}}'), report);
+
+    expect(page).toBe(strykerHtml(JSON.stringify(report).replace(/</g, '<"+"')));
+    expect(page).not.toContain('</script> b');
+    const literal = page.split('app.report = ')[1]?.split(';\n')[0] ?? '';
+    expect(JSON.parse(literal.replaceAll('<"+"', '<'))).toEqual(report);
+  });
+
+  it('rejects a page without exactly one report line', () => {
+    expect(() => replaceHtmlReport('<html></html>', {})).toThrow('exactly one');
+    expect(() => replaceHtmlReport(strykerHtml('{}') + strykerHtml('{}'), {})).toThrow(
+      'exactly one',
+    );
+    expect(() => replaceHtmlReport('app.report = {}\n', {})).toThrow('does not end with ";"');
   });
 });
 
@@ -114,6 +231,40 @@ describe('mutation-summary.ts CLI', () => {
     const repeated = run([first, first]);
     expect(repeated.status).toBe(1);
     expect(repeated.stderr).toContain('a.ts is in two reports');
+  });
+
+  it('writes the merged mutation.json and mutation.html with --out', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mutation-summary-'));
+    const a = { files: { 'a.ts': { mutants: mutants('Killed') } } };
+    const b = { files: { 'b.ts': { mutants: mutants('Survived') } } };
+    for (const [name, report] of [
+      ['gates', a],
+      ['rest', b],
+    ] as const) {
+      mkdirSync(join(dir, 'shards', name), { recursive: true });
+      writeFileSync(join(dir, 'shards', name, 'mutation.json'), JSON.stringify(report));
+      writeFileSync(
+        join(dir, 'shards', name, 'mutation.html'),
+        strykerHtml(JSON.stringify(report)),
+      );
+    }
+    const out = join(dir, 'mutation');
+    const shards = ['gates', 'rest'].map((name) => join(dir, 'shards', name, 'mutation.json'));
+
+    const result = run(['--out', out, ...shards]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Total score: 50.00%');
+    const merged = { files: { ...a.files, ...b.files } };
+    expect(JSON.parse(readFileSync(join(out, 'mutation.json'), 'utf8'))).toEqual(merged);
+    expect(readFileSync(join(out, 'mutation.html'), 'utf8')).toBe(
+      strykerHtml(JSON.stringify(merged)),
+    );
+
+    writeFileSync(join(dir, 'shards', 'gates', 'mutation.html'), '<html></html>');
+    const broken = run(['--out', join(dir, 'broken'), ...shards]);
+    expect(broken.status).toBe(1);
+    expect(broken.stderr).toContain('exactly one');
+    expect(run(['--out']).status).toBe(2);
   });
 });
 

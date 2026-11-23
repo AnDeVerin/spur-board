@@ -1,6 +1,7 @@
 // Turns Stryker JSON reports (mutation-testing-report-schema), one per mutation shard, into one
-// Markdown job summary.
-import { readFileSync } from 'node:fs';
+// Markdown job summary and, with --out, one merged JSON report and HTML page.
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 const COLUMNS = ['Killed', 'Timeout', 'Survived', 'No coverage', 'Ignored', 'Errors'] as const;
 type Column = (typeof COLUMNS)[number];
@@ -68,33 +69,159 @@ export function summarizeMutation(report: unknown): string {
   ].join('\n');
 }
 
-/**
- * One report from the reports of the mutation shards: their `files` objects joined. Each shard
- * mutates its own files, so a file named by two reports throws.
- */
-export function mergeMutationReports(reports: readonly unknown[]): {
-  files: Record<string, unknown>;
-} {
-  const files: Record<string, unknown> = {};
-  for (const report of reports) {
-    const shard = isRecord(report) ? report['files'] : undefined;
-    if (!isRecord(shard)) throw new Error('mutation report: missing a files object');
-    for (const [name, entry] of Object.entries(shard)) {
-      if (name in files) throw new Error(`mutation report: ${name} is in two reports`);
-      files[name] = entry;
-    }
-  }
-  return { files };
+/** Top-level report fields the merge rebuilds; every other field must be the same in each shard. */
+const MERGED_FIELDS = new Set(['files', 'testFiles', 'config']);
+
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function main(paths: string[]): number {
-  if (paths.length === 0) {
-    console.error('usage: node scripts/mutation-summary.ts <report.json>...');
+function remapIds(ids: unknown, testIds: Map<string, string>, file: string): unknown {
+  if (ids === undefined) return undefined;
+  if (!Array.isArray(ids))
+    throw new Error(`mutation report: ${file} has a mutant with bad test ids`);
+  return ids.map((id) => {
+    const merged = typeof id === 'string' ? testIds.get(id) : undefined;
+    if (merged === undefined)
+      throw new Error(`mutation report: ${file} names unknown test ${String(id)}`);
+    return merged;
+  });
+}
+
+/**
+ * One full report from the reports of the mutation shards. Each shard mutates its own files, so a
+ * file named by two reports throws. Stryker numbers tests per run, so the tests get new ids: one
+ * per test file, name and location, shared by the shards that ran it, and the mutants' `coveredBy`
+ * and `killedBy` follow. The shard configs differ only in `mutate`, which the merged config drops;
+ * any other field that differs between shards throws.
+ */
+export function mergeMutationReports(reports: readonly unknown[]): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  const files: Record<string, unknown> = {};
+  const testFiles: Record<string, { tests: unknown[] } & Record<string, unknown>> = {};
+  const idByTest = new Map<string, string>();
+  let config: Record<string, unknown> | undefined;
+  for (const [index, report] of reports.entries()) {
+    const shard = isRecord(report) ? report['files'] : undefined;
+    if (!isRecord(report) || !isRecord(shard)) {
+      throw new Error('mutation report: missing a files object');
+    }
+    const fields = Object.entries(report).filter(([key]) => !MERGED_FIELDS.has(key));
+    if (index === 0) Object.assign(merged, Object.fromEntries(fields));
+    for (const key of new Set([...Object.keys(merged), ...fields.map(([key]) => key)])) {
+      if (!sameJson(merged[key], report[key])) {
+        throw new Error(`mutation report: the shards differ in ${key}`);
+      }
+    }
+    const shardConfig = { ...(isRecord(report['config']) ? report['config'] : {}) };
+    delete shardConfig['mutate'];
+    if (index > 0 && !sameJson(config, shardConfig)) {
+      throw new Error('mutation report: the shards differ in config beyond mutate');
+    }
+    config = shardConfig;
+
+    const testIds = new Map<string, string>();
+    const shardTests = isRecord(report['testFiles']) ? report['testFiles'] : {};
+    for (const [name, entry] of Object.entries(shardTests)) {
+      const tests = isRecord(entry) ? entry['tests'] : undefined;
+      if (!isRecord(entry) || !Array.isArray(tests)) {
+        throw new Error(`mutation report: test file ${name} has no tests array`);
+      }
+      const target = (testFiles[name] ??= { ...entry, tests: [] });
+      for (const test of tests) {
+        if (!isRecord(test) || typeof test['id'] !== 'string') {
+          throw new Error(`mutation report: test file ${name} has a test without an id`);
+        }
+        const key = JSON.stringify([name, test['name'], test['location']]);
+        let id = idByTest.get(key);
+        if (id === undefined) {
+          id = String(idByTest.size);
+          idByTest.set(key, id);
+          target.tests.push({ ...test, id });
+        }
+        testIds.set(test['id'], id);
+      }
+    }
+
+    for (const [name, entry] of Object.entries(shard)) {
+      if (Object.hasOwn(files, name)) throw new Error(`mutation report: ${name} is in two reports`);
+      const mutants = isRecord(entry) ? entry['mutants'] : undefined;
+      if (!isRecord(entry) || !Array.isArray(mutants)) {
+        throw new Error(`mutation report: ${name} has no mutants array`);
+      }
+      files[name] = {
+        ...entry,
+        mutants: mutants.map((mutant: unknown) => {
+          if (!isRecord(mutant)) return mutant;
+          const coveredBy = remapIds(mutant['coveredBy'], testIds, name);
+          const killedBy = remapIds(mutant['killedBy'], testIds, name);
+          return {
+            ...mutant,
+            ...(coveredBy === undefined ? {} : { coveredBy }),
+            ...(killedBy === undefined ? {} : { killedBy }),
+          };
+        }),
+      };
+    }
+  }
+  if (config !== undefined && Object.keys(config).length > 0) merged['config'] = config;
+  if (Object.keys(testFiles).length > 0) merged['testFiles'] = testFiles;
+  merged['files'] = files;
+  return merged;
+}
+
+const HTML_MARKER = 'app.report = ';
+
+/**
+ * A shard's self-contained Stryker HTML page with its embedded report replaced by `report`, so
+ * the merged report needs no Stryker install. Stryker 10's html reporter writes the report as one
+ * `app.report = <json>;` line, with `<` broken up as its `escapeHtmlTags` does
+ * (`@stryker-mutator/core` `dist/src/reporters/html-reporter.js`); throws unless the page has that
+ * line exactly once.
+ */
+export function replaceHtmlReport(html: string, report: unknown): string {
+  const start = html.indexOf(HTML_MARKER);
+  if (start === -1 || html.indexOf(HTML_MARKER, start + 1) !== -1) {
+    throw new Error(`mutation report: the HTML page needs exactly one "${HTML_MARKER}" line`);
+  }
+  const from = start + HTML_MARKER.length;
+  const end = html.indexOf(';\n', from);
+  const newline = html.indexOf('\n', from);
+  if (end === -1 || end + 1 !== newline) {
+    throw new Error('mutation report: the HTML report line does not end with ";"');
+  }
+  const json = JSON.stringify(report).replace(/</g, '<"+"');
+  return html.slice(0, from) + json + html.slice(end);
+}
+
+const USAGE = 'usage: node scripts/mutation-summary.ts [--out <dir>] <report.json>...';
+
+/**
+ * Prints the summary of the shard reports. With `--out`, also writes the merged `mutation.json`
+ * and `mutation.html` to that directory; the page comes from the `mutation.html` next to the
+ * first report.
+ */
+function main(args: string[]): number {
+  const outIndex = args.indexOf('--out');
+  const out = outIndex === -1 ? undefined : args[outIndex + 1];
+  const paths =
+    outIndex === -1 ? args : args.filter((_, i) => i !== outIndex && i !== outIndex + 1);
+  if (paths.length === 0 || (outIndex !== -1 && (out === undefined || out.startsWith('-')))) {
+    console.error(USAGE);
     return 2;
   }
   try {
     const reports = paths.map((path) => JSON.parse(readFileSync(path, 'utf8')) as unknown);
-    process.stdout.write(summarizeMutation(mergeMutationReports(reports)));
+    const merged = mergeMutationReports(reports);
+    const summary = summarizeMutation(merged);
+    if (out !== undefined) {
+      const html = readFileSync(join(dirname(paths[0] ?? ''), 'mutation.html'), 'utf8');
+      const page = replaceHtmlReport(html, merged);
+      mkdirSync(out, { recursive: true });
+      writeFileSync(join(out, 'mutation.json'), JSON.stringify(merged));
+      writeFileSync(join(out, 'mutation.html'), page);
+    }
+    process.stdout.write(summary);
     return 0;
   } catch (error) {
     console.error(`mutation-summary: cannot summarize ${paths.join(' ')}`, error);

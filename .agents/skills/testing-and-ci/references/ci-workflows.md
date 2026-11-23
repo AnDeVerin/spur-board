@@ -50,7 +50,8 @@
 - Size the mutation shards from a measured full run: the weekly cache is usually evicted, so
   most runs are full. Split the files over matrix shards until each fits its job timeout; the
   last shard negates the files the others name, so a new domain file is still mutated, and the
-  `summary` job joins the shard reports (`.github/workflows/mutation.yml`,
+  `summary` job joins the shard reports into one JSON report and one HTML page, swapping the
+  merged report into a shard's page (`.github/workflows/mutation.yml`,
   `scripts/mutation-summary.test.ts`). Keep `ignoreStatic` (a static mutant reruns every related
   test) and the `progress-append-only` reporter, which tells a stall from a slow run in the log
   (`stryker.config.json`). Bump the incremental cache key prefix when a Stryker option changes
