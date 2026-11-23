@@ -92,7 +92,11 @@ describe('mirrored Backlog part on the board', () => {
     expect(notice('todo')).toBeNull();
     expect(all('main [role="status"]')).toHaveLength(1);
     press(toggle(), 'click');
-    expect(all(`main section${css('groupSection')}`)).toHaveLength(3);
+    const stacked = all(`main section${css('groupSection')}`);
+    expect(stacked).toHaveLength(3);
+    expect(stacked[0]).toBe(part('ready-for-dev'));
+    expect(stacked[0]?.querySelector('h3')?.textContent).toBe('ready-for-dev');
+    expect(stacked[0]?.contains(notice('ready-for-dev') ?? null)).toBe(true);
     expect(notice('ready-for-dev')?.textContent).toBe(`Mirror not readable: frozen${DETAIL}`);
     expect(keysIn('ready-for-dev')).toEqual(['ex/repo#4']);
     expect(actor('ready-for-dev').textContent).toBe('mirror · Roadmap · frozen');

@@ -135,6 +135,13 @@ describe('Backlog group', () => {
     expect(band().querySelector(css('count'))?.textContent).toBe('3');
     expect(text(group().querySelectorAll('h3'))).toEqual(['todo', 'ready-for-dev']);
     expect(text(all('main h2'))).toEqual(['Backlog', 'dev', 'done']);
+    press(toggle(), 'click');
+    expect(sections().map((section) => section.querySelector('h3')?.textContent)).toEqual([
+      'ready-for-dev',
+      'todo',
+    ]);
+    press(toggle(), 'click');
+    expect(text(group().querySelectorAll('h3'))).toEqual(['todo', 'ready-for-dev']);
   });
 
   it('three parts: the band totals all three in config order', async () => {
@@ -181,14 +188,19 @@ describe('Backlog group', () => {
     expect(stack()).toHaveLength(1);
     expect(parts()).toBeNull();
     expect(sections().map((section) => section.querySelector('h3')?.textContent)).toEqual([
-      'todo',
-      'triage',
       'ready-for-dev',
+      'triage',
+      'todo',
     ]);
-    const [todo, triage] = sections();
+    const [, triage, todo] = sections();
     expect(triage?.textContent).toContain('empty');
     expect(triage?.querySelector('[role="group"]')).toBeNull();
-    expect(sortGroups()).toEqual(['Sort todo', 'Sort ready-for-dev', 'Sort dev', 'Sort done']);
+    expect(sortGroups()).toEqual(['Sort ready-for-dev', 'Sort todo', 'Sort dev', 'Sort done']);
+    expect(
+      [...group().querySelectorAll<HTMLAnchorElement>('a[href^="?open="]')].map((link) =>
+        link.getAttribute('href'),
+      ),
+    ).toEqual(['?open=R-1', '?open=T-1', '?open=T-2']);
     expect(
       [...(todo?.querySelectorAll<HTMLAnchorElement>('a[href^="?open="]') ?? [])].map((link) =>
         link.getAttribute('href'),

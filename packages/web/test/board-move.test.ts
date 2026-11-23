@@ -269,6 +269,26 @@ describe('move between Backlog parts: a fold', () => {
   const fold = () => {
     press(one('main section[aria-labelledby] h2 button'), 'click');
   };
+  it('folded, the card menu lists the parts closest to Dev first; unfolded, config order', async () => {
+    const { moves } = await board();
+    const listed = () => {
+      press(trigger(), 'click');
+      const shown = items().map((item) => item.textContent);
+      press(document.body, 'keydown', { key: 'Escape' });
+      return shown;
+    };
+    expect(listed()).toEqual(['Move to triage…', 'Move to ready-for-dev…']);
+    fold();
+    expect(listed()).toEqual(['Move to ready-for-dev…', 'Move to triage…']);
+    press(trigger(), 'click');
+    const [first] = items();
+    if (first) press(first, 'click');
+    expect(form().querySelector('label')?.textContent).toBe('Move #1 to ready-for-dev: reason');
+    press(buttonIn(form(), 'Cancel'), 'click');
+    fold();
+    expect(listed()).toEqual(['Move to triage…', 'Move to ready-for-dev…']);
+    expect(moves).toEqual([]);
+  });
   it('a fold keeps the reason, the pending send and the key', async () => {
     const { d, moves } = await board();
     d.routes['task.move'] = failure;
