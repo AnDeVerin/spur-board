@@ -178,15 +178,18 @@ function emptyAllowed(entry: CatalogMutation): boolean {
   return true;
 }
 
-// The `operator` grant on `inbox.ack` exists for turn takeover: the operator token acking any
-// other entry is refused at authorization, so the denial is journaled as before the grant.
+// The `operator` grant on `inbox.ack` exists for turn takeover and for a block addressed to the
+// operator, which rings its Spur session without Slack: the operator token acking any other
+// entry is refused at authorization, so the denial is journaled as before the grant.
 function operatorAckRefused(entry: CatalogMutation, actor: ActorId, target: ResolvedTarget) {
-  return (
-    entry.id === 'inbox.ack' &&
-    actor === 'operator' &&
-    target.kind === 'found' &&
-    target.id?.startsWith('T') !== true
-  );
+  if (entry.id !== 'inbox.ack' || actor !== 'operator' || target.kind !== 'found') return false;
+  if (target.id?.startsWith('T') === true) return false;
+  const block = target.value.block;
+  const operatorBlock =
+    target.id?.startsWith('B') === true &&
+    block?.addressee_role === 'operator' &&
+    (block.addressee_spur_project ?? null) === null;
+  return !operatorBlock;
 }
 
 /** Parse, replay, authorize, then apply one catalog mutation in one transaction. */
@@ -269,7 +272,7 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
               const decision = operatorAckRefused(entry, actor, target)
                 ? {
                     status: 'denied' as const,
-                    hint: 'The operator token acks only turns: board inbox ack T<number>.',
+                    hint: 'The operator token acks only turns and blocks to operator: board inbox ack T<number> or B<number>.',
                   }
                 : authorize(entry.grants, actor, {
                     config,

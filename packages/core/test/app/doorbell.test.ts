@@ -227,7 +227,7 @@ async function workerBlock(store: Store): Promise<string> {
       })
       .returningAll()
       .executeTakeFirstOrThrow();
-    await registerBlockNotification(trx, block, new Date(START));
+    await registerBlockNotification(trx, block, new Date(START), config);
     return `B${String(block.id)}`;
   });
 }
@@ -1247,10 +1247,17 @@ describe('rings held in the Spur queue', () => {
  * One board project with a `qa` orchestrator on `dev`, a `cur` curator and an `ops` operator;
  * `dev` adds turn timing keys to the dev column.
  */
+/**
+ * The policy board. `slack: false` leaves Slack and the operator's Slack handle out;
+ * `operator: 'top-level'` makes `ops` the board-wide operator instead of the project's own.
+ */
 function policyBoard(
   devOrchestrator = 'qa',
   dev: { quietTurnAfterMs?: number; noRecipientAfterMs?: number } = {},
+  board: { slack?: boolean; operator?: 'project-level' | 'top-level' } = {},
 ): Config {
+  const ops = { name: 'ops', role: 'operator' } as const;
+  const topLevel = board.operator === 'top-level';
   return configSchema.parse({
     projects: [
       {
@@ -1262,7 +1269,7 @@ function policyBoard(
           { name: 'web', role: 'worker' },
           { name: 'qa', role: 'orchestrator' },
           { name: 'cur', role: 'curator' },
-          { name: 'ops', role: 'operator' },
+          ...(topLevel ? [] : [ops]),
         ],
         columns: [
           { id: 'todo', orchestrator: 'none' },
@@ -1275,8 +1282,8 @@ function policyBoard(
         ],
       },
     ],
-    operator: { slack: 'operator' },
-    slack: SLACK_ON,
+    ...(topLevel ? { spurProjects: [ops] } : {}),
+    ...(board.slack === false ? {} : { operator: { slack: 'operator' }, slack: SLACK_ON }),
     digest: { tz: 'UTC' },
   });
 }
@@ -4753,6 +4760,237 @@ describe('project question doorbells', () => {
       },
     ]);
   });
+});
+
+describe('operator doorbells without Slack', () => {
+  const offBoard = policyBoard('qa', {}, { slack: false });
+  const operatorColumnBoard = policyBoard('operator', {}, { slack: false });
+  const T1 = { entries: [{ id: 'T1' }] };
+  const blockAck = (id: string) => ({ entries: [{ id }] });
+  const askProject = (ctx: Board, actor: ActorId) =>
+    ctx.apply(
+      ctx.ops.projectAsk,
+      { project: 'proj', to: 'operator', text: 'Restart?' },
+      actor,
+      'q',
+    );
+
+  function openOperatorTurn(ctx: Board) {
+    return scanTransaction(ctx.store, ctx.config, async (trx) => {
+      const task = await trx
+        .selectFrom('task')
+        .selectAll()
+        .where('id', '=', 1)
+        .executeTakeFirstOrThrow();
+      return openTurn(trx, {
+        task,
+        reason: 'Merge it',
+        handed: [],
+        at: ctx.now(),
+        config: ctx.config,
+      });
+    });
+  }
+
+  async function escalateToOperator(ctx: Board): Promise<string> {
+    const blockId = await workerBlock(ctx.store);
+    await ctx.apply(ctx.ops.escalate, { block: blockId }, worker, 'escalate');
+    return blockId;
+  }
+
+  const operatorNotices = async (ctx: Board) =>
+    (await notices(ctx)).filter((notice) => notice.role === 'operator');
+
+  it('rings the operator session once for a question escalated to the operator', async () => {
+    const ctx = await setup({ config: offBoard, column: 'qa' });
+    await addSession(ctx, 'cur-1', 'cur');
+    await addSession(ctx, 'ops-1', 'ops');
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    await step(ctx);
+    await ctx.apply(ctx.ops.escalate, { block: asked.block.id }, 'agent:cur/cur-1', 'esc');
+    await step(ctx);
+
+    expect(sessionsRung(ctx)).toEqual(['cur-1', 'ops-1']);
+    const [notice] = await operatorNotices(ctx);
+    expect(ctx.sent[1]?.text).toBe(
+      `${KEY} block ${asked.block.id}: check board inbox operator (N${String(notice?.id)}-1)`,
+    );
+    await ctx.apply(ctx.ops.answer, { block: asked.block.id, text: 'Yes.' }, 'operator', 'ans');
+    ctx.advance(2_000_000);
+    await step(ctx);
+    // The answer rings the asking worker; the operator session hears nothing more.
+    expect(sessionsRung(ctx)).toEqual(['cur-1', 'ops-1', 'worker-1']);
+    expect((await operatorNotices(ctx))[0]?.acked_at).not.toBeNull();
+  });
+
+  it('rings the operator session for an operator turn until it is taken', async () => {
+    const ctx = await setup({ config: operatorColumnBoard });
+    await addSession(ctx, 'ops-1', 'ops');
+    expect((await openOperatorTurn(ctx)).role).toBe('operator');
+    await step(ctx);
+
+    const [notice] = await operatorNotices(ctx);
+    expect(ctx.sent).toEqual([
+      {
+        session: 'ops-1',
+        text: `${KEY} turn T1: check board inbox operator (N${String(notice?.id)}-1)`,
+      },
+    ]);
+    expect(await ctx.store.db.selectFrom('operator_item').select('item_key').execute()).toEqual([
+      { item_key: 'turn:1' },
+    ]);
+    await expect(ctx.apply(ctx.ops.ack, T1, 'agent:ops/ops-1', 'ack-t1')).resolves.toEqual({
+      acked: ['T1'],
+    });
+    expect((await operatorNotices(ctx))[0]?.acked_at).toBe(ctx.now().toISOString());
+    ctx.advance(2_000_000);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+  });
+
+  it.each(['project-level', 'top-level'] as const)(
+    'rings the %s operator session for a taskless ask, and nobody for its own ask',
+    async (operator) => {
+      const board = policyBoard('qa', {}, { slack: false, operator });
+      const ctx = await setup({ config: board });
+      await addSession(ctx, 'ops-1', 'ops');
+      const { block } = await askProject(ctx, worker);
+      await step(ctx);
+      const [notice] = await operatorNotices(ctx);
+      expect(ctx.sent).toEqual([
+        {
+          session: 'ops-1',
+          text: `proj (project) block ${block.id}: check board inbox operator (N${String(notice?.id)}-1)`,
+        },
+      ]);
+
+      const own = await setup({ config: board });
+      await addSession(own, 'ops-1', 'ops');
+      await askProject(own, 'agent:ops/ops-1');
+      await step(own);
+      expect(own.sent).toEqual([]);
+      expect(await operatorNotices(own)).toEqual([]);
+    },
+  );
+
+  it('keeps an operator block due and unsent while no operator session lives', async () => {
+    const ctx = await setup({ config: offBoard });
+    const blockId = await escalateToOperator(ctx);
+    await step(ctx);
+    ctx.advance(2_000_000);
+    await step(ctx);
+
+    expect(ctx.sent).toEqual([]);
+    expect(await operatorNotices(ctx)).toEqual([
+      expect.objectContaining({ recipient_session: null, exhausted_at: null, acked_at: null }),
+    ]);
+    expect(await itemKinds(ctx)).toEqual([]);
+    const block = await ctx.store.db
+      .selectFrom('block')
+      .select('addressee_role')
+      .where('id', '=', Number(blockId.slice(1)))
+      .executeTakeFirstOrThrow();
+    expect(block.addressee_role).toBe('operator');
+  });
+
+  it('ends three unanswered operator rings with a journal row and no item', async () => {
+    const ctx = await setup({ config: offBoard });
+    await addSession(ctx, 'ops-1', 'ops');
+    await escalateToOperator(ctx);
+    for (const pause of [0, 120_000, 300_000, 900_000]) {
+      ctx.advance(pause);
+      await step(ctx);
+    }
+
+    expect(sessionsRung(ctx)).toEqual(['ops-1', 'ops-1', 'ops-1']);
+    const [notice] = await operatorNotices(ctx);
+    expect(notice?.exhausted_at).not.toBeNull();
+    expect(await journalled(ctx, 'doorbell_undelivered')).toEqual([
+      { actor: 'system', payload: { doorbell: `N${String(notice?.id)}`, reason: 'unanswered' } },
+    ]);
+    expect(await itemKinds(ctx)).toEqual([]);
+  });
+
+  it('stops the rings when the operator session acks the block', async () => {
+    const ctx = await setup({ config: offBoard });
+    await addSession(ctx, 'ops-1', 'ops');
+    const blockId = await escalateToOperator(ctx);
+    await step(ctx);
+    await expect(
+      ctx.apply(ctx.ops.ack, blockAck(blockId), 'agent:ops/ops-1', 'ack-session'),
+    ).resolves.toEqual({ acked: [blockId] });
+    ctx.advance(2_000_000);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['ops-1']);
+  });
+
+  it('lets the operator token ack an operator block and an operator turn', async () => {
+    const ctx = await setup({ config: offBoard });
+    await addSession(ctx, 'ops-1', 'ops');
+    const blockId = await escalateToOperator(ctx);
+    await step(ctx);
+    await expect(
+      ctx.apply(ctx.ops.ack, blockAck(blockId), 'operator', 'ack-token'),
+    ).resolves.toEqual({ acked: [blockId] });
+    expect((await operatorNotices(ctx))[0]?.acked_at).toBe(ctx.now().toISOString());
+    ctx.advance(2_000_000);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+
+    const turnBoard = await setup({ config: operatorColumnBoard });
+    await addSession(turnBoard, 'ops-1', 'ops');
+    await openOperatorTurn(turnBoard);
+    await step(turnBoard);
+    await expect(
+      turnBoard.apply(turnBoard.ops.ack, T1, 'operator', 'ack-token-turn'),
+    ).resolves.toEqual({ acked: ['T1'] });
+    expect((await operatorNotices(turnBoard))[0]?.acked_at).toBe(turnBoard.now().toISOString());
+    const turn = await turnBoard.store.db
+      .selectFrom('turn')
+      .select('acked_by')
+      .executeTakeFirstOrThrow();
+    expect(turn.acked_by).toBe('operator');
+  });
+
+  it('refuses the operator token a block addressed to a worker', async () => {
+    const ctx = await setup({ config: offBoard });
+    const blockId = await workerBlock(ctx.store);
+    await expect(
+      ctx.apply(ctx.ops.ack, blockAck(blockId), 'operator', 'ack-worker-block'),
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+      hint: expect.stringContaining('T<number>') as unknown,
+    });
+    const denied = await ctx.store.db
+      .selectFrom('event')
+      .select('id')
+      .where('kind', '=', 'operation_denied')
+      .execute();
+    expect(denied).toHaveLength(1);
+  });
+
+  it.each(['block', 'turn'] as const)(
+    'writes no operator %s notification while Slack is on',
+    async (kind) => {
+      const ctx =
+        kind === 'block'
+          ? await setup({ config: policyConfig, column: 'qa' })
+          : await setup({ config: policyBoard('operator') });
+      await addSession(ctx, 'ops-1', 'ops');
+      if (kind === 'block') {
+        await addSession(ctx, 'cur-1', 'cur');
+        const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+        await ctx.apply(ctx.ops.escalate, { block: asked.block.id }, 'agent:cur/cur-1', 'esc');
+      } else {
+        await openOperatorTurn(ctx);
+      }
+      ctx.advance(2_000_000);
+      await step(ctx);
+
+      expect((await notices(ctx)).filter((n) => n.source_key.endsWith(':operator'))).toEqual([]);
+      expect(sessionsRung(ctx)).not.toContain('ops-1');
+    },
+  );
 });
 
 describe('operator conversation doorbells', () => {

@@ -51,7 +51,7 @@ export function turnHanded(turn: Pick<Turn, 'handed'>): Handed[] {
   return parseJson(handedSchema, turn.handed);
 }
 
-/** The newest notification of a turn; an operator turn has none. */
+/** The newest notification of a turn; an operator turn has one only without Slack. */
 export async function turnNotification(trx: Trx, turnId: number) {
   return trx
     .selectFrom('notification')
@@ -65,7 +65,8 @@ export async function turnNotification(trx: Trx, turnId: number) {
 /**
  * Opens a turn for the executor of the task's current column. The unclosed turn of the same
  * visit is returned unchanged; an unclosed turn of an earlier visit is closed as moved first.
- * An agent executor gets a ringing notification, the operator one `turn` item.
+ * An agent executor gets a ringing notification, the operator one `turn` item and, without
+ * Slack, a ring to its Spur session.
  */
 export async function openTurn(
   trx: Trx,
@@ -147,9 +148,8 @@ export async function openTurn(
       blockId: null,
       at,
     });
-  } else {
-    await registerTurnNotification(trx, turn, at, { config, opener });
   }
+  await registerTurnNotification(trx, turn, at, { config, opener });
   return turn;
 }
 
@@ -158,7 +158,7 @@ export async function openTurn(
  * needs its unread notification addressed to the actor; a taken orchestrator turn may be taken
  * over by whoever its notification is now addressed to. An operator on the task's project may
  * take any open orchestrator turn, taken or not, and any turn addressed to the operator, taken or
- * not, with no notification step; anyone else gets false for an operator turn. Others get
+ * not, as a takeover of its ring; anyone else gets false for an operator turn. Others get
  * `forbidden`.
  * Every take starts a new ownership episode: an unsent reminder of an earlier one is acked, so
  * `ringStillCurrent` drops its ring, and an active wait ends `closed`.
@@ -175,6 +175,8 @@ export async function takeTurn(
   const takeover = orchestrated && isOperator(actor, config, project);
   if (turn.role === 'operator') {
     if (!isOperator(actor, config, project)) return false;
+    // Without Slack the operator turn rang a Spur session: any operator's take reads it.
+    await acknowledgeNotification(trx, { ...input, takeover: true });
   } else if (turn.acked_at === null) {
     if (!(await acknowledgeNotification(trx, { ...input, takeover }))) return false;
   } else if (!orchestrated) {

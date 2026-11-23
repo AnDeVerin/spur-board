@@ -35,7 +35,8 @@ keep it.
 Slack is optional. To run without it, skip the Slack app and leave `operator` and `slack` out of
 `config.yaml`; the Board then writes nothing for Slack and delivers Spur doorbells as usual. A
 Spur project with role `operator` is the operator: questions addressed to you wait in
-`board inbox operator` and the web inbox. An operator under `projects[].spurProjects` sees only
+`board inbox operator` and the web inbox, and a block or turn addressed to you also rings the
+live session of that operator project. An operator under `projects[].spurProjects` sees only
 that project; with several Board projects, list a single operator in top-level `spurProjects`
 instead, which serves every project that lists no operator of its own. Items and blocks raised
 while Slack is off get no Slack line when you add Slack later. To turn Slack off on an existing install, also remove

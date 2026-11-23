@@ -62,7 +62,7 @@ An operator takes a turn addressed to it, or takes over an open orchestrator
 turn, taken or not, with keyed
 `board inbox ack <entries>`, then submits or returns it, or does both from the web
 [Turn](web-ui-task-turn.md) section. The earlier holder gets
-`not_turn_taker`, then `turn_closed`. The takeover is not sticky: the addressed
+`not_turn_taker`, then `turn_closed`. The addressed
 orchestrator can ack the turn back.
 
 Open-turn executors in `needs_input`, `error`, `rate_limited` or `stopped` raise
@@ -99,7 +99,7 @@ queue defer repeats. Queues can exhaust their waiting window.
 Most notices await recipients; taskless worker, orchestrator and operator-agent
 answers end without a live asking session. Curator and course-check orchestrator
 questions fall back to operator. Operator conversations await their project.
-Exhaustion alerts the operator, except removals and quiet-turn reminders;
+Exhaustion alerts the operator, except removals, quiet-turn reminders and operator rings;
 curator questions move to operator.
 
 A taken turn is reminded, then flagged stuck, after `health.idleInDevAfterMs` of quiet;

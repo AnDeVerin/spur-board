@@ -177,6 +177,9 @@ describe('public guide contents', () => {
     const [readme, setup, troubleshooting] = publicGuides.map((text) => text.replace(/\s+/g, ' '));
     expect(readme).toContain('optionally a Slack app');
     expect(setup).toContain('Slack is optional.');
+    expect(setup).toContain(
+      'a block or turn addressed to you also rings the live session of that operator project',
+    );
     expect(setup).toContain('leave `operator` and `slack` out of `config.yaml`');
     expect(setup).toContain('Add `operator.slack` back before `board rollback`');
     expect(setup).toContain('also remove `SLACK_BOT_TOKEN` and `SLACK_API_URL` from `secrets.env`');

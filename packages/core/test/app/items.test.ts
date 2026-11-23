@@ -243,7 +243,7 @@ async function exhaust(ctx: Ctx, kind: 'block' | 'answer'): Promise<number> {
         })
         .returningAll()
         .executeTakeFirstOrThrow();
-      await registerBlockNotification(trx, block, new Date(START));
+      await registerBlockNotification(trx, block, new Date(START), config);
     });
   } else {
     const asked = await ctx.apply(blocks.ask, { task: KEY, text: 'Which version?' }, AGENT, 'ask');

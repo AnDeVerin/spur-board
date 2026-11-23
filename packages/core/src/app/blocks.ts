@@ -483,7 +483,12 @@ export async function openBlock(
   await journal(trx, subject, ctx, 'block_opened', { block: blockId(row.id), type, addressee });
   await applyDoorbellPolicy(
     trx,
-    { kind: 'block_opened', block: row, authorRole: authorRole(config, subject, ctx.actor) },
+    {
+      kind: 'block_opened',
+      block: row,
+      authorRole: authorRole(config, subject, ctx.actor),
+      config,
+    },
     new Date(ctx.at),
   );
   return row;

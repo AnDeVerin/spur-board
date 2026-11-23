@@ -8,11 +8,12 @@ import {
   type Config,
   type EventPayload,
   type SessionFacts,
+  slackConfigured,
 } from '@spur-board/contracts';
 import { sql, type ExpressionBuilder } from 'kysely';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
 import type { Row, Tables } from '../store/schema.ts';
-import { curatorProject } from './authorize.ts';
+import { curatorProject, isOperator } from './authorize.ts';
 import { queueBlockOpen } from './block-thread.ts';
 import { emit, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext } from './commands.ts';
@@ -20,7 +21,7 @@ import { clearItem, raiseItem } from './feed.ts';
 import { TASKLESS_ITEM_URL } from './item-raise.ts';
 import { enqueueDoorbell, promoteWorkerDoorbells } from './outbox.ts';
 import { scanTransaction } from './secrets.ts';
-import { rowSubject, taskSubject, type BlockSubject } from './subject.ts';
+import { blockSubject, rowSubject, taskSubject, type BlockSubject } from './subject.ts';
 import type { Store } from '../store/store.ts';
 
 type Notification = Row<'notification'>;
@@ -30,8 +31,8 @@ type Session = Row<'session_snapshot'>;
 
 /** What happened to a block or comment, as far as doorbells care. */
 type DoorbellEvent =
-  | { kind: 'block_opened'; block: Block; authorRole: AddresseeRole }
-  | { kind: 'block_escalated'; block: Block }
+  | { kind: 'block_opened'; block: Block; authorRole: AddresseeRole; config: Config }
+  | { kind: 'block_escalated'; block: Block; config: Config }
   | {
       kind: 'answer';
       block: Block;
@@ -65,16 +66,17 @@ async function journal<K extends 'doorbell_rung' | 'doorbell_read' | 'doorbell_u
 export async function applyDoorbellPolicy(trx: Trx, event: DoorbellEvent, at: Date): Promise<void> {
   switch (event.kind) {
     case 'block_opened': {
-      // A block addressed to its own author's role waits on an outside party.
+      // A block addressed to its own author's role waits on an outside party; an operator's own
+      // ask to the operator, the token's included, rings nobody.
       const ownRole =
-        parseActorId(event.block.author)?.actor === 'agent' &&
-        event.block.addressee_role === event.authorRole;
-      if (!ownRole) await registerBlockNotification(trx, event.block, at);
+        event.block.addressee_role === event.authorRole &&
+        (event.authorRole === 'operator' || parseActorId(event.block.author)?.actor === 'agent');
+      if (!ownRole) await registerBlockNotification(trx, event.block, at, event.config);
       return;
     }
     case 'block_escalated':
       await closeBlockNotification(trx, event.block.id, at, 'system');
-      await registerBlockNotification(trx, event.block, at);
+      await registerBlockNotification(trx, event.block, at, event.config);
       return;
     case 'answer':
       await registerAnswerNotification(trx, event, at);
@@ -93,9 +95,21 @@ export async function applyDoorbellPolicy(trx: Trx, event: DoorbellEvent, at: Da
   }
 }
 
-/** Register a block for its agent addressee; the Slack thread carries an operator's. */
-export async function registerBlockNotification(trx: Trx, block: Block, at: Date): Promise<void> {
-  if (block.addressee_role === 'operator') return;
+/**
+ * Register a block for its addressee. With Slack the thread carries an operator's block; without
+ * it the operator Spur project's session is rung (`ringsOperatorSession`).
+ */
+export async function registerBlockNotification(
+  trx: Trx,
+  block: Block,
+  at: Date,
+  config: Config,
+): Promise<void> {
+  if (
+    block.addressee_role === 'operator' &&
+    !ringsOperatorSession(config, (await blockSubject(trx, block)).project)
+  )
+    return;
   await trx
     .insertInto('notification')
     .values({
@@ -119,10 +133,10 @@ export async function registerBlockNotification(trx: Trx, block: Block, at: Date
 }
 
 /**
- * Register an agent executor's turn. Core opens a turn, so no session authored it: the worker
- * or column orchestrator the board selects is rung. A turn opened by the operation of the
- * session it would ring first rings only after `doorbells.firstRetryMs`, so an ack in that time
- * sends nothing.
+ * Register a turn's ring. Core opens a turn, so no session authored it: the worker, column
+ * orchestrator or, without Slack, operator session the board selects is rung; with Slack an
+ * operator turn gets no row. A turn opened by the operation of the session it would ring first
+ * rings only after `doorbells.firstRetryMs`, so an ack in that time sends nothing.
  */
 export async function registerTurnNotification(
   trx: Trx,
@@ -130,6 +144,14 @@ export async function registerTurnNotification(
   at: Date,
   opts: { config: Config; opener?: ActorId | undefined },
 ): Promise<void> {
+  if (
+    turn.role === 'operator' &&
+    !ringsOperatorSession(
+      opts.config,
+      (await rowSubject(trx, { task_id: turn.task_id, block_id: null })).project,
+    )
+  )
+    return;
   const nextAt = (await heldForOpener(trx, turn, opts))
     ? new Date(at.getTime() + opts.config.doorbells.firstRetryMs)
     : at;
@@ -563,7 +585,11 @@ export async function moveBlockToAddressee(
     },
     ctx.actor,
   );
-  await applyDoorbellPolicy(trx, { kind: 'block_escalated', block: updated }, new Date(ctx.at));
+  await applyDoorbellPolicy(
+    trx,
+    { kind: 'block_escalated', block: updated, config },
+    new Date(ctx.at),
+  );
   await queueBlockOpen(trx, taskSubject(task), updated, ctx, config);
   return updated;
 }
@@ -714,6 +740,27 @@ function columnOrchestratorProject(
 }
 
 /**
+ * The Spur project acting as operator on a board project: its own, else the board-wide one, else
+ * null.
+ */
+function operatorSpurProject(config: Config, projectId: string): string | null {
+  const own = config.projects
+    .find((project) => project.id === projectId)
+    ?.spurProjects.find((spur) => spur.role === 'operator');
+  return own?.name ?? config.spurProjects.find((spur) => spur.role === 'operator')?.name ?? null;
+}
+
+/** Whether a block or turn to the operator rings a Spur session: no Slack, and an operator project. */
+function ringsOperatorSession(config: Config, projectId: string): boolean {
+  return !slackConfigured(config) && operatorSpurProject(config, projectId) !== null;
+}
+
+/** Whether a notification is a block or turn ring to the operator's Spur session. */
+function operatorRing(n: Pick<Notification, 'role' | 'kind'>): boolean {
+  return n.role === 'operator' && (n.kind === 'block' || n.kind === 'turn');
+}
+
+/**
  * Select the current live recipient for a semantic notification. A turn reminder reaches only
  * the session it names, while that session lives.
  */
@@ -746,6 +793,9 @@ export async function selectNotificationRecipient(
     }
     case 'worker':
     case 'operator': {
+      // A block or turn ring goes to the operator project; an answer to the session that asked.
+      if (addressee.kind === 'operator' && (n.kind === 'block' || n.kind === 'turn'))
+        return bestProjectSession(trx, operatorSpurProject(config, await noticeProject(trx, n)));
       const author =
         n.author_session === null ? undefined : await liveSession(trx, n.author_session);
       if (author !== undefined || addressee.kind === 'operator') return author;
@@ -832,7 +882,12 @@ async function endNotification(
       ctx: { actor: 'system', at: at.toISOString() },
       config,
     });
-  } else if (n.kind !== 'removed' && n.kind !== 'turn_reminder' && session !== null) {
+  } else if (
+    n.kind !== 'removed' &&
+    n.kind !== 'turn_reminder' &&
+    !operatorRing(n) &&
+    session !== null
+  ) {
     const blockRef = noticeRef(n, subject);
     const answer = `Answer to ${blockRef} was not`;
     const holder = `${addressee.kind} ${session}`;
@@ -952,7 +1007,8 @@ async function ringText(
   ring: number,
 ): Promise<string> {
   const suffix = ringMarker(n.id, ring);
-  if (n.kind === 'turn') return `${key} turn T${String(n.turn_id)}: check board inbox ${suffix}`;
+  const inbox = operatorRing(n) ? 'board inbox operator' : 'board inbox';
+  if (n.kind === 'turn') return `${key} turn T${String(n.turn_id)}: check ${inbox} ${suffix}`;
   if (n.kind === 'turn_reminder' && n.turn_id !== null && isTurnWakeKey(n.source_key)) {
     const turn = await trx
       .selectFrom('turn')
@@ -967,7 +1023,7 @@ async function ringText(
     return `${key} turn T${String(n.turn_id)} is still open: check board inbox ${suffix}`;
   const blockId = noticeBlockId(n);
   if (n.kind !== 'removed') {
-    return `${key} block B${String(blockId)}: check board inbox ${suffix}`;
+    return `${key} block B${String(blockId)}: check ${inbox} ${suffix}`;
   }
   const block = await trx
     .selectFrom('block')
@@ -1012,7 +1068,8 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
     .execute();
   for (const n of due) {
     const session = await selectNotificationRecipient(trx, n, config);
-    const keepsRings = resolvedByProject(n.role) || (await conversationTarget(trx, n)) !== null;
+    const keepsRings =
+      resolvedByProject(n.role) || operatorRing(n) || (await conversationTarget(trx, n)) !== null;
     if (session === undefined) {
       const reason = await noRecipientEnd(trx, n);
       if (reason !== null) {
@@ -1355,6 +1412,8 @@ export async function notificationAddressedTo(
   actor: ActorId,
   config: Config,
 ): Promise<boolean> {
+  // A block or turn ring to the operator is read by the token or any operator session.
+  if (operatorRing(n)) return isOperator(actor, config, await noticeProject(trx, n));
   const parsed = parseActorId(actor);
   if (parsed?.actor !== 'agent') return false;
   const { project, session } = parsed.actorRef;
