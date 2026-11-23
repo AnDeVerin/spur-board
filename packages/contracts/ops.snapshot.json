@@ -1,5 +1,5 @@
 {
-  "version": "ef3c133183ccd9ef000dacbd0c066002e1e37fe76568b74aa5b2b1b29adc5880",
+  "version": "1194bf33f91f72761a1faad9528eff9016e939cd37d9cb48e568d8c262d3586f",
   "grants": [
     "operator",
     "project-agent",
@@ -8007,7 +8007,7 @@
       "mcp": {
         "name": "inbox_ack",
         "key": "idempotencyKey",
-        "whenToUse": "Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a block ID addressed to the operator that rang its Spur session (no Slack), or a turn ID to take a turn addressed to the operator, or to take over an open orchestrator turn, taken or not.",
+        "whenToUse": "Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID, with or without Slack, to take a turn addressed to the operator or to take over an open orchestrator turn, taken or not. Without Slack and with an operator Spur project, it also acks a block ID addressed to the operator, whether or not its ring was sent yet.",
         "whenNotToUse": "Use inbox_get to inspect them first; the operator finds the turns addressed to it with inbox_operator.",
         "destructive": true
       },

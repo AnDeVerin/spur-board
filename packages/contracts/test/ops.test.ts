@@ -1008,7 +1008,7 @@ describe('snapshot', () => {
     // description, guidance and block example: the operator acks a block addressed to it that
     // rang its session.
     expect(await catalogVersion(baseline)).toBe(
-      '902575d74a301727bd18e273d1ae4e0ab515199698fa849f375c4e209f0bcd00',
+      'caf58f081b04f561034b54233bae7f3c2053ab8201fe1ab21de8dc60b2759150',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

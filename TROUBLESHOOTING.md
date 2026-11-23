@@ -466,9 +466,10 @@ the config, the item counts as the Board's. `board inbox operator` and `board st
 item for the same operators that may retry or close it. Operations open
 only to project agents, such as `board ask`, still need the session's Spur project listed under
 that task's Board project. `board inbox ack` is also open to the operator; the operator token
-acks only turns (`T<n>`: orchestrator turns and turns addressed to the operator) and
-blocks addressed to the operator (`B<n>`) when the Board rang the operator Spur project's
-session for them, that is without Slack. Linking a session to a task from its pull
+acks only turns and operator blocks. It acks any orchestrator turn or turn addressed to the
+operator by its `T<n>`, with or without Slack. It acks a block addressed to the operator by
+its `B<n>` only without Slack and with an operator Spur project, when the Board keeps an
+operator ring for the block, whether or not the ring was sent yet. Linking a session to a task from its pull
 request or branch needs its Spur project listed with `role: worker` under that task's Board
 project; a `board-worker` link label works from any Spur project.
 
