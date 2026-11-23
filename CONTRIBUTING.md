@@ -82,9 +82,11 @@ commit on, in this order:
    choose `Only on this account`, turn the webhook off, and give it the repository permission
    `Contents: Read and write` and nothing else (GitHub adds Metadata read-only). Install it only
    on `spur-board`.
-2. Generate a private key for the App and store it as the secret `RELEASE_APP_PRIVATE_KEY` in the
-   `npm` environment. Store the App's client ID as the repository variable
-   `RELEASE_APP_CLIENT_ID`.
+2. Check that the `npm` environment allows deployments only from the `main` branch (Deployment
+   branches and tags: "Selected branches and tags", with `main` as the only rule); a workflow on
+   any other branch could otherwise read the key. Then generate a private key for the App and
+   store it as the secret `RELEASE_APP_PRIVATE_KEY` in the `npm` environment. Store the App's
+   client ID as the repository variable `RELEASE_APP_CLIENT_ID`.
 3. Add the App to the bypass list of both rulesets, `main` and `main-review`, with the mode
    `Always allow`.
 4. Set the repository variable `RELEASE_CHANGELOG_COMMIT` to `true`, in lowercase. Each release
