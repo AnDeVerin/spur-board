@@ -96,7 +96,13 @@ const CHANGELOG = new URL('../CHANGELOG.md', import.meta.url);
 
 /** The gate-on plugins a changelog commit needs, in config order. */
 function changelogCommitPlugins(): Plugin[] {
-  const keep = ['release-analyzer.ts', 'release-notes-generator', 'changelog:CHANGELOG.md', 'git'];
+  const keep = [
+    'release-analyzer.ts',
+    'release-notes-generator',
+    'release-changelog.ts',
+    'changelog:CHANGELOG.md',
+    'git',
+  ];
   const plugins = loadConfig('true').plugins;
   const labels = pluginLabels(plugins);
   return plugins.filter((_plugin, index) => keep.includes(labels[index] ?? ''));
@@ -197,6 +203,7 @@ describe('release policy', () => {
       'release-analyzer.ts',
       'release-notes-generator',
       'changelog:RELEASE_CHANGELOG.md',
+      'release-changelog.ts',
       'changelog:CHANGELOG.md',
       'npm',
       'release-package.ts',
@@ -241,6 +248,36 @@ describe('release policy', () => {
     await expect(releaseWithChangelog(repo, remote)).rejects.toThrow();
     expect(git(repo, 'ls-remote', '--tags', 'origin')).not.toContain('v0.2.0');
     expect(git(remote, 'rev-parse', 'main')).toBe(main);
+  });
+
+  it('replaces an untagged changelog entry after a refused tag push', async () => {
+    const { repo, remote } = changelogFixture();
+    const hook = join(remote, 'hooks', 'pre-receive');
+    writeFileSync(
+      hook,
+      '#!/bin/sh\nwhile read -r old new ref; do\n  case "$ref" in refs/tags/*) exit 1;; esac\ndone\nexit 0\n',
+    );
+    chmodSync(hook, 0o755);
+    await expect(releaseWithChangelog(repo, remote)).rejects.toThrow();
+    expect(git(remote, 'log', '-1', '--format=%s', 'main')).toBe('chore(release): 0.2.0 [skip ci]');
+    expect(git(repo, 'ls-remote', '--tags', 'origin')).not.toContain('v0.2.0');
+
+    rmSync(hook);
+    const clone = join(mkdtempSync(join(tmpdir(), 'release-policy-')), 'clone');
+    git(tmpdir(), 'clone', '-q', `file://${remote}`, clone);
+    writeFileSync(join(clone, 'README.md'), 'repaired\n');
+    git(clone, 'add', '.');
+    git(clone, 'commit', '-qm', 'fix(core): repair API');
+    git(clone, 'push', '-q', 'origin', 'main');
+    const result = await releaseWithChangelog(clone, remote);
+    expect(result ? result.nextRelease.version : null).toBe('0.2.0');
+
+    const changelog = git(remote, 'show', 'main:CHANGELOG.md');
+    expect(changelog.match(/^## \[?0\.2\.0\b/gm)).toHaveLength(1);
+    expect(changelog).toContain('add API');
+    expect(changelog).toContain('repair API');
+    expect(changelog.indexOf('## Older')).toBeGreaterThan(changelog.indexOf('repair API'));
+    expect(git(remote, 'rev-list', '-n1', 'v0.2.0')).toBe(git(remote, 'rev-parse', 'main'));
   });
 
   function candidate(contents = 'candidate tarball') {

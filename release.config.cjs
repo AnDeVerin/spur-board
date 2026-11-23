@@ -1,5 +1,6 @@
 // Commit CHANGELOG.md to main on each release only when the repository variable is 'true'.
-// It needs a push identity that bypasses the main rulesets (#867); see CONTRIBUTING.md.
+// The commit and tag push with the release App token (GIT_CREDENTIALS), which bypasses the main
+// rulesets (#867); see CONTRIBUTING.md.
 const commitChangelog = process.env.RELEASE_CHANGELOG_COMMIT === 'true';
 
 // The header of CHANGELOG.md; @semantic-release/changelog writes new notes right below it.
@@ -68,6 +69,7 @@ module.exports = {
     [require.resolve('@semantic-release/changelog'), { changelogFile: 'RELEASE_CHANGELOG.md' }],
     ...(commitChangelog
       ? [
+          [require.resolve('./scripts/release-changelog.ts'), { file: 'CHANGELOG.md' }],
           [
             require.resolve('@semantic-release/changelog'),
             { changelogFile: 'CHANGELOG.md', changelogTitle },
