@@ -8967,11 +8967,35 @@ describe('approvalRule github-rules', () => {
       reason: 'review_rule_blocked',
     },
     {
-      name: 'one approval required, a request not as code owner',
-      reviewRule: rule(),
+      name: 'two approvals required and one given, a request not as code owner',
+      reviewRule: ruleWith({ approvals: 2 }),
       reviewRequests: [{ kind: 'user', id: 'dana', asCodeOwner: false }],
       reason: 'awaiting_required_reviewers',
       awaited: ['dana'],
+    },
+    {
+      // The approval in place meets the rule, so another reviewer cannot unblock the merge.
+      name: 'one approval required and given, a request not as code owner',
+      reviewRule: rule(),
+      reviewRequests: [{ kind: 'user', id: 'dana', asCodeOwner: false }],
+      reason: 'review_rule_blocked',
+    },
+    {
+      // The code owner team the token cannot see is dropped; only a courtesy request is left.
+      name: 'one approval given and code owners required, only a request not as code owner',
+      reviewRule: ruleWith({ codeOwners: true }),
+      reviewRequests: [{ kind: 'user', id: 'dana', asCodeOwner: false }],
+      reason: 'review_rule_blocked',
+    },
+    {
+      name: 'one approval given and code owners required, a code owner request',
+      reviewRule: ruleWith({ codeOwners: true }),
+      reviewRequests: [
+        { kind: 'user', id: 'dana', asCodeOwner: false },
+        { kind: 'user', id: 'owner-a', asCodeOwner: true },
+      ],
+      reason: 'awaiting_required_reviewers',
+      awaited: ['owner-a'],
     },
   ])('a blocked head under $name gives $reason', async (entry) => {
     const ctx = await pastProductReview(RULED);
@@ -9443,6 +9467,17 @@ describe('approvalRule github-rules', () => {
       },
       reason: 'review_rule_blocked',
     },
+    // A block over a stored satisfied decision counts, and a pending code owner request under a
+    // rule that requires one makes it a wait.
+    {
+      stored: 'clean',
+      newer: {
+        mergeState: 'blocked',
+        reviewRequests: [{ kind: 'user', id: 'owner-a', asCodeOwner: true }],
+      },
+      codeOwners: true,
+      reason: 'awaiting_required_reviewers',
+    },
     // A read the project's own source has not stored decides nothing, and stops no clock.
     { stored: 'behind', newer: { mergeState: 'clean' }, reason: 'merge_state_unknown' },
     { stored: 'behind', newer: { mergeState: 'blocked' }, reason: 'merge_state_unknown' },
@@ -9468,17 +9503,22 @@ describe('approvalRule github-rules', () => {
     stored: PrFacts['mergeState'];
     newer: Partial<PrFacts>;
     listed?: string[];
+    codeOwners?: boolean;
     reason: string;
   }[])(
     "another project's newer read $newer over a stored $stored read gives $reason",
     async ({ stored, newer, reason, ...entry }) => {
       const listed: string[] | undefined = 'listed' in entry ? entry.listed : undefined;
+      const codeOwners = 'codeOwners' in entry && entry.codeOwners;
       const ctx = await pastProductReview({
         ...RULED,
         sharedRepo: listed === undefined ? true : 'github-rules',
       });
       // Without the approval a satisfied decision does not release the task yet.
-      await ctx.rulePr({ mergeState: stored }, rule());
+      await ctx.rulePr(
+        { mergeState: stored },
+        codeOwners ? ruleWith({ codeOwners: true }) : rule(),
+      );
       expect((await ctx.task()).column).toBe('external-review');
       const before = await ruleRows(ctx);
       await ctx.rulePr(
@@ -9501,7 +9541,10 @@ describe('approvalRule github-rules', () => {
       expect((await ruleRows(ctx)).filter((row) => row.key === own)).toEqual(before);
       expect((await externalConditions(ctx))?.at(-1)).toEqual({
         condition: 'review_rule_satisfied',
-        state: reason === 'review_rule_blocked' ? 'failed' : 'waiting',
+        state:
+          reason === 'review_rule_blocked' || reason === 'awaiting_required_reviewers'
+            ? 'failed'
+            : 'waiting',
         reason,
       });
       ctx.wait(HALF_HOUR);

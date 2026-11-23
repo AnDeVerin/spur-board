@@ -159,20 +159,29 @@ export function externalReviews(pr: PrFacts, agentLogin: string): PrFacts['revie
 }
 
 /**
- * The pending review requests a required review can come from, named by login or team slug in
- * GitHub's request order; empty unless the rule was read, requires a code owner review or
- * approvals, and GitHub reads the merge blocked. Only users and teams count, never bots or a
- * request stored by an earlier version without a kind. A rule with no review requirement waits for
- * nobody, even for a code owner GitHub requested on its own: its block has another cause.
+ * The pending review requests that can meet a review requirement GitHub still waits for, named by
+ * login or team slug in GitHub's request order; empty unless the rule was read and GitHub reads the
+ * merge blocked. While the rule's approvals are not all given, any user or team request counts;
+ * once they are, only a request GitHub made of a code owner, and only when the rule requires a
+ * code owner review; otherwise none, so a rule with no review requirement waits for nobody, even
+ * for a code owner GitHub requested on its own: its block has another cause. Every reviewer's
+ * latest approval counts as given, on any commit and by any author: that is at least as many as
+ * GitHub counts (a stale approval it dismisses reads as dismissed), so a request it might still
+ * need can be missed but never one it cannot use, and a missed one keeps the immediate item. Bots
+ * and a request stored by an earlier version without a kind never count.
  */
 export function awaitedReviewers(
-  pr: Pick<PrFacts, 'mergeState' | 'reviewRequests'>,
+  pr: Pick<PrFacts, 'mergeState' | 'reviews' | 'reviewRequests'>,
   rule: ReviewRule | null,
 ): string[] {
   if (rule === null || pr.mergeState !== 'blocked') return [];
-  if (!rule.codeOwners && (rule.approvals ?? 0) === 0) return [];
+  const given = pr.reviews.filter((review) => review.state === 'approved').length;
+  const approvalsMissing = given < (rule.approvals ?? 0);
+  if (!approvalsMissing && !rule.codeOwners) return [];
   return pr.reviewRequests.flatMap((request) =>
-    (request.kind === 'user' || request.kind === 'team') && request.id !== undefined
+    (request.kind === 'user' || request.kind === 'team') &&
+    request.id !== undefined &&
+    (approvalsMissing || request.asCodeOwner)
       ? [request.id]
       : [],
   );
