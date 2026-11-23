@@ -90,6 +90,7 @@ describe('public guide contents', () => {
     const steps = [
       '`caddy hash-password`',
       '```caddyfile',
+      '(#4-install-the-service-and-choose-operator-access)',
       '`sudo systemctl reload caddy`',
       '`curl -sI https://board.example.com/`',
     ].map((step) => caddySection.indexOf(step));

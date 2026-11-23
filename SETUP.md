@@ -215,7 +215,7 @@ Then, in this order:
    }
    ```
 
-4. Set the same name in config.yaml and restart the daemon:
+4. Set the same name in config.yaml:
 
    ```yaml
    web:
@@ -223,9 +223,15 @@ Then, in this order:
      publicOrigin: https://board.example.com
    ```
 
+   On an existing install, restart the daemon with `board service restart`. On a fresh install,
+   the daemon starts when `board service install` runs in
+   [section 4](#4-install-the-service-and-choose-operator-access).
+
 5. Reload Caddy so it reads the new file: `sudo systemctl reload caddy`. If the service is not
    running, start it with `sudo systemctl start caddy`.
-6. Check from the laptop: `curl -sI https://board.example.com/` gives `401`. For a private name,
+6. Once the daemon is running (on a fresh install, after
+   [section 4](#4-install-the-service-and-choose-operator-access)), check from the laptop:
+   `curl -sI https://board.example.com/` gives `401`. For a private name,
    add `--cacert` with the root certificate copied from the Board host; only root and the `caddy`
    user can read it there, so print it with `sudo cat` on that path. Then open
    `https://board.example.com` in a browser and log in as `operator`.
