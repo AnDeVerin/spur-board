@@ -67,7 +67,8 @@ inbox at `?open=block:B<n>` (links write `block%3A`); opening that address opens
 title is `Block B<n>` and its detail the block's project. A box above the block names who raised
 it (Raised by), who it is addressed to (To), when (Since, `hh:mm dd/mm/yy` UTC) and, on a task
 block, its Task. The panel reads `block.get`, then again on its project's changes, on every full
-re-read and on **Retry**; a block not found re-reads only on a full re-read or **Retry**.
+re-read and on **Retry**; a block not found re-reads only on a full re-read, and a non-block id
+is never read.
 
 The block shows unfolded in the same box as in the task view, with its replies and the same
 rules: an open question to you has an answer form and an answered one **Follow up**. After a send
