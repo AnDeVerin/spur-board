@@ -100,6 +100,10 @@ describe('public guide contents', () => {
       '`sudo cat /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`',
     );
     expect(caddySection).not.toContain('docker run');
+    const tunnel = caddySection.split('Without a proxy, an SSH tunnel works instead')[1] ?? '';
+    const link = tunnel.indexOf('(#4-install-the-service-and-choose-operator-access)');
+    expect(link).toBeGreaterThanOrEqual(0);
+    expect(link).toBeLessThan(tunnel.indexOf('ssh -L 127.0.0.1:7777:127.0.0.1:7777'));
   });
 
   it('names both certificate variants and the boundary they leave', () => {

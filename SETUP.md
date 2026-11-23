@@ -272,7 +272,10 @@ or TLS.
 
 Without a proxy, an SSH tunnel works instead. It replaces the proxy setup, because the daemon
 accepts one origin: set `publicOrigin: http://127.0.0.1:7777` in place of
-`https://board.example.com`, restart the daemon, and on the laptop run:
+`https://board.example.com`. On an existing install, restart the daemon with
+`board service restart`. On a fresh install, the daemon starts when `board service install` runs
+in [section 4](#4-install-the-service-and-choose-operator-access). Once the daemon is running
+(on a fresh install, after section 4), on the laptop run:
 
 ```sh
 ssh -L 127.0.0.1:7777:127.0.0.1:7777 <user>@<board-host>
