@@ -353,7 +353,15 @@ describe('commandReply', () => {
         why: {
           ...example.why,
           holds: ['github_blind'],
-          waiting: [{ reason: 'checks_pending', head: sha, text: `waiting for CI on ${sha}` }],
+          waiting: [
+            { reason: 'checks_pending', head: sha, text: `waiting for CI on ${sha}` },
+            {
+              reason: 'awaiting_required_reviewers',
+              head: sha,
+              text: 'awaiting required reviewers: owner-a, web-owners',
+              reviewers: ['owner-a', 'web-owners'],
+            },
+          ],
         },
       },
       { task: 'PROJ-123', why: true },
@@ -362,10 +370,11 @@ describe('commandReply', () => {
       kind: 'paragraph',
       children: [{ kind: 'text', text: value }],
     });
-    expect(reply.body.slice(0, 3)).toEqual([
+    expect(reply.body.slice(0, 4)).toEqual([
       text('Task PROJ-123 is in review.'),
       text('Held: github_blind.'),
       text(`Waiting for CI on ${sha}.`),
+      text('Awaiting required reviewers: owner-a, web-owners.'),
     ]);
   });
 

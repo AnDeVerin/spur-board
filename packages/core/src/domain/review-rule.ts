@@ -159,6 +159,28 @@ export function externalReviews(pr: PrFacts, agentLogin: string): PrFacts['revie
 }
 
 /**
+ * The pending review requests a required review can come from, named by login or team slug in
+ * GitHub's request order; empty unless the rule was read and GitHub reads the merge blocked. Only
+ * users and teams count, never bots or a request stored by an earlier version without a kind.
+ * Every such request counts when the rule requires a code owner review or approvals; otherwise
+ * only one made because the reviewer owns changed code.
+ */
+export function awaitedReviewers(
+  pr: Pick<PrFacts, 'mergeState' | 'reviewRequests'>,
+  rule: ReviewRule | null,
+): string[] {
+  if (rule === null || pr.mergeState !== 'blocked') return [];
+  const any = rule.codeOwners || (rule.approvals ?? 0) > 0;
+  return pr.reviewRequests.flatMap((request) =>
+    (request.kind === 'user' || request.kind === 'team') &&
+    request.id !== undefined &&
+    (any || request.asCodeOwner)
+      ? [request.id]
+      : [],
+  );
+}
+
+/**
  * Changes requested by GitHub's review verdict, or by an external reviewer's latest review. While
  * GitHub has not computed mergeability or the merge state, its verdict does not count, so the head
  * holds as on any unknown read instead of moving the task; a reviewer's latest review always counts, as

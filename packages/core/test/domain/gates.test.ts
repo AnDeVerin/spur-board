@@ -1193,6 +1193,13 @@ describe('approvalRule github-rules', () => {
     [{ approved: false, decision: 'blocked' }, ['not_approved', 'review_rule_blocked']],
     [{ changesRequested: true, decision: 'blocked' }, ['changes_requested']],
     [{ changesRequested: true, approved: true }, ['changes_requested']],
+    [{ decision: 'blocked', awaiting: ['owner-a'] }, ['awaiting_required_reviewers']],
+    [
+      { approved: false, decision: 'blocked', awaiting: ['owner-a'] },
+      ['not_approved', 'awaiting_required_reviewers'],
+    ],
+    [{ decision: 'satisfied', awaiting: ['owner-a'] }, true],
+    [{ decision: 'blocked', awaiting: [] }, ['review_rule_blocked']],
   ] as const)('External Review with %j fails with %j', (rule, reasons) => {
     const result = evaluateGate('external-review', atExternal(rule), project());
     expect(result).toEqual(

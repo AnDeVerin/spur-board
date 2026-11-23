@@ -115,11 +115,26 @@ describe('generated public references', () => {
     const rows = (section ?? '').split('\n').map((line) => line.replace(/ +/g, ' '));
     for (const row of [
       '| `review_rule_blocked` | `merge blocked by the GitHub review rule` |',
+      '| `awaiting_required_reviewers` | `awaiting required reviewers: <login>, <slug>`, the list also in `reviewers` |',
       '| `changes_requested` | `changes requested` |',
       '| `merge_state_unknown` | `GitHub has not computed the merge state yet` |',
       '| `review_rule_unreadable` | `the GitHub review rule for the base branch could not be read` |',
     ])
       expect(rows).toContain(row);
+  });
+
+  it('configuration.md names the reviewer wait and the narrowed item', () => {
+    const paragraph = configuration
+      .split('\n')
+      .find((line) =>
+        line.startsWith('`approvalRule: github-rules` on the `external-review` column'),
+      );
+    for (const text of [
+      'as `awaiting_required_reviewers` while GitHub reads the merge blocked',
+      '`quietAfterMs` raises `external-quiet:`',
+      "GitHub's branch rules block the merge and the Board cannot tell why",
+    ])
+      expect(paragraph).toContain(text);
   });
 
   it('configuration.md states the grace scope', () => {

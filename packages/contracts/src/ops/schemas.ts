@@ -246,13 +246,20 @@ export const taskWhySchema = z
             reason: z
               .enum(GATE_REASONS)
               .describe(
-                'The gate reason that waits on the fact; checks_red only when the project checksGate is not dev, and review_rule_blocked, changes_requested, merge_state_unknown and review_rule_unreadable only when External Review sets approvalRule github-rules.',
+                'The gate reason that waits on the fact; checks_red only when the project checksGate is not dev, and review_rule_blocked, awaiting_required_reviewers, changes_requested, merge_state_unknown and review_rule_unreadable only when External Review sets approvalRule github-rules.',
               ),
             head: commitShaSchema.describe('Head commit of the pull request the fact is about.'),
             text: z
               .string()
               .describe(
-                'The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red. Under approvalRule github-rules, review_rule_blocked reads merge blocked by the GitHub review rule, changes_requested reads changes requested, merge_state_unknown reads GitHub has not computed the merge state yet, and review_rule_unreadable reads the GitHub review rule for the base branch could not be read, none with the sha.',
+                'The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red. Under approvalRule github-rules, review_rule_blocked reads merge blocked by the GitHub review rule, awaiting_required_reviewers reads awaiting required reviewers: <logins and team slugs>, changes_requested reads changes requested, merge_state_unknown reads GitHub has not computed the merge state yet, and review_rule_unreadable reads the GitHub review rule for the base branch could not be read, none with the sha.',
+              ),
+            reviewers: z
+              .array(z.string().min(1))
+              .min(1)
+              .optional()
+              .describe(
+                "Logins and team slugs the pull request waits for, in GitHub's request order; present only with awaiting_required_reviewers.",
               ),
           })
           .describe('One fact the task waits for.'),
@@ -369,6 +376,13 @@ export const statusTaskSchema = taskViewSchema
       .optional()
       .describe(
         'The return that put the task in Dev. Present only while the task stays in Dev after the return and before its next submit.',
+      ),
+    awaitedReviewers: z
+      .array(z.string().min(1))
+      .min(1)
+      .optional()
+      .describe(
+        "Logins and team slugs External Review waits for under approvalRule github-rules, in GitHub's request order: the reviewers of the awaiting_required_reviewers wait that task.get --why lists. Present only while the task is in External Review with that reason.",
       ),
     ticket: ticketFactsSchema
       .nullable()

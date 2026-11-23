@@ -1,5 +1,5 @@
 {
-  "version": "4324ab0ce40c07f2411d88f7a3fb4ea8bae211e4bf86d9861b94b343ef62f09d",
+  "version": "228cc4aa5bb89711ef5f5758e93602db6148b156ddcaf660a74b5f23e6efa03c",
   "grants": [
     "operator",
     "project-agent",
@@ -2243,6 +2243,12 @@
                   },
                   "required": ["from", "at", "by", "block", "findings"],
                   "additionalProperties": false
+                },
+                "awaitedReviewers": {
+                  "description": "Logins and team slugs External Review waits for under approvalRule github-rules, in GitHub's request order: the reviewers of the awaiting_required_reviewers wait that task.get --why lists. Present only while the task is in External Review with that reason.",
+                  "minItems": 1,
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
                 },
                 "ticket": {
                   "description": "Latest ticket facts, or null before observation. Present only with detail.",
@@ -5887,6 +5893,7 @@
                                   "not_approved",
                                   "changes_requested",
                                   "review_rule_blocked",
+                                  "awaiting_required_reviewers",
                                   "merge_state_unknown",
                                   "review_rule_unreadable",
                                   "not_merged"
@@ -6314,6 +6321,7 @@
                           "not_approved",
                           "changes_requested",
                           "review_rule_blocked",
+                          "awaiting_required_reviewers",
                           "merge_state_unknown",
                           "review_rule_unreadable",
                           "not_merged"
@@ -6361,11 +6369,12 @@
                         "not_approved",
                         "changes_requested",
                         "review_rule_blocked",
+                        "awaiting_required_reviewers",
                         "merge_state_unknown",
                         "review_rule_unreadable",
                         "not_merged"
                       ],
-                      "description": "The gate reason that waits on the fact; checks_red only when the project checksGate is not dev, and review_rule_blocked, changes_requested, merge_state_unknown and review_rule_unreadable only when External Review sets approvalRule github-rules."
+                      "description": "The gate reason that waits on the fact; checks_red only when the project checksGate is not dev, and review_rule_blocked, awaiting_required_reviewers, changes_requested, merge_state_unknown and review_rule_unreadable only when External Review sets approvalRule github-rules."
                     },
                     "head": {
                       "type": "string",
@@ -6374,7 +6383,13 @@
                     },
                     "text": {
                       "type": "string",
-                      "description": "The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red. Under approvalRule github-rules, review_rule_blocked reads merge blocked by the GitHub review rule, changes_requested reads changes requested, merge_state_unknown reads GitHub has not computed the merge state yet, and review_rule_unreadable reads the GitHub review rule for the base branch could not be read, none with the sha."
+                      "description": "The fact in one line, e.g. waiting for CI on <sha>. When the project checksGate is not dev, checks_pending reads checks running, exit from <checksGate> waits for green, and checks_red reads checks red. Under approvalRule github-rules, review_rule_blocked reads merge blocked by the GitHub review rule, awaiting_required_reviewers reads awaiting required reviewers: <logins and team slugs>, changes_requested reads changes requested, merge_state_unknown reads GitHub has not computed the merge state yet, and review_rule_unreadable reads the GitHub review rule for the base branch could not be read, none with the sha."
+                    },
+                    "reviewers": {
+                      "description": "Logins and team slugs the pull request waits for, in GitHub's request order; present only with awaiting_required_reviewers.",
+                      "minItems": 1,
+                      "type": "array",
+                      "items": { "type": "string", "minLength": 1 }
                     }
                   },
                   "required": ["reason", "head", "text"],
@@ -12460,6 +12475,7 @@
                       "not_approved",
                       "changes_requested",
                       "review_rule_blocked",
+                      "awaiting_required_reviewers",
                       "merge_state_unknown",
                       "review_rule_unreadable",
                       "not_merged"

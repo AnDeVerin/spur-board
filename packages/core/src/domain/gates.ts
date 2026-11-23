@@ -47,6 +47,8 @@ export interface TaskGateFacts {
       | 'unresolved_threads'
       | 'unreadable'
       | 'undecided';
+    /** Pending requests a required review can come from, only while the merge reads blocked. */
+    awaiting?: readonly string[];
   };
   /** Whether the external comment history was read to the end. */
   commentHistory: 'complete' | 'incomplete';
@@ -350,7 +352,9 @@ const CONDITION_DEFINITIONS: Record<GateCondition, ConditionDefinition> = {
     reasons: ({ reviewRule }) =>
       reviewRule === undefined || reviewRule.changesRequested
         ? []
-        : [...RULE_REASONS[reviewRule.decision]],
+        : reviewRule.decision === 'blocked' && (reviewRule.awaiting?.length ?? 0) > 0
+          ? ['awaiting_required_reviewers']
+          : [...RULE_REASONS[reviewRule.decision]],
   },
   merged: {
     text: 'The pull request is merged.',
@@ -504,6 +508,7 @@ const CONDITION_OF = {
   not_approved: 'approved',
   changes_requested: 'approved',
   review_rule_blocked: 'review_rule_satisfied',
+  awaiting_required_reviewers: 'review_rule_satisfied',
   merge_state_unknown: 'review_rule_satisfied',
   review_rule_unreadable: 'review_rule_satisfied',
   not_merged: 'merged',

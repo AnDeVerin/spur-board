@@ -16,6 +16,7 @@ import {
   type TicketFacts,
 } from '@spur-board/contracts';
 import { Kysely, sql, SqliteDialect, type CompiledQuery } from 'kysely';
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createApply,
@@ -8494,6 +8495,26 @@ describe('checksGate', () => {
   });
 });
 
+const ruleItems = (ctx: Board) =>
+  ctx.store.db
+    .selectFrom('operator_item')
+    .select(['id', 'item_key', 'text', 'cleared_at'])
+    .where('item_key', 'like', 'review-rule:%')
+    .orderBy('id')
+    .execute();
+
+/** The adapter's review-rule fixture of a head blocked while two code owners are requested. */
+const awaiting = () =>
+  JSON.parse(
+    readFileSync(
+      new URL(
+        '../../../adapters/test/github/fixtures/review-rule/awaiting-code-owners.json',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  ) as { facts: Partial<PrFacts>; reviewRule: PrReviewRule };
+
 describe('approvalRule github-rules', () => {
   const RULED = { externalReview: true, approvalRule: 'github-rules' } as const;
   const HALF_HOUR = 30 * 60_000;
@@ -8519,13 +8540,6 @@ describe('approvalRule github-rules', () => {
       .select(['key', 'value'])
       .where('key', 'like', 'review-rule:%')
       .orderBy('key')
-      .execute();
-  const ruleItems = (ctx: Board) =>
-    ctx.store.db
-      .selectFrom('operator_item')
-      .select(['id', 'item_key', 'text', 'cleared_at'])
-      .where('item_key', 'like', 'review-rule:%')
-      .orderBy('id')
       .execute();
   const externalConditions = async (ctx: Board) =>
     (await ctx.why()).gates.find((gate) => gate.column === 'external-review')?.conditions;
@@ -8869,8 +8883,9 @@ describe('approvalRule github-rules', () => {
     expect(item?.item_key).toBe(`review-rule:${String((await ctx.task()).id)}:o/r#7:${A}`);
     expect(item?.cleared_at).toBeNull();
     expect(item?.text).toContain(
-      `${KEY}: GitHub blocks the merge of o/r#7 on ${A.slice(0, 7)} with every review thread resolved and the approval in place (`,
+      `${KEY}: GitHub's branch rules block the merge of o/r#7 on ${A.slice(0, 7)} and the Board cannot tell why (`,
     );
+    expect(item?.text).not.toContain('the approval in place');
     for (const raw of [
       'mergeStateStatus=BLOCKED',
       'mergeable=MERGEABLE',
@@ -8889,6 +8904,156 @@ describe('approvalRule github-rules', () => {
     await ctx.tick();
     expect((await ctx.task()).column).toBe('ready-to-merge');
     expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+  });
+
+  it("a head GitHub blocks while the fixture's code owners are requested waits for them with no item", async () => {
+    const f = awaiting();
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr(f.facts, f.reviewRule);
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await externalConditions(ctx))?.at(-1)).toEqual({
+      condition: 'review_rule_satisfied',
+      state: 'failed',
+      reason: 'awaiting_required_reviewers',
+    });
+    const why = await ctx.why();
+    expect(why.waiting).toEqual([
+      {
+        reason: 'awaiting_required_reviewers',
+        head: A,
+        text: 'awaiting required reviewers: owner-a, web-owners',
+        reviewers: ['owner-a', 'web-owners'],
+      },
+    ]);
+    // The card reads the same list as --why.
+    expect((await ctx.status()).awaitedReviewers).toEqual(why.waiting?.[0]?.reviewers);
+    expect((await ctx.status()).awaitedReviewers).toEqual(['owner-a', 'web-owners']);
+    await ctx.tick();
+    expect(await ruleItems(ctx)).toEqual([]);
+    ctx.wait(HALF_HOUR);
+    await ctx.tick();
+    expect(await ruleItems(ctx)).toEqual([]);
+  });
+
+  // Which pending requests a required review can come from, by the rule the read carries.
+  const ruleWith = (patch: Partial<NonNullable<PrReviewRule['rule']>>) => {
+    const base = rule();
+    return base.rule === null ? base : { ...base, rule: { ...base.rule, ...patch } };
+  };
+  it.each<{
+    name: string;
+    reviewRule: PrReviewRule;
+    reviewRequests: PrFacts['reviewRequests'];
+    reason: GateReason;
+    awaited?: string[];
+  }>([
+    {
+      name: 'no approvals and no code owners, a request not as code owner',
+      reviewRule: ruleWith({ approvals: 0, codeOwners: false }),
+      reviewRequests: [{ kind: 'user', id: 'dana', asCodeOwner: false }],
+      reason: 'review_rule_blocked',
+    },
+    {
+      name: 'no approvals and no code owners, a code owner request',
+      reviewRule: ruleWith({ approvals: 0, codeOwners: false }),
+      reviewRequests: [{ kind: 'user', id: 'owner-a', asCodeOwner: true }],
+      reason: 'awaiting_required_reviewers',
+      awaited: ['owner-a'],
+    },
+    {
+      name: 'code owners required, only a bot requested',
+      reviewRule: ruleWith({ codeOwners: true }),
+      reviewRequests: [{ kind: 'bot', id: 'review-bot', asCodeOwner: true }],
+      reason: 'review_rule_blocked',
+    },
+    {
+      name: 'one approval required, a request not as code owner',
+      reviewRule: rule(),
+      reviewRequests: [{ kind: 'user', id: 'dana', asCodeOwner: false }],
+      reason: 'awaiting_required_reviewers',
+      awaited: ['dana'],
+    },
+  ])('a blocked head under $name gives $reason', async (entry) => {
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr(
+      { ...approved, mergeState: 'blocked', reviewRequests: entry.reviewRequests },
+      entry.reviewRule,
+    );
+    expect((await externalConditions(ctx))?.at(-1)?.reason).toBe(entry.reason);
+    expect((await ctx.status()).awaitedReviewers).toEqual(entry.awaited);
+    await ctx.tick();
+    expect(await ruleItems(ctx)).toHaveLength(entry.awaited === undefined ? 1 : 0);
+  });
+
+  it('under any-approval the fixture read waits for no reviewer', async () => {
+    const f = awaiting();
+    const ctx = await pastProductReview({ externalReview: true });
+    await ctx.pr(f.facts);
+    expect((await ctx.why()).waiting ?? []).not.toContainEqual(
+      expect.objectContaining({ reason: 'awaiting_required_reviewers' }),
+    );
+    expect((await ctx.status()).awaitedReviewers).toBeUndefined();
+  });
+
+  it('a Ready to Merge task goes back to External Review to wait for the requested reviewers', async () => {
+    const f = awaiting();
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr({ ...approved, mergeState: 'clean' }, rule());
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    await ctx.rulePr(f.facts, f.reviewRule);
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await ctx.moves()).at(-1)).toMatchObject({
+      from: 'ready-to-merge',
+      to: 'external-review',
+      gate: ['awaiting_required_reviewers'],
+    });
+  });
+
+  it('a code owner approval and an unblocked merge move the task on with no item', async () => {
+    const f = awaiting();
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr(f.facts, f.reviewRule);
+    expect((await ctx.status()).awaitedReviewers).toEqual(['owner-a', 'web-owners']);
+    await ctx.rulePr(
+      {
+        ...f.facts,
+        reviews: [
+          ...(f.facts.reviews ?? []),
+          { reviewer: 'owner-a', state: 'approved', commitSha: A, submittedAt: at(31) },
+        ],
+        reviewRequests: [{ kind: 'team', id: 'web-owners', asCodeOwner: true }],
+        mergeState: 'unknown',
+        mergeable: 'unknown',
+      },
+      f.reviewRule,
+    );
+    expect((await externalConditions(ctx))?.at(-1)).toEqual({
+      condition: 'review_rule_satisfied',
+      state: 'waiting',
+      reason: 'merge_state_unknown',
+    });
+    await ctx.tick();
+    expect(await ruleItems(ctx)).toEqual([]);
+    expect((await ctx.status()).awaitedReviewers).toBeUndefined();
+    await ctx.rulePr({ mergeState: 'clean', mergeable: 'mergeable' }, f.reviewRule);
+    await ctx.tick();
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect((await ctx.moves()).at(-1)?.['reason']).toBe('gate_passed');
+    expect(await ruleItems(ctx)).toEqual([]);
+    expect((await ctx.status()).awaitedReviewers).toBeUndefined();
+  });
+
+  it('a blocked read with no request left raises the cause-unknown item until the merge unblocks', async () => {
+    const f = awaiting();
+    const ctx = await pastProductReview(RULED);
+    await ctx.rulePr(f.facts, f.reviewRule);
+    await ctx.rulePr({ ...f.facts, reviewRequests: [] }, f.reviewRule);
+    await ctx.tick();
+    expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([true]);
+    await ctx.rulePr({ mergeState: 'clean' }, f.reviewRule);
+    await ctx.tick();
+    expect((await ruleItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([false]);
+    expect((await ctx.task()).column).toBe('ready-to-merge');
   });
 
   // A closed item stays closed for the rest of its stretch; the next stretch on the head raises a
@@ -9269,6 +9434,15 @@ describe('approvalRule github-rules', () => {
   it.each([
     { stored: 'clean', newer: { mergeState: 'blocked' }, reason: 'review_rule_blocked' },
     { stored: 'blocked', newer: { mergeState: 'clean' }, reason: 'review_rule_blocked' },
+    // A pending code owner request counts only while the live read says blocked.
+    {
+      stored: 'blocked',
+      newer: {
+        mergeState: 'clean',
+        reviewRequests: [{ kind: 'user', id: 'owner-a', asCodeOwner: true }],
+      },
+      reason: 'review_rule_blocked',
+    },
     // A read the project's own source has not stored decides nothing, and stops no clock.
     { stored: 'behind', newer: { mergeState: 'clean' }, reason: 'merge_state_unknown' },
     { stored: 'behind', newer: { mergeState: 'blocked' }, reason: 'merge_state_unknown' },
@@ -9414,6 +9588,16 @@ describe('External Review quiet item', () => {
     expect(more).toEqual([]);
     expect(kept?.id).toBe(item?.id);
     expect(kept?.text).toContain('for 12 min, since');
+  });
+
+  it('a head waiting for required reviewers raises the quiet item, not the review-rule item', async () => {
+    const f = awaiting();
+    const ctx = await pastProductReview({ ...RULED, externalQuietAfterMs: QUIET });
+    await ctx.rulePr(f.facts, f.reviewRule);
+    await reconcileAt(ctx, await entered(ctx), QUIET);
+    expect((await ctx.task()).column).toBe('external-review');
+    expect((await quietItems(ctx)).map((entry) => entry.cleared_at === null)).toEqual([true]);
+    expect(await ruleItems(ctx)).toEqual([]);
   });
 
   it('never raises with quietAfterMs unset', async () => {

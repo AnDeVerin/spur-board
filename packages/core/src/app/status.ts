@@ -20,6 +20,7 @@ import { approvalViews } from './approval-watch.ts';
 import { projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemSubjects } from './items.ts';
+import { awaitedReviewersOf } from './review-rule.ts';
 import { latestQaSubmissions, latestSubmissions } from './submissions.ts';
 import { readOutageEnds, services } from './status-services.ts';
 import {
@@ -241,6 +242,10 @@ export async function getStatus(
     }
     const blocks = openBlocks.get(task.id) ?? [];
     const returned = returns.get(task.id);
+    const awaited =
+      task.column === 'external-review' && project !== undefined
+        ? await awaitedReviewersOf(store.db, project, task.id)
+        : [];
     tasks.push({
       key: task.key,
       submission: submissions.get(task.id) ?? null,
@@ -262,6 +267,7 @@ export async function getStatus(
       openBlocks: blocks.length,
       blocks,
       ...(returned === undefined ? {} : { returned }),
+      ...(awaited.length === 0 ? {} : { awaitedReviewers: awaited }),
       turn: turns.get(task.id) ?? null,
       prSummary: summaries.length === 0 ? null : summaries,
       links: {

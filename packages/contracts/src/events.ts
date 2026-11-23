@@ -91,6 +91,7 @@ export const GATE_REASONS = [
   'not_approved',
   'changes_requested',
   'review_rule_blocked',
+  'awaiting_required_reviewers',
   'merge_state_unknown',
   'review_rule_unreadable',
   'not_merged',

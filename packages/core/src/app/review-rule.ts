@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { REVIEW_RULE_KEY, type ItemCandidate } from '../domain/fromYou.ts';
 import type { TaskGateFacts } from '../domain/gates.ts';
 import {
+  awaitedReviewers,
   changesRequested,
   externalReviews,
   reviewRuleVerdict,
@@ -195,12 +196,25 @@ async function gateRead(
   source: string,
   pr: PrFacts,
   agentLogin: string,
-): Promise<NonNullable<TaskGateFacts['reviewRule']> & { row: Stored | null; clock: boolean }> {
+): Promise<
+  NonNullable<TaskGateFacts['reviewRule']> & {
+    awaiting: string[];
+    row: Stored | null;
+    clock: boolean;
+  }
+> {
   const row = await rowOnHead(trx, source, pr);
   const approved = externalReviews(pr, agentLogin).some((review) => review.state === 'approved');
   if (row === null) {
     const requested = changesRequested(pr, null, agentLogin);
-    return { approved, changesRequested: requested, decision: 'undecided', row, clock: false };
+    return {
+      approved,
+      changesRequested: requested,
+      decision: 'undecided',
+      awaiting: [],
+      row,
+      clock: false,
+    };
   }
   const rule = await newestRule(trx, pr, row);
   const read = readOf(pr, { reviewDecision: row.reviewDecision, rule }, row.decision, agentLogin);
@@ -208,6 +222,9 @@ async function gateRead(
     approved,
     changesRequested: read.requested,
     decision: read.gate,
+    // Counted only while the live read says blocked: a stored block under another source's newer
+    // clean read stays a block the Board cannot explain.
+    awaiting: read.gate === 'blocked' && !read.requested ? awaitedReviewers(pr, rule) : [],
     row,
     clock: read.clock,
   };
@@ -224,16 +241,65 @@ export async function storedReviewRule(
     approved,
     changesRequested: requested,
     decision,
+    awaiting,
   } = await gateRead(trx, source, pr, agentLogin);
-  return { approved, changesRequested: requested, decision };
+  return {
+    approved,
+    changesRequested: requested,
+    decision,
+    ...(awaiting.length === 0 ? {} : { awaiting }),
+  };
+}
+
+/**
+ * The open PR of a task as the gate reads it: its stored snapshot and, unless the project's checks
+ * gate is Dev, the same facts with the checks the Board saw cancelled and not yet rerun. Null
+ * without a linked open PR.
+ */
+async function taskGatePr(
+  trx: Trx,
+  project: Config['projects'][number],
+  taskId: number,
+): Promise<{ pr: PrFacts; gatePr: PrFacts; source: string } | null> {
+  const link = await taskPr(trx, taskId);
+  if (link === null || !link.open) return null;
+  const pr = parsePr(
+    (
+      await trx
+        .selectFrom('pr_snapshot')
+        .select('detail')
+        .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
+        .where('number', '=', link.number)
+        .executeTakeFirst()
+    )?.detail,
+  );
+  if (pr === null || pr.state !== 'open') return null;
+  const source = prSourceId(project.id, pr.repo);
+  const gatePr = project.checksGate === 'dev' ? pr : await withUnconfirmedCancels(trx, source, pr);
+  return { pr, gatePr, source };
+}
+
+/**
+ * The logins and team slugs a github-rules task's External Review condition waits for
+ * (`awaiting_required_reviewers`), from the same read as the gate; empty otherwise.
+ */
+export async function awaitedReviewersOf(
+  trx: Trx,
+  project: Config['projects'][number],
+  taskId: number,
+): Promise<string[]> {
+  if (approvalRuleOf(project) !== 'github-rules') return [];
+  const read = await taskGatePr(trx, project, taskId);
+  if (read === null) return [];
+  return (await gateRead(trx, read.source, read.gatePr, project.operatorGithubLogin)).awaiting;
 }
 
 const upper = (value: string | null): string => (value === null ? 'null' : value.toUpperCase());
 
 /**
  * The items of github-rules tasks in External Review. A head GitHub blocks with every review thread
- * resolved, while the external approval is in place and External Review has no orchestrator, raises
- * one at once; its shown text carries GitHub's current values and nothing is written. Otherwise an
+ * resolved and no awaited reviewer (`awaitedReviewers`), while the external approval is in place
+ * and External Review has no orchestrator, raises one at once; its shown text carries GitHub's current values and nothing is written. Otherwise an
  * item comes for a head that has stayed undecided for `REVIEW_RULE_UNDECIDED_MS` and whose gate,
  * read as `readInput` reads it, still runs the clock: a
  * newer read of the head by another project's source can name someone to act first or carry
@@ -252,38 +318,27 @@ export async function reviewRuleItems(
     if (task.column !== 'external-review') continue;
     const project = config.projects.find((entry) => entry.id === task.project);
     if (project === undefined || approvalRuleOf(project) !== 'github-rules') continue;
-    const link = await taskPr(trx, task.id);
-    if (link === null || !link.open) continue;
-    const pr = parsePr(
-      (
-        await trx
-          .selectFrom('pr_snapshot')
-          .select('detail')
-          .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
-          .where('number', '=', link.number)
-          .executeTakeFirst()
-      )?.detail,
-    );
-    if (pr === null || pr.state !== 'open') continue;
-    const source = prSourceId(project.id, pr.repo);
-    const gatePr =
-      project.checksGate === 'dev' ? pr : await withUnconfirmedCancels(trx, source, pr);
-    const gate = await gateRead(trx, source, gatePr, project.operatorGithubLogin);
+    const read = await taskGatePr(trx, project, task.id);
+    if (read === null) continue;
+    const { pr, source } = read;
+    const gate = await gateRead(trx, source, read.gatePr, project.operatorGithubLogin);
     const row = gate.row;
     // The slug as the meta key holds it: a manual link and a poll can spell it differently.
     const ref = `${pr.repo.toLowerCase()}#${String(pr.number)}`;
     const executor =
       project.columns.find((column) => column.id === 'external-review')?.orchestrator ?? 'none';
-    // Blocked with every thread resolved and the approval in place: no one on the board can act,
-    // so the operator hears at once. Unresolved threads return the task to Dev instead.
+    // Blocked with every thread resolved, the approval in place and no requested reviewer a
+    // required review can come from: no one on the board can act, so the operator hears at once.
+    // Unresolved threads return the task to Dev instead; awaited reviewers are an ordinary wait.
     if (
       row !== null &&
       gate.decision === 'blocked' &&
       gate.approved &&
       !gate.changesRequested &&
+      gate.awaiting.length === 0 &&
       executor === 'none'
     ) {
-      const what = `${task.key}: GitHub blocks the merge of ${ref} on ${row.headSha.slice(0, 7)} with every review thread resolved and the approval in place`;
+      const what = `${task.key}: GitHub's branch rules block the merge of ${ref} on ${row.headSha.slice(0, 7)} and the Board cannot tell why`;
       candidates.push({
         key: `${REVIEW_RULE_KEY}${String(task.id)}:${ref}:${row.headSha}`,
         kind: 'board_observation',

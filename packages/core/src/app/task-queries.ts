@@ -184,6 +184,7 @@ export function createTaskQueries(deps: {
         : reason === 'merge_state_unknown' || reason === 'review_rule_unreadable'
           ? WAITING_FOR[reason]
           : `${WAITING_FOR[reason]} on ${sha}`;
+    const awaited = [...(facts.reviewRule?.awaiting ?? [])];
     const waiting =
       gate.ok || head === undefined
         ? []
@@ -192,9 +193,21 @@ export function createTaskQueries(deps: {
               ? [{ reason, head, text: waitText(reason as HoldOnlyReason, head) }]
               : reason === 'checks_red' && checksGate !== 'dev'
                 ? [{ reason, head, text: 'checks red' }]
-                : Object.hasOwn(RULE_WAITS, reason)
-                  ? [{ reason, head, text: RULE_WAITS[reason as keyof typeof RULE_WAITS] }]
-                  : [],
+                : reason === 'awaiting_required_reviewers'
+                  ? [
+                      {
+                        reason,
+                        head,
+                        text:
+                          awaited.length > 0
+                            ? `awaiting required reviewers: ${awaited.join(', ')}`
+                            : 'awaiting required reviewers',
+                        ...(awaited.length > 0 ? { reviewers: awaited } : {}),
+                      },
+                    ]
+                  : Object.hasOwn(RULE_WAITS, reason)
+                    ? [{ reason, head, text: RULE_WAITS[reason as keyof typeof RULE_WAITS] }]
+                    : [],
           );
     const holds = [
       ...dispatchHolds(read.input),

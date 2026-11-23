@@ -1009,9 +1009,11 @@ describe('snapshot', () => {
     // in detail and counting a listed errored one as ended. #858 rewords the inbox.ack
     // description, guidance and block example: the operator acks a block addressed to it that
     // rang its session. #802 adds the optional pr to move views. #811 adds block.get, the
-    // operator's read of one block with its replies and project.
+    // operator's read of one block with its replies and project. #891 adds the
+    // awaiting_required_reviewers gate reason, task.get why.waiting[].reviewers and status.get
+    // tasks[].awaitedReviewers.
     expect(await catalogVersion(baseline)).toBe(
-      'c3f70f8dbe043385f792b177a4d666e0fc56b0be2e88e8fc646b703c7879086b',
+      'a020b5d74d49beb706b8f4bba6445328ab0f94a9423b52e27e96b6535f2ceccb',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

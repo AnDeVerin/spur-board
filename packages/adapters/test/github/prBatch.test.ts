@@ -3550,6 +3550,7 @@ describe('approvalRule github-rules', () => {
   it('normalizes each review-rule fixture', () => {
     const cases = fixtures('review-rule');
     expect(cases.map((entry) => entry.name)).toEqual([
+      'awaiting-code-owners',
       'behind',
       'blocked-code-owner',
       'changes-requested-rerequested',
