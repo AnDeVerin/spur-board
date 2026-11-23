@@ -94,7 +94,8 @@ it('waits for the signal', async () => {
       run.stdout.setEncoding('utf8').on('data', (text: string) => (output += text));
       run.stderr.setEncoding('utf8').on('data', (text: string) => (output += text));
       const exited = new Promise<number | null>((done) => {
-        run.once('exit', (code) => {
+        // `close`, not `exit`: it fires after the piped output is read to the end.
+        run.once('close', (code) => {
           done(code);
         });
       });
