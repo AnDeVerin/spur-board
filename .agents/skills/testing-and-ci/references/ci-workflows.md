@@ -56,9 +56,10 @@
   default, github-actions, junit (`reports/junit.xml`) and signal reporters; upload `reports/`
   on test failure so annotations and JUnit evidence survive (`vitest.config.ts`,
   `.github/workflows/ci.yml`).
-- Keep the signal reporter in both lists: on SIGTERM it prints the running test files and tests
-  before the run exits 143, so a stray group signal names its sender
-  (`packages/testkit/src/signal-reporter.ts`, `packages/testkit/test/signal-reporter.test.ts`).
+- Keep the signal reporter in both lists: on SIGTERM it prints the test files and tests running
+  before the run exits 143. That narrows a stray signal's sender to those; it does not identify
+  the sender (`packages/testkit/src/signal-reporter.ts`,
+  `packages/testkit/test/signal-reporter.test.ts`).
 - Run actionlint and zizmor when `.github/` changes; `changes` selects the workflows job and
   `ci-ok` accepts its skip only for unrelated changes (`.github/workflows/ci.yml`, `scripts/ci.ts`).
 - Release only after `ci-ok` succeeds on a main push. Grant `id-token: write` for trusted
