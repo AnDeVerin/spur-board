@@ -47,9 +47,12 @@
   Keep `vitest.pool: "forks"` so the testkit env scrub applies, and load the runner by its
   `./node_modules` path, which pnpm's plugin glob misses (`.github/workflows/mutation.yml`,
   `stryker.config.json`).
-- Size the mutation job timeout from a measured full run: the weekly cache is usually evicted, so
-  most runs are full. Keep `ignoreStatic` (a static mutant reruns every related test) and the
-  `progress-append-only` reporter, which tells a stall from a slow run in the log
+- Size the mutation shards from a measured full run: the weekly cache is usually evicted, so
+  most runs are full. Split the files over matrix shards until each fits its job timeout; the
+  last shard negates the files the others name, so a new domain file is still mutated, and the
+  `summary` job joins the shard reports (`.github/workflows/mutation.yml`,
+  `scripts/mutation-summary.test.ts`). Keep `ignoreStatic` (a static mutant reruns every related
+  test) and the `progress-append-only` reporter, which tells a stall from a slow run in the log
   (`stryker.config.json`). Bump the incremental cache key prefix when a Stryker option changes
   how mutants are planned: cached statuses win over it (`.github/workflows/mutation.yml`).
 - Run Vitest locally with Vitest's default reporters plus the signal reporter. In CI, configure
