@@ -3,11 +3,11 @@ import {
   coordinateRead,
   createApi,
   createMutationIntent,
-  ProblemError,
   UnreadableAnswerError,
   type Output,
 } from '../lib/api.ts';
 import { connectStream, type RefreshScope, type StreamState } from '../lib/stream.ts';
+import { createBlockRead, readResult, type BlockState, type ReadResult } from './block-data.ts';
 import { createColumnView } from './column-view.ts';
 import { createColumnsRead, type ColumnsState } from './columns-data.ts';
 import { createBoardIntent, createHeldMoves, createOrderIntents } from './intents.ts';
@@ -46,20 +46,6 @@ export interface HistoryState {
   /** `retryHistory` ran after a failure and its read has not settled yet. */
   retrying: boolean;
 }
-type ReadResult<T> =
-  { key: string; kind: 'ok'; value: T } | { key: string; kind: 'missing' | 'failed' };
-
-/** One read of the open task: an unknown task or a key that is not a task key is `missing`. */
-async function readResult<T>(key: string, read: () => Promise<T>): Promise<ReadResult<T>> {
-  try {
-    return { key, kind: 'ok', value: await read() };
-  } catch (error) {
-    const missing =
-      error instanceof ProblemError &&
-      (error.code === 'not_found' || error.code === 'wrong_id_kind');
-    return { key, kind: missing ? 'missing' : 'failed' };
-  }
-}
 
 /** The facts the board screen derives its state from; a new object on every change. */
 export interface BoardSnapshot {
@@ -93,6 +79,8 @@ export interface BoardSnapshot {
   history: HistoryState | undefined;
   /** Column policy of the chosen project; its failures never set `readFailed`. Absent until read. */
   columns?: ColumnsState | undefined;
+  /** The block panel `open` names; undefined when none is open. */
+  block?: BlockState | undefined;
 }
 
 interface BoardDataOptions {
@@ -307,17 +295,27 @@ export function createBoardData(options: BoardDataOptions) {
     if (taskReadable && historyShown) history.refresh();
   };
 
+  let stopped = false;
+  const block = createBlockRead(
+    api,
+    update,
+    () => state.block,
+    () => stopped || state.readFailed || state.stream === 'offline',
+  );
+
   const readAll = () => {
     config.refresh();
     inbox.refresh();
     refreshTask();
     refreshHistory();
+    block.refresh(null);
   };
   const refresh = (scope: RefreshScope | null) => {
     if (scope === null) {
       readAll();
       return;
     }
+    block.refresh(scope);
     if (state.project !== undefined && scope.projects.includes(state.project)) config.refresh();
     // The inbox spans every project.
     inbox.refresh();
@@ -340,7 +338,6 @@ export function createBoardData(options: BoardDataOptions) {
     else if (value === 'live' && state.readFailed) readAll();
   };
   let stream: ReturnType<typeof connectStream> | undefined;
-  let stopped = false;
 
   const refreshWrittenTask = (key: string, epoch: number): Promise<boolean> => {
     if (stopped || key !== taskKey || epoch !== taskEpoch) return Promise.resolve(false);
@@ -451,6 +448,7 @@ export function createBoardData(options: BoardDataOptions) {
       inbox.dispose();
       task.dispose();
       history.dispose();
+      block.dispose();
     },
     /** The client clock the snapshot's times are read against. */
     now: () => options.now(),
@@ -504,6 +502,8 @@ export function createBoardData(options: BoardDataOptions) {
     /** End an agent's wait on turn `turn` as the operator; refused as `closeItemIntent` is. */
     endWaitIntent: (turn: string) => boardIntent('task.wait', { turn, end: true }, status.refresh),
     refreshTask: () => refreshWrittenTask(taskKey ?? '', taskEpoch),
+    /** The block panel: `openBlock`, `retryBlock`, its writes and `refreshBlock`. */
+    ...block.panel,
     /**
      * Open a task by key, or close it with null: read `task.get` with why and detail, then whenever the
      * stream names the task, the board re-reads everything, or `retryTask` runs. History hides.

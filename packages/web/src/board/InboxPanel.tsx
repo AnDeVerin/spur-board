@@ -285,6 +285,23 @@ export function InboxPanel({
         </a>
       );
     }
+    // A task-less block opens the block panel over the inbox.
+    if (entry.task === null && entry.kind === 'block')
+      return (
+        <a
+          className={className}
+          href={openHref(`block:${entry.id}`)}
+          data-inbox-id={entry.id}
+          data-handled={handled || undefined}
+          onClick={(event) => {
+            open(event, entry.id, () => {
+              onOpen(entry);
+            });
+          }}
+        >
+          {content}
+        </a>
+      );
     if (entry.task === null && url !== null)
       return (
         <a

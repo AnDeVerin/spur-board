@@ -334,6 +334,9 @@ describe('task view', () => {
         d.routes['inbox.operator'] = () => Promise.resolve(envelope(inbox(0)));
         d.send('event: reset\ndata: {}\n\n');
         await settle();
+        // The removed row does not pull focus into the inbox behind the task view.
+        const top = document.querySelectorAll('[role="dialog"]')[1];
+        expect(top?.contains(document.activeElement)).toBe(true);
       }
       key('Escape');
       await settle();

@@ -31,10 +31,22 @@ export interface LinkChip {
   label: string | undefined;
 }
 
-/** `?open=` names a task; empty, absent, `inbox` and `services` name none. */
+/** `?open=` names a task; empty, absent, `inbox`, `services` and `block:<id>` name none. */
 export function taskParam(search: string): string | null {
   const value = new URLSearchParams(search).get('open');
-  return value === null || value === '' || value === 'inbox' || value === 'services' ? null : value;
+  return value === null ||
+    value === '' ||
+    value === 'inbox' ||
+    value === 'services' ||
+    value.startsWith('block:')
+    ? null
+    : value;
+}
+
+/** `?open=block:<id>` names a block: the text after `block:`; any other value names none. */
+export function blockParam(search: string): string | null {
+  const value = new URLSearchParams(search).get('open');
+  return value?.startsWith('block:') ? value.slice(6) : null;
 }
 
 /** Minutes, hours and minutes, or days since `iso`, as the prototype writes ages. */

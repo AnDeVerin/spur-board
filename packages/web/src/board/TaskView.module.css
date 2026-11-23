@@ -56,7 +56,7 @@
 .link[data-kind='session'] svg {
   color: var(--color-status-working);
 }
-/* One line in place of the panel: the task is not found. */
+/* One line in place of the panel or form: the task or block is not found, or why a block takes no answer. */
 .note {
   margin: 0;
   padding: var(--space-4) 0;

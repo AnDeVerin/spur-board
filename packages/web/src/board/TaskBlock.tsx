@@ -28,6 +28,9 @@ export function TaskBlock({
   followUpIntent,
   drafts,
   refreshTask,
+  defaultExpanded = false,
+  readOnly = false,
+  subject,
 }: {
   block: Block;
   replies: readonly Reply[];
@@ -41,13 +44,20 @@ export function TaskBlock({
   followUpIntent: BoardData['followUpIntent'];
   drafts: BoardData['drafts'];
   refreshTask: BoardData['refreshTask'];
+  /** A closed block starts unfolded. */
+  defaultExpanded?: boolean;
+  /** Neither the answer form nor Follow up shows. */
+  readOnly?: boolean;
+  /** What a send re-reads, named in the writers' refresh texts. */
+  subject?: 'task' | 'block';
 }) {
   const open = block.state === 'open';
   const question = block.type === 'needs_input';
   const mine = open && block.addressee === 'operator';
   const answered = question && block.state === 'unblocked' && block.outcome === 'done';
+  const followable = answered && !readOnly;
   const outcomeLine = !answered && Boolean(block.outcomeReason);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [overflows, setOverflows] = useState(true);
   // The latest measurement, written before it reaches state.
   const overflowsNow = useRef(true);
@@ -189,20 +199,21 @@ export function TaskBlock({
           ))}
           {outcomeLine && <p className={styles.text}>{block.outcomeReason}</p>}
           <TaskWrite
-            eligible={mine && question}
+            eligible={mine && question && !readOnly}
             label={`Answer ${block.id}`}
             kind="answer"
             superseded={superseded}
             unavailable={unavailable}
             createIntent={(text) => answerIntent(taskKey, block.id, text)}
             refreshTask={refreshTask}
+            subject={subject}
             drafts={drafts}
             draftId={JSON.stringify(['answer', taskKey, block.id])}
             onHeldChange={hold(setAnswerHeld)}
           />
-          {(answered || foldable) && (
+          {(followable || foldable) && (
             <div className={styles.foot}>
-              {answered && (
+              {followable && (
                 <TaskWrite
                   label={`Follow-up on ${block.id}`}
                   kind="followup"
@@ -210,6 +221,7 @@ export function TaskBlock({
                   onOpen={onFollowOpen}
                   createIntent={(text) => followUpIntent(taskKey, block.id, text)}
                   refreshTask={refreshTask}
+                  subject={subject}
                   drafts={drafts}
                   draftId={JSON.stringify(['followup', taskKey, block.id])}
                   onHeldChange={hold(setFollowHeld)}

@@ -31,6 +31,7 @@ export function TaskWrite({
   onHeldChange,
   drafts,
   draftId,
+  subject = 'task',
 }: {
   label: string;
   kind: 'answer' | 'followup' | 'comment';
@@ -44,6 +45,8 @@ export function TaskWrite({
   /** Where the unsent text is kept across a reload after a board update. */
   drafts: BoardData['drafts'];
   draftId: string;
+  /** What a confirmed send re-reads, named in the refresh texts. */
+  subject?: 'task' | 'block' | undefined;
 }) {
   const followUp = kind === 'followup';
   // Text kept across a reload comes back as unsent text, without its send's key.
@@ -110,7 +113,7 @@ export function TaskWrite({
   const submittedRevision = useRef(0);
   const status =
     sent && !(superseded && phase === 'idle')
-      ? `${TEXTS[kind].success}${phase === 'refreshing' ? ' Refreshing task…' : phase === 'refresh-failed' ? ' Could not refresh the task.' : ''}`
+      ? `${TEXTS[kind].success}${phase === 'refreshing' ? ` Refreshing ${subject}…` : phase === 'refresh-failed' ? ` Could not refresh the ${subject}.` : ''}`
       : !eligible && phase === 'sending'
         ? 'Sending answer…'
         : undefined;
@@ -128,7 +131,7 @@ export function TaskWrite({
             void reconcile(refreshTask(), submittedRevision.current);
           }}
         >
-          Refresh task
+          Refresh {subject}
         </Button>
       )}
     </>

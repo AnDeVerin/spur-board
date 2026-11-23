@@ -4,6 +4,7 @@ import {
   actorLabel,
   actorName,
   age,
+  blockParam,
   historyRows,
   historyRuns,
   linkChips,
@@ -253,8 +254,21 @@ describe('header facts', () => {
     expect(actorName('agent:web/web-7')).toBe('web-7');
     expect(actorName('operator')).toBe('operator');
     expect(taskParam('?open=ex%2Frepo%237')).toBe('ex/repo#7');
-    for (const search of ['', '?open=', '?open=inbox', '?open=services', '?theme=dark'])
+    for (const search of [
+      '',
+      '?open=',
+      '?open=inbox',
+      '?open=services',
+      '?theme=dark',
+      '?open=block%3AB5',
+      '?open=block:B5',
+    ])
       expect(taskParam(search)).toBeNull();
+    expect(blockParam('?open=block%3AB5')).toBe('B5');
+    expect(blockParam('?open=block:x')).toBe('x');
+    expect(blockParam('?open=block:')).toBe('');
+    for (const search of ['', '?open=inbox', '?open=ex%2Frepo%237', '?open=B5'])
+      expect(blockParam(search)).toBeNull();
   });
 });
 

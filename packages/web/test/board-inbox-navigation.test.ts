@@ -94,6 +94,79 @@ describe('inbox task navigation without configuration', () => {
       }
     },
   );
+  it('task-less block rows, active and handled, link the block panel in place', () => {
+    const base = {
+      id: 'B1',
+      project: 'a',
+      kind: 'block' as const,
+      severity: 'attention' as const,
+      text: 'Pick one',
+      at: '2026-11-15T14:00:00.000Z',
+      task: null,
+    };
+    const snapshot: BoardSnapshot = {
+      config: undefined,
+      project: undefined,
+      status: undefined,
+      inbox: { items: [base], handled: [{ ...base, id: 'B2', handledAt: base.at }] },
+      readFailed: false,
+      unreadable: false,
+      update: undefined,
+      stream: 'live',
+      everLive: true,
+      lastGoodAt: undefined,
+      retrying: false,
+      task: undefined,
+      history: undefined,
+    };
+    const onOpen = vi.fn();
+    const target = document.createElement('div');
+    document.body.append(target);
+    const root = createRoot(target);
+    act(() => {
+      root.render(
+        createElement(InboxPanel, {
+          snapshot,
+          now: 0,
+          onClose: () => undefined,
+          onOpen,
+          onColumnHelp: () => undefined,
+          noSessionClick: () => 'task' as const,
+          closeItem: () => ({ run: () => Promise.resolve() }),
+        }),
+      );
+    });
+    try {
+      for (const id of ['B1', 'B2']) {
+        const row = find(`[data-inbox-id="${id}"]`);
+        expect(row.tagName).toBe('A');
+        expect(row.getAttribute('href')).toBe(`?open=block%3A${id}`);
+        expect(row.hasAttribute('target')).toBe(false);
+        expect(row.className).toContain(focusRing);
+        expect(row.className).toContain(quiet);
+        for (const key of ['ctrlKey', 'metaKey']) {
+          const event = new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            [key]: true,
+          });
+          act(() => {
+            row.dispatchEvent(event);
+          });
+          expect(event.defaultPrevented).toBe(false);
+        }
+      }
+      expect(onOpen).not.toHaveBeenCalled();
+      press(find('[data-inbox-id="B2"]'), 'click');
+      expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 'B2', task: null }));
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      target.remove();
+    }
+  });
   const cases = ['pending', 'failed'].flatMap((configState) =>
     ['click', 'restored'].flatMap((opener) =>
       ['stay', 'close', 'navigate'].map((next) => ({ configState, opener, next })),

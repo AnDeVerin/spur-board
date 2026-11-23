@@ -12,8 +12,9 @@ import {
 import type { HelpRequest } from './ColumnHelp.tsx';
 import { Columns, type ColumnsView } from './Columns.tsx';
 import { Header } from './Header.tsx';
+import { BlockPanel } from './BlockPanel.tsx';
 import { InboxPanel, type NoSessionClick } from './InboxPanel.tsx';
-import { taskParam } from './task-model.ts';
+import { blockParam, taskParam } from './task-model.ts';
 import { TaskView, type TaskTitle } from './TaskView.tsx';
 import styles from './Board.module.css';
 
@@ -80,7 +81,7 @@ function inboxBackground(): boolean {
   const state: unknown = history.state;
   return (
     new URLSearchParams(location.search).get('open') === 'inbox' ||
-    (taskParam(location.search) !== null &&
+    ((taskParam(location.search) !== null || blockParam(location.search) !== null) &&
       typeof state === 'object' &&
       state !== null &&
       'inbox' in state &&
@@ -107,6 +108,7 @@ export function Board({ data }: { data: BoardData }) {
   const snapshot = useSyncExternalStore(data.subscribe, data.snapshot);
   const [filter, setFilter] = useState('');
   const [openKey, setOpenKey] = useState(() => taskParam(location.search));
+  const [blockId, setBlockId] = useState(() => blockParam(location.search));
   const [inboxOpen, setInboxOpen] = useState(inboxBackground);
   const [pendingProject, setPendingProject] = useState(inboxProject);
   // The update banner's Reload was pressed and the page is about to go.
@@ -122,6 +124,7 @@ export function Board({ data }: { data: BoardData }) {
   useEffect(() => {
     const onPop = () => {
       setOpenKey(taskParam(location.search));
+      setBlockId(blockParam(location.search));
       setInboxOpen(inboxBackground());
       setPendingProject(inboxProject());
       setHelpRequest(null);
@@ -133,17 +136,20 @@ export function Board({ data }: { data: BoardData }) {
   }, []);
   useEffect(() => {
     if (pendingProject === null) return;
-    if (openKey === null || !inboxOpen) {
+    if ((openKey === null && blockId === null) || !inboxOpen) {
       setPendingProject(null);
       return;
     }
     if (snapshot.config === undefined) return;
     data.choose(pendingProject);
     setPendingProject(null);
-  }, [data, openKey, inboxOpen, pendingProject, snapshot.config]);
+  }, [data, openKey, blockId, inboxOpen, pendingProject, snapshot.config]);
   useEffect(() => {
     data.open(openKey);
   }, [data, openKey]);
+  useEffect(() => {
+    data.openBlock(blockId);
+  }, [data, blockId]);
   useEffect(() => {
     if (wasInboxOpen.current && !inboxOpen && !skipInboxFocus.current)
       inboxTrigger.current?.querySelector('button')?.focus();
@@ -186,6 +192,11 @@ export function Board({ data }: { data: BoardData }) {
     setPendingProject(project);
     history.pushState({ inbox: true, project }, '', openHref(task));
     setOpenKey(task);
+  };
+  const openBlockFromInbox = (project: string, id: string) => {
+    setPendingProject(project);
+    history.pushState({ inbox: true, project }, '', openHref(`block:${id}`));
+    setBlockId(id);
   };
   // Nothing until config.get answers and the shown project's view settles. Then the shown
   // project's row opens the column's help, or its task over the inbox when there is no head to
@@ -325,12 +336,36 @@ export function Board({ data }: { data: BoardData }) {
             history.pushState(null, '', withoutOpen());
             setInboxOpen(false);
             setOpenKey(null);
+            setBlockId(null);
           }}
           onOpen={(entry) => {
             if (entry.task !== null) openFromInbox(entry.project, entry.task);
+            else if (entry.kind === 'block') openBlockFromInbox(entry.project, entry.id);
           }}
           onColumnHelp={onColumnHelp}
           noSessionClick={noSessionClick}
+        />
+      )}
+      {snapshot.block !== undefined && (
+        <BlockPanel
+          key={snapshot.block.id}
+          block={snapshot.block}
+          config={snapshot.config}
+          now={data.now()}
+          offline={snapshot.stream === 'offline'}
+          notice={notice}
+          unavailable={unavailable(snapshot, WRITES)}
+          drafts={data.drafts}
+          onClose={() => {
+            history.pushState(null, '', inboxOpen ? openHref('inbox') : withoutOpen());
+            setBlockId(null);
+          }}
+          onRetry={() => {
+            data.retryBlock();
+          }}
+          answerIntent={data.blockAnswerIntent}
+          followUpIntent={data.blockFollowUpIntent}
+          refreshBlock={data.refreshBlock}
         />
       )}
       {task !== undefined && (

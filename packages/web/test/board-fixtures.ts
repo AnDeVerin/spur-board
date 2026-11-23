@@ -1,4 +1,5 @@
 import { browserOperations } from '@spur-board/contracts/browser';
+import { block, blockGet, comment } from './board-block-fixtures.ts';
 
 /** Board screen fixtures: config, `status.get` rows and a fake daemon with its event stream. */
 type OpId =
@@ -7,6 +8,7 @@ type OpId =
   | 'inbox.operator'
   | 'task.get'
   | 'task.history'
+  | 'block.get'
   | 'block.answer'
   | 'block.followup'
   | 'comment.add'
@@ -378,6 +380,7 @@ export const taskHistory = (
 ) => ({ task: taskGet().task, events });
 
 export { policy, policyColumn } from './board-policy-fixtures.ts';
+export { block, blockGet, comment };
 
 /** Fake daemon: the reads and writes by route and an event stream the test writes to. */
 export function daemon(tasks: unknown[] = ROWS) {
@@ -386,6 +389,7 @@ export function daemon(tasks: unknown[] = ROWS) {
     'status.get': () => Promise.resolve(envelope(status(tasks))),
     'inbox.operator': () => Promise.resolve(envelope(inbox(2))),
     'task.get': () => Promise.resolve(envelope(taskGet())),
+    'block.get': () => Promise.resolve(envelope(blockGet())),
     'block.answer': () => {
       const answered: Record<string, unknown> = block();
       delete answered.answeredVia;
@@ -479,35 +483,6 @@ export function daemon(tasks: unknown[] = ROWS) {
   };
 }
 export type Daemon = ReturnType<typeof daemon>;
-/** Valid mixed discussion records, with overrides for lifecycle and provenance tests. */
-export const block = (extra: Record<string, unknown> = {}) => ({
-  id: 'B12',
-  task: 'ex/repo#7',
-  type: 'needs_input',
-  state: 'open',
-  author: 'agent:worker/s1',
-  addressee: 'operator',
-  reason: 'Pick a path\nKeep this line.',
-  at: '2026-11-15T13:00:00.000Z',
-  outcome: null,
-  outcomeReason: null,
-  unblockedBy: null,
-  unblockedAt: null,
-  answeredVia: null,
-  ...extra,
-});
-export const comment = (extra: Record<string, unknown> = {}) => ({
-  id: 'C1',
-  task: 'ex/repo#7',
-  block: null,
-  author: 'operator',
-  at: '2026-11-15T13:30:00.000Z',
-  text: 'A task comment',
-  revision: 1,
-  ackedRevision: null,
-  untrusted: true,
-  ...extra,
-});
 export const hello = 'event: hello\ndata: {"head":1,"instance":"one"}\n\n';
 
 // Status bar and services panel fixtures.
