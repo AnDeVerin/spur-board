@@ -21,17 +21,29 @@ Each step shows the command, what success looks like, and where to look when it 
   issues and pull requests.
 - Claude Code in the Spur sessions. Codex works too: follow step 3 of the
   [minimal example](../examples/minimal/README.md#steps) and
-  [skills.codex_visibility](../TROUBLESHOOTING.md#skillscodex_visibility).
+  [skills.codex_visibility](../TROUBLESHOOTING.md#skillscodex_visibility). On a fresh checkout,
+  create the skills directory before you link the skill into it, after step 2:
+
+  ```sh
+  mkdir -p .agents/skills
+  ln -s ~/.codex/skills/spur-board .agents/skills/spur-board
+  ```
 
 Slack and the web UI are not needed. [Add more columns](#add-more-columns) shows how to add them
 later.
 
 ### Install Spur
 
+Install it under the same user prefix as the Board package in step 1, so npm needs no root
+access, and put that prefix's `bin` on `PATH`:
+
 ```sh
-npm install -g @shugaev/spur
+npm install -g --prefix "$HOME/.local" @shugaev/spur
+export PATH="$HOME/.local/bin:$PATH"
 spur init
 ```
+
+Add the `export` line to your shell profile so new shells and the Spur sessions keep it.
 
 `board doctor` blocks on a Spur older than 1.53.0 with
 [spur.version](../TROUBLESHOOTING.md#spurversion).
@@ -88,7 +100,8 @@ board skills install
 
 Clone your repository. Copy the contents of `projects.spur.yaml` to `spur.yaml` at the root of the
 checkout, replace `example-org/example-repo`, `example-user` and the project names with your own
-values, and connect it from the checkout:
+values, set `defaultBranch` in all three projects to your repository's default branch if it is not
+`main`, and connect it from the checkout:
 
 ```sh
 spur connect spur.yaml
@@ -160,9 +173,11 @@ token cannot read:
 [GitHub check runs or review teams lack access](../TROUBLESHOOTING.md#github-check-runs-or-review-teams-lack-access).
 No live reviewer session:
 [orchestrator.sessions](../TROUBLESHOOTING.md#orchestratorsessions). `WARNING path.spur` with
-live sessions means `board` is missing from the `PATH` those sessions see, so the agents cannot
-query the Board or submit their turns: install the package with that session's Node and a prefix
-on that `PATH`, then rerun the check ([path.spur](../TROUBLESHOOTING.md#pathspur)).
+live sessions means `board --version` failed on the `PATH` of the first live session: `board` is
+missing there, or it is found but cannot run, for example because that `PATH` has no Node. The
+agents then cannot query the Board or submit their turns. Run `board --version` in each session,
+install the package with that session's Node and a prefix on its `PATH`, then rerun the check
+([path.spur](../TROUBLESHOOTING.md#pathspur)).
 
 ### 6. Open a GitHub issue
 
@@ -203,17 +218,25 @@ Run board status and tell me the column and turn reason of example-org/example-r
 `dev: no_pr`. Later the worker's pull request shows on GitHub:
 
 ```sh
-gh pr list --repo example-org/example-repo --author example-user
+gh pr list --repo example-org/example-repo --author example-user --json number,body
 ```
 
-It lists a pull request whose body says `Closes #<N>`.
+It lists a pull request whose `body` says `Closes #<N>`; its `number` is `<PR>` in step 9. The
+turn keeps the reason it opened with, so `dev: no_pr` can stay after the pull request links. Ask
+`example-operator` whether it linked:
+
+```text
+Run board status and tell me the prCount of example-org/example-repo#<N>.
+```
+
+A `prCount` of 1 means the Board linked the pull request.
 
 **If it fails:** a task that stays in `todo` means the session is not linked:
 [Link worker sessions to tasks](../SETUP.md#6-link-worker-sessions-to-tasks). A pull request with no
 CI checks waits in Dev until `reposWithoutCi` lists the repository: uncomment it in `config.yaml`
 and run `board service restart`, because the daemon reads the config only when it starts
-([config.yaml fields](configuration.md#configyaml-fields)). A task that stays in `dev` with
-`dev: no_pr` after the pull request opened has no linked pull request: its author is not
+([config.yaml fields](configuration.md#configyaml-fields)). A task whose `prCount` stays 0
+after the pull request opened has no linked pull request: its author is not
 `operatorGithubLogin`, or its branch and title do not match the link rules
 ([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker that never gets its turn:
 [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
@@ -228,9 +251,17 @@ Run board status and tell me the column and turn reason of example-org/example-r
 ```
 
 **Success looks like:** `example-operator` reports the task in `review` with the turn reason
-`review: no_review_on_head`. After the reviewer submits, the task waits in `review` until you
-merge. When the reviewer returns the task, it goes back to `dev`, the worker fixes what the
-reviewer named, and the task comes back to Review.
+`review: no_review_on_head`: the reviewer has its turn. The task stays in `review` after the
+reviewer submits, so the column alone does not say the review is done. Before you merge, ask:
+
+```text
+Run board status and tell me the turn and the latest submission of example-org/example-repo#<N>.
+```
+
+The review is done when the task has no open turn and its latest submission is from `review`, is
+not `pending`, and has the `sha` of the pull request's current head. When the reviewer returns
+the task instead, it goes back to `dev`, the worker fixes what the reviewer named, and the task
+comes back to Review.
 
 **If it fails:** no live reviewer session:
 [orchestrator.sessions](../TROUBLESHOOTING.md#orchestratorsessions). A reviewer that never wakes
