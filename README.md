@@ -38,15 +38,16 @@ server from their Spur sessions.
 An optional web console shows the Board, with pull request checks, the turn and the blocks on each
 card. The task view explains **Why it is here**: the exit conditions, holds, the open turn and the
 blocks. The inbox gathers what waits for you across projects. The services panel shows the health
-of the daemon, the host, Slack, GitHub, Spur and Jira. Pick a light, dark or auto theme. Answer
+of the daemon, the host, Slack when configured, GitHub, Spur and Jira. Pick a light, dark or auto theme. Answer
 questions and follow up from the browser, a Slack thread or the CLI; add comments from the browser
 or the CLI.
 
 ## What it needs
 
 Linux with systemd user services, Node 24.12+ (24.x) or 26.x, a running
-[Spur](https://github.com/ashugaev/spur) 1.53.0 or newer, a Slack app, a GitHub token, and Jira
-credentials for Jira projects. The web console needs a private reverse proxy.
+[Spur](https://github.com/ashugaev/spur) 1.53.0 or newer, a GitHub token, Jira credentials for
+Jira projects, and optionally a Slack app. The optional web console has no login of its own and
+needs an authenticating reverse proxy or an SSH tunnel to reach it from another machine.
 
 ## Get started
 
@@ -65,7 +66,8 @@ local method, never in chat.
 ### Set up by hand
 
 1. Install the package with the Node executable visible to Spur sessions.
-2. Create the Slack app and put configuration and tokens in private local files.
+2. Put configuration and tokens in private local files. Slack is optional: create the Slack app
+   only if you want questions and the feed in Slack.
 3. Install the user service, install the agent skills, and run the doctor checks.
 
 Follow [SETUP.md](SETUP.md) for the commands and file locations. Use

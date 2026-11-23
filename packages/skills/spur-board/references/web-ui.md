@@ -9,7 +9,11 @@ Archived tasks are read-only; other actions use CLI, MCP or Slack.
 
 Enable the optional web listener with `web.port` and `web.publicOrigin` per
 [Optional browser access](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#optional-browser-access),
-then open `web.publicOrigin`. For 503 `UI is not built`, follow
+then open `web.publicOrigin`. The web UI has no login of its own: anyone who reaches it acts as
+operator. The daemon binds it to `127.0.0.1`; another machine reaches it only through an
+authenticating reverse proxy or an SSH tunnel, per
+[Remote access through Caddy with basic auth](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#remote-access-through-caddy-with-basic-auth).
+For 503 `UI is not built`, follow
 [Building the web UI](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md#building-the-web-ui).
 The page shows the Spur mark as its tab icon and, over HTTPS, installs on a phone as a standalone
 app (see Optional browser access).

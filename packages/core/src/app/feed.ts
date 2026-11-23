@@ -167,15 +167,22 @@ function feedTime(at: string, config: Config, date = false): string {
   return date ? `${part('year')}-${part('month')}-${part('day')} ${time}` : time;
 }
 
-/** Who acted, for a non-system actor: an agent by its session, else the operator's mention. */
+/**
+ * Who acted, for a non-system actor: an agent by its session, else the operator's mention, or
+ * the word operator when operator.slack is unset.
+ */
 function actorInline(
   by: ActorId,
   parsed: NonNullable<ReturnType<typeof parseActorId>>,
   config: Config,
 ): RichTextInline {
-  return parsed.actor === 'agent' && !isOperator(by, config, null)
-    ? { kind: 'text', text: `${parsed.actorRef.project}/${parsed.actorRef.session}` }
-    : { kind: 'mention', user: userIdSchema.parse(config.operator.slack) };
+  if (parsed.actor === 'agent' && !isOperator(by, config, null)) {
+    return { kind: 'text', text: `${parsed.actorRef.project}/${parsed.actorRef.session}` };
+  }
+  const slack = config.operator?.slack;
+  return slack === undefined
+    ? { kind: 'text', text: 'operator' }
+    : { kind: 'mention', user: userIdSchema.parse(slack) };
 }
 
 function resolvedLine(by: ActorId, at: string, config: Config): RichTextInline[] {

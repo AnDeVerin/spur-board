@@ -45,8 +45,11 @@ one of the limits below is not a vulnerability; a way around a guarantee below i
 - **Operator tokens last until revoked.** `board token create` writes a random secret to
   `<folder>/.spur-board/token`; the daemon stores only its SHA-256 hash. A request lapses after
   15 minutes unless the operator approves it in the messenger. An approved token has no expiry:
-  it works until `board token revoke`, and the daemon checks its status on every call. See
-  [SETUP.md](SETUP.md) for the operator paths.
+  it works until `board token revoke`, and the daemon checks its status on every call. In this
+  version only Slack can approve a request, so a board without Slack cannot approve new tokens:
+  its operator is a Spur project marked `operator`. Tokens approved while Slack was on keep
+  working after Slack is removed, until `board token revoke`. See [SETUP.md](SETUP.md) for the
+  operator paths.
 - **The journal records the actor and the channel.** Each journal event records who acted (the
   operator, an agent and its session, or the board) and, in `via`, the channel the write arrived
   through, whoever the actor: `slack` or `web` where the daemon received the write, or `cli` or
@@ -57,17 +60,22 @@ one of the limits below is not a vulnerability; a way around a guarantee below i
 ### Optional web listener
 
 Web is off by default. Setting both `web.port` and `web.publicOrigin` starts a separate
-`127.0.0.1` listener. A reverse proxy may expose it to the operator's private network and must
-preserve the original `Host`. Everyone who can reach that port can act as the operator through
-web-bound reads and the ten writes, `comment.add`, `block.answer`, `block.followup`,
-`item.close`, `task.move`, `task.order`, `inbox.ack`, `task.submit`, `task.return` and
-`task.wait`, without a token.
-The private network is the boundary: it must contain only the operator and their devices.
+`127.0.0.1` listener. The web UI has no login of its own: everyone who can reach that port can
+act as the operator through web-bound reads and the ten writes, `comment.add`, `block.answer`,
+`block.followup`, `item.close`, `task.move`, `task.order`, `inbox.ack`, `task.submit`,
+`task.return` and `task.wait`, without a token.
+Another machine reaches the listener only through an authenticating reverse proxy, which must
+preserve the original `Host`, or an SSH tunnel. With the proxy, its authentication is the
+boundary: the only one for a public name, and for a private name a private network limited to
+the operator's devices is a second layer. With a tunnel bound to the laptop's `127.0.0.1`, the
+SSH login is the boundary. See
+[Remote access through Caddy with basic auth](SETUP.md#remote-access-through-caddy-with-basic-auth).
 
 Exact Host and Origin checks, JSON POST bodies, cross-site fetch rejection and no CORS stop
 foreign browser pages and DNS rebinding. They do not authenticate network members or local OS
-users, who can supply these headers themselves. Token, skill, schema, doctor and event routes
-are absent on the web listener. CSP blocks inline scripts/styles and external resources.
+users, who can supply these headers themselves. Token, skill, schema and doctor routes are
+absent on the web listener; it serves operations, health, the `GET /v1/events` stream and the
+UI files. CSP blocks inline scripts/styles and external resources.
 Request logs record `via: web`, forwarded client metadata and user agent alongside the request
 ID, method, path and status. Forwarded IP metadata is untrusted audit data, never identity.
 Journal events from web writes persist `via: web`. Task history keeps `actor: operator` and

@@ -97,6 +97,20 @@ describe('live conformance process preflight', () => {
     );
   });
 
+  it('requires operator.slack before any network call', async () => {
+    const testHome = home({
+      config: VALID_CONFIG_YAML.replace('operator:\n  slack: U0000000000\n', ''),
+      secrets: 'SLACK_BOT_TOKEN=bot-secret-canary\nSLACK_APP_TOKEN=app-secret-canary\n',
+    });
+    await expect(
+      liveSettings({
+        BOARD_HOME: testHome,
+        BOARD_LIVE_CHANNEL: 'CTEST00000',
+        BOARD_LIVE_CHANNEL_NAME: 'conformance-test',
+      }),
+    ).rejects.toThrow(/^Set operator\.slack in config\.yaml to the operator's Slack user ID\.$/);
+  });
+
   it('rejects missing tokens and API overrides before any network call', async () => {
     const testHome = home({ secrets: 'SLACK_BOT_TOKEN=bot-secret-canary\n' });
     const env = {

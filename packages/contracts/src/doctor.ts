@@ -9,6 +9,14 @@ export const DOCTOR_FIX_MAX = 300;
  */
 export const SPUR_MIN_VERSION = '1.53.0';
 
+/** The `slack.configured` fix when neither slack.channels nor operator.slack is set. */
+export const SLACK_OFF_FIX =
+  'Slack off: questions addressed to you are in board inbox operator and the web inbox. A new token needs Slack approval, so outside Spur only tokens approved earlier work, until board token revoke. Run the spur-board-setup skill to add Slack.';
+
+/** The `slack.configured` fix when operator.slack is set but slack.channels is not. */
+export const SLACK_PARTLY_FIX =
+  'Slack is partly configured: operator.slack is set but slack.channels is not, so nothing reaches Slack and questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to set slack.channels, or remove operator.slack to run without Slack.';
+
 const DOCTOR_STATUSES = ['pass', 'fail', 'warning'] as const;
 
 const checkShape = {

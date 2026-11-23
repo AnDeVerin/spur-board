@@ -5,8 +5,8 @@ every project, whatever project is chosen in the header.
 
 ## Status bar
 
-Left to right: **services** toggles its panel; service buttons (daemon, slack, github, spur, jira
-when any project uses Jira); Light/Dark/Auto theme menu with the choice's icon; daemon version, empty until
+Left to right: **services** toggles its panel; service buttons (daemon, slack when a Slack gateway
+is configured, github, spur, jira when any project uses Jira); Light/Dark/Auto theme menu with the choice's icon; daemon version, empty until
 the first status read.
 
 Service dots follow `status.get` health: green healthy, amber degraded, red failing. Names read
@@ -16,7 +16,9 @@ Service dots follow `status.get` health: green healthy, amber degraded, red fail
   the UI cannot read it, or `no answer` if the first read fails. `unreadable since <time>` or
   `unreadable` when the daemon answers but the page cannot read the answer. `updated to <version>`
   when reads fail after an update.
-- slack: `up` or `down`.
+- slack: `up` or `down`. Without a Slack gateway, as when `slack.channels` is not set, there is no
+  slack button, and none before the first status read. A Slack outage stored before Slack was
+  turned off still shows a slack button and box from its stored health row.
 - github, spur and jira: `polling` when healthy. GitHub takes the worst across repository pull
   request and issue sources. Otherwise the first source matching the service's colour supplies
   `blind: <reason>`, `waits for rate budget`, `never completed`, `warming up` or `stale`;
@@ -48,7 +50,7 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
   there are several and `Disk` when there is one, with the free space in binary units after the
   bar, such as `41.1 GiB free`. A volume that cannot be read is left out; `Disk — / 100` means
   no volume could be read or no sample yet. A host load wait adds an amber row.
-- slack: when down, Down since, Reason and Spaces.
+- slack, when a Slack gateway is configured: when down, Down since, Reason and Spaces.
 - spur, then one group per project, headed by the project id, with one box per GitHub source,
   one per Jira source and one `github project` box per GitHub Project mirror of that project. Each box is headed by its own state, so every source the
   daemon holds back for a rate limit reads `waits for rate budget`, even before its first complete

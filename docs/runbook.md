@@ -201,11 +201,15 @@ web:
 ```
 
 The daemon binds this separate listener to `127.0.0.1`; `{port}` resolves to the actual port.
-Configure the private-network reverse proxy to preserve `Host` and use the exact public origin.
-Anyone who reaches it can use the web-bound reads and `comment.add` / `block.answer` /
-`block.followup` / `item.close` / `task.move` / `task.order` / `inbox.ack` / `task.submit` /
-`task.return` / `task.wait` as operator without a token. Host/Origin guards protect against foreign browser pages, not network members
-or local users; keep the network limited to the operator's devices. See [Security](../SECURITY.md).
+The web UI has no login of its own. Anyone who reaches it can use the web-bound reads and
+`comment.add` / `block.answer` / `block.followup` / `item.close` / `task.move` / `task.order` /
+`inbox.ack` / `task.submit` / `task.return` / `task.wait` as operator without a token. Another
+machine reaches it only through an authenticating reverse proxy or an SSH tunnel; see
+[Remote access through Caddy with basic auth](../SETUP.md#remote-access-through-caddy-with-basic-auth).
+The proxy must pass the `Host` and `Origin` headers unchanged. The daemon answers 403 when
+`Host` differs from the resolved public origin's host, or when `Origin` differs on a write (any
+method other than GET or HEAD) or on the event stream when the browser sends one. Host/Origin guards protect against foreign browser pages, not network members or local users.
+See [Security](../SECURITY.md).
 
 The shell gets live updates from `GET /v1/events` on the same listener. Turn response buffering
 off for that path in the proxy: the stream sends `X-Accel-Buffering: no`, which nginx honours,
@@ -218,4 +222,4 @@ or unreachable `web.spurUiOrigin` also only warns and never blocks setup or upda
 [UI diagnostics and private CA recipe](../TROUBLESHOOTING.md#webspuruiorigin).
 Missing UI assets return
 503 with the hint ``UI is not built: run `pnpm --filter @spur-board/web build` ``; health and
-operations still work. The UI build is supplied separately from this listener.
+operations still work.

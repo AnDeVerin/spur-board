@@ -57,6 +57,7 @@ import {
   curatorSession,
   earliestTime,
   LINKED_FINISHED_STATES,
+  linkedSession,
   moveBlockToAddressee,
   selectNotificationRecipient,
 } from './doorbells.ts';
@@ -300,7 +301,8 @@ async function turnsWithoutSession(
 /**
  * Reconciles every item in the caller's observation or tick transaction. It first closes each
  * Done wrap-up turn whose holder session ended (`closeEndedDoneTurns`), so no stall item is
- * raised for it.
+ * raised for it, and, while Spur is current, each untaken one left with no recipient
+ * (`closeUnaddressedDoneTurns`).
  */
 export async function reconcileItems(
   trx: Trx,
@@ -311,10 +313,19 @@ export async function reconcileItems(
   /** Fresh complete Spur batch after startup or an expired observation interval. */
   spurContinuityStartAt?: number,
 ): Promise<void> {
-  await closeEndedDoneTurns(trx, new Date(now));
-  const candidates: ItemCandidate[] = [];
   const sources = await trx.selectFrom('source_state').selectAll().execute();
   const sourceById = new Map(sources.map((state) => [state.source, state]));
+  const spur = sourceById.get('spur');
+  const spurBlind = spur !== undefined && spur.blind_reason !== null;
+  const spurExpired =
+    spur?.last_complete_at != null &&
+    now >
+      Date.parse(spur.last_complete_at) +
+        config.adapters.spur.intervalMs * config.thresholds.staleMultiplier;
+  await closeEndedDoneTurns(trx, new Date(now));
+  if (!(spurBlind || !spurComplete || spurExpired))
+    await closeUnaddressedDoneTurns(trx, config, new Date(now));
+  const candidates: ItemCandidate[] = [];
   for (const source of sources) {
     if (source.blind_reason === null) continue;
     // A stale tracker shows as a status flag only; stale Spur also blinds worker health.
@@ -480,8 +491,6 @@ export async function reconcileItems(
       source: null,
       priority: ITEM_POLICY.post_failed.priority,
     });
-  const spur = sourceById.get('spur');
-  const spurBlind = spur !== undefined && spur.blind_reason !== null;
   const sessionLinks = await trx
     .selectFrom('link')
     .innerJoin('session_snapshot', 'session_snapshot.id', 'link.session_id')
@@ -754,11 +763,6 @@ export async function reconcileItems(
     observationRow === undefined
       ? { blind: false, observedAt: null, resumedAt: null }
       : parseJson(stallObservationSchema, observationRow.value);
-  const spurExpired =
-    spur?.last_complete_at != null &&
-    now >
-      Date.parse(spur.last_complete_at) +
-        config.adapters.spur.intervalMs * config.thresholds.staleMultiplier;
   const observation =
     spurBlind || !spurComplete || spurExpired
       ? {
@@ -808,29 +812,7 @@ export async function reconcileItems(
     if (executor === undefined && turn.acked_at === null) {
       const project = config.projects.find((entry) => entry.id === task.project);
       const target = project?.columns.find((entry) => entry.id === turn.column)?.orchestrator;
-      const stopped = await trx
-        .selectFrom('session_snapshot')
-        .selectAll()
-        .where('state', '=', 'stopped')
-        .where('ended_at', 'is', null)
-        .where('absent_since', 'is', null)
-        .orderBy('first_seen', 'desc')
-        .orderBy('id')
-        .execute();
-      for (const row of stopped) {
-        const linked = await trx
-          .selectFrom('link')
-          .select('id')
-          .where('task_id', '=', task.id)
-          .where('session_id', '=', row.id)
-          .where('role', '=', turn.role === 'worker' ? 'worker' : 'orchestrator')
-          .where('banned', '=', 0)
-          .executeTakeFirst();
-        if (linked !== undefined || (turn.role !== 'worker' && row.spur_project === target)) {
-          executor = row;
-          break;
-        }
-      }
+      executor = await stoppedExecutor(trx, task.id, turn.role, target);
     }
     if (executor === undefined || executor.ended_at !== null || executor.absent_since !== null) {
       await observeTurnEpisode(trx, turn.id, null);
@@ -972,8 +954,63 @@ export async function reconcileItems(
   const resting = await restingHolders(trx, config, now);
   const restingIdle = (flag: { kind: string; taskId: string; sessionId: string }) =>
     flag.kind === 'worker_idle' && resting.has(`${flag.taskId}:${flag.sessionId}`);
+  // A worker stopped without an end time on a Done task whose untaken wrap-up closed with no
+  // recipient left (`closeUnaddressedDoneTurns`) has nothing left to answer: the retained Spur
+  // health of its last state raises and holds no stuck or input flag. Before that close the
+  // open turn kept the session in `stalled`.
+  const turnTasks = new Set(turns.map((turn) => turn.task_id));
+  // Only the latest turn of the current Done visit counts: a later wrap-up, taken or not, starts
+  // over, so an older close cannot withdraw a newer alert.
+  const latestDoneTurns = new Map(
+    (
+      await trx
+        .selectFrom('turn')
+        .innerJoin('task', 'task.id', 'turn.task_id')
+        .select(['turn.task_id', 'turn.acked_at', 'turn.role', 'turn.closed_reason'])
+        .where('turn.column', '=', 'done')
+        .where('task.column', '=', 'done')
+        .whereRef('turn.epoch', '=', 'task.column_epoch')
+        .orderBy('turn.id')
+        .execute()
+    ).map((turn) => [turn.task_id, turn]),
+  );
+  const unaddressedDone = new Set(
+    [...latestDoneTurns.values()]
+      .filter(
+        (turn) =>
+          turn.closed_reason === 'moved' && turn.acked_at === null && turn.role === 'worker',
+      )
+      .map((turn) => turn.task_id),
+  );
+  // Only the worker the stall scan would have diagnosed that turn against: another linked
+  // worker's alert was never held by it.
+  const addressed = new Set<string>();
+  for (const taskId of unaddressedDone) {
+    if (!taskById.has(taskId) || turnTasks.has(taskId)) continue;
+    const session = await stoppedExecutor(trx, taskId, 'worker', undefined);
+    if (session !== undefined) addressed.add(`${String(taskId)}:${session.id}`);
+  }
+  const stoppedInDone = new Set(
+    subjects
+      .filter(
+        (subject) =>
+          subject.role === 'worker' &&
+          subject.lifecycle === 'stopped' &&
+          subject.endedAt === null &&
+          addressed.has(`${subject.taskId}:${subject.id}`),
+      )
+      .map((subject) => `${subject.taskId}:${subject.id}`),
+  );
+  const stoppedRetained = (flag: { kind: string; taskId: string; sessionId: string }) =>
+    ['stuck_worker', 'needs_input'].includes(flag.kind) &&
+    stoppedInDone.has(`${flag.taskId}:${flag.sessionId}`);
   for (const flag of health.flags) {
-    if (endedHolders.has(`${flag.taskId}:${flag.sessionId}`) || restingIdle(flag)) continue;
+    if (
+      endedHolders.has(`${flag.taskId}:${flag.sessionId}`) ||
+      restingIdle(flag) ||
+      stoppedRetained(flag)
+    )
+      continue;
     const task = taskById.get(Number(flag.taskId));
     if (task === undefined) continue;
     const fact = subjects.find(
@@ -1079,7 +1116,12 @@ export async function reconcileItems(
   const ordered = orderItems(candidates);
   const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {
-    if (endedHolders.has(`${flag.taskId}:${flag.sessionId}`) || restingIdle(flag)) continue;
+    if (
+      endedHolders.has(`${flag.taskId}:${flag.sessionId}`) ||
+      restingIdle(flag) ||
+      stoppedRetained(flag)
+    )
+      continue;
     const task = taskById.get(Number(flag.taskId));
     if (task !== undefined && !stalled.has(`${flag.taskId}:${flag.sessionId}`))
       seen.add(healthKey(task.id, flag));
@@ -1100,7 +1142,8 @@ export async function reconcileItems(
               subject.endedAt === null &&
               subject.health === 'error' &&
               subject.role !== 'other' &&
-              !stalled.has(`${subject.taskId}:${subject.id}`),
+              !stalled.has(`${subject.taskId}:${subject.id}`) &&
+              !stoppedInDone.has(`${subject.taskId}:${subject.id}`),
           )
           .map((subject) =>
             healthKey(Number(subject.taskId), {
@@ -1330,6 +1373,36 @@ async function closeEndedDoneTurns(trx: Trx, at: Date): Promise<void> {
   }
 }
 
+/**
+ * Closes, as `moved`, each untaken worker-role Done wrap-up turn of an unarchived Done task when
+ * no recipient is left: no live worker session is linked to the task and Done has no
+ * orchestrator. The caller runs it only while Spur is current, so a missed session end does not
+ * close a turn a live worker still holds.
+ */
+async function closeUnaddressedDoneTurns(trx: Trx, config: Config, at: Date): Promise<void> {
+  const turns = await trx
+    .selectFrom('turn')
+    .innerJoin('task', 'task.id', 'turn.task_id')
+    .select(['turn.task_id', 'task.project'])
+    .where('turn.closed_at', 'is', null)
+    .where('turn.acked_at', 'is', null)
+    .where('turn.role', '=', 'worker')
+    .where('turn.column', '=', 'done')
+    .where('task.column', '=', 'done')
+    .where('task.membership', '!=', 'archived')
+    .orderBy('turn.id')
+    .execute();
+  for (const turn of turns) {
+    const project = config.projects.find((candidate) => candidate.id === turn.project);
+    if (project === undefined) continue;
+    const orchestrator =
+      project.columns.find((column) => column.id === 'done')?.orchestrator ?? 'none';
+    if (orchestrator !== 'none') continue;
+    if ((await linkedSession(trx, turn.task_id, 'worker')) !== undefined) continue;
+    await closeTurns(trx, { taskId: turn.task_id, reason: 'moved', at });
+  }
+}
+
 /** Raise ended-holder attention from ownership, independent of links, PRs and source freshness. */
 async function endedTurnItems(
   trx: Trx,
@@ -1470,6 +1543,46 @@ async function observeTurnEpisode(trx: Trx, turnId: number, fact: SessionFacts |
     )
     .execute();
   return episode;
+}
+
+/**
+ * The stopped session an untaken turn of `role` with no live recipient is diagnosed against: the
+ * newest stopped, present session linked to the task in that role, or for a column orchestrator
+ * turn one of the column's orchestrator project `target`. It runs on every reconcile, so each
+ * query is scoped to the task's links or to that project.
+ */
+async function stoppedExecutor(
+  trx: Trx,
+  taskId: number,
+  role: string,
+  target: string | undefined,
+): Promise<Row<'session_snapshot'> | undefined> {
+  const newestStopped = trx
+    .selectFrom('session_snapshot')
+    .selectAll('session_snapshot')
+    .where('session_snapshot.state', '=', 'stopped')
+    .where('session_snapshot.ended_at', 'is', null)
+    .where('session_snapshot.absent_since', 'is', null)
+    .orderBy('session_snapshot.first_seen', 'desc')
+    .orderBy('session_snapshot.id')
+    .limit(1);
+  const linked = await newestStopped
+    .innerJoin('link', 'link.session_id', 'session_snapshot.id')
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'session')
+    .where('link.role', '=', role === 'worker' ? 'worker' : 'orchestrator')
+    .where('link.banned', '=', 0)
+    .executeTakeFirst();
+  if (role === 'worker' || target === undefined) return linked;
+  const inProject = await newestStopped
+    .where('session_snapshot.spur_project', '=', target)
+    .executeTakeFirst();
+  if (linked === undefined || inProject === undefined) return linked ?? inProject;
+  // The earlier of the two in the scan order: newest first seen, then the lower id.
+  return inProject.first_seen > linked.first_seen ||
+    (inProject.first_seen === linked.first_seen && inProject.id < linked.id)
+    ? inProject
+    : linked;
 }
 
 function healthKey(taskId: number, flag: SessionHealthFlag): string {

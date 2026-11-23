@@ -20,8 +20,8 @@ Ask one question at a time when inspection cannot answer it. Check before writin
 
 ## 3. Complete missing configuration
 
-- Discover repositories, Spur projects, and GitHub logins where possible. Ask and write only unset values: Jira filter and statuses if used, repositories, project names and roles, the GitHub login agents open PRs under per project (PR discovery filters by it; not always the operator's), and the operator's Slack user ID. Preserve settled and unrelated fields; validate against the shipped config schema.
-- If Slack roles are unset, follow [Slack setup](references/slack.md). List channels visible to the bot and ask which serve orchestrators and feed; store their IDs. The bot sees only private channels it joined.
+- Discover repositories, Spur projects, and GitHub logins where possible. Ask and write only unset values: Jira filter and statuses if used, repositories, project names and roles, and the GitHub login agents open PRs under per project (PR discovery filters by it; not always the operator's). Preserve settled and unrelated fields; validate against the shipped config schema.
+- If Slack is unset, ask whether the operator wants Slack. Without it, leave `operator` and `slack` out and make one Spur project role `operator`, in top-level `spurProjects` when there are several Board projects (a project's own operator sees only that project); questions then wait in `board inbox operator` and the web inbox. With it, ask for the operator's Slack user ID and follow [Slack setup](references/slack.md). List channels visible to the bot and ask which serve orchestrators and feed; store their IDs. The bot sees only private channels it joined.
 - Check required secret names and permissions. Follow [secret files](references/secrets.md) for private entry and any existing `slack.env` migration. Write `config.yaml` and a regular mode `0600` `secrets.env` only when needed.
 - For a `github-issues` project, follow [worker links](references/worker-links.md).
 - For browser access, follow [web setup](references/web.md); check `web.listening`.
@@ -35,7 +35,7 @@ Ask one question at a time when inspection cannot answer it. Check before writin
 ## 5. Finish
 
 - Run `board doctor --json`. For each failed check, inspect state, apply its `fix` with any needed consent, and repeat until green. Report warnings. In `sessions.stale`, the operator stops and wakes stale ones; rerun doctor for queued ones.
-- Wait for the feed's `spur-board is live` line after the first complete poll. If absent, inspect doctor checks and service logs and continue the fix loop. Confirm receipt without exposing a channel ID.
+- With Slack, wait for the feed's `spur-board is live` line after the first complete poll; without it, check the web inbox or `board status`. If absent, inspect doctor checks and service logs and continue the fix loop. Confirm receipt without exposing a channel ID.
 
 ## Update
 

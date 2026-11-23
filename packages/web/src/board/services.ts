@@ -14,6 +14,7 @@ interface Health {
   word: string;
 }
 
+/** The status bar services in bar order; slack only when a Slack services row exists. */
 export type ServiceName = 'daemon' | 'slack' | 'github' | 'spur' | 'jira';
 
 export interface Indicator extends Health {
@@ -85,17 +86,30 @@ type HealthSnapshot = Pick<
 >;
 
 /**
- * The status bar buttons in the order daemon, slack, github, spur, then jira when status.get has
- * a jira row or a jira source. Each takes its tone from its `services[]` row and reads `unknown`
- * without one; all read `unknown` before the first status, and all but the daemon while the
- * daemon does not answer.
+ * Whether the board has Slack: the last good status has a slack `services[]` row, which core
+ * writes only for a Slack gateway or a kept slack transport row. No status yet means no Slack.
+ */
+function hasSlack(status: BoardStatus | undefined): boolean {
+  return status?.services.some((row) => row.service === 'slack') === true;
+}
+
+/**
+ * The status bar buttons in the order daemon, slack when a Slack services row exists, github,
+ * spur, then jira when status.get has a jira row or a jira source. Each takes its tone from its
+ * `services[]` row and reads `unknown` without one; all read `unknown` before the first status,
+ * and all but the daemon while the daemon does not answer.
  */
 export function indicators(
   snapshot: HealthSnapshot,
   formatTime: (ms: number) => string,
 ): Indicator[] {
   const { status, readFailed, unreadable, update, lastGoodAt } = snapshot;
-  const names: ServiceName[] = ['daemon', 'slack', 'github', 'spur'];
+  const names: ServiceName[] = [
+    'daemon',
+    ...(hasSlack(status) ? ['slack' as const] : []),
+    'github',
+    'spur',
+  ];
   const hasJira =
     status?.services.some((row) => row.service === 'jira') === true ||
     status?.sources.some((source) => serviceOf(source.source) === 'jira') === true;
@@ -322,11 +336,11 @@ const FROZEN = frozenNote('ready-for-dev');
 const tail = (source: string) => source.split(':').at(-1) ?? '';
 
 /**
- * The panel boxes: the shared daemon, host, slack and spur, then one run per project in the order
- * its sources come, each with one box per GitHub pull request source, GitHub issue source, Jira
- * source and GitHub Project mirror source. A source box takes its word from its own fields. While
- * the daemon does not answer every box but the daemon reads unknown; before the first status
- * there are none.
+ * The panel boxes: the shared daemon, host, slack when a Slack services row exists, and spur,
+ * then one run per project in the order its sources come, each with one box per GitHub pull
+ * request source, GitHub issue source, Jira source and GitHub Project mirror source. A source box
+ * takes its word from its own fields. While the daemon does not answer every box but the daemon
+ * reads unknown; before the first status there are none.
  */
 export function panelBoxes(
   snapshot: HealthSnapshot,
@@ -426,15 +440,19 @@ export function panelBoxes(
       health: null,
       rows: live ? hostRows(live.host, live.hostLoad) : GONE,
     },
-    serviceBox(
-      'slack',
-      live
-        ? gatewayRows(
-            live.transport.find((gateway) => gateway.gateway === 'slack'),
-            formatTime,
-          )
-        : GONE,
-    ),
+    ...(hasSlack(status)
+      ? [
+          serviceBox(
+            'slack',
+            live
+              ? gatewayRows(
+                  live.transport.find((gateway) => gateway.gateway === 'slack'),
+                  formatTime,
+                )
+              : GONE,
+          ),
+        ]
+      : []),
     spur,
     ...(hasGithub ? [] : [serviceBox('github', live ? [] : GONE)]),
     ...grouped,

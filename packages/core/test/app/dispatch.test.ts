@@ -36,6 +36,7 @@ import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blo
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { markTaskChanged } from '../../src/app/board-utils.ts';
 import { openTempStore, rawDatabase } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 // The dispatcher end to end through the observation core, the registry and the tick, on an
 // sb-like board: review by `rev`, product review by `coord`, ready to merge by the operator.
@@ -116,6 +117,8 @@ type Options = {
   sharedRepo?: boolean | 'github-rules';
   /** The board is To Do, Dev, this column and Done, all with no executor bound. */
   unbound?: 'review' | 'product-review' | 'qa' | 'ready-to-merge';
+  /** `health.hostLoad.sessions`: how many sessions in error keep a host-load episode. */
+  hostLoadSessions?: number;
 };
 
 function boardConfig(options: Options = {}) {
@@ -214,7 +217,11 @@ function boardConfig(options: Options = {}) {
         : []),
     ],
     operator: { slack: 'operator' },
+    slack: SLACK_ON,
     digest: { tz: 'UTC' },
+    ...(options.hostLoadSessions === undefined
+      ? {}
+      : { health: { hostLoad: { sessions: options.hostLoadSessions } } }),
   });
 }
 
@@ -510,7 +517,8 @@ function board(options: Options = {}) {
       observe(`github:proj:${repo}`, [], complete, startedAt, blind),
     /**
      * A complete Spur poll: the reviewers always, the worker while `worker` is not `none`; the
-     * session ids in `gone` are left out.
+     * session ids in `gone` are left out; `workerPatch` overrides the worker's facts and `extra`
+     * adds sessions.
      */
     spur: (
       worker: 'live' | 'ended' | 'none' | 'unlinked' = 'live',
@@ -518,6 +526,8 @@ function board(options: Options = {}) {
       gone: readonly string[] = [],
       startedAt?: string,
       blind = false,
+      workerPatch: Partial<SessionFacts> = {},
+      extra: readonly SessionFacts[] = [],
     ) =>
       observe(
         'spur',
@@ -527,16 +537,20 @@ function board(options: Options = {}) {
             : [
                 {
                   kind: 'session' as const,
-                  facts: sessionFacts(
-                    'worker-1',
-                    'worker',
-                    worker === 'ended',
-                    worker !== 'unlinked',
-                  ),
+                  facts: {
+                    ...sessionFacts(
+                      'worker-1',
+                      'worker',
+                      worker === 'ended',
+                      worker !== 'unlinked',
+                    ),
+                    ...workerPatch,
+                  },
                 },
               ]),
           { kind: 'session' as const, facts: sessionFacts('rev-1', 'rev') },
           { kind: 'session' as const, facts: sessionFacts('coord-1', 'coord') },
+          ...extra.map((facts) => ({ kind: 'session' as const, facts })),
           ...(options.curator === true
             ? [{ kind: 'session' as const, facts: sessionFacts('cur-1', 'cur') }]
             : []),
@@ -2781,6 +2795,258 @@ describe('a merged PR and the ticket', () => {
     const next = await ctx.openTurn();
     expect(next).toEqual(turnOf('done', 'worker', 'done: wrap up'));
     expect(next?.id).not.toBe(`T${String(id)}`);
+  });
+
+  /** The task in Done after the merge and the ticket close, with the worker's wrap-up untaken. */
+  const untakenWrapUp = async (ctx: Board) => {
+    await ctx.pr({ state: 'merged' });
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    const wrapUp = await ctx.openTurn();
+    expect(wrapUp).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+    return Number(wrapUp?.id.slice(1));
+  };
+  const expectMovedClose = async (ctx: Board, id: number) => {
+    expect((await ctx.turns()).find((turn) => turn.id === id)).toMatchObject({
+      closed_reason: 'moved',
+    });
+    expect((await ctx.events('turn_closed')).at(-1)?.payload).toMatchObject({
+      turn: `T${String(id)}`,
+      outcome: 'moved',
+    });
+  };
+  const expectOpen = async (ctx: Board, id: number) => {
+    expect((await ctx.turns()).find((turn) => turn.id === id)).toMatchObject({
+      closed_at: null,
+    });
+  };
+
+  it('closes an untaken Done wrap-up turn when no recipient is left', async () => {
+    const ctx = await inDev();
+    const id = await untakenWrapUp(ctx);
+    await ctx.spur('ended');
+    await expectMovedClose(ctx, id);
+    expect(
+      (await ctx.events('turn_closed')).filter(
+        (event) => (event.payload as { turn?: string }).turn === `T${String(id)}`,
+      ),
+    ).toHaveLength(1);
+    ctx.wait(IDLE * 2);
+    await ctx.tick();
+    expect(
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('kind', '=', 'anomaly')
+        .execute(),
+    ).toEqual([]);
+    expect(await openSystemBlocks(ctx)).toEqual([]);
+    expect(await ctx.openTurn()).toBeNull();
+  });
+
+  it.each(['restart', 'stale', 'blind'] as const)(
+    'keeps an untaken Done wrap-up open while Spur is not current, then closes it (%s)',
+    async (gate) => {
+      const ctx = await inDev();
+      const id = await untakenWrapUp(ctx);
+      // Each case fails one part of the gate: no complete read since restart, an expired last
+      // complete read, or a blind complete read.
+      if (gate === 'blind') await ctx.spur('ended', true, [], undefined, true);
+      else {
+        if (gate === 'restart') {
+          // A complete read dated past the next steps keeps the last complete read unexpired, so
+          // only the missing complete read since restart holds the turn.
+          await ctx.spur('live', true, [], new Date(Date.parse(ctx.at()) + 120_000).toISOString());
+          ctx.restart();
+        } else {
+          const spur = ctx.config().adapters.spur;
+          ctx.wait(spur.intervalMs * ctx.config().thresholds.staleMultiplier);
+        }
+        await ctx.session(sessionFacts('worker-1', 'worker', true));
+      }
+      await expectOpen(ctx, id);
+      await ctx.tick();
+      await expectOpen(ctx, id);
+      // The first complete, unblind Spur read closes the turn left open.
+      await ctx.spur('ended');
+      await expectMovedClose(ctx, id);
+      expect(await ctx.openTurn()).toBeNull();
+    },
+  );
+
+  it('keeps an untaken Done wrap-up open for another live linked worker', async () => {
+    const ctx = await inDev();
+    const id = await untakenWrapUp(ctx);
+    await ctx.session(sessionFacts('worker-2', 'worker'));
+    await ctx.spur('ended');
+    await ctx.tick();
+    await expectOpen(ctx, id);
+  });
+
+  it('keeps a worker wrap-up open when Done has an orchestrator', async () => {
+    const ctx = await inDev();
+    const id = await untakenWrapUp(ctx);
+    ctx.restart({ doneOrchestrator: 'coord' });
+    await ctx.spur('ended');
+    await ctx.tick();
+    await expectOpen(ctx, id);
+  });
+
+  /** The operator items naming `session`, by key: every one ever raised, or only the open ones. */
+  const itemsOf = async (ctx: Board, session: string, open = false) =>
+    (
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select('item_key')
+        .where('item_key', 'like', `%:${session}:%`)
+        .$if(open, (query) => query.where('cleared_at', 'is', null))
+        .execute()
+    ).map((item) => item.item_key);
+
+  it.each([
+    ['error', 'untaken wrap-up', 'worker-1', false],
+    ['needs_input', 'untaken wrap-up', 'worker-1', false],
+    ['error', 'host load', 'worker-1', false],
+    ['needs_input', 'no wrap-up', 'worker-1', true],
+    ['needs_input', 'Review turn', 'worker-1', true],
+    ['needs_input', 'open wrap-up', 'worker-1', true],
+    ['needs_input', 'fresh wrap-up after a close', 'worker-2', true],
+    ['needs_input', 'taken wrap-up after a close', 'worker-3', true],
+    ['needs_input', 'two stopped workers', 'worker-1', true],
+  ] as const)(
+    'a worker stopped in %s health (%s) loses its flags only with the wrap-up it left',
+    async (health, setup, subject, kept) => {
+      const options = {
+        ...(setup === 'host load' ? { hostLoadSessions: 1 } : {}),
+        ...(setup === 'no wrap-up' ? { doneOrchestrator: 'operator' } : {}),
+      };
+      // In Review the reviewer's open turn leaves worker-1 out of the stall scan.
+      const ctx = await (setup === 'Review turn' ? inReview(options) : inDev(options));
+      const { health: limits } = ctx.config();
+      const flagAfter = limits[health === 'error' ? 'errorAfterMs' : 'needsInputAfterMs'];
+      const facts = (id: string, healthSince: string, stopped = false): SessionFacts => ({
+        ...sessionFacts(id, 'worker'),
+        health,
+        healthSince,
+        ...(stopped ? { lifecycle: 'stopped' } : {}),
+      });
+      /** A complete Spur read: worker-1 as `worker1`, then the other workers. */
+      const read = (worker1: Partial<SessionFacts> | 'ended', ...others: SessionFacts[]) =>
+        worker1 === 'ended'
+          ? ctx.spur('ended', true, [], undefined, false, {}, others)
+          : ctx.spur('live', true, [], undefined, false, worker1, others);
+      let id = -1;
+      let stop: () => Promise<void>;
+      if (setup === 'fresh wrap-up after a close' || setup === 'taken wrap-up after a close') {
+        // An older untaken wrap-up of this Done visit closed with no recipient left.
+        const old = await untakenWrapUp(ctx);
+        await read('ended');
+        await expectMovedClose(ctx, old);
+        const worker2 = sessionFacts('worker-2', 'worker');
+        await read('ended', worker2);
+        await ctx.tick();
+        const next = await ctx.openTurn();
+        expect(next).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+        await ctx.ack('agent:worker/worker-2', next?.id ?? '');
+        const since = ctx.at();
+        if (setup === 'fresh wrap-up after a close') {
+          // Worker-2 submits its wrap-up, then waits for input and stops.
+          await ctx.submit('agent:worker/worker-2', next?.id ?? '');
+          expect((await ctx.turns()).at(-1)).toMatchObject({ closed_reason: 'submitted' });
+          await read('ended', facts('worker-2', since));
+          ctx.wait(flagAfter);
+          await read('ended', facts('worker-2', since));
+          stop = () => read('ended', facts('worker-2', since, true));
+        } else {
+          // Worker-3 waits for input and stops while worker-2 holds the wrap-up; then worker-2
+          // ends, which closes its taken turn.
+          await read('ended', worker2, facts('worker-3', since));
+          ctx.wait(flagAfter);
+          await read('ended', worker2, facts('worker-3', since));
+          stop = async () => {
+            await read('ended', worker2, facts('worker-3', since, true));
+            await read(
+              'ended',
+              sessionFacts('worker-2', 'worker', true),
+              facts('worker-3', since, true),
+            );
+            expect((await ctx.turns()).at(-1)).toMatchObject({
+              acked_by: 'agent:worker/worker-2',
+              closed_reason: 'moved',
+            });
+          };
+        }
+      } else {
+        // Worker-2, linked last, takes the wrap-up's rings, so worker-1 is not its stalled executor.
+        const others =
+          setup === 'host load' || setup === 'open wrap-up' || setup === 'two stopped workers'
+            ? [sessionFacts('worker-2', 'worker')]
+            : [];
+        if (setup === 'no wrap-up') {
+          await ctx.pr({ state: 'merged' });
+          await ctx.ticket('closed');
+          expect((await ctx.task()).column).toBe('done');
+          expect(await ctx.openTurn()).toBeNull();
+        } else if (setup !== 'Review turn') id = await untakenWrapUp(ctx);
+        // Spur keeps the smoothed health of the worker past its flag threshold.
+        const unhealthy = { health, healthSince: ctx.at() };
+        await read(unhealthy, ...others);
+        ctx.wait(
+          setup === 'host load' ? limits.hostLoad.maxEpisodeMs + limits.errorAfterMs : flagAfter,
+        );
+        await read(unhealthy, ...others);
+        if (setup === 'host load') {
+          expect(await itemsOf(ctx, subject, true)).toEqual(['health:1:worker-1:stuck_worker']);
+          expect(await openSystemBlocks(ctx)).toHaveLength(1);
+          // A host-load episode that holds the stuck-worker block of a session still in error.
+          const episode = JSON.stringify({ startedAt: Date.parse(ctx.at()) });
+          await ctx.store.db
+            .insertInto('meta')
+            .values({ key: 'host_load_episode', value: episode })
+            .onConflict((oc) => oc.column('key').doUpdateSet({ value: episode }))
+            .execute();
+        }
+        stop = () =>
+          read(
+            { ...unhealthy, lifecycle: 'stopped' },
+            ...(setup === 'host load'
+              ? [sessionFacts('worker-2', 'worker', true)]
+              : setup === 'two stopped workers'
+                ? [facts('worker-2', unhealthy.healthSince, true)]
+                : others),
+          );
+      }
+      const alert = `health:1:${subject}:needs_input`;
+      if (kept) expect(await itemsOf(ctx, subject, true)).toContain(alert);
+      await stop();
+      for (const step of ['stop', 'tick'] as const) {
+        if (step === 'tick') await ctx.tick();
+        if (kept) expect(await itemsOf(ctx, subject, true)).toContain(alert);
+        else {
+          // An untaken wrap-up's worker is never flagged; the host-load item only clears.
+          expect(await itemsOf(ctx, subject, setup === 'host load')).toEqual([]);
+          expect(await openSystemBlocks(ctx)).toEqual([]);
+        }
+      }
+      if (setup === 'two stopped workers') {
+        // The newest stopped worker took the closed wrap-up's diagnosis: it is never flagged.
+        expect(await itemsOf(ctx, 'worker-2')).toEqual([]);
+        expect(await openSystemBlocks(ctx)).toHaveLength(1);
+      }
+      if (!kept || setup === 'two stopped workers') {
+        await expectMovedClose(ctx, id);
+        expect(await ctx.openTurn()).toBeNull();
+      }
+    },
+  );
+
+  it('keeps an untaken Dev turn open when its worker ends', async () => {
+    const ctx = await started();
+    const turn = await ctx.openTurn();
+    expect(turn).toMatchObject({ column: 'dev', role: 'worker' });
+    await ctx.spur('ended');
+    await ctx.tick();
+    await expectOpen(ctx, Number(turn?.id.slice(1)));
   });
 
   it('a split task reaches Done on its second merge and shows both merged PRs', async () => {

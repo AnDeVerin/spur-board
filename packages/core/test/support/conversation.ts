@@ -13,6 +13,7 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import type { Store } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { openTempStore } from './store.ts';
+import { SLACK_ON } from './config.ts';
 
 export const CONVERSATION_AT = '2026-11-03T10:00:00.000Z';
 
@@ -71,7 +72,7 @@ export function conversationConfig(
     spurProjects,
     operator: { slack: 'operator' },
     digest: { tz: 'UTC' },
-    slack: defaultAddressee === null || !shortNames ? {} : { defaultAddressee },
+    slack: defaultAddressee === null || !shortNames ? SLACK_ON : { ...SLACK_ON, defaultAddressee },
   });
 }
 

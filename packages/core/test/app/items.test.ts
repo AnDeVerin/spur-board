@@ -34,6 +34,7 @@ import {
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { openTempStore } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const START = Date.parse('2026-11-03T10:00:00.000Z');
 const KEY = 'o/r#101';
@@ -49,6 +50,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const blocks = createBlockMutations(config);
@@ -1383,12 +1385,14 @@ describe('who closes an operator block from its feed line', () => {
         project('beta', { name: 'beta-web', role: 'worker' }),
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     }),
     // No board-wide operator: alpha's operator acts on the board as a whole.
     sole: configSchema.parse({
       projects: [project('alpha', { name: 'alpha-ops', role: 'operator' })],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     }),
   };
@@ -1473,6 +1477,7 @@ describe('an item with no task on a board without a board-wide operator', () => 
       spurProjects: [{ name: `${id}-ops`, role: 'operator' }],
     })),
     operator: { slack: 'operator' },
+    slack: SLACK_ON,
     digest: { tz: 'UTC' },
   });
   const alphaOps: ActorId = 'agent:alpha-ops/ops-1';

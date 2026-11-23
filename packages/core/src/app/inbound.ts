@@ -502,7 +502,7 @@ export function createInbound(input: {
         return;
       }
       const actor: ActorId =
-        event.kind === 'message_deleted' || event.author === config.operator.slack
+        event.kind === 'message_deleted' || event.author === config.operator?.slack
           ? 'operator'
           : 'system';
       await replayOperation(trx, {
@@ -546,7 +546,7 @@ export function createInbound(input: {
       // The live gate: the configured operator, pressed in the feed.
       if (
         event.kind !== 'action' ||
-        event.author !== config.operator.slack ||
+        event.author !== config.operator?.slack ||
         event.sourceSpace !== 'feed'
       ) {
         throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
@@ -560,7 +560,7 @@ export function createInbound(input: {
     }
     if (id === 'token.list') {
       // The live gate: the configured operator's command; the list keeps the command's key.
-      if (event.kind !== 'command' || event.author !== config.operator.slack) {
+      if (event.kind !== 'command' || event.author !== config.operator?.slack) {
         throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
       }
       await postTokenList(trx, { key: event.dedupeKey, at: new Date(at) });
@@ -572,7 +572,7 @@ export function createInbound(input: {
     const parsed = entry?.input.safeParse(operationInput);
     if (
       event.kind !== 'action' ||
-      event.author !== config.operator.slack ||
+      event.author !== config.operator?.slack ||
       event.sourceSpace === null ||
       handler === undefined ||
       entry === undefined ||
@@ -607,7 +607,7 @@ export function createInbound(input: {
         at,
       });
     }
-    if (event.kind !== 'message_deleted' && event.author !== config.operator.slack) {
+    if (event.kind !== 'message_deleted' && event.author !== config.operator?.slack) {
       return deny(trx, {
         config,
         event,
@@ -890,7 +890,7 @@ export function createInbound(input: {
     await withVia('slack', async () => {
       if (
         (event.kind === 'command' || event.kind === 'action') &&
-        event.author === config.operator.slack &&
+        event.author === config.operator?.slack &&
         (event.kind !== 'command' ||
           event.name === undefined ||
           event.name === config.slack.command) &&
@@ -901,7 +901,7 @@ export function createInbound(input: {
       }
       const at = new Date(clock.now()).toISOString();
       const actor: ActorId =
-        event.kind === 'message_deleted' || event.author === config.operator.slack
+        event.kind === 'message_deleted' || event.author === config.operator?.slack
           ? 'operator'
           : 'system';
       try {

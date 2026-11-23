@@ -11,6 +11,8 @@ import {
 import {
   DOCTOR_FIX_MAX,
   MIRROR_FAILURES,
+  SLACK_OFF_FIX,
+  SLACK_PARTLY_FIX,
   SPUR_MIN_VERSION,
   configSchema,
   doctorReportSchema,
@@ -56,6 +58,8 @@ function doctorContext(
     operator?: boolean;
     channels?: boolean;
     slack?: boolean;
+    // false drops operator.slack: with slack false, Slack off.
+    operatorSlack?: false;
     secrets?: Readonly<Record<string, string>>;
     // A github-issues project tracking example/board instead of the Jira project.
     issues?: boolean;
@@ -105,7 +109,7 @@ function doctorContext(
       columns,
     })),
     spurProjects: options.boardWide ?? [],
-    operator: { slack: 'U0000000000' },
+    ...(options.operatorSlack === false ? {} : { operator: { slack: 'U0000000000' } }),
     ...(options.slack === false
       ? {}
       : {
@@ -849,9 +853,37 @@ describe('daemon doctor checks', () => {
       id: 'slack.configured',
       status: 'warning',
       blocking: false,
-      fix: 'Slack is not configured: questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to configure slack.channels.',
+      fix: SLACK_PARTLY_FIX,
     });
     expect(report.checks.every((check) => !check.blocking)).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(7);
+  });
+
+  it('reports Slack off as a pass when neither operator.slack nor slack.channels is set', async () => {
+    const secrets = {
+      GITHUB_TOKEN: 'github-secret-canary',
+      JIRA_EMAIL: 'email@example.test',
+      JIRA_API_TOKEN: 'jira-secret-canary',
+    };
+    const fetcher = doctorFetch();
+    const off = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false, operatorSlack: false, secrets }),
+      '1.2.3',
+      fetcher,
+    );
+    const partly = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false, secrets }),
+      '1.2.3',
+      doctorFetch(),
+    );
+    expect(off.checks.find((check) => check.id === 'slack.configured')).toEqual({
+      id: 'slack.configured',
+      status: 'pass',
+      blocking: false,
+      fix: SLACK_OFF_FIX,
+    });
+    expect(off.checks.map((check) => check.id)).toEqual(partly.checks.map((check) => check.id));
+    expect(off.checks.every((check) => !check.blocking)).toBe(true);
     expect(fetcher).toHaveBeenCalledTimes(7);
   });
 

@@ -42,10 +42,17 @@ origin; it accepts no placeholders.
 
 The daemon reports whether its optional web listener is bound. A busy web port warns in this
 check while the agent API continues running. Free `web.port` or select another port and restart
-the daemon. This differs from `web`, which checks configuration offline.
+the daemon. This differs from `web`, which reports `off`, or `on` with the resolved origin;
+invalid `web` settings fail the `config` check instead, and `web.listening` reports whether the
+loopback listener bound. Neither check probes the proxy, its authentication
+or TLS.
 
-For private-network access, set `web.port` and `web.publicOrigin` together and preserve `Host`
-through the reverse proxy. Origin must exactly match the resolved public origin. A 503 page
+The web UI has no login of its own: anyone who reaches it acts as operator. The daemon binds it
+to `127.0.0.1`; another machine reaches it only through an authenticating reverse proxy or an
+SSH tunnel, as
+[Remote access through Caddy with basic auth](SETUP.md#remote-access-through-caddy-with-basic-auth)
+shows. Set `web.port` and `web.publicOrigin` together and keep `Host` unchanged through the
+proxy. Origin must exactly match the resolved public origin. A 503 page
 saying "UI is not built" means the UI assets are absent: run
 `pnpm --filter @spur-board/web build` in a checkout, assemble with `pnpm package:build`, and
 restart the daemon to reload assets. Health and operations
@@ -362,9 +369,21 @@ the command answers from another app or Board, see
 
 ### slack.configured
 
-Slack is not configured. Questions addressed to the operator remain visible through the
-Board inbox. Use the setup skill to assign the orchestrators and feed channel IDs when Slack
-delivery is wanted. This check appears instead of the four Slack integration checks above.
+This check appears instead of the four Slack integration checks above when `slack.channels` is
+not set. It passes, without blocking, when `operator.slack` is not set either: the Board runs
+without Slack. Questions addressed to the operator wait in `board inbox operator` and the web
+inbox. Approving a new token needs Slack, so outside Spur only tokens approved while Slack was on
+reach the Board, and they keep working until `board token revoke`.
+
+To turn Slack off on an existing install, remove `SLACK_BOT_TOKEN` and `SLACK_API_URL` from
+`secrets.env` as well as the `operator.slack` and `slack` blocks: with either secret and no Slack
+channels, the daemon does not start. While the daemon is down, `board doctor` still shows this
+check as passing; read the service log for the start error. `SLACK_APP_TOKEN` and
+`SLACK_APP_CONFIG_TOKEN` are unused without Slack and can go too.
+
+It warns when `operator.slack` is set without `slack.channels`: Slack is partly configured and
+nothing reaches it. Use the setup skill to assign the orchestrators and feed channel IDs, or
+remove `operator.slack` to run without Slack.
 
 ### operator.path
 

@@ -6,6 +6,7 @@ import {
   BLOCK_TYPES,
   MEMBERSHIPS,
   configSchema,
+  conversationRefSchema,
   userIdSchema,
   type ActorId,
   type AddresseeRole,
@@ -21,12 +22,22 @@ import {
   enqueueConversationClose,
   enqueueConversationOpen,
   enqueueConversationReply,
+  enqueueDoorbell,
   openStore,
   type OutboxKind,
   type Sender,
   type Store,
 } from '../../src/index.ts';
-import { enqueueConversationNotice, renderBody } from '../../src/app/outbox.ts';
+import type { Trx } from '../../src/app/board-utils.ts';
+import { raiseItem } from '../../src/app/feed.ts';
+import {
+  enqueueBoardFeedLine,
+  enqueueConversationNotice,
+  enqueueCuratorAnswerLine,
+  enqueueFeedEdit,
+  enqueueTokenCard,
+  renderBody,
+} from '../../src/app/outbox.ts';
 import { HEALTH_PROBE_MS, retryTransport, SpurRejectedError } from '../../src/app/sender.ts';
 import {
   observeGateway,
@@ -34,7 +45,7 @@ import {
   type ObservedGateway,
   type ObservedSpur,
 } from '../support/observe.ts';
-import { testConfig } from '../support/config.ts';
+import { SLACK_ON, slackOffConfig, testConfig } from '../support/config.ts';
 
 const PERSONA: Persona = { name: 'worker', role: 'worker' };
 
@@ -565,6 +576,271 @@ describe('operator conversation threads', () => {
     const [row] = await ctx.store.db.selectFrom('outbox').selectAll().execute();
     expect(row?.state).toBe('done');
     expect(externalConversation(row ?? { external_ref: null })).toBe(conversation);
+  });
+});
+
+describe('Slack off', () => {
+  /** Rows a gateway would send: every outbox row but doorbells. */
+  async function gatewayRows(ctx: Ctx): Promise<number> {
+    const rows = await ctx.store.db
+      .selectFrom('outbox')
+      .select('id')
+      .where('kind', '!=', 'doorbell')
+      .execute();
+    return rows.length;
+  }
+
+  /** A pending `conversation.open` row of `seed`, written directly as Slack on would have. */
+  function openRow(ctx: Ctx, seed: Seed): Promise<number> {
+    return insertRow(ctx, 'conversation.open', `conversation.open:block:${String(seed.blockId)}`, {
+      key: seed.key,
+      title: `${seed.key} needs a decision`,
+      text: 'which way?',
+      persona: PERSONA,
+      taskId: seed.taskId,
+      blockId: seed.blockId,
+      commentId: null,
+    });
+  }
+
+  type Produce = (ctx: Ctx, seed: Seed, trx: Trx, at: Date) => Promise<number | null | undefined>;
+
+  const producers: [string, (ctx: Ctx, seed: Seed) => Promise<number | null>, Produce][] = [
+    [
+      'raiseItem',
+      () => Promise.resolve(null),
+      async (_ctx, seed, trx, at) =>
+        (
+          await raiseItem(trx, {
+            itemKey: `worker:B${String(seed.blockId)}`,
+            kind: 'worker_not_reading',
+            text: `worker is not reading ${seed.key}`,
+            url: 'https://github.com/o/r/issues/1',
+            taskId: seed.taskId,
+            blockId: null,
+            at,
+          })
+        ).line_outbox_id,
+    ],
+    [
+      'enqueueBoardFeedLine',
+      () => Promise.resolve(null),
+      (_ctx, _seed, trx, at) =>
+        enqueueBoardFeedLine(trx, {
+          dedupeKey: 'feed.line:board:off',
+          itemKey: 'board:off',
+          text: 'board line',
+          title: 'board',
+          at,
+        }),
+    ],
+    [
+      'enqueueCuratorAnswerLine',
+      () => Promise.resolve(null),
+      async (_ctx, seed, trx, at) => {
+        await enqueueCuratorAnswerLine(trx, {
+          taskId: seed.taskId,
+          key: seed.key,
+          url: '',
+          blockId: seed.blockId,
+          commentId: seed.commentId,
+          asker: 'proj/sess-2',
+          question: 'which way?',
+          answer: 'left',
+          persona: PERSONA,
+          answeredBy: 'cur/sess-1',
+          at,
+        });
+        return undefined;
+      },
+    ],
+    [
+      'enqueueFeedEdit',
+      (ctx, seed) => feedLine(ctx, seed.key, `edit:${String(seed.blockId)}`),
+      (_ctx, seed, trx, at) =>
+        lineOf(trx, `feed.line:edit:${String(seed.blockId)}`).then((lineId) =>
+          enqueueFeedEdit(trx, {
+            itemKey: `edit:${String(seed.blockId)}`,
+            raise: 1,
+            lineId,
+            key: seed.key,
+            taskId: seed.taskId,
+            summary: 'needs you',
+            url: '',
+            by: 'operator',
+            at,
+          }),
+        ),
+    ],
+    [
+      'enqueueTokenCard',
+      (ctx, seed) => feedLine(ctx, seed.key, `token:${String(seed.blockId)}`),
+      (_ctx, seed, trx, at) =>
+        lineOf(trx, `feed.line:token:${String(seed.blockId)}`).then((parent) =>
+          enqueueTokenCard(trx, {
+            itemId: seed.blockId,
+            parent,
+            card: {
+              name: 'laptop',
+              folder: '/work',
+              createdAt: at.toISOString(),
+              approvedAt: at.toISOString(),
+            },
+            at,
+          }),
+        ),
+    ],
+    [
+      'enqueueConversationOpen',
+      () => Promise.resolve(null),
+      (_ctx, seed, trx, at) =>
+        enqueueConversationOpen(trx, {
+          blockId: seed.blockId,
+          commentId: seed.commentId,
+          persona: PERSONA,
+          at,
+        }),
+    ],
+    [
+      'enqueueConversationReply',
+      openRow,
+      (_ctx, seed, trx, at) =>
+        enqueueConversationReply(trx, { commentId: seed.commentId, persona: PERSONA, at }),
+    ],
+    [
+      'enqueueConversationClose',
+      openRow,
+      async (_ctx, seed, trx, at) => {
+        await enqueueConversationClose(trx, {
+          blockId: seed.blockId,
+          outcome: 'unblocked',
+          actor: 'operator',
+          at,
+        });
+        return undefined;
+      },
+    ],
+    [
+      'enqueueConversationNotice',
+      () => Promise.resolve(null),
+      async (_ctx, _seed, trx, at) => {
+        await enqueueConversationNotice(trx, {
+          conversation: conversationRefSchema.parse('C000000001:1.0001'),
+          text: 'No addressee.',
+          at,
+        });
+        return undefined;
+      },
+    ],
+  ];
+
+  async function lineOf(trx: Trx, dedupeKey: string): Promise<number> {
+    const row = await trx
+      .selectFrom('outbox')
+      .select('id')
+      .where('dedupe_key', '=', dedupeKey)
+      .executeTakeFirstOrThrow();
+    return row.id;
+  }
+
+  it.each(producers)('%s writes no gateway row', async (_name, before, produce) => {
+    const ctx = setup();
+    const seed = await seedBlock(ctx);
+    await before(ctx, seed);
+    const seeded = await gatewayRows(ctx);
+    const at = ctx.fake.platform.now();
+    const result = await scanTransaction(ctx.store, slackOffConfig, (trx) =>
+      produce(ctx, seed, trx, at),
+    );
+    // enqueueCuratorAnswerLine, enqueueConversationClose and enqueueConversationNotice return
+    // nothing; the row count checks them.
+    if (result !== undefined) expect(result).toBeNull();
+    expect(await gatewayRows(ctx)).toBe(seeded);
+    expect((await commentRow(ctx, seed.commentId)).delivery_state).toBeNull();
+  });
+
+  it('raises a secret-like item with no line and no secret-post item', async () => {
+    const ctx = setup();
+    const seed = await seedBlock(ctx);
+    const token = ['xoxb', '123', 'abc'].join('-');
+    const item = await scanTransaction(ctx.store, slackOffConfig, (trx) =>
+      raiseItem(trx, {
+        itemKey: 'worker:secret',
+        kind: 'worker_not_reading',
+        text: `Please inspect ${token}`,
+        url: 'https://github.com/o/r/issues/1',
+        taskId: seed.taskId,
+        blockId: null,
+        at: ctx.fake.platform.now(),
+      }),
+    );
+    expect(item.line_outbox_id).toBeNull();
+    const items = await ctx.store.db.selectFrom('operator_item').select('item_key').execute();
+    expect(items).toEqual([{ item_key: 'worker:secret' }]);
+    expect(await gatewayRows(ctx)).toBe(0);
+  });
+
+  // A queued reply retired by a start without Slack is no thread's tail; a retired open leaves
+  // no thread, so nothing replies to it.
+  it.each([
+    ['a posted open', true],
+    ['a retired open', false],
+  ])('after Slack off and on, a thread with %s', async (_name, posted) => {
+    const ctx = setup('slack-like', 0);
+    const seed = await seedBlock(ctx);
+    const open = await enqueueOpen(ctx, seed);
+    if (posted) await ctx.sender.tick();
+    const queued = await enqueueReply(ctx, await addComment(ctx, seed, 'queued'));
+    const now = () => ctx.fake.platform.now();
+    const base = { store: ctx.store, spur: ctx.spur.spur, now };
+    await createSender({ ...base, config: slackOffConfig }).recover();
+    ctx.sender = createSender({ ...base, config: testConfig, gateway: ctx.observed.gateway });
+    await ctx.sender.recover();
+    expect(await outboxRow(ctx, queued)).toMatchObject({ state: 'dead', last_error: 'slack off' });
+    const sent = ctx.observed.requests.length;
+    const comment = await addComment(ctx, seed, 'after Slack is back');
+    const reply = await scanTransaction(ctx.store, testConfig, async (trx) => {
+      const id = await enqueueConversationReply(trx, {
+        commentId: comment,
+        persona: PERSONA,
+        at: now(),
+      });
+      await enqueueConversationClose(trx, {
+        blockId: seed.blockId,
+        outcome: 'done',
+        actor: 'operator',
+        at: now(),
+      });
+      return id;
+    });
+    await step(ctx);
+    await step(ctx);
+    const conversation = externalConversation(await outboxRow(ctx, open));
+    expect(ctx.observed.requests.slice(sent).map((request) => request.target)).toEqual(
+      posted
+        ? [
+            { kind: 'reply', conversation },
+            { kind: 'close', conversation },
+          ]
+        : [],
+    );
+    expect(reply === null).toBe(!posted);
+    expect(await outboxRow(ctx, queued)).toMatchObject({ state: 'dead', last_error: 'slack off' });
+  });
+
+  it('still writes a doorbell', async () => {
+    const ctx = setup();
+    const id = await scanTransaction(ctx.store, slackOffConfig, (trx) =>
+      enqueueDoorbell(trx, {
+        notificationId: 1,
+        ring: 1,
+        session: 'sess-1',
+        text: 'ring',
+        at: ctx.fake.platform.now(),
+      }),
+    );
+    const rows = await ctx.store.db.selectFrom('outbox').select(['id', 'kind', 'state']).execute();
+    expect(rows).toEqual([{ id, kind: 'doorbell', state: 'pending' }]);
   });
 });
 
@@ -1548,6 +1824,7 @@ describe('dependencies', () => {
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     const inbound = createInbound({

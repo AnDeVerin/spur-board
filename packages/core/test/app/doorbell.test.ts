@@ -48,6 +48,7 @@ import {
   startConversation,
 } from '../support/conversation.ts';
 import { recordInboundBlockMessage } from '../../src/app/blocks.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const KEY = 'o/r#101';
 const DAY_MS = 86_400_000;
@@ -63,6 +64,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const ops = createBlockMutations(config);
@@ -1274,6 +1276,7 @@ function policyBoard(
       },
     ],
     operator: { slack: 'operator' },
+    slack: SLACK_ON,
     digest: { tz: 'UTC' },
   });
 }

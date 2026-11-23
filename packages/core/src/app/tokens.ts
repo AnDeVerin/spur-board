@@ -235,6 +235,19 @@ export async function decideTokenInTransaction(
     if (status === 'expired' && row.status === 'pending') await expireToken(trx, row, at);
     return { name: row.name, status };
   }
+  if (decision === 'approve') {
+    // A request whose item was closed is no longer offered: an Approve button the closing feed
+    // edit never removed (Slack off at the time) lapses it instead of approving it.
+    const item = await trx
+      .selectFrom('operator_item')
+      .select('cleared_at')
+      .where('id', '=', row.item_id)
+      .executeTakeFirstOrThrow();
+    if (item.cleared_at !== null) {
+      await expireToken(trx, row, at);
+      return { name: row.name, status: 'expired' };
+    }
+  }
   const next = decision === 'approve' ? 'approved' : 'denied';
   await trx
     .updateTable('operator_token')

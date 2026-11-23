@@ -474,7 +474,7 @@ describe('status bar', () => {
     mount(d, '/?open=services');
     await settle();
     const bar = barLabels().slice(1, -1);
-    expect(bar).toHaveLength(4);
+    expect(bar).toHaveLength(3);
     for (const label of bar) expect(label).toMatch(/: unknown$/);
     expect(panel().textContent).toContain('Waiting for the first status from the daemon.');
   });

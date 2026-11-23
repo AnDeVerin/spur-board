@@ -40,6 +40,7 @@ import {
 } from '../../src/app/doorbells.ts';
 import { closeTurns, openTurn, takeTurn } from '../../src/app/turns.ts';
 import { dismissItem, raiseItem } from '../../src/app/feed.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
 let now = Date.parse(at);
@@ -55,6 +56,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
   health: { hostLoad: { sessions: 2 } },
 });
@@ -434,6 +436,7 @@ describe('accepted observation', () => {
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     const { store, core } = setup(jira);
@@ -1001,6 +1004,7 @@ describe('accepted observation', () => {
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     async function linkedKeys(keys: string[], branch: string) {
@@ -3708,6 +3712,7 @@ describe('anomaly blocks', () => {
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
       health: { hostLoad: { sessions: 2 } },
     });
@@ -5156,6 +5161,7 @@ describe('anomaly blocks', () => {
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     const jiraSource = 'jira:web';

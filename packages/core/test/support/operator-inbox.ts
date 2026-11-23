@@ -2,6 +2,7 @@ import { configSchema, type ActorId } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
 import type { Store } from '../../src/index.ts';
 import type { Tables } from '../../src/store/schema.ts';
+import { SLACK_ON } from './config.ts';
 
 // Fixtures of the operator inbox tests: rows written straight to the store, times before `NOW`.
 
@@ -42,6 +43,7 @@ const base = {
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 };
 /** `first` has its own operator; the board-wide `hq` serves `second` and the board. */
