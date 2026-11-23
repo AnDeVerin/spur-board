@@ -154,6 +154,7 @@ describe('catalog', () => {
     ).toEqual([
       'block.answer',
       'block.followup',
+      'block.get',
       'columns.describe',
       'comment.add',
       'config.get',
@@ -764,6 +765,7 @@ describe('grants', () => {
       null,
       ['wrong_id_kind', 'not_found', 'block_still_open', 'task_archived'],
     ],
+    ['block.get', 'query', [operator], null, id],
     [
       'block.unblock',
       'mutation',
@@ -842,7 +844,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 31 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 32 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -863,7 +865,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(31);
+    expect(OPERATIONS).toHaveLength(32);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {
@@ -1006,9 +1008,10 @@ describe('snapshot', () => {
     // healthSince and rateLimitResetAt out of ended and absent ones, keeping a terminal lifecycle
     // in detail and counting a listed errored one as ended. #858 rewords the inbox.ack
     // description, guidance and block example: the operator acks a block addressed to it that
-    // rang its session. #802 adds the optional pr to move views.
+    // rang its session. #802 adds the optional pr to move views. #811 adds block.get, the
+    // operator's read of one block with its replies and project.
     expect(await catalogVersion(baseline)).toBe(
-      '0e853e58dbc08223e259dd546be17bae121bc50f7ef867a6051efe6696906fd8',
+      'c3f70f8dbe043385f792b177a4d666e0fc56b0be2e88e8fc646b703c7879086b',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

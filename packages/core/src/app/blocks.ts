@@ -157,7 +157,7 @@ export async function taskTarget(trx: Trx, key: string): Promise<readonly Resolv
   return [await authorizationTarget(trx, await taskByKey(trx, key))];
 }
 
-async function blockTarget(trx: Trx, id: string): Promise<readonly ResolvedTarget[]> {
+export async function blockTarget(trx: Trx, id: string): Promise<readonly ResolvedTarget[]> {
   const block = await blockById(trx, id);
   return [
     await subjectTarget(

@@ -166,8 +166,32 @@ export function shellHistory() {
     ],
   });
 }
+/** An open project question to the operator as block.get answers it, with no replies. */
+function shellBlock() {
+  return browserOperations['block.get'].output.parse({
+    block: {
+      id: 'B1',
+      task: null,
+      project: 'web',
+      type: 'needs_input',
+      state: 'open',
+      author: 'agent:web/web-1',
+      addressee: 'operator',
+      reason: 'Restart the web service?',
+      at: '2026-01-05T09:30:00.000Z',
+      outcome: null,
+      outcomeReason: null,
+      unblockedBy: null,
+      unblockedAt: null,
+      answeredVia: null,
+    },
+    project: 'web',
+    comments: [],
+  });
+}
 const shellReads = {
   'columns.describe': () => browserOperations['columns.describe'].output.parse({ projects: [] }),
+  'block.get': shellBlock,
   'status.get': shellFixture,
   'config.get': shellConfig,
   'inbox.operator': shellInbox,

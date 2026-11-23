@@ -19,6 +19,7 @@ export { COLUMNS } from './enums.ts';
 import { EVENT_KINDS } from './events.ts';
 import { actorIdSchema, blockIdSchema, itemIdSchema, taskKeyInputSchema } from './ids.ts';
 import { SPACE_IDS } from './gateway/schemas.ts';
+import { blockReadOperations } from './ops/block-get-schemas.ts';
 import { configViewSchema } from './ops/config-view-schema.ts';
 import { columnsDescribeOutputSchema } from './ops/columns-schema.ts';
 export { columnsDescribeOutputSchema } from './ops/columns-schema.ts';
@@ -511,6 +512,7 @@ export const browserOperations = {
     input: blockFollowupInputSchema,
     output: commentAddOutputSchema,
   },
+  ...blockReadOperations,
   'item.close': {
     id: 'item.close',
     kind: 'mutation',

@@ -11,7 +11,16 @@ import { dispatchHolds } from '../domain/dispatch.ts';
 import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../domain/gates.ts';
 import type { CommentTable, TaskTable } from '../store/schema.ts';
 import { authorize, projectTarget } from './authorize.ts';
-import { blockView, commentView, subjectTarget, taskBlockViews, taskTarget } from './blocks.ts';
+import {
+  answeredVia,
+  answeredViaColumn,
+  blockTarget,
+  blockView,
+  commentView,
+  subjectTarget,
+  taskBlockViews,
+  taskTarget,
+} from './blocks.ts';
 import { approvalViews, type ApprovalView } from './approval-watch.ts';
 import { linkView, moveViews, parsePr, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
@@ -449,5 +458,34 @@ export function createTaskQueries(deps: {
       return { comments, blocks, turns: await inboxTurns(trx, projects, actor) };
     },
   };
-  return { get, history, inbox };
+  const block: Query<'block.get'> = {
+    id: 'block.get',
+    resolveTargets: (trx, input) => blockTarget(trx, input.block),
+    async run(trx, input) {
+      const row = await trx
+        .selectFrom('block')
+        .selectAll()
+        .select(answeredViaColumn)
+        .where('id', '=', Number(input.block.slice(1)))
+        .executeTakeFirst();
+      if (row === undefined) throw new CommandError('not_found', 'Check the block ID.');
+      const { answered_via, ...stored } = row;
+      const subject = await blockSubject(trx, stored);
+      const view = { ...blockView(stored, subject), answeredVia: answeredVia(answered_via) };
+      const comments = await trx
+        .selectFrom('comment')
+        .selectAll()
+        .where('block_id', '=', stored.id)
+        .orderBy('id')
+        .execute();
+      return {
+        block: view,
+        project: subject.project,
+        comments: withoutBlockOpenings(comments, [view]).map((comment) =>
+          commentView(comment, subject),
+        ),
+      };
+    },
+  };
+  return { get, history, inbox, block };
 }

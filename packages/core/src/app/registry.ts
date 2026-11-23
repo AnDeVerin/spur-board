@@ -294,6 +294,7 @@ export function createOperationRegistry(deps: {
     'columns.describe': createColumnsQuery(config),
     'task.get': taskQueries.get,
     'task.history': taskQueries.history,
+    'block.get': taskQueries.block,
     'inbox.get': taskQueries.inbox,
     'inbox.operator': createOperatorInbox({ config, clock }),
     'token.list': tokenListQuery(clock),

@@ -2,6 +2,7 @@ import {
   EVENT_KINDS,
   OPERATIONS,
   configSchema,
+  type ActorId,
   sourceCursorSchema,
   type EventKind,
   type PrFacts,
@@ -385,6 +386,106 @@ describe('production query handlers', () => {
     expect(onBlock.map(({ id }) => Number(id.slice(1)))).toEqual(
       onBlock.map(({ id }) => Number(id.slice(1))).sort((a, b) => a - b),
     );
+  });
+
+  it('reads a project block with its project and thread, without its opening comment', async () => {
+    const { registry, query, apply } = await seeded();
+    const asked = await apply(
+      required(registry['project.ask']),
+      { project: 'board', to: 'operator', text: 'Restart?' },
+      worker,
+      'ask-1',
+    );
+    const block = asked.block.id;
+    await withVia('web', () =>
+      apply(required(registry['block.answer']), { block, text: 'Yes.' }, 'operator', 'answer-1'),
+    );
+    await apply(
+      required(registry['block.followup']),
+      { block, text: 'Then report.' },
+      'operator',
+      'followup-1',
+    );
+
+    const value = await query(required(registry['block.get']), { block }, 'operator');
+
+    expect(value.block).toMatchObject({
+      id: block,
+      task: null,
+      project: 'board',
+      state: 'unblocked',
+      answeredVia: 'web',
+    });
+    expect(value.project).toBe('board');
+    expect(value.comments.map(({ text, task }) => [text, task])).toEqual([
+      ['Yes.', null],
+      ['Then report.', null],
+    ]);
+  });
+
+  it("reads a task block with its task's project", async () => {
+    const { registry, query, apply } = await seeded();
+    const asked = await apply(
+      required(registry['block.ask']),
+      { task: KEY, text: 'Which version?' },
+      worker,
+      'ask-1',
+    );
+
+    const value = await query(
+      required(registry['block.get']),
+      { block: asked.block.id },
+      'operator',
+    );
+
+    expect(value.block.task).toBe(KEY);
+    expect('project' in value.block).toBe(false);
+    expect(value.block.answeredVia).toBeNull();
+    expect(value.project).toBe('board');
+    expect(value.comments).toEqual([]);
+    await expect(
+      query(required(registry['block.get']), { block: 'B999' }, 'operator'),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await expect(
+      query(required(registry['block.get']), { block: 'C1' }, 'operator'),
+    ).rejects.toMatchObject({ code: 'wrong_id_kind' });
+    await expect(
+      query(required(registry['block.get']), { block: asked.block.id }, worker),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it("scopes an operator session to the block's project", async () => {
+    const { store, registry, apply } = await seeded();
+    const ask = (project: string, actor: ActorId) =>
+      apply(
+        required(registry['project.ask']),
+        { project, to: 'operator', text: 'Restart?' },
+        actor,
+        `ask-${project}`,
+      );
+    const own = await ask('board', worker);
+    const other = await ask('other', foreign);
+    const scoped = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) =>
+        project.id === 'board'
+          ? {
+              ...project,
+              spurProjects: [...project.spurProjects, { name: 'ops', role: 'operator' }],
+            }
+          : project,
+      ),
+    });
+    const local = createOperationRegistry({ config: scoped, clock, completeSince: new Map() });
+    const read = createQuery({ store, config: scoped, clock });
+    const ops = 'agent:ops/s1';
+
+    const value = await read(required(local['block.get']), { block: own.block.id }, ops);
+
+    expect(value.project).toBe('board');
+    await expect(
+      read(required(local['block.get']), { block: other.block.id }, ops),
+    ).rejects.toMatchObject({ code: 'forbidden' });
   });
 
   it('shows the current answer revision, acknowledges it, and shows an edited clarification', async () => {

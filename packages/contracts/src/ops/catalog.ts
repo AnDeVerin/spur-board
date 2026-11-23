@@ -33,6 +33,7 @@ import {
   taskWaitOutputSchema,
 } from './turn-write-schemas.ts';
 import { z } from 'zod';
+import { blockGetInputSchema, blockGetOutputSchema } from './block-get-schemas.ts';
 import { configViewSchema } from './config-view-schema.ts';
 import { columnsDescribeOutputSchema } from './columns-schema.ts';
 import { BLOCK_TYPES, TOKEN_STATUSES } from '../enums.ts';
@@ -1189,6 +1190,44 @@ export const OPERATIONS = [
         summary: 'Follow up on an answered question',
         input: { block: 'B12', text: 'Also check v3.' },
         output: { comment: { ...comment, id: 'C4', text: 'Also check v3.' } },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'block.get',
+    web: true,
+    kind: 'query',
+    description: 'Show one block with its replies, a block without a task too.',
+    mcp: {
+      whenToUse: 'Read one block and its thread, also a project-level block.',
+      whenNotToUse: 'Use task_get for a task with all its blocks.',
+    },
+    input: blockGetInputSchema,
+    output: blockGetOutputSchema,
+    grants: operatorOnly,
+    errors: ['wrong_id_kind', 'not_found'],
+    cli: { command: 'block get', args: ['block'] },
+    slack: null,
+    examples: [
+      {
+        summary: 'Show an answered project question',
+        input: { block: 'B15' },
+        output: {
+          block: {
+            ...question,
+            id: 'B15',
+            task: null,
+            project: 'web',
+            reason: 'Restart?',
+            state: 'unblocked',
+            outcome: 'done',
+            unblockedBy: 'operator',
+            unblockedAt: at,
+            answeredVia: 'web',
+          },
+          project: 'web',
+          comments: [{ ...comment, id: 'C5', task: null, block: 'B15', text: 'Yes, restart.' }],
+        },
       },
     ],
   }),
