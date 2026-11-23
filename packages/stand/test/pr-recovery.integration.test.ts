@@ -3,9 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema, type PrFacts } from '@spur-board/contracts';
 import { createFakeAdapter } from '@spur-board/adapters/testing';
-import { createObservationCore, createOperationRegistry, openStore } from '@spur-board/core';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { startRunner, type AdapterRunner } from '../../adapters/src/runner/runner.ts';
+// Core comes from one path only. Stryker runs tests in a sandbox copy whose node_modules link
+// back to the original tree, so `@spur-board/core` and a relative path load two module copies
+// there, each with its own scan-transaction AsyncLocalStorage (#842).
+import { createObservationCore, createOperationRegistry, openStore } from '../../core/src/index.ts';
 import { dispatchOperation } from '../../core/src/app/operations.ts';
 
 const initial = Date.parse('2026-01-01T00:00:00.000Z');
