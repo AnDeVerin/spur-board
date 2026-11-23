@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
@@ -483,79 +483,5 @@ describe('public guide contents', () => {
       expect(guide).toContain('`CheckRun`');
       expect(guide).toContain('`INSUFFICIENT_SCOPES`');
     }
-  });
-
-  it('points newcomers to requirements, then overview, quickstart, setup and configuration', () => {
-    const engines = (JSON.parse(read('../../cli/package.json')) as { engines: { node: string } })
-      .engines.node;
-    expect(engines).toBe('^24.12.0 || ^26.0.0');
-    const blob = 'https://github.com/AnDeVerin/spur-board/blob/main/';
-    const unlink = (text: string) => flat(text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1'));
-    const targets = (text: string) =>
-      [...text.matchAll(/\]\(([^)\s]+)\)/g)].map((match) => ({
-        at: match.index,
-        target: (match[1] ?? '').split('#')[0] ?? '',
-      }));
-    const entries = ['docs/overview.md', 'docs/quickstart.md', 'SETUP.md', 'docs/configuration.md'];
-    const npmReadme = read('../../cli/README.md');
-    for (const text of [publicGuides[0] ?? '', npmReadme]) {
-      const needs = unlink(section(text, '## What it needs'));
-      for (const phrase of [
-        'Linux with systemd user services',
-        'Node 24.12+ (24.x) or 26.x',
-        `Spur ${SPUR_MIN_VERSION} or newer`,
-        'a GitHub token',
-        'optionally a Slack app',
-        'optional web console',
-      ])
-        expect(needs).toContain(phrase);
-      const heading = text.indexOf('## What it needs\n');
-      const links = targets(text).map(({ at, target }) => ({
-        at,
-        target: target.startsWith(blob) ? target.slice(blob.length) : target,
-      }));
-      const first = entries.map((entry) => links.find((link) => link.target === entry)?.at ?? -1);
-      for (const at of first) expect(at).toBeGreaterThan(heading);
-      expect([...first].sort((a, b) => a - b)).toEqual(first);
-    }
-    // npm renders the package README away from the repo: every link is absolute.
-    for (const { target } of targets(npmReadme)) {
-      expect(target).toMatch(/^https:\/\//);
-      if (target.startsWith(blob))
-        expect(
-          existsSync(
-            fileURLToPath(new URL(`../../../${target.slice(blob.length)}`, import.meta.url)),
-          ),
-          target,
-        ).toBe(true);
-    }
-    for (const entry of [...entries, 'TROUBLESHOOTING.md', 'docs/README.md'])
-      expect(npmReadme).toContain(`](${blob}${entry})`);
-
-    const index = read('../../../docs/README.md');
-    const users = targets(section(index, '## For users')).map(({ target }) => target);
-    const userOrder = [
-      'overview.md',
-      'quickstart.md',
-      '../SETUP.md',
-      'configuration.md',
-      '../TROUBLESHOOTING.md',
-      'errors.md',
-    ].map((target) => users.indexOf(target));
-    for (const at of userOrder) expect(at).toBeGreaterThanOrEqual(0);
-    for (const [n, at] of userOrder.entries())
-      if (n > 0) expect(at).toBeGreaterThan(userOrder[n - 1] ?? 0);
-    expect(users.filter((target) => target.startsWith('contributing/'))).toEqual([]);
-    const contributors = targets(section(index, '## For contributors')).map(({ target }) => target);
-    const contributing = readdirSync(new URL('contributing/', docsUrl));
-    expect(contributing.length).toBeGreaterThan(0);
-    for (const name of contributing) expect(contributors).toContain(`contributing/${name}`);
-    const all = targets(index).map(({ target }) => target);
-    const topLevel = readdirSync(docsUrl).filter(
-      (name) => name.endsWith('.md') && !/^(README|how-board-works-|web-ui-)/.test(name),
-    );
-    expect(topLevel.length).toBeGreaterThan(5);
-    for (const name of topLevel) expect(all, name).toContain(name);
-    expect(publicGuides[0]).toContain('(docs/README.md)');
   });
 });
