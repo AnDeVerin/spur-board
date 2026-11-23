@@ -27,7 +27,7 @@ describe('Banner color bindings', () => {
     expect(values).toEqual([`var(${token})`]);
   });
 
-  it('keeps warning main text and the task wait strip as the only attention text token consumers', () => {
+  it('keeps warning main text, the task wait strip and the warn chip as the only attention text token consumers', () => {
     const consumers = readdirSync(sourceRoot, { recursive: true, encoding: 'utf8' })
       .filter((file) => /\.(css|tsx?)$/.test(file))
       .flatMap((file) => {
@@ -36,7 +36,12 @@ describe('Banner color bindings', () => {
         return references.map(() => file);
       });
     // The binding table requires the warning main color; #825 adds the wait strip's text on the
-    // same attention fill, which needs the same AA contrast.
-    expect(consumers).toEqual(['board/TaskWait.module.css', 'ds/Banner/Banner.module.css']);
+    // same attention fill, which needs the same AA contrast; #809 adds the warn chip's text, which
+    // sits on one or two stacked attention fills.
+    expect(consumers).toEqual([
+      'board/TaskWait.module.css',
+      'ds/Banner/Banner.module.css',
+      'ds/Chip/Chip.module.css',
+    ]);
   });
 });

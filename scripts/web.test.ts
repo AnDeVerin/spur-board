@@ -154,20 +154,34 @@ describe('web design assets and policy', () => {
     }
   });
   // Board text on tone fills (#754): the card status cells on the card, and the text of a tinted
-  // Approvals row in the task view. A new tone or text part is one row of the table.
+  // Approvals row in the task view. A new tone or text part is one row of the table. Fills are
+  // listed bottom first and stack over the base.
   const card = 'src/board/Card.module.css';
   const approvals = 'src/board/TaskApprovals.module.css';
+  const chip = 'src/ds/Chip/Chip.module.css';
   const cellTone = (tone: string) => `.cell[data-tone='${tone}']`;
-  const tonePairs: [label: string, text: string, fill: string, base: string][] = [
+  const loudRow = bound(approvals, 'background', '.row[data-loud]');
+  const warnText = bound(chip, 'color', '.warn');
+  const warnFill = bound(chip, 'background', '.warn');
+  const agentBand = bound('src/board/TaskView.module.css', 'background', '.agent .band');
+  // A warn chip (#809) on each surface it appears on: modal page, card, loud Approvals row and an
+  // open agent block band.
+  const warnChips: [label: string, fills: string[], base: string][] = [
+    ['warn chip on the page', [warnFill], '--color-bg-base'],
+    ['warn chip on a card', [warnFill], '--color-bg-elevated'],
+    ['warn chip on a loud approvals row', [loudRow, warnFill], '--color-bg-base'],
+    ['warn chip on an open agent block band', [agentBand, warnFill], '--color-bg-base'],
+  ];
+  const tonePairs: [label: string, text: string, fills: string[], base: string][] = [
     ...['neutral', 'ok', 'pend', 'bad'].flatMap((tone) => {
       const fill = bound(card, 'background', cellTone(tone));
       return [
         [`card ${tone} cell`, bound(card, 'color', cellTone(tone), '.cell'), fill],
         [`card ${tone} cell suffix`, bound(card, 'color', '.suffix'), fill],
-      ].map(([label = '', text = '', on = '']): [string, string, string, string] => [
+      ].map(([label = '', text = '', on = '']): [string, string, string[], string] => [
         label,
         text,
-        on,
+        [on],
         '--color-bg-elevated',
       ]);
     }),
@@ -176,26 +190,35 @@ describe('web design assets and policy', () => {
       ['what', bound(approvals, 'color', '.what')],
       ['sha', bound(approvals, 'color', '.sha')],
       ['PR ref', bound(approvals, 'color', '.row[data-loud] .ref', '.ref')],
-      ['not watched entry chip', bound('src/ds/Chip/Chip.module.css', 'color', '.chip')],
+      ['not watched entry chip', bound(chip, 'color', '.chip')],
       // The author and the icon inherit the task view's primary text.
       ['author', '--color-text-primary'],
-    ].map(([label = '', text = '']): [string, string, string, string] => [
+    ].map(([label = '', text = '']): [string, string, string[], string] => [
       `loud approvals row ${label}`,
       text,
-      bound(approvals, 'background', '.row[data-loud]'),
+      [loudRow],
       '--color-bg-base',
     ]),
+    ...warnChips.map(([label, fills, base]): [string, string, string[], string] => {
+      expect(fills, label).not.toContain('');
+      return [label, warnText, fills, base];
+    }),
   ];
   it.each(
     Object.entries({ dark, light }).flatMap(([name, theme]) =>
       tonePairs.map((pair) => [name, ...pair, theme] as const),
     ),
-  )('%s %s text meets 4.5:1 on its fill', (_name, _label, text, fill, base, theme) => {
+  )('%s %s text meets 4.5:1 on its fill', (_name, _label, text, fills, base, theme) => {
     expect(text, 'text token').not.toBe('');
-    const under = rgb(theme[base] ?? '');
-    const [r = 0, g = 0, b = 0, alpha = 1] = fill === '' ? under : rgb(theme[fill] ?? '');
-    // Composite in sRGB, retaining fractional channels before luminance conversion.
-    const background = under.map((v, i) => ([r, g, b][i] ?? 0) * alpha + v * (1 - alpha));
+    // Composite each fill in sRGB, retaining fractional channels before luminance conversion.
+    const background = fills.reduce(
+      (under, fill) => {
+        if (fill === '') return under;
+        const [r = 0, g = 0, b = 0, alpha = 1] = rgb(theme[fill] ?? '');
+        return under.map((v, i) => ([r, g, b][i] ?? 0) * alpha + v * (1 - alpha));
+      },
+      rgb(theme[base] ?? ''),
+    );
     const [x, y] = [luminance(theme[text] ?? ''), luminance(background)];
     expect((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toBeGreaterThanOrEqual(4.5);
   });

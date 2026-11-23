@@ -426,6 +426,7 @@ describe('Chip', () => {
     expect(Object.keys(controlExamples('Chip'))).toEqual([
       'Default',
       'Warn',
+      'WarnOnAttentionRow',
       'You',
       'Ghost',
       'Titled',
