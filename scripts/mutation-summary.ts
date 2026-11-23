@@ -1,4 +1,5 @@
-// Turns a Stryker JSON report (mutation-testing-report-schema) into a Markdown job summary.
+// Turns Stryker JSON reports (mutation-testing-report-schema), one per mutation shard, into one
+// Markdown job summary.
 import { readFileSync } from 'node:fs';
 
 const COLUMNS = ['Killed', 'Timeout', 'Survived', 'No coverage', 'Ignored', 'Errors'] as const;
@@ -67,17 +68,36 @@ export function summarizeMutation(report: unknown): string {
   ].join('\n');
 }
 
-function main(args: string[]): number {
-  const path = args[0];
-  if (!path) {
-    console.error('usage: node scripts/mutation-summary.ts <report.json>');
+/**
+ * One report from the reports of the mutation shards: their `files` objects joined. Each shard
+ * mutates its own files, so a file named by two reports throws.
+ */
+export function mergeMutationReports(reports: readonly unknown[]): {
+  files: Record<string, unknown>;
+} {
+  const files: Record<string, unknown> = {};
+  for (const report of reports) {
+    const shard = isRecord(report) ? report['files'] : undefined;
+    if (!isRecord(shard)) throw new Error('mutation report: missing a files object');
+    for (const [name, entry] of Object.entries(shard)) {
+      if (name in files) throw new Error(`mutation report: ${name} is in two reports`);
+      files[name] = entry;
+    }
+  }
+  return { files };
+}
+
+function main(paths: string[]): number {
+  if (paths.length === 0) {
+    console.error('usage: node scripts/mutation-summary.ts <report.json>...');
     return 2;
   }
   try {
-    process.stdout.write(summarizeMutation(JSON.parse(readFileSync(path, 'utf8'))));
+    const reports = paths.map((path) => JSON.parse(readFileSync(path, 'utf8')) as unknown);
+    process.stdout.write(summarizeMutation(mergeMutationReports(reports)));
     return 0;
   } catch (error) {
-    console.error(`mutation-summary: cannot summarize ${path}`, error);
+    console.error(`mutation-summary: cannot summarize ${paths.join(' ')}`, error);
     return 1;
   }
 }

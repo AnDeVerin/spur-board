@@ -1,10 +1,14 @@
 # Weekly StrykerJS mutation run over packages/core/src/domain. It reports a score only, with no
 # threshold: a low score never fails it, so an issue from this workflow means the run itself broke.
 # Run it locally with `pnpm exec stryker run`; the HTML report lands in reports/mutation/.
-# The incremental file is cached between runs. GitHub evicts a cache unused for 7 days, and a miss
-# means a full run; a dispatch refreshes the cache.
-# The job timeout fits a full run: 14.5 min locally at concurrency 4 for 1229 mutants and 1759
-# tests, about 30 min on this 4-vCPU runner, which runs the same tests about 2x slower.
+# The incremental file is cached between runs, per shard. GitHub evicts a cache unused for 7 days,
+# and a miss means a full run; a dispatch refreshes the cache.
+# A full run no longer fits one job: 55.6 min locally at concurrency 4 for 1871 mutants and 3853
+# tests, about 110 min on this 4-vCPU runner, which runs the same tests about 2x slower. Each
+# shard mutates its own files and runs only their related tests. Locally, two shards at a time,
+# they took gates 21.4, dispatch 18.0, health 11.7 and rest 21.9 min: about 45 min here for the
+# longest. Give a file its own shard when a shard nears the timeout. The last shard takes every domain file the others do not name,
+# so a new file is mutated without a workflow change.
 name: weekly-mutation
 
 on:
@@ -20,10 +24,23 @@ concurrency:
 
 jobs:
   mutation:
+    name: mutation (${{ matrix.shard.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: gates
+            mutate: packages/core/src/domain/gates.ts
+          - name: dispatch
+            mutate: packages/core/src/domain/dispatch.ts
+          - name: health
+            mutate: packages/core/src/domain/health.ts
+          - name: rest
+            mutate: packages/core/src/domain/**/*.ts,!packages/core/src/domain/gates.ts,!packages/core/src/domain/dispatch.ts,!packages/core/src/domain/health.ts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,16 +57,43 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: reports/stryker-incremental.json
-          key: stryker-incremental-v2-${{ github.run_id }}
+          key: stryker-incremental-v2-${{ matrix.shard.name }}-${{ github.run_id }}
           restore-keys: |
-            stryker-incremental-v2-
+            stryker-incremental-v2-${{ matrix.shard.name }}-
       # GITHUB_ACTIONS=false keeps the github-actions and junit reporters out of Stryker's Vitest
       # runs. Keep the plain assignment: wrapping the command in `env` hides the stryker binary
       # from the unused-dependency check, which then flags the Stryker packages.
       - name: Mutation run
-        run: GITHUB_ACTIONS=false pnpm exec stryker run
+        env:
+          MUTATE: ${{ matrix.shard.mutate }}
+        run: GITHUB_ACTIONS=false pnpm exec stryker run --mutate "$MUTATE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutation-report-${{ matrix.shard.name }}
+          path: reports/mutation/
+          retention-days: 30
+          if-no-files-found: error
+
+  # Joins the shard reports: one job summary and one mutation-report artifact.
+  summary:
+    needs: [mutation]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: mutation-report-*
+          path: reports/mutation/
       - name: Job summary
-        run: node scripts/mutation-summary.ts reports/mutation/mutation.json >> "$GITHUB_STEP_SUMMARY"
+        run: node scripts/mutation-summary.ts reports/mutation/*/mutation.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mutation-report
@@ -58,7 +102,7 @@ jobs:
           if-no-files-found: error
 
   report:
-    needs: [mutation]
+    needs: [mutation, summary]
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
