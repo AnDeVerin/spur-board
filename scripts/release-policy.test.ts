@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import semanticRelease from 'semantic-release';
@@ -263,7 +263,7 @@ describe('release policy', () => {
     expect(git(repo, 'ls-remote', '--tags', 'origin')).not.toContain('v0.2.0');
 
     rmSync(hook);
-    const clone = join(mkdtempSync(join(tmpdir(), 'release-policy-')), 'clone');
+    const clone = join(dirname(repo), 'clone');
     git(tmpdir(), 'clone', '-q', `file://${remote}`, clone);
     writeFileSync(join(clone, 'README.md'), 'repaired\n');
     git(clone, 'add', '.');

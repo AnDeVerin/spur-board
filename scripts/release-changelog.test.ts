@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { prepare } from './release-changelog.ts';
 
 const title = '# Changelog\n\nIntro.\n\n';
@@ -25,8 +25,17 @@ function prune(cwd: string, tags: string[]): unknown[][] {
   return logs;
 }
 
+// A temp dir removed when the test finishes.
+function tempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'release-changelog-'));
+  onTestFinished(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+  return dir;
+}
+
 function changelog(text: string): string {
-  const cwd = mkdtempSync(join(tmpdir(), 'release-changelog-'));
+  const cwd = tempDir();
   writeFileSync(join(cwd, 'CHANGELOG.md'), text);
   return cwd;
 }
@@ -53,7 +62,7 @@ describe('release-changelog prepare', () => {
   });
 
   it('does nothing without the file', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'release-changelog-'));
+    const cwd = tempDir();
     expect(prune(cwd, [])).toEqual([]);
     expect(existsSync(join(cwd, 'CHANGELOG.md'))).toBe(false);
   });

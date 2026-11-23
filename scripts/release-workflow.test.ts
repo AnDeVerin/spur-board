@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { parse } from 'yaml';
 
 interface WorkflowStep {
@@ -131,6 +131,9 @@ describe('release workflow isolation', () => {
   it('exports the App token to semantic-release only when the token step ran', () => {
     const run = releaseStep('semantic-release')?.run ?? '';
     const bin = mkdtempSync(join(tmpdir(), 'release-step-'));
+    onTestFinished(() => {
+      rmSync(bin, { recursive: true, force: true });
+    });
     writeFileSync(
       join(bin, 'pnpm'),
       '#!/bin/sh\necho "$*|${GIT_CREDENTIALS-unset}|${APP_TOKEN-unset}"\nexit "${PNPM_EXIT:-0}"\n',
