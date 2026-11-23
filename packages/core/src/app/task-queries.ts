@@ -194,15 +194,13 @@ export function createTaskQueries(deps: {
               : reason === 'checks_red' && checksGate !== 'dev'
                 ? [{ reason, head, text: 'checks red' }]
                 : reason === 'awaiting_required_reviewers'
-                  ? [
+                  ? // The gate gives this reason only with an awaited reviewer, from these facts.
+                    [
                       {
                         reason,
                         head,
-                        text:
-                          awaited.length > 0
-                            ? `awaiting required reviewers: ${awaited.join(', ')}`
-                            : 'awaiting required reviewers',
-                        ...(awaited.length > 0 ? { reviewers: awaited } : {}),
+                        text: `awaiting required reviewers: ${awaited.join(', ')}`,
+                        reviewers: awaited,
                       },
                     ]
                   : Object.hasOwn(RULE_WAITS, reason)
