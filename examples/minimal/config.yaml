@@ -1,0 +1,45 @@
+# A minimal Board config: one GitHub repository, issues as tasks, columns Todo, Dev, Review and
+# Done, no Slack and no web UI. Copy it to ~/.config/spur-board/config.yaml (the default config
+# directory) and replace every example value; using another config directory: see SETUP.md.
+# docs/configuration.md lists every field and default.
+projects:
+  - id: example
+    tracker:
+      type: github-issues
+      # The repository whose open issues become tasks, as owner/repo.
+      repo: example-org/example-repo
+      # Uncomment to turn only issues with this label into tasks; without it every open issue
+      # of the repository is a task.
+      # label: board
+    # Repositories, as owner/repo, whose PRs the Board polls. List the tracker repository here.
+    repos: [example-org/example-repo]
+    # Uncomment when the repository runs no CI checks: without it a PR with no checks waits in Dev.
+    # reposWithoutCi: [example-org/example-repo]
+    # The GitHub login of the account the agents push and open PRs under. The Board sees only PRs
+    # by this author.
+    operatorGithubLogin: example-user
+    # Spur project names, equal to the project keys in the Spur file (projects.spur.yaml).
+    spurProjects:
+      - name: example-worker
+        role: worker
+      - name: example-reviewer
+        role: orchestrator
+      - name: example-operator
+        role: operator
+    columns:
+      - id: todo
+      # Dev: the task's worker session takes the turns.
+      - id: dev
+        orchestrator: none
+      # Review: sessions of the reviewer Spur project review the PR and submit or return it.
+      - id: review
+        orchestrator: example-reviewer
+      - id: done
+    # on: the Board moves tasks between columns and hands out turns. The default, shadow, only
+    # records where each task would go.
+    dispatcher:
+      mode: on
+digest:
+  # IANA time zone for the weekly archive slot (archive.doneWeekday) and the times in resolved
+  # feed lines.
+  tz: UTC

@@ -72,10 +72,14 @@ local method, never in chat.
 
 Follow [SETUP.md](SETUP.md) for the commands and file locations. Use
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) when a check fails.
+[examples/minimal](examples/minimal/) holds a complete Slack-free config, Spur projects and
+prompts for one repository with Todo, Dev, Review and Done.
 
 ## Reference
 
 - [CLI commands](docs/cli.md), [configuration](docs/configuration.md), and the [docs index](docs/)
+- [Changelog](CHANGELOG.md): read it before an upgrade with `board update`; versions follow
+  [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog)
 - [How the Board works](docs/how-board-works.md) and the [web UI](docs/web-ui.md)
 - [Live Slack conformance](packages/gateway-testkit/README.md#live-slack-conformance) for
   maintainers

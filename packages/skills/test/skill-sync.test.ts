@@ -18,6 +18,7 @@ const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.ur
 const troubleshootingPath = fileURLToPath(new URL('../../../TROUBLESHOOTING.md', import.meta.url));
 const runbookPath = fileURLToPath(new URL('../../../docs/runbook.md', import.meta.url));
 const overviewPath = fileURLToPath(new URL('../../../docs/overview.md', import.meta.url));
+const examplePath = fileURLToPath(new URL('../../../examples/minimal/README.md', import.meta.url));
 const setupRefsPath = fileURLToPath(new URL('../setup/references/', import.meta.url));
 const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 const refsPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
@@ -52,7 +53,8 @@ const guideTexts = guideNames.map((name) => readFileSync(`${refsPath}/${name}`, 
 const skill = readFileSync(skillPath, 'utf8');
 const workerFlow = readFileSync(`${refsPath}/worker-flow.md`, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
-const guidePaths = [readmePath, setupGuidePath, troubleshootingPath, runbookPath, overviewPath];
+const guidePaths = [readmePath, setupGuidePath, troubleshootingPath, runbookPath, examplePath];
+guidePaths.push(overviewPath);
 const publicGuides = guidePaths.map((path) => readFileSync(path, 'utf8'));
 const setupNames = [
   'access.md',

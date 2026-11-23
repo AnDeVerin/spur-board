@@ -233,9 +233,27 @@ describe('public guide contents', () => {
         expect(guide).toContain(token);
       expect(guide).toContain('`board service restart` only when the service was active before');
       for (const token of ['`npm pack`', '10 minutes']) expect(guide).toContain(token);
+      expect(guide).toContain('CHANGELOG.md');
     }
     for (const token of ['update_rolled_back', 'rollback_failed', '`board rollback --yes`'])
       expect(troubleshooting).toContain(token);
+  });
+
+  it('documents the semver policy and the changelog', () => {
+    const policy = flat(section(read('../../../CONTRIBUTING.md'), '## Versions and the changelog'));
+    for (const text of [
+      'Breaking: the config schema, CLI commands and flags, MCP operations, HTTP API operations, error codes and their HTTP status or exit code, stored data and migrations, and web routes users bookmark.',
+      'Not breaking: UI layout and wording.',
+      '`BREAKING CHANGE: `',
+      'no `#`',
+      '`Closes #<N>`',
+      '`RELEASE_CHANGELOG_COMMIT`',
+      '#867',
+    ])
+      expect(policy).toContain(text);
+    const readme = flat(read('../../../README.md'));
+    expect(readme).toContain('[Changelog](CHANGELOG.md)');
+    expect(readme).toContain('CONTRIBUTING.md#versions-and-the-changelog');
   });
 
   it('keeps the agent bootstrap line and GitHub permission recovery', () => {

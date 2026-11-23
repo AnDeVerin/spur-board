@@ -43,6 +43,7 @@
     "@eslint-community/eslint-plugin-eslint-comments": "catalog:",
     "@semantic-release/changelog": "catalog:",
     "@semantic-release/commit-analyzer": "catalog:",
+    "@semantic-release/git": "catalog:",
     "@semantic-release/github": "catalog:",
     "@semantic-release/npm": "catalog:",
     "@semantic-release/release-notes-generator": "catalog:",

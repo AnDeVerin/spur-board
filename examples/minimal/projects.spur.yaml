@@ -1,0 +1,56 @@
+# Spur projects for the minimal Board example: a worker per issue, a reviewer that runs the
+# Review column, and an operator session. Copy this file to spur.yaml at the root of your
+# checkout, replace the example values, and run `spur connect spur.yaml` there.
+#
+# Each project id must be unique across every spur.yaml connected to Spur, and so must its session
+# prefix (the id by default). Before you connect a second copy, rename all three projects here and
+# under spurProjects in config.yaml.
+projects:
+  example-worker:
+    # A relative path counts from this file's folder, so `.` is the checkout this file sits in and
+    # all three projects share it. With separate checkouts, put one project in the spur.yaml of each
+    # checkout with `path: .`, or set an absolute path.
+    path: .
+    # Set to your repository's default branch; workers open PRs against it.
+    defaultBranch: main
+    # codex works too; Codex reads the skill through the symlink below.
+    defaultAgent: claude
+    # symlinks: [.agents/skills/spur-board]
+    # Spur adds these steps only to a spawn that has a prompt, so always pass one.
+    # `spur spawn --step` replaces them.
+    spawn:
+      steps:
+        - >-
+          Use the spur-board skill for every Board step. Your prompt names one issue, number N.
+          First run spur slots --session "$SPUR_SESSION" --link
+          board-worker=https://github.com/example-org/example-repo/issues/N so the Board links
+          this session to the task. Work on a branch named <agent>-N-<slug>, open the PR
+          against the repository's default branch, title it "<type>: #N <summary>" and put
+          "Closes #N" in its body. After each push, submit the PR head with board submit as the
+          skill says, without waiting for CI. When the Board returns the task, fix what it names
+          and submit again. Never merge the PR. When the PR is merged, finish the Done turn as
+          the skill says.
+  example-reviewer:
+    path: .
+    defaultBranch: main
+    defaultAgent: claude
+    # symlinks: [.agents/skills/spur-board]
+    spawn:
+      steps:
+        - >-
+          Use the spur-board skill. You run the Board's Review column. On start and on each ring,
+          read board inbox. Ack only a Review turn whose taken is null; resume a turn you already
+          hold without another ack, and leave a turn someone else holds alone. Review the issue
+          and its PR at the head the turn names. Then board submit that head when it is ready,
+          or board return the turn with each change it needs. Never push, commit or merge. Keep
+          this session open between turns.
+  example-operator:
+    path: .
+    defaultBranch: main
+    defaultAgent: claude
+    # symlinks: [.agents/skills/spur-board]
+    spawn:
+      steps:
+        - >-
+          Use the spur-board skill. You are the Board operator's session. Read board inbox
+          operator and act only on what the human asks you to do.

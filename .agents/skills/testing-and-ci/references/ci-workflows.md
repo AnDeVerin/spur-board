@@ -60,6 +60,9 @@
 - Release only after `ci-ok` succeeds on a main push. Grant `id-token: write` for trusted
   publishing and do not pass an npm token; `release.config.cjs` disables the npm plugin's direct
   publish (`.github/workflows/ci.yml`, `release.config.cjs`).
+- Analyzer and notes share `parserOpts`: no `fieldPattern`, uppercase `BREAKING CHANGE: ` only.
+  Notes list only closing-keyword references; `plugins[0]` is the 0.x clamp `nextVersion` reads;
+  `RELEASE_CHANGELOG_COMMIT=true` adds the changelog commit, #867 (`scripts/release-policy.test.ts`).
 - Smoke the release candidate outside `release`: `release-build` packs it at the dry-run version
   with `contents: read` and no cache, `release-smoke` checks its sha256 and smokes it, and
   `release` publishes only those bytes and fails closed on a version or sha256 mismatch. After

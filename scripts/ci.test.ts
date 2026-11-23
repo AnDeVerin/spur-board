@@ -272,6 +272,7 @@ describe('release workflow isolation', () => {
     expect(publish?.env).toMatchObject({
       RELEASE_CANDIDATE_VERSION: '${{ needs.release-build.outputs.version }}',
       RELEASE_CANDIDATE_SHA256: '${{ needs.release-build.outputs.sha256 }}',
+      RELEASE_CHANGELOG_COMMIT: '${{ vars.RELEASE_CHANGELOG_COMMIT }}',
     });
   });
 

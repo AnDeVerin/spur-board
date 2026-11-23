@@ -110,7 +110,8 @@ The `spurProjects` name must match a live Spur project, and `digest.tz` is requi
 `operatorGithubLogin` to the GitHub account agents open PRs under: PR discovery keeps only PRs by
 that author, and it need not be the maintainer's own account. Use the
 [configuration reference](docs/configuration.md) and [JSON Schema](packages/contracts/config.schema.json)
-for fields and defaults.
+for fields and defaults. [examples/minimal](examples/minimal/) has a Slack-free `github-issues`
+config with Todo, Dev, Review and Done, and the Spur projects and prompts for it.
 
 For a `github-issues` project, the Board finds a PR's issue through `projects[].link`: the issues
 the PR closes, a pattern on its head branch, and a pattern on its title. Set those patterns to the
@@ -335,6 +336,8 @@ Spur, which keeps the conversation. Sessions whose message is still queued are n
 With Slack, after the first complete poll, look for the `spur-board is live` line in the
 configured feed channel; without it, check the web inbox or `board status`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for check-specific fixes and logs.
 
+Before an upgrade, read the upgrade notes in [CHANGELOG.md](CHANGELOG.md) and the release notes
+for the versions between the installed one and the target.
 To upgrade, run `board update` for the latest release, or `board update <version>` for a given one,
 from a shell with the same Node and `BOARD_HOME` or `XDG_*` settings as the service (a live Spur
 session). The service must be running. The command checks the target and the daemon first and

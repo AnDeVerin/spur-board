@@ -53,4 +53,6 @@ designer: <sha | n/a>
 
 <!--- Required when this PR adds, changes or deletes a test file: one line per file; CI guardrails fails until each has one. Also required when it deletes, skips or weakens a test, a snapshot, or a lint, TypeScript or CI setting: one line each, what changed and why. Otherwise delete this section. -->
 
+<!--- A ! title needs a paragraph, written below this comment right above Closes, that starts with the uppercase token BREAKING CHANGE, a colon and a space, says what changed and how to migrate the config, and uses no number sign after its first line. -->
+
 Closes #<N>
