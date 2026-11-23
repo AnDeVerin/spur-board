@@ -260,6 +260,24 @@ describe('block panel', () => {
     expect(dialogs()[0]?.contains(document.activeElement)).toBe(false);
   });
 
+  it('keeps the draft editable when the daemon refuses the answer', async () => {
+    const d = daemon();
+    const { of } = await fromInbox(d);
+    const field = panel().querySelector('textarea');
+    if (!field) throw new Error('no answer field');
+    d.routes['block.answer'] = () => problem('block_not_open', 409);
+    typeText(field, 'Take the left one');
+    submit(field);
+    await settle();
+    expect(of('block.answer')).toHaveLength(1);
+    expect(panel().querySelector('[role="alert"]')?.textContent).toContain('block_not_open');
+    const after = panel().querySelector('textarea');
+    expect(after).toBe(field);
+    expect(after?.disabled).toBe(false);
+    expect(after?.readOnly).toBe(false);
+    expect(after?.value).toBe('Take the left one');
+  });
+
   it('shows a failed re-read after an answer with Refresh block', async () => {
     const d = daemon();
     const { of } = await fromInbox(d);
@@ -432,6 +450,33 @@ describe('block panel', () => {
     press(retry, 'click');
     await settle();
     expect(panel().textContent).not.toContain('Could not load the block.');
+  });
+
+  it('rereads when its project changes while the first read is pending', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    history.replaceState(null, '', '/?open=inbox');
+    const base = daemon();
+    const { d, of } = recorded(base);
+    mount(d, {}, () => NOW);
+    await settle();
+    base.send(hello);
+    await settle();
+    const first = deferred();
+    base.routes['block.get'] = () => first.promise;
+    press(row('B1'), 'click');
+    await settle();
+    expect(of('block.get')).toHaveLength(1);
+    base.routes['block.get'] = () =>
+      Promise.resolve(envelope(blockGet({ state: 'unblocked', outcome: 'withdrawn' })));
+    base.send(invalidate(['a']));
+    await tick(400);
+    await settle();
+    expect(of('block.get')).toHaveLength(1);
+    first.resolve(envelope(blockGet()));
+    await settle();
+    expect(of('block.get')).toHaveLength(2);
+    expect(panel().querySelector('textarea')).toBeNull();
+    expect(note()).toBe('Closed as withdrawn. A closed block takes no answer.');
   });
 
   it('rereads a block the daemon does not know only on a full re-read', async () => {

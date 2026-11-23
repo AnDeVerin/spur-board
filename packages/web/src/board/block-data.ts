@@ -47,7 +47,8 @@ const REFUSED = 'Answers and comments cannot be sent while the board is unavaila
 /**
  * The board's `block.get` read for the block panel `?open=block:<id>` names, and its writes. It
  * re-reads on a full re-read, on Retry, after a write, and on an invalidate that names the loaded
- * block's project; invalidates never name blocks. An id that is not a block id is never read.
+ * block's project, or that came while the first read loaded and names the project it answers;
+ * invalidates never name blocks. An id that is not a block id is never read.
  */
 export function createBlockRead(
   api: ReturnType<typeof createApi>,
@@ -63,6 +64,8 @@ export function createBlockRead(
   let epoch = 0;
   let reads = 0;
   let issuedEpoch = 0;
+  // Projects invalidated while a read with no value was loading; its answer names the project.
+  const unseen = new Set<string>();
   const waits = new Set<{ epoch: number; after: number; resolve: (ok: boolean) => void }>();
   const endWaits = () => {
     for (const wait of waits) wait.resolve(false);
@@ -89,6 +92,8 @@ export function createBlockRead(
       )
         return;
       const id = result.key;
+      const stale = result.kind === 'ok' && unseen.has(result.value.project);
+      unseen.clear();
       if (result.kind === 'ok') show({ id, state: 'ready', value: result.value, retrying: false });
       else if (result.kind === 'missing')
         show({ id, state: 'missing', value: undefined, retrying: false });
@@ -99,6 +104,8 @@ export function createBlockRead(
           wait.resolve(result.kind === 'ok');
         }
       }
+      // A change to its project may have landed after this read was answered.
+      if (stale) read.refresh();
     },
   );
   const refreshWritten = (id: string, at: number): Promise<boolean> => {
@@ -135,13 +142,17 @@ export function createBlockRead(
   };
   /**
    * A null scope re-reads; a scope re-reads only a loaded block whose project it names, so a
-   * block with no value waits for a full re-read or Retry.
+   * block with no value waits for a full re-read or Retry. While a read with no value loads, the
+   * scope's projects are kept, and its answer re-reads when it names one of them.
    */
   const refresh = (scope: RefreshScope | null) => {
     if (!readable) return;
-    const project = current()?.value?.project;
+    const shown = current();
+    const project = shown?.value?.project;
     if (scope === null || (project !== undefined && scope.projects.includes(project)))
       read.refresh();
+    else if (shown?.state === 'loading' && shown.value === undefined)
+      for (const name of scope.projects) unseen.add(name);
   };
   const dispose = () => {
     disposed = true;
@@ -155,6 +166,7 @@ export function createBlockRead(
       if (id === blockId) return;
       epoch++;
       endWaits();
+      unseen.clear();
       blockId = id;
       readable =
         id !== null && browserOperations['block.get'].input.safeParse({ block: id }).success;
