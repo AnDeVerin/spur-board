@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
+import { SLACK_OFF_FIX } from '@spur-board/contracts';
 import { runCli, type CliIo } from '../src/cli.ts';
 import type { DoctorCheck, DoctorPorts } from '../src/doctor.ts';
 import { bindLoopback } from '../src/port.ts';
@@ -521,6 +522,31 @@ describe('board doctor', () => {
       blocking: false,
       fix: 'Start the daemon, then rerun board doctor to complete this check.',
     });
+  });
+
+  it('reports Slack off as a pass when a config without operator or slack has no daemon', async () => {
+    const config = yaml.replace(
+      'operator:\n  slack: U0000000000\nslack:\n  channels:\n    feed: C000000002\n',
+      '',
+    );
+    expect(config).not.toContain('slack');
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        fetcher: () => Promise.reject(new Error('daemon unavailable')),
+        readText(path) {
+          if (path.endsWith('config.yaml')) return config;
+          if (path.endsWith('secrets.env')) return 'GITHUB_TOKEN=github-test-value\n';
+          if (path.endsWith('spur-board.service'))
+            return 'ExecStart="/usr/bin/node" "/app/daemon.mjs"\n';
+          if (path.endsWith('.spur-board-install.json')) return stamp;
+          throw new Error('missing');
+        },
+      }),
+    );
+    expect(value.checks.filter((check) => check.id.startsWith('slack.'))).toEqual([
+      { id: 'slack.configured', status: 'pass', blocking: false, fix: SLACK_OFF_FIX },
+    ]);
   });
 
   it('checks the resolved secrets filename even when the daemon reports healthy', async () => {

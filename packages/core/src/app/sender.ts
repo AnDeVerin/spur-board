@@ -31,6 +31,7 @@ import {
   payloadField,
   renderBody,
   rescanStoredPost,
+  SLACK_OFF,
   type DeliveredRef,
   type OutboxBody,
 } from './outbox.ts';
@@ -982,11 +983,29 @@ export function createSender(options: SenderOptions): Sender {
     }
   }
 
+  /**
+   * Slack off: no gateway will send what earlier runs left, uncertain rows included, so they go
+   * dead and their comments superseded. Doorbells stay. One statement with no id list, so a
+   * backlog of any size stays under the SQLite parameter limit.
+   */
+  async function retireGatewayRows(trx: Trx): Promise<void> {
+    const rows = await trx
+      .updateTable('outbox')
+      .set({ state: 'dead', last_error: SLACK_OFF })
+      .where('kind', '!=', 'doorbell')
+      .where('state', 'in', ['pending', 'post_failed'])
+      .returning(['kind', 'payload'])
+      .execute();
+    await supersedeComments(trx, rows);
+    await cascade(trx);
+  }
+
   return {
     async recover() {
       const nowIso = now().toISOString();
       const failed = await scanTransaction(store, options.config, async (trx) => {
         await releaseOrphans(trx, nowIso);
+        if (gateway === undefined) await retireGatewayRows(trx);
         const rows = await trx
           .selectFrom('outbox')
           .select('id')

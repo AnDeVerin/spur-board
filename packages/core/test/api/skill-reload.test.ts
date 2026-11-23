@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApiServer, type ApiOptions, type Store } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { openTempStore } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const NOW = Date.parse('2026-11-04T09:00:01.000Z');
 const host = '127.0.0.1:4311';
@@ -19,6 +20,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const stores: Store[] = [];

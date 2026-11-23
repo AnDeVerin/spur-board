@@ -6,6 +6,7 @@ import { sql } from 'kysely';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSender, type Store } from '../../src/index.ts';
 import { capPoints, raiseItem, tokenCardBody } from '../../src/app/feed.ts';
+import { createItemMutations } from '../../src/app/items.ts';
 import {
   decideTokenInTransaction,
   expirePendingTokens,
@@ -294,6 +295,60 @@ describe('operator token lifecycle', () => {
         .where('kind', '=', 'token_expired')
         .execute(),
     ).toHaveLength(1);
+  });
+
+  it('refuses to approve a request whose item was closed and still lets a deny end it', async () => {
+    const store = setup();
+    const close = createItemMutations({ config: testConfig }).close;
+    const closed = async (name: string, hash: string) => {
+      await enroll(store, name, hash);
+      const row = await store.db
+        .selectFrom('operator_token')
+        .select('item_id')
+        .where('name', '=', name)
+        .executeTakeFirstOrThrow();
+      await scanTransaction(store, testConfig, (trx) =>
+        close.run(
+          trx,
+          { item: `I${String(row.item_id)}` },
+          { actor: 'operator', at: AT.toISOString() },
+        ),
+      );
+      return row.item_id;
+    };
+    const later = new Date(AT.getTime() + 60_000);
+
+    const approved = await closed('desk', HASH);
+    expect(
+      await scanTransaction(store, testConfig, (trx) =>
+        decideTokenInTransaction(trx, approved, 'approve', later),
+      ),
+    ).toEqual({ name: 'desk', status: 'expired' });
+    expect(await verifyOperatorToken(store, SECRET, later, () => {})).toBeNull();
+    const denied = await closed('lab', HASH2);
+    expect(
+      await scanTransaction(store, testConfig, (trx) =>
+        decideTokenInTransaction(trx, denied, 'deny', later),
+      ),
+    ).toEqual({ name: 'lab', status: 'denied' });
+    expect(
+      await store.db
+        .selectFrom('operator_token')
+        .select(['name', 'status', 'approved_at'])
+        .orderBy('name')
+        .execute(),
+    ).toEqual([
+      { name: 'desk', status: 'expired', approved_at: null },
+      { name: 'lab', status: 'denied', approved_at: null },
+    ]);
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('kind')
+        .where('kind', 'in', ['token_approved', 'token_expired', 'token_denied'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([{ kind: 'token_expired' }, { kind: 'token_denied' }]);
   });
 
   it('expires a request at send time instead of posting its approval after expiry', async () => {

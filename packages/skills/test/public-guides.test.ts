@@ -169,6 +169,27 @@ describe('public guide contents', () => {
     expect(section).not.toContain('skill file again');
   });
 
+  it('documents the no-Slack mode', () => {
+    const [readme, setup, troubleshooting] = publicGuides.map((text) => text.replace(/\s+/g, ' '));
+    expect(readme).toContain('optionally a Slack app');
+    expect(setup).toContain('Slack is optional.');
+    expect(setup).toContain('leave `operator` and `slack` out of `config.yaml`');
+    expect(setup).toContain('Add `operator.slack` back before `board rollback`');
+    expect(setup).toContain('also remove `SLACK_BOT_TOKEN` and `SLACK_API_URL` from `secrets.env`');
+    const check = troubleshooting?.split('### slack.configured')[1]?.split(' ### ')[0];
+    expect(check).toContain('the Board runs without Slack');
+    expect(check).toContain('Slack is partly configured');
+    expect(check).toContain('Approving a new token needs Slack');
+    expect(check).toContain('keep working until `board token revoke`');
+    expect(check).not.toContain('only Spur sessions reach the Board');
+    expect(check).toContain('remove `SLACK_BOT_TOKEN` and `SLACK_API_URL` from `secrets.env`');
+    expect(flat(read('../../../SECURITY.md'))).toContain('only Slack can approve a request');
+    expect(flat(read('../setup/SKILL.md'))).toContain('ask whether the operator wants Slack');
+    expect(flat(read('../setup/references/access.md'))).toContain('Token approval needs Slack');
+    for (const path of ['../../../docs/web-ui-status.md', '../../../docs/how-board-works-web.md'])
+      expect(flat(read(path))).toContain('slack when a Slack gateway is configured');
+  });
+
   it('documents when token create replaces an existing token file', () => {
     const troubleshooting = publicGuides[2]?.replace(/\s+/g, ' ') ?? '';
     expect(troubleshooting).toContain(

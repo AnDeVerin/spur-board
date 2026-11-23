@@ -21,6 +21,7 @@ import { withVia } from '../../src/app/board-utils.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { closeTurns, openTurn } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 import { refreshPrs } from '../../src/app/pr-refresh.ts';
 
 const KEY = 'o/r#101';
@@ -60,6 +61,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const stores: Store[] = [];

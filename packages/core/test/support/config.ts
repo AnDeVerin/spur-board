@@ -1,4 +1,8 @@
 import { configSchema } from '@spur-board/contracts';
+import { SLACK_ON_CONFIG } from '@spur-board/gateway-testkit/config';
+
+/** The `slack` block that turns Slack on, so the board writes gateway rows. */
+export const SLACK_ON = SLACK_ON_CONFIG;
 
 /** A parsed one-project GitHub-issues config; parsing applies the schema defaults. */
 export const testConfig = configSchema.parse({
@@ -21,5 +25,12 @@ export const testConfig = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
+  digest: { tz: 'UTC' },
+});
+
+/** `testConfig` with Slack off: no operator and no slack block. */
+export const slackOffConfig = configSchema.parse({
+  projects: testConfig.projects,
   digest: { tz: 'UTC' },
 });

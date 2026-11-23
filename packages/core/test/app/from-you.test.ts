@@ -23,6 +23,7 @@ import {
   liveSession,
   startConversation,
 } from '../support/conversation.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const base = Date.parse('2026-11-04T12:00:00.000Z');
 let now = base;
@@ -37,6 +38,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
   adapters: { github: { intervalMs: 60_000 }, githubIssues: { intervalMs: 90_000 } },
 });
@@ -460,6 +462,7 @@ it('clears a Jira authentication item on the first good poll', async () => {
       },
     ],
     operator: { slack: 'operator' },
+    slack: SLACK_ON,
     digest: { tz: 'UTC' },
   });
   const store = openTempStore('board-jira-auth-').store;

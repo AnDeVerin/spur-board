@@ -34,6 +34,7 @@ import {
   conversationStore,
   startConversation,
 } from '../support/conversation.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const KEY = 'o/r#101';
 const NOW = Date.parse('2026-11-03T10:00:00.000Z');
@@ -74,6 +75,7 @@ const config = configSchema.parse({
     },
   ],
   operator: { slack: 'operator' },
+  slack: SLACK_ON,
   digest: { tz: 'UTC' },
 });
 const ops = createBlockMutations(config);

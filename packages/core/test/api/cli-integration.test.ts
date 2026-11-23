@@ -26,6 +26,7 @@ import { decideTokenInTransaction } from '../../src/app/tokens.ts';
 import { resolvedFeedBody } from '../../src/app/feed.ts';
 import type { FeedEditPayload } from '../../src/app/outbox.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 function capture() {
   let stdout = '';
@@ -82,6 +83,7 @@ describe('CLI against the real HTTP API', () => {
           },
         ],
         operator: { slack: 'operator' },
+        slack: SLACK_ON,
         digest: { tz: 'UTC' },
       });
       const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
@@ -205,6 +207,7 @@ describe('CLI against the real HTTP API', () => {
           },
         ],
         operator: { slack: 'operator' },
+        slack: SLACK_ON,
         digest: { tz: 'UTC' },
       });
       const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
@@ -354,6 +357,7 @@ describe('CLI against the real HTTP API', () => {
           },
         ],
         operator: { slack: 'operator' },
+        slack: SLACK_ON,
         digest: { tz: 'UTC' },
       });
       const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
@@ -473,6 +477,7 @@ describe('CLI against the real HTTP API', () => {
           },
         ],
         operator: { slack: 'operator' },
+        slack: SLACK_ON,
         digest: { tz: 'UTC' },
       });
       const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
@@ -688,6 +693,7 @@ describe('CLI against the real HTTP API', () => {
           },
         ],
         operator: { slack: 'operator' },
+        slack: SLACK_ON,
         digest: { tz: 'UTC' },
       });
       const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
@@ -839,6 +845,7 @@ describe('CLI against the real HTTP API', () => {
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     const cleanups: (() => Promise<void>)[] = [];

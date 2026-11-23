@@ -1,0 +1,14 @@
+projects:
+  - id: board
+    tracker:
+      type: github-issues
+      repo: example-org/board
+    repos: [example-org/board]
+    operatorGithubLogin: octocat
+    spurProjects:
+      - name: board-dev
+        role: worker
+      - name: board-ops
+        role: operator
+digest:
+  tz: UTC

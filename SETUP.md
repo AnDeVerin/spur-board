@@ -32,6 +32,22 @@ keep it.
 
 ## 3. Create the Slack app and configuration
 
+Slack is optional. To run without it, skip the Slack app and leave `operator` and `slack` out of
+`config.yaml`; the Board then writes nothing for Slack and delivers Spur doorbells as usual. A
+Spur project with role `operator` is the operator: questions addressed to you wait in
+`board inbox operator` and the web inbox. An operator under `projects[].spurProjects` sees only
+that project; with several Board projects, list a single operator in top-level `spurProjects`
+instead, which serves every project that lists no operator of its own. Items and blocks raised
+while Slack is off get no Slack line when you add Slack later. To turn Slack off on an existing install, also remove
+`SLACK_BOT_TOKEN` and `SLACK_API_URL` from `secrets.env`: with either one and no Slack channels,
+the daemon does not start. `SLACK_APP_TOKEN` and `SLACK_APP_CONFIG_TOKEN` are unused without
+Slack and can go too. Add `operator.slack` back before `board rollback` to a version
+that requires it. Without Slack, skip [Slack app](#slack-app) and continue at
+[Configuration and secrets](#configuration-and-secrets); the rest of this section applies either
+way.
+
+### Slack app
+
 Choose private channels for the orchestrators and feed roles. The app must be invited before it
 can see a private channel. The example names `#orchestrators` and `#board-feed` are defaults,
 not requirements. The slash command defaults to `/board`; these names can be changed. Generate
@@ -56,9 +72,13 @@ board slack manifest --app-name acme-board --command /acme-board
 The manifest does not create the app-level token. Create one with `connections:write` in the
 app settings. Install the app to the workspace to obtain its bot token (`xoxb-…`); put that
 value in `SLACK_BOT_TOKEN`. Put the app-level `connections:write` token (`xapp-…`) in
-`SLACK_APP_TOKEN`. Store channel IDs, the chosen app name and slash command, project details,
-and the operator's Slack user ID in `config.yaml`. For example, replace every placeholder with
-your own values:
+`SLACK_APP_TOKEN`.
+
+### Configuration and secrets
+
+Store project details in `config.yaml`. With Slack, also store the channel IDs, the chosen app
+name and slash command, and the operator's Slack user ID; without Slack, leave out the `operator`
+and `slack` blocks of the example. For example, replace every placeholder with your own values:
 
 ```yaml
 projects:
@@ -282,6 +302,8 @@ an operator session outside Spur, choose a folder and request a named token ther
 board token create --name <name> --into <folder>
 ```
 
+Without Slack, use a Spur project marked `operator`: a token request needs Slack approval. A token
+approved while Slack was on keeps working after Slack is removed, until `board token revoke`.
 Approve the request in Slack before using the token; the Slack prompt shows the same
 `requestHash` the command printed, so approve only a request whose hash matches. The CLI looks for the folder's
 `.spur-board/token` while walking upward from the current directory, stopping at the root of
@@ -305,8 +327,8 @@ has a `spur-board` skill file changed since it started or was last told; the mes
 files, and a session already told gets nothing. A `sessions.stale` warning lists the sessions that
 started before the skill files last changed and have no delivered message: stop and wake them in
 Spur, which keeps the conversation. Sessions whose message is still queued are named apart; rerun doctor in a minute.
-After the first complete poll, look for the `spur-board is live` line in the configured feed
-channel. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for check-specific fixes and logs.
+With Slack, after the first complete poll, look for the `spur-board is live` line in the
+configured feed channel; without it, check the web inbox or `board status`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for check-specific fixes and logs.
 
 To upgrade, run `board update` for the latest release, or `board update <version>` for a given one,
 from a shell with the same Node and `BOARD_HOME` or `XDG_*` settings as the service (a live Spur

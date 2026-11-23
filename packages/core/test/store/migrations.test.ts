@@ -33,6 +33,7 @@ import {
 } from '../../src/store/migrate.ts';
 import { openStore } from '../../src/store/store.ts';
 import { rawDatabase } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
 
 const INDEXES: Record<string, { table: string; columns: string[]; partialUnique: boolean }> = {
@@ -313,6 +314,7 @@ describe('migrate', () => {
         },
       ],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     const source = prSourceId('proj', 'x/y');

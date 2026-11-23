@@ -6,6 +6,7 @@ import {
   conversationRefSchema,
   messageRefSchema,
   PERSONA_ROLES,
+  slackConfigured,
   type ActorId,
   type BlockType,
   type ConversationRef,
@@ -14,8 +15,9 @@ import {
   type RichText,
   type SpaceId,
 } from '@spur-board/contracts';
-import { sql } from 'kysely';
+import { sql, type ExpressionBuilder } from 'kysely';
 import { z } from 'zod';
+import type { Tables } from '../store/schema.ts';
 import { taskUrl, type Trx } from './board-utils.ts';
 import { blockSubject, rowSubject } from './subject.ts';
 import { TASKLESS_FEED_KEY, raiseItemWith } from './item-raise.ts';
@@ -136,6 +138,17 @@ export type FeedSegment = z.output<typeof segment>;
  */
 export function payloadField<T>(path: `$.${string}`) {
   return sql<T | null>`case when json_valid(payload) then json_extract(payload, ${path}) end`;
+}
+
+/** The `last_error` of a gateway row a start without Slack retired; it was never sent. */
+export const SLACK_OFF = 'slack off';
+
+/**
+ * Leaves out rows retired as Slack off, so a thread's tail is its last row that may have been
+ * sent: a reply or close written after Slack is back follows that row, not a retired one.
+ */
+function notRetired(eb: ExpressionBuilder<Tables, 'outbox'>) {
+  return eb.or([eb('state', '!=', 'dead'), eb('last_error', 'is not', SLACK_OFF)]);
 }
 
 /** The plain summary of `segments`: what is scanned, stored on the item and struck. */
@@ -700,6 +713,8 @@ async function insertOutbox(
     if (payload === null || typeof payload !== 'object' || !('key' in payload)) {
       throw new Error('Invalid gateway outbox payload');
     }
+    // Slack off: no gateway will send the row, so it is not written. Doorbells still are.
+    if (!slackConfigured(scanConfig())) return { id: null, inserted: false };
     // Scan every payload string, including the outward text, title, name, URL and action labels.
     const rule = checkGatewayStrings(payloadStrings(payload));
     if (rule === SCAN_PENDING) return { id: null, inserted: false };
@@ -822,7 +837,8 @@ async function operatorThread(trx: Trx, blockId: number): Promise<ConversationRe
 
 /**
  * Writes the `conversation.reply` row of a later comment on a block whose open row exists.
- * The row waits for the thread's latest open, reply or close row. Returns null and writes
+ * The row waits for the thread's latest open, reply or close row, not counting rows retired as
+ * Slack off (`notRetired`). Returns null and writes
  * nothing when there is no such row or it is dead: a dead thread takes no more replies. A block
  * with no open row, an operator conversation, replies in its registered thread
  * (`targetConversation`), after its earlier replies.
@@ -843,6 +859,7 @@ export async function enqueueConversationReply(
     .select(['id', 'state'])
     .where('kind', 'in', ['conversation.open', 'conversation.reply', 'conversation.close'])
     .where(payloadField<number>('$.blockId'), '=', blockId)
+    .where(notRetired)
     .orderBy('id', 'desc')
     .limit(1)
     .executeTakeFirst();
@@ -883,6 +900,7 @@ export async function enqueueConversationClose(
     .select(['id', 'state'])
     .where('kind', 'in', ['conversation.open', 'conversation.reply'])
     .where(payloadField<number>('$.blockId'), '=', input.blockId)
+    .where(notRetired)
     .orderBy('id', 'desc')
     .executeTakeFirst();
   const open = await trx

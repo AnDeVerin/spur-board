@@ -1,6 +1,7 @@
 import {
   boardWideSpurProject,
   prSourceId,
+  slackConfigured,
   trackerSourceId,
   type ColumnBindingSource,
   type Config,
@@ -103,7 +104,8 @@ export async function orchestratorSessions(db: Trx, config: Config) {
 
 /**
  * Called from an accepted observation's transaction after board and item reconciliation.
- * The version marker and feed row share that transaction with the source-state update.
+ * The version marker and feed row share that transaction with the source-state update. With
+ * Slack off it writes neither, so the first poll after Slack is set posts the line.
  */
 export async function enqueueLiveAfterFirstPoll(
   trx: Trx,
@@ -115,6 +117,7 @@ export async function enqueueLiveAfterFirstPoll(
     at: string;
   },
 ): Promise<void> {
+  if (!slackConfigured(input.config)) return;
   const required = doctorSources(input.config);
   if ([...required].some((source) => !input.completeSince.has(source) || input.blind.has(source)))
     return;

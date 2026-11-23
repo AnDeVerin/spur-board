@@ -6,7 +6,7 @@ import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { configSchema, type Config, type Gateway } from '@spur-board/contracts';
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 import { createSender, enqueueConversationOpen, openStore, type Store } from '../../src/index.ts';
-import { clearItem, raiseItem } from '../../src/app/feed.ts';
+import { clearItem, raiseItem, resolvedFeedBody } from '../../src/app/feed.ts';
 import type { RaiseItemInput } from '../../src/app/item-raise.ts';
 import {
   EXTERNAL_QUIET_ACTION,
@@ -17,7 +17,7 @@ import {
 } from '../../src/domain/fromYou.ts';
 import { observeGateway } from '../support/observe.ts';
 import { sampleRows } from '../store/sample-rows.ts';
-import { testConfig } from '../support/config.ts';
+import { slackOffConfig, testConfig } from '../support/config.ts';
 
 const AT = new Date('2026-11-03T10:00:00.000Z');
 const KEY = 'o/r#101';
@@ -250,7 +250,28 @@ describe('operator item feed', () => {
       kind: 'paragraph',
       children: [
         { kind: 'text', text: '✓ Resolved by ' },
-        { kind: 'mention', user: config.operator.slack },
+        { kind: 'mention', user: 'operator' },
+        { kind: 'text', text: ' at 10:00' },
+      ],
+    });
+  });
+
+  it('names the operator in plain text when operator.slack is unset', () => {
+    const body = resolvedFeedBody(
+      {
+        key: KEY,
+        text: 'done',
+        persona: { name: 'web', role: 'worker' },
+        itemKey: 'worker:1',
+        resolved: { by: 'operator', at: AT.toISOString() },
+      },
+      slackOffConfig,
+    );
+    expect(body.at(-1)).toEqual({
+      kind: 'paragraph',
+      children: [
+        { kind: 'text', text: '✓ Resolved by ' },
+        { kind: 'text', text: 'operator' },
         { kind: 'text', text: ' at 10:00' },
       ],
     });

@@ -27,6 +27,7 @@ import { archiveTask } from '../../src/app/archive.ts';
 import { dispatchPendingSubmits } from '../../src/app/dispatch.ts';
 import { closeTurns, openTurn, takeTurn } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
+import { SLACK_ON } from '../support/config.ts';
 
 const AT = '2026-11-04T08:00:00.000Z';
 const A = 'a'.repeat(40);
@@ -99,6 +100,7 @@ function board(
       ...(otherProject ? [other] : []),
     ],
     operator: { slack: 'operator' },
+    slack: SLACK_ON,
     digest: { tz: 'UTC' },
   });
 }
@@ -2701,6 +2703,7 @@ describe('board-wide column orchestrator', () => {
       })),
       spurProjects: [{ name: 'br', role: 'orchestrator', columns: ['review'] }],
       operator: { slack: 'operator' },
+      slack: SLACK_ON,
       digest: { tz: 'UTC' },
     });
     const clock = { now: () => Date.parse(AT) };

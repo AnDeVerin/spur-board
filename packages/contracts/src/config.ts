@@ -954,11 +954,18 @@ const configObject = z.strictObject({
     .describe(
       'Spur projects bound board-wide, each with role orchestrator or operator. A project-level binding wins for its own project. A Spur project here serves every board project it binds, and one of its sessions acts on the turns, inbox, questions and doorbells of each of them and no other.',
     ),
-  operator: z.strictObject({
-    slack: nonEmpty.describe(
-      'Slack user ID of the operator, such as U0123456789. Slack commands, button presses and messages from anyone else are denied. A feed line the operator resolves names this user.',
+  operator: z
+    .strictObject({
+      slack: nonEmpty
+        .optional()
+        .describe(
+          'Slack user ID of the operator, such as U0123456789. Required once slack.channels is set. Slack commands, button presses and messages from anyone else are denied. A feed line the operator resolves names this user.',
+        ),
+    })
+    .optional()
+    .describe(
+      'The operator. Leave it out, with slack.channels, to run without Slack: questions addressed to the operator are then read in board inbox operator and the web inbox. Add operator.slack back before board rollback to a version that requires it.',
     ),
-  }),
   slack: z
     .strictObject({
       appName: z
@@ -1409,6 +1416,13 @@ export const configSchema = configObject
         }
       }
     }
+    if (slackConfigured(config) && config.operator?.slack === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['operator', 'slack'],
+        message: "Set operator.slack, the operator's Slack user ID, when slack.channels is set",
+      });
+    }
     const addressee = config.slack.defaultAddressee;
     if (addressee === undefined) return;
     const known =
@@ -1590,9 +1604,17 @@ export const SECRET_ENV_KEYS = [
   },
 ] as const;
 
+/**
+ * Whether Slack is on: either slack channel is set. Without one the daemon builds no Slack
+ * gateway and the board writes no Slack messages.
+ */
+export function slackConfigured(config: Pick<Config, 'slack'>): boolean {
+  return Boolean(config.slack.channels.feed || config.slack.channels.orchestrators);
+}
+
 export function requiredSecretKeys(config: Config): string[] {
   const jira = config.projects.some((project) => project.tracker.type === 'jira');
-  const slack = Boolean(config.slack.channels.feed || config.slack.channels.orchestrators);
+  const slack = slackConfigured(config);
   return SECRET_ENV_KEYS.filter(
     ({ requiredWhen }) =>
       requiredWhen === 'always' ||

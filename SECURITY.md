@@ -45,8 +45,11 @@ one of the limits below is not a vulnerability; a way around a guarantee below i
 - **Operator tokens last until revoked.** `board token create` writes a random secret to
   `<folder>/.spur-board/token`; the daemon stores only its SHA-256 hash. A request lapses after
   15 minutes unless the operator approves it in the messenger. An approved token has no expiry:
-  it works until `board token revoke`, and the daemon checks its status on every call. See
-  [SETUP.md](SETUP.md) for the operator paths.
+  it works until `board token revoke`, and the daemon checks its status on every call. In this
+  version only Slack can approve a request, so a board without Slack cannot approve new tokens:
+  its operator is a Spur project marked `operator`. Tokens approved while Slack was on keep
+  working after Slack is removed, until `board token revoke`. See [SETUP.md](SETUP.md) for the
+  operator paths.
 - **The journal records the actor and the channel.** Each journal event records who acted (the
   operator, an agent and its session, or the board) and, in `via`, the channel the write arrived
   through, whoever the actor: `slack` or `web` where the daemon received the write, or `cli` or

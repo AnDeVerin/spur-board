@@ -57,6 +57,10 @@ export async function liveSettings(
   if (env['SLACK_API_URL'] || loaded.secrets['SLACK_API_URL']) {
     throw new PreflightError('API URL overrides are not allowed for a live run.');
   }
+  const operator = loaded.config.operator?.slack;
+  if (operator === undefined) {
+    throw new PreflightError("Set operator.slack in config.yaml to the operator's Slack user ID.");
+  }
   const token = loaded.secrets['SLACK_BOT_TOKEN'];
   const appToken = loaded.secrets['SLACK_APP_TOKEN'];
   if (!token || !appToken) {
@@ -68,7 +72,7 @@ export async function liveSettings(
     channel,
     channelName,
     command: loaded.config.slack.command,
-    operator: userIdSchema.parse(loaded.config.operator.slack),
+    operator: userIdSchema.parse(operator),
   };
 }
 
