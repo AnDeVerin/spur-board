@@ -57,22 +57,29 @@ both files.
    gh auth status
    ```
 
-   Skip `gh auth setup-git` if you push over SSH.
+   Skip `gh auth setup-git` if you push over SSH. Set a Git commit identity for the same user,
+   so the worker can commit:
 
-5. Copy `config.yaml` to `$HOME/.config/spur-board/config.yaml` and replace the example values.
-   Put `GITHUB_TOKEN` in `secrets.env` next to it, with mode `0600`, as
+   ```sh
+   git config --global user.name "Your Name"
+   git config --global user.email "you@example.com"
+   ```
+
+5. Copy `config.yaml` into the Board config directory and replace the example values. `board`
+   reads it from `$BOARD_HOME` when that is set, else from `$XDG_CONFIG_HOME/spur-board` when
+   `XDG_CONFIG_HOME` is an absolute path, else from `$HOME/.config/spur-board`. Put
+   `GITHUB_TOKEN` in `secrets.env` in the same directory, with mode `0600`, as
    [SETUP.md](../../SETUP.md#configuration-and-secrets) says. Then check the config:
 
    ```sh
    board doctor --offline
    ```
 
-6. Install the service and run every check, as
+6. Install the service, as
    [SETUP.md](../../SETUP.md#4-install-the-service-and-choose-operator-access) says:
 
    ```sh
    board service install
-   board doctor
    ```
 
 7. Start the reviewer and the operator sessions from the checkout and keep them open. The Board
@@ -84,7 +91,15 @@ both files.
    spur spawn example-operator "Act as the Board operator for example-org/example-repo."
    ```
 
-   Always pass a prompt: a spawn without a prompt starts without the project's steps.
+   Always pass a prompt: a spawn without a prompt starts without the project's steps. With both
+   sessions live, run every check:
+
+   ```sh
+   board doctor
+   ```
+
+   Its `path.spur` and `orchestrator.sessions` checks need live Spur sessions, so they warn when
+   run before this step.
 
 8. Start one worker session per issue, with the issue URL in the prompt:
 

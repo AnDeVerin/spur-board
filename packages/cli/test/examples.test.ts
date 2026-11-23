@@ -161,8 +161,12 @@ describe('examples/minimal prompts and README', () => {
       `board-worker=https://github.com/${project.tracker.repo}/issues/`,
     );
     expect(steps(worker)).toContain('Closes #');
+    expect(steps(worker)).toContain("against the repository's default branch");
     for (const phrase of ['board submit', 'board return', 'push'])
       expect(steps(reviewer)).toContain(phrase);
+    // An ack of a taken turn takes it from its holder, whose submit then fails not_turn_taker.
+    expect(steps(reviewer)).toContain('Ack only a Review turn whose taken is null');
+    expect(steps(reviewer)).not.toMatch(/ack (each|every)/i);
     expect(steps(operator)).toContain('board inbox operator');
   });
 
@@ -198,9 +202,32 @@ describe('examples/minimal prompts and README', () => {
     expect(spurComments.some((line) => line.includes('prompt'))).toBe(true);
   });
 
-  it('names the Spur versions, GitHub sign-in and unique ids, and is linked from the guides', () => {
-    for (const phrase of ['1.53.0', '1.62.3', 'gh auth login', 'sessionPrefix'])
+  it('names the Spur versions, GitHub sign-in, Git identity and unique ids', () => {
+    for (const phrase of [
+      '1.53.0',
+      '1.62.3',
+      'gh auth login',
+      'git config --global user.email',
+      'sessionPrefix',
+    ])
       expect(readme).toContain(phrase);
+  });
+
+  it('names the config directory order that board reads', () => {
+    for (const text of [readme, comments(configText).join('\n')]) {
+      const order = ['$BOARD_HOME', '$XDG_CONFIG_HOME/spur-board', '$HOME/.config/spur-board'];
+      const at = order.map((path) => text.indexOf(path));
+      expect(at.every((index) => index >= 0)).toBe(true);
+      expect([...at].sort((a, b) => a - b)).toEqual(at);
+    }
+  });
+
+  it('runs the full board doctor only after the sessions start', () => {
+    const doctorAt = readme.search(/^\s*board doctor$/m);
+    expect(doctorAt).toBeGreaterThan(readme.indexOf('spur spawn example-operator'));
+  });
+
+  it('is linked from the guides', () => {
     for (const guide of ['README.md', 'SETUP.md'])
       expect(read(guide, repoRoot)).toContain('examples/minimal');
   });

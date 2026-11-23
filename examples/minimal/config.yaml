@@ -1,6 +1,8 @@
 # A minimal Board config: one GitHub repository, issues as tasks, columns Todo, Dev, Review and
-# Done, no Slack and no web UI. Copy it to $HOME/.config/spur-board/config.yaml and replace every
-# example value. docs/configuration.md lists every field and default.
+# Done, no Slack and no web UI. Copy it to config.yaml in the Board config directory ($BOARD_HOME
+# when set, else $XDG_CONFIG_HOME/spur-board when XDG_CONFIG_HOME is absolute, else
+# $HOME/.config/spur-board) and replace every example value. docs/configuration.md lists every
+# field and default.
 projects:
   - id: example
     tracker:
@@ -39,5 +41,6 @@ projects:
     dispatcher:
       mode: on
 digest:
-  # IANA time zone for the weekly archive and the times the Board shows.
+  # IANA time zone for the weekly archive slot (archive.doneWeekday) and the times in resolved
+  # feed lines.
   tz: UTC
