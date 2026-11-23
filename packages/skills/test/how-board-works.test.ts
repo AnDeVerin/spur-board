@@ -457,10 +457,25 @@ function markdownFiles(directory: string): string[] {
 describe('documentation local links', () => {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
 
-  it('resolves local files and heading fragments throughout docs and product skills', () => {
+  it('resolves local files and heading fragments throughout docs, product skills and root guides', () => {
     let fragments = 0;
-    for (const tree of ['docs', 'packages/skills']) {
-      const paths = markdownFiles(resolve(root, tree));
+    const guides = [
+      'README.md',
+      'CONTRIBUTING.md',
+      'SECURITY.md',
+      'SETUP.md',
+      'TROUBLESHOOTING.md',
+      'AGENTS.md',
+      'design/README.md',
+      'examples/minimal/README.md',
+      'packages/gateway-testkit/README.md',
+    ];
+    const trees: [string, string[]][] = [
+      ['docs', markdownFiles(resolve(root, 'docs'))],
+      ['packages/skills', markdownFiles(resolve(root, 'packages/skills'))],
+      ['root guides', guides.map((name) => resolve(root, name))],
+    ];
+    for (const [tree, paths] of trees) {
       expect(paths.length).toBeGreaterThan(0);
       let files = 0;
       for (const path of paths) {

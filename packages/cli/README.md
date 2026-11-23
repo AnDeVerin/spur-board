@@ -1,11 +1,33 @@
 # spur-board
 
-A kanban board for agent-driven development on top of [Spur](https://github.com/ashugaev/spur):
-a local daemon that tracks tasks across GitHub, Jira and agent sessions, a `board` CLI and MCP
+A kanban for agent-driven development on top of [Spur](https://github.com/ashugaev/spur): a
+local daemon that tracks tasks across GitHub, Jira and agent sessions, a `board` CLI and MCP
 server for agents, and optionally Slack for the human operator.
 
 **Status:** early development. Work is tracked in
 [GitHub Issues](https://github.com/AnDeVerin/spur-board/issues).
+
+## What it needs
+
+Linux with systemd user services, Node 24.12+ (24.x) or 26.x, a running
+[Spur](https://github.com/ashugaev/spur) 1.53.0 or newer, a GitHub token, Jira credentials for
+Jira projects, and optionally a Slack app. The optional web console has no login of its own and
+needs an authenticating reverse proxy or an SSH tunnel to reach it from another machine.
+
+## Start here
+
+1. [Overview](https://github.com/AnDeVerin/spur-board/blob/main/docs/overview.md): what the
+   Board does and how tasks move through its columns.
+2. [Quickstart](https://github.com/AnDeVerin/spur-board/blob/main/docs/quickstart.md): from zero
+   to a first task in Done with the minimal example.
+3. [SETUP.md](https://github.com/AnDeVerin/spur-board/blob/main/SETUP.md): every install step,
+   file location and command.
+4. [Configuration reference](https://github.com/AnDeVerin/spur-board/blob/main/docs/configuration.md):
+   every `config.yaml` field and secret.
+5. [TROUBLESHOOTING.md](https://github.com/AnDeVerin/spur-board/blob/main/TROUBLESHOOTING.md):
+   doctor checks and their fixes.
+6. [Docs index](https://github.com/AnDeVerin/spur-board/blob/main/docs/README.md): the guides for
+   users and contributors.
 
 ## Setup with an agent
 
@@ -21,4 +43,4 @@ never paste tokens into chat.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/AnDeVerin/spur-board/blob/main/LICENSE)
