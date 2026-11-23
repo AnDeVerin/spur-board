@@ -94,9 +94,11 @@ Slack is optional; [Create the Slack app and
 configuration](../SETUP.md#3-create-the-slack-app-and-configuration) sets it up. With it, items for
 you appear as feed lines, questions to you open threads that you answer by replying, and an
 `@shortName` message starts a conversation with a Spur project. Without it, you work from a Spur
-project with role `operator`, which needs no token, or from the web UI, and questions to you wait in
-`board inbox operator` and the web inbox. A token for an operator session outside Spur is approved
-in Slack, so that route needs Slack.
+project with role `operator`, which needs no token, or from the web UI. Blocks and turns addressed
+to you then ring your operator Spur session, and you read and answer them with
+`board inbox operator` or in the web inbox ([Blocks and
+escalation](how-board-works-blocks.md#blocks-and-escalation)). A token for an operator session
+outside Spur is approved in Slack, so that route needs Slack.
 
 The web UI is optional too, and off until you turn it on ([Optional browser
 access](../SETUP.md#optional-browser-access)). It shows the columns, each task's **Why it is here**,
