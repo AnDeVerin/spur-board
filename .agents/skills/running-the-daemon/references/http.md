@@ -26,7 +26,7 @@ browser/proxy -> Web Fastify (web.port) -> shared ops route -> registry
 
 ## Web
 
-- Require exact resolved public-origin Host, exact Origin on methods other than GET/HEAD, JSON POST and no `Sec-Fetch-Site: cross-site`; never add CORS headers or trust proxy identity.
+- Require exact resolved public-origin Host, exact Origin on methods other than GET/HEAD, JSON POST and no `Sec-Fetch-Site: cross-site` except an origin-form GET/HEAD with `Sec-Fetch-Mode: navigate` and `Sec-Fetch-Dest: document` outside `/v1/`; never add CORS headers or trust proxy identity.
 - Serve only bound catalog operations, health, the event stream and memory-mapped static assets; leave token, skill, schema and doctor routes absent.
 - Identify every web operation as operator and allow it only when `operation.web !== null`; keep the three enabled writes in the catalog.
 - Wrap request dispatch with `withVia('web', fn)` so journal events and history retain `via: web`; keep `afterOperation` and detached job triggers outside that scope.

@@ -139,6 +139,14 @@ describe('web event stream', () => {
   it.each([
     { changes: { host: 'foreign.example.test' }, status: 403 },
     { changes: { 'sec-fetch-site': 'cross-site' }, status: 403 },
+    {
+      changes: {
+        'sec-fetch-site': 'cross-site',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'document',
+      },
+      status: 403,
+    },
     { changes: { origin: 'https://foreign.example.test' }, status: 403 },
     { changes: { origin: 'null' }, status: 403 },
   ])('guards the stream: $changes', async ({ changes, status }) => {

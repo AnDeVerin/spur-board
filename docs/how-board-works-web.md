@@ -17,6 +17,10 @@ and a failed bind does not stop the agent API.
 
 A private-network proxy must preserve Host. Exact Origin, Host, JSON and fetch-metadata checks
 reject foreign browser pages; anyone with network or local access can still act as operator.
+Of cross-site requests the listener accepts only a `GET` or `HEAD` top-level page navigation
+(`Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: document`) outside `/v1/`, so a home-screen app or
+a link from Slack opens the page while operations, health and the event stream refuse
+cross-site requests.
 Logs include the web channel and untrusted forwarded client/user-agent metadata. Web writes
 persist `via: web` in the journal; history returns `actor: operator` with `via: web`, allowing
 clients to show `operator (web)`.

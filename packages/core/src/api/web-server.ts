@@ -71,6 +71,27 @@ const APP_FILES: ReadonlySet<string> = new Set([
   '/icons/icon-512-maskable.png',
 ]);
 
+/** The API routes live under `/v1`; every other path is the page or a shipped file. */
+function inApiNamespace(path: string): boolean {
+  return path === '/v1' || path.startsWith('/v1/');
+}
+
+// A home-screen app or a link from another site opens the page as a cross-site top-level
+// navigation. Only an origin-form GET or HEAD outside `/v1` passes: find-my-way strips the
+// scheme and host of an absolute-form target before routing, so that form is never a page.
+function isPageNavigation(request: FastifyRequest): boolean {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return false;
+  if (request.headers['sec-fetch-mode'] !== 'navigate') return false;
+  if (request.headers['sec-fetch-dest'] !== 'document') return false;
+  const rawPath = request.raw.url?.split('?', 1)[0] ?? '';
+  if (!rawPath.startsWith('/')) return false;
+  try {
+    return !inApiNamespace(decodeURIComponent(rawPath));
+  } catch {
+    return false;
+  }
+}
+
 async function loadFiles(root: string | URL): Promise<Map<string, Buffer>> {
   const files = new Map<string, Buffer>();
   async function walk(dir: string | URL, prefix: string): Promise<void> {
@@ -162,7 +183,7 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
     const origin = resolvedOrigin();
     if (origin === undefined || request.headers.host !== new URL(origin).host)
       throw new CommandError('forbidden', 'Use the configured web host.');
-    if (request.headers['sec-fetch-site'] === 'cross-site')
+    if (request.headers['sec-fetch-site'] === 'cross-site' && !isPageNavigation(request))
       throw new CommandError('forbidden', 'Cross-site requests are not accepted.');
     if (request.method !== 'GET' && request.method !== 'HEAD' && request.headers.origin !== origin)
       throw new CommandError('forbidden', 'Use the configured web origin.');
@@ -257,11 +278,7 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
   app.addHook('preClose', () => hub.close());
   app.setNotFoundHandler(async (request, reply) => {
     const path = request.url.split('?', 1)[0] ?? '/';
-    if (
-      (request.method !== 'GET' && request.method !== 'HEAD') ||
-      path === '/v1' ||
-      path.startsWith('/v1/')
-    )
+    if ((request.method !== 'GET' && request.method !== 'HEAD') || inApiNamespace(path))
       throw new CommandError('not_found', 'This web route is not available.');
     const key = path === '/' ? '/index.html' : path;
     const file =

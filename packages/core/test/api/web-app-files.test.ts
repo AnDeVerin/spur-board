@@ -99,4 +99,20 @@ describe('web listener app files', () => {
     });
     expect(response.statusCode).toBe(403);
   });
+
+  it('serves the manifest to a cross-site top-level navigation', async () => {
+    const app = await setup();
+    const response = await app.inject({
+      url: '/manifest.webmanifest',
+      headers: {
+        ...host,
+        'sec-fetch-site': 'cross-site',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'document',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/manifest+json');
+    expect(response.body).toBe('{"name":"Spur Board"}');
+  });
 });
