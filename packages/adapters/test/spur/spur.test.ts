@@ -776,6 +776,38 @@ describe('Spur adapter', () => {
         page: 2,
       },
       {
+        name: 'a transition that fails its contract schema',
+        pages: [
+          () =>
+            page({
+              entries: [{ ...edge, project: 'my project' }],
+              nextCursor: 'p1',
+              hasMore: false,
+            }),
+        ],
+        message: 'Invalid Spur transition at entries.0.spurProject on sessions/transitions page 1',
+        path: 'sessions/transitions',
+        page: 1,
+      },
+      {
+        name: 'a listed session whose facts fail their contract schema',
+        list: [{ ...wire, project: 'my project' }],
+        message: 'Invalid Spur session at 0.spurProject on sessions',
+        path: 'sessions',
+      },
+      {
+        name: 'a session detail whose facts fail their contract schema',
+        detail: { ...wire, id: 'ghost-1', project: 'my project' },
+        message: 'Invalid Spur session at spurProject on sessions/ghost-1',
+        path: 'sessions/ghost-1',
+      },
+      {
+        name: 'a session listed twice',
+        list: [wire, { ...wire, state: 'working' }],
+        message: 'Duplicate Spur session demo-worker-1 on sessions',
+        path: 'sessions',
+      },
+      {
         name: 'an invalid session list',
         list: [{}],
         message: 'Invalid Spur response at 0.id on sessions',
