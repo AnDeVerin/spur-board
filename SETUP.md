@@ -167,43 +167,65 @@ Add to Home Screen.
 
 #### Remote access through Caddy with basic auth
 
-Run [Caddy](https://caddyserver.com/) 2.8 or newer on the Board host; older releases name the
-directive `basicauth`. Caddy serves HTTPS, asks for a user name and password, and passes each
-request to the loopback listener.
+This subsection documents one route: Caddy installed as a host package on the Linux Board host.
+Caddy serves HTTPS, asks for a user name and password, and passes each request to the loopback
+listener. Running Caddy in a container is not covered here: the sample's upstream
+`127.0.0.1:7777` is the host's loopback, so such a container needs host networking; see
+[Caddy's container notes](https://caddyserver.com/docs/running#docker-compose).
 
-Caddy must run in the Board host's network namespace: a package install, or the official image
-with `--network host` on Linux. On Docker's default bridge network the container has its own
-loopback, so every proxied request fails with 502. For example:
+Pick one of two certificate variants first:
 
-```sh
-docker run -d --network host -v <dir>/Caddyfile:/etc/caddy/Caddyfile:ro -v <dir>/data:/data caddy:2
-```
+- Public name: `board.example.com` resolves in public DNS to the Board host. Caddy gets a public
+  certificate by itself, which needs ports `80` and `443` reachable from the internet. Basic auth
+  is then the only boundary: use a long random password, and do not `bind` Caddy to a private
+  address, which would stop certificate renewal.
+- Private name: the name resolves only on the operator's private network. Add `tls internal` to
+  the site block so Caddy signs the certificate with its own local CA, and trust that CA's root
+  certificate on the laptop: the package keeps it at
+  `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`. Limit who reaches the login
+  with `bind` to a private address or a firewall.
 
-Print a password hash with `caddy hash-password` and put it in the site block:
+Then, in this order:
 
-```caddyfile
-board.example.com {
-	# Browsers fetch the web app manifest without credentials; these files hold no Board data.
-	@appfiles path /manifest.webmanifest /favicon.svg /favicon-32.png /apple-touch-icon.png /icons/icon-192.png /icons/icon-512.png /icons/icon-512-maskable.png
-	handle @appfiles {
-		reverse_proxy 127.0.0.1:7777
-	}
-	handle {
-		basic_auth {
-			operator <hash printed by caddy hash-password>
-		}
-		reverse_proxy 127.0.0.1:7777
-	}
-}
-```
+1. Install Caddy 2.8 or newer from Caddy's own package repository, as
+   [Caddy's install docs](https://caddyserver.com/docs/install) show for your distribution. A
+   distribution's own repository may ship an older release, which names the directive
+   `basicauth` and rejects the sample's `basic_auth`. The package runs Caddy as the systemd
+   service `caddy`.
+2. Print a password hash with `caddy hash-password`; it asks for the password without echoing
+   it.
+3. Replace the contents of `/etc/caddy/Caddyfile` with this site block, the hash in place of the
+   placeholder. For a private name, add `tls internal` as the first line inside the block.
 
-Set the same name in config.yaml and restart the daemon:
+   ```caddyfile
+   board.example.com {
+   	# Browsers fetch the web app manifest without credentials; these files hold no Board data.
+   	@appfiles path /manifest.webmanifest /favicon.svg /favicon-32.png /apple-touch-icon.png /icons/icon-192.png /icons/icon-512.png /icons/icon-512-maskable.png
+   	handle @appfiles {
+   		reverse_proxy 127.0.0.1:7777
+   	}
+   	handle {
+   		basic_auth {
+   			operator <hash printed by caddy hash-password>
+   		}
+   		reverse_proxy 127.0.0.1:7777
+   	}
+   }
+   ```
 
-```yaml
-web:
-  port: 7777
-  publicOrigin: https://board.example.com
-```
+4. Set the same name in config.yaml and restart the daemon:
+
+   ```yaml
+   web:
+     port: 7777
+     publicOrigin: https://board.example.com
+   ```
+
+5. Reload Caddy so it reads the new file: `sudo systemctl reload caddy`. If the service is not
+   running, start it with `sudo systemctl start caddy`.
+6. Check from the laptop: `curl -sI https://board.example.com/` gives `401`. For a private name,
+   add `--cacert` with the root certificate copied from the Board host. Then open
+   `https://board.example.com` in a browser and log in as `operator`.
 
 `web.publicOrigin` must be exactly the URL the laptop opens: `https://`, the site name, a
 `:<port>` only when Caddy listens on a port other than 443, and no path or trailing slash.
@@ -215,22 +237,9 @@ and sets no read timeout, so the sample needs no extra directive. Another proxy 
 `Host` and `Origin` headers unchanged, keep response buffering off for `/v1/events`, and set a
 read timeout above 15 seconds, the heartbeat interval.
 
-Pick one of two certificate variants:
-
-- Public name: `board.example.com` resolves in public DNS to the Board host. Caddy gets a public
-  certificate by itself, which needs ports `80` and `443` reachable from the internet. Basic auth
-  is then the only boundary: use a long random password, and do not `bind` Caddy to a private
-  address, which would stop certificate renewal.
-- Private name: the name resolves only on the operator's private network. Add `tls internal` to
-  the site block so Caddy signs the certificate with its own local CA, and trust that CA's root
-  certificate on the laptop: `pki/authorities/local/root.crt` under Caddy's data directory
-  (`/data/caddy/pki/authorities/local/root.crt` in the official container image). Limit who
-  reaches the login with `bind` to a private address or a firewall.
-
 In `board doctor --json`, the `web` check validates the settings offline and `web.listening`
 reports whether the loopback listener bound. Neither check probes the proxy, its authentication
-or TLS. The sample was tested with curl through a Caddy container with host networking, not from
-a phone.
+or TLS.
 
 Without a proxy, an SSH tunnel works instead. It replaces the proxy setup, because the daemon
 accepts one origin: set `publicOrigin: http://127.0.0.1:7777` in place of

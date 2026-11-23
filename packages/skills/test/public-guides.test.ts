@@ -61,17 +61,19 @@ describe('public guide contents', () => {
   });
 
   it('ships one Caddy sample that matches the listener', () => {
-    const fence = /```caddyfile\n([\s\S]*?)```/g;
+    // The fences sit inside a numbered list item: strip its three-space indent.
+    const fence = /```caddyfile\n([\s\S]*?) *```/g;
+    const unindent = (text: string) => text.replace(/^ {3}/gm, '');
     expect(webDocs.flatMap((doc) => [...doc.matchAll(fence)])).toHaveLength(1);
     const sample = [...caddySection.matchAll(fence)][0];
-    const body = sample?.[1] ?? '';
+    const body = unindent(sample?.[1] ?? '');
     for (const token of ['basic_auth', 'reverse_proxy 127.0.0.1:7777'])
       expect(body).toContain(token);
     expect(/@appfiles path (.+)/.exec(body)?.[1]?.split(' ')).toEqual(
       APP_FILES.map((file) => `/${file}`),
     );
     const after = caddySection.slice((sample?.index ?? 0) + (sample?.[0].length ?? 0));
-    const yaml = /```yaml\n([\s\S]*?)```/.exec(after)?.[1] ?? '';
+    const yaml = unindent(/```yaml\n([\s\S]*?) *```/.exec(after)?.[1] ?? '');
     const origin = resolveWebOrigin((parse(yaml) as { web: Config['web'] }).web);
     expect(origin).toBe('https://board.example.com');
     expect(/^(\S+) \{/.exec(body)?.[1]).toBe(new URL(origin ?? 'x:').host);
@@ -84,8 +86,23 @@ describe('public guide contents', () => {
       expect(caddySection).toContain(token);
   });
 
+  it('documents one host-package Caddy route in run order', () => {
+    const steps = [
+      '`caddy hash-password`',
+      '```caddyfile',
+      '`sudo systemctl reload caddy`',
+      '`curl -sI https://board.example.com/`',
+    ].map((step) => caddySection.indexOf(step));
+    expect(steps.every((index) => index >= 0)).toBe(true);
+    expect(steps).toEqual(steps.toSorted((a, b) => a - b));
+    expect(caddySection).toContain(
+      '/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt',
+    );
+    expect(caddySection).not.toContain('docker run');
+  });
+
   it('names both certificate variants and the boundary they leave', () => {
-    for (const token of ['`tls internal`', '`80`', '`443`', '`bind`', 'root.crt', '--network host'])
+    for (const token of ['`tls internal`', '`80`', '`443`', '`bind`', 'root.crt'])
       expect(caddySection).toContain(token);
     const boundary = flat(section(security, '### Optional web listener'));
     for (const token of ['authenticating reverse proxy', 'private network', 'SSH login'])
