@@ -92,8 +92,9 @@ commit on, in this order:
    `chore(release): <version> [skip ci]` before tagging that commit. Unset the variable to stop.
 
 To rotate the key, generate a new private key, replace the secret, then delete the old key. To
-revoke the identity, delete the App's private keys or remove the App from both bypass lists, and
-unset the variable.
+revoke the identity, first remove the App from both bypass lists or suspend its installation:
+deleting a key stops new tokens, but a token already minted keeps the bypass until it expires,
+up to an hour. Then delete the App's private keys and unset the variable.
 
 If the changelog commit lands on `main` but the tag push fails, the next push to `main` releases
 again, at that version or higher if the new commits raise the bump, and its entry replaces the
