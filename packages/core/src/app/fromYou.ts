@@ -40,6 +40,7 @@ import { parseJson, toJson, type WarnSkipped } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import { closeBlockIfOpen, openSystemBlock } from './blocks.ts';
 import {
+  eligibleMerges,
   latest,
   mergedTicket,
   seenOpenSince,
@@ -556,18 +557,14 @@ export async function reconcileItems(
   const mergedAt = new Map<number, string | null>();
   // Each task's newest stored merge time (`newestMergeAt`): a ticket edited before it waits.
   const newestMerge = new Map<number, string | null>();
-  // Each task's merged PR as the inbox judges it: the newest eligible merged link; `at` is null
-  // when its detail is unreadable. A merged conflict link counts as an active one, as in 0.127.0,
-  // unless an active link merged too: then the active merges decide, as the dispatcher's
-  // `taskMergedPr` does. When only a conflict link merged, the inbox judges a PR the dispatcher,
-  // which reads active links only, does not pick.
+  // Each task's merged PR as the inbox judges it: the newest link among its `eligibleMerges`, the
+  // same PR the dispatcher's `taskMergedPr` picks; `at` is null when its detail is unreadable.
   const judged = new Map<
     number,
     { id: number; facts: ReturnType<typeof parsePr>; at: string | null; ref: string }
   >();
-  const activeMerged = new Set(
-    prs.filter((pr) => pr.state === 'merged' && pr.pr_state === 'active').map((pr) => pr.task_id),
-  );
+  type Merged = (typeof prs)[number] & { facts: ReturnType<typeof parsePr>; at: string | null };
+  const mergedByTask = new Map<number, Merged[]>();
   for (const pr of prs) {
     const state = taskPrs[String(pr.task_id)];
     if (state === undefined) continue;
@@ -578,17 +575,20 @@ export async function reconcileItems(
     const newest = mergedAt.get(pr.task_id) ?? null;
     if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest)))
       mergedAt.set(pr.task_id, at);
-    if (pr.pr_state !== 'active' && activeMerged.has(pr.task_id)) continue;
-    newestMerge.set(pr.task_id, latest([newestMerge.get(pr.task_id), facts?.mergedAt]));
-    const current = judged.get(pr.task_id);
-    if (current === undefined || pr.id > current.id)
-      judged.set(pr.task_id, {
-        id: pr.id,
-        facts,
-        at,
-        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
-      });
+    mergedByTask.set(pr.task_id, [...(mergedByTask.get(pr.task_id) ?? []), { ...pr, facts, at }]);
   }
+  for (const [taskId, merged] of mergedByTask)
+    for (const pr of eligibleMerges(merged)) {
+      newestMerge.set(taskId, latest([newestMerge.get(taskId), pr.facts?.mergedAt]));
+      const current = judged.get(taskId);
+      if (current === undefined || pr.id > current.id)
+        judged.set(taskId, {
+          id: pr.id,
+          facts: pr.facts,
+          at: pr.at,
+          ref: `${pr.repo ?? ''}#${String(pr.number)}`,
+        });
+    }
   // Each task's pr-closed item when it has no open PR: its PRs closed unmerged, less those closed
   // before the newest merge of any link kind, which superseded them, even beside an active merge. It
   // is held until every repo completed a poll since the last close, so a replacement PR is seen

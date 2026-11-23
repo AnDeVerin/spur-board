@@ -4108,6 +4108,29 @@ describe('anomaly blocks', () => {
         await prs(b, [pr(7, 'open'), eight]);
         return [pr(7, 'open'), eight];
       },
+      /** #8 linked as a conflict beside open #7, #7 unlinked, then #8 merged as the only PR. */
+      conflictOnly: async (b: Board) => {
+        await prs(b, [pr(7, 'open')]);
+        now += 1_000;
+        await prs(b, [pr(7, 'open'), pr(8, 'open')]);
+        now += 1_000;
+        await b.apply(
+          createLinkMutations(b.config).remove,
+          {
+            mode: 'pr',
+            task: b.task.key,
+            pr: 'https://github.com/o/r/pull/7',
+            reason: 'Wrong PR.',
+          },
+          'operator',
+        );
+        now += 1_000;
+        await prs(b, [pr(8, 'open')]);
+        now += 1_000;
+        const eight = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+        await prs(b, [eight]);
+        return [eight];
+      },
       /** #8 merged, follow-up #9 closed unmerged, then the first-linked #7 reopened and merged last. */
       supersededClose: async (b: Board) => {
         const closed7 = { ...pr(7, 'closed'), updatedAt: iso(), closedAt: iso() };
@@ -4423,22 +4446,21 @@ describe('anomaly blocks', () => {
       ['secondClosure', 'untouched', [ENDED, 'pr-closed'], NO_PR, UNCONFIRMED],
       ['laterMergeAfterEdit', 'untouched', [], null, UNCONFIRMED],
       ['legacyThenStored', 'untouched', [], null, UNCONFIRMED],
-      // The inbox counts the conflict-linked merge, as 0.127.0 did; dispatch reads active links.
+      // With no active merge, the inbox and the dispatcher both count the conflict-linked merge.
+      ['conflictMerged', 'untouched', [], null, UNCONFIRMED],
+      ['conflictMerged', 'done', [], null, DONE],
       [
         'conflictMerged',
-        'untouched',
-        [],
-        null,
-        { pr: 'closed', mergedOpen: null, unconfirmed: false },
+        'changed',
+        [ENDED],
+        'o/r#9: worker ended (completed); PR o/r#8 merged, ticket reopened (worker-1)',
+        { pr: null, mergedOpen: 8, unconfirmed: false },
       ],
       // The conflict-linked merge closed the ticket while #7 is open: no ticket-closed block.
-      [
-        'conflictMergedOpen',
-        'done',
-        [],
-        null,
-        { pr: 'open', mergedOpen: null, unconfirmed: false },
-      ],
+      ['conflictMergedOpen', 'done', [], null, DONE],
+      // #7 unlinked, so the merged conflict link #8 is the task's only PR.
+      ['conflictOnly', 'untouched', [], null, UNCONFIRMED],
+      ['conflictOnly', 'done', [], null, DONE],
       ['supersededClose', 'untouched', [], null, UNCONFIRMED],
       ['reopenedClosed', 'untouched', ['pr-closed', ENDED], NO_PR, UNCONFIRMED],
       ['reopenedClosed', 'done', [], null, DONE],

@@ -19,7 +19,8 @@ polls can supply renewed confirmation; a disappearing worker is a new change tha
 After ticket closure, the first fresh confirmation from every required source
 finishes the task; this can take two ordinary full polling rounds, rather than one global
 round. A pending submit still holds the task. Open conflict PR links count as work
-in flight. The move reason is `ticket_done_no_pr`; an effective merged PR keeps reason `merged`.
+in flight. The move reason is `ticket_done_no_pr`; an effective merged PR, conflict-linked included, keeps
+reason `merged`.
 Reopening a ticket finished without a PR returns the task to To Do.
 
 ## Merged PR alerts
@@ -41,9 +42,9 @@ of these holds:
   block itself waits for the same sighting, so a ticket the merge edits and closes within the
   interval raises nothing.
 
-A merged PR linked as a conflict counts here like an active one, unless an active link of the
-task merged too: then only the active merges count for the ticket change, as for the dispatcher.
-The newest merge of the closed-without-merge block and its interval is always that of any link
+A merged PR linked as a conflict counts like an active one, for the dispatcher's Done move and
+here alike, unless an active link of the task merged too: then the active merges decide which PR
+is judged and which merge the ticket change must follow. The newest merge of the closed-without-merge block and its interval is always that of any link
 kind, so a conflict merge after an active one supersedes the closes before it. The alert text says
 `PR <repo>#<n> merged, ticket reopened` after such a ticket change (not when no merged PR has a
 stored merge time), else `no PR`.

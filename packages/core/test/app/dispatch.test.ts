@@ -3222,6 +3222,88 @@ describe('a merged PR and the ticket', () => {
     expect((await ctx.why()).holds).toEqual([]);
     expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', NOTE));
   });
+
+  const CONFLICT_NOTE = 'dev: no_pr (PR o/r#8 merged, ticket still open)';
+  const prLinks = (ctx: Board) =>
+    ctx.store.db
+      .selectFrom('link')
+      .select(['number', 'pr_state', 'banned'])
+      .where('entity', '=', 'pr')
+      .orderBy('id')
+      .execute();
+  /** Redundant PR #8 opens beside open #7 as a conflict link; `closeSeven` closes #7 unmerged. */
+  const conflictMerged = async (closeSeven: boolean) => {
+    const ctx = await pastProductReview();
+    await ctx.pr({ number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' });
+    expect(await prLinks(ctx)).toEqual([
+      { number: 7, pr_state: 'active', banned: 0 },
+      { number: 8, pr_state: 'conflict', banned: 0 },
+    ]);
+    if (closeSeven) await ctx.pr({ number: 7, state: 'closed' });
+    await ctx.pr({
+      number: 8,
+      state: 'merged',
+      mergedAt: new Date(Date.parse(ctx.at()) + 60_000).toISOString(),
+    });
+    return ctx;
+  };
+
+  it.each([
+    ['closed unmerged', true],
+    ['still open', false],
+  ] as const)(
+    'a task whose conflict-linked #8 merged with active #7 %s reaches Done on the merge',
+    async (_label, closeSeven) => {
+      const ctx = await conflictMerged(closeSeven);
+      await ctx.ticket('closed');
+      expect((await ctx.task()).column).toBe('done');
+      expect((await ctx.moves()).at(-1)).toMatchObject({ to: 'done', reason: 'merged' });
+      const why = await ctx.why();
+      expect(why.moves.at(-1)?.reason).toBe('merged');
+      expect(
+        why.gates.flatMap((gate) => gate.conditions.map((condition) => condition.reason)),
+      ).not.toContain('pr_closed');
+      expect(why.holds).toEqual([]);
+    },
+  );
+
+  it('a task whose conflict-linked #8 merged goes back to Dev naming #8 when the ticket changes', async () => {
+    const ctx = await conflictMerged(true);
+    await ctx.ticket();
+    await ctx.ticket('open', true, ctx.at());
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', CONFLICT_NOTE));
+  });
+
+  it('a timestamp-only ticket poll after a conflict-linked merge sends the task to Dev', async () => {
+    const ctx = await conflictMerged(true);
+    await ctx.ticket();
+    const changes = (await ctx.events()).filter((event) => event.kind.startsWith('ticket_')).length;
+    await ctx.ticket('open', true, ctx.at());
+    expect((await ctx.events()).filter((event) => event.kind.startsWith('ticket_'))).toHaveLength(
+      changes,
+    );
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', CONFLICT_NOTE));
+  });
+
+  it('a task left with only a conflict-linked PR reaches Done when it merges', async () => {
+    const ctx = await pastProductReview();
+    await ctx.pr({ number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' });
+    await ctx.unlinkPr(7);
+    expect(await prLinks(ctx)).toEqual([
+      { number: 7, pr_state: 'active', banned: 1 },
+      { number: 8, pr_state: 'conflict', banned: 0 },
+    ]);
+    await ctx.pr({
+      number: 8,
+      state: 'merged',
+      mergedAt: new Date(Date.parse(ctx.at()) + 60_000).toISOString(),
+    });
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    expect((await ctx.moves()).at(-1)).toMatchObject({ to: 'done', reason: 'merged' });
+  });
 });
 
 describe('shadow mode', () => {

@@ -1011,13 +1011,15 @@ export async function readInput(
       .select(['status', 'detail', 'observed_at'])
       .where('task_id', '=', task.id)
       .executeTakeFirst();
-  // An earlier merge decides when the chosen PR is not merged: a done ticket ends the task on
-  // it whatever its other PRs are, and a follow-up closed unmerged with none open leaves it to judge.
-  if (pr !== null && pr.state !== 'merged') {
+  // A merge of another link decides when the chosen PR is not merged: a done ticket ends the task
+  // on it whatever its other PRs are, and a follow-up closed unmerged with none open, or no active
+  // PR at all beside a merged conflict link, leaves it to judge.
+  if (pr === null || pr.state !== 'merged') {
     const merged = await taskMergedPr(trx, task.id);
     if (merged !== null) {
       const ticket = await readTicket();
       if (
+        pr === null ||
         (pr.state === 'closed' && link?.open !== true) ||
         (ticket !== undefined && ticketDone(project, ticket.status))
       ) {
@@ -1586,7 +1588,6 @@ export async function dispatchMergedTickets(
     .where('task.membership', '!=', 'archived')
     .where((eb) => eb.or([eb('task.column', '!=', 'done'), eb('task.shadow_column', '!=', 'done')]))
     .where('link.entity', '=', 'pr')
-    .where('link.pr_state', '=', 'active')
     .where('link.banned', '=', 0)
     .where('pr_snapshot.state', '=', 'merged')
     .execute();
