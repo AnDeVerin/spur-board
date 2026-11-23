@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -11,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { describeRunning } from '../src/signal-reporter.ts';
+import { describeRunning, writeAll, type WriteAllDeps } from '../src/signal-reporter.ts';
 
 const repository = resolve(import.meta.dirname, '../../..');
 
@@ -43,6 +44,57 @@ describe('describeRunning', () => {
   });
 });
 
+// A fake stderr: `steps` answers each write in turn with a byte count or an error code, and
+// every write and pause moves the fake clock one tick.
+function fakeStderr(steps: (number | string)[]) {
+  const written: string[] = [];
+  let clock = 0;
+  let pauses = 0;
+  const deps: WriteAllDeps = {
+    write: (bytes) => {
+      clock += 1;
+      const step = steps.shift() ?? bytes.length;
+      if (typeof step === 'string') throw Object.assign(new Error(step), { code: step });
+      const count = Math.min(step, bytes.length);
+      written.push(Buffer.from(bytes.subarray(0, count)).toString());
+      return count;
+    },
+    now: () => clock,
+    pause: () => {
+      clock += 1;
+      pauses += 1;
+    },
+  };
+  return { deps, written, pauses: () => pauses };
+}
+
+describe('writeAll', () => {
+  it('continues after partial writes until all of the text is out', () => {
+    const fake = fakeStderr([3, 2]);
+    expect(writeAll('abcdefgh', 100, fake.deps)).toBe(true);
+    expect(fake.written).toEqual(['abc', 'de', 'fgh']);
+  });
+
+  it('retries EAGAIN after a pause', () => {
+    const fake = fakeStderr(['EAGAIN', 'EAGAIN']);
+    expect(writeAll('abc', 100, fake.deps)).toBe(true);
+    expect(fake.written).toEqual(['abc']);
+    expect(fake.pauses()).toBe(2);
+  });
+
+  it('gives up at the deadline while the reader does not drain', () => {
+    const fake = fakeStderr(Array<string>(50).fill('EAGAIN'));
+    expect(writeAll('abc', 10, fake.deps)).toBe(false);
+    expect(fake.written).toEqual([]);
+  });
+
+  it('gives up on another write error', () => {
+    const fake = fakeStderr(['EPIPE']);
+    expect(writeAll('abc', 100, fake.deps)).toBe(false);
+    expect(fake.pauses()).toBe(0);
+  });
+});
+
 describe('SIGTERM to a test run', () => {
   it('prints the running test file and test from the root config, then exits 143', async () => {
     const root = mkdtempSync(join(tmpdir(), 'signal-reporter-'));
@@ -65,28 +117,24 @@ mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'index.html'), 'assets');
 `,
       );
-      const started = join(root, 'started');
       write(
         root,
         'packages/cli/test/hang.test.ts',
         `
-import { writeFileSync } from 'node:fs';
 import { it } from 'vitest';
 it('waits for the signal', async () => {
-  // Vitest sends test events to the main process at most every 100 ms; the marker comes
-  // well after this test's ready event has left the worker.
-  await new Promise((done) => setTimeout(done, 1_000));
-  writeFileSync(${JSON.stringify(started)}, 'yes');
   await new Promise((done) => setTimeout(done, 30_000));
 }, 60_000);
 `,
       );
+      // The reporter writes this file once it has recorded the running test.
+      const ready = join(root, 'reporter-ready');
       const run = spawn(
         process.execPath,
         [join(repository, 'node_modules/vitest/vitest.mjs'), 'run', '--project', 'unit'],
         {
           cwd: root,
-          env: { ...process.env, GITHUB_ACTIONS: 'false' },
+          env: { ...process.env, GITHUB_ACTIONS: 'false', SIGNAL_REPORTER_READY: ready },
           stdio: ['ignore', 'pipe', 'pipe'],
         },
       );
@@ -99,19 +147,29 @@ it('waits for the signal', async () => {
           done(code);
         });
       });
+      let deadline: NodeJS.Timeout | undefined;
       try {
         await vi.waitFor(
           () => {
             expect(run.exitCode, output).toBeNull();
-            expect(existsSync(started)).toBe(true);
+            expect(existsSync(ready)).toBe(true);
           },
-          { timeout: 20_000, interval: 50 },
+          { timeout: 15_000, interval: 50 },
         );
         run.kill('SIGTERM');
-        expect(await exited, output).toBe(143);
+        // Well under the 30 s test timeout, so a run that never closes still reaches the
+        // finally blocks below, which kill it and remove the fixture.
+        const closeDeadline = new Promise<never>((_, fail) => {
+          deadline = setTimeout(() => {
+            fail(new Error(`the run did not close within 10 s of SIGTERM:\n${output}`));
+          }, 10_000);
+        });
+        expect(await Promise.race([exited, closeDeadline]), output).toBe(143);
       } finally {
+        clearTimeout(deadline);
         run.kill('SIGKILL');
       }
+      expect(readFileSync(ready, 'utf8')).toBe('waits for the signal');
       expect(output).toContain('vitest: received SIGTERM with 1 test file(s) running:');
       expect(output).toContain('  packages/cli/test/hang.test.ts [unit]');
       expect(output).toContain('    > waits for the signal');
