@@ -61,13 +61,17 @@
   publishing and do not pass an npm token; `release.config.cjs` disables the npm plugin's direct
   publish (`.github/workflows/ci.yml`, `release.config.cjs`).
 - Analyzer and notes share `parserOpts`: no `fieldPattern`, uppercase `BREAKING CHANGE: ` only.
-  Notes list only closing-keyword references; `plugins[0]` is the 0.x clamp `nextVersion` reads;
-  `RELEASE_CHANGELOG_COMMIT=true` adds the changelog commit, #867 (`scripts/release-policy.test.ts`).
+  Notes list only closing-keyword references; `plugins[0]` is the 0.x clamp `nextVersion` reads
+  (`scripts/release-policy.test.ts`).
+- `RELEASE_CHANGELOG_COMMIT=true` adds the changelog commit. The commit and tag push with the
+  release App token, which the same variable gates and only the semantic-release step gets, as
+  `GIT_CREDENTIALS`; `scripts/release-changelog.ts` drops untagged entries first
+  (`scripts/release-workflow.test.ts`, `scripts/release-policy.test.ts`).
 - Smoke the release candidate outside `release`: `release-build` packs it at the dry-run version
   with `contents: read` and no cache, `release-smoke` checks its sha256 and smokes it, and
   `release` publishes only those bytes and fails closed on a version or sha256 mismatch. After
   that failure re-run all jobs, not failed jobs: the old outputs are stale
-  (`scripts/release-package.ts`, `scripts/ci.test.ts`, `describe('release workflow isolation',`).
+  (`scripts/release-package.ts`, `scripts/release-workflow.test.ts`).
 - Keep Renovate on its weekly schedule with a seven-day minimum release age and no automerge.
   The runtime group commits as `fix(deps)`, so it releases; everything else commits as
   `chore(deps)` (`renovate.json`, `release.config.cjs`).
