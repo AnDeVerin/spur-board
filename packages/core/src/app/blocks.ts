@@ -1323,11 +1323,21 @@ export function createBlockMutations(config: Config) {
     throw new CommandError('not_found', 'No open turn to take for this ID.');
   }
 
-  /** Acks the item a ring `N<notification>[-<ring>]` was sent for. */
+  /**
+   * Acks the item a ring `N<notification>[-<ring>]` was sent for. An operator turn ring read
+   * already (its turn was taken) is handled; only `T<number>` takes that turn over.
+   */
   async function ackRing(trx: Trx, id: string, ctx: CommandContext): Promise<AckResult> {
     const notice = found(await notificationByRingId(trx, id));
     if (notice.kind === 'block' && notice.block_id !== null)
       return ackBlock(trx, notice.block_id, ctx);
+    if (
+      notice.kind === 'turn' &&
+      notice.role === 'operator' &&
+      notice.acked_at !== null &&
+      (await notificationAddressedTo(trx, notice, ctx.actor, config))
+    )
+      return 'handled';
     if (notice.kind === 'turn' && notice.turn_id !== null) return ackTurn(trx, notice.turn_id, ctx);
     if (!(await notificationAddressedTo(trx, notice, ctx.actor, config)))
       throw new CommandError('forbidden', 'Only the addressed task role can acknowledge.');

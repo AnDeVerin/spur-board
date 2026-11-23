@@ -4950,6 +4950,29 @@ describe('operator doorbells without Slack', () => {
     expect(turn.acked_by).toBe('operator');
   });
 
+  it('keeps the token on an operator turn when the session acks its stale ring', async () => {
+    const ctx = await setup({ config: operatorColumnBoard });
+    await addSession(ctx, 'ops-1', 'ops');
+    await openOperatorTurn(ctx);
+    await step(ctx);
+    await ctx.apply(ctx.ops.ack, T1, 'operator', 'ack-token-turn');
+    const [notice] = await operatorNotices(ctx);
+    expect(notice?.acked_at).not.toBeNull();
+
+    const ring = `N${String(notice?.id)}-1`;
+    await expect(
+      ctx.apply(ctx.ops.ack, blockAck(ring), 'agent:ops/ops-1', 'ack-stale-ring'),
+    ).resolves.toEqual({ acked: [ring], alreadyHandled: [ring] });
+    const turn = await ctx.store.db.selectFrom('turn').select('acked_by').executeTakeFirstOrThrow();
+    expect(turn.acked_by).toBe('operator');
+    await expect(ctx.apply(ctx.ops.ack, T1, 'agent:ops/ops-1', 'ack-takeover')).resolves.toEqual({
+      acked: ['T1'],
+    });
+    expect(
+      (await ctx.store.db.selectFrom('turn').select('acked_by').executeTakeFirstOrThrow()).acked_by,
+    ).toBe('agent:ops/ops-1');
+  });
+
   it('refuses the operator token a block addressed to a worker', async () => {
     const ctx = await setup({ config: offBoard });
     const blockId = await workerBlock(ctx.store);
