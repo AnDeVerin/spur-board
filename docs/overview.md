@@ -101,8 +101,9 @@ in Slack, so that route needs Slack.
 The web UI is optional too, and off until you turn it on ([Optional browser
 access](../SETUP.md#optional-browser-access)). It shows the columns, each task's **Why it is here**,
 the inbox and service health, and lets you answer, comment, take turns and move tasks between
-Backlog parts. It belongs behind a private reverse proxy: anyone who reaches it acts as the operator
-without a token.
+Backlog parts. It has no login of its own: anyone who reaches it acts as the operator without a
+token, so reach it from another machine only through an authenticating reverse proxy, as [Optional
+browser access](../SETUP.md#optional-browser-access) describes.
 
 ## A task from To Do to Done
 
