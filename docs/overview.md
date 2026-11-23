@@ -95,8 +95,8 @@ configuration](../SETUP.md#3-create-the-slack-app-and-configuration) sets it up.
 you appear as feed lines, questions to you open threads that you answer by replying, and an
 `@shortName` message starts a conversation with a Spur project. Without it, you work from a Spur
 project with role `operator`, which needs no token, or from the web UI. Blocks and turns addressed
-to you then ring your operator Spur session, and you read and answer them with
-`board inbox operator` or in the web inbox ([Blocks and
+to you then ring your operator Spur session; you read them with `board inbox operator` and answer
+a block with `board answer`, or do both in the web inbox ([Blocks and
 escalation](how-board-works-blocks.md#blocks-and-escalation)). A token for an operator session
 outside Spur is approved in Slack, so that route needs Slack.
 
