@@ -163,6 +163,7 @@ describe('newcomer entry points', () => {
         'Node 24.12+ (24.x) or 26.x',
         `Spur ${SPUR_MIN_VERSION} or newer`,
         'a GitHub token',
+        'the `repo` and `read:org` scopes',
         'optionally a Slack app',
         'optional web console',
       ])
@@ -172,8 +173,12 @@ describe('newcomer entry points', () => {
         at,
         target: target.startsWith(blob) ? target.slice(blob.length) : target,
       }));
-      const first = entries.map((entry) => links.find((link) => link.target === entry)?.at ?? -1);
-      for (const at of first) expect(at).toBeGreaterThan(heading);
+      const start = text.indexOf('## Start here\n');
+      expect(start).toBeGreaterThan(heading);
+      const first = entries.map(
+        (entry) => links.find((link) => link.at > start && link.target === entry)?.at ?? -1,
+      );
+      for (const at of first) expect(at).toBeGreaterThan(start);
       expect([...first].sort((a, b) => a - b)).toEqual(first);
     }
   });
@@ -203,7 +208,9 @@ describe('newcomer entry points', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(users.filter((target) => target.startsWith('contributing/'))).toEqual([]);
     const contributors = targets(section(index, '## For contributors')).map((link) => link.target);
-    const contributing = readdirSync(resolve(root, 'docs/contributing'));
+    const contributing = readdirSync(resolve(root, 'docs/contributing')).filter((name) =>
+      name.endsWith('.md'),
+    );
     expect(contributing.length).toBeGreaterThan(0);
     for (const name of contributing) expect(contributors).toContain(`contributing/${name}`);
     const all = targets(index).map(({ target }) => target);
