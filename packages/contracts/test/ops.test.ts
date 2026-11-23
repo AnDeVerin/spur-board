@@ -1005,9 +1005,10 @@ describe('snapshot', () => {
     // #799 adds state and since to status.get unlinkedSessions, and leaves lifecycle, health,
     // healthSince and rateLimitResetAt out of ended and absent ones, keeping a terminal lifecycle
     // in detail and counting a listed errored one as ended. #858 rewords the inbox.ack
-    // description, guidance and block example: the operator acks a block addressed to it.
+    // description, guidance and block example: the operator acks a block addressed to it that
+    // rang its session.
     expect(await catalogVersion(baseline)).toBe(
-      '204df2ebbb66e896882f861bfd3a9d96f332c47ebdc3c04ef743e244c0939459',
+      '902575d74a301727bd18e273d1ae4e0ab515199698fa849f375c4e209f0bcd00',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

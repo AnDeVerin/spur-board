@@ -272,7 +272,7 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
               const decision = operatorAckRefused(entry, actor, target)
                 ? {
                     status: 'denied' as const,
-                    hint: 'The operator token acks only turns and blocks to operator: board inbox ack T<number> or B<number>.',
+                    hint: 'The operator token acks only turns and blocks rung to its session: board inbox ack T<number> or B<number>.',
                   }
                 : authorize(entry.grants, actor, {
                     config,
