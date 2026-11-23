@@ -24,9 +24,13 @@ export function digest(path: string): string {
 }
 
 export function publishTarball(tarball: string, context: ReleaseContext): void {
+  // The release App token pushes past the main rulesets; npm publish never gets it.
+  const env = { ...context.env };
+  delete env['GIT_CREDENTIALS'];
+  delete env['APP_TOKEN'];
   const result = spawnSync('npm', ['publish', tarball, '--provenance', '--access', 'public'], {
     cwd: context.cwd,
-    env: context.env,
+    env,
     stdio: 'inherit',
   });
   if (result.status !== 0) {

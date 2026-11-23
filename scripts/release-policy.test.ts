@@ -326,18 +326,31 @@ describe('release policy', () => {
     const bin = join(cwd, 'bin');
     mkdirSync(bin);
     const capture = join(cwd, 'npm-args');
+    const tokens = join(cwd, 'npm-tokens');
     const npm = join(bin, 'npm');
-    writeFileSync(npm, '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$CAPTURE"\n');
+    writeFileSync(
+      npm,
+      '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$CAPTURE"\n' +
+        'printf \'%s %s\\n\' "${GIT_CREDENTIALS-unset}" "${APP_TOKEN-unset}" > "$TOKENS"\n',
+    );
     chmodSync(npm, 0o755);
     const tarball = join(cwd, 'spur-board-0.2.0.tgz');
     publishTarball(tarball, {
       cwd,
-      env: { PATH: `${bin}:${process.env['PATH'] ?? ''}`, CAPTURE: capture },
+      env: {
+        PATH: `${bin}:${process.env['PATH'] ?? ''}`,
+        CAPTURE: capture,
+        TOKENS: tokens,
+        GIT_CREDENTIALS: 'sentinel-git',
+        APP_TOKEN: 'sentinel-app',
+      },
       nextRelease: { version: '0.2.0' },
     });
     expect(readFileSync(capture, 'utf8')).toBe(
       `publish\n${tarball}\n--provenance\n--access\npublic\n`,
     );
+    // The release App token bypasses the main rulesets; npm never needs it.
+    expect(readFileSync(tokens, 'utf8')).toBe('unset unset\n');
   });
 
   const breakingFooter = 'BREAKING CHANGE: migrate the config';
