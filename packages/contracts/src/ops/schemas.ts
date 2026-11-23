@@ -147,6 +147,12 @@ export const moveViewSchema = z
       .describe(
         'The block a return opened, the literal reason for an operator correction or manual move, or the source id of a mirror move; null otherwise.',
       ),
+    pr: z
+      .string()
+      .optional()
+      .describe(
+        'The merged PR a merged move was decided by, as <owner>/<repo>#<number>; absent on other moves and on merged moves journaled before the board recorded it.',
+      ),
   })
   .describe('A column move of a task.');
 

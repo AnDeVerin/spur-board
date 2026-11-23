@@ -378,6 +378,8 @@ interface MoveView {
   reason: MoveReason | 'returned' | 'corrected' | 'manual' | 'mirrored';
   gate: GateReason[];
   text: string | null;
+  /** The merged PR a `merged` move was decided by, as `repo#number`, when journaled. */
+  pr?: string;
 }
 
 function moveView(row: Selectable<EventTable>): MoveView | null {
@@ -416,14 +418,23 @@ function moveView(row: Selectable<EventTable>): MoveView | null {
   }
   const parsed = eventPayloadSchemas.task_moved.safeParse(payload);
   if (!parsed.success) return null;
-  const { from, to, reason, gate, block } = parsed.data;
+  const { from, to, reason, gate, block, repo, pr } = parsed.data;
   // `task.return` journals its move with the block it opened and no dispatcher reason.
   if (reason === undefined) {
     return block === undefined
       ? null
       : { ...base, kind: 'task_moved', from, to, reason: 'returned', gate: [], text: block };
   }
-  return { ...base, kind: 'task_moved', from, to, reason, gate: gate ?? [], text: null };
+  return {
+    ...base,
+    kind: 'task_moved',
+    from,
+    to,
+    reason,
+    gate: gate ?? [],
+    text: null,
+    ...(repo === undefined || pr === undefined ? {} : { pr: `${repo}#${String(pr)}` }),
+  };
 }
 
 /**

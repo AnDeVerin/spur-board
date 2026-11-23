@@ -314,7 +314,8 @@ const SUMMARIES: { [K in EventKind]?: (payload: Payload<K>) => string | null } =
   review_submitted: (p) => `Review by ${p.reviewer} on ${ref(p.repo, p.pr)}: ${p.state}`,
   external_round: (p) =>
     `External change request by ${p.reviewer} on ${ref(p.repo, p.pr)} at ${p.head.slice(0, 7)}: a course-check round`,
-  task_moved: (p) => `Moved ${p.from} → ${p.to}${optional(': ', p.reason)}${gates(p.gate)}`,
+  task_moved: (p) =>
+    `Moved ${p.from} → ${p.to}${optional(': ', p.reason)}${p.repo === undefined || p.pr === undefined ? '' : ` (PR ${ref(p.repo, p.pr)})`}${gates(p.gate)}`,
   task_shadow_moved: (p) =>
     `Would move ${p.from} → ${p.to} (shadow mode): ${p.reason}${gates(p.gate)}${p.courseCheck === true ? ', with a course check' : ''}`,
   block_opened: (p) => `Block ${p.block} opened: ${p.type} for ${p.addressee}`,

@@ -1006,9 +1006,9 @@ describe('snapshot', () => {
     // healthSince and rateLimitResetAt out of ended and absent ones, keeping a terminal lifecycle
     // in detail and counting a listed errored one as ended. #858 rewords the inbox.ack
     // description, guidance and block example: the operator acks a block addressed to it that
-    // rang its session.
+    // rang its session. #802 adds the optional pr to move views.
     expect(await catalogVersion(baseline)).toBe(
-      'caf58f081b04f561034b54233bae7f3c2053ab8201fe1ab21de8dc60b2759150',
+      '0e853e58dbc08223e259dd546be17bae121bc50f7ef867a6051efe6696906fd8',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

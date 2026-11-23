@@ -17,7 +17,7 @@ says what changed:
 | `ticket_status_changed`                                             | `Ticket status: <from> → <to>`                                                                                                                                  |
 | `review_submitted`                                                  | `Review by <reviewer> on <ref>: <state>`                                                                                                                        |
 | `external_round`                                                    | `External change request by <reviewer> on <ref> at <sha7>: a course-check round`                                                                                |
-| `task_moved`                                                        | `Moved <from> → <to>: <reason> (<gates>)`                                                                                                                       |
+| `task_moved`                                                        | `Moved <from> → <to>: <reason> (<gates>)`; a `merged` move adds `(PR <ref>)` after the reason                                                                   |
 | `task_manually_moved`                                               | `Manually moved <from> → <to>: <reason>`; actor and channel name the operator write                                                                             |
 | `task_mirror_moved`                                                 | `Mirror moved <from> → <to>: <source>`, `(shadow mode)` before `:` when only the shadow column moved; actor `system`                                            |
 | `task_shadow_moved`                                                 | `Would move <from> → <to> (shadow mode): <reason> (<gates>)`                                                                                                    |
@@ -30,6 +30,10 @@ says what changed:
 closed the turn; every other close names `system`.
 
 `task_reordered` is journaled but not listed in History.
+
+A `merged` move names the merged PR that decided it, conflict-linked included: History adds
+`(PR <ref>)`, and `board task <KEY> --why` gives the move a `pr` field. Moves journaled before the
+Board recorded the PR show neither.
 
 Checks count the required ones, else all but skipped. Right of `dev`
 (`checksGate`), a cancelled check among them counts as pending until the second

@@ -201,6 +201,9 @@ export const eventPayloadSchemas = {
     gate: z.array(z.enum(GATE_REASONS)).optional(),
     /** Number of review findings a return sent, when the returner gave it. */
     findings: z.int().min(0).optional(),
+    /** The merged PR a `merged` move was decided by; absent on other and older moves. */
+    repo: S.optional(),
+    pr: N.optional(),
   }),
   task_shadow_moved: z.looseObject({
     from: z.enum(COLUMN_IDS),

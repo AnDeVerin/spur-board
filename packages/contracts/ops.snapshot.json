@@ -1,5 +1,5 @@
 {
-  "version": "1194bf33f91f72761a1faad9528eff9016e939cd37d9cb48e568d8c262d3586f",
+  "version": "a05797b806ebf7e545506f3a87b3282ec0f8ae71ec6997883a85d8d30dfbf9a8",
   "grants": [
     "operator",
     "project-agent",
@@ -6324,6 +6324,10 @@
                     "text": {
                       "description": "The block a return opened, the literal reason for an operator correction or manual move, or the source id of a mirror move; null otherwise.",
                       "type": ["string", "null"]
+                    },
+                    "pr": {
+                      "description": "The merged PR a merged move was decided by, as <owner>/<repo>#<number>; absent on other moves and on merged moves journaled before the board recorded it.",
+                      "type": "string"
                     }
                   },
                   "required": ["at", "kind", "actor", "from", "to", "reason", "gate", "text"],
@@ -12153,6 +12157,10 @@
                 "text": {
                   "description": "The block a return opened, the literal reason for an operator correction or manual move, or the source id of a mirror move; null otherwise.",
                   "type": ["string", "null"]
+                },
+                "pr": {
+                  "description": "The merged PR a merged move was decided by, as <owner>/<repo>#<number>; absent on other moves and on merged moves journaled before the board recorded it.",
+                  "type": "string"
                 }
               },
               "required": ["at", "kind", "actor", "from", "to", "reason", "gate", "text"],

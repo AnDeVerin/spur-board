@@ -983,6 +983,8 @@ export async function readInput(
   unclosed: Row<'turn'> | undefined;
   /** The merged PR whose ticket changed at or after the merge, not done: the task has no PR for the gates. */
   mergedOpen: { repo: string; number: number } | undefined;
+  /** The merged PR the task is judged on, which a `merged` move names; absent when none. */
+  mergedPr: { repo: string; number: number } | undefined;
   /** The task's PR merged and its ticket is neither done nor confirmed open: hold the task. */
   ticketUnconfirmed: boolean;
   /** The pending turn submit of the current visit (`on` mode); absent when none waits. */
@@ -1031,8 +1033,10 @@ export async function readInput(
   // A merged PR finishes the task only with its ticket done. A ticket changed at or after the merge and
   // still not done sends it back to work without a PR; an untouched one waits.
   let mergedOpen: { repo: string; number: number } | undefined;
+  let mergedPr: { repo: string; number: number } | undefined;
   let ticketUnconfirmed = false;
   if (pr?.state === 'merged') {
+    mergedPr = { repo: pr.repo, number: pr.number };
     const ticket = await readTicket();
     // A ticket edited before a later merge of another PR waits for that merge's close too; the
     // interval fallback of a PR without a stored merge time applies only when no merge has one.
@@ -1204,6 +1208,7 @@ export async function readInput(
     handed,
     unclosed,
     mergedOpen,
+    mergedPr,
     ticketUnconfirmed,
     pending,
   };
@@ -1274,10 +1279,12 @@ async function applyOn(
       .returningAll()
       .executeTakeFirstOrThrow();
     await closeTurns(trx, { taskId: current.id, reason: 'moved', at });
+    const merged = move.reason === 'merged' ? read.mergedPr : undefined;
     await emit(trx, 'task_moved', current.project, current.id, at.toISOString(), {
       from: move.from,
       to: move.to,
       reason: move.reason,
+      ...(merged === undefined ? {} : { repo: merged.repo, pr: merged.number }),
     });
   }
   const turn = result.turn;
@@ -1590,6 +1597,7 @@ export async function dispatchMergedTickets(
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
     .where('pr_snapshot.state', '=', 'merged')
+    .where(pastReopenFloor)
     .execute();
   await dispatchTasks(
     trx,

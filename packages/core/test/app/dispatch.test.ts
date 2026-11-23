@@ -2668,6 +2668,25 @@ describe('a merged PR and the ticket', () => {
     ctx.pr({ state: 'merged', mergedAt: new Date(Date.parse(ctx.at()) + 60_000).toISOString() });
   const devMoves = async (ctx: Board) =>
     (await ctx.moves()).filter((move) => move.to === 'dev').length;
+  /** The Done move journals, shows in History and in `--why` the merged PR `number`. */
+  const namesMerged = async (ctx: Board, from: ColumnId, number: number) => {
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from,
+      to: 'done',
+      reason: 'merged',
+      repo: 'o/r',
+      pr: number,
+    });
+    const summaries = (await ctx.history()).events
+      .filter((event) => event.kind === 'task_moved')
+      .map((event) => event.summary);
+    expect(summaries.at(-1)).toBe(`Moved ${from} → done: merged (PR o/r#${String(number)})`);
+    expect((await ctx.why()).moves.at(-1)).toMatchObject({
+      to: 'done',
+      reason: 'merged',
+      pr: `o/r#${String(number)}`,
+    });
+  };
 
   it('goes back to Dev with a note naming the PR', async () => {
     const ctx = await pastProductReview();
@@ -3119,7 +3138,7 @@ describe('a merged PR and the ticket', () => {
       expect((await ctx.task()).column).toBe(column);
       await ctx.ticket('closed');
       expect((await ctx.task()).column).toBe('done');
-      expect((await ctx.moves()).at(-1)).toEqual({ from: column, to: 'done', reason: 'merged' });
+      await namesMerged(ctx, column, 7);
       expect(await ctx.openTurn()).toEqual(turnOf('done', 'worker', 'done: wrap up'));
       expect((await ctx.why()).holds).toEqual([]);
     },
@@ -3176,11 +3195,7 @@ describe('a merged PR and the ticket', () => {
     expect((await ctx.task()).column).toBe('done');
     expect(await ctx.openTurn()).toEqual(turnOf('done', 'worker', 'done: wrap up'));
     expect(await devMoves(ctx)).toBe(before);
-    expect((await ctx.moves()).at(-1)).toEqual({
-      from: 'ready-to-merge',
-      to: 'done',
-      reason: 'merged',
-    });
+    await namesMerged(ctx, 'ready-to-merge', 7);
   });
 
   it('holds a merged task on a repo with no poll since start once its ticket changed after the merge', async () => {
@@ -3247,19 +3262,17 @@ describe('a merged PR and the ticket', () => {
     });
     return ctx;
   };
-
   it.each([
-    ['closed unmerged', true],
-    ['still open', false],
+    ['closed unmerged', true, 'dev'],
+    ['still open', false, 'ready-to-merge'],
   ] as const)(
     'a task whose conflict-linked #8 merged with active #7 %s reaches Done on the merge',
-    async (_label, closeSeven) => {
+    async (_label, closeSeven, from) => {
       const ctx = await conflictMerged(closeSeven);
       await ctx.ticket('closed');
       expect((await ctx.task()).column).toBe('done');
-      expect((await ctx.moves()).at(-1)).toMatchObject({ to: 'done', reason: 'merged' });
+      await namesMerged(ctx, from, 8);
       const why = await ctx.why();
-      expect(why.moves.at(-1)?.reason).toBe('merged');
       expect(
         why.gates.flatMap((gate) => gate.conditions.map((condition) => condition.reason)),
       ).not.toContain('pr_closed');
@@ -3270,7 +3283,10 @@ describe('a merged PR and the ticket', () => {
   it('a task whose conflict-linked #8 merged goes back to Dev naming #8 when the ticket changes', async () => {
     const ctx = await conflictMerged(true);
     await ctx.ticket();
-    await ctx.ticket('open', true, ctx.at());
+    const changes = (await ctx.events('ticket_facts_changed')).length;
+    // A journaled change: a new label, as well as the edit time.
+    await ctx.ticketChange({ status: 'open', labels: ['board', 'reopened'], updatedAt: ctx.at() });
+    expect(await ctx.events('ticket_facts_changed')).toHaveLength(changes + 1);
     expect((await ctx.task()).column).toBe('dev');
     expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', CONFLICT_NOTE));
   });
@@ -3302,7 +3318,7 @@ describe('a merged PR and the ticket', () => {
     });
     await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
-    expect((await ctx.moves()).at(-1)).toMatchObject({ to: 'done', reason: 'merged' });
+    await namesMerged(ctx, 'ready-to-merge', 8);
   });
 });
 

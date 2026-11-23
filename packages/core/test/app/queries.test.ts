@@ -1458,6 +1458,16 @@ describe('task history summaries', () => {
       summary: 'Moved review → dev: gate_broken (checks_red, conflict)',
     },
     {
+      name: 'a merged move naming its PR',
+      rows: [['task_moved', { from: 'review', to: 'done', reason: 'merged', repo: 'o/r', pr: 8 }]],
+      summary: 'Moved review → done: merged (PR o/r#8)',
+    },
+    {
+      name: 'a merged move journaled without its PR',
+      rows: [['task_moved', { from: 'review', to: 'done', reason: 'merged' }]],
+      summary: 'Moved review → done: merged',
+    },
+    {
       name: 'a move without reason or gates',
       rows: [['task_moved', { from: 'review', to: 'dev', gate: [] }]],
       summary: 'Moved review → dev',
