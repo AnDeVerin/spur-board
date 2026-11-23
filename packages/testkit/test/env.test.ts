@@ -90,7 +90,7 @@ function refusal(config: unknown): unknown {
   if (!('name' in plugin) || plugin.name !== 'testkit-root-only') return undefined;
   if (!('config' in plugin) || typeof plugin.config !== 'function') return undefined;
   try {
-    plugin.config();
+    Reflect.apply(plugin.config, plugin, []);
   } catch (error) {
     return error instanceof Error ? error.message : undefined;
   }
