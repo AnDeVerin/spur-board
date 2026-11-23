@@ -1450,11 +1450,19 @@ describe('board update', () => {
     const installPid = await vi.waitFor(
       () => {
         expect(parent.exitCode, parentErr).toBeNull();
-        return Number(readFileSync(marker, 'utf8'));
+        // A read can land after writeFileSync creates the marker and before it writes the PID.
+        // That empty marker is PID 0, and process.kill(0) signals the whole process group:
+        // the test run itself (#884). Only a positive PID ends the wait.
+        const text = readFileSync(marker, 'utf8');
+        expect(text).toMatch(/^[1-9]\d*$/);
+        return Number(text);
       },
       { timeout: 20_000, interval: 50 },
     );
+    let installGone = false;
     cleanups.push(() => {
+      // Once the install is seen gone, its PID may belong to another process.
+      if (installGone) return;
       try {
         process.kill(installPid, 'SIGKILL');
       } catch {
@@ -1478,6 +1486,7 @@ describe('board update', () => {
       },
       { timeout: 10_000, interval: 50 },
     );
+    installGone = true;
     const back = await s.run(['--json', 'rollback', '--yes']);
     expect(back.exit, back.stderr).toBe(0);
     expect(s.state().status).toBe('rolled-back');
