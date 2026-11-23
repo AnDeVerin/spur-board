@@ -42,10 +42,17 @@ origin; it accepts no placeholders.
 
 The daemon reports whether its optional web listener is bound. A busy web port warns in this
 check while the agent API continues running. Free `web.port` or select another port and restart
-the daemon. This differs from `web`, which checks configuration offline.
+the daemon. This differs from `web`, which reports `off`, or `on` with the resolved origin;
+invalid `web` settings fail the `config` check instead, and `web.listening` reports whether the
+loopback listener bound. Neither check probes the proxy, its authentication
+or TLS.
 
-For private-network access, set `web.port` and `web.publicOrigin` together and preserve `Host`
-through the reverse proxy. Origin must exactly match the resolved public origin. A 503 page
+The web UI has no login of its own: anyone who reaches it acts as operator. The daemon binds it
+to `127.0.0.1`; another machine reaches it only through an authenticating reverse proxy or an
+SSH tunnel, as
+[Remote access through Caddy with basic auth](SETUP.md#remote-access-through-caddy-with-basic-auth)
+shows. Set `web.port` and `web.publicOrigin` together and keep `Host` unchanged through the
+proxy. Origin must exactly match the resolved public origin. A 503 page
 saying "UI is not built" means the UI assets are absent: run
 `pnpm --filter @spur-board/web build` in a checkout, assemble with `pnpm package:build`, and
 restart the daemon to reload assets. Health and operations
