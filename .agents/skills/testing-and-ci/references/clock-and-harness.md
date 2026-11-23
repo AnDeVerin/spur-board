@@ -54,7 +54,7 @@ Every test runs through the root config, so all of these hold:
   `config()` hook throws a `testkit:` error naming the root command
   (`pnpm exec vitest run <path>`; the path picks the project). Vitest reads a config only from
   its root dir, so without it a run started there skips this harness. Not guarded: deeper dirs,
-  `--config <other>`, `--config false` and IDE Vitest extensions, which load every
+  `--config <other>` and IDE Vitest extensions, which load every
   `vitest.config.*` and stop on the refusals. Each copy is inlined because packages may not
   import testkit.
 - Vitest's own transformed-module copies (`join(tmpdir(), <random>)`, made by the main process
