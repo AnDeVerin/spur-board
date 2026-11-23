@@ -22,7 +22,7 @@ hooks.
 2. One issue, one branch, one PR.
 3. The PR title is a conventional commit with the issue number first in the subject, e.g.
    `feat(core): #15 add the config schema`. Releases are versioned from the type, so pick it with
-   care.
+   care; [Versions and the changelog](#versions-and-the-changelog) says which type bumps what.
 4. Fill the body from [the PR template](.github/pull_request_template.md) and keep
    `Closes #<issue-number>`.
 
@@ -48,8 +48,39 @@ A check passes only when its exit code is 0.
 ## Review and merge
 
 Every change needs the code owner's approval ([.github/CODEOWNERS](.github/CODEOWNERS)). The
-maintainer merges by hand with a squash merge; the squash commit takes the PR title. Review
-changes go in new commits; never force-push a pushed branch.
+maintainer merges by hand with a squash merge; the squash commit takes the PR title and the PR
+body as its message. Review changes go in new commits; never force-push a pushed branch.
+
+## Versions and the changelog
+
+spur-board follows semantic versioning. semantic-release reads each squash commit on `main`: `feat`
+bumps the minor, `fix` and `perf` bump the patch, and other types release nothing. A breaking
+change, a `!` after the scope or a breaking footer, bumps the minor while the version is 0.x and
+the major from 1.0.0 on. The maintainer cuts 1.0.0 in a PR with a `!` title that removes the 0.x
+clamp in `scripts/release-analyzer.ts`.
+
+Breaking: the config schema, CLI commands and flags, MCP operations, HTTP API operations, error codes and their HTTP status or exit code, stored data and migrations, and web routes users bookmark.
+
+Not breaking: UI layout and wording.
+
+A breaking PR writes its upgrade note as the paragraph right above `Closes #<N>`, after every
+other section of the body. The paragraph starts with `BREAKING CHANGE: ` (uppercase, a colon and
+a space) and says what changed and how to migrate the config. Use no `#` after its first line,
+because a line with a `#` ends the footer. Lines after `Closes #<N>` do not reach the notes. The
+release notes list the paragraph under **BREAKING CHANGES**, and list under each entry only the
+references made with a closing keyword, such as `Closes #<N>` or `Fixes #<N>`.
+
+Every release puts its notes on the
+[GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
+[CHANGELOG.md](CHANGELOG.md) holds its header and the upgrade notes of earlier releases; until the
+release job commits it, GitHub releases carry every release's notes. To switch the commit on:
+
+1. Land #867: a push identity that bypasses the `main` rulesets, wired into the release step.
+2. Set the repository variable `RELEASE_CHANGELOG_COMMIT` to `true`. Each release then prepends
+   its notes to CHANGELOG.md and commits it to `main` as `chore(release): <version> [skip ci]`
+   before tagging that commit. Unset the variable to stop.
+
+With the variable set before #867 lands, every release fails before it tags or publishes.
 
 ## Web shell
 

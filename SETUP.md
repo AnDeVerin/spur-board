@@ -229,6 +229,8 @@ Spur, which keeps the conversation. Sessions whose message is still queued are n
 With Slack, after the first complete poll, look for the `spur-board is live` line in the
 configured feed channel; without it, check the web inbox or `board status`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for check-specific fixes and logs.
 
+Before an upgrade, read the upgrade notes in [CHANGELOG.md](CHANGELOG.md) and the release notes
+for the versions between the installed one and the target.
 To upgrade, run `board update` for the latest release, or `board update <version>` for a given one,
 from a shell with the same Node and `BOARD_HOME` or `XDG_*` settings as the service (a live Spur
 session). The service must be running. The command checks the target and the daemon first and

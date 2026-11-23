@@ -146,6 +146,15 @@ describe('generated public references', () => {
       expect(section).toContain(text);
   });
 
+  it('keeps upgrade notes in the changelog', () => {
+    expect(configuration).not.toContain('Breaking configuration change');
+    expect(configuration).toContain('../CHANGELOG.md#upgrade-notes-from-earlier-releases');
+    const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+    expect(changelog.split('## Upgrade notes from earlier releases')[1]).toContain(
+      'orchestrator: operator',
+    );
+  });
+
   it('keeps the committed references equal to source generation', async () => {
     const rendered = await formattedDocs();
     expect(cli).toBe(rendered.cli);

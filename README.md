@@ -75,6 +75,8 @@ Follow [SETUP.md](SETUP.md) for the commands and file locations. Use
 ## Reference
 
 - [CLI commands](docs/cli.md), [configuration](docs/configuration.md), and the [docs index](docs/)
+- [Changelog](CHANGELOG.md): read it before an upgrade with `board update`; versions follow
+  [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog)
 - [How the Board works](docs/how-board-works.md) and the [web UI](docs/web-ui.md)
 - [Live Slack conformance](packages/gateway-testkit/README.md#live-slack-conformance) for
   maintainers
