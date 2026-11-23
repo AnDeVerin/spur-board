@@ -251,9 +251,10 @@ gets a turn. In the `example-operator` session, ask it to run `board status`:
 Run board status and tell me the column and turn reason of example-org/example-repo#<N>.
 ```
 
-**Success looks like:** `example-operator` reports the task in `review` with the turn reason
-`review: no_review_on_head`: the reviewer has its turn. When the reviewer returns the task, it goes
-back to `dev`, the worker fixes what the reviewer named, and the task comes back to Review.
+**Success looks like:** `example-operator` reports the task in `review`. While the reviewer works,
+the open turn has the reason `review: no_review_on_head`; with no open turn, the reviewer has
+already submitted: go on to step 9. When the reviewer returns the task, it goes back to `dev`, the
+worker fixes what the reviewer named, and the task comes back to Review.
 
 **If it fails:** no live reviewer session:
 [orchestrator.sessions](../TROUBLESHOOTING.md#orchestratorsessions). A reviewer that never wakes
