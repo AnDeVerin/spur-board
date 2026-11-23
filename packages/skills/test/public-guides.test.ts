@@ -10,6 +10,8 @@ import {
   resolveWebOrigin,
   SPUR_MIN_VERSION,
 } from '../../contracts/src/index.ts';
+import { statusTaskSchema } from '../../contracts/src/ops/schemas.ts';
+import { latestSubmissionSchema } from '../../contracts/src/ops/turn-schemas.ts';
 
 const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
 const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.url));
@@ -149,6 +151,26 @@ describe('public guide contents', () => {
     expect(step(7)).toContain('gh pr list');
     expect(step(9)).toContain('gh issue view');
     expect(step(9)).toContain('--json state');
+  });
+
+  it('judges each step by real Board status fields', () => {
+    const task = statusTaskSchema.shape;
+    const submission = latestSubmissionSchema.unwrap().unwrap().shape;
+    const prLink = task.links.shape.prs.element.shape;
+    // Step, the field paths of status.get a reader checks there, and whether each exists.
+    const facts: [number, string, boolean][] = [
+      [7, '`links.prs`', 'links' in task],
+      [7, '`repo`', 'repo' in prLink],
+      [7, '`number`', 'number' in prLink],
+      [8, '`pending` false', 'pending' in submission],
+      [8, '`voided` false', 'voided' in submission],
+      [8, '`sha`', 'sha' in submission],
+      [8, 'no open turn', 'turn' in task],
+    ];
+    for (const [n, fact, exists] of facts) {
+      expect(exists, fact).toBe(true);
+      expect(flat(step(n)), `step ${String(n)}: ${fact}`).toContain(fact);
+    }
   });
 
   it('adds each optional column, Slack and the web UI with real keys', () => {

@@ -26,7 +26,7 @@ Each step shows the command, what success looks like, and where to look when it 
 
   ```sh
   mkdir -p .agents/skills
-  ln -s ~/.codex/skills/spur-board .agents/skills/spur-board
+  ln -s "${CODEX_HOME:-$HOME/.codex}/skills/spur-board" .agents/skills/spur-board
   ```
 
 Slack and the web UI are not needed. [Add more columns](#add-more-columns) shows how to add them
@@ -109,12 +109,20 @@ spur connect spur.yaml
 
 Copy the contents of `config.yaml` to `~/.config/spur-board/config.yaml` and replace the same
 values. If your repository runs no CI checks, uncomment `reposWithoutCi` now: without it, a pull
-request with no checks waits in Dev, and the daemon reads the config only when it starts. Put
-`GITHUB_TOKEN=<your token>` in `~/.config/spur-board/secrets.env` with mode `0600`. Then check the
-config:
+request with no checks waits in Dev, and the daemon reads the config only when it starts.
+
+Create `secrets.env` empty with mode `0600` before you put the token in it, so the file is never
+readable by other users:
 
 ```sh
-chmod 600 ~/.config/spur-board/secrets.env
+mkdir -p ~/.config/spur-board
+chmod 700 ~/.config/spur-board
+install -m 600 /dev/null ~/.config/spur-board/secrets.env
+```
+
+Then add the line `GITHUB_TOKEN=<your token>` to that file and check the config:
+
+```sh
 board doctor --offline
 ```
 
@@ -226,17 +234,19 @@ turn keeps the reason it opened with, so `dev: no_pr` can stay after the pull re
 `example-operator` whether it linked:
 
 ```text
-Run board status and tell me the prCount of example-org/example-repo#<N>.
+Run board status and tell me the links.prs of example-org/example-repo#<N>.
 ```
 
-A `prCount` of 1 means the Board linked the pull request.
+The Board linked the pull request when `links.prs` has an entry with `repo`
+`example-org/example-repo` and `number` `<PR>`. `prCount` alone is not enough: it also counts
+earlier pull requests of the task.
 
 **If it fails:** a task that stays in `todo` means the session is not linked:
 [Link worker sessions to tasks](../SETUP.md#6-link-worker-sessions-to-tasks). A pull request with no
 CI checks waits in Dev until `reposWithoutCi` lists the repository: uncomment it in `config.yaml`
 and run `board service restart`, because the daemon reads the config only when it starts
-([config.yaml fields](configuration.md#configyaml-fields)). A task whose `prCount` stays 0
-after the pull request opened has no linked pull request: its author is not
+([config.yaml fields](configuration.md#configyaml-fields)). A task whose `links.prs` never lists
+`<PR>` after the pull request opened has not linked it: its author is not
 `operatorGithubLogin`, or its branch and title do not match the link rules
 ([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker that never gets its turn:
 [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
@@ -258,8 +268,9 @@ reviewer submits, so the column alone does not say the review is done. Before yo
 Run board status and tell me the turn and the latest submission of example-org/example-repo#<N>.
 ```
 
-The review is done when the task has no open turn and its latest submission is from `review`, is
-not `pending`, and has the `sha` of the pull request's current head. When the reviewer returns
+The review is done when the task has no open turn and its latest submission is from `review`,
+has `pending` false and `voided` false, and has the `sha` of the pull request's current head. A
+voided submission no longer counts, even on the same `sha`. When the reviewer returns
 the task instead, it goes back to `dev`, the worker fixes what the reviewer named, and the task
 comes back to Review.
 
@@ -390,11 +401,12 @@ operator:
 slack:
   channels:
     orchestrators: C0123456789
-    feed: C0123456789
+    feed: C0987654321
 ```
 
 `operator.slack` is your Slack user ID; `slack.channels.orchestrators` and `slack.channels.feed`
-are the channel IDs. Slack also needs its tokens in `secrets.env`. See
+are the IDs of two separate channels. Do not use one channel for both: messages in the feed
+channel do not start operator conversations. Slack also needs its tokens in `secrets.env`. See
 [Create the Slack app and configuration](../SETUP.md#3-create-the-slack-app-and-configuration).
 
 ### The web UI
