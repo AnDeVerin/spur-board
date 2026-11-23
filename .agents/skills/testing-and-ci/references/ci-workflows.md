@@ -52,9 +52,9 @@
   `progress-append-only` reporter, which tells a stall from a slow run in the log
   (`stryker.config.json`). Bump the incremental cache key prefix when a Stryker option changes
   how mutants are planned: cached statuses win over it (`.github/workflows/mutation.yml`).
-- Run Vitest locally with the default and signal reporters. In CI, configure default,
-  github-actions, junit (`reports/junit.xml`) and signal reporters; upload `reports/` on test
-  failure so annotations and JUnit evidence survive (`vitest.config.ts`,
+- Run Vitest locally with Vitest's default reporters plus the signal reporter. In CI, configure
+  default, github-actions, junit (`reports/junit.xml`) and signal reporters; upload `reports/`
+  on test failure so annotations and JUnit evidence survive (`vitest.config.ts`,
   `.github/workflows/ci.yml`).
 - Keep the signal reporter in both lists: on SIGTERM it prints the running test files and tests
   before the run exits 143, so a stray group signal names its sender

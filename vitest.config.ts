@@ -1,7 +1,8 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 // GitHub Actions gets failure annotations and a JUnit file in reports/ for the run's artifact.
-// Local runs keep the Vitest default reporter. Both print the running test files on SIGTERM.
+// Local runs keep Vitest's default reporters (`minimal` for an agent). Both add the signal
+// reporter, which prints the running test files on SIGTERM.
 const signals = './packages/testkit/src/signal-reporter.ts';
 const reporting =
   process.env['GITHUB_ACTIONS'] === 'true'
@@ -9,7 +10,7 @@ const reporting =
         reporters: ['default', 'github-actions', 'junit', signals],
         outputFile: { junit: 'reports/junit.xml' },
       }
-    : { reporters: ['default', signals] };
+    : { reporters: [...configDefaults.reporters, signals] };
 
 // The only Vitest config: every test runs through the testkit harness.
 export default defineConfig({
