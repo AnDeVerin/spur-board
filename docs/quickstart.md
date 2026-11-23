@@ -21,12 +21,13 @@ Each step shows the command, what success looks like, and where to look when it 
   issues and pull requests.
 - Claude Code in the Spur sessions. Codex works too: follow step 3 of the
   [minimal example](../examples/minimal/README.md#steps) and
-  [skills.codex_visibility](../TROUBLESHOOTING.md#skillscodex_visibility). On a fresh checkout,
-  create the skills directory before you link the skill into it, after step 2:
+  [skills.codex_visibility](../TROUBLESHOOTING.md#skillscodex_visibility). After step 3, from the
+  checkout, create the skills directory and link the installed skill into it; both commands are
+  safe to rerun:
 
   ```sh
   mkdir -p .agents/skills
-  ln -s "${CODEX_HOME:-$HOME/.codex}/skills/spur-board" .agents/skills/spur-board
+  ln -sfn "${CODEX_HOME:-$HOME/.codex}/skills/spur-board" .agents/skills/spur-board
   ```
 
 Slack and the web UI are not needed. [Add more columns](#add-more-columns) shows how to add them
@@ -107,20 +108,20 @@ values, set `defaultBranch` in all three projects to your repository's default b
 spur connect spur.yaml
 ```
 
-Copy the contents of `config.yaml` to `~/.config/spur-board/config.yaml` and replace the same
-values. If your repository runs no CI checks, uncomment `reposWithoutCi` now: without it, a pull
-request with no checks waits in Dev, and the daemon reads the config only when it starts.
-
-Create `secrets.env` empty with mode `0600` before you put the token in it, so the file is never
-readable by other users:
+Create the private config directory and an empty `secrets.env` with mode `0600` before you write
+anything there, so the token is never readable by other users. The commands are safe to rerun:
+they keep an existing `secrets.env` and its token.
 
 ```sh
 mkdir -p ~/.config/spur-board
 chmod 700 ~/.config/spur-board
-install -m 600 /dev/null ~/.config/spur-board/secrets.env
+[ -e ~/.config/spur-board/secrets.env ] || install -m 600 /dev/null ~/.config/spur-board/secrets.env
 ```
 
-Then add the line `GITHUB_TOKEN=<your token>` to that file and check the config:
+Copy the contents of `config.yaml` to `~/.config/spur-board/config.yaml` and replace the same
+values. If your repository runs no CI checks, uncomment `reposWithoutCi` now: without it, a pull
+request with no checks waits in Dev, and the daemon reads the config only when it starts. Add the
+line `GITHUB_TOKEN=<your token>` to `secrets.env`, then check the config:
 
 ```sh
 board doctor --offline
@@ -229,26 +230,16 @@ Run board status and tell me the column and turn reason of example-org/example-r
 gh pr list --repo example-org/example-repo --author example-user --json number,body
 ```
 
-It lists a pull request whose `body` says `Closes #<N>`; its `number` is `<PR>` in step 9. The
-turn keeps the reason it opened with, so `dev: no_pr` can stay after the pull request links. Ask
-`example-operator` whether it linked:
-
-```text
-Run board status and tell me the links.prs of example-org/example-repo#<N>.
-```
-
-The Board linked the pull request when `links.prs` has an entry with `repo`
-`example-org/example-repo` and `number` `<PR>`. `prCount` alone is not enough: it also counts
-earlier pull requests of the task.
+It lists a pull request whose `body` says `Closes #<N>`; its `number` is `<PR>` in step 9.
 
 **If it fails:** a task that stays in `todo` means the session is not linked:
 [Link worker sessions to tasks](../SETUP.md#6-link-worker-sessions-to-tasks). A pull request with no
 CI checks waits in Dev until `reposWithoutCi` lists the repository: uncomment it in `config.yaml`
 and run `board service restart`, because the daemon reads the config only when it starts
-([config.yaml fields](configuration.md#configyaml-fields)). A task whose `links.prs` never lists
-`<PR>` after the pull request opened has not linked it: its author is not
-`operatorGithubLogin`, or its branch and title do not match the link rules
-([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker that never gets its turn:
+([config.yaml fields](configuration.md#configyaml-fields)). A task that stays in `dev` after the
+pull request opened may not have linked it: ask `example-operator` for the task's `links.prs`. If
+`<PR>` is not there, its author is not `operatorGithubLogin`, or its branch and title do not match
+the link rules ([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker that never gets its turn:
 [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 8. Watch the reviewer review it
@@ -261,18 +252,8 @@ Run board status and tell me the column and turn reason of example-org/example-r
 ```
 
 **Success looks like:** `example-operator` reports the task in `review` with the turn reason
-`review: no_review_on_head`: the reviewer has its turn. The task stays in `review` after the
-reviewer submits, so the column alone does not say the review is done. Before you merge, ask:
-
-```text
-Run board status and tell me the turn and the latest submission of example-org/example-repo#<N>.
-```
-
-The review is done when the task has no open turn and its latest submission is from `review`,
-has `pending` false and `voided` false, and has the `sha` of the pull request's current head. A
-voided submission no longer counts, even on the same `sha`. When the reviewer returns
-the task instead, it goes back to `dev`, the worker fixes what the reviewer named, and the task
-comes back to Review.
+`review: no_review_on_head`: the reviewer has its turn. When the reviewer returns the task, it goes
+back to `dev`, the worker fixes what the reviewer named, and the task comes back to Review.
 
 **If it fails:** no live reviewer session:
 [orchestrator.sessions](../TROUBLESHOOTING.md#orchestratorsessions). A reviewer that never wakes
@@ -280,7 +261,16 @@ up: [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 9. Merge the pull request
 
-The agents never merge: you do. Open the pull request in the browser and press the merge button:
+The agents never merge: you do. The task stays in `review` after the reviewer submits, so first
+ask `example-operator` whether the Review gate is met:
+
+```text
+Run board task example-org/example-repo#<N> --why and tell me whether the review_on_head gate is met on the current head.
+```
+
+When it reports the `review_on_head` gate met on the current head, open the pull request in the
+browser and press the merge button
+([Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates):
 
 ```sh
 gh pr view <PR> --repo example-org/example-repo --web

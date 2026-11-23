@@ -11,7 +11,6 @@ import {
   SPUR_MIN_VERSION,
 } from '../../contracts/src/index.ts';
 import { statusTaskSchema } from '../../contracts/src/ops/schemas.ts';
-import { latestSubmissionSchema } from '../../contracts/src/ops/turn-schemas.ts';
 
 const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
 const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.url));
@@ -153,19 +152,35 @@ describe('public guide contents', () => {
     expect(step(9)).toContain('--json state');
   });
 
+  it('runs the setup commands in order on a fresh host and safely again', () => {
+    const requirements = section(quickstart, '## Requirements');
+    const three = step(3);
+    // Where a later command needs something an earlier one creates: [text, first, then].
+    const order: [string, string, string][] = [
+      [three, 'mkdir -p ~/.config/spur-board', 'Copy the contents of `config.yaml`'],
+      [three, 'install -m 600 /dev/null', 'GITHUB_TOKEN=<your token>'],
+      [requirements, 'mkdir -p .agents/skills', 'ln -sfn'],
+    ];
+    for (const [text, first, then] of order) {
+      expect(text.indexOf(first), first).toBeGreaterThanOrEqual(0);
+      expect(text.indexOf(first), `${first} before ${then}`).toBeLessThan(text.indexOf(then));
+    }
+    // A rerun keeps an existing secrets file and replaces the skill link in place.
+    expect(three).toContain('[ -e ~/.config/spur-board/secrets.env ] || install -m 600');
+    expect(requirements).toMatch(/After step 3, from the\s+checkout/);
+  });
+
   it('judges each step by real Board status fields', () => {
     const task = statusTaskSchema.shape;
-    const submission = latestSubmissionSchema.unwrap().unwrap().shape;
-    const prLink = task.links.shape.prs.element.shape;
-    // Step, the field paths of status.get a reader checks there, and whether each exists.
+    const gates = readFileSync(
+      fileURLToPath(new URL('../../core/src/domain/gates.ts', import.meta.url)),
+      'utf8',
+    );
+    // Step, the Board fact a reader checks there, and whether it exists in the code.
     const facts: [number, string, boolean][] = [
-      [7, '`links.prs`', 'links' in task],
-      [7, '`repo`', 'repo' in prLink],
-      [7, '`number`', 'number' in prLink],
-      [8, '`pending` false', 'pending' in submission],
-      [8, '`voided` false', 'voided' in submission],
-      [8, '`sha`', 'sha' in submission],
-      [8, 'no open turn', 'turn' in task],
+      [7, '`links.prs`', 'prs' in task.links.shape],
+      [9, '`review_on_head` gate met on the current head', /^\s*review_on_head: \{/m.test(gates)],
+      [9, '--why', true],
     ];
     for (const [n, fact, exists] of facts) {
       expect(exists, fact).toBe(true);
