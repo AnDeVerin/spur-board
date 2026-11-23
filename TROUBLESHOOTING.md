@@ -42,8 +42,9 @@ origin; it accepts no placeholders.
 
 The daemon reports whether its optional web listener is bound. A busy web port warns in this
 check while the agent API continues running. Free `web.port` or select another port and restart
-the daemon. This differs from `web`, which validates the settings offline; `web.listening`
-reports whether the loopback listener bound. Neither check probes the proxy, its authentication
+the daemon. This differs from `web`, which reports `off`, or `on` with the resolved origin;
+invalid `web` settings fail the `config` check instead, and `web.listening` reports whether the
+loopback listener bound. Neither check probes the proxy, its authentication
 or TLS.
 
 The web UI has no login of its own: anyone who reaches it acts as operator. The daemon binds it

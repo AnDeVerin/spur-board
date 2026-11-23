@@ -258,16 +258,18 @@ Then, in this order:
 
 `web.publicOrigin` must be exactly the URL the laptop opens: `https://`, the site name, a
 `:<port>` only when Caddy listens on a port other than 443, and no path or trailing slash.
-Caddy passes the `Host` and `Origin` headers on unchanged; when either differs from that
-origin, the daemon answers 403.
+Caddy passes the `Host` and `Origin` headers on unchanged. The daemon answers 403 when `Host`
+differs from the origin's host, or when `Origin` differs on a write (any method other than GET
+or HEAD) or on the event stream when the browser sends one.
 
 Live updates come from `GET /v1/events`. Caddy flushes `text/event-stream` responses at once
 and sets no read timeout, so the sample needs no extra directive. Another proxy must pass the
 `Host` and `Origin` headers unchanged, keep response buffering off for `/v1/events`, and set a
 read timeout above 15 seconds, the heartbeat interval.
 
-In `board doctor --json`, the `web` check validates the settings offline and `web.listening`
-reports whether the loopback listener bound. Neither check probes the proxy, its authentication
+In `board doctor --json`, the `web` check reports `off`, or `on` with the resolved origin, and
+`web.listening` reports whether the loopback listener bound; invalid `web` settings fail the
+`config` check instead. Neither check probes the proxy, its authentication
 or TLS.
 
 Without a proxy, an SSH tunnel works instead. It replaces the proxy setup, because the daemon

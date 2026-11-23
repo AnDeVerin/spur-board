@@ -206,8 +206,9 @@ The web UI has no login of its own. Anyone who reaches it can use the web-bound 
 `inbox.ack` / `task.submit` / `task.return` / `task.wait` as operator without a token. Another
 machine reaches it only through an authenticating reverse proxy or an SSH tunnel; see
 [Remote access through Caddy with basic auth](../SETUP.md#remote-access-through-caddy-with-basic-auth).
-The proxy must pass the `Host` and `Origin` headers unchanged; when either differs from the
-resolved public origin, the daemon answers 403. Host/Origin guards protect against foreign browser pages, not network members or local users.
+The proxy must pass the `Host` and `Origin` headers unchanged. The daemon answers 403 when
+`Host` differs from the resolved public origin's host, or when `Origin` differs on a write (any
+method other than GET or HEAD) or on the event stream when the browser sends one. Host/Origin guards protect against foreign browser pages, not network members or local users.
 See [Security](../SECURITY.md).
 
 The shell gets live updates from `GET /v1/events` on the same listener. Turn response buffering
