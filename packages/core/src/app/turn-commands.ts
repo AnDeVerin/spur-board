@@ -16,7 +16,13 @@ import { queueBlockOpen } from './block-thread.ts';
 import { authorizationTarget, blockView, answerReturn, openBlock, taskTarget } from './blocks.ts';
 import { emit, moveViews, taskPr, taskView, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
-import { correctColumn, dispatchTasks, manuallyMoveColumn, moveLeft } from './dispatch.ts';
+import {
+  correctColumn,
+  dispatchTasks,
+  judgedPr,
+  manuallyMoveColumn,
+  moveLeft,
+} from './dispatch.ts';
 import { storedKey } from './membership.ts';
 import { taskSubject } from './subject.ts';
 import { closeTurns } from './turns.ts';
@@ -488,8 +494,9 @@ export function createTurnMutations(deps: {
   };
   /**
    * The operator's correction of a task's column. Refused for a column the project does not
-   * enable, and while a merged pull request is the task's active one: the gates would put the task
-   * back in Done at once. The gates then settle the task in the same transaction.
+   * enable, and while the PR the dispatcher judges the task on (`judgedPr`) is merged, a
+   * conflict-linked merge included: the gates would put the task back at once. The gates then
+   * settle the task in the same transaction.
    */
   const move: Mutation<'task.move'> = {
     id: 'task.move',
@@ -532,21 +539,13 @@ export function createTurnMutations(deps: {
             .join(', ')}.`,
         );
       }
-      const pr = await taskPr(trx, task.id);
-      if (pr !== null) {
-        const snapshot = await trx
-          .selectFrom('pr_snapshot')
-          .select('state')
-          .where(sql<boolean>`lower(repo) = ${pr.repo.toLowerCase()}`)
-          .where('number', '=', pr.number)
-          .executeTakeFirst();
-        if (snapshot?.state === 'merged') {
-          const label = `${pr.repo}#${String(pr.number)}`;
-          throw new CommandError(
-            'move_not_allowed',
-            `Merged pull request ${label} sets the task's column: Done once its ticket is done, Dev while it stays open; unlink it first with \`board unlink ${task.key} --pr https://github.com/${pr.repo}/pull/${String(pr.number)} --reason <text>\`.`,
-          );
-        }
+      const pr = (await judgedPr(trx, task.id, project))?.pr;
+      if (pr?.state === 'merged') {
+        const label = `${pr.repo}#${String(pr.number)}`;
+        throw new CommandError(
+          'move_not_allowed',
+          `Merged pull request ${label} sets the task's column: Done once its ticket is done, Dev while it stays open; unlink it first with \`board unlink ${task.key} --pr https://github.com/${pr.repo}/pull/${String(pr.number)} --reason <text>\`.`,
+        );
       }
       const corrected = await correctColumn(trx, {
         taskId: task.id,

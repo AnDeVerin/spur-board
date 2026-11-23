@@ -3320,6 +3320,45 @@ describe('a merged PR and the ticket', () => {
     expect((await ctx.task()).column).toBe('done');
     await namesMerged(ctx, 'ready-to-merge', 8);
   });
+
+  /** A correction of a task in Done is refused on merged `number` and writes nothing. */
+  const refusesCorrection = async (ctx: Board, number: number) => {
+    expect((await ctx.task()).column).toBe('done');
+    const before = await ctx.snapshot();
+    const refused = ctx.move('review');
+    await expect(refused).rejects.toMatchObject({ code: 'move_not_allowed' });
+    await expect(refused).rejects.toHaveProperty(
+      'hint',
+      expect.stringContaining(
+        `Merged pull request o/r#${String(number)} sets the task's column`,
+      ) as unknown,
+    );
+    await expect(refused).rejects.toHaveProperty(
+      'hint',
+      expect.stringContaining(
+        `board unlink ${KEY} --pr https://github.com/o/r/pull/${String(number)}`,
+      ) as unknown,
+    );
+    expect(await ctx.snapshot()).toEqual(before);
+  };
+
+  it('refuses to correct a task in Done on a conflict-linked merge while active #7 is open', async () => {
+    const ctx = await conflictMerged(false);
+    await ctx.ticket('closed');
+    await refusesCorrection(ctx, 8);
+  });
+
+  it('refuses to correct a split task in Done on its earlier merge while follow-up #8 is open', async () => {
+    const ctx = await pastProductReview();
+    await merge(ctx);
+    await ctx.ticket();
+    await ctx.ticket('open', true, ctx.at());
+    const note = await ctx.openTurn();
+    await ctx.ack(WORKER, note?.id ?? '');
+    await ctx.pr({ number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' });
+    await ctx.ticket('closed');
+    await refusesCorrection(ctx, 7);
+  });
 });
 
 describe('shadow mode', () => {

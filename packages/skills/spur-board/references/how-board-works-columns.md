@@ -22,7 +22,8 @@ order; saved sorts win. Need non-blank literal reason
 (max 20,000 UTF-16 units), explicit non-blank key; retry identical input/key.
 Exact reason in events; one line in history.
 
-`--correct` repairs enabled non-Done columns then settles gates. Dev return:
+`--correct` repairs enabled non-Done columns then settles gates; it is refused while the
+PR the task is judged on is merged, a conflict-linked one included: unlink it first. Dev return:
 `board return <turn> <reason>`. QA: `board submit <turn> <sha>` records evidence.
 
 <!-- prettier-ignore-start -->
