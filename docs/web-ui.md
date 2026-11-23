@@ -19,7 +19,7 @@ The page shows the Spur mark as its tab icon and, over HTTPS, installs on a phon
 app (see Optional browser access).
 
 Reads: `config.get`, chosen-project `status.get` and `columns.describe`, `inbox.operator`,
-open-task `task.get`/`task.history` and `/v1/events`. The UI owns no data.
+open-task `task.get`/`task.history`, open-block `block.get` and `/v1/events`. The UI owns no data.
 
 ## Screens
 
@@ -29,7 +29,7 @@ open-task `task.get`/`task.history` and `/v1/events`. The UI owns no data.
   **Approvals**, **Blocks**, **Comments** and **History** (journal events with channel, e.g.
   `operator (web)`).
 - [Task blocks and comments](web-ui-task-blocks.md): answers, follow-ups and comments in the task
-  view.
+  view and the block panel.
 - [Turn](web-ui-task-turn.md): take an orchestrator or operator turn and submit it or return it
   to Dev.
 - [Moving between Backlog parts and the manual order](web-ui-board-move.md): the card menu, drop

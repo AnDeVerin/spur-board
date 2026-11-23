@@ -7,7 +7,7 @@ narrow screen it fills the screen. It reads `task.get` with `why` and `detail`.
 
 A click or Enter on a card opens it and sets the address to `?open=<task key>`. Opening that
 address opens it too, with the full key (`?open=ex%2Frepo%237`) or a short one
-(`?open=repo%237`). `?open=inbox` and `?open=services` open no task view.
+(`?open=repo%237`). `?open=inbox`, `?open=services` and `?open=block:B<n>` open no task view.
 
 A task entry in the inbox opens above the retained panel, even without configuration. Its project
 is selected once configuration arrives. Back and Forward restore both layers.

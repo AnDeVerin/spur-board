@@ -1,7 +1,7 @@
 # Web UI: task blocks and comments
 
 The **Blocks** and **Comments** sections of the [task view](web-ui-task-view.md) and its three
-writes: answer, follow up and comment.
+writes: answer, follow up and comment, and the inbox's block panel.
 
 **Blocks** shows the total and the number open, with open blocks first. Each item names its
 author, addressee, age and reason, its resolution and question-answer channel when known, and
@@ -59,3 +59,26 @@ Archived tasks show `This task is archived. Answers and comments cannot be sent.
 and send actions are disabled, preserving pending, failed and newer drafts. Reactivating the
 task enables still-eligible forms again. History and read-only **Refresh task** recovery for an already
 confirmed write remain available while archived.
+
+## Block panel
+
+A task-less block row of the inbox, active or handled, opens the block panel over the retained
+inbox at `?open=block:B<n>` (links write `block%3A`); opening that address opens it alone. Its
+title is `Block B<n>` and its detail the block's project. A box above the block names who raised
+it (Raised by), who it is addressed to (To), when (Since, `hh:mm dd/mm/yy` UTC) and, on a task
+block, its Task. The panel reads `block.get`, then again on its project's changes, on every full
+re-read and on **Retry**; a block not found re-reads only on a full re-read or **Retry**.
+
+The block shows unfolded in the same box as in the task view, with its replies and the same
+rules: an open question to you has an answer form and an answered one **Follow up**. After a send
+the panel says `Refreshing block…`, and **Refresh block** retries a failed read. Any other block
+is read-only with one line saying why: a task block (`On task #7. Answer and follow up in its
+task view.`), one addressed to an agent (`Addressed to curator. Only blocks addressed to you take
+an answer or follow-up here.`), a closed one (`Closed as withdrawn. A closed block takes no
+answer.`) or an open block that is not a question. An unknown id reads `Block not found.`; a
+failed read shows `Could not load the block.` with **Retry** and keeps the shown data.
+
+Close or Escape returns to `?open=inbox` with focus on the row, or on the inbox Close when the
+row is gone; a panel opened from its address closes to the board. Focus stays in the panel while
+it is open, also when its row moves to handled. Back and Forward restore both layers, and a row's
+project is selected once configuration arrives.

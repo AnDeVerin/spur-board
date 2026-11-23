@@ -16,27 +16,26 @@ Header, left to right:
   stay visible and accept Tab; Clear resets the filter.
 - The live indicator: `connecting` until the stream answers, then `live`, `reconnecting` or
   `offline`.
-- The inbox button highlights nonzero active counts; `–` means no successful read yet. It opens
-  the right panel at `?open=inbox`, also available directly. All/configured project/system filters
-  apply to active and handled entries; counts include only active entries. Failures precede
-  attention, newest first within severity. Handled entries retain query order, marked handled
-  with their answer channel when supplied. Supplied actions appear separately; an exact terminal
-  `: <action>` is removed from the description. A column orchestrator with no live session reads
-  `No session to ring for <column>`, its Spur project when known, the turns waiting, the oldest
-  one's `T<n>` and age, and its minutes without one, then its action and
-  `It clears itself when a session appears.` It closes the inbox and opens that column's help on
-  **Who** (choosing its project, its head in view), which links the oldest turn's task;
-  a spine opens the task. Cleared, it moves to handled as `Had no session to ring for <column>`, in
-  the past tense with the oldest `T<n>` and no action, and opens that task. A re-raise for the same
-  column replaces it. An entry without `noSession` keeps the plain row, with its action. Before the
-  first success, the panel says inbox data is unavailable; later failures retain data. Task rows
-  open above the retained panel and select their project when config arrives. Task close focuses
-  its row or panel Close if removed; panel close focuses the header inbox button.
-  Back/Forward follow these layers. Task-less active and handled rows with a known HTTP(S)
-  destination open it in a new tab on click or Enter, retaining the inbox. Task navigation wins over
-  a URL. Rows without a safe destination stay
-  focusable. Each active item entry (`I<n>`) has a quiet `Close I<n>` below its
-  row that sends one `item.close`, as Slack's Close does: a ledger item's block closes with it and a
+- The inbox button highlights nonzero active counts; `–` means no successful read yet. It opens the
+  right panel at `?open=inbox`, also opened directly. All/configured project/system filters apply to
+  active and handled entries; counts include only active ones. Failures precede attention, newest
+  first within severity. Handled entries keep query order, marked handled with their answer channel
+  if supplied. Supplied actions show apart; an exact trailing `: <action>` leaves the description. A
+  column orchestrator with no live session reads `No session to ring for <column>`, its Spur project
+  when known, the turns waiting, the oldest one's `T<n>` and age, and its minutes without one, then
+  its action and `It clears itself when a session appears.` It closes the inbox and opens that
+  column's help on **Who** (choosing its project, its head in view), which links the oldest turn's
+  task; a spine opens the task. Cleared, it moves to handled as
+  `Had no session to ring for <column>`, in the past tense with the oldest `T<n>` and no action, and
+  opens that task. A re-raise for the same column replaces it. An entry without `noSession` keeps
+  the plain row, with its action. Before the first success, the panel says inbox data is
+  unavailable; later failures keep data. Task rows open the task view and task-less block rows the
+  block panel over the retained panel, choosing their project when config arrives. Closing either
+  focuses its row or panel Close if removed; inbox close focuses the inbox button. Back/Forward
+  follow these layers. Other task-less rows with a known HTTP(S) destination open it in a new tab on
+  click or Enter, keeping the inbox. Task navigation wins over a URL. Rows without a safe
+  destination stay focusable. Each active item entry (`I<n>`) has a quiet `Close I<n>` below its row
+  that sends one `item.close`, as Slack's Close does: a ledger item's block closes with it and a
   failed post stays unsent. Blocks, turns and handled entries have none. It reads `Closing I<n>`
   while sent, then `Closed I<n>, waiting for the board.` until the re-read moves the entry to
   handled; focus then goes to the next row, else the previous one, else panel Close. A failure keeps

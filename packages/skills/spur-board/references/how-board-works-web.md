@@ -30,7 +30,7 @@ update.
 The private web package builds the Board screen for one chosen project; the
 [web UI](web-ui.md) guide describes what it shows and its states. It reads `config.get`,
 `status.get` with detail for the chosen project, whose sources and services cover every project, whatever project is chosen, `columns.describe` for the chosen project, `inbox.operator` and `task.get` with `why` and
-`detail` for the open task, and `task.history` while History shows. A card click or the address `?open=<task key>` opens the
+`detail` for the open task, `task.history` while History shows, and `block.get` for the open block panel. A card click or the address `?open=<task key>` opens the
 [task view](web-ui-task-view.md) with its "Why it is here", Blocks and Comments sections and History tab.
 The task view can answer open operator questions through `block.answer`, follow up on answered
 ones through `block.followup` and add task comments
