@@ -423,9 +423,22 @@ jobs:
         with:
           name: release-candidate
           path: release-artifacts
-      - env:
+      # The release App token pushes the CHANGELOG.md commit and the tag past the main rulesets.
+      - id: release-app
+        if: vars.RELEASE_CHANGELOG_COMMIT == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - id: semantic-release
+        env:
           GITHUB_TOKEN: ${{ github.token }}
+          APP_TOKEN: ${{ steps.release-app.outputs.token }}
           RELEASE_CANDIDATE_VERSION: ${{ needs.release-build.outputs.version }}
           RELEASE_CANDIDATE_SHA256: ${{ needs.release-build.outputs.sha256 }}
           RELEASE_CHANGELOG_COMMIT: ${{ vars.RELEASE_CHANGELOG_COMMIT }}
-        run: pnpm exec semantic-release
+        run: |
+          if [ -n "$APP_TOKEN" ]; then export GIT_CREDENTIALS="x-access-token:$APP_TOKEN"; fi
+          unset APP_TOKEN
+          pnpm exec semantic-release

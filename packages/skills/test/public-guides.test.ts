@@ -235,8 +235,29 @@ describe('public guide contents', () => {
       '`Closes #<N>`',
       '`RELEASE_CHANGELOG_COMMIT`',
       '#867',
+      'Only on this account',
+      'Contents: Read and write',
+      '`RELEASE_APP_PRIVATE_KEY`',
+      '`npm` environment',
+      '`RELEASE_APP_CLIENT_ID`',
+      '`main-review`',
+      'Always allow',
+      'To rotate the key, generate a new private key, replace the secret, then delete the old key.',
+      'To revoke the identity',
     ])
       expect(policy).toContain(text);
+    // The App, its key, its client ID and the bypass come before the switch.
+    const on = policy.indexOf('Set the repository variable `RELEASE_CHANGELOG_COMMIT` to `true`');
+    expect(on).toBeGreaterThan(0);
+    for (const step of [
+      'Contents: Read and write',
+      '`RELEASE_APP_PRIVATE_KEY`',
+      '`RELEASE_APP_CLIENT_ID`',
+      'Always allow',
+    ]) {
+      expect(policy.indexOf(step), step).toBeGreaterThanOrEqual(0);
+      expect(policy.indexOf(step), step).toBeLessThan(on);
+    }
     const readme = flat(read('../../../README.md'));
     expect(readme).toContain('[Changelog](CHANGELOG.md)');
     expect(readme).toContain('CONTRIBUTING.md#versions-and-the-changelog');

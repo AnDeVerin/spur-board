@@ -73,14 +73,30 @@ references made with a closing keyword, such as `Closes #<N>` or `Fixes #<N>`.
 Every release puts its notes on the
 [GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
 [CHANGELOG.md](CHANGELOG.md) holds its header and the upgrade notes of earlier releases; until the
-release job commits it, GitHub releases carry every release's notes. To switch the commit on:
+release job commits it, GitHub releases carry every release's notes. The release identity (#867)
+is a GitHub App: the release job mints a short-lived token from it and pushes the changelog commit
+and the tag with that token, and only that token gets past the `main` rulesets. To switch the
+commit on, in this order:
 
-1. Land #867: a push identity that bypasses the `main` rulesets, wired into the release step.
-2. Set the repository variable `RELEASE_CHANGELOG_COMMIT` to `true`. Each release then prepends
-   its notes to CHANGELOG.md and commits it to `main` as `chore(release): <version> [skip ci]`
-   before tagging that commit. Unset the variable to stop.
+1. Create a GitHub App on your personal account. Under "Where can this GitHub App be installed?"
+   choose `Only on this account`, turn the webhook off, and give it the repository permission
+   `Contents: Read and write` and nothing else (GitHub adds Metadata read-only). Install it only
+   on `spur-board`.
+2. Generate a private key for the App and store it as the secret `RELEASE_APP_PRIVATE_KEY` in the
+   `npm` environment. Store the App's client ID as the repository variable
+   `RELEASE_APP_CLIENT_ID`.
+3. Add the App to the bypass list of both rulesets, `main` and `main-review`, with the mode
+   `Always allow`.
+4. Set the repository variable `RELEASE_CHANGELOG_COMMIT` to `true`, in lowercase. Each release
+   then prepends its notes to CHANGELOG.md and commits it to `main` as
+   `chore(release): <version> [skip ci]` before tagging that commit. Unset the variable to stop.
 
-With the variable set before #867 lands, every release fails before it tags or publishes.
+To rotate the key, generate a new private key, replace the secret, then delete the old key. To
+revoke the identity, delete the App's private keys or remove the App from both bypass lists, and
+unset the variable.
+
+If the changelog commit lands on `main` but the tag push fails, the next push to `main` releases
+that version again and replaces its untagged CHANGELOG.md entry.
 
 ## Web shell
 
