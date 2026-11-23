@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { currentIdentity, writeOwner } from '../src/sweep.ts';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
@@ -33,6 +33,7 @@ it('a run started with secrets, proxies and foreign dirs in env passes env.test.
       'unit',
       'packages/testkit/test/env.test.ts',
       'packages/core/test/support/store.test.ts',
+      'packages/core/test/store/copy.test.ts',
       '--reporter',
       'json',
       '--outputFile',
@@ -78,6 +79,36 @@ it('a run started with secrets, proxies and foreign dirs in env passes env.test.
   // Teardown removed the nested run's temp root, and tests left nothing beside it.
   expect(readdirSync(nestedTmp)).toEqual([]);
 }, 60_000);
+
+describe('a run started in a package dir', () => {
+  it.each([
+    { name: 'cwd packages/core', cwd: 'packages/core', args: ['run', 'test/store/copy.test.ts'] },
+    {
+      name: '--root packages/core',
+      cwd: '.',
+      args: ['run', '--root', 'packages/core', 'test/store/copy.test.ts'],
+    },
+  ])(
+    '$name stops before any test and leaves TMPDIR empty',
+    ({ cwd, args }) => {
+      const nestedTmp = mkdtempSync(join(tmpdir(), 'pkg-dir-'));
+      const result = spawnSync(
+        process.execPath,
+        [join(root, 'node_modules/vitest/vitest.mjs'), ...args],
+        {
+          cwd: join(root, cwd),
+          encoding: 'utf8',
+          env: { ...process.env, TMPDIR: nestedTmp, GITHUB_ACTIONS: 'false' },
+        },
+      );
+      const output = result.stdout + result.stderr;
+      expect(result.status, output).not.toBe(0);
+      expect(output).toContain('testkit:');
+      expect(readdirSync(nestedTmp)).toEqual([]);
+    },
+    60_000,
+  );
+});
 
 function write(dir: string, name: string, content: string): void {
   const path = join(dir, name);

@@ -12,6 +12,10 @@ There is no template.
   - dependencies as `SKILL.md` `## Package map` and `## Dependency versions` say.
 - `packages/<x>/tsconfig.json` extends the root `tsconfig.base.json` with `include` set to `src`
   and `test`.
+- `packages/<x>/vitest.config.js` is a copy of `packages/adapters/vitest.config.js` with the dir
+  name and the hint path changed to `packages/<x>`. It refuses a Vitest run started in the
+  package dir, and `packages/testkit/test/env.test.ts` fails for a package with `test/` that
+  lacks it.
 - The first source file and its runtime dependencies land before typecheck runs: see the
   `testing-and-ci` bullet that starts "Give a new package".
 - Run `pnpm install` so the workspace links the package.

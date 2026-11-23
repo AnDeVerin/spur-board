@@ -1,6 +1,11 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignoreFiles": ["packages/*/test/lint-fixtures/**", "design/**"],
+  "ignoreFiles": [
+    "packages/*/test/lint-fixtures/**",
+    "design/**",
+    "packages/skills/vitest.config.js",
+    "scripts/vitest.config.js"
+  ],
   "ignoreDependencies": ["conventional-changelog-conventionalcommits"],
   "ignoreBinaries": ["flock", "systemd-notify", "systemd-analyze", "openssl"],
   "workspaces": {

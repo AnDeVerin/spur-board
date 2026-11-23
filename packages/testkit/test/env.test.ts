@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { homedir, tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, inject, it } from 'vitest';
 import { isScrubbed } from '../src/env.ts';
 
@@ -69,6 +70,55 @@ describe('temp dirs', () => {
       pid: number;
     };
     expect(owner.pid).toBe(process.ppid);
+  });
+});
+
+const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
+const launchDirs = [
+  ...readdirSync(join(repoRoot, 'packages'))
+    .filter((name) => existsSync(join(repoRoot, 'packages', name, 'test')))
+    .map((name) => `packages/${name}`),
+  'scripts',
+];
+
+function refusal(config: unknown): unknown {
+  if (typeof config !== 'object' || config === null || !('plugins' in config)) return undefined;
+  const { plugins } = config;
+  if (!Array.isArray(plugins)) return undefined;
+  const plugin: unknown = plugins[0];
+  if (typeof plugin !== 'object' || plugin === null) return undefined;
+  if (!('name' in plugin) || plugin.name !== 'testkit-root-only') return undefined;
+  if (!('config' in plugin) || typeof plugin.config !== 'function') return undefined;
+  try {
+    plugin.config();
+  } catch (error) {
+    return error instanceof Error ? error.message : undefined;
+  }
+  return undefined;
+}
+
+describe('package-dir runs', () => {
+  it('finds every package with tests', () => {
+    expect(launchDirs).toContain('packages/core');
+    expect(launchDirs).toContain('packages/skills');
+  });
+
+  it.each(launchDirs)('%s has a vitest.config.js that refuses the run', async (rel) => {
+    const path = join(repoRoot, rel, 'vitest.config.js');
+    expect(existsSync(path), path).toBe(true);
+    const module: unknown = await import(pathToFileURL(path).href);
+    const config =
+      typeof module === 'object' && module !== null && 'default' in module
+        ? module.default
+        : undefined;
+    const message = refusal(config);
+    expect(typeof message, rel).toBe('string');
+    const hint =
+      rel === 'scripts' ? 'pnpm exec vitest run scripts/' : `pnpm exec vitest run ${rel}/test/`;
+    expect(message).toMatch(/^testkit: /);
+    expect(message).toContain(` ${rel} `);
+    expect(message).toContain(hint);
+    expect(message).not.toContain('--project');
   });
 });
 

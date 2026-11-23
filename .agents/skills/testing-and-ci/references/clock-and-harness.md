@@ -50,6 +50,13 @@ Every test runs through the root config, so all of these hold:
   and `makeHome` (`packages/daemon/test/home.ts`) remove their directory after the test's
   afterEach hooks, or in the suite's afterAll when called outside a test. A new helper that
   makes a temp dir does the same.
+- Every package dir with `test/`, and `scripts/`, holds a `vitest.config.js` whose plugin
+  `config()` hook throws a `testkit:` error naming the root command
+  (`pnpm exec vitest run <path>`; the path picks the project). Vitest reads a config only from
+  its root dir, so without it a run started there skips this harness. Not guarded: deeper dirs,
+  `--config <other>`, `--config false` and IDE Vitest extensions, which load every
+  `vitest.config.*` and stop on the refusals. Each copy is inlined because packages may not
+  import testkit.
 - Vitest's own transformed-module copies (`join(tmpdir(), <random>)`, made by the main process
   before global setup) stay outside the run root; Vitest removes them on close, a killed run
   leaks them.
