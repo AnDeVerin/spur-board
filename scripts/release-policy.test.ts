@@ -1,13 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import semanticRelease from 'semantic-release';
 import { dryRunEnv, nextVersion } from './release-candidate.ts';
 import { createReleasePackage, digest, publishTarball } from './release-package.ts';
+import { tempDir } from './test-temp-dir.ts';
 
 const require = createRequire(import.meta.url);
 const config = require('../release.config.cjs') as {
@@ -38,7 +38,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function fixture(message: string, tag = 'v0.1.0'): { repo: string; remote: string } {
-  const root = mkdtempSync(join(tmpdir(), 'release-policy-'));
+  const root = tempDir('release-policy-');
   const repo = join(root, 'repo');
   const remote = join(root, 'remote.git');
   git(root, 'init', '-q', '-b', 'main', repo);
@@ -264,7 +264,7 @@ describe('release policy', () => {
 
     rmSync(hook);
     const clone = join(dirname(repo), 'clone');
-    git(tmpdir(), 'clone', '-q', `file://${remote}`, clone);
+    git(dirname(repo), 'clone', '-q', `file://${remote}`, clone);
     writeFileSync(join(clone, 'README.md'), 'repaired\n');
     git(clone, 'add', '.');
     git(clone, 'commit', '-qm', 'fix(core): repair API');
@@ -281,7 +281,7 @@ describe('release policy', () => {
   });
 
   function candidate(contents = 'candidate tarball') {
-    const cwd = mkdtempSync(join(tmpdir(), 'release-artifact-'));
+    const cwd = tempDir('release-artifact-');
     const artifact = join(cwd, 'release-artifacts', 'spur-board-0.2.0.tgz');
     mkdirSync(join(cwd, 'release-artifacts'));
     writeFileSync(artifact, contents);
@@ -359,7 +359,7 @@ describe('release policy', () => {
   });
 
   it('passes the checked tarball to npm publish with provenance', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'release-publish-'));
+    const cwd = tempDir('release-publish-');
     const bin = join(cwd, 'bin');
     mkdirSync(bin);
     const capture = join(cwd, 'npm-args');
