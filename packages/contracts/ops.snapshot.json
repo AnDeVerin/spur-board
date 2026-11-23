@@ -1,5 +1,5 @@
 {
-  "version": "e4332a98e3436ca10e8b64d05b0c0a08376df1a290ac6191b91757a753af2974",
+  "version": "fc177bb38e57329aac0d7778038f01283701bcac311227c52800cc89299baf1b",
   "grants": [
     "operator",
     "project-agent",
@@ -7988,7 +7988,7 @@
     {
       "id": "inbox.ack",
       "kind": "mutation",
-      "description": "Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.",
+      "description": "Mark comments, blocks addressed to the caller, turns or doorbell rings as read; acking a turn makes the caller its taker.",
       "grants": [{ "grant": "project-agent" }, { "grant": "operator" }],
       "preconditions": null,
       "errors": [
@@ -8007,7 +8007,7 @@
       "mcp": {
         "name": "inbox_ack",
         "key": "idempotencyKey",
-        "whenToUse": "Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take a turn addressed to the operator, or to take over an open orchestrator turn, taken or not.",
+        "whenToUse": "Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a block ID addressed to the operator, or a turn ID to take a turn addressed to the operator, or to take over an open orchestrator turn, taken or not.",
         "whenNotToUse": "Use inbox_get to inspect them first; the operator finds the turns addressed to it with inbox_operator.",
         "destructive": true
       },
@@ -8020,7 +8020,7 @@
           "output": { "acked": ["C3"] }
         },
         {
-          "summary": "Acknowledge an agent-addressed block",
+          "summary": "Acknowledge a block addressed to the caller",
           "input": { "entries": [{ "id": "B13" }] },
           "output": { "acked": ["B13"] }
         },

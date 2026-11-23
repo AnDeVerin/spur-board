@@ -1004,9 +1004,10 @@ describe('snapshot', () => {
     // optional noSession fields to inbox.operator entries and a no-session item to its example.
     // #799 adds state and since to status.get unlinkedSessions, and leaves lifecycle, health,
     // healthSince and rateLimitResetAt out of ended and absent ones, keeping a terminal lifecycle
-    // in detail and counting a listed errored one as ended.
+    // in detail and counting a listed errored one as ended. #858 rewords the inbox.ack
+    // description, guidance and block example: the operator acks a block addressed to it.
     expect(await catalogVersion(baseline)).toBe(
-      'b28f41219f78966ffb760962f0cb2094228f5ed9a710155ad1e89a1d630da2ef',
+      '204df2ebbb66e896882f861bfd3a9d96f332c47ebdc3c04ef743e244c0939459',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

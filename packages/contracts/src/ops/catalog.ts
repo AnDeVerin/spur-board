@@ -698,10 +698,10 @@ export const OPERATIONS = [
     id: 'inbox.ack',
     kind: 'mutation',
     description:
-      'Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.',
+      'Mark comments, blocks addressed to the caller, turns or doorbell rings as read; acking a turn makes the caller its taker.',
     mcp: {
       whenToUse:
-        'Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a turn ID to take a turn addressed to the operator, or to take over an open orchestrator turn, taken or not.',
+        'Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled. The operator acks a block ID addressed to the operator, or a turn ID to take a turn addressed to the operator, or to take over an open orchestrator turn, taken or not.',
       whenNotToUse:
         'Use inbox_get to inspect them first; the operator finds the turns addressed to it with inbox_operator.',
     },
@@ -719,7 +719,7 @@ export const OPERATIONS = [
         output: { acked: ['C3'] },
       },
       {
-        summary: 'Acknowledge an agent-addressed block',
+        summary: 'Acknowledge a block addressed to the caller',
         input: { entries: [{ id: 'B13' }] },
         output: { acked: ['B13'] },
       },
