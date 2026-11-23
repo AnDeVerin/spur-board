@@ -221,7 +221,7 @@ describe('Spur adapter', () => {
       });
       await expect(adapter.poll(context())).rejects.toMatchObject({
         kind: 'transient',
-        message: `Invalid Spur response at 0.${field}`,
+        message: `Invalid Spur response at 0.${field} on sessions after 0 ms`,
       });
     },
   );
@@ -284,7 +284,7 @@ describe('Spur adapter', () => {
     });
     await expect(adapter.poll(context())).rejects.toMatchObject({
       kind: 'transient',
-      message: 'Invalid Spur response at 0.queuedMessages.messages',
+      message: 'Invalid Spur response at 0.queuedMessages.messages on sessions after 0 ms',
     });
   });
 
@@ -730,6 +730,99 @@ describe('Spur adapter', () => {
       await vi.advanceTimersByTimeAsync(2_500);
       await poll;
       expect(warn).not.toHaveBeenCalled();
+    });
+
+    const edge = {
+      cursor: 'p1',
+      sessionId: wire.id,
+      project: 'demo',
+      at: at(0),
+      links: [],
+      kind: 'state',
+      from: 'working',
+      to: 'waiting',
+    };
+    const page = (body: unknown, status = 200) => Promise.resolve(response(body, status));
+    it.each([
+      {
+        name: 'an expired cursor without a latest cursor',
+        pages: [() => page({}, 410)],
+        message: 'Invalid Spur expired cursor at latestCursor on sessions/transitions page 1',
+        path: 'sessions/transitions',
+        page: 1,
+      },
+      {
+        name: 'an invalid transitions page',
+        pages: [() => page({ entries: [{}], nextCursor: 'c1', hasMore: false })],
+        message: 'Invalid Spur transitions at entries.0.cursor on sessions/transitions page 1',
+        path: 'sessions/transitions',
+        page: 1,
+      },
+      {
+        name: 'a repeated transition position',
+        pages: [() => page({ entries: [edge, edge], nextCursor: 'p1', hasMore: false })],
+        message: 'Repeated Spur transition position on sessions/transitions page 1',
+        path: 'sessions/transitions',
+        page: 1,
+      },
+      {
+        name: 'a transitions page without progress',
+        pages: [
+          () => page({ entries: [edge], nextCursor: 'p1', hasMore: true }),
+          () => page({ entries: [], nextCursor: 'p2', hasMore: true }),
+        ],
+        message: 'Spur transitions made no progress on sessions/transitions page 2',
+        path: 'sessions/transitions',
+        page: 2,
+      },
+      {
+        name: 'an invalid session list',
+        list: [{}],
+        message: 'Invalid Spur response at 0.id on sessions',
+        path: 'sessions',
+      },
+      {
+        name: 'an invalid session detail',
+        detail: {},
+        message: 'Invalid Spur response at id on sessions/ghost-1',
+        path: 'sessions/ghost-1',
+      },
+      {
+        name: 'a session detail for another session',
+        detail: { ...wire, id: 'other' },
+        message: 'Unresolved Spur session detail on sessions/ghost-1',
+        path: 'sessions/ghost-1',
+      },
+    ] as {
+      name: string;
+      pages?: (() => Promise<Response>)[];
+      list?: unknown;
+      detail?: unknown;
+      message: string;
+      path: string;
+      page?: number;
+    }[])('names the request of $name', async (row) => {
+      let served = 0;
+      const adapter = routed(
+        () => (row.pages?.[served++] ?? (() => Promise.resolve(emptyPage())))(),
+        (url) =>
+          Promise.resolve(
+            response(url.pathname === '/sessions' ? (row.list ?? []) : (row.detail ?? null)),
+          ),
+      );
+      const error: unknown = await adapter
+        .poll(context(row.detail === undefined ? [] : ['ghost-1']))
+        .catch((cause: unknown) => cause);
+      expect(error).toBeInstanceOf(AdapterError);
+      expect(error).toMatchObject({
+        kind: 'transient',
+        message: `${row.message} after 0 ms`,
+        path: row.path,
+        durationMs: 0,
+      });
+      if (row.page === undefined) expect(error).not.toHaveProperty('page');
+      else expect(error).toHaveProperty('page', row.page);
+      expect(error).not.toHaveProperty('code', expect.anything());
     });
   });
 

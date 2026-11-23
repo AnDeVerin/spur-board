@@ -153,6 +153,21 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
     });
   }
 
+  /** A failure a finished request's response showed, with that request's place. */
+  function failAt({ place }: SpurResponse, base: string): SpurRequestError {
+    return new SpurRequestError('transient', base, place);
+  }
+
+  /** `parseWire` over a finished request's body; a failure keeps its message and gains the place. */
+  function parseAt<S extends z.ZodType>(schema: S, { body, place }: SpurResponse, label: string) {
+    try {
+      return parseWire(schema, body, label);
+    } catch (error) {
+      if (!(error instanceof AdapterError)) throw error;
+      throw new SpurRequestError(error.kind, error.message, place, { cause: error });
+    }
+  }
+
   async function request(
     path: string,
     signal: AbortSignal,
@@ -314,19 +329,19 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
           continue;
         }
         if (response.status === 410) {
-          cursor = parseWire(
+          cursor = parseAt(
             z.object({ latestCursor: sourceCursorSchema }),
-            body,
+            transitions,
             'Invalid Spur expired cursor',
           ).latestCursor;
           sessionTransitions.length = 0;
           break;
         }
         if (!response.ok) throw httpFailure(transitions);
-        const feed = parseWire(transitionsWire, body, 'Invalid Spur transitions');
+        const feed = parseAt(transitionsWire, transitions, 'Invalid Spur transitions');
         for (const entry of feed.entries) {
           if (positions.has(entry.cursor) || entry.cursor === cursor)
-            throw new AdapterError('transient', 'Repeated Spur transition position');
+            throw failAt(transitions, 'Repeated Spur transition position');
           positions.add(entry.cursor);
           sessionTransitions.push(
             sessionTransitionSchema.parse({
@@ -345,14 +360,14 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
           );
         }
         if (feed.hasMore && (feed.nextCursor === cursor || feed.entries.length === 0))
-          throw new AdapterError('transient', 'Spur transitions made no progress');
+          throw failAt(transitions, 'Spur transitions made no progress');
         cursor = feed.nextCursor;
         if (!feed.hasMore) break;
       }
       const list = await request('sessions', ctx.signal, REQUEST_TIMEOUT_MS);
-      const { response: listResponse, body: listBody } = list;
+      const { response: listResponse } = list;
       if (!listResponse.ok) throw httpFailure(list);
-      const listed = parseWire(z.array(sessionWire), listBody, 'Invalid Spur response');
+      const listed = parseAt(z.array(sessionWire), list, 'Invalid Spur response');
       const byId = new Map(listed.map((wire) => [wire.id, wire]));
       const detail = new Map<string, SessionWire | null>();
       for (const ref of ctx.observe.sessions) {
@@ -362,16 +377,14 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
           ctx.signal,
           REQUEST_TIMEOUT_MS,
         );
-        const { response, body } = read;
+        const { response } = read;
         if (response.status === 404) {
           detail.set(ref.id, null);
           continue;
         }
         if (!response.ok) throw httpFailure(read);
-        const wire = parseWire(sessionWire, body, 'Invalid Spur response');
-        if (wire.id !== ref.id) {
-          throw new AdapterError('transient', 'Unresolved Spur session detail');
-        }
+        const wire = parseAt(sessionWire, read, 'Invalid Spur response');
+        if (wire.id !== ref.id) throw failAt(read, 'Unresolved Spur session detail');
         detail.set(ref.id, wire);
       }
       if (ctx.signal.aborted) throw new Error('Spur poll aborted');
