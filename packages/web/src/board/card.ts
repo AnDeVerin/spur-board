@@ -159,6 +159,8 @@ export interface Marker {
   title?: string;
   /** Long text, such as path names, wraps within the card instead of running past it. */
   wrap?: boolean;
+  /** Accessible text in place of `text`, for a chip whose visible text shortens it. */
+  label?: string;
 }
 
 /** The operator's first open block as `B<n> → you`, the rest as `+N`; agent blocks as a count. */
@@ -246,6 +248,28 @@ function approvalMarker(row: BoardRow): Marker | null {
   return chip === null ? null : { tone: 'warn', icon: 'person', wrap: true, ...chip };
 }
 
+/** How many awaited reviewers the chip names before `+N`. */
+const AWAITED_SHOWN = 2;
+
+/**
+ * In External Review, the reviewers the merge waits for under `approvalRule: github-rules`: the
+ * first two, then `+N`; the tooltip and the accessible text name every one. It comes from the
+ * gate's read, not the PR summary, so unconfirmed cells leave it as it is.
+ */
+export function awaitedMarker(row: BoardRow): Marker | null {
+  const all = row.awaitedReviewers;
+  if (row.column !== 'external-review' || all === undefined || all.length === 0) return null;
+  const rest = all.length - AWAITED_SHOWN;
+  return {
+    tone: 'default',
+    icon: 'person',
+    wrap: true,
+    text: `waiting for ${all.slice(0, AWAITED_SHOWN).join(', ')}${rest > 0 ? ` +${String(rest)}` : ''}`,
+    title: `Waiting for ${all.join(', ')}`,
+    label: `waiting for ${all.join(', ')}`,
+  };
+}
+
 /** A session id longer than this is cut, with the full id in the tooltip. */
 const SESSION_CHARS = 20;
 
@@ -268,12 +292,16 @@ export function sessionChip(row: BoardRow, spurUiOrigin: string | null): Marker 
   };
 }
 
-/** Every marker in drawing order: approval, QA, blocks, returned, draft, shadow, session. */
+/**
+ * Every marker in drawing order: approval or awaited reviewers (each in its own column), QA,
+ * blocks, returned, draft, shadow, session.
+ */
 export function markers(row: BoardRow, spurUiOrigin: string | null): Marker[] {
   const draft: Marker | null =
     displayedPr(row)?.summary?.draft === true ? { tone: 'default', text: 'draft' } : null;
   return [
     approvalMarker(row),
+    awaitedMarker(row),
     qaMarker(row),
     ...blockMarkers(row.blocks),
     returnedMarker(row.returned),

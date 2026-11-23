@@ -54,3 +54,12 @@ before and the chip still shows; when the facts are not confirmed the cells turn
 chip stays.
 
 Approvals are a hint only: no gate, move or turn reads them, and nothing blocks a merge on them.
+
+## Awaited reviewers
+
+In External Review under `approvalRule: github-rules`, while GitHub blocks the merge and the task
+waits for requested reviewers, a chip comes first among the card's markers: `waiting for` with
+the first two logins or team slugs, then `+N` for the rest. Its tooltip names every one, and a
+screen reader hears the full list instead of `+N`; the Why it is here row
+`awaiting required reviewers` names every one too. The list comes from the gate's read, not the
+PR summary, so when the cells turn grey the chip keeps its look and is not marked unconfirmed.

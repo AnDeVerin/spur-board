@@ -268,12 +268,21 @@ export function Card({
         {marks.length > 0 && (
           <div id={`${id}-markers`} className={styles.markers}>
             {marks.map((marker, index) => (
-              // A space between chips keeps the words apart in the description; flex drops it.
+              // A space between chips keeps the words apart in the description; flex drops it. The
+              // key is the visible text, never the label.
               <Fragment key={marker.text}>
                 {index > 0 && ' '}
                 <Chip tone={marker.tone} title={marker.title} wrap={marker.wrap}>
                   {marker.icon && <Icon name={marker.icon} />}
-                  {marker.text}
+                  {marker.label === undefined ? (
+                    marker.text
+                  ) : (
+                    // The shortened text is hidden from assistive technology, which reads the label.
+                    <>
+                      <span aria-hidden="true">{marker.text}</span>
+                      <span className={styles.hidden}>{marker.label}</span>
+                    </>
+                  )}
                 </Chip>
               </Fragment>
             ))}

@@ -38,24 +38,17 @@ const chipClass = (tone: ChipTone, wrap = false) =>
   /class="([^"]*)"/.exec(
     renderToStaticMarkup(createElement(Chip, { tone, wrap, children: 'x' })),
   )?.[1];
-/** `config` with an operator Ready to Merge column in the first project. */
-function readyToMergeConfig() {
+/** `config` with one more column in the first project. */
+function configWith(id: string, executor: { kind: string; name: string | null }) {
   const [first, ...rest] = config.projects;
   if (first === undefined) throw new Error('no project');
   return {
     ...config,
-    projects: [
-      {
-        ...first,
-        columns: [
-          ...first.columns,
-          { id: 'ready-to-merge', executor: { kind: 'operator', name: null } },
-        ],
-      },
-      ...rest,
-    ],
+    projects: [{ ...first, columns: [...first.columns, { id, executor }] }, ...rest],
   };
 }
+/** `config` with an operator Ready to Merge column in the first project. */
+const readyToMergeConfig = () => configWith('ready-to-merge', { kind: 'operator', name: null });
 
 describe('board task cards', () => {
   it('a quick link does not open the task', async () => {
@@ -289,6 +282,43 @@ describe('board task cards', () => {
     expect(quietCell.textContent).toBe('1+2');
     expect(quietCell.lastElementChild?.textContent).toBe('+2');
     expect(card('ex/repo#8').getAttribute('aria-describedby') ?? '').not.toContain('markers');
+  });
+
+  it('an External Review card names the awaited reviewers in its markers', async () => {
+    const awaitedReviewers = ['owner-a', 'web-owners', 'carol'];
+    const d = daemon();
+    serve(
+      d,
+      [
+        row('ex/repo#7', 'external-review', { awaitedReviewers }),
+        row('ex/repo#8', 'external-review', {
+          awaitedReviewers,
+          links: { ticket: null, prs: [prLink(8)], sessions: [] },
+          prSummary: [prSummary({ number: 8, unconfirmed: true })],
+        }),
+      ],
+      configWith('external-review', { kind: 'dispatcher', name: null }),
+    );
+    mount(d, {}, () => NOW);
+    await settle();
+    for (const key of ['ex/repo#7', 'ex/repo#8']) {
+      const card = one(`main a[title="${key}"]`);
+      const chip = card.querySelector<HTMLElement>(
+        '[title="Waiting for owner-a, web-owners, carol"]',
+      );
+      if (chip === null) throw new Error(`no awaited chip on ${key}`);
+      expect(chip.className).toBe(chipClass('default', true));
+      expect(chip.querySelector('span[aria-hidden="true"]')?.textContent).toBe(
+        'waiting for owner-a, web-owners +1',
+      );
+      const markers = card.querySelector('[id$="-markers"]');
+      if (markers === null) throw new Error(`no markers on ${key}`);
+      // What assistive technology reads: text outside aria-hidden, the full list without +N.
+      const read = markers.cloneNode(true) as Element;
+      for (const hidden of read.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+      expect(read.textContent).toBe('waiting for owner-a, web-owners, carol');
+      expect(card.getAttribute('aria-describedby')).toContain(markers.id);
+    }
   });
 
   it('a not-observed first PR keeps +N for the other linked PRs in the description', async () => {

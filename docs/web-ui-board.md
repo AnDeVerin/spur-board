@@ -89,8 +89,8 @@ Columns follow configuration order:
     with its findings, `draft`, and in shadow mode the dispatcher's column. The agents' block count
     and overflow `+N` have a soft red fill and red block icon with neutral text and border;
     `B<n> → you` keeps its attention styling. In Ready to Merge a warn approval chip comes first
-    when the cell turns yellow: `approved before` up to two entries then `+K` (all in its
-    tooltip), or `approval: history rewritten`; it also shows with changes requested or grey cells.
+    when the cell turns yellow, also with changes requested or grey cells; in External Review
+    `waiting for <login>` names the reviewers the merge waits for.
     Next, when the QA column's latest submission was carried or skipped and not voided,
     `QA carried` (tooltip: source commit and reason) or a warn `QA skipped` (tooltip: reason);
     tested, none or no QA column adds nothing. See [Approvals](web-ui-task-approvals.md).

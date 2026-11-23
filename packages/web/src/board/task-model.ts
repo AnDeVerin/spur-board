@@ -228,14 +228,25 @@ const inWords = (value: string) => value.replace(/_/g, ' ').replace(/\bpr\b/g, '
 /** An exit condition in the words of the Why table; an unknown one reads as its id in words. */
 export const conditionWords = (id: string) => CONDITIONS[id] ?? inWords(id);
 
-function conditionRow(condition: TaskGate['conditions'][number]): WhyRow {
+/**
+ * One condition of the Why table. A failed condition whose reason waits on named reviewers lists
+ * every one after the reason.
+ */
+function conditionRow(
+  condition: TaskGate['conditions'][number],
+  waiting: TaskWhy['waiting'],
+): WhyRow {
   const key = conditionWords(condition.condition);
   const reason = condition.reason === null ? null : inWords(condition.reason);
   switch (condition.state) {
     case 'met':
       return { key, value: 'met', status: 'pass' };
-    case 'failed':
-      return { key, value: reason ?? undefined, status: 'fail' };
+    case 'failed': {
+      const reviewers = waiting?.find((entry) => entry.reason === condition.reason)?.reviewers;
+      const value =
+        reviewers === undefined || reason === null ? reason : `${reason}: ${reviewers.join(', ')}`;
+      return { key, value: value ?? undefined, status: 'fail' };
+    }
     case 'waiting':
       return { key, value: reason ?? undefined, status: 'wait' };
     case 'unchecked':
@@ -279,7 +290,7 @@ export function whyRows(
   const rows: WhyRow[] = [];
   if (!why || !gate) rows.push({ key: 'Exit conditions unknown', status: 'unchecked' });
   else if (gate.conditions.length === 0) rows.push({ key: `No exit conditions in ${why.column}` });
-  else rows.push(...gate.conditions.map(conditionRow));
+  else rows.push(...gate.conditions.map((condition) => conditionRow(condition, why.waiting)));
   for (const hold of why?.holds ?? [])
     rows.push({ key: 'Hold', value: inWords(hold), status: 'wait' });
   rows.push(turnRow(value.turn, now, holderUnknown));

@@ -317,7 +317,7 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* The wait's full label, for assistive technology only. */
+/* Full text for assistive technology only: the wait's label, a marker's label. */
 .hidden {
   position: absolute;
   width: var(--size-hairline);
