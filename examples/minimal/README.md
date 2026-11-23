@@ -13,6 +13,9 @@ setup is needed. It uses no Slack and no web UI.
 Replace `example-org/example-repo`, `example-user` and the project names with your own values in
 both files.
 
+[Quickstart](../../docs/quickstart.md) walks these steps with what success looks like after each
+one and the fix for its common failures.
+
 ## Steps
 
 1. Install Spur and set it up:
