@@ -199,16 +199,9 @@ describe('jobIdsFromWorkflow', () => {
 interface WorkflowStep {
   uses?: string;
   run?: string;
-  if?: string;
-  env?: Record<string, string>;
-  with?: Record<string, unknown>;
 }
 
 interface WorkflowJob {
-  'timeout-minutes'?: number;
-  if?: string;
-  permissions?: Record<string, string>;
-  env?: Record<string, string>;
   steps?: WorkflowStep[];
 }
 
