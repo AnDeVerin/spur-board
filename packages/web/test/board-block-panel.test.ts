@@ -452,7 +452,11 @@ describe('block panel', () => {
     expect(panel().textContent).not.toContain('Could not load the block.');
   });
 
-  it('rereads when its project changes while the first read is pending', async () => {
+  it.each([
+    'first read',
+    'Retry after a failed first read',
+    'full re-read after a failed first read',
+  ])('rereads when its project changes while a read with no value runs (%s)', async (kind) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     history.replaceState(null, '', '/?open=inbox');
     const base = daemon();
@@ -461,20 +465,34 @@ describe('block panel', () => {
     await settle();
     base.send(hello);
     await settle();
-    const first = deferred();
-    base.routes['block.get'] = () => first.promise;
-    press(row('B1'), 'click');
-    await settle();
-    expect(of('block.get')).toHaveLength(1);
+    const held = deferred();
+    if (kind === 'first read') {
+      base.routes['block.get'] = () => held.promise;
+      press(row('B1'), 'click');
+      await settle();
+    } else {
+      base.routes['block.get'] = failure;
+      press(row('B1'), 'click');
+      await settle();
+      expect(panel().textContent).toContain('Could not load the block.');
+      base.routes['block.get'] = () => held.promise;
+      if (kind.startsWith('Retry')) {
+        const retry = buttonIn('Retry');
+        if (!retry) throw new Error('no Retry');
+        press(retry, 'click');
+      } else base.send(RESET);
+      await settle();
+    }
+    const count = of('block.get').length;
     base.routes['block.get'] = () =>
       Promise.resolve(envelope(blockGet({ state: 'unblocked', outcome: 'withdrawn' })));
     base.send(invalidate(['a']));
     await tick(400);
     await settle();
-    expect(of('block.get')).toHaveLength(1);
-    first.resolve(envelope(blockGet()));
+    expect(of('block.get')).toHaveLength(count);
+    held.resolve(envelope(blockGet()));
     await settle();
-    expect(of('block.get')).toHaveLength(2);
+    expect(of('block.get')).toHaveLength(count + 1);
     expect(panel().querySelector('textarea')).toBeNull();
     expect(note()).toBe('Closed as withdrawn. A closed block takes no answer.');
   });

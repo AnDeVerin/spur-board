@@ -47,8 +47,8 @@ const REFUSED = 'Answers and comments cannot be sent while the board is unavaila
 /**
  * The board's `block.get` read for the block panel `?open=block:<id>` names, and its writes. It
  * re-reads on a full re-read, on Retry, after a write, and on an invalidate that names the loaded
- * block's project, or that came while the first read loaded and names the project it answers;
- * invalidates never name blocks. An id that is not a block id is never read.
+ * block's project, or that came while a read of a block with no value ran and names the project it
+ * answers; invalidates never name blocks. An id that is not a block id is never read.
  */
 export function createBlockRead(
   api: ReturnType<typeof createApi>,
@@ -64,7 +64,9 @@ export function createBlockRead(
   let epoch = 0;
   let reads = 0;
   let issuedEpoch = 0;
-  // Projects invalidated while a read with no value was loading; its answer names the project.
+  // A `block.get` was sent and has not settled, whatever the panel shows meanwhile.
+  let inFlight = false;
+  // Projects invalidated while a read ran for a block with no value; its answer names the project.
   const unseen = new Set<string>();
   const waits = new Set<{ epoch: number; after: number; resolve: (ok: boolean) => void }>();
   const endWaits = () => {
@@ -79,9 +81,11 @@ export function createBlockRead(
       const id = blockId ?? '';
       reads++;
       issuedEpoch = epoch;
+      inFlight = true;
       return readResult(id, () => api('block.get', { block: id }, { signal }));
     },
     (result) => {
+      inFlight = false;
       // An answer for an id that is no longer open is dropped; its trailing read follows.
       const shown = current();
       if (
@@ -142,17 +146,16 @@ export function createBlockRead(
   };
   /**
    * A null scope re-reads; a scope re-reads only a loaded block whose project it names, so a
-   * block with no value waits for a full re-read or Retry. While a read with no value loads, the
-   * scope's projects are kept, and its answer re-reads when it names one of them.
+   * block with no value waits for a full re-read or Retry. While any read runs for a block with no
+   * value (first read, Retry or a full re-read), the scope's projects are kept, and its answer
+   * re-reads when it names one of them.
    */
   const refresh = (scope: RefreshScope | null) => {
     if (!readable) return;
-    const shown = current();
-    const project = shown?.value?.project;
+    const project = current()?.value?.project;
     if (scope === null || (project !== undefined && scope.projects.includes(project)))
       read.refresh();
-    else if (shown?.state === 'loading' && shown.value === undefined)
-      for (const name of scope.projects) unseen.add(name);
+    else if (inFlight && project === undefined) for (const name of scope.projects) unseen.add(name);
   };
   const dispose = () => {
     disposed = true;
