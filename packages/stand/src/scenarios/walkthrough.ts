@@ -149,15 +149,23 @@ const STEPS: readonly DemoStep[] = [
     async run(context) {
       const { board } = context;
       const question = id(context, 'question');
-      // The presenter may have answered in the web UI already.
-      const { blocks } = await board.call('operator', 'task.get', { task: TASK });
-      if (blocks.find((block) => block.id === question)?.state === 'open')
-        await board.call(
-          'operator',
-          'block.answer',
-          { block: question, text: 'Keep them per user on the server, so they follow the user.' },
-          randomUUID(),
-        );
+      const open = async (): Promise<boolean> =>
+        (await board.call('operator', 'task.get', { task: TASK })).blocks.find(
+          (block) => block.id === question,
+        )?.state === 'open';
+      // The presenter may have answered in the web UI already, or be saving that answer now: a
+      // refusal is fine once the question is closed, and thrown while it is still open.
+      if (await open())
+        try {
+          await board.call(
+            'operator',
+            'block.answer',
+            { block: question, text: 'Keep them per user on the server, so they follow the user.' },
+            randomUUID(),
+          );
+        } catch (err) {
+          if (await open()) throw err;
+        }
       await until(
         board,
         'with the question answered',
