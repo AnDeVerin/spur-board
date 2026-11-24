@@ -108,6 +108,15 @@ function exampleFor(
   return { command: `${command} --key ${key}`, summary };
 }
 
+/** The positionals as the CLI registers them: `<name>` when required, `[name]` otherwise. */
+function argumentsFor(operation: CatalogOperation): string {
+  return commandFor(operation.cli.command)
+    .registeredArguments.map((arg) =>
+      arg.required ? `\`<${arg.name()}>\`` : `\`[${arg.name()}]\``,
+    )
+    .join(', ');
+}
+
 function cliGuidance(guidance: string): string {
   return guidance.replace(/\b[a-z][a-z0-9_]*\b/g, (word) => {
     const neighbour = cliByMcpName.get(word);
@@ -149,7 +158,7 @@ function renderOperation(operation: CatalogOperation): string {
     `### \`board ${operation.cli.command}\``,
     '',
     `Purpose: ${operation.description}`,
-    `Arguments: ${operation.cli.args.length ? operation.cli.args.map((arg) => `\`<${arg}>\``).join(', ') : 'none'}.`,
+    `Arguments: ${operation.cli.args.length ? argumentsFor(operation) : 'none'}.`,
     `Flags: ${flags.map((flag) => `\`${flag}\``).join(', ')}.`,
     ...modeGuidance,
     `Use when: ${operation.mcp.whenToUse}`,

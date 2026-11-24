@@ -788,6 +788,7 @@ describe('grants', () => {
         ...archived,
         'turn_closed',
         'not_turn_taker',
+        'submit_sha_required',
         'submit_basis_invalid',
         'submit_source_not_tested',
         'head_mismatch',
@@ -1011,9 +1012,11 @@ describe('snapshot', () => {
     // rang its session. #802 adds the optional pr to move views. #811 adds block.get, the
     // operator's read of one block with its replies and project. #891 adds the
     // awaiting_required_reviewers gate reason, task.get why.waiting[].reviewers and status.get
-    // tasks[].awaitedReviewers.
+    // tasks[].awaitedReviewers. #900 lets task.submit omit sha outside Dev on a task with no
+    // linked PR: optional sha, nullable output sha, the submit_sha_required code, the optional
+    // task_submitted sha and task.get why.submittedWithoutCommit.
     expect(await catalogVersion(baseline)).toBe(
-      'a020b5d74d49beb706b8f4bba6445328ab0f94a9423b52e27e96b6535f2ceccb',
+      '648589f76c8396c30f800c87fa74647a0b6351c062802f8bbec90b143c5c3e67',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

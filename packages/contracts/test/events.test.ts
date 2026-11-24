@@ -332,6 +332,13 @@ describe('parseEvent', () => {
         payload: { column: 'dev', sha: 'a'.repeat(40) },
       }).status,
     ).toBe('ok');
+    expect(
+      parseEvent({
+        ...base,
+        kind: 'task_submitted',
+        payload: { turn: 'T5', column: 'done', reason: 'x' },
+      }).status,
+    ).toBe('ok');
     expect(parseEvent(samples.task_moved).status).toBe('ok');
     expect(parseEvent(samples.task_submitted).status).toBe('ok');
     expect(

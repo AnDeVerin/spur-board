@@ -1,5 +1,5 @@
 {
-  "version": "228cc4aa5bb89711ef5f5758e93602db6148b156ddcaf660a74b5f23e6efa03c",
+  "version": "a2a7f294607c4d8480ad1e91cf8559039cbb8b10c3babcad54e49ca10936201b",
   "grants": [
     "operator",
     "project-agent",
@@ -464,6 +464,35 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#submit_source_not_tested",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "submit_sha_required": {
+      "status": 409,
+      "exit": 1,
+      "message": "The submit needs a commit SHA.",
+      "hint": "Submit the pull request head; only a turn outside Dev on a task with no linked pull request closes without a commit.",
+      "recovery": {
+        "action": "Submit the pull request head.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#submit_sha_required",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -5792,6 +5821,31 @@
                   }
                 },
                 "required": ["sha", "until", "text"],
+                "additionalProperties": false
+              },
+              "submittedWithoutCommit": {
+                "description": "The current visit's turn closed by a submit without a commit; absent otherwise.",
+                "type": "object",
+                "properties": {
+                  "turn": {
+                    "type": "string",
+                    "maxLength": 16,
+                    "pattern": "^T[1-9]\\d{0,14}$",
+                    "description": "The closed turn."
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "description": "When the turn closed, ISO 8601 UTC."
+                  },
+                  "reason": { "type": "string", "description": "The reason the submit gave." },
+                  "text": {
+                    "type": "string",
+                    "description": "The close in words: submitted without a commit: <reason>."
+                  }
+                },
+                "required": ["turn", "at", "reason", "text"],
                 "additionalProperties": false
               },
               "gates": {
@@ -11453,6 +11507,7 @@
         "not_turn_taker",
         "submit_basis_invalid",
         "submit_source_not_tested",
+        "submit_sha_required",
         "head_mismatch",
         "task_archived",
         "idempotency_key_mismatch",
@@ -11465,7 +11520,7 @@
       "mcp": {
         "name": "task_submit",
         "key": "idempotencyKey",
-        "whenToUse": "Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.",
+        "whenToUse": "Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key. Outside Dev, on a task with no linked pull request, omit sha and give a reason to close the turn without a commit.",
         "whenNotToUse": "Use task_return to send the task back to Dev instead.",
         "destructive": true
       },
@@ -11537,6 +11592,21 @@
             "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4",
             "status": "confirmed"
           }
+        },
+        {
+          "summary": "Close a Done wrap-up on a task with no pull request",
+          "input": { "turn": "T5", "reason": "Findings are in the ticket; no code change." },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "done",
+              "membership": "active"
+            },
+            "turn": "T5",
+            "sha": null,
+            "status": "confirmed"
+          }
         }
       ],
       "input": {
@@ -11561,10 +11631,10 @@
             "description": "Turn ID you took (T4); while the project dispatcher is in shadow mode, the task key instead."
           },
           "sha": {
+            "description": "Full commit SHA at the head of the pull request, lowercase. Omit it only outside Dev on a task with no linked pull request, and give reason.",
             "type": "string",
             "maxLength": 64,
-            "pattern": "^[0-9a-f]{40,64}$",
-            "description": "Full commit SHA at the head of the pull request, lowercase."
+            "pattern": "^[0-9a-f]{40,64}$"
           },
           "basis": {
             "description": "Testing provenance: tested (default), carried from a tested origin on this task, or skipped with a reason.",
@@ -11578,12 +11648,12 @@
             "pattern": "^[0-9a-f]{40,64}$"
           },
           "reason": {
-            "description": "Literal nonblank explanation, up to 2000 UTF-16 units; required for carried and skipped.",
+            "description": "Literal nonblank explanation, up to 2000 UTF-16 units; required for carried and skipped, and for a submit without sha.",
             "type": "string",
             "maxLength": 2000
           }
         },
-        "required": ["turn", "sha"],
+        "required": ["turn"],
         "additionalProperties": false
       },
       "output": {
@@ -11642,13 +11712,12 @@
             "description": "The closed turn; null for a submit by task key in shadow mode."
           },
           "sha": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{40,64}$",
-            "description": "The submitted commit SHA."
+            "anyOf": [{ "type": "string", "pattern": "^[0-9a-f]{40,64}$" }, { "type": "null" }],
+            "description": "The submitted commit SHA; null for a submit without a commit."
           },
           "status": {
             "default": "confirmed",
-            "description": "confirmed: the board saw the PR head at sha. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block.",
+            "description": "confirmed: the board saw the PR head at sha, or the turn closed without a commit. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block.",
             "type": "string",
             "enum": ["confirmed", "pending"]
           }

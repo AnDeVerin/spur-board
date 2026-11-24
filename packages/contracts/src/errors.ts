@@ -204,6 +204,13 @@ export const ERRORS = {
     hint: 'Choose a tested submission SHA on this task, or a carried SHA with a tested origin; otherwise test or explicitly skip with a reason.',
     recovery: noRetry('Choose a source with a tested origin on this task or change the basis.'),
   }),
+  submit_sha_required: spec('submit_sha_required', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The submit needs a commit SHA.',
+    hint: 'Submit the pull request head; only a turn outside Dev on a task with no linked pull request closes without a commit.',
+    recovery: noRetry('Submit the pull request head.'),
+  }),
   head_mismatch: spec('head_mismatch', {
     status: 409,
     exit: EXIT_CODES.refused,

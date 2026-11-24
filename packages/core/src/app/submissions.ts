@@ -3,6 +3,7 @@ import {
   type ColumnId,
   type Config,
   type PrPoller,
+  type PollPrError,
   type PollPrResult,
   type SubmissionBasis,
   type SubmissionView,
@@ -14,6 +15,50 @@ import { taskPr, type Trx } from './board-utils.ts';
 
 /** How long a submit waits for its on-demand PR read. */
 export const SUBMIT_POLL_TIMEOUT_MS = 10_000;
+
+/** Ends a hint for a refusal that a later submit cannot fix. */
+export const noRepeat = (step: string) => `repeating will not help; ask the operator to ${step}.`;
+
+/** The next step for an on-demand poll that answered nothing. */
+export function pollErrorHint(error: PollPrError, pr: string): string {
+  switch (error.kind) {
+    case 'timeout':
+      return `GitHub did not answer for ${pr} within ${String(SUBMIT_POLL_TIMEOUT_MS / 1000)} s; wait a minute, then submit again.`;
+    case 'blind':
+      return error.reason === 'stale'
+        ? `The board has no recent complete GitHub poll for ${pr}; submit again in a few minutes, once GitHub answers its polls.`
+        : `The board cannot read ${pr} (${error.reason}); ${noRepeat('fix the GitHub access')}`;
+    case 'failed':
+      if (error.adapterKind === 'auth' || error.adapterKind === 'config') {
+        return `The board cannot read ${pr} (${error.adapterKind}); ${noRepeat('fix the GitHub access')}`;
+      }
+      return error.retryAt === undefined
+        ? `The GitHub poll of ${pr} failed (${error.adapterKind}); wait a minute, then submit again.`
+        : `GitHub is throttled until ${error.retryAt}; submit again after that.`;
+    case 'stopped':
+      return 'The GitHub poller is not running; submit again once the daemon is up.';
+    case 'unknown_source':
+      return `The repo of ${pr} is not in the project's repos; ${noRepeat('add it to the config')}`;
+    case 'unsupported':
+      return `This daemon cannot poll a pull request on demand; ${noRepeat('update the daemon')}`;
+  }
+}
+
+/** True when GitHub gave no answer this call and the last poll may stand in for it. */
+export function pollMayConfirm(error: PollPrError): boolean {
+  return (
+    error.kind === 'timeout' ||
+    (error.kind === 'failed' &&
+      (error.adapterKind === 'transient' ||
+        error.adapterKind === 'unexpected' ||
+        error.adapterKind === 'throttled'))
+  );
+}
+
+/** A failed poll that waiting can fix, beyond `pollMayConfirm`: a stale source, a stopped poller. */
+export function submitAgain(error: PollPrError): boolean {
+  return (error.kind === 'blind' && error.reason === 'stale') || error.kind === 'stopped';
+}
 
 /** The PR poll `prepare` ran for a submit, or why it ran none. */
 export type SubmitPrepared =

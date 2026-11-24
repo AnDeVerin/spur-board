@@ -347,6 +347,13 @@ async function setup(
       turn = 'T1',
       provenance: { basis?: SubmissionBasis; from?: string; reason?: string } = {},
     ) => apply(registry['task.submit'], { turn, sha, ...provenance }, actor, key),
+    /** A submit with no sha: closes a turn outside Dev on a task with no linked PR. */
+    submitWithoutCommit: (
+      actor: ActorId,
+      key: string,
+      turn = 'T1',
+      input: { reason?: string; basis?: SubmissionBasis; from?: string } = {},
+    ) => apply(registry['task.submit'], { turn, ...input }, actor, key),
     get: () => query(registry['task.get'], { task: 'o/r#9' }, 'operator'),
     status: () => query(registry['status.get'], {}, 'operator'),
     /** A submit through its own `createApply`, as each daemon request builds one. */
@@ -950,6 +957,164 @@ describe('task.submit', () => {
     await expect(ctx.submit(REV_1, A, 'submit-2')).rejects.toMatchObject({ code: 'turn_closed' });
   });
 
+  describe('submit without a commit', () => {
+    const REASON = 'Findings are in the ticket; no code change.';
+    const PR_HINT = (pr: string, head: string) =>
+      `The task has pull request ${pr} at head ${head}; submit that head with \`board submit T1 <sha>\`.`;
+    const submissions = (ctx: Awaited<ReturnType<typeof setup>>) =>
+      ctx.store.db.selectFrom('submission').selectAll().execute();
+    /** Turns the task's PR link into `kind`; the snapshot of o/r#7 is at A unless removed. */
+    async function linked(ctx: Awaited<ReturnType<typeof setup>>, kind: string) {
+      const link = (values: { pr_state: 'active' | 'conflict'; pr_open: 0 | 1 }) =>
+        ctx.store.db.updateTable('link').set(values).where('entity', '=', 'pr').execute();
+      const snapshot = (state: 'open' | 'closed' | 'merged') =>
+        ctx.store.db.updateTable('pr_snapshot').set({ state }).execute();
+      switch (kind) {
+        case 'active closed':
+          await link({ pr_state: 'active', pr_open: 0 });
+          await snapshot('closed');
+          break;
+        case 'open conflict':
+          await link({ pr_state: 'conflict', pr_open: 1 });
+          break;
+        case 'merged conflict':
+          await link({ pr_state: 'conflict', pr_open: 0 });
+          await snapshot('merged');
+          break;
+        case 'closed conflict':
+          await link({ pr_state: 'conflict', pr_open: 0 });
+          await snapshot('closed');
+          break;
+        case 'never polled':
+          await ctx.store.db.deleteFrom('pr_snapshot').execute();
+          break;
+      }
+    }
+
+    it('closes a turn with no linked PR by a submit without a commit', async () => {
+      const ctx = await taken({ mode: 'on', complete: true });
+      await unlinkAll(ctx);
+      const seen = (await ctx.events()).length;
+
+      const result = await ctx.submitWithoutCommit(REV_1, 'nc-1', 'T1', { reason: REASON });
+
+      expect(result).toEqual({
+        task: { key: 'o/r#9', project: 'proj', column: 'dev', membership: 'active' },
+        turn: 'T1',
+        sha: null,
+        status: 'confirmed',
+      });
+      expect(await ctx.turn()).toMatchObject({ closed_reason: 'submitted', closed_at: AT });
+      expect(
+        (await ctx.events()).slice(seen).filter((event) => event.kind === 'task_submitted'),
+      ).toEqual([
+        { kind: 'task_submitted', payload: { turn: 'T1', column: 'review', reason: REASON } },
+      ]);
+      expect(await submissions(ctx)).toEqual([]);
+      expect(ctx.calls).toHaveLength(0);
+      // Review has no PR to judge, so the dispatcher sends the task to Dev for one.
+      expect((await ctx.task()).column).toBe('dev');
+      expect(
+        await ctx.store.db
+          .selectFrom('turn')
+          .select(['column', 'reason'])
+          .where('closed_at', 'is', null)
+          .execute(),
+      ).toEqual([{ column: 'dev', reason: 'dev: no_pr' }]);
+      expect((await ctx.history()).find((event) => event.kind === 'task_submitted')?.summary).toBe(
+        `Turn submitted without a commit: ${REASON}`,
+      );
+      expect((await ctx.why()).submittedWithoutCommit).toBeUndefined();
+      await expect(
+        ctx.submitWithoutCommit(REV_1, 'nc-1', 'T1', { reason: REASON }),
+      ).resolves.toEqual(result);
+      await expect(
+        ctx.submitWithoutCommit(REV_1, 'nc-2', 'T1', { reason: REASON }),
+      ).rejects.toMatchObject({ code: 'turn_closed' });
+    });
+
+    it.each([
+      {},
+      { reason: '  ' },
+      { reason: 'x', basis: 'tested' as const },
+      { reason: 'x', from: A },
+    ])('refuses a submit without a commit and with %o', async (input) => {
+      const ctx = await taken({ mode: 'on', complete: true });
+      await unlinkAll(ctx);
+      const before = await ctx.tables();
+
+      await expect(ctx.submitWithoutCommit(REV_1, 'nc-1', 'T1', input)).rejects.toMatchObject({
+        code: 'submit_basis_invalid',
+        hint: 'A submit without a commit takes a nonblank reason and no basis or from.',
+      });
+
+      expect(ctx.calls).toHaveLength(0);
+      expect(await ctx.tables()).toEqual(before);
+    });
+
+    it.each([
+      ['active open', 'o/r#7', A, 'confirmed'],
+      ['active closed', 'o/r#7', A, 'confirmed'],
+      ['open conflict', 'o/r#7', A, 'pending'],
+      ['merged conflict', 'o/r#7', A, 'pending'],
+      ['never polled', 'o/r#7', 'unknown', 'confirmed'],
+    ] as const)(
+      'refuses a submit without a commit while the task has a %s link',
+      async (kind, pr, head, status) => {
+        const ctx = await taken({ mode: 'on', complete: true });
+        await linked(ctx, kind);
+        const before = await ctx.tables();
+
+        await expect(
+          ctx.submitWithoutCommit(REV_1, 'nc-1', 'T1', { reason: REASON }),
+        ).rejects.toMatchObject({ code: 'submit_sha_required', hint: PR_HINT(pr, head) });
+
+        expect(ctx.calls).toHaveLength(0);
+        expect(await ctx.tables()).toEqual(before);
+        ctx.commits(A);
+        await expect(ctx.submit(REV_1, A, 'sha-1')).resolves.toMatchObject({ sha: A, status });
+      },
+    );
+
+    it('names the active link before an open conflict link', async () => {
+      const ctx = await taken({ mode: 'on', complete: true });
+      await ctx.store.db
+        .insertInto('link')
+        .values({
+          task_id: 1,
+          entity: 'pr',
+          repo: 'o/r',
+          number: 8,
+          pr_state: 'conflict',
+          session_id: null,
+          role: null,
+          source: 'manual',
+          created_at: AT,
+          ticket_key: null,
+          pr_open: 1,
+        })
+        .execute();
+
+      await expect(
+        ctx.submitWithoutCommit(REV_1, 'nc-1', 'T1', { reason: REASON }),
+      ).rejects.toMatchObject({ code: 'submit_sha_required', hint: PR_HINT('o/r#7', A) });
+      expect(ctx.calls).toHaveLength(0);
+    });
+
+    it('accepts a submit without a commit with only a closed conflict link', async () => {
+      const ctx = await taken({ mode: 'on', complete: true });
+      await linked(ctx, 'closed conflict');
+
+      await expect(
+        ctx.submitWithoutCommit(REV_1, 'nc-1', 'T1', { reason: REASON }),
+      ).resolves.toMatchObject({ turn: 'T1', sha: null, status: 'confirmed' });
+
+      expect(await ctx.turn()).toMatchObject({ closed_reason: 'submitted' });
+      expect(await submissions(ctx)).toEqual([]);
+      expect(ctx.calls).toHaveLength(0);
+    });
+  });
+
   it('refuses a shadow submit with no linked PR', async () => {
     const ctx = await setup();
     await unlinkAll(ctx);
@@ -1378,6 +1543,25 @@ describe('task.submit', () => {
       expect(await ctx.store.db.selectFrom('submission').selectAll().execute()).toEqual([]);
     });
 
+    it('refuses a submit by task key without a commit', async () => {
+      const ctx = await setup();
+      await unlinkAll(ctx);
+      const before = await ctx.tables();
+
+      await expect(
+        ctx.submitWithoutCommit(REV_1, 'submit-1', 'o/r#9', { reason: 'No code.' }),
+      ).rejects.toMatchObject({
+        code: 'submit_sha_required',
+        hint: 'A submit by task key needs the pull request head: `board submit o/r#9 <sha>`.',
+      });
+      await expect(
+        ctx.submitWithoutCommit(QA_1, 'submit-2', 'o/r#9', { reason: 'No code.' }),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+
+      expect(ctx.calls).toHaveLength(0);
+      expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(before));
+    });
+
     it('refuses a task key while the dispatcher is on', async () => {
       const ctx = await setup({ mode: 'on' });
       ctx.commits(B);
@@ -1573,6 +1757,31 @@ describe('task.return', () => {
       (await ctx.events()).filter((event) => event.kind === 'block_unblocked');
     return { ctx, registry, apply, block, unblocked };
   }
+
+  it.each(['no PR', 'linked PR'] as const)(
+    'refuses a submit without a commit on a Dev turn (%s)',
+    async (link) => {
+      const { ctx, block } = await returnedToDev();
+      await ctx.ack(WORKER_1, 'T2');
+      if (link === 'no PR') await unlinkAll(ctx);
+      const before = await ctx.tables();
+
+      await expect(
+        ctx.submitWithoutCommit(WORKER_1, 'dev-1', 'T2', { reason: 'x' }),
+      ).rejects.toMatchObject({
+        code: 'submit_sha_required',
+        hint:
+          link === 'no PR'
+            ? 'Dev needs a pull request: open one, then submit its head with `board submit T2 <sha>`; a task without code ends when its ticket is done and no worker is live.'
+            : 'The task has pull request o/r#7 at head ' +
+              A +
+              '; submit that head with `board submit T2 <sha>`.',
+      });
+
+      expect(await ctx.tables()).toEqual(before);
+      expect(await block()).toMatchObject({ type: 'code', state: 'open' });
+    },
+  );
 
   it('taking the Dev turn of a return reads its code block', async () => {
     const { ctx } = await returnedToDev();

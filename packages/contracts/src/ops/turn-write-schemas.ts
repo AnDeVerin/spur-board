@@ -51,7 +51,10 @@ export const taskSubmitInputSchema = z.strictObject({
     ),
   sha: commitShaSchema
     .max(64)
-    .describe('Full commit SHA at the head of the pull request, lowercase.'),
+    .optional()
+    .describe(
+      'Full commit SHA at the head of the pull request, lowercase. Omit it only outside Dev on a task with no linked pull request, and give reason.',
+    ),
   basis: z
     .enum(SUBMISSION_BASES)
     .optional()
@@ -67,7 +70,7 @@ export const taskSubmitInputSchema = z.strictObject({
     .max(2000)
     .optional()
     .describe(
-      'Literal nonblank explanation, up to 2000 UTF-16 units; required for carried and skipped.',
+      'Literal nonblank explanation, up to 2000 UTF-16 units; required for carried and skipped, and for a submit without sha.',
     ),
 });
 export const taskSubmitOutputSchema = z.strictObject({
@@ -75,14 +78,16 @@ export const taskSubmitOutputSchema = z.strictObject({
   turn: turnIdSchema
     .nullable()
     .describe('The closed turn; null for a submit by task key in shadow mode.'),
-  sha: commitShaSchema.describe('The submitted commit SHA.'),
+  sha: commitShaSchema
+    .nullable()
+    .describe('The submitted commit SHA; null for a submit without a commit.'),
   // The default reads a result stored before pending submits existed, when every submit
   // confirmed its head; a new call always sets status, so the output schema keeps it required.
   status: z
     .enum(['confirmed', 'pending'])
     .default('confirmed')
     .describe(
-      'confirmed: the board saw the PR head at sha. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block.',
+      'confirmed: the board saw the PR head at sha, or the turn closed without a commit. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block.',
     ),
 });
 

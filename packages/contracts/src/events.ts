@@ -185,7 +185,8 @@ export const eventPayloadSchemas = {
     reason: S.optional(),
     turn: S.optional(),
     column: z.enum(COLUMN_IDS),
-    sha: S,
+    /** Absent for a submit without a commit: a turn outside Dev on a task with no linked PR. */
+    sha: S.optional(),
     /** The head was confirmed by the board's newest poll; GitHub did not answer the submit. */
     confirmedByPoll: z.literal(true).optional(),
     /** The board accepted the submit before it could confirm the head; it confirms it on a later poll. */

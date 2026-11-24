@@ -8,6 +8,8 @@ Only the acknowledging session may submit or return: keyed
 `board return <turn> <reason>` sends findings to Dev; a review orchestrator adds
 `--findings <n>` and `board status` shows the count in the row's `returned`. In
 shadow mode, use keyed `board submit <task> <sha>`.
+Outside Dev, a task with no linked PR closes the turn with keyed
+`board submit <turn> --reason <text>`, no SHA.
 Unseen heads answer `pending`: that submit is final; do not resubmit or raise a
 block. Confirm timeout: `projects[].dispatcher.submitConfirmMs`.
 
@@ -35,8 +37,7 @@ head confirmation and gates; only returns increment course and cycle counts.
 submission includes its pending and voided state: historical tested submissions
 remain carryable even when pending or voided, independently of gate validity.
 Legacy rows with nullable provenance read as tested; stored command results and
-omitted-input fingerprints remain compatible. Migration rollback is the normal
-pre-update backup restore; the migrated database has no downgrade guarantee.
+omitted-input fingerprints remain compatible.
 After a catalog upgrade, restart the daemon and MCP clients together.
 
 A new head closes taken turns outside Dev and Done; taken Dev turns and Done

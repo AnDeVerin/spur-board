@@ -19,6 +19,7 @@ import {
   commentIdSchema,
   itemIdSchema,
   taskKeySchema,
+  turnIdSchema,
 } from '../ids.ts';
 import {
   PR_STATES,
@@ -203,6 +204,15 @@ export const taskWhySchema = z
       })
       .optional()
       .describe('The turn submit the board accepted pending; absent when no submit waits.'),
+    submittedWithoutCommit: z
+      .strictObject({
+        turn: turnIdSchema.describe('The closed turn.'),
+        at: z.iso.datetime().describe('When the turn closed, ISO 8601 UTC.'),
+        reason: z.string().describe('The reason the submit gave.'),
+        text: z.string().describe('The close in words: submitted without a commit: <reason>.'),
+      })
+      .optional()
+      .describe("The current visit's turn closed by a submit without a commit; absent otherwise."),
     gates: z
       .array(
         z

@@ -610,6 +610,7 @@ describe('catalog commands', () => {
         '--key',
         'submit-2',
       ],
+      ['submit', 'T4', '--reason', 'Wrap-up', '--key', 'submit-3'],
       ['return', 'T4', 'Handle the empty list', '--key', 'return-1'],
       ['return', 'T4', 'Handle the empty list', '--findings', '3', '--key', 'return-2'],
       ['task', 'PROJ-123', '--why'],
@@ -665,6 +666,7 @@ describe('catalog commands', () => {
           reason: 'Same work',
         },
       },
+      { id: 'task.submit', input: { turn: 'T4', reason: 'Wrap-up' } },
       { id: 'task.return', input: { turn: 'T4', reason: 'Handle the empty list' } },
       {
         id: 'task.return',
@@ -1029,6 +1031,11 @@ describe('catalog commands', () => {
     expect(wait.stdout).toContain('board wait T4 --end');
     expect(wait.stdout).toMatch(/--end\s+Operator only/);
     expect(wait.stdout).not.toContain('--end <value>');
+
+    const submit = capture();
+    expect(await runCli(['submit', '--help'], { env: {}, io: submit.io })).toBe(0);
+    expect(submit.stdout).toMatch(/Usage: board submit \[options\] <turn> \[sha\]/);
+    expect(submit.stdout).toContain('board submit T5 --reason');
 
     for (const command of ['link', 'unlink']) {
       const help = capture();

@@ -126,6 +126,8 @@ describe('board mcp', () => {
       const status = tools.find((tool) => tool.name === 'status_get');
       expect(status?.inputSchema.properties?.['detail']).toMatchObject({ type: 'boolean' });
       expect(status?.inputSchema.required ?? []).not.toContain('detail');
+      const submit = tools.find((tool) => tool.name === 'task_submit');
+      expect(submit?.inputSchema.required).toEqual(['turn']);
       const commentAdd = tools.find((tool) => tool.name === 'comment_add');
       expect(commentAdd?.annotations?.destructiveHint).toBe(false);
       const unblock = tools.find((tool) => tool.name === 'block_unblock');

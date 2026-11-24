@@ -6,7 +6,6 @@ import {
   type ActorId,
   type ColumnId,
   type Config,
-  type PollPrError,
   type PrPoller,
 } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
@@ -27,11 +26,15 @@ import { storedKey } from './membership.ts';
 import { taskSubject } from './subject.ts';
 import { closeTurns } from './turns.ts';
 import {
+  noRepeat,
+  pollErrorHint,
+  pollMayConfirm,
   submissionBasis,
+  submitAgain,
   pollTaskPr,
-  SUBMIT_POLL_TIMEOUT_MS,
   type SubmitPrepared,
 } from './submissions.ts';
+import { closeWithoutCommit } from './submit-without-commit.ts';
 
 type Task = Selectable<TaskTable>;
 type Turn = Selectable<TurnTable>;
@@ -159,52 +162,8 @@ export async function takenTurn(
   return { turn, task };
 }
 
-/** Ends a hint for a refusal that a later submit cannot fix. */
-const noRepeat = (step: string) => `repeating will not help; ask the operator to ${step}.`;
-
-/** The next step for an on-demand poll that answered nothing. */
-function pollErrorHint(error: PollPrError, pr: string): string {
-  switch (error.kind) {
-    case 'timeout':
-      return `GitHub did not answer for ${pr} within ${String(SUBMIT_POLL_TIMEOUT_MS / 1000)} s; wait a minute, then submit again.`;
-    case 'blind':
-      return error.reason === 'stale'
-        ? `The board has no recent complete GitHub poll for ${pr}; submit again in a few minutes, once GitHub answers its polls.`
-        : `The board cannot read ${pr} (${error.reason}); ${noRepeat('fix the GitHub access')}`;
-    case 'failed':
-      if (error.adapterKind === 'auth' || error.adapterKind === 'config') {
-        return `The board cannot read ${pr} (${error.adapterKind}); ${noRepeat('fix the GitHub access')}`;
-      }
-      return error.retryAt === undefined
-        ? `The GitHub poll of ${pr} failed (${error.adapterKind}); wait a minute, then submit again.`
-        : `GitHub is throttled until ${error.retryAt}; submit again after that.`;
-    case 'stopped':
-      return 'The GitHub poller is not running; submit again once the daemon is up.';
-    case 'unknown_source':
-      return `The repo of ${pr} is not in the project's repos; ${noRepeat('add it to the config')}`;
-    case 'unsupported':
-      return `This daemon cannot poll a pull request on demand; ${noRepeat('update the daemon')}`;
-  }
-}
-
-/** True when GitHub gave no answer this call and the last poll may stand in for it. */
-function pollMayConfirm(error: PollPrError): boolean {
-  return (
-    error.kind === 'timeout' ||
-    (error.kind === 'failed' &&
-      (error.adapterKind === 'transient' ||
-        error.adapterKind === 'unexpected' ||
-        error.adapterKind === 'throttled'))
-  );
-}
-
 /** How a submit's head was confirmed: `pending` waits for a later poll (`dispatch.ts`). */
 type Confirmed = 'live' | 'poll' | 'pending';
-
-/** A failed poll that waiting can fix, beyond `pollMayConfirm`: a stale source, a stopped poller. */
-function submitAgain(error: PollPrError): boolean {
-  return (error.kind === 'blind' && error.reason === 'stale') || error.kind === 'stopped';
-}
 
 /**
  * How the PR head behind a submit is confirmed: `live` by this call's poll, `poll` by the
@@ -283,7 +242,7 @@ function confirmHead(input: {
  */
 async function insertSubmission(
   trx: Trx,
-  input: SubmitInput & { task: Task; column: ColumnId; epoch: number },
+  input: SubmitInput & { sha: string; task: Task; column: ColumnId; epoch: number },
   ctx: CommandContext<SubmitPrepared>,
   completeSince: ReadonlyMap<string, string>,
   pendingMs?: number,
@@ -375,9 +334,15 @@ export function createTurnMutations(deps: {
         `Only the executor of ${column} submits this task while the dispatcher is in shadow mode.`,
       );
     }
+    if (input.sha === undefined) {
+      throw new CommandError(
+        'submit_sha_required',
+        `A submit by task key needs the pull request head: \`board submit ${input.turn} <sha>\`.`,
+      );
+    }
     const { confirmed, event } = await insertSubmission(
       trx,
-      { ...input, task, column, epoch: task.column_epoch },
+      { ...input, sha: input.sha, task, column, epoch: task.column_epoch },
       ctx,
       completeSince,
     );
@@ -406,6 +371,7 @@ export function createTurnMutations(deps: {
     // Polls only for the turn's taker on the current visit, or the shadow column's executor;
     // refusals are decided in `run`.
     async prepare(db, input, actor) {
+      if (input.sha === undefined) return { kind: 'skipped' };
       if (!isTurnId(input.turn)) {
         const task = await shadowTask(db, input.turn, config);
         if (
@@ -425,16 +391,22 @@ export function createTurnMutations(deps: {
     async run(trx, input, ctx) {
       if (!isTurnId(input.turn)) return submitShadow(trx, input, ctx);
       const { turn, task } = await takenTurn(trx, input.turn, ctx);
+      const { sha } = input;
+      if (sha === undefined) {
+        await closeWithoutCommit(trx, input, { turn, task }, ctx, operatorCloser(task, ctx.actor));
+        const after = await dispatched(trx, task.id, ctx.at, ctx.actor);
+        return { task: taskView(after), turn: input.turn, sha: null, status: 'confirmed' as const };
+      }
       const { confirmed, event } = await insertSubmission(
         trx,
-        { ...input, task, column: turn.column, epoch: turn.epoch },
+        { ...input, sha, task, column: turn.column, epoch: turn.epoch },
         ctx,
         completeSince,
         config.projects.find((entry) => entry.id === task.project)?.dispatcher.submitConfirmMs,
       );
       // A confirmed submit answers the return that opened this visit; a pending one closes its
       // block when the dispatcher confirms it (`confirmSubmit`).
-      if (confirmed !== 'pending') await answerReturn(trx, task, turn, ctx, input.sha);
+      if (confirmed !== 'pending') await answerReturn(trx, task, turn, ctx, sha);
       await closeTurns(trx, {
         taskId: task.id,
         reason: 'submitted',
@@ -450,7 +422,7 @@ export function createTurnMutations(deps: {
         {
           turn: input.turn,
           column: turn.column,
-          sha: input.sha,
+          sha,
           ...event,
           ...CONFIRMATION[confirmed],
         },
@@ -459,7 +431,7 @@ export function createTurnMutations(deps: {
       return {
         task: taskView(await dispatched(trx, task.id, ctx.at, ctx.actor)),
         turn: input.turn,
-        sha: input.sha,
+        sha,
         status: confirmed === 'pending' ? ('pending' as const) : ('confirmed' as const),
       };
     },

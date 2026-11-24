@@ -64,3 +64,6 @@ time counts as linked and live here, so its wrap-up stays open until Spur report
 worker is unlinked. If wrap-up work remains, resume or relink a worker. After an
 end, a live worker
 still linked to the task, or the Done orchestrator, gets a new one.
+
+On a task with no linked PR, its holder closes the wrap-up turn with keyed
+`board submit <turn> --reason <text>`; with a linked PR, submit the PR head.

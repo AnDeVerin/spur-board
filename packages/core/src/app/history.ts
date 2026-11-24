@@ -336,9 +336,10 @@ const SUMMARIES: { [K in EventKind]?: (payload: Payload<K>) => string | null } =
   doorbell_undelivered: (p) => `Doorbell delivery exhausted: ${p.doorbell}, ${p.reason}`,
   link_added: (p) => linkSummary('Link added', p),
   link_removed: (p) => linkSummary('Link removed', p),
-  // A submit whose head the board's newest poll confirmed, that waits for one, or that a merge at
-  // another head superseded.
+  // A submit without a commit, one whose head the board's newest poll confirmed, that waits for
+  // one, or that a merge at another head superseded.
   task_submitted: (p) => {
+    if (p.sha === undefined) return `Turn submitted without a commit: ${p.reason ?? ''}`;
     if (p.supersededByMerge !== undefined)
       return `Submit of ${p.sha.slice(0, 7)} superseded: PR merged at ${p.supersededByMerge.slice(0, 7)}`;
     const confirmation =

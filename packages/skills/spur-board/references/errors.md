@@ -23,6 +23,7 @@
 - `not_turn_taker`: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.
 - `submit_basis_invalid`: Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried.
 - `submit_source_not_tested`: Choose a tested submission SHA on this task, or a carried SHA with a tested origin; otherwise test or explicitly skip with a reason.
+- `submit_sha_required`: Submit the pull request head; only a turn outside Dev on a task with no linked pull request closes without a commit.
 - `head_mismatch`: Push the commit to the task's pull request branch and submit the head GitHub shows.
 - `return_not_allowed`: In Dev, ask with `board ask` instead.
 - `not_operator`: Ask the operator to end the wait; as its holder, submit or return the turn, or start a shorter wait.

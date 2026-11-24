@@ -1341,7 +1341,7 @@ export const OPERATIONS = [
       "Submit the task's pull request head for a turn the caller took; the turn closes; a pending result is final.",
     mcp: {
       whenToUse:
-        'Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.',
+        'Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key. Outside Dev, on a task with no linked pull request, omit sha and give a reason to close the turn without a commit.',
       whenNotToUse: 'Use task_return to send the task back to Dev instead.',
     },
     input: taskSubmitInputSchema,
@@ -1354,6 +1354,7 @@ export const OPERATIONS = [
       'task_archived',
       'turn_closed',
       'not_turn_taker',
+      'submit_sha_required',
       'submit_basis_invalid',
       'submit_source_not_tested',
       'head_mismatch',
@@ -1402,6 +1403,11 @@ export const OPERATIONS = [
           sha: submittedSha,
           status: 'confirmed',
         },
+      },
+      {
+        summary: 'Close a Done wrap-up on a task with no pull request',
+        input: { turn: 'T5', reason: 'Findings are in the ticket; no code change.' },
+        output: { task: { ...task, column: 'done' }, turn: 'T5', sha: null, status: 'confirmed' },
       },
     ],
   }),

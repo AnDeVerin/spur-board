@@ -51,6 +51,7 @@ describe('error catalog', () => {
       ['no_active_wait', 409, 1],
       ['submit_basis_invalid', 409, 1],
       ['submit_source_not_tested', 409, 1],
+      ['submit_sha_required', 409, 1],
       ['head_mismatch', 409, 1],
       ['return_not_allowed', 409, 1],
       ['move_not_allowed', 409, 1],

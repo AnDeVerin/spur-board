@@ -92,6 +92,7 @@ const SERVER_EXITS = {
   head_mismatch: { exit: 1, code: 'head_mismatch' },
   submit_basis_invalid: { exit: 1, code: 'submit_basis_invalid' },
   submit_source_not_tested: { exit: 1, code: 'submit_source_not_tested' },
+  submit_sha_required: { exit: 1, code: 'submit_sha_required' },
   return_not_allowed: { exit: 1, code: 'return_not_allowed' },
   move_not_allowed: { exit: 1, code: 'move_not_allowed' },
   move_outside_todo_group: { exit: 1, code: 'move_outside_todo_group' },

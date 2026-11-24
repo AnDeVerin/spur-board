@@ -238,7 +238,8 @@ function registerOptions(command: CommandUnknownOpts, op: CatalogOperation): voi
   for (const arg of op.cli.args) {
     const schema = fieldSchema(op, arg);
     if (!schema) throw new Error(`Catalog argument ${arg} is missing from ${op.id}.`);
-    command.argument(bareSchema(schema) instanceof z.ZodArray ? `<${arg}...>` : `<${arg}>`);
+    if (bareSchema(schema) instanceof z.ZodArray) command.argument(`<${arg}...>`);
+    else command.argument(schema instanceof z.ZodOptional ? `[${arg}]` : `<${arg}>`);
   }
 
   const modeValues = new Set(op.cli.modes?.flatMap((mode) => (mode.value ? [mode.value] : [])));

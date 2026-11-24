@@ -546,6 +546,40 @@ Example:
 }
 ```
 
+## submit_sha_required
+
+The submit needs a commit SHA.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Submit the pull request head; only a turn outside Dev on a task with no linked pull request closes without a commit.  
+Recovery: Submit the pull request head.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "submit_sha_required",
+    "requestId": "req-example-123",
+    "message": "The submit needs a commit SHA.",
+    "hint": "Submit the pull request head; only a turn outside Dev on a task with no linked pull request closes without a commit.",
+    "docs": "docs/errors.md#submit_sha_required",
+    "recovery": {
+      "action": "Submit the pull request head.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## head_mismatch
 
 The commit is not the head GitHub reports for the task's pull request, or a submit by task key found no pull request.

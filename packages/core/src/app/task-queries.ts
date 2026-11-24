@@ -30,6 +30,7 @@ import { notificationAddressedTo } from './doorbells.ts';
 import { historyEvents } from './history.ts';
 import { canonicalKey } from './membership.ts';
 import { latestSubmissions } from './submissions.ts';
+import { submittedWithoutCommit } from './submit-without-commit.ts';
 import type { Query } from './queries.ts';
 import { blockSubject, rowSubject, taskSubject } from './subject.ts';
 import { taskTurns } from './task-turns.ts';
@@ -145,10 +146,12 @@ export function createTaskQueries(deps: {
       .orderBy('id', 'desc')
       .executeTakeFirst();
     const project = config.projects.find((entry) => entry.id === task.project);
+    const withoutCommit = await submittedWithoutCommit(trx, task);
     const shared = {
       column,
       turn: open === undefined ? null : await turnView(trx, open, task, project),
       moves: await moveViews(trx, task.id, { limit: WHY_MOVES }),
+      ...(withoutCommit === undefined ? {} : { submittedWithoutCommit: withoutCommit }),
     };
     if (project === undefined)
       return { ...shared, dispatcher: null, holds: [], gates: [], checksWaivedBy: null };
