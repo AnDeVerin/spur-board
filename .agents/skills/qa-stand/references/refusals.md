@@ -12,5 +12,5 @@
 | `port_range` | port outside the live `stand.portRange` | `--port 0` or a port from the live `stand.portRange` |
 | `port_clash` | `--port` equals `--web-port` | two different ports |
 | `web_origin` | `--web-port` given, but the live `web.publicOrigin` has no `{port}` | omit `--web-port` |
-| `external_secrets` | real credential variables in the environment | rerun the printed `env -u <NAME> ... pnpm stand up` with your `--scenario` and `--port` added |
+| `external_secrets` | real credential variables in the environment | rerun the printed `env -u <NAME> ... pnpm stand <command>`; for `up`, add your `--scenario` and `--port` |
 | `env_proxy` | the Node env proxy is on | start without it |
