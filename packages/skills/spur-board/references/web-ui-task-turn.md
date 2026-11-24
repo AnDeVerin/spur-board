@@ -24,10 +24,10 @@ until you finish or it takes the turn back.`
 ## Submit
 
 **Submit…** opens a form, focused on **Commit**. Commit starts as the head SHA of the task's only
-open pull request in the chosen project's Board. Without one, it starts as the head the turn
-opened on, which may be stale; the field stays editable and the Board refuses a head that is not
-the pull request's (`head_mismatch`). Enter a full lowercase SHA, 40 to 64 characters:
-surrounding spaces are trimmed, upper case is refused.
+open pull request in the chosen project's Board. Without one, a task with a pull request link
+starts as the head the turn opened on, which may be stale; the field stays editable and the Board
+refuses a head that is not the pull request's (`head_mismatch`). Enter a full lowercase SHA, 40 to
+64 characters: surrounding spaces are trimmed, upper case is refused.
 
 **Basis** is a tab row: **Tested**, **Carried** or **Skipped**.
 
@@ -39,11 +39,11 @@ surrounding spaces are trimmed, upper case is refused.
 A reason needs non-space text, at most 2000 characters. The request carries
 `from` only for carried and `reason` only for carried and skipped.
 
-With no pull request link, outside Dev, Commit starts empty, hinted `This task has no pull
-request. Leave empty to close the turn without a commit.` While it is empty, **Basis** hides, a
-**Reason** is required (`Required. Shown in the history.`), the request carries only `reason`,
-and the line above the button reads `This closes T<n> in your name without a commit. It cannot be
-undone.` A typed commit restores Basis and the full request.
+With no pull request link, Commit starts empty; on Dev it stays required. Outside Dev it is
+hinted `This task has no pull request. Leave empty to close the turn without a commit.` While it
+is empty, **Basis** hides, a **Reason** is required (`Required. Shown in the history.`), only
+`reason` is sent, and the line above the button reads `This closes T<n> in your name without a
+commit. It cannot be undone.` A typed commit restores Basis and the full request.
 
 The button reads **Submit**; there is no confirm dialog. The line above it says
 `This closes T<n> in your name and hands the task to the board's gates for <column>.`, then
