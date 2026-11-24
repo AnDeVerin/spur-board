@@ -3808,8 +3808,10 @@ describe('showcase scenario', () => {
     const seeded: { at?: number } = {};
     await up({
       clock: {
-        now: () =>
-          Date.parse('2026-11-11T10:00:00.000Z') + (Date.now() - (seeded.at ?? Date.now())),
+        now: () => {
+          const epoch = Date.parse('2026-11-11T10:00:00.000Z');
+          return seeded.at === undefined ? epoch : epoch + (Date.now() - seeded.at);
+        },
       },
     });
     const { scenario } = await seed('showcase');

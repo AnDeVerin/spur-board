@@ -92,4 +92,5 @@ column name (`manual` or `mirror · Stand roadmap`, the GitHub Project's title, 
 - The role sessions stay working, so the Board sends no reminders and nothing moves on its own;
   History spreads the steps over the hours before the seed, and the answered question in
   Ready to Merge moves with it, while a task view lists open blocks, their replies and task
-  comments at the seed time.
+  comments at the seed time. Its "Latest submission" time is the seed time too: the submission
+  record is not backdated, so it is later than the submit step in History.
