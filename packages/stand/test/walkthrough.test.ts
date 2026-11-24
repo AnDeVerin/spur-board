@@ -6,12 +6,12 @@ const TASK = 'stand-org/board#440';
 const QUESTION = 'B7';
 
 /**
- * Step 4 ("The answer") on a fake board: `task.get` reports the question's state from `states`
+ * The answer step on a fake board: `task.get` reports the question's state from `states`
  * in turn (the last one repeats), and `block.answer` runs `answer`; the IDs it called, in order.
  */
 async function answerStep(states: string[], answer: () => Promise<unknown>) {
-  const step = walkthrough.demo?.[3];
-  if (step?.title !== 'The answer') throw new Error('step 4 is not The answer');
+  const step = walkthrough.demo?.find(({ title }) => title === 'The answer');
+  if (step === undefined) throw new Error('no step The answer');
   const calls: string[] = [];
   let reads = 0;
   // The question's state as the board holds it: each read takes the next of `states`, and a
@@ -55,7 +55,7 @@ async function answerStep(states: string[], answer: () => Promise<unknown>) {
 
 const notOpen = () => Promise.reject(new Error('block.answer answered 409: block_not_open'));
 
-describe('walkthrough step 4', () => {
+describe('walkthrough answer step', () => {
   it('answers an open question', async () => {
     const calls = await answerStep(['open'], () => Promise.resolve({}));
     expect(calls.filter((id) => id === 'block.answer')).toHaveLength(1);

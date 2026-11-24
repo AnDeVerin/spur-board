@@ -31,8 +31,8 @@ const demo = vi.fn<ControlRoutes['demo']>(() =>
     status: 200,
     body: {
       scenario: 'walkthrough',
-      step: 3,
-      steps: 13,
+      step: 5,
+      steps: 15,
       title: 'A question to the operator',
       narration: 'The worker asks the operator.',
       open: 'block%3AB7',
@@ -239,7 +239,7 @@ describe('stand demo', () => {
     expect(demo).toHaveBeenCalledExactlyOnceWith({ verb: 'next' });
     expect(result.stdout).toBe(
       [
-        'step 3/13: A question to the operator',
+        'step 5/15: A question to the operator',
         'The worker asks the operator.',
         'open: https://4801.stand.example/?open=block%3AB7',
         'next: The answer',
@@ -262,8 +262,8 @@ describe('stand demo', () => {
       body: {
         scenario: 'walkthrough',
         step: 0,
-        steps: 13,
-        next: 'Ready for Dev',
+        steps: 15,
+        next: 'Triage',
         daemonUrl: 'http://127.0.0.1:1',
         violationsCleared: 2,
       },
@@ -272,7 +272,7 @@ describe('stand demo', () => {
     const result = await runCli(['demo', 'reset', '--home', dir]);
     expect(result.code, result.stderr).toBe(0);
     expect(demo).toHaveBeenCalledExactlyOnceWith({ verb: 'reset' });
-    expect(result.stdout).toBe('step 0/13\nnext: Ready for Dev\nviolations cleared: 2\n');
+    expect(result.stdout).toBe('step 0/15\nnext: Triage\nviolations cleared: 2\n');
   });
 
   it.each([
@@ -290,13 +290,13 @@ describe('stand demo', () => {
   it('exits 1 with the error on stderr when the stand refuses', async () => {
     demo.mockResolvedValueOnce({
       status: 409,
-      body: { error: 'All 13 steps ran.', note: 'Run pnpm stand demo reset to start again.' },
+      body: { error: 'All 15 steps ran.', note: 'Run pnpm stand demo reset to start again.' },
     });
     const dir = await stubStand(EMPTY);
     const result = await runCli(['demo', 'next', '--home', dir]);
     expect(result.code).toBe(1);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('All 13 steps ran.');
+    expect(result.stderr).toContain('All 15 steps ran.');
     expect(result.stderr).toContain('demo reset');
   });
 });

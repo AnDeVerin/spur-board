@@ -88,7 +88,31 @@ async function takeTurn(
 
 const TASK_VIEW = encodeURIComponent(TASK);
 
+/** A manual operator move of the demo task, with the reason History shows. */
+async function move(board: Board, column: 'todo' | 'triage', reason: string): Promise<void> {
+  await board.call(
+    'operator',
+    'task.move',
+    { mode: 'manual', task: TASK, column, reason },
+    randomUUID(),
+  );
+  await until(board, `in ${column}`, (task) => task.column === column && task.turn === null);
+}
+
 const STEPS: readonly DemoStep[] = [
+  {
+    title: 'Triage',
+    narration:
+      'The operator moves issue 440 to Triage by hand: the scope needs a look before anyone plans it.',
+    open: () => TASK_VIEW,
+    run: ({ board }) => move(board, 'triage', 'Scope unclear: sync pins across devices or not?'),
+  },
+  {
+    title: 'Back to Todo',
+    narration:
+      'Triage is done, so the operator moves it back to Todo: the Project mirror places only tasks in Todo, never in Triage.',
+    run: ({ board }) => move(board, 'todo', 'Triaged: pins are per user; ready to plan.'),
+  },
   {
     title: 'Ready for Dev',
     narration:
@@ -330,7 +354,7 @@ const STEPS: readonly DemoStep[] = [
 
 export const walkthrough: Scenario = {
   name: 'walkthrough',
-  summary: `The showcase Board plus issue ${String(NUMBER)} in Todo, which pnpm stand demo next carries to Done in ${String(STEPS.length)} steps: Ready for Dev, Dev, a question, a PR, Review, a return, a new head, Product Review, External Review, an approval, QA, Ready to Merge and Done.`,
+  summary: `The showcase Board plus issue ${String(NUMBER)} in Todo, which pnpm stand demo next carries to Done in ${String(STEPS.length)} steps: Triage and back to Todo by hand, Ready for Dev, Dev, a question, a PR, Review, a return, a new head, Product Review, External Review, an approval, QA, Ready to Merge and Done.`,
   ...(showcase.config === undefined ? {} : { config: showcase.config }),
   async seed(board, fakes, clock) {
     const entities = await showcase.seed(board, fakes, clock);

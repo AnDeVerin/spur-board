@@ -4269,6 +4269,8 @@ describe('walkthrough scenario', () => {
   /** The demo task after each step: column, open turn and the addressees of its open blocks. */
   const TABLE: [column: string, turn: Turn | null, blocks: string[]][] = [
     ['todo', null, []],
+    ['triage', null, []],
+    ['todo', null, []],
     ['ready-for-dev', null, []],
     ['dev', ['worker', 'dev', 'dev: no_pr', true], []],
     ['dev', ['worker', 'dev', 'dev: no_pr', true], ['operator']],
@@ -4304,13 +4306,13 @@ describe('walkthrough scenario', () => {
       row?.blocks.map(({ addressee }) => addressee),
       label,
     ).toEqual(blocks);
-    if (step === 5) expect(row?.prSummary?.[0]?.checks.pending, label).toBeGreaterThan(0);
-    if (step === 7) expect(row?.returned).toMatchObject({ from: 'review', findings: 2 });
-    if (step === 8) expect(row?.turn?.head, label).toBe(HEAD_B);
-    if (step === 10) expect(row?.prSummary?.[0]?.reviewsOnHead.approved, label).toEqual([]);
-    if (step === 11)
+    if (step === 7) expect(row?.prSummary?.[0]?.checks.pending, label).toBeGreaterThan(0);
+    if (step === 9) expect(row?.returned).toMatchObject({ from: 'review', findings: 2 });
+    if (step === 10) expect(row?.turn?.head, label).toBe(HEAD_B);
+    if (step === 12) expect(row?.prSummary?.[0]?.reviewsOnHead.approved, label).toEqual([]);
+    if (step === 13)
       expect(row?.prSummary?.[0]?.reviewsOnHead.approved, label).toContain('quill-teodor');
-    if (step === 12)
+    if (step === 14)
       expect(items, label).toContainEqual(
         expect.stringMatching(new RegExp(`on ${demoKey}: ready-to-merge: not_merged$`)),
       );
@@ -4337,8 +4339,8 @@ describe('walkthrough scenario', () => {
   };
 
   it('walkthrough: every demo next moves only the demo task from Todo to Done, background unchanged', async () => {
-    // A Wednesday 06:00 UTC: fourteen hours of stand time stay inside Wednesday, so Done does
-    // not archive and no daily slot passes. The clock holds still through the seed, as showcase.
+    // A Wednesday 06:00 UTC: sixteen hours of stand time, one per hour check, stay inside
+    // Wednesday, so Done does not archive and no daily slot passes. The clock holds still through the seed, as showcase.
     const seeded: { at?: number } = {};
     await up({
       clock: {
@@ -4352,19 +4354,19 @@ describe('walkthrough scenario', () => {
     seeded.at = Date.now();
     const demoKey = scenario.tasks?.['demo'] ?? 'no demo task';
     expect(demoKey).toBe('stand-org/board#440');
-    expect(STEPS).toHaveLength(13);
+    expect(STEPS).toHaveLength(15);
     const before = await background(current(), demoKey);
     expect(counts(before)).toEqual(SHOWCASE_COUNTS);
     expect(await ok(current(), '/demo', { verb: 'status' })).toEqual({
       scenario: 'walkthrough',
       step: 0,
-      steps: 13,
+      steps: 15,
       next: STEPS[0]?.title,
     });
     await expectStep(0, demoKey);
 
-    // A first pass of three steps, then a stand reset back onto the seed's snapshot.
-    for (let step = 1; step <= 3; step += 1) {
+    // A first pass up to the open question, then a stand reset back onto the seed's snapshot.
+    for (let step = 1; step <= 5; step += 1) {
       await next(step);
       await expectStep(step, demoKey);
     }
@@ -4380,7 +4382,7 @@ describe('walkthrough scenario', () => {
     for (let step = 1; step <= STEPS.length; step += 1) {
       const answer = await next(step);
       await expectStep(step, demoKey);
-      if (step === 3) expect(answer.open).toMatch(/^block%3AB\d+$/);
+      if (step === 5) expect(answer.open).toMatch(/^block%3AB\d+$/);
       expect(await background(current(), demoKey), `step ${String(step)}`).toEqual(before);
       expect(current().daemonUrl).toBe(daemonUrl);
       await hourStable(current());
@@ -4505,11 +4507,11 @@ describe('walkthrough scenario', () => {
       home = (JSON.parse(started.stdout) as { home: string }).home;
       const stepped = await standCli(['demo', 'next', '--home', home]);
       expect(stepped.code, stepped.stderr).toBe(0);
-      expect(stepped.stdout).toMatch(/^step 1\/13: /);
+      expect(stepped.stdout).toMatch(/^step 1\/15: /);
       expect(stepped.stdout).toContain(STEPS[0]?.narration ?? 'no narration');
       const shown = await standCli(['demo', 'status', '--home', home]);
       expect(shown.code, shown.stderr).toBe(0);
-      expect(shown.stdout).toMatch(/^step 1\/13: /);
+      expect(shown.stdout).toMatch(/^step 1\/15: /);
     } finally {
       if (home !== undefined) {
         const downed = await standCli(['down', '--home', home]);

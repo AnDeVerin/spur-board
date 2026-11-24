@@ -23,7 +23,7 @@ Open the Board at `<webUrl>/` and keep the page open for the whole walkthrough.
 
 ## Commands
 
-- `pnpm stand demo next` runs the next step. It prints `step <n>/13: <title>`, the narration
+- `pnpm stand demo next` runs the next step. It prints `step <n>/15: <title>`, the narration
   line, `open: <webUrl>/?open=...` for a step with a view to open, and the next step's title.
 - `pnpm stand demo status` prints the step the demo is at, without running one.
 - `pnpm stand demo reset` seeds the scenario again with fresh times and goes back to step 0. It
@@ -32,17 +32,35 @@ Open the Board at `<webUrl>/` and keep the page open for the whole walkthrough.
   it if it shows offline.
 - `pnpm stand reset` also goes back to step 0, onto the seed's snapshot with its old times.
 
-`demo next` after step 13 exits 1: run `demo reset` to start again.
+`demo next` after step 15 exits 1: run `demo reset` to start again.
 
-## Step 1 - Ready for Dev
+## Step 1 - Triage
 
 Act 1, picked up. Narration:
+
+> The operator moves issue 440 to Triage by hand: the scope needs a look before anyone plans it.
+
+Open `<webUrl>/?open=stand-org%2Fboard%23440`: History shows the manual move and its reason. Back
+on the Board, the card sits in Triage beside the two showcase cards.
+
+## Step 2 - Back to Todo
+
+Narration:
+
+> Triage is done, so the operator moves it back to Todo: the Project mirror places only tasks in Todo, never in Triage.
+
+Point at the card back in Todo. The mirror moves a task only between Todo and Ready for Dev, so
+the task leaves Triage by hand before the Project status changes.
+
+## Step 3 - Ready for Dev
+
+Narration:
 
 > Issue 440 is marked Ready in the GitHub Project, and the Board mirrors it into Ready for Dev.
 
 Point at the card leaving Todo for Ready for Dev, and the column's `mirror` executor line.
 
-## Step 2 - Dev
+## Step 4 - Dev
 
 Narration:
 
@@ -50,16 +68,16 @@ Narration:
 
 Point at the card in Dev with the worker's taken turn.
 
-## Step 3 - A question to the operator
+## Step 5 - A question to the operator
 
 Act 2, a question. Narration:
 
 > The worker is unsure about the scope and asks the operator; the question waits on the card.
 
 Open `<webUrl>/?open=block%3A<id>`, the URL `demo next` prints. You may answer the question here
-in the web UI; step 4 then only checks it is answered.
+in the web UI; step 6 then only checks it is answered.
 
-## Step 4 - The answer
+## Step 6 - The answer
 
 Narration:
 
@@ -67,7 +85,7 @@ Narration:
 
 Open `<webUrl>/?open=inbox`: the answer is under handled entries.
 
-## Step 5 - A pull request
+## Step 7 - A pull request
 
 Act 3, a pull request. Narration:
 
@@ -75,7 +93,7 @@ Act 3, a pull request. Narration:
 
 Open `<webUrl>/?open=stand-org%2Fboard%23440`, the task view, with the PR and its pending checks.
 
-## Step 6 - Review
+## Step 8 - Review
 
 Narration:
 
@@ -83,7 +101,7 @@ Narration:
 
 Point at the card in Review with the conductor's taken turn.
 
-## Step 7 - Changes requested
+## Step 9 - Changes requested
 
 Act 4, changes requested. Narration:
 
@@ -92,7 +110,7 @@ Act 4, changes requested. Narration:
 Open `<webUrl>/?open=stand-org%2Fboard%23440`: the return with 2 findings, the code block and the
 worker's untaken turn.
 
-## Step 8 - A new head
+## Step 10 - A new head
 
 Act 5, a new head. Narration:
 
@@ -100,7 +118,7 @@ Act 5, a new head. Narration:
 
 Point at the card back in Review on the new head.
 
-## Step 9 - Product Review
+## Step 11 - Product Review
 
 Narration:
 
@@ -108,7 +126,7 @@ Narration:
 
 Point at the card in Product Review.
 
-## Step 10 - External Review
+## Step 12 - External Review
 
 Narration:
 
@@ -116,7 +134,7 @@ Narration:
 
 Open `<webUrl>/?open=stand-org%2Fboard%23440`: "Why it is here" shows it is not approved yet.
 
-## Step 11 - Approved
+## Step 13 - Approved
 
 Act 6, the approval. Narration:
 
@@ -124,7 +142,7 @@ Act 6, the approval. Narration:
 
 Point at the card in QA with the conductor's taken turn.
 
-## Step 12 - Ready to Merge
+## Step 14 - Ready to Merge
 
 Narration:
 
@@ -132,7 +150,7 @@ Narration:
 
 Open `<webUrl>/?open=inbox`: the operator's merge turn on issue 440.
 
-## Step 13 - Done
+## Step 15 - Done
 
 Act 7, the merge. Narration:
 
@@ -142,7 +160,7 @@ Open `<webUrl>/?open=stand-org%2Fboard%23440`: the task in Done, its History lis
 
 ## Limits
 
-- Act by hand only to answer the question at step 3. Any other change in the web UI or the fakes
+- Act by hand only to answer the question at step 5. Any other change in the web UI or the fakes
   can make the next step fail: `demo next` then exits 1 and refuses until `pnpm stand demo reset`.
 - `pnpm stand demo reset` and `pnpm stand reset` drop the violation log: read and save
   `pnpm stand violations` first.
