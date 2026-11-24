@@ -2578,6 +2578,35 @@ describe('a done ticket without in-flight work', () => {
     },
   );
 
+  it('reads a submit without a commit past a malformed task_submitted payload', async () => {
+    const reason = 'Findings are in the ticket; no code change.';
+    const ctx = await started({ doneOrchestrator: 'coord' }, 'none');
+    await ctx.ticket('closed');
+    await ctx.github();
+    await ctx.spur('none');
+    const turn = (await ctx.openTurn())?.id ?? 'T0';
+    await ctx.ack(COORD, turn);
+    await ctx.submitWithoutCommit(COORD, turn, reason);
+    const task = await ctx.task();
+    // A newer row of the task whose payload is not JSON: the lookup skips it.
+    await ctx.store.db
+      .insertInto('event')
+      .values({
+        at: ctx.at(),
+        project: task.project,
+        task_id: task.id,
+        kind: 'task_submitted',
+        actor: 'system',
+        actor_ref: null,
+        payload: '{not json',
+        v: 1,
+        request_id: null,
+        via: null,
+      })
+      .execute();
+    expect((await ctx.why()).submittedWithoutCommit).toMatchObject({ turn, reason });
+  });
+
   it('leaves archived tasks untouched', async () => {
     const ctx = await started({}, 'none');
     await ctx.archive();

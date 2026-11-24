@@ -127,12 +127,24 @@ export async function submittedWithoutCommit(trx: Trx, task: Task) {
     .select('payload')
     .where('task_id', '=', task.id)
     .where('kind', '=', 'task_submitted')
-    .where(sql<boolean>`json_extract(payload, '$.turn') = ${id}`)
+    // `json_extract` throws on a payload that is not JSON; one bad row must not fail the read.
+    .where(
+      sql<boolean>`case when json_valid(payload) then json_extract(payload, '$.turn') end = ${id}`,
+    )
     .orderBy('id', 'desc')
     .executeTakeFirst();
   if (event === undefined) return undefined;
-  const payload = eventPayloadSchemas.task_submitted.safeParse(JSON.parse(event.payload));
+  const payload = eventPayloadSchemas.task_submitted.safeParse(parsedJson(event.payload));
   if (!payload.success || payload.data.sha !== undefined) return undefined;
   const reason = payload.data.reason ?? '';
   return { turn: id, at: turn.closed_at, reason, text: `submitted without a commit: ${reason}` };
+}
+
+/** The payload as JSON, or undefined when it is not JSON, which no payload schema accepts. */
+function parsedJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
