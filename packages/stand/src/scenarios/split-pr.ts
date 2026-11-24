@@ -1,5 +1,5 @@
 // The split-PR scenarios: a merged PR whose issue changes after it and stays open, and an issue
-// closed after the merge.
+// closed after the merge; and an issue closed with no PR, wrapped up by a Done orchestrator.
 import { openIssues, settledUnless } from './helpers.ts';
 import type { Scenario } from './index.ts';
 import { awaitTurn, check, entities, flow, ISSUE, PR, REPO, toReadyToMerge } from './dispatcher.ts';
@@ -19,6 +19,39 @@ export const dispatchTicketDoneNoPr: Scenario = {
     return entities(board);
   },
   settled: async ({ board }) => settledUnless(await check(board, { column: 'todo' })),
+};
+
+const doneByOrchestrator = () => {
+  const { stand } = flow();
+  const columns = stand.columns.map((entry) =>
+    entry.id === 'done' ? { id: 'done', orchestrator: 'stand-qa' } : entry,
+  );
+  return { stand: { ...stand, columns } };
+};
+
+export const dispatchDoneWrapUpNoPr: Scenario = {
+  name: 'dispatch-done-wrap-up-no-pr',
+  summary: `${ISSUE} closes with no PR or linked worker: Done with the stand-qa orchestrator's wrap-up turn, which it closes without a commit.`,
+  config: doneByOrchestrator(),
+  async seed(board, fakes) {
+    await openIssues(fakes, 1);
+    await board.poll();
+    await fakes.github('issue-close', { repo: REPO, number: 1 });
+    // The close reaches Done after fresh source confirmation, within two polls.
+    await board.poll();
+    await board.poll();
+    await awaitTurn(board, 'orchestrator', 'done: wrap up');
+    return entities(board);
+  },
+  settled: async ({ board }) =>
+    settledUnless(
+      await check(board, {
+        column: 'done',
+        role: 'orchestrator',
+        reason: 'done: wrap up',
+        taken: false,
+      }),
+    ),
 };
 
 export const dispatchSplitPr: Scenario = {

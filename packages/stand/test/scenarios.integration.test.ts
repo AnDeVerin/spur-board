@@ -267,6 +267,7 @@ describe('scenarios', () => {
       'dispatch-happy-path',
       'dispatch-split-pr',
       'dispatch-ticket-done-no-pr',
+      'dispatch-done-wrap-up-no-pr',
       'dispatch-close-after-merge',
       'pr-finality',
       'dispatch-review-loop',
@@ -1833,6 +1834,36 @@ describe('dispatcher scenarios', () => {
         task: ISSUE,
       });
       expect(links.filter(({ kind }) => kind === 'pr' || kind === 'session')).toEqual([]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-done-wrap-up-no-pr: the Done orchestrator closes the wrap-up without a commit',
+    async () => {
+      await up();
+      await seed('dispatch-done-wrap-up-no-pr');
+      const reason = 'Findings are in the ticket; no code change.';
+      const wrap = await mustTurn(as('orchestrator'));
+      expect(wrap.reason).toBe('done: wrap up');
+      await ack(as('orchestrator'), wrap.id);
+      const result = await sessionOp<{ sha: string | null; task: { column: string } }>(
+        as('orchestrator'),
+        'task.submit',
+        { turn: wrap.id, reason },
+        randomUUID(),
+      );
+      expect(result).toMatchObject({ sha: null, status: 'confirmed', task: { column: 'done' } });
+      expect(await column()).toBe('done');
+      expect(await turnOf(as('orchestrator'))).toBeUndefined();
+      const { events } = await op<{ events: { kind: string; summary: string }[] }>(
+        current(),
+        'task.history',
+        { task: ISSUE },
+      );
+      expect(events.find(({ kind }) => kind === 'task_submitted')?.summary).toBe(
+        `Turn submitted without a commit: ${reason}`,
+      );
     },
     TIMEOUT,
   );

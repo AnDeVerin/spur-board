@@ -48,7 +48,12 @@ import {
   dispatchOrchestratorRole,
   dispatchSourceBlind,
 } from './dispatcher.ts';
-import { dispatchCloseAfterMerge, dispatchSplitPr, dispatchTicketDoneNoPr } from './split-pr.ts';
+import {
+  dispatchCloseAfterMerge,
+  dispatchDoneWrapUpNoPr,
+  dispatchSplitPr,
+  dispatchTicketDoneNoPr,
+} from './split-pr.ts';
 import { empty } from './empty.ts';
 import { externalReviewQuiet } from './external-quiet.ts';
 import { feedCodeHints } from './feed-code-hints.ts';
@@ -220,6 +225,7 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchHappyPath,
   dispatchSplitPr,
   dispatchTicketDoneNoPr,
+  dispatchDoneWrapUpNoPr,
   dispatchCloseAfterMerge,
   prFinality,
   dispatchReviewLoop,
