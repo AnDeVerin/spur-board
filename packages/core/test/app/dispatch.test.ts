@@ -8974,6 +8974,13 @@ describe('approvalRule github-rules', () => {
       awaited: ['dana'],
     },
     {
+      // Another approval from the reviewer whose approval counts still counts as one.
+      name: 'two approvals required and one given, only its reviewer re-requested',
+      reviewRule: ruleWith({ approvals: 2 }),
+      reviewRequests: [{ kind: 'user', id: EXTERNAL, asCodeOwner: false }],
+      reason: 'review_rule_blocked',
+    },
+    {
       // The approval in place meets the rule, so another reviewer cannot unblock the merge.
       name: 'one approval required and given, a request not as code owner',
       reviewRule: rule(),
@@ -9458,13 +9465,15 @@ describe('approvalRule github-rules', () => {
   it.each([
     { stored: 'clean', newer: { mergeState: 'blocked' }, reason: 'review_rule_blocked' },
     { stored: 'blocked', newer: { mergeState: 'clean' }, reason: 'review_rule_blocked' },
-    // A pending code owner request counts only while the live read says blocked.
+    // A pending code owner request under a rule that requires one counts only while the live read
+    // says blocked.
     {
       stored: 'blocked',
       newer: {
         mergeState: 'clean',
         reviewRequests: [{ kind: 'user', id: 'owner-a', asCodeOwner: true }],
       },
+      codeOwners: true,
       reason: 'review_rule_blocked',
     },
     // A block over a stored satisfied decision counts, and a pending code owner request under a

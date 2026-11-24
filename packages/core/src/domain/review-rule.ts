@@ -167,20 +167,27 @@ export function externalReviews(pr: PrFacts, agentLogin: string): PrFacts['revie
  * for a code owner GitHub requested on its own: its block has another cause. Every reviewer's
  * latest approval counts as given, on any commit and by any author: that is at least as many as
  * GitHub counts (a stale approval it dismisses reads as dismissed), so a request it might still
- * need can be missed but never one it cannot use, and a missed one keeps the immediate item. Bots
- * and a request stored by an earlier version without a kind never count.
+ * need can be missed but never one it cannot use, and a missed one keeps the immediate item. A
+ * request to a user whose approval already counts never counts: another approval from them adds
+ * none, and an owner's approval already serves the code owner review. Bots and a request stored
+ * by an earlier version without a kind never count.
  */
 export function awaitedReviewers(
   pr: Pick<PrFacts, 'mergeState' | 'reviews' | 'reviewRequests'>,
   rule: ReviewRule | null,
 ): string[] {
   if (rule === null || pr.mergeState !== 'blocked') return [];
-  const given = pr.reviews.filter((review) => review.state === 'approved').length;
-  const approvalsMissing = given < (rule.approvals ?? 0);
+  const approvers = new Set(
+    pr.reviews
+      .filter((review) => review.state === 'approved')
+      .map((review) => review.reviewer.toLowerCase()),
+  );
+  const approvalsMissing = approvers.size < (rule.approvals ?? 0);
   if (!approvalsMissing && !rule.codeOwners) return [];
   return pr.reviewRequests.flatMap((request) =>
-    (request.kind === 'user' || request.kind === 'team') &&
     request.id !== undefined &&
+    (request.kind === 'team' ||
+      (request.kind === 'user' && !approvers.has(request.id.toLowerCase()))) &&
     (approvalsMissing || request.asCodeOwner)
       ? [request.id]
       : [],

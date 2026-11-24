@@ -56,6 +56,58 @@ describe('awaitedReviewers', () => {
       expected: ALL,
     },
     {
+      // Another approval from the reviewer whose approval counts still counts as one.
+      name: 'two approvals required and one given, only its reviewer re-requested',
+      rule: { ...RULE, approvals: 2 },
+      reviews: APPROVED,
+      requests: [{ kind: 'user', id: 'erin', asCodeOwner: false }],
+      expected: [],
+    },
+    {
+      name: 'two approvals required and one given, its reviewer in another case re-requested',
+      rule: { ...RULE, approvals: 2 },
+      reviews: APPROVED,
+      requests: [{ kind: 'user', id: 'Erin', asCodeOwner: false }],
+      expected: [],
+    },
+    {
+      name: 'two approvals required and one given, its reviewer and another user requested',
+      rule: { ...RULE, approvals: 2 },
+      reviews: APPROVED,
+      requests: [
+        { kind: 'user', id: 'erin', asCodeOwner: false },
+        { kind: 'user', id: 'yuri', asCodeOwner: false },
+      ],
+      expected: ['yuri'],
+    },
+    {
+      // A team request names no login an approval could already come from.
+      name: 'two approvals required and one given, its reviewer and a team requested',
+      rule: { ...RULE, approvals: 2 },
+      reviews: APPROVED,
+      requests: [
+        { kind: 'user', id: 'erin', asCodeOwner: false },
+        { kind: 'team', id: 'web-owners', asCodeOwner: false },
+      ],
+      expected: ['web-owners'],
+    },
+    {
+      // The owner's approval already serves the code owner review.
+      name: 'one approval met by a code owner re-requested as code owner',
+      rule: { ...RULE, codeOwners: true },
+      reviews: [review('owner-a', 'approved')],
+      requests: [{ kind: 'user', id: 'owner-a', asCodeOwner: true }],
+      expected: [],
+    },
+    {
+      // GitHub reads a stale approval it dismissed as dismissed, so that reviewer still counts.
+      name: 'one approval required, a dismissed reviewer re-requested',
+      rule: RULE,
+      reviews: [review('erin', 'dismissed')],
+      requests: [{ kind: 'user', id: 'erin', asCodeOwner: false }],
+      expected: ['erin'],
+    },
+    {
       name: 'one approval required and dismissed, commented or changes requested',
       rule: RULE,
       reviews: [
