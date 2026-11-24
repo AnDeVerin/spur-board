@@ -279,7 +279,11 @@ describe('control endpoint', () => {
     expect((await running).status).toBe(200);
     expect(await (await stepping).json()).toEqual({ verb: 'next' });
     expect(await (await resetting).json()).toEqual({ verb: 'reset' });
-    expect(demo.mock.calls.map(([body]) => body.verb)).toEqual(['status', 'next', 'reset']);
+    // Status ran first, beside the reset; next and reset reach the queue in the order their
+    // bodies finish arriving, so only their set is fixed.
+    const verbs = demo.mock.calls.map(([body]) => body.verb);
+    expect(verbs[0]).toBe('status');
+    expect(verbs.slice(1).sort()).toEqual(['next', 'reset']);
   });
 
   it('forwards a reset product version and refuses an invalid one', async () => {
