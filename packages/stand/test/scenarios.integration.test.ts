@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   appendFileSync,
   chmodSync,
@@ -312,6 +312,7 @@ describe('scenarios', () => {
       'readme-board',
       'ready-mirror',
       'showcase',
+      'walkthrough',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -3789,16 +3790,163 @@ describe('readme scenario', () => {
   }, 90_000);
 });
 
+/** Runs `read` on a store handle of the stand's database, closed before it returns. */
+async function withStoreAt<T>(
+  manifest: StandManifest,
+  read: (store: ReturnType<typeof openStore>) => Promise<T>,
+): Promise<T> {
+  const store = openStore(join(manifest.home, 'board.sqlite'));
+  try {
+    return await read(store);
+  } finally {
+    await store.close();
+  }
+}
+
+/** Item prefixes the demo Board must never raise: each would mean a ring or a stall. */
+const BANNED = [
+  'no-session:',
+  'turn-stall:',
+  'stuck-turn:',
+  'block:',
+  'worker_not_reading:',
+  'answer_undelivered:',
+];
+
+/**
+ * An hour of stand time in 5-minute steps: nothing journals, moves, opens or closes a turn, or
+ * raises or clears an item, and no item has a BANNED prefix. Each `/poll` restarts the adapter
+ * runner, so the Spur adapter forgets its health smoothing and journals `session_facts_changed`
+ * with a new `healthSince` for each linked task; those rows are checked apart: the same facts,
+ * only `healthSince` moved. Every read opens and closes its own store handle.
+ */
+async function hourStable(manifest: StandManifest): Promise<void> {
+  const RESTART = 'session_facts_changed';
+  interface Inbox {
+    items: { id: string }[];
+  }
+  const stable = async () => {
+    const all = await op<Status>(manifest, 'status.get', {});
+    const { events, turns } = await withStoreAt(manifest, async (store) => ({
+      events: await store.db
+        .selectFrom('event')
+        .select('task_id')
+        .select(({ fn }) => fn.max<number>('id').as('newest'))
+        .where('task_id', 'is not', null)
+        .where('kind', '!=', RESTART)
+        .groupBy('task_id')
+        .orderBy('task_id')
+        .execute(),
+      turns: await store.db
+        .selectFrom('turn')
+        .select(['id', 'acked_at'])
+        .where('closed_at', 'is', null)
+        .orderBy('id')
+        .execute(),
+    }));
+    const operator = await op<Inbox>(manifest, 'inbox.operator', {});
+    return {
+      columns: Object.fromEntries(all.tasks.map(({ key, column }) => [key, column])),
+      turns: turns.map(({ id, acked_at }) => [id, acked_at !== null]),
+      items: all.items.map(({ key }) => key).sort(),
+      inbox: operator.items.map(({ id }) => id).sort(),
+      events: events.map(({ task_id, newest }) => [task_id, newest]),
+    };
+  };
+  const facts = (payload: string): unknown => {
+    const { facts: read } = JSON.parse(payload) as { facts: Record<string, unknown> };
+    return { ...read, healthSince: null };
+  };
+  const before = await stable();
+  const { factsBefore, newest } = await withStoreAt(manifest, async (store) => ({
+    factsBefore: new Map(
+      (
+        await store.db
+          .selectFrom('event')
+          .select(['task_id', 'payload'])
+          .where('kind', '=', RESTART)
+          .orderBy('id')
+          .execute()
+      ).map(({ task_id, payload }) => [task_id, payload]),
+    ),
+    newest: (
+      await store.db
+        .selectFrom('event')
+        .select(({ fn }) => fn.max<number>('id').as('newest'))
+        .executeTakeFirstOrThrow()
+    ).newest,
+  }));
+  for (let step = 0; step < 12; step += 1) {
+    await ok(manifest, '/clock', { shiftMs: 300_000 });
+    await ok(manifest, '/poll');
+    await ok(manifest, '/wait', { condition: 'outbox-drained', timeoutMs: 10_000 });
+  }
+  const after = await stable();
+  expect(after).toEqual(before);
+  const later = await withStoreAt(manifest, (store) =>
+    store.db
+      .selectFrom('event')
+      .select(['task_id', 'kind', 'payload'])
+      .where('id', '>', newest)
+      .where('task_id', 'is not', null)
+      .execute(),
+  );
+  for (const { task_id, kind, payload } of later) {
+    expect(kind, payload).toBe(RESTART);
+    expect(facts(payload)).toEqual(facts(factsBefore.get(task_id) ?? '{"facts":{}}'));
+  }
+  for (const key of after.items)
+    expect(
+      BANNED.filter((prefix) => key.startsWith(prefix)),
+      key,
+    ).toEqual([]);
+}
+
+/** Per task but the demo task: its column, open turns as `[id, taken]` and open block IDs. */
+type Background = Record<string, { column: string; turns: [number, boolean][]; blocks: number[] }>;
+
+async function background(manifest: StandManifest, demoKey: string): Promise<Background> {
+  return withStoreAt(manifest, async (store) => {
+    const tasks = await store.db
+      .selectFrom('task')
+      .select(['id', 'key', 'column'])
+      .where('key', '!=', demoKey)
+      .orderBy('id')
+      .execute();
+    const turns = await store.db
+      .selectFrom('turn')
+      .select(['id', 'task_id', 'acked_at'])
+      .where('closed_at', 'is', null)
+      .orderBy('id')
+      .execute();
+    const blocks = await store.db
+      .selectFrom('block')
+      .select(['id', 'task_id'])
+      .where('state', '=', 'open')
+      .orderBy('id')
+      .execute();
+    return Object.fromEntries(
+      tasks.map(({ id, key, column }) => [
+        key,
+        {
+          column,
+          turns: turns
+            .filter(({ task_id }) => task_id === id)
+            .map(({ id: turn, acked_at }): [number, boolean] => [turn, acked_at !== null]),
+          blocks: blocks.filter(({ task_id }) => task_id === id).map(({ id: block }) => block),
+        },
+      ]),
+    );
+  });
+}
+
+/** How many tasks each column holds in the showcase seed. */
+const SHOWCASE_COUNTS: Record<string, number> = {};
+for (const { column } of SHOWCASE_TASKS)
+  SHOWCASE_COUNTS[column] = (SHOWCASE_COUNTS[column] ?? 0) + 1;
+
 describe('showcase scenario', () => {
   const DEMO = fileURLToPath(new URL('../../../docs/contributing/demo.md', import.meta.url));
-  const BANNED = [
-    'no-session:',
-    'turn-stall:',
-    'stuck-turn:',
-    'block:',
-    'worker_not_reading:',
-    'answer_undelivered:',
-  ];
 
   it('showcase: every column filled with the listed states, unchanged after 60 minutes in 5-minute steps', async () => {
     // A Wednesday, so Done does not archive at Saturday 00:00 UTC within the hour.
@@ -4035,80 +4183,7 @@ describe('showcase scenario', () => {
       expect(states).toContain('approved');
       expect(states).not.toContain('changes_requested');
 
-      // The hour after the seed: nothing journals, moves, opens or closes a turn, or raises or
-      // clears an item. Each `/poll` restarts the adapter runner, so the Spur adapter forgets its
-      // health smoothing and journals `session_facts_changed` with a new `healthSince` for each
-      // linked task; those rows are checked apart: the same facts, only `healthSince` moved.
-      const RESTART = 'session_facts_changed';
-      const stable = async () => {
-        const all = await op<Status>(current(), 'status.get', {});
-        const events = await store.db
-          .selectFrom('event')
-          .select('task_id')
-          .select(({ fn }) => fn.max<number>('id').as('newest'))
-          .where('task_id', 'is not', null)
-          .where('kind', '!=', RESTART)
-          .groupBy('task_id')
-          .orderBy('task_id')
-          .execute();
-        const turns = await store.db
-          .selectFrom('turn')
-          .select(['id', 'acked_at'])
-          .where('closed_at', 'is', null)
-          .orderBy('id')
-          .execute();
-        const operator = await op<Inbox>(current(), 'inbox.operator', {});
-        return {
-          columns: Object.fromEntries(all.tasks.map(({ key, column }) => [key, column])),
-          turns: turns.map(({ id, acked_at }) => [id, acked_at !== null]),
-          items: all.items.map(({ key }) => key).sort(),
-          inbox: operator.items.map(({ id }) => id).sort(),
-          events: events.map(({ task_id, newest }) => [task_id, newest]),
-        };
-      };
-      const facts = (payload: string): unknown => {
-        const { facts: read } = JSON.parse(payload) as { facts: Record<string, unknown> };
-        return { ...read, healthSince: null };
-      };
-      const lastFacts = async (): Promise<Map<number | null, string>> =>
-        new Map(
-          (
-            await store.db
-              .selectFrom('event')
-              .select(['task_id', 'payload'])
-              .where('kind', '=', RESTART)
-              .orderBy('id')
-              .execute()
-          ).map(({ task_id, payload }) => [task_id, payload]),
-        );
-      const before = await stable();
-      const factsBefore = await lastFacts();
-      const { newest } = await store.db
-        .selectFrom('event')
-        .select(({ fn }) => fn.max<number>('id').as('newest'))
-        .executeTakeFirstOrThrow();
-      for (let step = 0; step < 12; step += 1) {
-        await ok(current(), '/clock', { shiftMs: 300_000 });
-        await ok(current(), '/poll');
-        await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 10_000 });
-      }
-      const after = await stable();
-      expect(after).toEqual(before);
-      const later = await store.db
-        .selectFrom('event')
-        .select(['task_id', 'kind', 'payload'])
-        .where('id', '>', newest)
-        .where('task_id', 'is not', null)
-        .execute();
-      for (const { task_id, kind, payload } of later) {
-        expect(kind, payload).toBe(RESTART);
-        expect(facts(payload)).toEqual(facts(factsBefore.get(task_id) ?? '{"facts":{}}'));
-      }
-      for (const key of after.items)
-        expect(
-          BANNED.filter((prefix) => key.startsWith(prefix)),
-          key,
-        ).toEqual([]);
+      await hourStable(current());
     } finally {
       await store.close();
     }
@@ -4137,6 +4212,304 @@ describe('showcase scenario', () => {
       expect(line.scenario?.name).toBe('showcase');
       const waited = await standCli(['wait', 'scenario', '--home', home]);
       expect(waited.code, waited.stdout).toBe(0);
+    } finally {
+      if (home !== undefined) {
+        const downed = await standCli(['down', '--home', home]);
+        expect(downed.code, downed.stderr).toBe(0);
+      }
+    }
+  }, 120_000);
+});
+
+describe('walkthrough scenario', () => {
+  const DOC = fileURLToPath(
+    new URL('../../../docs/contributing/demo-walkthrough.md', import.meta.url),
+  );
+  const STEPS = SCENARIOS.find(({ name }) => name === 'walkthrough')?.demo ?? [];
+  const HEAD_B = createHash('sha1').update('walkthrough-b').digest('hex');
+
+  interface Row {
+    key: string;
+    column: string;
+    turn: {
+      addressee: string;
+      column: string;
+      reason: string;
+      head: string | null;
+      taken: { by: string } | null;
+    } | null;
+    returned?: { from: string; findings: number | null };
+    blocks: { id: string; addressee: string }[];
+    prSummary: { checks: { pending: number }; reviewsOnHead: { approved: string[] } }[] | null;
+  }
+  interface DemoAnswer {
+    scenario: string;
+    step: number;
+    steps: number;
+    title?: string;
+    narration?: string;
+    open?: string;
+    next?: string;
+  }
+
+  /** The demo task's row and the board's items. */
+  async function demoState(demoKey: string): Promise<{ row: Row | undefined; items: string[] }> {
+    const { tasks, items } = await op<{ tasks: Row[]; items: { key: string; summary: string }[] }>(
+      current(),
+      'status.get',
+      { project: 'stand' },
+    );
+    return {
+      row: tasks.find(({ key }) => key === demoKey),
+      items: items.map(({ summary }) => summary),
+    };
+  }
+
+  type Turn = [addressee: string, column: string, reason: string, taken: boolean];
+  /** The demo task after each step: column, open turn and the addressees of its open blocks. */
+  const TABLE: [column: string, turn: Turn | null, blocks: string[]][] = [
+    ['todo', null, []],
+    ['ready-for-dev', null, []],
+    ['dev', ['worker', 'dev', 'dev: no_pr', true], []],
+    ['dev', ['worker', 'dev', 'dev: no_pr', true], ['operator']],
+    ['dev', ['worker', 'dev', 'dev: no_pr', true], []],
+    ['dev', ['worker', 'dev', 'dev: no_pr', true], []],
+    ['review', ['orchestrator:review', 'review', 'review: no_review_on_head', true], []],
+    ['dev', ['worker', 'dev', 'dev: no_submit_on_head', false], ['worker']],
+    ['review', ['orchestrator:review', 'review', 'review: no_review_on_head', true], []],
+    [
+      'product-review',
+      ['orchestrator:product-review', 'product-review', 'product-review: no_review_on_head', true],
+      [],
+    ],
+    ['external-review', null, []],
+    ['qa', ['orchestrator:qa', 'qa', 'qa: no_submit_on_head', true], []],
+    ['ready-to-merge', ['operator', 'ready-to-merge', 'ready-to-merge: not_merged', false], []],
+    ['done', ['worker', 'done', 'done: wrap up', false], []],
+  ];
+
+  /** Checks the demo task against TABLE row `step`, and the step-specific facts. */
+  async function expectStep(step: number, demoKey: string): Promise<void> {
+    const [column, turn, blocks] = TABLE[step] ?? [];
+    const { row, items } = await demoState(demoKey);
+    const label = `step ${String(step)}`;
+    expect(row?.column, label).toBe(column);
+    expect(
+      row?.turn == null
+        ? null
+        : [row.turn.addressee, row.turn.column, row.turn.reason, row.turn.taken !== null],
+      label,
+    ).toEqual(turn);
+    expect(
+      row?.blocks.map(({ addressee }) => addressee),
+      label,
+    ).toEqual(blocks);
+    if (step === 5) expect(row?.prSummary?.[0]?.checks.pending, label).toBeGreaterThan(0);
+    if (step === 7) expect(row?.returned).toMatchObject({ from: 'review', findings: 2 });
+    if (step === 8) expect(row?.turn?.head, label).toBe(HEAD_B);
+    if (step === 10) expect(row?.prSummary?.[0]?.reviewsOnHead.approved, label).toEqual([]);
+    if (step === 11)
+      expect(row?.prSummary?.[0]?.reviewsOnHead.approved, label).toContain('quill-teodor');
+    if (step === 12)
+      expect(items, label).toContainEqual(
+        expect.stringMatching(new RegExp(`on ${demoKey}: ready-to-merge: not_merged$`)),
+      );
+  }
+
+  const demo = (verb: string) => control(current(), '/demo', { verb });
+  async function next(step: number): Promise<DemoAnswer> {
+    const answer = (await ok(current(), '/demo', { verb: 'next' })) as DemoAnswer;
+    expect(answer).toMatchObject({
+      scenario: 'walkthrough',
+      step,
+      steps: STEPS.length,
+      title: STEPS[step - 1]?.title,
+      narration: STEPS[step - 1]?.narration,
+    });
+    return answer;
+  }
+
+  /** The background columns with the count of tasks in each. */
+  const counts = (record: Background): Record<string, number> => {
+    const result: Record<string, number> = {};
+    for (const { column } of Object.values(record)) result[column] = (result[column] ?? 0) + 1;
+    return result;
+  };
+
+  it('walkthrough: every demo next moves only the demo task from Todo to Done, background unchanged', async () => {
+    // A Wednesday 06:00 UTC: fourteen hours of stand time stay inside Wednesday, so Done does
+    // not archive and no daily slot passes. The clock holds still through the seed, as showcase.
+    const seeded: { at?: number } = {};
+    await up({
+      clock: {
+        now: () => {
+          const epoch = Date.parse('2026-11-11T06:00:00.000Z');
+          return seeded.at === undefined ? epoch : epoch + (Date.now() - seeded.at);
+        },
+      },
+    });
+    const { scenario } = await seed('walkthrough');
+    seeded.at = Date.now();
+    const demoKey = scenario.tasks?.['demo'] ?? 'no demo task';
+    expect(demoKey).toBe('stand-org/board#440');
+    expect(STEPS).toHaveLength(13);
+    const before = await background(current(), demoKey);
+    expect(counts(before)).toEqual(SHOWCASE_COUNTS);
+    expect(await ok(current(), '/demo', { verb: 'status' })).toEqual({
+      scenario: 'walkthrough',
+      step: 0,
+      steps: 13,
+      next: STEPS[0]?.title,
+    });
+    await expectStep(0, demoKey);
+
+    // A first pass of three steps, then a stand reset back onto the seed's snapshot.
+    for (let step = 1; step <= 3; step += 1) {
+      await next(step);
+      await expectStep(step, demoKey);
+    }
+    const reset = (await ok(current(), '/reset')) as { snapshot?: string };
+    expect(reset.snapshot).toBe('restored');
+    await ok(current(), '/wait', SEED_WAIT);
+    expect(await ok(current(), '/demo', { verb: 'status' })).toMatchObject({ step: 0 });
+    await expectStep(0, demoKey);
+    expect(await background(current(), demoKey)).toEqual(before);
+    const { daemonUrl } = current();
+    await hourStable(current());
+
+    for (let step = 1; step <= STEPS.length; step += 1) {
+      const answer = await next(step);
+      await expectStep(step, demoKey);
+      if (step === 3) expect(answer.open).toMatch(/^block%3AB\d+$/);
+      expect(await background(current(), demoKey), `step ${String(step)}`).toEqual(before);
+      expect(current().daemonUrl).toBe(daemonUrl);
+      await hourStable(current());
+    }
+    const done = await demo('next');
+    expect(done.status, JSON.stringify(done.body)).toBe(409);
+
+    const doc = readFileSync(DOC, 'utf8');
+    for (const [i, { title, narration }] of STEPS.entries()) {
+      expect(doc, title).toContain(`## Step ${String(i + 1)} - ${title}`);
+      expect(doc, title).toContain(narration);
+    }
+
+    // demo reset seeds again: fresh IDs, the same columns, and step 1 runs again.
+    const again = (await ok(current(), '/demo', { verb: 'reset' })) as DemoAnswer & {
+      violationsCleared: unknown;
+    };
+    expect(again).toMatchObject({ scenario: 'walkthrough', step: 0, violationsCleared: 0 });
+    await ok(current(), '/wait', SEED_WAIT);
+    await expectStep(0, demoKey);
+    const reseeded = await background(current(), demoKey);
+    expect(
+      Object.fromEntries(Object.entries(reseeded).map(([key, { column }]) => [key, column])),
+    ).toEqual(Object.fromEntries(Object.entries(before).map(([key, { column }]) => [key, column])));
+    await next(1);
+    await expectStep(1, demoKey);
+    expect(await ok(current(), '/violations')).toMatchObject({ total: 0 });
+  }, 240_000);
+
+  it('walkthrough: /demo answers 409 without steps, 503 while a seed runs, 409 after a failed step until demo reset', async () => {
+    const entered = deferred();
+    const gate = deferred();
+    const one = { title: 'One', narration: 'The one step.', run: () => Promise.resolve() };
+    const gated: Scenario = {
+      name: 'gated',
+      summary: 'A seed held until the test opens its gate, with one demo step.',
+      async seed() {
+        entered.resolve();
+        await gate.promise;
+        return {};
+      },
+      settled: () => Promise.resolve({ ok: true }),
+      demo: [one],
+    };
+    const failing: Scenario = {
+      name: 'failing',
+      summary: 'A demo step that throws.',
+      seed: () => Promise.resolve({}),
+      settled: () => Promise.resolve({ ok: true }),
+      demo: [{ ...one, run: () => Promise.reject(new Error('the step broke')) }],
+    };
+    const empty = SCENARIOS.find(({ name }) => name === 'empty');
+    if (empty === undefined) throw new Error('no empty scenario');
+    try {
+      await up({ scenarios: [gated, failing, empty] });
+      for (const verb of ['status', 'next'])
+        expect((await demo(verb)).status, `unseeded ${verb}`).toBe(409);
+      await seed('empty');
+      for (const verb of ['status', 'next']) {
+        const refused = await demo(verb);
+        expect(refused.status, `empty ${verb}`).toBe(409);
+        expect(refused.body).toMatchObject({ error: 'Scenario empty has no demo steps.' });
+      }
+      expect((await demo('jump')).status).toBe(400);
+
+      const seeding = control(current(), '/seed', { scenario: 'gated' });
+      await entered.promise;
+      expect(await demo('status')).toEqual({
+        status: 503,
+        body: { error: 'The scenario is still seeding.' },
+      });
+      gate.resolve();
+      expect((await seeding).status).toBe(200);
+      expect(await ok(current(), '/demo', { verb: 'status' })).toEqual({
+        scenario: 'gated',
+        step: 0,
+        steps: 1,
+        next: 'One',
+      });
+      expect(await ok(current(), '/demo', { verb: 'next' })).toEqual({
+        scenario: 'gated',
+        step: 1,
+        steps: 1,
+        title: 'One',
+        narration: 'The one step.',
+      });
+      expect((await demo('next')).status).toBe(409);
+
+      await seed('failing');
+      const failed = await demo('next');
+      expect(failed).toMatchObject({
+        status: 500,
+        body: {
+          error: 'the step broke',
+          step: 1,
+          note: expect.stringContaining('demo reset') as unknown,
+        },
+      });
+      const refused = await demo('next');
+      expect(refused.status).toBe(409);
+      expect(refused.body).toMatchObject({
+        note: expect.stringContaining('demo reset') as unknown,
+      });
+      expect(await ok(current(), '/demo', { verb: 'reset' })).toMatchObject({
+        scenario: 'failing',
+        step: 0,
+        violationsCleared: 0,
+      });
+
+      await seed('empty');
+      expect((await demo('status')).status).toBe(409);
+    } finally {
+      gate.resolve();
+    }
+  }, 60_000);
+
+  it('walkthrough: up, demo next and demo status through the real CLI', async () => {
+    const started = await standCli(['up', '--scenario', 'walkthrough']);
+    let home: string | undefined;
+    try {
+      expect(started.code, started.stderr).toBe(0);
+      home = (JSON.parse(started.stdout) as { home: string }).home;
+      const stepped = await standCli(['demo', 'next', '--home', home]);
+      expect(stepped.code, stepped.stderr).toBe(0);
+      expect(stepped.stdout).toMatch(/^step 1\/13: /);
+      expect(stepped.stdout).toContain(STEPS[0]?.narration ?? 'no narration');
+      const shown = await standCli(['demo', 'status', '--home', home]);
+      expect(shown.code, shown.stderr).toBe(0);
+      expect(shown.stdout).toMatch(/^step 1\/13: /);
     } finally {
       if (home !== undefined) {
         const downed = await standCli(['down', '--home', home]);

@@ -16,7 +16,7 @@ import { parseArgs } from 'node:util';
 import { resolvePaths } from '@spur-board/daemon/in-process';
 import { scrubEnv } from '@spur-board/testkit';
 import { z } from 'zod';
-import { callLocal, MAX_SHIFT_MS } from './control.ts';
+import { callLocal, DEMO_VERBS, MAX_SHIFT_MS } from './control.ts';
 import { parseFakeArgs } from './fake-spur.ts';
 import { parseFakeHostArgs } from './fakes/host.ts';
 import { liveBoardDirs, proxyRefusal, refusal, StandRefusedError } from './guards.ts';
@@ -155,6 +155,12 @@ const USAGE = `Usage: pnpm stand <command>
   fake jira fail <mode> [--times n]
                                   the modes of fake github fail, for Jira alone
   violations                      print requests no fake models; exit 1 if there are any
+  demo next                       run the next step of a scenario with demo steps (walkthrough):
+                                  print the step, its narration and the web view to open, once
+                                  the board shows it (docs/contributing/demo-walkthrough.md)
+  demo status                     print the step the demo is at and the next step's title
+  demo reset                      seed the scenario again with fresh times, back at step 0. This
+                                  drops the violation log: read it first
 
 Every command but up takes --home <dir> to pick one of several stands.
 Exit codes: 0 ok, 1 failure, 2 usage, 3 refused.
@@ -282,6 +288,46 @@ async function control(manifest: StandManifest, route: string, body: unknown, ti
   });
   out(response.body.endsWith('\n') ? response.body : `${response.body}\n`);
   return response.status >= 200 && response.status < 300 ? 0 : 1;
+}
+
+/**
+ * `demo next|status|reset` as text: `step <n>/<m>: <title>`, the narration, the web view to open
+ * and the next step's title; `reset` adds the violations it dropped. Errors go to stderr.
+ */
+async function demo(manifest: StandManifest, verb: string): Promise<number> {
+  const response = await callLocal(`${manifest.controlUrl}/demo`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${manifest.controlToken}` },
+    body: JSON.stringify({ verb }),
+    // next and reset wait in the control queue and may seed, as reset does.
+    timeoutMs: verb === 'status' ? 5_000 : 120_000,
+  });
+  let body: Record<string, unknown> | undefined;
+  try {
+    body = JSON.parse(response.body) as Record<string, unknown>;
+  } catch {
+    body = undefined;
+  }
+  if (response.status < 200 || response.status >= 300 || body === undefined) {
+    const lines =
+      body === undefined
+        ? [response.body.trimEnd()]
+        : [body['error'], body['note']].filter((line) => typeof line === 'string');
+    err(`stand demo ${verb}: ${lines.join('\n')}\n`);
+    return 1;
+  }
+  const { step, steps, title, narration, open, next, violationsCleared } = body;
+  const lines = [
+    `step ${String(step)}/${String(steps)}${typeof title === 'string' ? `: ${title}` : ''}`,
+  ];
+  if (typeof narration === 'string') lines.push(narration);
+  if (typeof open === 'string' && manifest.webUrl !== undefined)
+    lines.push(`open: ${manifest.webUrl.replace(/\/$/, '')}/?open=${open}`);
+  if (typeof next === 'string') lines.push(`next: ${next}`);
+  if (typeof violationsCleared === 'number')
+    lines.push(`violations cleared: ${String(violationsCleared)}`);
+  out(`${lines.join('\n')}\n`);
+  return 0;
 }
 
 const sleep = (ms: number): Promise<void> =>
@@ -1058,6 +1104,17 @@ async function main(argv: string[]): Promise<number> {
       // Checked before any call, so an unknown name exits 2 without touching the stand.
       const scenario = scenarioName(name);
       return control(target(values.home), '/seed', { scenario }, 120_000);
+    }
+    case 'demo': {
+      const [verb, ...extra] = positionals;
+      // Checked before any call, so an unknown verb exits 2 without touching the stand.
+      if (
+        verb === undefined ||
+        !(DEMO_VERBS as readonly string[]).includes(verb) ||
+        extra.length > 0
+      )
+        throw new UsageError(`demo takes one of ${DEMO_VERBS.join(', ')}`);
+      return demo(target(values.home), verb);
     }
     case 'violations':
       if (positionals.length > 0) throw new UsageError('violations takes no arguments');

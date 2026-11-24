@@ -54,6 +54,7 @@ const unused = {
   slackOutbox: vi.fn(),
   slackClick: vi.fn(),
   slackPost: vi.fn(),
+  demo: vi.fn(),
 };
 
 let control: Control | undefined;
@@ -241,6 +242,44 @@ describe('control endpoint', () => {
     expect(seeded.status).toBe(200);
     expect(await seeded.json()).toEqual({ seeded: true });
     expect(seed).toHaveBeenCalledExactlyOnceWith({ scenario: 'empty' });
+  });
+
+  it('queues demo next and reset behind a reset, answers demo status beside it and checks the verb', async () => {
+    const pending = deferred<RouteResult>();
+    const reset = vi.fn(() => pending.promise);
+    const demo = vi.fn((body: { verb: string }) =>
+      Promise.resolve({ status: 200, body: { verb: body.verb } }),
+    );
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset, demo },
+    });
+    const demoBody = (body: string) =>
+      fetch(`${control?.url ?? ''}/demo`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body,
+      });
+    for (const body of ['{}', '{"verb":"jump"}', '{"verb":1}'])
+      expect((await demoBody(body)).status, body).toBe(400);
+    expect(demo).not.toHaveBeenCalled();
+
+    const running = post(control, '/reset');
+    await vi.waitFor(() => {
+      expect(reset).toHaveBeenCalled();
+    });
+    const stepping = demoBody('{"verb":"next"}');
+    const resetting = demoBody('{"verb":"reset"}');
+    const shown = await demoBody('{"verb":"status"}');
+    expect(await shown.json()).toEqual({ verb: 'status' });
+    // next and reset are queued: give their requests time to arrive, then check neither ran.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(demo).toHaveBeenCalledExactlyOnceWith({ verb: 'status' });
+    pending.resolve({ status: 200, body: {} });
+    expect((await running).status).toBe(200);
+    expect(await (await stepping).json()).toEqual({ verb: 'next' });
+    expect(await (await resetting).json()).toEqual({ verb: 'reset' });
+    expect(demo.mock.calls.map(([body]) => body.verb)).toEqual(['status', 'next', 'reset']);
   });
 
   it('forwards a reset product version and refuses an invalid one', async () => {

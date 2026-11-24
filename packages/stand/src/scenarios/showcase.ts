@@ -29,7 +29,7 @@ const DAY = 24 * HOUR;
 
 const PROJECT = 'stand-org/1';
 /** The invented external reviewers; the operator's own login is `stand-agent`. */
-const REVIEWERS = ['quill-mara', 'quill-teodor'] as const;
+export const REVIEWERS = ['quill-mara', 'quill-teodor'] as const;
 
 interface Planned {
   name: string;

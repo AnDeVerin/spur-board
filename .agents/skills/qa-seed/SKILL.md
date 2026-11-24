@@ -18,6 +18,8 @@ verbs and scenario names; this card keeps the rules and traps.
 - Quote task keys in the shell: `'stand-org/board#1'`; an unquoted `#` starts a comment.
 - Read `references/scenarios.md` for the projects, columns, roles and session states each
   scenario sets up, and how to get a shadow marker.
+- `pnpm stand demo next|status|reset` steps a scenario that has demo steps (`walkthrough`);
+  see `docs/contributing/demo-walkthrough.md`.
 
 ## Waiting and time
 
@@ -50,5 +52,6 @@ verbs and scenario names; this card keeps the rules and traps.
 ## Violations and reset
 
 - `pnpm stand violations` prints the requests no fake models. A non-empty log fails the round.
-- Read and save the violation log before any `pnpm stand reset` or `seed`: both drop it.
+- Read and save the violation log before any `pnpm stand reset`, `seed` or `demo reset`: all
+  three drop it.
 - Use `reset` to rerun a scenario from a clean state, not to clear a failure you have not recorded.

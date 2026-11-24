@@ -48,7 +48,12 @@ export interface ControlRoutes {
   fake(body: { system: string; verb: string; args: unknown }): Promise<RouteResult>;
   /** 200 with an empty log, 409 otherwise; never queued. */
   violations(): Promise<RouteResult>;
+  /** `pnpm stand demo`: `next` and `reset` queued with `reset`, `status` never queued. */
+  demo(body: { verb: DemoVerb }): Promise<RouteResult>;
 }
+
+export const DEMO_VERBS = ['next', 'status', 'reset'] as const;
+export type DemoVerb = (typeof DEMO_VERBS)[number];
 
 export interface Control {
   readonly url: string;
@@ -115,14 +120,16 @@ const ROUTES = new Set([
   '/fake/slack/outbox',
   '/fake/slack/click',
   '/fake/slack/post',
+  '/demo',
 ]);
 
 /**
  * The stand's control endpoint on 127.0.0.1. Checks, in order: no `Origin` (403), Host exactly
  * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413) and
  * its arrival time (10 s). `wait` runs at most `MAX_WAIT_MS`.
- * `poll`, `reset`, `seed`, `clock`, `fake spur`, the Slack click and post run one at a time through one
- * queue; `wait`, `violations`, the Slack outbox and the other fakes run outside it.
+ * `poll`, `reset`, `seed`, `clock`, `fake spur`, the Slack click and post, `demo next` and
+ * `demo reset` run one at a time through one queue; `wait`, `violations`, the Slack outbox, the
+ * other fakes and `demo status` run outside it.
  */
 export async function startControl(options: {
   token: string;
@@ -250,6 +257,12 @@ export async function startControl(options: {
           ...(typeof text === 'string' ? { text } : {}),
         }),
       );
+    } else if (path === '/demo') {
+      const { verb } = body;
+      if (typeof verb !== 'string' || !(DEMO_VERBS as readonly string[]).includes(verb))
+        throw new HttpError(400, `Send { verb } with one of ${DEMO_VERBS.join(', ')}.`);
+      const run = () => options.routes.demo({ verb: verb as DemoVerb });
+      result = await (verb === 'status' ? run() : queued(run));
     } else if (path === '/fake/slack/post') {
       const { text } = body;
       if (typeof text !== 'string') throw new HttpError(400, 'Send { text }.');

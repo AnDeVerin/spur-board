@@ -29,6 +29,9 @@ pnpm stand wait scenario
 
 Stop the stand with `pnpm stand down` when the demo is over.
 
+To walk one task from Todo to Done on this Board a step at a time, seed `walkthrough` instead:
+[Demo walkthrough](demo-walkthrough.md).
+
 ## Web address
 
 `up` prints `webUrl` only when the live board's `web.publicOrigin` has `{port}`, for example

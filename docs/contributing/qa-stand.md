@@ -33,6 +33,8 @@ named scenarios only.
   `stand-qa` session exists.
 - `showcase` fills all ten columns with invented tasks for a demo and keeps the role sessions
   `working`, so nothing moves on its own; how to run and show it: [Demo board](demo.md).
+- `walkthrough` adds issue 440 in Todo to `showcase`; each `pnpm stand demo next` moves it one
+  step towards Done: [Demo walkthrough](demo-walkthrough.md).
 
 ## Driving pnpm stand mcp from a shell
 

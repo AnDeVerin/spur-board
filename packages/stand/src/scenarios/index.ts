@@ -69,6 +69,7 @@ import { readmeBoard } from './readme-board.ts';
 import { readyMirror } from './ready-mirror.ts';
 import { dispatchApprovalWithNotes, dispatchUnresolvedThread } from './review-threads.ts';
 import { showcase } from './showcase.ts';
+import { walkthrough } from './walkthrough.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import {
   spurTransitionsRapidRecovery,
@@ -151,6 +152,23 @@ interface SettledContext {
   entities: ScenarioEntities;
 }
 
+/** What a demo step sees: the board, the fakes, the seed's entities and the steps' own IDs. */
+export interface DemoContext extends SettledContext {
+  /** What earlier steps since the seed recorded, such as a turn or block ID; starts empty. */
+  ids: Record<string, string>;
+}
+
+/** One step of `pnpm stand demo next`: a single visible change on the board. */
+export interface DemoStep {
+  title: string;
+  /** One line the presenter says; `docs/contributing/demo-walkthrough.md` repeats it verbatim. */
+  narration: string;
+  /** The `?open=` value of the web view to show after the step, already URL-encoded. */
+  open?(context: Pick<DemoContext, 'ids'>): string;
+  /** Makes the change and returns once the board shows it; never calls an HTTP control route. */
+  run(context: DemoContext): Promise<void>;
+}
+
 export interface Scenario {
   name: string;
   summary: string;
@@ -176,6 +194,8 @@ export interface Scenario {
   seed(board: Board, fakes: ScenarioFakes, clock: { now(): number }): Promise<ScenarioEntities>;
   /** Whether the state the seed set up has arrived; `stand wait scenario` re-runs it. */
   settled(context: SettledContext): Promise<Settled>;
+  /** The steps `pnpm stand demo next` runs in order after the seed. */
+  demo?: readonly DemoStep[];
 }
 
 export const SCENARIOS: readonly Scenario[] = [
@@ -246,6 +266,7 @@ export const SCENARIOS: readonly Scenario[] = [
   readmeBoard,
   readyMirror,
   showcase,
+  walkthrough,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>

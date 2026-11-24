@@ -50,7 +50,7 @@ import {
 import { installNetworkGuard } from '@spur-board/testkit';
 import YAML from 'yaml';
 import type { RouteResult } from './control.ts';
-import { isShift, SHIFT_REFUSAL, startControl, type Control } from './control.ts';
+import { isShift, SHIFT_REFUSAL, startControl, type Control, type DemoVerb } from './control.ts';
 import { createFakeSpur, requestUrl, type FakeSpur, type FakeSpurState } from './fake-spur.ts';
 import { createFakes, type FakesState } from './fakes/fetch.ts';
 import { createGithubIssuesFake } from './fakes/github-issues.ts';
@@ -71,6 +71,7 @@ import {
   mergeConfig,
   SCENARIOS,
   scenarioNames,
+  type DemoStep,
   type Scenario,
   type ScenarioEntities,
 } from './scenarios/index.ts';
@@ -129,6 +130,29 @@ const CLICK_TIMEOUT_MS = 5_000;
 const FRESH_MARGIN_MS = 60_000;
 const SEED_FAILED_NOTE =
   'The board keeps what the seed wrote before it failed; run reset for a clean stand.';
+const DEMO_FAILED_NOTE = 'run pnpm stand demo reset: next refuses until then';
+
+/** Where `pnpm stand demo` stands; `ids` holds what earlier steps recorded for later ones. */
+interface DemoState {
+  step: number;
+  ids: Record<string, string>;
+  failed: boolean;
+}
+
+/** The `demo` answer: the step that ran last (none at step 0) and the title of the next one. */
+function demoBody(name: string, steps: readonly DemoStep[], state: DemoState) {
+  const last = steps[state.step - 1];
+  const open = last?.open?.({ ids: state.ids });
+  return {
+    scenario: name,
+    step: state.step,
+    steps: steps.length,
+    ...(last === undefined ? {} : { title: last.title, narration: last.narration }),
+    ...(open === undefined ? {} : { open }),
+    ...(steps[state.step] === undefined ? {} : { next: steps[state.step]?.title }),
+    ...(state.failed ? { failed: true } : {}),
+  };
+}
 
 /**
  * The stand's config. Every external host is under `.stand.invalid`: Spur's and Jira's are
@@ -788,6 +812,13 @@ export async function startStand(options: StandOptions): Promise<Stand> {
    * only then does `stand.json` carry it and `wait scenario` consult its `settled`.
    */
   let scenario: { name: string; entities?: ScenarioEntities } | undefined;
+  /**
+   * Where `pnpm stand demo` stands in the seeded scenario's steps: set to step 0 once a scenario
+   * with `demo` steps is seeded or restored, cleared by every restart. `failed` stops `next`.
+   */
+  let demoState: DemoState | undefined;
+  const demoStart = (name: string): DemoState | undefined =>
+    findScenario(name)?.demo === undefined ? undefined : { step: 0, ids: {}, failed: false };
   /** The last snapshot of each seeded scenario; a failed snapshot drops the scenario's record. */
   const snapshots = new Map<string, SnapshotRecord>();
   const snapshotDir = join(home, 'snapshots');
@@ -989,6 +1020,78 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         });
       return restart(body.scenario, { restore: false });
     },
+    /**
+     * `pnpm stand demo`: `status` reports the step, `next` runs the next step of the seeded
+     * scenario on the running daemon, `reset` seeds the scenario again at step 0. Inside the
+     * control queue, except `status`; a step never calls an HTTP control route.
+     */
+    async demo(body: { verb: DemoVerb }): Promise<RouteResult> {
+      const running = current;
+      if (running === undefined)
+        return { status: 503, body: { error: 'The daemon is not running.' } };
+      const seeded = scenario;
+      if (seeded === undefined)
+        return { status: 409, body: { error: 'No scenario is seeded.', scenarios: demoNames() } };
+      const { entities } = seeded;
+      if (entities === undefined)
+        return { status: 503, body: { error: 'The scenario is still seeding.' } };
+      const steps = findScenario(seeded.name)?.demo;
+      const state = demoState;
+      if (steps === undefined || state === undefined)
+        return {
+          status: 409,
+          body: { error: `Scenario ${seeded.name} has no demo steps.`, scenarios: demoNames() },
+        };
+      if (body.verb === 'status') return { status: 200, body: demoBody(seeded.name, steps, state) };
+      if (body.verb === 'reset') {
+        const result = await restart(seeded.name, { restore: false });
+        const restarted = demoState;
+        if (result.status !== 200 || restarted === undefined) return result;
+        const { daemonUrl, violationsCleared } = result.body as {
+          daemonUrl: string;
+          violationsCleared: number;
+        };
+        return {
+          status: 200,
+          body: { ...demoBody(seeded.name, steps, restarted), daemonUrl, violationsCleared },
+        };
+      }
+      if (state.failed)
+        return {
+          status: 409,
+          body: { error: `Step ${String(state.step + 1)} failed.`, note: DEMO_FAILED_NOTE },
+        };
+      const step = steps[state.step];
+      if (step === undefined)
+        return {
+          status: 409,
+          body: {
+            error: `All ${String(steps.length)} steps ran.`,
+            note: 'Run pnpm stand demo reset to start again.',
+          },
+        };
+      try {
+        await step.run({
+          board: boardFor(running).board,
+          fakes: scenarioFakes,
+          entities,
+          ids: state.ids,
+        });
+      } catch (err) {
+        state.failed = true;
+        return {
+          status: 500,
+          body: {
+            error: errorMessage(err),
+            step: state.step + 1,
+            title: step.title,
+            note: DEMO_FAILED_NOTE,
+          },
+        };
+      }
+      state.step += 1;
+      return { status: 200, body: demoBody(seeded.name, steps, state) };
+    },
     fake(body: { system: string; verb: string; args: unknown }): Promise<RouteResult> {
       if (body.system === 'github' || body.system === 'jira')
         return Promise.resolve(fakes.control(body));
@@ -1120,6 +1223,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     current = undefined;
     // Recorded before the restart, so `wait scenario` says what is being seeded.
     scenario = name === undefined ? undefined : { name };
+    demoState = undefined;
     // Shared with stop(): a stop that races this reset still waits for this daemon.
     retiring = running.daemon;
     let violationsCleared = running.spur.violations().total;
@@ -1161,7 +1265,10 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       host.reset();
       if (hit !== undefined) fakes.restore(hit.fakes);
       current = await startDaemon(hit?.spur);
-      if (name !== undefined && hit !== undefined) scenario = { name, entities: hit.entities };
+      if (name !== undefined && hit !== undefined) {
+        scenario = { name, entities: hit.entities };
+        demoState = demoStart(name);
+      }
       // State a seed reaches through the clock lives in the runner, not the snapshot: a fresh
       // runner gets there again only through the same shifts. The clock still only moves forward.
       for (const shiftMs of hit?.shifts ?? []) {
@@ -1226,6 +1333,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   }
 
   const scenarioFakes = createScenarioFakes(routes);
+  const demoNames = (): string[] =>
+    scenarios.filter(({ demo }) => demo !== undefined).map(({ name }) => name);
 
   /**
    * Seeds `name` on the running daemon, records it with what it named and takes its snapshot.
@@ -1245,6 +1354,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     const entities =
       notes.length === 0 ? seeded : { ...seeded, direct: [...(seeded.direct ?? []), ...notes] };
     scenario = { name, entities };
+    demoState = demoStart(name);
     return { entities, snapshot: await takeSnapshot(name, definition, running, entities, shifts) };
   }
 

@@ -40,7 +40,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
   `running-the-daemon`.
 - `packages/stand` - a private disposable board for agents and tests: one process holding the
   in-process daemon on a temp home with dummy secrets, the fake Slack API, the network guard and a
-  control endpoint (`wait`, `poll`, `reset`, `seed`, `clock`, `fake`, `violations`). An in-memory
+  control endpoint (`wait`, `poll`, `reset`, `seed`, `clock`, `fake`, `violations`, `demo`). An in-memory
   fake Spur and the fakes in `src/fakes/` answer the real adapters through one in-process `fetch`;
   the named scenarios `seed` and `up --scenario` set up live in `src/scenarios/`; `recordings/`
   holds the live responses the fakes are checked against. Production packages never import it;
@@ -100,7 +100,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `BOARD_LIVE_CHANNEL=<test-channel-id> BOARD_LIVE_CHANNEL_NAME=<test-channel-name> pnpm smoke:live`
   - run Slack gateway conformance from an interactive terminal after checking private channel
     metadata; use before M1 acceptance, after Slack SDK updates and before releases.
-- `pnpm stand up|down|status|logs|board|mcp|wait|poll|reset|seed|clock|fake|violations` - run a stand under `$TMPDIR`;
+- `pnpm stand up|down|status|logs|board|mcp|wait|poll|reset|seed|clock|fake|violations|demo` - run a stand under `$TMPDIR`;
   `pnpm stand` prints the commands. `up` refuses real external credentials in the environment,
   the live board's home, a live config it cannot read, and the live config's `http.port` and
   `web.port`, and prints a `webUrl` when the live `web.publicOrigin` has `{port}`.

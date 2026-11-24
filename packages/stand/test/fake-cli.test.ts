@@ -26,6 +26,20 @@ const fake = vi.fn<ControlRoutes['fake']>(() =>
 const slackPost = vi.fn<ControlRoutes['slackPost']>(() =>
   Promise.resolve({ status: 200, body: { ok: true, message: 4, responses: [] } }),
 );
+const demo = vi.fn<ControlRoutes['demo']>(() =>
+  Promise.resolve({
+    status: 200,
+    body: {
+      scenario: 'walkthrough',
+      step: 3,
+      steps: 13,
+      title: 'A question to the operator',
+      narration: 'The worker asks the operator.',
+      open: 'block%3AB7',
+      next: 'The answer',
+    },
+  }),
+);
 
 afterEach(async () => {
   await control?.close();
@@ -33,12 +47,16 @@ afterEach(async () => {
   clock.mockClear();
   fake.mockClear();
   slackPost.mockClear();
+  demo.mockClear();
   if (home !== undefined) rmSync(home, { recursive: true, force: true });
   home = undefined;
 });
 
-/** A stand home whose manifest names a real control endpoint answering `/violations` with `answer`. */
-async function stubStand(answer: RouteResult): Promise<string> {
+/**
+ * A stand home whose manifest names a real control endpoint answering `/violations` with
+ * `answer`, with `webUrl` in the manifest when given.
+ */
+async function stubStand(answer: RouteResult, webUrl?: string): Promise<string> {
   control = await startControl({
     token: TOKEN,
     routes: {
@@ -52,6 +70,7 @@ async function stubStand(answer: RouteResult): Promise<string> {
       slackClick: vi.fn(),
       slackPost,
       violations: () => Promise.resolve(answer),
+      demo,
     },
   });
   home = mkdtempSync(join(realpathSync(tmpdir()), STAND_PREFIX));
@@ -66,6 +85,7 @@ async function stubStand(answer: RouteResult): Promise<string> {
     controlToken: TOKEN,
     tokenPath: join(home, 'token'),
     roles: { worker: 'w', orchestrator: 'o', curator: 'c' },
+    ...(webUrl === undefined ? {} : { webUrl }),
   });
   return home;
 }
@@ -206,6 +226,78 @@ describe('stand fake github issue project-status', () => {
     ]);
     expect(result.code).toBe(2);
     expect(fake).not.toHaveBeenCalled();
+  });
+});
+
+describe('stand demo', () => {
+  const EMPTY = { status: 200, body: { total: 0, items: [] } };
+
+  it('sends the verb and prints the step, its narration, the view to open and the next step', async () => {
+    const dir = await stubStand(EMPTY, 'https://4801.stand.example');
+    const result = await runCli(['demo', 'next', '--home', dir]);
+    expect(result.code, result.stderr).toBe(0);
+    expect(demo).toHaveBeenCalledExactlyOnceWith({ verb: 'next' });
+    expect(result.stdout).toBe(
+      [
+        'step 3/13: A question to the operator',
+        'The worker asks the operator.',
+        'open: https://4801.stand.example/?open=block%3AB7',
+        'next: The answer',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('prints no open line without a web URL', async () => {
+    const dir = await stubStand(EMPTY);
+    const result = await runCli(['demo', 'status', '--home', dir]);
+    expect(result.code, result.stderr).toBe(0);
+    expect(demo).toHaveBeenCalledExactlyOnceWith({ verb: 'status' });
+    expect(result.stdout).not.toContain('open:');
+  });
+
+  it('prints the violations a demo reset cleared', async () => {
+    demo.mockResolvedValueOnce({
+      status: 200,
+      body: {
+        scenario: 'walkthrough',
+        step: 0,
+        steps: 13,
+        next: 'Ready for Dev',
+        daemonUrl: 'http://127.0.0.1:1',
+        violationsCleared: 2,
+      },
+    });
+    const dir = await stubStand(EMPTY);
+    const result = await runCli(['demo', 'reset', '--home', dir]);
+    expect(result.code, result.stderr).toBe(0);
+    expect(demo).toHaveBeenCalledExactlyOnceWith({ verb: 'reset' });
+    expect(result.stdout).toBe('step 0/13\nnext: Ready for Dev\nviolations cleared: 2\n');
+  });
+
+  it.each([
+    ['an unknown verb', ['jump']],
+    ['no verb', []],
+    ['two verbs', ['next', 'next']],
+  ])('exits 2 on %s without calling the stand', async (_name, verbs) => {
+    const dir = await stubStand(EMPTY);
+    const result = await runCli(['demo', ...verbs, '--home', dir]);
+    expect(result.code).toBe(2);
+    expect(result.stderr.split('\n')[0]).toMatch(/demo takes one of next, status, reset/);
+    expect(demo).not.toHaveBeenCalled();
+  });
+
+  it('exits 1 with the error on stderr when the stand refuses', async () => {
+    demo.mockResolvedValueOnce({
+      status: 409,
+      body: { error: 'All 13 steps ran.', note: 'Run pnpm stand demo reset to start again.' },
+    });
+    const dir = await stubStand(EMPTY);
+    const result = await runCli(['demo', 'next', '--home', dir]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('All 13 steps ran.');
+    expect(result.stderr).toContain('demo reset');
   });
 });
 
