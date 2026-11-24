@@ -41,6 +41,8 @@ that changes these rules updates this skill in the same PR.
 - The CLI never prompts. A future prompt checks `isTTY` and has a flag that skips it.
 - Help shows every catalog example, checked under `describe('catalog commands')` in
   `packages/cli/test/commands.test.ts`. Write examples an agent can copy.
+- A catalog positional whose input field is optional registers as `[arg]` in help, `docs/cli.md`
+  and the product skill (`registerOptions` in `packages/cli/src/cli.ts`, `scripts/gen-skill.ts`).
 - Human output passes daemon text through `escapeTerminalControls`
   (`packages/cli/src/terminal.ts`).
 
