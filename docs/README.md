@@ -25,6 +25,7 @@ Start with the user guides in order; contributors read the second list.
 - [Contributing](../CONTRIBUTING.md): workflow, checks, versions and the changelog.
 - [AGENTS.md](../AGENTS.md): the repo map, commands and rules for agents.
 - [QA stand](contributing/qa-stand.md): a disposable Board for agents and tests.
+- [Demo board](contributing/demo.md): the `showcase` stand scenario with every column filled.
 - [Design system decisions](contributing/design-system-decisions.md): who is right when a
   prototype and the build differ, and the reason codes.
 - [Design prototypes](../design/README.md): screen prototypes and their layout.

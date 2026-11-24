@@ -31,6 +31,8 @@ named scenarios only.
   drive one QA round per case: tested, skipped and carried submits, a return, a new head, three
   turns held at once, the operator's takeover, and the `no-session:` item while no live
   `stand-qa` session exists.
+- `showcase` fills all ten columns with invented tasks for a demo and keeps the role sessions
+  `working`, so nothing moves on its own; how to run and show it: [Demo board](demo.md).
 
 ## Driving pnpm stand mcp from a shell
 

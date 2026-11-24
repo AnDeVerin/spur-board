@@ -68,6 +68,7 @@ import { questionToOperator } from './question-to-operator.ts';
 import { readmeBoard } from './readme-board.ts';
 import { readyMirror } from './ready-mirror.ts';
 import { dispatchApprovalWithNotes, dispatchUnresolvedThread } from './review-threads.ts';
+import { showcase } from './showcase.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import {
   spurTransitionsRapidRecovery,
@@ -244,6 +245,7 @@ export const SCENARIOS: readonly Scenario[] = [
   cardLong,
   readmeBoard,
   readyMirror,
+  showcase,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>
