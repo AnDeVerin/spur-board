@@ -7,17 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import {
-  Banner,
-  Button,
-  focusRing,
-  FormRow,
-  StatusDot,
-  TabPanel,
-  Tabs,
-  TextArea,
-  TextInput,
-} from '../ds/index.ts';
+import { Banner, Button, focusRing, FormRow, StatusDot, TextArea } from '../ds/index.ts';
 import { ProblemError } from '../lib/api.ts';
 import type { BoardConfig, BoardData, BoardTask } from './data.ts';
 import type { BoardColumnConfig, BoardRow } from './model.ts';
@@ -25,17 +15,15 @@ import { actorDisplayName, age } from './task-model.ts';
 import { TaskSection } from './TaskSection.tsx';
 import type { TurnIntent, TurnPhase } from './turn-intent.ts';
 import { TurnNotes } from './TurnNotes.tsx';
+import { TurnSubmitFields } from './TurnSubmitFields.tsx';
 import { useTurnReread } from './turn-reread.ts';
 import {
   ARCHIVED,
-  BASES,
-  BASIS_ID,
   boundSummary,
   closedDetail,
   closedNotice,
   commitDefault,
   fieldErrors,
-  isBasis,
   openSummary,
   closable,
   PHASE,
@@ -161,6 +149,7 @@ export function TaskTurn({
   }, []);
 
   const open = closable(value.turn);
+  const hasPr = value.links.some((link) => link.kind === 'pr');
   const inFlight = phase !== 'idle';
   const boundOpen = bound !== undefined && !bound.refusedClosed && open?.id === bound.turn.id;
   const closed = bound !== undefined && !boundOpen && !inFlight;
@@ -208,6 +197,8 @@ export function TaskTurn({
   }, [sendOff, inFlight]);
 
   if (open === undefined && bound === undefined) return null;
+  /** The server closes this turn without a commit: no pull request link and not a Dev turn. */
+  const commitOptional = (turn: Turn) => !hasPr && turn.column !== 'dev';
   const record = bound && value.turns?.find((turn) => turn.id === bound.turn.id);
   const name = (actor: string) => actorDisplayName(actor, config);
   // A turn addressed to the operator names it, whatever the column's executor reads now.
@@ -227,7 +218,7 @@ export function TaskTurn({
 
   const start = (next: Form, turn: Turn) => {
     setBound({ turn, own: undefined, refusedClosed: false });
-    setSha(commitDefault(row, value.why, turn.id));
+    setSha(commitDefault(row, value.why, turn.id, hasPr));
     setBasis('tested');
     setFrom('');
     setReason('');
@@ -247,18 +238,23 @@ export function TaskTurn({
   const send = (event: { preventDefault: () => void }) => {
     event.preventDefault();
     if (inFlight || !bound || !boundOpen || blocked !== undefined || !form) return;
+    const turn = bound.turn;
     const commit = sha.trim();
     const source = from.trim();
-    const found = fieldErrors(form, { sha: commit, from: source, basis, reason });
+    const optional = commitOptional(turn);
+    const found = fieldErrors(form, { sha: commit, from: source, basis, reason }, optional);
     setErrors(found);
     if (Object.values(found).some((error) => error !== undefined)) return;
-    const input = {
-      sha: commit,
-      basis,
-      ...(basis === 'carried' ? { from: source } : {}),
-      ...(basis === 'tested' ? {} : { reason }),
-    };
-    const turn = bound.turn;
+    // An empty commit where it may be omitted sends only the reason: a submit without a commit.
+    const input =
+      optional && commit === ''
+        ? { reason }
+        : {
+            sha: commit,
+            basis,
+            ...(basis === 'carried' ? { from: source } : {}),
+            ...(basis === 'tested' ? {} : { reason }),
+          };
     const signature = JSON.stringify(form === 'submit' ? [form, input] : [form, reason]);
     if (intent.current?.signature !== signature)
       intent.current = {
@@ -314,6 +310,20 @@ export function TaskTurn({
   const edit = (set: (text: string) => void, field: keyof FieldErrors) => (text: string) => {
     set(text);
     setErrors((current) => ({ ...current, [field]: undefined }));
+  };
+  /**
+   * The Commit edit. Where the commit may be omitted, emptying it or typing into an empty one
+   * swaps the form between a submit with and without a commit: errors clear, and an emptied
+   * commit puts Basis back on Tested (the source and reason texts stay).
+   */
+  const editCommit = (turn: Turn) => (text: string) => {
+    if (!commitOptional(turn)) {
+      edit(setSha, 'sha')(text);
+      return;
+    }
+    setSha(text);
+    setErrors({});
+    if (text.trim() === '') setBasis('tested');
   };
 
   const line = (turn: Turn, state: string, buttons: ReactNode) => (
@@ -384,6 +394,8 @@ export function TaskTurn({
         <TextArea value={reason} onChange={edit(setReason, 'reason')} disabled={fieldsOff} />
       </FormRow>
     );
+    const optional = commitOptional(turn);
+    const withoutCommit = optional && sha.trim() === '';
     return (
       <form
         // One key in the open and the closed box, so a close keeps the form and its focus.
@@ -394,57 +406,21 @@ export function TaskTurn({
         onSubmit={send}
       >
         {form === 'submit' ? (
-          <>
-            <FormRow
-              label="Commit"
-              hint="The head of the PR unless you tested another commit."
-              error={errors.sha}
-            >
-              <TextInput
-                value={sha}
-                onChange={edit(setSha, 'sha')}
-                label="Commit"
-                disabled={fieldsOff}
-              />
-            </FormRow>
-            <Tabs
-              id={BASIS_ID}
-              label="Basis"
-              tabs={BASES}
-              value={basis}
-              disabled={fieldsOff}
-              onChange={(chosen) => {
-                if (!isBasis(chosen)) return;
-                setBasis(chosen);
-                setErrors({});
-              }}
-            />
-            <TabPanel tabsId={BASIS_ID} value={basis}>
-              {basis === 'tested' ? (
-                <p className={styles.note}>
-                  Tested on the commit above. No source or reason is needed.
-                </p>
-              ) : (
-                <div className={styles.fields}>
-                  {basis === 'carried' && (
-                    <FormRow
-                      label="Carried from"
-                      hint="A commit of this task with a tested submit."
-                      error={errors.from}
-                    >
-                      <TextInput
-                        value={from}
-                        onChange={edit(setFrom, 'from')}
-                        label="Carried from"
-                        disabled={fieldsOff}
-                      />
-                    </FormRow>
-                  )}
-                  {reasonRow('Required. Shown on the card and in the history.')}
-                </div>
-              )}
-            </TabPanel>
-          </>
+          <TurnSubmitFields
+            commit={sha}
+            optional={optional}
+            basis={basis}
+            from={from}
+            errors={errors}
+            disabled={fieldsOff}
+            onCommit={editCommit(turn)}
+            onBasis={(chosen) => {
+              setBasis(chosen);
+              setErrors({});
+            }}
+            onFrom={edit(setFrom, 'from')}
+            reasonRow={reasonRow}
+          />
         ) : (
           reasonRow('Required. The worker reads it as the cause of the return.')
         )}
@@ -456,7 +432,7 @@ export function TaskTurn({
         )}
         <p id={confirmId} className={styles.confirm}>
           {form === 'submit'
-            ? submitConfirmation(turn, columns)
+            ? submitConfirmation(turn, columns, withoutCommit)
             : `This closes ${turn.id} in your name and returns the task to dev. It cannot be undone, and it counts toward the cycle limit.`}
         </p>
         <div className={styles.buttons} ref={cancelRow}>

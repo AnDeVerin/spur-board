@@ -47,6 +47,12 @@ export const ARCHIVED = 'This task is archived. The turn cannot be closed.';
 const NOTE =
   'You can close this turn yourself when the orchestrator is down or you have the verdict from elsewhere.';
 
+/** The Commit hint on a task with no pull request link, outside Dev: the commit may stay empty. */
+export const NO_PR_COMMIT_HINT =
+  'This task has no pull request. Leave empty to close the turn without a commit.';
+/** The Reason hint of a submit without a commit. */
+export const NO_COMMIT_REASON_HINT = 'Required. Shown in the history.';
+
 /** The note of a turn addressed to the operator while the operator token does not hold it. */
 const OPERATOR_NOTE = 'No agent takes this turn, so it is yours to close.';
 
@@ -86,13 +92,18 @@ function reasonError(value: string, max: number): string | undefined {
     : undefined;
 }
 export type FieldErrors = Partial<Record<'sha' | 'from' | 'reason', string | undefined>>;
-/** The errors of a submit or return form's input, `sha` and `from` trimmed; none means send. */
+/**
+ * The errors of a submit or return form's input, `sha` and `from` trimmed; none means send. With
+ * `commitOptional` an empty commit is a submit without a commit, which takes only a reason.
+ */
 export function fieldErrors(
   form: 'submit' | 'return',
   input: { sha: string; from: string; basis: Basis; reason: string },
+  commitOptional = false,
 ): FieldErrors {
   const { sha, from, basis, reason } = input;
   if (form === 'return') return { reason: reasonError(reason, 20_000) };
+  if (commitOptional && sha === '') return { reason: reasonError(reason, 2000) };
   return {
     sha: shaError(sha, 'the commit you tested'),
     from: basis === 'carried' ? shaError(from, 'the commit the tested work comes from') : undefined,
@@ -117,7 +128,10 @@ function brief(actor: string): string {
 export function submitConfirmation(
   turn: { id: string; column: string },
   columns: readonly Pick<BoardColumnConfig, 'id' | 'group'>[],
+  withoutCommit = false,
 ): string {
+  if (withoutCommit)
+    return `This closes ${turn.id} in your name without a commit. It cannot be undone.`;
   const next = columnAfter(turn.column, columns);
   return `This closes ${turn.id} in your name and hands the task to the board's gates for ${turn.column}.${next === undefined ? '' : ` Next column: ${next}.`} It cannot be undone.`;
 }
@@ -146,15 +160,18 @@ export function closedDetail(
 }
 
 /**
- * The Commit field's start: the head of the task's only open pull request in the chosen
- * project's status row, else the head `task.get` why stored when `turn` opened (it may be stale;
- * the field stays editable and the server refuses a wrong head with `head_mismatch`).
+ * The Commit field's start: empty when the task has no pull request link (`hasPr`), else the head
+ * of the task's only open pull request in the chosen project's status row, else the head
+ * `task.get` why stored when `turn` opened (it may be stale; the field stays editable and the
+ * server refuses a wrong head with `head_mismatch`).
  */
 export function commitDefault(
   row: { prs?: readonly { state: string; headSha: string }[] | undefined } | undefined,
   why: BoardTask['why'],
   turn: string,
+  hasPr: boolean,
 ): string {
+  if (!hasPr) return '';
   const prs = row?.prs?.filter((pr) => pr.state === 'open') ?? [];
   const only = prs.length === 1 ? prs[0]?.headSha : undefined;
   return only ?? (why?.turn?.id === turn ? (why.turn.head ?? '') : '');

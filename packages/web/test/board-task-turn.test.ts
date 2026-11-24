@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { focusRing } from '../src/ds/index.ts';
-import { never, orchestratorTaskGet, problem, taskGet } from './board-fixtures.ts';
+import { never, orchestratorTaskGet, problem, row, taskGet } from './board-fixtures.ts';
 import { mountEachTest, press, settle } from './board-harness.ts';
 import {
   HEAD,
@@ -199,6 +199,103 @@ describe('Turn section', () => {
     const { primary, line } = confirmation();
     expect(primary?.textContent).toBe('Submit');
     expect(line).toBe(expected);
+  });
+});
+
+describe('Turn section on a task without a pull request', () => {
+  const NO_PR = 'This task has no pull request. Leave empty to close the turn without a commit.';
+  const REASON = 'Findings are in the ticket; no code change.';
+  const tablist = () => turnSection().querySelector('[role="tablist"]');
+  const selectedTab = () =>
+    turnSection().querySelector('[role="tab"][aria-selected="true"]')?.textContent;
+  const opened = {
+    id: 'T5',
+    task: 'ex/repo#7',
+    column: 'review',
+    addressee: 'orchestrator:review',
+    reason: 'Review',
+    handed: [],
+    head: SOURCE,
+    at: AT,
+    taken: null,
+  };
+  /** The Review turn T5 on a task linked only to a session, with a stale stored head. */
+  const openNoPr = () =>
+    open(
+      orchestratorTaskGet(
+        {},
+        {
+          links: [{ kind: 'session', ref: 's1', role: 'worker' }],
+          why: { ...taskGet().why, turn: opened },
+        },
+      ),
+      [row('ex/repo#7', 'review', { prs: [] })],
+    );
+
+  it('starts Commit empty with the no-PR hint, no Basis and a required Reason', async () => {
+    await openNoPr();
+    await click('Submit…');
+    expect(commit().value).toBe('');
+    expect(text()).toContain(NO_PR);
+    expect(tablist()).toBeNull();
+    expect(text()).toContain('Required. Shown in the history.');
+    expect(reason().value).toBe('');
+  });
+
+  it('sends only the reason without a commit', async () => {
+    const { writes } = await openNoPr();
+    await click('Submit…');
+    await send();
+    expect(text()).toContain('Enter a reason.');
+    expect(writes()).toEqual([]);
+    type(reason(), `  ${REASON}`);
+    expect(confirmation().line).toBe(
+      'This closes T5 in your name without a commit. It cannot be undone.',
+    );
+    await send();
+    expect(writes().map(({ op, input }) => ({ op, input }))).toEqual([
+      { op: 'inbox.ack', input: { entries: [{ id: 'T5' }] } },
+      { op: 'task.submit', input: { turn: 'T5', reason: `  ${REASON}` } },
+    ]);
+    expect(text()).toContain('T5 submitted.');
+  });
+
+  it('brings Basis back at Tested once a commit is typed', async () => {
+    const { writes } = await openNoPr();
+    await click('Submit…');
+    type(commit(), HEAD);
+    expect(selectedTab()).toBe('Tested');
+    expect(text()).toContain(NO_PR);
+    await choose('Skipped');
+    await send();
+    expect(text()).toContain('Enter a reason.');
+    type(commit(), '');
+    expect(tablist()).toBeNull();
+    expect(text()).not.toContain('Enter a reason.');
+    type(commit(), HEAD);
+    expect(selectedTab()).toBe('Tested');
+    expect(confirmation().line).toBe(`${GATES} Next column: qa. It cannot be undone.`);
+    await send();
+    expect(writes().map(({ op, input }) => ({ op, input }))).toEqual([
+      { op: 'inbox.ack', input: { entries: [{ id: 'T5' }] } },
+      { op: 'task.submit', input: { turn: 'T5', sha: HEAD, basis: 'tested' } },
+    ]);
+  });
+
+  it('keeps Commit required on a Dev turn without a pull request', async () => {
+    const { writes } = await open(
+      orchestratorTaskGet(
+        { column: 'dev', addressee: 'operator' },
+        { task: taskGet().task, links: [] },
+      ),
+    );
+    await click('Submit…');
+    expect(commit().value).toBe('');
+    expect(tablist()).not.toBeNull();
+    expect(text()).not.toContain(NO_PR);
+    await send();
+    expect(text()).toContain('Enter the commit you tested.');
+    expect(writes()).toEqual([]);
   });
 });
 

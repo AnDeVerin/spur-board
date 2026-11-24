@@ -24,10 +24,10 @@ until you finish or it takes the turn back.`
 ## Submit
 
 **Submit…** opens a form, focused on **Commit**. Commit starts as the head SHA of the task's only
-open pull request in the chosen project's Board. Without one, for example for a task of another
-project, it starts as the head the turn opened on, which may be stale; the field stays editable
-and the Board refuses a head that is not the pull request's (`head_mismatch`). Enter a full lowercase SHA, 40 to 64
-characters: surrounding spaces are trimmed, upper case is refused.
+open pull request in the chosen project's Board. Without one, it starts as the head the turn
+opened on, which may be stale; the field stays editable and the Board refuses a head that is not
+the pull request's (`head_mismatch`). Enter a full lowercase SHA, 40 to 64 characters:
+surrounding spaces are trimmed, upper case is refused.
 
 **Basis** is a tab row: **Tested**, **Carried** or **Skipped**.
 
@@ -39,11 +39,16 @@ characters: surrounding spaces are trimmed, upper case is refused.
 A reason needs non-space text, at most 2000 characters. The request carries
 `from` only for carried and `reason` only for carried and skipped.
 
+With no pull request link, outside Dev, Commit starts empty, hinted `This task has no pull
+request. Leave empty to close the turn without a commit.` While it is empty, **Basis** hides, a
+**Reason** is required (`Required. Shown in the history.`), the request carries only `reason`,
+and the line above the button reads `This closes T<n> in your name without a commit. It cannot be
+undone.` A typed commit restores Basis and the full request.
+
 The button reads **Submit**; there is no confirm dialog. The line above it says
 `This closes T<n> in your name and hands the task to the board's gates for <column>.`, then
 `Next column: <next>.` when the column has an enabled column after it, and ends
-`It cannot be undone.` The next column is only a fact of the configuration: the Board's
-gates decide where the task goes.
+`It cannot be undone.`
 
 ## Return
 
@@ -63,9 +68,6 @@ ack is skipped.
 While a request runs, the button reads `Taking the turn`, then `Closing the turn`, and a status
 line says the same. Fields, tabs, Cancel and the turn's buttons wait until it ends.
 
-Once the ack lands the operator holds the turn; the orchestrator gets `not_turn_taker` until it
-acks the turn back.
-
 ## Refusals
 
 A refused write shows the Board's message in an error banner between the fields and the line
@@ -74,9 +76,8 @@ next send and on Cancel. An unchanged resend uses the same keys, so a write that
 applied twice; an edited one is a new write with a new key. After `not_turn_taker` the next send
 takes the turn again with a new key. A refusal after the ack leaves the operator holding the turn,
 and the read that follows shows it in the hold line and the header. A take, submit or return
-with no answer in 15 seconds may have landed: Cancel works at once, and a resend reuses the key,
-so it is safe. A submit or return without an answer keeps
-its form as sent, read-only, with
+with no answer in 15 seconds may have landed. A submit or return without an answer keeps its form
+as sent, read-only, with
 `The earlier send may still land; send it again to settle it, or Cancel.`: the send resends that
 input until it gets an answer, and Cancel drops it. Until the read after a take, submit or
 return answers, the section names no holder (**Why it is here** reads `holder unknown` too), and
@@ -112,8 +113,7 @@ left. A turn the same write opened shows below.
 
 Keys are reused only within the open form. A reload, also after a Board update, closes the form and
 drops its text, and does not wait for a Turn send; one that lands after the ack leaves the operator
-holding the turn. The next form takes new keys. Sending from it is safe: the operator may take a
-turn it already holds again, and a second close of a closed turn answers `turn_closed`.
+holding the turn.
 
 ## Unavailable and archived
 
