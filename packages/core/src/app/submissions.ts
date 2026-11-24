@@ -14,7 +14,7 @@ import { CommandError } from './commands.ts';
 import { taskPr, type Trx } from './board-utils.ts';
 
 /** How long a submit waits for its on-demand PR read. */
-export const SUBMIT_POLL_TIMEOUT_MS = 10_000;
+const SUBMIT_POLL_TIMEOUT_MS = 10_000;
 
 /** Ends a hint for a refusal that a later submit cannot fix. */
 export const noRepeat = (step: string) => `repeating will not help; ask the operator to ${step}.`;

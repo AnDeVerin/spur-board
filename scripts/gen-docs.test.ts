@@ -162,6 +162,15 @@ describe('generated public references', () => {
       expect(section).toContain(text);
   });
 
+  it('renders an optional positional as [arg] in cli.md and the product skill', () => {
+    const blocks = readFileSync(
+      new URL('../packages/skills/spur-board/references/blocks.md', import.meta.url),
+      'utf8',
+    );
+    expect(blocks).toContain('Arguments: `<turn>`, `[sha]`.');
+    expect(cli).toContain('Arguments: `<turn> [sha]`.');
+  });
+
   it('keeps upgrade notes in the changelog', () => {
     expect(configuration).not.toContain('Breaking configuration change');
     expect(configuration).toContain('../CHANGELOG.md#upgrade-notes-from-earlier-releases');

@@ -374,9 +374,6 @@ describe('product skill sync', () => {
           agentRoles.some((role) => roleCanUseOperation(operation, role, mode.mode));
         expect(flags.includes(`\`${option.flags}\``)).toBe(allowed);
       }
-      if (operation.id === 'task.submit') {
-        expect(block).toContain('Arguments: `<turn>`, `[sha]`.');
-      }
       if (operation.id === 'schema.get') {
         expect(block).toContain('board schema --role worker');
         expect(block).toContain('board schema --role orchestrator');
