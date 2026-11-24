@@ -44,3 +44,7 @@
   Dev mirroring `Status = Ready` of the fake Project `stand-org/1` through source
   `github-project:stand:stand-org/1`. A manual move into or out of Ready for Dev is refused:
   move a task with `fake github issue <n> project-status` and `poll`.
+- `showcase` fills all ten columns of project `stand` with invented tasks, Ready for Dev
+  mirroring `Status = Ready` of `stand-org/1`, with the dispatcher on and `approvalWatch`
+  `[back/, front/]`. Both role sessions stay `--state working`, so every ring is held and nothing
+  moves; the default branch of `stand-org/board` is red. Demo guide: `docs/contributing/demo.md`.
