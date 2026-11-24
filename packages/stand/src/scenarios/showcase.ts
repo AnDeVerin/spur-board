@@ -147,7 +147,7 @@ const STALE_APPROVAL = {
   watchedAfter: ['back/', 'front/'],
 };
 
-export const SHOWCASE_REMAP_NOTE =
+const SHOWCASE_REMAP_NOTE =
   'journal times spread before the seed: no operation sets when a task entered its column (#894); block_unblocked events keep their time';
 
 const ENTRY_KINDS = new Set(['task_moved', 'task_manually_moved', 'task_mirror_moved']);
