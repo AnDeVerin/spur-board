@@ -143,7 +143,8 @@ export function readLiveBoard(
  * equal API and web ports, a live port, a port outside the live `stand.portRange`, a web port
  * without a live `web.publicOrigin` holding `{port}`, or real external credentials in the
  * environment. The directory checks come first and need no config. API port 0 lets the kernel
- * pick; a web port must be a range port, since the public origin maps `{port}`.
+ * pick; a web port must be a range port, since the public origin maps `{port}`. `rerun` is the
+ * `pnpm stand` arguments a credential refusal prints back; it defaults to `up`.
  */
 export function refusal(input: {
   root: string;
@@ -151,6 +152,7 @@ export function refusal(input: {
   webPort?: number | undefined;
   env: Env;
   osHome: string;
+  rerun?: readonly string[];
 }): StandRefusal | undefined {
   const root = realOrResolved(input.root);
   const hit = liveBoardDirs(input.env, input.osHome).find((dir) => within(dir, root));
@@ -210,19 +212,25 @@ export function refusal(input: {
         message: `The live web.publicOrigin in ${file} gives web port ${String(webPort)} ${standOrigin === undefined ? 'no valid origin' : "the live board's own origin"}.`,
       };
   }
-  return credentialRefusal(input.env, 'up');
+  return credentialRefusal(input.env, input.rerun ?? ['up']);
+}
+
+/** `arg` as one POSIX shell word: as is when it holds only safe characters, else single-quoted. */
+function shellWord(arg: string): string {
+  return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
 }
 
 /**
  * An `external_secrets` refusal when `env` holds real credentials, naming them and the command to
- * rerun without them: `env -u <name>... pnpm stand <command>`. Never carries a value.
+ * rerun without them: `env -u <name>... pnpm stand <args>`, each argument shell-quoted as needed.
+ * `args` are the `pnpm stand` arguments as run. Never carries a value.
  */
-export function credentialRefusal(env: Env, command: string): StandRefusal | undefined {
+export function credentialRefusal(env: Env, args: readonly string[]): StandRefusal | undefined {
   const names = externalSecretNames(env);
   if (names.length === 0) return undefined;
   return {
     reason: 'external_secrets',
-    message: `The environment holds external credentials: ${names.join(', ')}. Run the stand without them: env ${names.map((name) => `-u ${name}`).join(' ')} pnpm stand ${command}`,
+    message: `The environment holds external credentials: ${names.join(', ')}. Run the stand without them: env ${names.map((name) => `-u ${name}`).join(' ')} pnpm stand ${args.map(shellWord).join(' ')}`,
   };
 }
 

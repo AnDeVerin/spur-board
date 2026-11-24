@@ -705,6 +705,44 @@ describe('stand', () => {
     }
   }, 60_000);
 
+  it.each([
+    ['up', ['up'], 'up'],
+    ['up with a scenario', ['up', '--scenario', 'walkthrough'], 'up --scenario walkthrough'],
+    [
+      'up with a port and a scenario',
+      ['up', '--port', '0', '--scenario', 'showcase'],
+      'up --port 0 --scenario showcase',
+    ],
+    [
+      'a foreground up',
+      ['up', '--foreground', '--scenario', 'walkthrough'],
+      'up --foreground --scenario walkthrough',
+    ],
+    ['demo next', ['demo', 'next'], 'demo next'],
+    [
+      'demo status with a spaced home',
+      ['demo', 'status', '--home', '/s/my stand'],
+      "demo status --home '/s/my stand'",
+    ],
+    [
+      'demo reset with a quote in the home',
+      ['demo', 'reset', '--home', "/s/it's"],
+      "demo reset --home '/s/it'\\''s'",
+    ],
+  ])(
+    'refuses %s with external credentials and prints the full command to rerun',
+    async (_name, args, rerun) => {
+      const refused = await standCli(args, { JIRA_API_TOKEN: 'real-value-123', GH_TOKEN: 'real' });
+      expect(refused.code, refused.stderr).toBe(3);
+      expect(refused.stderr).toContain('stand refused (external_secrets)');
+      expect(refused.stderr).toContain(
+        `Run the stand without them: env -u GH_TOKEN -u JIRA_API_TOKEN pnpm stand ${rerun}\n`,
+      );
+      expect(refused.stderr).not.toContain('real-value-123');
+      expect(readdirSync(root).filter((name) => name.startsWith('spur-board-stand.'))).toEqual([]);
+    },
+  );
+
   it('keeps host board, Spur, Slack and proxy variables away from the stand daemon', async () => {
     // What a host running a live board and an agent session exports; none is a credential.
     const host = {

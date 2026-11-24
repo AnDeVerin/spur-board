@@ -20,9 +20,12 @@ never a live board.
   ```
 
 - Build the web UI there and run every `pnpm stand` command from that directory.
+- With another stand live on the machine, `demo next` and `down` exit 2 with
+  `Several live stands; pick one with --home`: pass `--home <home>`, the `home` that `up`
+  printed, to every later stand command, e.g. `pnpm stand demo next --home <home>`.
 - A shell holding external credentials (`GITHUB_TOKEN`, `GH_TOKEN`, `SLACK_*`, `JIRA_*`,
   `BOARD_TOKEN`, Spur secrets) must unset them for every stand command: `up` and `demo` refuse
-  with `external_secrets` and print the command to rerun. Prefix each command, `demo next`,
+  with `external_secrets` and print the command as run, without them. Prefix each command, `demo next`,
   `demo status` and `demo reset` included, for example:
 
   ```sh

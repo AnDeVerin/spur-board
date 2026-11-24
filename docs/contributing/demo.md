@@ -17,9 +17,12 @@ walk through each column and state without a live board. It runs on a disposable
   ```
 
 - Build the web UI there and run every `pnpm stand` command from that directory.
+- With another stand live on the machine, `seed`, `wait` and `down` exit 2 with
+  `Several live stands; pick one with --home`: pass `--home <home>`, the `home` that `up`
+  printed, to every later stand command.
 - A shell holding external credentials (`GITHUB_TOKEN`, `GH_TOKEN`, `SLACK_*`, `JIRA_*`,
   `BOARD_TOKEN`, Spur secrets) must unset them for every stand command: `up` and `demo` refuse
-  with `external_secrets` and print the command to rerun. Prefix each command, for example:
+  with `external_secrets` and print the command as run, without them. Prefix each command, for example:
 
   ```sh
   env -u GITHUB_TOKEN -u JIRA_API_TOKEN pnpm stand up --scenario showcase

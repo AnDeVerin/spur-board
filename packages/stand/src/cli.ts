@@ -381,6 +381,8 @@ async function upForeground(options: {
   home?: string;
   detached: boolean;
   watchPid?: number;
+  /** The `pnpm stand` arguments as run, printed back by a credential refusal. */
+  argv: readonly string[];
 }) {
   // With --watch-pid the launcher names the process to outlive; else the parent seen at load.
   let parentGone: () => boolean = () => process.ppid !== STARTUP_PARENT;
@@ -404,6 +406,7 @@ async function upForeground(options: {
       webPort: options.webPort,
       env,
       osHome: homedir(),
+      rerun: options.argv,
     });
   if (refused !== undefined) throw new StandRefusedError(refused);
   // A detached child takes the port its `up` picked, or none.
@@ -478,6 +481,7 @@ async function up(
   port: number,
   requestedWebPort: number | undefined,
   scenario: string | undefined,
+  argv: readonly string[],
 ): Promise<number> {
   const dir = root();
   const refused = refusal({
@@ -486,6 +490,7 @@ async function up(
     webPort: requestedWebPort,
     env: process.env,
     osHome: homedir(),
+    rerun: argv,
   });
   if (refused !== undefined) throw new StandRefusedError(refused);
   const webPort = requestedWebPort ?? (await defaultWebPort(port, process.env));
@@ -1061,7 +1066,7 @@ async function main(argv: string[]): Promise<number> {
           throw new UsageError(
             'up takes --home, --detached, --watch-pid and --live-home only with --foreground',
           );
-        return up(port, webPort, scenario);
+        return up(port, webPort, scenario, argv);
       }
       if (liveHome !== undefined && !values.detached)
         throw new UsageError('--live-home goes only with --detached');
@@ -1077,6 +1082,7 @@ async function main(argv: string[]): Promise<number> {
         ...(scenario === undefined ? {} : { scenario }),
         ...(values.home === undefined ? {} : { home: values.home }),
         detached: values.detached ?? false,
+        argv,
       });
     }
     case 'down':
@@ -1132,10 +1138,7 @@ async function main(argv: string[]): Promise<number> {
       )
         throw new UsageError(`demo takes one of ${DEMO_VERBS.join(', ')}`);
       // The same credential guard as up, so a demo shell cannot carry real tokens past it.
-      const refused = credentialRefusal(
-        process.env,
-        `demo ${verb}${values.home === undefined ? '' : ` --home ${values.home}`}`,
-      );
+      const refused = credentialRefusal(process.env, argv);
       if (refused !== undefined) throw new StandRefusedError(refused);
       return demo(target(values.home), verb);
     }

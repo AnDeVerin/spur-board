@@ -1,7 +1,7 @@
 # Stand refusals
 
 `up` refuses with exit 3 and `stand refused (<reason>)`; `demo next|status|reset` refuse
-`external_secrets` the same way and print their own command to rerun:
+`external_secrets` the same way. The printed rerun command is the one that ran:
 
 | Reason | Cause | Fix |
 |---|---|---|
@@ -12,5 +12,5 @@
 | `port_range` | port outside the live `stand.portRange` | `--port 0` or a port from the live `stand.portRange` |
 | `port_clash` | `--port` equals `--web-port` | two different ports |
 | `web_origin` | `--web-port` given, but the live `web.publicOrigin` has no `{port}` | omit `--web-port` |
-| `external_secrets` | real credential variables in the environment | rerun the printed `env -u <NAME> ... pnpm stand <command>`; for `up`, add your `--scenario` and `--port` |
+| `external_secrets` | real credential variables in the environment | rerun the printed `env -u <NAME> ... pnpm stand ...`: it repeats the command as run, flags included |
 | `env_proxy` | the Node env proxy is on | start without it |
