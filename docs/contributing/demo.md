@@ -87,7 +87,9 @@ column name (`manual` or `mirror · Stand roadmap`, the GitHub Project's title, 
 - Done tasks archive at the first Saturday 00:00 UTC after the seed: seed again after it.
 - `pnpm stand reset` restores the seed's snapshot with its old times, so the ages grow; use
   `pnpm stand seed showcase` instead.
-- The handled entries of the inbox drop out 24 hours after the seed.
+- The handled turn drops out of the inbox 24 hours after the seed, the handled answer about 6
+  hours after it: the answer keeps its place in the task's History, about 18 hours before the seed.
 - The role sessions stay working, so the Board sends no reminders and nothing moves on its own;
-  a task view lists its blocks and comments at the seed time, while History spreads the steps
-  over the hours before it.
+  History spreads the steps over the hours before the seed, and the answered question in
+  Ready to Merge moves with it, while a task view lists open blocks, their replies and task
+  comments at the seed time.

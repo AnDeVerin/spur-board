@@ -3938,38 +3938,70 @@ describe('showcase scenario', () => {
     const times = history.map(({ at }) => Date.parse(at));
     expect(Math.max(...times) - Math.min(...times)).toBeGreaterThanOrEqual(60 * 60_000);
     expect(scenario.direct).toEqual([
-      'journal times spread before the seed: no operation sets when a task entered its column (#894); block_unblocked events keep their time',
+      'journal times spread before the seed: no operation sets when a task entered its column (#894); closed blocks and their comments move with their events, open blocks, turns and notifications keep seed times',
     ]);
 
     const store = openStore(join(current().home, 'board.sqlite'));
     try {
-      const block = await store.db
-        .selectFrom('block')
-        .select('unblocked_at')
-        .where('id', '=', Number(blockOf('answered').slice(1)))
-        .executeTakeFirstOrThrow();
-      const unblocked = (
-        await store.db
+      // Every task's History reads in id order, and each closed block agrees with its events.
+      let closed = 0;
+      for (const { name } of SHOWCASE_TASKS) {
+        const task = await store.db
+          .selectFrom('task')
+          .select('id')
+          .where('key', '=', keyOf(name))
+          .executeTakeFirstOrThrow();
+        const events = await store.db
           .selectFrom('event')
-          .select(['at', 'payload'])
-          .where('kind', '=', 'block_unblocked')
-          .execute()
-      ).filter(({ payload }) => JSON.stringify(JSON.parse(payload)).includes(blockOf('answered')));
-      expect(unblocked.length).toBeGreaterThan(0);
-      for (const event of unblocked) expect(event.at).toBe(block.unblocked_at);
-      // Apart from block_unblocked, each task's journal keeps id order in time.
-      const journal = await store.db
-        .selectFrom('event')
-        .select(['task_id', 'at'])
-        .where('task_id', 'is not', null)
-        .where('kind', '!=', 'block_unblocked')
-        .orderBy('id')
-        .execute();
-      const lastAt = new Map<number | null, string>();
-      for (const { task_id, at } of journal) {
-        expect(at >= (lastAt.get(task_id) ?? ''), `task ${String(task_id)} at ${at}`).toBe(true);
-        lastAt.set(task_id, at);
+          .select(['id', 'kind', 'payload', 'at'])
+          .where('task_id', '=', task.id)
+          .orderBy('id')
+          .execute();
+        const byTime = [...events].sort((a, b) =>
+          a.at === b.at ? a.id - b.id : a.at < b.at ? -1 : 1,
+        );
+        expect(
+          byTime.map(({ id }) => id),
+          name,
+        ).toEqual(events.map(({ id }) => id));
+        const blocks = await store.db
+          .selectFrom('block')
+          .select(['id', 'created_at', 'unblocked_at'])
+          .where('task_id', '=', task.id)
+          .where('state', '=', 'unblocked')
+          .execute();
+        const views = blocks.length === 0 ? [] : (await detail(name)).blocks;
+        for (const block of blocks) {
+          closed += 1;
+          const ref = `B${String(block.id)}`;
+          const of = (kind: string) =>
+            events.filter(
+              (event) =>
+                event.kind === kind &&
+                (JSON.parse(event.payload) as { block?: unknown }).block === ref,
+            );
+          expect(
+            of('block_opened').map(({ at }) => at),
+            ref,
+          ).toEqual([block.created_at]);
+          expect(
+            of('block_unblocked').map(({ at }) => at),
+            ref,
+          ).toEqual([block.unblocked_at]);
+          expect(block.created_at <= (block.unblocked_at ?? ''), ref).toBe(true);
+          const comments = await store.db
+            .selectFrom('comment')
+            .select('created_at')
+            .where('block_id', '=', block.id)
+            .orderBy('id')
+            .execute();
+          const at = comments.map(({ created_at }) => created_at);
+          expect(at, ref).toEqual([...at].sort());
+          expect(at[0], ref).toBe(block.created_at);
+          expect(views.find(({ id }) => id === ref)?.answeredVia, ref).toBeNull();
+        }
       }
+      expect(closed).toBeGreaterThan(0);
       const snapshots = await store.db.selectFrom('pr_snapshot').select('detail').execute();
       expect(snapshots.length).toBeGreaterThan(0);
       const states = snapshots.flatMap(({ detail: json }) =>

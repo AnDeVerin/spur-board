@@ -9,6 +9,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { REPO, STEP_MS, submit, take } from './dispatcher.ts';
 import { issueKey, settledUnless, turnOn } from './helpers.ts';
 import type { Board, Scenario } from './index.ts';
+import { remapJournal } from './showcase-journal.ts';
 
 type Column =
   | 'todo'
@@ -146,87 +147,6 @@ const STALE_APPROVAL = {
   changedAfter: ['back/', 'docs/', 'front/'],
   watchedAfter: ['back/', 'front/'],
 };
-
-const SHOWCASE_REMAP_NOTE =
-  'journal times spread before the seed: no operation sets when a task entered its column (#894); block_unblocked events keep their time';
-
-const ENTRY_KINDS = new Set(['task_moved', 'task_manually_moved', 'task_mirror_moved']);
-
-/**
- * The index of the event the status read takes as the entry into `column`: the latest move to it,
- * or the task's first `task_added` while its `at` is the task's `created_at`
- * (`readStatusColumnEntries` in `packages/core/src/app/status-views.ts`).
- */
-function entryIndex(
-  events: readonly { kind: string; payload: string; at: string }[],
-  column: string,
-  createdAt: string,
-): number {
-  const firstAdded = events.findIndex(({ kind }) => kind === 'task_added');
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const { kind, payload, at } = events[i] ?? { kind: '', payload: '{}', at: '' };
-    const parsed = JSON.parse(payload) as { to?: unknown; column?: unknown; shadow?: unknown };
-    if (kind === 'task_added' && i === firstAdded && at === createdAt && parsed.column === column)
-      return i;
-    if (parsed.to !== column) continue;
-    if (kind === 'task_mirror_moved' && parsed.shadow != null) continue;
-    if (ENTRY_KINDS.has(kind) || (kind === 'task_corrected' && parsed.shadow === false)) return i;
-  }
-  return -1;
-}
-
-/**
- * Spreads each task's journal over its plan: the events before the column entry from `since` to
- * `enteredAgo` before `now`, the entry at `enteredAgo`, and the later ones up to a fifth of
- * `enteredAgo` before `now`, all in id order. `created_at` moves with the first `task_added`.
- * `block_unblocked` keeps its time: the answered-via read joins it on `block.unblocked_at`.
- */
-async function remapJournal(board: Board, now: number): Promise<void> {
-  await board.direct(SHOWCASE_REMAP_NOTE, async (db) => {
-    for (const { number, enteredAgo, since } of SHOWCASE_TASKS) {
-      const task = await db
-        .selectFrom('task')
-        .select(['id', 'column', 'created_at'])
-        .where('project', '=', 'stand')
-        .where('key', '=', issueKey(number))
-        .executeTakeFirstOrThrow();
-      const events = await db
-        .selectFrom('event')
-        .select(['id', 'kind', 'payload', 'at'])
-        .where('task_id', '=', task.id)
-        .where('kind', '!=', 'block_unblocked')
-        .orderBy('id')
-        .execute();
-      const entry = entryIndex(events, task.column, task.created_at);
-      if (entry < 0) throw new Error(`no entry event of ${issueKey(number)} into ${task.column}`);
-      const entryAt = now - enteredAgo;
-      const start = now - since;
-      const after = events.length - entry - 1;
-      const times = events.map((_, i) =>
-        i < entry
-          ? start + ((entryAt - start) * i) / entry
-          : i === entry
-            ? entryAt
-            : entryAt + ((enteredAgo * 0.8) / after) * (i - entry),
-      );
-      const firstAdded = events.findIndex(
-        ({ kind, at }) => kind === 'task_added' && at === task.created_at,
-      );
-      for (const [i, event] of events.entries())
-        await db
-          .updateTable('event')
-          .set({ at: new Date(Math.round(times[i] ?? now)).toISOString() })
-          .where('id', '=', event.id)
-          .executeTakeFirstOrThrow();
-      if (firstAdded >= 0)
-        await db
-          .updateTable('task')
-          .set({ created_at: new Date(Math.round(times[firstAdded] ?? now)).toISOString() })
-          .where('id', '=', task.id)
-          .executeTakeFirstOrThrow();
-    }
-  });
-}
 
 /** The key of the operator turn item on issue `number` with `reason`. */
 async function operatorTurnItem(board: Board, number: number, reason: string): Promise<string> {
@@ -466,7 +386,7 @@ export const showcase: Scenario = {
 
     await fakes.github('branch', { repo: REPO, state: 'red' });
     await board.poll();
-    await remapJournal(board, clock.now());
+    await remapJournal(board, SHOWCASE_TASKS, clock.now());
     return {
       tasks: Object.fromEntries(SHOWCASE_TASKS.map(({ name, number }) => [name, issueKey(number)])),
       prs: Object.fromEntries(
