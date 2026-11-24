@@ -16,8 +16,10 @@ pnpm --filter @spur-board/web build
 pnpm stand up --scenario walkthrough
 ```
 
-`up` detaches and prints one JSON line with the stand's `home` and `webUrl`; the demo task's key
-is `scenario.tasks.demo`. From a Spur session, run the stand as the `board-stand` sidecar with
+`up` detaches and prints one JSON line with the stand's `home`; the demo task's key is
+`scenario.tasks.demo`. The line has a `webUrl` only when the live board's `web.publicOrigin` has
+`{port}`; without it `up` says so on stderr and the stand is API-only, with no page to show
+([Web address](demo.md#web-address)). From a Spur session, run the stand as the `board-stand` sidecar with
 `pnpm stand up --foreground --scenario walkthrough` ([Spur sidecar](qa-stand.md#spur-sidecar)).
 Open the Board at `<webUrl>/` and keep the page open for the whole walkthrough.
 
