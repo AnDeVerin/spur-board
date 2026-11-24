@@ -49,5 +49,5 @@
   `[back/, front/]`. Both role sessions stay `--state working`, so every ring is held and nothing
   moves; the default branch of `stand-org/board` is red. Demo guide: `docs/contributing/demo.md`.
 - `walkthrough` is `showcase` plus issue 440 in Todo. Each `pnpm stand demo next` runs one of its
-  13 steps and returns once the board shows it; a failed step refuses `next` until
+  15 steps and returns once the board shows it; a failed step refuses `next` until
   `pnpm stand demo reset`, which seeds again. Guide: `docs/contributing/demo-walkthrough.md`.
