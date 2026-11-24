@@ -4,6 +4,27 @@ The `showcase` stand scenario fills every column of the Board with invented work
 walk through each column and state without a live board. It runs on a disposable
 [QA stand](qa-stand.md): fake GitHub, Spur and Slack, never a real service.
 
+## Before you start
+
+- Run the stand from a spur-board checkout of the version you demo, in a separate worktree, not
+  the live board's main checkout: the web build writes `packages/web/dist` of the checkout it
+  runs from. For example:
+
+  ```sh
+  git worktree add --detach ../spur-board-demo origin/main
+  cd ../spur-board-demo
+  pnpm install
+  ```
+
+- Build the web UI there and run every `pnpm stand` command from that directory.
+- A shell holding external credentials (`GITHUB_TOKEN`, `GH_TOKEN`, `SLACK_*`, `JIRA_*`,
+  `BOARD_TOKEN`, Spur secrets) must unset them for every stand command: `up` and `demo` refuse
+  with `external_secrets` and print the command to rerun. Prefix each command, for example:
+
+  ```sh
+  env -u GITHUB_TOKEN -u JIRA_API_TOKEN pnpm stand up --scenario showcase
+  ```
+
 ## Start
 
 Build the web UI from the checkout you demo, then start a stand seeded with the scenario:

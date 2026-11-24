@@ -1,6 +1,7 @@
 # Stand refusals
 
-`up` refuses with exit 3 and `stand refused (<reason>)`:
+`up` refuses with exit 3 and `stand refused (<reason>)`; `demo next|status|reset` refuse
+`external_secrets` the same way and print their own command to rerun:
 
 | Reason | Cause | Fix |
 |---|---|---|

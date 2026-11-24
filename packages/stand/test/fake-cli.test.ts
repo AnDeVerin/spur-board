@@ -93,8 +93,12 @@ async function stubStand(answer: RouteResult, webUrl?: string): Promise<string> 
 /** Async, because the stub answers from this process and `spawnSync` would block it. */
 function runCli(
   args: readonly string[],
+  env?: NodeJS.ProcessEnv,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  const child = spawn(process.execPath, [CLI, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [CLI, ...args], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
+  });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (chunk: Buffer) => {
@@ -286,6 +290,25 @@ describe('stand demo', () => {
     expect(result.stderr.split('\n')[0]).toMatch(/demo takes one of next, status, reset/);
     expect(demo).not.toHaveBeenCalled();
   });
+
+  it.each(['next', 'status', 'reset'])(
+    'refuses demo %s with external credentials and names the command to rerun',
+    async (verb) => {
+      const dir = await stubStand(EMPTY);
+      const result = await runCli(['demo', verb, '--home', dir], {
+        GITHUB_TOKEN: 'real-value-123',
+        JIRA_API_TOKEN: 'real-value-456',
+      });
+      expect(result.code).toBe(3);
+      expect(result.stderr).toContain('stand refused (external_secrets)');
+      expect(result.stderr).toContain(
+        `env -u GITHUB_TOKEN -u JIRA_API_TOKEN pnpm stand demo ${verb} --home ${dir}\n`,
+      );
+      expect(result.stderr).not.toContain('real-value');
+      expect(result.stdout).toBe('');
+      expect(demo).not.toHaveBeenCalled();
+    },
+  );
 
   it('exits 1 with the error on stderr when the stand refuses', async () => {
     demo.mockResolvedValueOnce({

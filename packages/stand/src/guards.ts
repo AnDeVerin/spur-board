@@ -210,13 +210,20 @@ export function refusal(input: {
         message: `The live web.publicOrigin in ${file} gives web port ${String(webPort)} ${standOrigin === undefined ? 'no valid origin' : "the live board's own origin"}.`,
       };
   }
-  const names = externalSecretNames(input.env);
-  if (names.length > 0)
-    return {
-      reason: 'external_secrets',
-      message: `The environment holds external credentials: ${names.join(', ')}. Run the stand without them: env ${names.map((name) => `-u ${name}`).join(' ')} pnpm stand up`,
-    };
-  return undefined;
+  return credentialRefusal(input.env, 'up');
+}
+
+/**
+ * An `external_secrets` refusal when `env` holds real credentials, naming them and the command to
+ * rerun without them: `env -u <name>... pnpm stand <command>`. Never carries a value.
+ */
+export function credentialRefusal(env: Env, command: string): StandRefusal | undefined {
+  const names = externalSecretNames(env);
+  if (names.length === 0) return undefined;
+  return {
+    reason: 'external_secrets',
+    message: `The environment holds external credentials: ${names.join(', ')}. Run the stand without them: env ${names.map((name) => `-u ${name}`).join(' ')} pnpm stand ${command}`,
+  };
 }
 
 /**

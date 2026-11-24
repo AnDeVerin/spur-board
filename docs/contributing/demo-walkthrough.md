@@ -7,6 +7,28 @@ and returns once the Board shows the new state. The showcase cards around it nev
 page stays open: no step restarts the daemon. It runs on a disposable [QA stand](qa-stand.md),
 never a live board.
 
+## Before you start
+
+- Run the stand from a spur-board checkout of the version you demo, in a separate worktree, not
+  the live board's main checkout: the web build writes `packages/web/dist` of the checkout it
+  runs from. For example:
+
+  ```sh
+  git worktree add --detach ../spur-board-demo origin/main
+  cd ../spur-board-demo
+  pnpm install
+  ```
+
+- Build the web UI there and run every `pnpm stand` command from that directory.
+- A shell holding external credentials (`GITHUB_TOKEN`, `GH_TOKEN`, `SLACK_*`, `JIRA_*`,
+  `BOARD_TOKEN`, Spur secrets) must unset them for every stand command: `up` and `demo` refuse
+  with `external_secrets` and print the command to rerun. Prefix each command, `demo next`,
+  `demo status` and `demo reset` included, for example:
+
+  ```sh
+  env -u GITHUB_TOKEN -u JIRA_API_TOKEN pnpm stand up --scenario walkthrough
+  ```
+
 ## Start
 
 Build the web UI from the checkout you demo, then start a stand seeded with the scenario:
@@ -17,8 +39,8 @@ pnpm stand up --scenario walkthrough
 ```
 
 `up` detaches and prints one JSON line with the stand's `home`; the demo task's key is
-`scenario.tasks.demo`. The line has a `webUrl` only when the live board's `web.publicOrigin` has
-`{port}`; without it `up` says so on stderr and the stand is API-only, with no page to show
+`scenario.tasks.demo`. On stderr it names the next command, `pnpm stand demo next`. The line
+has a `webUrl` only when the live board's `web.publicOrigin` has `{port}`; without it `up` says so on stderr and the stand is API-only, with no page to show
 ([Web address](demo.md#web-address)). From a Spur session, run the stand as the `board-stand` sidecar with
 `pnpm stand up --foreground --scenario walkthrough` ([Spur sidecar](qa-stand.md#spur-sidecar)).
 Open the Board at `<webUrl>/` and keep the page open for the whole walkthrough.

@@ -4228,6 +4228,23 @@ describe('walkthrough scenario', () => {
   const STEPS = SCENARIOS.find(({ name }) => name === 'walkthrough')?.demo ?? [];
   const HEAD_B = createHash('sha1').update('walkthrough-b').digest('hex');
 
+  it('walkthrough: up through the real CLI names the next command on stderr', async () => {
+    const started = await standCli(['up', '--scenario', 'walkthrough']);
+    let home: string | undefined;
+    try {
+      expect(started.code, started.stderr).toBe(0);
+      home = (JSON.parse(started.stdout) as { home: string }).home;
+      expect(started.stderr).toContain(
+        `Next: pnpm stand demo next runs step 1 of ${String(STEPS.length)}`,
+      );
+    } finally {
+      if (home !== undefined) {
+        const downed = await standCli(['down', '--home', home]);
+        expect(downed.code, downed.stderr).toBe(0);
+      }
+    }
+  }, 120_000);
+
   interface Row {
     key: string;
     column: string;

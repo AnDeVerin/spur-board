@@ -52,7 +52,8 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs
 
 ## Refusals
 
-- `up` refuses with exit 3; each reason, its cause and fix: `references/refusals.md`.
+- `up` refuses with exit 3, and `demo` with real credentials set; each reason, its cause and fix:
+  `references/refusals.md`.
 - Never put real credentials back to get past a refusal; the guard keeps the stand off real
   services.
 - Exit 2 is also bad arguments, no stand found, or a refused wrapper command.

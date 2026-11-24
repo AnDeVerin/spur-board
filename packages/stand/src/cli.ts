@@ -19,7 +19,13 @@ import { z } from 'zod';
 import { callLocal, DEMO_VERBS, MAX_SHIFT_MS } from './control.ts';
 import { parseFakeArgs } from './fake-spur.ts';
 import { parseFakeHostArgs } from './fakes/host.ts';
-import { liveBoardDirs, proxyRefusal, refusal, StandRefusedError } from './guards.ts';
+import {
+  credentialRefusal,
+  liveBoardDirs,
+  proxyRefusal,
+  refusal,
+  StandRefusedError,
+} from './guards.ts';
 import {
   isLive,
   isStandDir,
@@ -43,7 +49,7 @@ import {
   type StandRole,
 } from './roles.ts';
 import { foregroundStop } from './foreground.ts';
-import { scenarioNames } from './scenarios/index.ts';
+import { SCENARIOS, scenarioNames } from './scenarios/index.ts';
 import {
   pickWebPort,
   retryWebPort,
@@ -271,6 +277,15 @@ function publicView(manifest: StandManifest): Record<string, unknown> {
   };
 }
 
+/** Tells on stderr, keeping the JSON stdout whole, how to run a scenario's demo steps. */
+function demoHint(scenario: string | undefined): void {
+  const steps = SCENARIOS.find(({ name }) => name === scenario)?.demo;
+  if (steps !== undefined && steps.length > 0)
+    err(
+      `Next: pnpm stand demo next runs step 1 of ${String(steps.length)} (docs/contributing/demo-walkthrough.md).\n`,
+    );
+}
+
 /** The name, after checking it is a known scenario. */
 function scenarioName(value: string | undefined): string {
   const names = scenarioNames();
@@ -455,6 +470,7 @@ async function upForeground(options: {
   }
   if (typeof result === 'number') return result;
   out(`${JSON.stringify(publicView(result.manifest()))}\n`);
+  if (!options.detached) demoHint(options.scenario);
   return stopper.attach(result);
 }
 
@@ -532,6 +548,7 @@ async function spawnStand(
     const manifest = standAt(home, dir);
     if (manifest !== undefined) {
       out(`${JSON.stringify(publicView(manifest))}\n`);
+      demoHint(scenario);
       return 0;
     }
     await sleep(100);
@@ -1114,6 +1131,12 @@ async function main(argv: string[]): Promise<number> {
         extra.length > 0
       )
         throw new UsageError(`demo takes one of ${DEMO_VERBS.join(', ')}`);
+      // The same credential guard as up, so a demo shell cannot carry real tokens past it.
+      const refused = credentialRefusal(
+        process.env,
+        `demo ${verb}${values.home === undefined ? '' : ` --home ${values.home}`}`,
+      );
+      if (refused !== undefined) throw new StandRefusedError(refused);
       return demo(target(values.home), verb);
     }
     case 'violations':
