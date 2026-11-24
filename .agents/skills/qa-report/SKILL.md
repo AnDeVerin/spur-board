@@ -19,8 +19,8 @@ description: Plan, evidence and outcome of a QA round - the qa/<task>/<sha8>/r<N
 
 ## Capture order
 
-- Save the violation log before any `pnpm stand reset` or `seed` (`qa-seed`), and everything
-  else before `pnpm stand down`.
+- Save the violation log before any `pnpm stand reset`, `seed` or `demo reset` (`qa-seed`), and
+  everything else before `pnpm stand down`.
 - Take the stand state from `pnpm stand status --json`: it leaves out the control token. Never
   copy the home's manifest, `secrets.env`, the token file or `config.yaml`; copy named files only,
   never the whole home.
