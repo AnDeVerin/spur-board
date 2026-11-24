@@ -155,12 +155,15 @@ const STEPS: readonly DemoStep[] = [
         randomUUID(),
       );
       context.ids['question'] = block.id;
+      // Open with its item, or already answered: the presenter may answer in the web UI while
+      // this waits, and the next step settles a closed question.
       await until(
         board,
         'with a question to the operator',
         (task, items) =>
-          task.blocks.some((open) => open.id === block.id && open.addressee === 'operator') &&
-          items.includes(blockItem(block.id)),
+          task.blocks.every((open) => open.id !== block.id) ||
+          (task.blocks.some((open) => open.id === block.id && open.addressee === 'operator') &&
+            items.includes(blockItem(block.id))),
         { poll: true },
       );
     },
