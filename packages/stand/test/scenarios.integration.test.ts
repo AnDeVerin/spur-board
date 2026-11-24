@@ -3802,11 +3802,18 @@ describe('showcase scenario', () => {
 
   it('showcase: every column filled with the listed states, unchanged after 60 minutes in 5-minute steps', async () => {
     // A Wednesday, so Done does not archive at Saturday 00:00 UTC within the hour.
-    const start = Date.now();
+    // The clock holds still through the seed, so an ask, its replies and its answer share one
+    // time and the remap must tell the opening comment by identity. It runs after the seed: the
+    // sender takes one send per space per second of it.
+    const seeded: { at?: number } = {};
     await up({
-      clock: { now: () => Date.parse('2026-11-11T10:00:00.000Z') + (Date.now() - start) },
+      clock: {
+        now: () =>
+          Date.parse('2026-11-11T10:00:00.000Z') + (Date.now() - (seeded.at ?? Date.now())),
+      },
     });
     const { scenario } = await seed('showcase');
+    seeded.at = Date.now();
     const keyOf = (name: string): string => scenario.tasks?.[name] ?? `no task ${name}`;
     const blockOf = (name: string): string => scenario.blocks?.[name] ?? `no block ${name}`;
     interface Row {
@@ -3966,7 +3973,7 @@ describe('showcase scenario', () => {
         ).toEqual(events.map(({ id }) => id));
         const blocks = await store.db
           .selectFrom('block')
-          .select(['id', 'created_at', 'unblocked_at'])
+          .select(['id', 'author', 'reason', 'created_at', 'unblocked_at'])
           .where('task_id', '=', task.id)
           .where('state', '=', 'unblocked')
           .execute();
@@ -3991,13 +3998,27 @@ describe('showcase scenario', () => {
           expect(block.created_at <= (block.unblocked_at ?? ''), ref).toBe(true);
           const comments = await store.db
             .selectFrom('comment')
-            .select('created_at')
+            .select(['id', 'author', 'text', 'created_at'])
             .where('block_id', '=', block.id)
             .orderBy('id')
             .execute();
           const at = comments.map(({ created_at }) => created_at);
           expect(at, ref).toEqual([...at].sort());
-          expect(at[0], ref).toBe(block.created_at);
+          // `block.ask` writes the opening comment first with the block's author and reason; it
+          // keeps the block's time so the thread hides it, and each reply takes its own event's.
+          const [opening, ...replies] = comments;
+          expect([opening?.author, opening?.text], ref).toEqual([block.author, block.reason]);
+          expect(opening?.created_at, ref).toBe(block.created_at);
+          for (const reply of replies)
+            expect(reply.created_at, `C${String(reply.id)}`).toBe(
+              events.find(
+                (event) =>
+                  event.kind === 'comment_added' &&
+                  (JSON.parse(event.payload) as { comment?: unknown }).comment ===
+                    `C${String(reply.id)}`,
+              )?.at,
+            );
+          expect(replies.length, ref).toBeGreaterThan(0);
           expect(views.find(({ id }) => id === ref)?.answeredVia, ref).toBeNull();
         }
       }

@@ -109,7 +109,7 @@ export async function remapJournal(
       };
       const closed = await db
         .selectFrom('block')
-        .select(['id', 'created_at'])
+        .select(['id', 'author', 'reason'])
         .where('task_id', '=', task.id)
         .where('state', '!=', 'open')
         .execute();
@@ -125,14 +125,19 @@ export async function remapJournal(
           .executeTakeFirstOrThrow();
         const comments = await db
           .selectFrom('comment')
-          .select(['id', 'created_at'])
+          .select(['id', 'author', 'text'])
           .where('block_id', '=', block.id)
+          .orderBy('id')
           .execute();
-        // The opening comment shares the block's time, and the thread hides it only while it does
-        // (`withoutBlockOpenings` in `packages/core/src/app/task-queries.ts`).
-        for (const { id, created_at } of comments) {
+        // `block.ask` writes the opening comment first, with the block's author and reason. It
+        // keeps the block's time, as the thread hides it only while it does (`withoutBlockOpenings`
+        // in `packages/core/src/app/task-queries.ts`); a fixed clock gives every reply that time
+        // too, so the opening is told by identity, not time.
+        for (const [i, { id, author, text }] of comments.entries()) {
           const at =
-            created_at === block.created_at ? opened : movedAt(`comment_added C${String(id)}`);
+            i === 0 && author === block.author && text === block.reason
+              ? opened
+              : movedAt(`comment_added C${String(id)}`);
           await db
             .updateTable('comment')
             .set({ created_at: at })
