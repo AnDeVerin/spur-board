@@ -132,6 +132,7 @@ describe('generated public references', () => {
     for (const text of [
       'as `awaiting_required_reviewers` while GitHub reads the merge blocked',
       '`quietAfterMs` raises `external-quiet:`',
+      'no item comes at once, so set `quietAfterMs` on the column to be alerted when such a wait goes on too long',
       "GitHub's branch rules block the merge and the Board cannot tell why",
     ])
       expect(paragraph).toContain(text);
