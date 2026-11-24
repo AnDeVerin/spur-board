@@ -22,6 +22,7 @@ import { migrationsDir, openStore } from '@spur-board/core';
 import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import YAML from 'yaml';
+import { shellWord } from '../src/guards.ts';
 import { MANIFEST_FILE, readManifest, STAND_PREFIX, type StandManifest } from '../src/manifest.ts';
 import { SCENARIOS, scenarioNames, type Scenario } from '../src/scenarios/index.ts';
 import { SHOWCASE_TASKS } from '../src/scenarios/showcase.ts';
@@ -4235,7 +4236,7 @@ describe('walkthrough scenario', () => {
       expect(started.code, started.stderr).toBe(0);
       home = (JSON.parse(started.stdout) as { home: string }).home;
       expect(started.stderr).toContain(
-        `Next: pnpm stand demo next runs step 1 of ${String(STEPS.length)}`,
+        `Next: pnpm stand demo next --home ${shellWord(home)} runs step 1 of ${String(STEPS.length)}`,
       );
     } finally {
       if (home !== undefined) {

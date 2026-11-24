@@ -24,6 +24,7 @@ import {
   liveBoardDirs,
   proxyRefusal,
   refusal,
+  shellWord,
   StandRefusedError,
 } from './guards.ts';
 import {
@@ -277,12 +278,15 @@ function publicView(manifest: StandManifest): Record<string, unknown> {
   };
 }
 
-/** Tells on stderr, keeping the JSON stdout whole, how to run a scenario's demo steps. */
-function demoHint(scenario: string | undefined): void {
+/**
+ * Tells on stderr, keeping the JSON stdout whole, how to run a scenario's demo steps on the stand
+ * at `home`: with `--home`, since another live stand makes a bare `demo next` exit 2.
+ */
+function demoHint(scenario: string | undefined, home: string): void {
   const steps = SCENARIOS.find(({ name }) => name === scenario)?.demo;
   if (steps !== undefined && steps.length > 0)
     err(
-      `Next: pnpm stand demo next runs step 1 of ${String(steps.length)} (docs/contributing/demo-walkthrough.md).\n`,
+      `Next: pnpm stand demo next --home ${shellWord(home)} runs step 1 of ${String(steps.length)} (docs/contributing/demo-walkthrough.md).\n`,
     );
 }
 
@@ -472,8 +476,9 @@ async function upForeground(options: {
     throw error;
   }
   if (typeof result === 'number') return result;
-  out(`${JSON.stringify(publicView(result.manifest()))}\n`);
-  if (!options.detached) demoHint(options.scenario);
+  const started = result.manifest();
+  out(`${JSON.stringify(publicView(started))}\n`);
+  if (!options.detached) demoHint(options.scenario, started.home);
   return stopper.attach(result);
 }
 
@@ -553,7 +558,7 @@ async function spawnStand(
     const manifest = standAt(home, dir);
     if (manifest !== undefined) {
       out(`${JSON.stringify(publicView(manifest))}\n`);
-      demoHint(scenario);
+      demoHint(scenario, manifest.home);
       return 0;
     }
     await sleep(100);

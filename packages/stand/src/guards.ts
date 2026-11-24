@@ -216,7 +216,7 @@ export function refusal(input: {
 }
 
 /** `arg` as one POSIX shell word: as is when it holds only safe characters, else single-quoted. */
-function shellWord(arg: string): string {
+export function shellWord(arg: string): string {
   return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
 }
 

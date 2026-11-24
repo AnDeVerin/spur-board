@@ -42,7 +42,8 @@ pnpm stand up --scenario walkthrough
 ```
 
 `up` detaches and prints one JSON line with the stand's `home`; the demo task's key is
-`scenario.tasks.demo`. On stderr it names the next command, `pnpm stand demo next`. The line
+`scenario.tasks.demo`. On stderr it names the next command with that home,
+`pnpm stand demo next --home <home>`. The line
 has a `webUrl` only when the live board's `web.publicOrigin` has `{port}`; without it `up` says so on stderr and the stand is API-only, with no page to show
 ([Web address](demo.md#web-address)). From a Spur session, run the stand as the `board-stand` sidecar with
 `pnpm stand up --foreground --scenario walkthrough` ([Spur sidecar](qa-stand.md#spur-sidecar)).

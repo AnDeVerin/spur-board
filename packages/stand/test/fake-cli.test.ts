@@ -10,6 +10,7 @@ import {
   type ControlRoutes,
   type RouteResult,
 } from '../src/control.ts';
+import { shellWord } from '../src/guards.ts';
 import { STAND_PREFIX, writeManifest } from '../src/manifest.ts';
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
@@ -302,7 +303,7 @@ describe('stand demo', () => {
       expect(result.code).toBe(3);
       expect(result.stderr).toContain('stand refused (external_secrets)');
       expect(result.stderr).toContain(
-        `env -u GITHUB_TOKEN -u JIRA_API_TOKEN pnpm stand demo ${verb} --home ${dir}\n`,
+        `env -u GITHUB_TOKEN -u JIRA_API_TOKEN pnpm stand demo ${verb} --home ${shellWord(dir)}\n`,
       );
       expect(result.stderr).not.toContain('real-value');
       expect(result.stdout).toBe('');
