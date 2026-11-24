@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
@@ -276,24 +276,90 @@ describe('mutation-summary.ts CLI', () => {
   });
 });
 
+type Shard = { name: string; mutate: string };
+
+const DOMAIN = 'packages/core/src/domain';
+
+/**
+ * Why a shard matrix would mutate a domain file twice or never: each named shard must be one
+ * canonical path to an existing domain file, since Stryker resolves `a//b.ts`, `./b.ts` and
+ * `x/../b.ts` to the same file; the last shard must take the domain glob minus each named path.
+ */
+function shardProblems(shards: Shard[], existingFiles: ReadonlySet<string>): string[] {
+  const problems: string[] = [];
+  const named = shards.slice(0, -1).map((shard) => shard.mutate);
+  for (const file of named) {
+    const segments = file.split('/');
+    if (segments.some((segment) => segment === '' || segment === '.' || segment === '..'))
+      problems.push(`${file} has an empty, . or .. segment`);
+    else if (posix.normalize(file) !== file) problems.push(`${file} is not normalized`);
+    else if (!file.startsWith(`${DOMAIN}/`) || !existingFiles.has(file))
+      problems.push(`${file} is not an existing domain file`);
+  }
+  if (new Set(named).size !== named.length) problems.push('two named shards share a path');
+  const rest = [`${DOMAIN}/**/*.ts`, ...named.map((file) => `!${file}`)].join(',');
+  if (shards.at(-1)?.mutate !== rest) problems.push(`the last shard is not ${rest}`);
+  if (new Set(shards.map((shard) => shard.name)).size !== shards.length)
+    problems.push('two shards share a name');
+  return problems;
+}
+
 describe('mutation.yml shards', () => {
   const source = readFileSync(
     new URL('../.github/workflows/mutation.yml', import.meta.url),
     'utf8',
   );
   const workflow = parse(source) as {
-    jobs: { mutation: { strategy: { matrix: { shard: { name: string; mutate: string }[] } } } };
+    jobs: { mutation: { strategy: { matrix: { shard: Shard[] } } } };
   };
-  const shards = workflow.jobs.mutation.strategy.matrix.shard;
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const existing = new Set(
+    readdirSync(join(root, DOMAIN), { recursive: true, encoding: 'utf8' }).map(
+      (file) => `${DOMAIN}/${file.split(sep).join('/')}`,
+    ),
+  );
 
   it('mutates every domain file once: the last shard takes what the others do not name', () => {
-    const named = shards.slice(0, -1).map((shard) => shard.mutate);
-    for (const file of named) expect(file).toMatch(/^packages\/core\/src\/domain\/[\w/-]+\.ts$/);
-    expect(new Set(named).size).toBe(named.length);
-    expect(shards.at(-1)?.mutate.split(',')).toEqual([
-      'packages/core/src/domain/**/*.ts',
-      ...named.map((file) => `!${file}`),
-    ]);
-    expect(new Set(shards.map((shard) => shard.name)).size).toBe(shards.length);
+    expect(shardProblems(workflow.jobs.mutation.strategy.matrix.shard, existing)).toEqual([]);
+  });
+
+  const gates = `${DOMAIN}/gates.ts`;
+  const health = `${DOMAIN}/health.ts`;
+  const matrix = (...named: string[]): Shard[] => [
+    ...named.map((mutate, index) => ({ name: `s${String(index)}`, mutate })),
+    { name: 'rest', mutate: [`${DOMAIN}/**/*.ts`, ...named.map((file) => `!${file}`)].join(',') },
+  ];
+  const files = new Set([gates, health]);
+
+  it.each([
+    ['a duplicate path', matrix(gates, gates), 'two named shards share a path'],
+    ['a // spelling', matrix(gates, `${DOMAIN}//gates.ts`), 'has an empty, . or .. segment'],
+    ['a ./ spelling', matrix(gates, `${DOMAIN}/./gates.ts`), 'has an empty, . or .. segment'],
+    ['a ../ spelling', matrix(gates, `${DOMAIN}/x/../gates.ts`), 'has an empty, . or .. segment'],
+    ['a missing file', matrix(`${DOMAIN}/nope.ts`), 'is not an existing domain file'],
+    ['a file outside the domain', matrix('packages/core/src/x.ts'), 'not an existing domain file'],
+    [
+      'a rest shard missing an exclusion',
+      [
+        ...matrix(gates, health).slice(0, -1),
+        { name: 'rest', mutate: `${DOMAIN}/**/*.ts,!${gates}` },
+      ],
+      'the last shard is not',
+    ],
+    [
+      'a rest shard doubling an exclusion',
+      [
+        ...matrix(gates).slice(0, -1),
+        { name: 'rest', mutate: `${DOMAIN}/**/*.ts,!${gates},!${gates}` },
+      ],
+      'the last shard is not',
+    ],
+    [
+      'a duplicate shard name',
+      matrix(gates, health).map((shard) => ({ ...shard, name: 'same' })),
+      'two shards share a name',
+    ],
+  ])('rejects %s', (_case, shards, problem) => {
+    expect(shardProblems(shards, files).join('\n')).toContain(problem);
   });
 });
