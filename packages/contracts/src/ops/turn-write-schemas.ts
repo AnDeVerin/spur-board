@@ -59,12 +59,14 @@ export const taskSubmitInputSchema = z.strictObject({
     .enum(SUBMISSION_BASES)
     .optional()
     .describe(
-      'Testing provenance: tested (default), carried from a tested origin on this task, or skipped with a reason.',
+      'Testing provenance: tested (default), carried from a tested origin on this task, or skipped with a reason. Omit it for a submit without sha.',
     ),
   from: commitShaSchema
     .max(64)
     .optional()
-    .describe('Full lowercase source SHA on this task; required only for carried.'),
+    .describe(
+      'Full lowercase source SHA on this task; required only for carried. Omit it for a submit without sha.',
+    ),
   reason: z
     .string()
     .max(2000)

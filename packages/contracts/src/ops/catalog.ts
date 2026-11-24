@@ -1341,7 +1341,7 @@ export const OPERATIONS = [
       "Submit the task's pull request head for a turn the caller took; the turn closes; a pending result is final.",
     mcp: {
       whenToUse:
-        'Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key. Outside Dev, on a task with no linked pull request, omit sha and give a reason to close the turn without a commit.',
+        'Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key. Outside Dev, on a task with no linked pull request, omit sha, basis and from, and give a nonblank reason to close the turn without a commit.',
       whenNotToUse: 'Use task_return to send the task back to Dev instead.',
     },
     input: taskSubmitInputSchema,

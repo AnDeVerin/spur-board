@@ -194,7 +194,7 @@ export const ERRORS = {
     status: 409,
     exit: EXIT_CODES.refused,
     message: 'The submission basis fields are inconsistent.',
-    hint: 'Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried.',
+    hint: 'Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried; a submit without sha takes only a nonblank reason, no basis or from.',
     recovery: noRetry('Correct the basis fields and submit again.'),
   }),
   submit_source_not_tested: spec('submit_source_not_tested', {

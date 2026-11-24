@@ -484,7 +484,7 @@ The submission basis fields are inconsistent.
 
 HTTP: 409  
 Exit code: 1  
-Hint: Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried.  
+Hint: Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried; a submit without sha takes only a nonblank reason, no basis or from.  
 Recovery: Correct the basis fields and submit again.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
@@ -499,7 +499,7 @@ Example:
     "code": "submit_basis_invalid",
     "requestId": "req-example-123",
     "message": "The submission basis fields are inconsistent.",
-    "hint": "Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried.",
+    "hint": "Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried; a submit without sha takes only a nonblank reason, no basis or from.",
     "docs": "docs/errors.md#submit_basis_invalid",
     "recovery": {
       "action": "Correct the basis fields and submit again.",

@@ -1,5 +1,5 @@
 {
-  "version": "a2a7f294607c4d8480ad1e91cf8559039cbb8b10c3babcad54e49ca10936201b",
+  "version": "69feea1809b4d942c32e7323f781a60a09ce817c56d6c46e7366ec091404ddbd",
   "grants": [
     "operator",
     "project-agent",
@@ -427,7 +427,7 @@
       "status": 409,
       "exit": 1,
       "message": "The submission basis fields are inconsistent.",
-      "hint": "Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried.",
+      "hint": "Use from and a nonblank reason for carried, a nonblank reason for skipped, and from only with carried; a submit without sha takes only a nonblank reason, no basis or from.",
       "recovery": {
         "action": "Correct the basis fields and submit again.",
         "sideEffects": "none",
@@ -11520,7 +11520,7 @@
       "mcp": {
         "name": "task_submit",
         "key": "idempotencyKey",
-        "whenToUse": "Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key. Outside Dev, on a task with no linked pull request, omit sha and give a reason to close the turn without a commit.",
+        "whenToUse": "Hand in the work of a turn you took, at the pull request head. Declare tested (default), carried from a tested origin on this task, or skipped; carried requires from and reason, skipped requires reason. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key. Outside Dev, on a task with no linked pull request, omit sha, basis and from, and give a nonblank reason to close the turn without a commit.",
         "whenNotToUse": "Use task_return to send the task back to Dev instead.",
         "destructive": true
       },
@@ -11637,12 +11637,12 @@
             "pattern": "^[0-9a-f]{40,64}$"
           },
           "basis": {
-            "description": "Testing provenance: tested (default), carried from a tested origin on this task, or skipped with a reason.",
+            "description": "Testing provenance: tested (default), carried from a tested origin on this task, or skipped with a reason. Omit it for a submit without sha.",
             "type": "string",
             "enum": ["tested", "carried", "skipped"]
           },
           "from": {
-            "description": "Full lowercase source SHA on this task; required only for carried.",
+            "description": "Full lowercase source SHA on this task; required only for carried. Omit it for a submit without sha.",
             "type": "string",
             "maxLength": 64,
             "pattern": "^[0-9a-f]{40,64}$"

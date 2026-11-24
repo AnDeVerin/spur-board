@@ -128,6 +128,11 @@ describe('board mcp', () => {
       expect(status?.inputSchema.required ?? []).not.toContain('detail');
       const submit = tools.find((tool) => tool.name === 'task_submit');
       expect(submit?.inputSchema.required).toEqual(['turn']);
+      expect(submit?.description).toContain('omit sha, basis and from, and give a nonblank reason');
+      for (const field of ['basis', 'from'])
+        expect(submit?.inputSchema.properties?.[field]).toMatchObject({
+          description: expect.stringContaining('Omit it for a submit without sha.'),
+        });
       const commentAdd = tools.find((tool) => tool.name === 'comment_add');
       expect(commentAdd?.annotations?.destructiveHint).toBe(false);
       const unblock = tools.find((tool) => tool.name === 'block_unblock');

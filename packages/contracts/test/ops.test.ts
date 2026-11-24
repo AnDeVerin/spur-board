@@ -1014,9 +1014,10 @@ describe('snapshot', () => {
     // awaiting_required_reviewers gate reason, task.get why.waiting[].reviewers and status.get
     // tasks[].awaitedReviewers. #900 lets task.submit omit sha outside Dev on a task with no
     // linked PR: optional sha, nullable output sha, the submit_sha_required code, the optional
-    // task_submitted sha and task.get why.submittedWithoutCommit.
+    // task_submitted sha and task.get why.submittedWithoutCommit; the basis and from fields, the
+    // submit_basis_invalid hint and the task.submit guidance say to omit basis and from there.
     expect(await catalogVersion(baseline)).toBe(
-      '648589f76c8396c30f800c87fa74647a0b6351c062802f8bbec90b143c5c3e67',
+      '5034c1e42bdfddbf02aec4a3794ac367c7d7c0e8cc4933508995c47548fa3645',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
