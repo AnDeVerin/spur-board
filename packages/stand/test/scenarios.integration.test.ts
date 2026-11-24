@@ -3811,6 +3811,7 @@ describe('showcase scenario', () => {
     const blockOf = (name: string): string => scenario.blocks?.[name] ?? `no block ${name}`;
     interface Row {
       key: string;
+      ticket?: { title: string };
       column: string;
       columnEnteredAt: string;
       turn: { addressee: string; column: string; taken: { by: string } | null } | null;
@@ -3836,7 +3837,9 @@ describe('showcase scenario', () => {
       'ready-to-merge': 1,
       done: 5,
     });
-    for (const row of tasks) expect(row.key, row.key).not.toMatch(/^Stand issue/);
+    for (const { name, title } of SHOWCASE_TASKS) {
+      expect(tasks.find(({ key }) => key === keyOf(name))?.ticket?.title, name).toBe(title);
+    }
     // Every task entered its column enteredAgo before one and the same seed time.
     const seededAt = new Set(
       SHOWCASE_TASKS.map(({ name, enteredAgo }) => {

@@ -89,14 +89,11 @@ const PLAN: readonly [string, number, Column, number, number][] = [
 
 /** Every task of the demo; the test pins these counts per column. */
 export const SHOWCASE_TASKS: readonly Planned[] = PLAN.map(
-  ([name, number, column, enteredAgo, since]) => ({
-    name,
-    number,
-    title: TITLES[number] ?? `Issue ${String(number)}`,
-    column,
-    enteredAgo,
-    since,
-  }),
+  ([name, number, column, enteredAgo, since]) => {
+    const title = TITLES[number];
+    if (title === undefined) throw new Error(`showcase: no title for issue ${String(number)}`);
+    return { name, number, title, column, enteredAgo, since };
+  },
 );
 
 const numberOf = (name: string): number => {

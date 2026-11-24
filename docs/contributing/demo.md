@@ -57,7 +57,8 @@ shows:
   an untaken worker turn and an operator comment.
 - `review` - the conductor's taken Review turn.
 - `product-review` - the conductor's Product Review turn, open and not taken.
-- `external-review` - a task waiting for an outside review, with no turn.
+- `external-review` - a task waiting for an outside review, with no turn; the "Why it is here"
+  table of its task view shows "Approved: not approved".
 - `qa` - an open QA turn on a head an outside reviewer approved.
 - `ready-to-merge` - the operator's turn on a PR whose approval is 3 commits behind its head; in
   Dev the task carried a worker question the operator answered and followed up.
@@ -79,7 +80,7 @@ Take keys and IDs from `pnpm stand status --json`, under `scenario`; URL-encode 
 - The services panel: `<webUrl>/?open=services`.
 
 Column help has no address of its own: open `<webUrl>/` and click the executor line under the
-column name (`manual` or `mirror · stand-org/1` in the Backlog parts).
+column name (`manual` or `mirror · Stand roadmap`, the GitHub Project's title, in the Backlog parts).
 
 ## Limits
 
