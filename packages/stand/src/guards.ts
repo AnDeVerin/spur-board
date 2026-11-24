@@ -222,7 +222,8 @@ export function shellWord(arg: string): string {
 
 /**
  * An `external_secrets` refusal when `env` holds real credentials, naming them and the command to
- * rerun without them: `env -u <name>... pnpm stand <args>`, each argument shell-quoted as needed.
+ * rerun without them: `env -u <name>... pnpm stand <args>`, each name and argument shell-quoted
+ * as needed.
  * `args` are the `pnpm stand` arguments as run. Never carries a value.
  */
 export function credentialRefusal(env: Env, args: readonly string[]): StandRefusal | undefined {
@@ -230,7 +231,7 @@ export function credentialRefusal(env: Env, args: readonly string[]): StandRefus
   if (names.length === 0) return undefined;
   return {
     reason: 'external_secrets',
-    message: `The environment holds external credentials: ${names.join(', ')}. Run the stand without them: env ${names.map((name) => `-u ${name}`).join(' ')} pnpm stand ${args.map(shellWord).join(' ')}`,
+    message: `The environment holds external credentials: ${names.join(', ')}. Run the stand without them: env ${names.map((name) => `-u ${shellWord(name)}`).join(' ')} pnpm stand ${args.map(shellWord).join(' ')}`,
   };
 }
 

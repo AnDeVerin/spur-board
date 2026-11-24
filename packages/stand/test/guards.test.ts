@@ -260,6 +260,15 @@ describe('refusal', () => {
     expect(
       credentialRefusal({ GH_TOKEN: '', SPUR_SESSION: 's' }, ['demo', 'next']),
     ).toBeUndefined();
+    // A launcher can set a name no shell would: it is quoted like any argument.
+    expect(
+      credentialRefusal({ 'JIRA_X Y': 'real', GH_TOKEN: 'real' }, [
+        'demo',
+        'next',
+        '--home',
+        '/s/my stand',
+      ])?.message,
+    ).toMatch(/ env -u GH_TOKEN -u 'JIRA_X Y' pnpm stand demo next --home '\/s\/my stand'$/);
   });
 
   it('allows empty credentials and Spur or board names that hold no secret', () => {
