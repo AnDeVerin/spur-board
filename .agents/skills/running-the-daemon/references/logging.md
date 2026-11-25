@@ -6,8 +6,11 @@
 - Use the `redacting` destination wrapper: censor credential keys at any depth and known secret
   values, raw or JSON-escaped. Withhold a line that cannot be censored; leave short values alone.
 - Logged fields: `module`, `err`, `signal`, `pending`, `call`, `duration_ms`, `outcome`,
-  `requestId`, `method`, `path`, `status`, `port`. Name new entity IDs as contracts do, e.g.
-  `taskId`.
+  `requestId`, `method`, `path`, `status`, `port`, and the Slack socket's `attempt`, `delayMs`,
+  `failure`, `disconnectReason`, `closeCode`, `closeReason`, `socketError` and `detail`. Name
+  new entity IDs as contracts do, e.g. `taskId`.
+- Socket Mode SDK warn and error lines reach the log only through the gateway's `onLog`
+  (`createSdkLogger` in `packages/gateway-slack/src/socket.ts`), never the console.
 - Wrap external calls in `ctx.logCall`; it logs duration and outcome, then rethrows.
 - Parse every response with zod or an adapter export; `wireWalkerBans` in `eslint.config.js`
   covers daemon sources except `logger.ts`.

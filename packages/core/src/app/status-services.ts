@@ -3,6 +3,7 @@ import type { statusOutputSchema } from '@spur-board/contracts/browser';
 import type { Kysely } from 'kysely';
 import type { z } from 'zod';
 import type { Tables } from '../store/schema.ts';
+import type { ConnectionRecord } from './transport-connection.ts';
 
 type StatusOutput = z.output<typeof statusOutputSchema>;
 type SourceView = StatusOutput['sources'][number];
@@ -67,6 +68,21 @@ export function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 're
 }
 
 /**
+ * A gateway's last good time: the read time while this daemon run's connection is up, even when
+ * a delivery failure makes its row failing; its drop time while this run's connection is down;
+ * before this run has connection state, the stored record of an earlier run (its last connect or
+ * drop); null when it was never up.
+ */
+function gatewayLastGoodAt(
+  live: ConnectionRecord | undefined,
+  stored: ConnectionRecord | undefined,
+  now: number,
+): string | null {
+  if (live !== undefined) return live.state === 'up' ? new Date(now).toISOString() : live.at;
+  return stored?.at ?? null;
+}
+
+/**
  * One health row per service: the daemon, each gateway (board-wide), then github,
  * github-project, spur and jira rolled up from the given sources only.
  */
@@ -76,6 +92,10 @@ export function services(input: {
   transport: StatusOutput['transport'];
   /** End of the last recorded outage of each gateway: its newest cleared transport item. */
   outageEnds: ReadonlyMap<string, string>;
+  /** Each gateway's last stored connection event (`transport-connection.ts`). */
+  connections: ReadonlyMap<string, ConnectionRecord>;
+  /** Each gateway's connection state in this daemon run (`Sender.liveConnections`). */
+  liveConnections: ReadonlyMap<string, ConnectionRecord>;
   sources: readonly SourceView[];
 }): ServiceRow[] {
   const { now, daemon } = input;
@@ -92,13 +112,18 @@ export function services(input: {
   ];
   for (const gateway of input.transport) {
     const ended = input.outageEnds.get(gateway.gateway);
+    const lastGoodAt = gatewayLastGoodAt(
+      input.liveConnections.get(gateway.gateway),
+      input.connections.get(gateway.gateway),
+      now,
+    );
     rows.push(
       gateway.state === 'down'
         ? {
             service: gateway.gateway,
             state: 'failing',
             since: gateway.since,
-            lastGoodAt: null,
+            lastGoodAt,
             reason: gateway.reason,
           }
         : {
@@ -108,7 +133,7 @@ export function services(input: {
               ended !== undefined && Date.parse(ended) > Date.parse(daemon.startedAt)
                 ? ended
                 : daemon.startedAt,
-            lastGoodAt: null,
+            lastGoodAt,
             reason: null,
           },
     );

@@ -190,7 +190,7 @@ const serviceSchema = z
       .datetime()
       .nullable()
       .describe(
-        'Last sign of work: the last completed board tick for the daemon, the oldest latest observation of its sources for github, github-project, jira and spur (null when one has none); null for a gateway.',
+        'Last sign of work: the last completed board tick for the daemon, the oldest latest observation of its sources for github, github-project, jira and spur (null when one has none); for a gateway, the time of this read while its Socket Mode connection is up in this daemon run, even when a delivery failure makes it failing (`state` and `reason` name that failure); otherwise when it was last known up (when its connection dropped, or its last connect in an earlier daemon run); null for a gateway that was never up.',
       ),
     reason: z
       .string()

@@ -1,5 +1,5 @@
 {
-  "version": "69feea1809b4d942c32e7323f781a60a09ce817c56d6c46e7366ec091404ddbd",
+  "version": "2459cc1a6c7b30e13fa7efac6d076222d68e19ae62220e1b9aff10a265560d27",
   "grants": [
     "operator",
     "project-agent",
@@ -1649,7 +1649,7 @@
                     },
                     { "type": "null" }
                   ],
-                  "description": "Last sign of work: the last completed board tick for the daemon, the oldest latest observation of its sources for github, github-project, jira and spur (null when one has none); null for a gateway."
+                  "description": "Last sign of work: the last completed board tick for the daemon, the oldest latest observation of its sources for github, github-project, jira and spur (null when one has none); for a gateway, the time of this read while its Socket Mode connection is up in this daemon run, even when a delivery failure makes it failing (`state` and `reason` name that failure); otherwise when it was last known up (when its connection dropped, or its last connect in an earlier daemon run); null for a gateway that was never up."
                 },
                 "reason": {
                   "description": "Why the service is not healthy, from its first worst source for github, jira and spur; null when healthy.",

@@ -2,72 +2,17 @@ import { mkdtempSync, rmSync, statfsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { configSchema, doctorReportSchema, type Config } from '@spur-board/contracts';
+import { configSchema, doctorReportSchema } from '@spur-board/contracts';
 import { statusOutputSchema } from '@spur-board/contracts/browser';
 import { openStore, tickBoard } from '@spur-board/core';
 import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { acquireLock, startInProcessDaemon, type InProcessDaemon } from '../src/in-process.ts';
+import { configFor, daemonOptions, type DaemonOptionsInput } from './in-process-fixture.ts';
 import { countingHostProbe, readOp, webConfig } from './in-process-web.ts';
 
-const configFor = (port: number) =>
-  configSchema.parse({
-    projects: [
-      {
-        id: 'proj',
-        tracker: { type: 'github-issues', repo: 'example/repo' },
-        repos: ['example/repo'],
-        operatorGithubLogin: 'operator',
-      },
-    ],
-    operator: { slack: 'operator' },
-    digest: { tz: 'UTC' },
-    http: { port },
-  });
-
-/** The daemon options of these tests: a temp home, a real lock, a tick the test controls. */
-function optionsFor(input: {
-  tick: typeof tickBoard;
-  port?: number;
-  lines?: string[];
-  shutdownTimeoutMs?: number;
-  registerFatal?: (handler: (err: unknown) => void) => void;
-  config?: Config;
-  secrets?: Readonly<Record<string, string>>;
-}): Parameters<typeof startInProcessDaemon>[0] {
-  return {
-    paths: {
-      configFile: join(home, 'config.yaml'),
-      secretsFile: join(home, 'secrets.env'),
-      dbFile: join(home, 'board.sqlite'),
-      lockFile: join(home, 'board.lock'),
-    },
-    loadConfig: () => ({
-      config: input.config ?? configFor(input.port ?? 0),
-      secrets: input.secrets ?? {},
-    }),
-    acquireLock,
-    clock: { now: () => Date.now() },
-    stdout: {
-      write(line: string) {
-        input.lines?.push(line);
-      },
-    },
-    writeErr(text) {
-      throw new Error(text);
-    },
-    ports: {
-      tick: input.tick,
-      startAdapters: () => ({ stop: () => Promise.resolve() }),
-    },
-    ...(input.registerFatal === undefined ? {} : { registerFatal: input.registerFatal }),
-    ...(input.shutdownTimeoutMs === undefined
-      ? {}
-      : { shutdownTimeoutMs: input.shutdownTimeoutMs }),
-  };
-}
-
 let home: string;
+const optionsFor = (input: DaemonOptionsInput) => daemonOptions(home, input);
 let daemon: InProcessDaemon | undefined;
 let release: () => void = () => undefined;
 

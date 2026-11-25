@@ -5,7 +5,7 @@ import { createSlackGateway } from '../src/index.ts';
 import { MAX_PART_TEXT } from '../src/render.ts';
 import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 
-// The SDK's first automatic reconnect waits 5 seconds before opening a new socket.
+// After a drop the gateway's first reconnect waits up to a second (`reconnectDelay`).
 vi.setConfig({ testTimeout: 10_000 });
 
 runGatewayConformance({

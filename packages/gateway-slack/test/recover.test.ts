@@ -11,7 +11,7 @@ import { recoverThreads } from '../src/recover.ts';
 import { conversationRef } from '../src/ref.ts';
 import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 
-// The Socket Mode SDK waits five seconds before its first automatic reconnect.
+// After a drop the gateway's first reconnect waits up to a second (`reconnectDelay`).
 vi.setConfig({ testTimeout: 15_000 });
 
 const author = userIdSchema.parse('U_OPERATOR');

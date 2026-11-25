@@ -23,6 +23,7 @@ import { itemSubjects } from './items.ts';
 import { awaitedReviewersOf } from './review-rule.ts';
 import { latestQaSubmissions, latestSubmissions } from './submissions.ts';
 import { readOutageEnds, services } from './status-services.ts';
+import { readConnections, type ConnectionRecord } from './transport-connection.ts';
 import {
   columnGroupViews,
   orderTodoGroupRows,
@@ -100,6 +101,8 @@ export async function getStatus(
     budgetWaits?: ReadonlySet<string> | undefined;
     /** The last host sample, or null before the first; never sampled here. */
     host?: StatusOutput['host'] | undefined;
+    /** Each gateway's connection state in this daemon run; defaults to none. */
+    liveConnections?: ReadonlyMap<string, ConnectionRecord> | undefined;
   },
   options: {
     project?: string | undefined;
@@ -506,6 +509,8 @@ export async function getStatus(
       daemon,
       transport,
       outageEnds: await readOutageEnds(store.db),
+      connections: await readConnections(store.db),
+      liveConnections: deps.liveConnections ?? new Map(),
       sources,
     }),
     transport,

@@ -84,6 +84,9 @@ export function createDaemonModules(
               work === 'connection' ? 'slack connection event failed' : 'slack envelope failed',
             );
           },
+          onLog: (level, fields, msg) => {
+            ctx.log[level](fields, msg);
+          },
         }));
   const hostCtx = ctxFor('host-metrics');
   const host = createHostSampler({
@@ -106,6 +109,7 @@ export function createDaemonModules(
     reapplyInbound: () => inbound?.reapply,
     prPoller: () => boardModules.pollPr,
     budgetWaits: () => boardModules.budgetWaits(),
+    liveConnections: () => outbox.liveConnections(),
     ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),
     lastDispatchAt: () => lastDispatchAt,
     webOrigin: () =>

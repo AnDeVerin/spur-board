@@ -93,15 +93,40 @@ Both clear on their own: a lost connection clears when the socket reconnects, an
 permanent failure clears when a probe send succeeds. While a space is held, its messages wait
 without using up their 30-minute retry window.
 
+The `slack` row under `services` shows `lastGoodAt`: the time of the read while the socket is
+connected, otherwise when it was last known connected. During a drop it stays at the drop
+time, also while the drop is too short to show in `transport`.
+
 A socket outage shorter than 5 minutes does not show. Without `SLACK_APP_TOKEN` there is no
 socket, so only permanent failures show.
+
+After the socket drops, the daemon reconnects on its own until it stops: the first attempt
+waits about a second, and each failed attempt doubles the wait up to a minute. Slack also asks
+for a new connection now and then (`refresh_requested` or `warning`): the daemon opens the new
+connection at once and keeps serving on the old one until the new one is up, so a refresh is
+not a drop. If the new connection fails, the old one keeps serving until it drops. The log
+lines under `module: gateway-slack`:
+
+- `slack socket down` (warn): the connection dropped, with `disconnectReason` when Slack sent
+  one, `closeCode` (1006 when the connection was cut without a close frame) and `socketError`
+  when the socket reported one.
+- `slack socket reconnecting` (info): an attempt is due, with its `attempt` number and
+  `delayMs`.
+- `slack socket attempt failed` (warn, error for a token Slack refuses): an attempt did not
+  connect, with `failure` (`connections_open`, `closed_before_hello` or `hello_timeout`) and
+  `err`.
+- `slack socket up` (info): connected, with the `attempt` that did it (0 at start).
+- `slack socket refreshing` (info): Slack asked for a new connection, with its
+  `disconnectReason`; the new connection is opening while the old one serves.
+- `slack socket refreshed` (info): the new connection is up and the old one closes, with the
+  same `disconnectReason`.
 
 **Check.**
 
 ```sh
 board status
 board doctor
-journalctl --user -u spur-board.service --since -1h
+journalctl --user -u spur-board.service --since -1h | grep 'slack socket'
 ```
 
 Read `transport` and the reason first, then the `slack.auth`, `slack.orchestrators_member`

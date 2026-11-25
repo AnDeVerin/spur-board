@@ -4,7 +4,7 @@ import { createDeliveryGateway, type SlackChannels } from './deliver.ts';
 import { parseInteractionRef, type BotIdentity } from './normalize.ts';
 import { recoverThreads } from './recover.ts';
 import { renderResponse } from './render.ts';
-import { createSocket } from './socket.ts';
+import { createSocket, type ReconnectOptions, type SocketLog } from './socket.ts';
 
 interface SlackGatewayConfig extends ApiConfig {
   channels: SlackChannels;
@@ -12,6 +12,10 @@ interface SlackGatewayConfig extends ApiConfig {
   command?: string;
   /** Receives every rejection of Socket Mode background work; without it the rejection is dropped. */
   onError?: (err: unknown, work: 'connection' | 'envelope') => void;
+  /** Receives the Socket Mode connection log lines and the SDK's warn and error lines. */
+  onLog?: SocketLog;
+  /** Socket Mode reconnect tuning for tests; the daemon keeps the defaults. */
+  reconnect?: ReconnectOptions;
   /** The current time in epoch milliseconds; recovery reads it as the end of its window. */
   now: () => number;
 }

@@ -119,7 +119,8 @@ describe('transport outage', () => {
       service: h.gateway.kind,
       state: 'failing',
       since: droppedAt,
-      lastGoodAt: null,
+      // The connection was last good when it dropped.
+      lastGoodAt: droppedAt,
       reason: 'down',
     };
     expect(operator.services.find((row) => row.service === h.gateway.kind)).toEqual(failing);
@@ -154,7 +155,8 @@ describe('transport outage', () => {
       service: h.gateway.kind,
       state: 'healthy',
       since: restoredAt,
-      lastGoodAt: null,
+      // Up again in this run: the read time, which the frozen clock holds at the restore.
+      lastGoodAt: restoredAt,
       reason: null,
     });
 
