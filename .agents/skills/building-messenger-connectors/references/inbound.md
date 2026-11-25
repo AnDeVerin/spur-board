@@ -28,8 +28,9 @@
 - A refresh `disconnect` (`refresh_requested`, `warning`) is a handover, not a drop:
   `RefreshingClient` keeps the old socket serving, the replacement opens at once, and the old one
   closes after the replacement's hello and its envelopes in flight, with no `connection` event.
-  At most two clients live, only during a handover
-  (`packages/gateway-slack/test/socket-handover.test.ts`).
+  Two clients live during a handover, briefly a third when the replacement gets its own refresh
+  while the retired client still drains; a retired client is silent and closes once its envelopes
+  settle (`packages/gateway-slack/test/socket-handover.test.ts`).
 - `recover` works from its request alone (G10).
 - Yield `gap` whenever completeness cannot be proven (`recoverThreads` in
   `packages/gateway-slack/src/recover.ts`). Copy its `gap` cases, not the rate-limit wait in
