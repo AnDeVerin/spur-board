@@ -19,7 +19,7 @@ import type { Trx } from './board-utils.ts';
 import { insertConversation } from './conversations.ts';
 import { recordRingDelivery, ringStillCurrent, ringTask, ringUndelivered } from './doorbells.ts';
 import { expireTokenOfItem } from './tokens.ts';
-import { writeConnection } from './transport-connection.ts';
+import { writeConnection, type ConnectionRecord } from './transport-connection.ts';
 import { ringDue } from './quiet-turns.ts';
 import { clearItem, feedLineBody, raiseItem, resolvedFeedBody, tokenCardBody } from './feed.ts';
 import {
@@ -73,9 +73,15 @@ export interface Sender {
    * once per outage. `up` clears the down health. Runs between ticks, never inside one. Each `up`
    * and the first `down` of an outage are stored as the gateway's connection record (meta
    * `transport_connection:<gateway>`, `transport-connection.ts`), which `status.get` reads for
-   * the gateway's `lastGoodAt`.
+   * the gateway's `lastGoodAt` until this run has connection state of its own.
    */
   recordConnection(state: ConnectionState, at: Date): Promise<void>;
+  /**
+   * This run's connection state of the gateway, set when `recordConnection` is called, before
+   * any write: the last `up`, or the first `down` of the current outage. Empty before the first
+   * event and without a gateway.
+   */
+  liveConnections(): ReadonlyMap<string, ConnectionRecord>;
 }
 
 /** 1 msg/s per space: a platform limit, not an operator setting. */
@@ -329,6 +335,8 @@ export function createSender(options: SenderOptions): Sender {
   let downSince: number | undefined;
   /** Set once this outage's down rows were written; reset on `up`. */
   let downRecorded = false;
+  /** This run's connection state, read by `status.get` without waiting for a tick. */
+  const live = new Map<string, ConnectionRecord>();
   /** The last tick started; a new tick runs after it, so two ticks never interleave. */
   let ticking: Promise<void> = Promise.resolve();
 
@@ -1035,6 +1043,9 @@ export function createSender(options: SenderOptions): Sender {
     },
 
     recordConnection(state, at) {
+      // A later down of the same outage keeps the first drop time.
+      if (gateway !== undefined && (state === 'up' || live.get(gatewayKind)?.state !== 'down'))
+        live.set(gatewayKind, { state, at: at.toISOString() });
       const run = ticking.then(async () => {
         if (state === 'down') {
           if (downSince !== undefined) return;
@@ -1063,6 +1074,10 @@ export function createSender(options: SenderOptions): Sender {
       });
       ticking = run.catch(() => undefined);
       return run;
+    },
+
+    liveConnections() {
+      return live;
     },
   };
 }

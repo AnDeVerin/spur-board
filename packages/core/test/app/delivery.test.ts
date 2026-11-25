@@ -2365,71 +2365,113 @@ describe('transport health', () => {
     ).toBe(0);
   });
 
-  it('records the last connection state and status reports the gateway lastGoodAt', async () => {
-    const ctx = setup();
+  /** Each step runs 1 s after the previous one; `at` of a step is that time. */
+  type ConnectionStep =
+    | 'up'
+    | 'down'
+    | 'down behind a busy tick'
+    | 'clock steps back'
+    | 'token_revoked'
+    | 'restart'
+    | 'malformed record';
+
+  it.each<[string, ConnectionStep[], 'read time' | null | number]>([
+    ['never up', [], null],
+    ['up in this run', ['up'], 'read time'],
+    // The down write waits behind the tick's delivery; status must not.
+    ['down while its write waits behind a busy tick', ['up', 'down behind a busy tick'], 1],
+    ['down twice in one outage', ['up', 'down', 'down'], 1],
+    ['up again after a drop', ['up', 'down', 'up'], 'read time'],
+    ['up in an earlier run, not yet in this one', ['up', 'restart'], 0],
+    ['down in an earlier run, not yet up in this one', ['up', 'down', 'restart'], 1],
+    [
+      'up after the clock stepped back past the daemon start',
+      ['clock steps back', 'up'],
+      'read time',
+    ],
+    ['up while a permanent-failure row makes it failing', ['up', 'token_revoked'], 'read time'],
+    ['a malformed record from an earlier run', ['up', 'restart', 'malformed record'], null],
+  ])('status reports the gateway lastGoodAt: %s', async (_name, steps, expected) => {
+    let ctx = setup();
     const kind = ctx.observed.gateway.kind;
-    const iso = () => ctx.fake.platform.now().toISOString();
-    const started = new Date(ctx.fake.platform.now().getTime() - 1000).toISOString();
-    const read = async (startedAt = started) => {
-      const status = await getStatus({
-        store: ctx.store,
-        config: testConfig,
-        clock: { now: () => ctx.fake.platform.now().getTime() },
-        completeSince: new Map(),
-        gateways: [kind],
-        daemon: { version: 'test', startedAt, lastDispatchAt: null },
-      });
-      return status.services.find((row) => row.service === kind);
+    const now = () => ctx.fake.platform.now();
+    let startedAt = now().toISOString();
+    // A held delivery keeps its tick running, so every later connection write queues behind it.
+    let hold: { entered: PromiseWithResolvers<void>; release: PromiseWithResolvers<void> } | null =
+      null;
+    const gateway: Gateway = {
+      ...ctx.observed.gateway,
+      async deliver(request) {
+        if (hold !== null) {
+          hold.entered.resolve();
+          await hold.release.promise;
+        }
+        return ctx.observed.gateway.deliver(request);
+      },
     };
-    const record = async () =>
-      (
-        await ctx.store.db
-          .selectFrom('meta')
-          .select('value')
-          .where('key', '=', `transport_connection:${kind}`)
-          .executeTakeFirst()
-      )?.value;
-    expect((await read())?.lastGoodAt).toBeNull();
-
-    await ctx.sender.recordConnection('up', ctx.fake.platform.now());
-    expect(JSON.parse((await record()) ?? 'null')).toEqual({ state: 'up', at: iso() });
-    ctx.fake.platform.advance(1000);
-    expect(await read()).toMatchObject({ state: 'healthy', lastGoodAt: iso() });
-
-    // The socket is up while delivery fails for good: the row is failing, the connection good.
-    await enqueueOpen(ctx, await seedBlock(ctx));
-    ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
-    await ctx.sender.tick();
-    ctx.fake.platform.advance(1000);
-    expect(await read()).toMatchObject({
-      state: 'failing',
-      reason: 'token_revoked',
-      lastGoodAt: iso(),
+    ctx.sender = createSender({
+      store: ctx.store,
+      config: testConfig,
+      gateway,
+      spur: ctx.spur.spur,
+      now,
     });
-
+    const queued: Promise<void>[] = [];
+    const at: string[] = [];
+    for (const step of steps) {
+      ctx.fake.platform.advance(1000);
+      at.push(now().toISOString());
+      switch (step) {
+        case 'up':
+        case 'down':
+          await ctx.sender.recordConnection(step, now());
+          break;
+        case 'down behind a busy tick':
+          hold = { entered: Promise.withResolvers(), release: Promise.withResolvers() };
+          await enqueueOpen(ctx, await seedBlock(ctx));
+          queued.push(ctx.sender.tick());
+          await hold.entered.promise;
+          queued.push(ctx.sender.recordConnection('down', now()));
+          break;
+        case 'clock steps back':
+          ctx.fake.platform.advance(-60 * 60_000);
+          break;
+        case 'token_revoked':
+          await enqueueOpen(ctx, await seedBlock(ctx));
+          ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
+          await ctx.sender.tick();
+          break;
+        case 'restart':
+          ctx = await restart(ctx);
+          startedAt = now().toISOString();
+          break;
+        case 'malformed record':
+          await ctx.store.db
+            .updateTable('meta')
+            .set({ value: '{"state":"up"}' })
+            .where('key', '=', `transport_connection:${kind}`)
+            .execute();
+          break;
+      }
+    }
     ctx.fake.platform.advance(1000);
-    const droppedAt = iso();
-    await ctx.sender.recordConnection('down', ctx.fake.platform.now());
-    expect(JSON.parse((await record()) ?? 'null')).toEqual({ state: 'down', at: droppedAt });
-    ctx.fake.platform.advance(1000);
-    expect((await read())?.lastGoodAt).toBe(droppedAt);
-    // A second down of the same outage keeps the first drop time.
-    await ctx.sender.recordConnection('down', ctx.fake.platform.now());
-    ctx.fake.platform.advance(1000);
-    expect((await read())?.lastGoodAt).toBe(droppedAt);
-
-    const upAt = iso();
-    await ctx.sender.recordConnection('up', ctx.fake.platform.now());
-    ctx.fake.platform.advance(1000);
-    expect((await read())?.lastGoodAt).toBe(iso());
-    // A later daemon run that has not connected yet reports the last connect of the earlier run.
-    expect((await read(iso()))?.lastGoodAt).toBe(upAt);
-
-    await ctx.store.db
-      .updateTable('meta')
-      .set({ value: '{"state":"up"}' })
-      .where('key', '=', `transport_connection:${kind}`)
-      .execute();
-    expect((await read())?.lastGoodAt).toBeNull();
+    const readAt = now().toISOString();
+    const status = await getStatus({
+      store: ctx.store,
+      config: testConfig,
+      clock: { now: () => now().getTime() },
+      completeSince: new Map(),
+      gateways: [kind],
+      daemon: { version: 'test', startedAt, lastDispatchAt: null },
+      liveConnections: ctx.sender.liveConnections(),
+    });
+    hold?.release.resolve();
+    await Promise.all(queued);
+    const row = status.services.find((service) => service.service === kind);
+    expect(row?.lastGoodAt).toBe(
+      expected === 'read time' ? readAt : expected === null ? null : at[expected],
+    );
+    if (steps.includes('token_revoked'))
+      expect(row).toMatchObject({ state: 'failing', reason: 'token_revoked' });
   });
 });

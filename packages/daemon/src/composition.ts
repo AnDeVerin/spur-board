@@ -109,6 +109,7 @@ export function createDaemonModules(
     reapplyInbound: () => inbound?.reapply,
     prPoller: () => boardModules.pollPr,
     budgetWaits: () => boardModules.budgetWaits(),
+    liveConnections: () => outbox.liveConnections(),
     ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),
     lastDispatchAt: () => lastDispatchAt,
     webOrigin: () =>

@@ -69,18 +69,17 @@ export function sourceHealth(source: SourceView): Pick<ServiceRow, 'state' | 're
 
 /**
  * A gateway's last good time: the read time while this daemon run's connection is up, even when
- * a delivery failure makes its row failing; otherwise when it was last known up (its drop, or its
- * last connect in an earlier run); null when it was never up.
+ * a delivery failure makes its row failing; its drop time while this run's connection is down;
+ * before this run has connection state, the stored record of an earlier run (its last connect or
+ * drop); null when it was never up.
  */
 function gatewayLastGoodAt(
-  record: ConnectionRecord | undefined,
+  live: ConnectionRecord | undefined,
+  stored: ConnectionRecord | undefined,
   now: number,
-  daemon: StatusOutput['daemon'],
 ): string | null {
-  if (record === undefined) return null;
-  if (record.state === 'up' && Date.parse(record.at) >= Date.parse(daemon.startedAt))
-    return new Date(now).toISOString();
-  return record.at;
+  if (live !== undefined) return live.state === 'up' ? new Date(now).toISOString() : live.at;
+  return stored?.at ?? null;
 }
 
 /**
@@ -95,6 +94,8 @@ export function services(input: {
   outageEnds: ReadonlyMap<string, string>;
   /** Each gateway's last stored connection event (`transport-connection.ts`). */
   connections: ReadonlyMap<string, ConnectionRecord>;
+  /** Each gateway's connection state in this daemon run (`Sender.liveConnections`). */
+  liveConnections: ReadonlyMap<string, ConnectionRecord>;
   sources: readonly SourceView[];
 }): ServiceRow[] {
   const { now, daemon } = input;
@@ -111,7 +112,11 @@ export function services(input: {
   ];
   for (const gateway of input.transport) {
     const ended = input.outageEnds.get(gateway.gateway);
-    const lastGoodAt = gatewayLastGoodAt(input.connections.get(gateway.gateway), now, daemon);
+    const lastGoodAt = gatewayLastGoodAt(
+      input.liveConnections.get(gateway.gateway),
+      input.connections.get(gateway.gateway),
+      now,
+    );
     rows.push(
       gateway.state === 'down'
         ? {

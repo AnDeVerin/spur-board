@@ -4,6 +4,7 @@ import {
   createSender,
   expirePendingTokens,
   reconcileDueDoorbells,
+  type Sender,
   type SpurPort,
   type Store,
 } from '@spur-board/core';
@@ -87,6 +88,8 @@ export function createOutboxModule(
   pulse(): Promise<void>;
   /** Records a gateway connection change; logs its own failure and ignores events after stop. */
   connection(state: ConnectionState): Promise<void>;
+  /** The gateway's connection state in this run, without waiting for a tick or a write. */
+  liveConnections(): ReturnType<Sender['liveConnections']>;
 } {
   const spur = options.spur ?? createSpurPort({ baseUrl: ctx.config.adapters.spur.baseUrl });
   const sender = createSender({
@@ -148,5 +151,6 @@ export function createOutboxModule(
       updating = Promise.all([updating, update]).then(() => undefined);
       return update;
     },
+    liveConnections: () => sender.liveConnections(),
   };
 }

@@ -29,6 +29,7 @@ import { sourceHealth } from './status-services.ts';
 import { sourceView } from './status-views.ts';
 import { createTaskQueries, projectTargets, visibleProjects } from './task-queries.ts';
 import { tokenListQuery, tokenRevokeMutation } from './tokens.ts';
+import type { ConnectionRecord } from './transport-connection.ts';
 import { createTurnMutations } from './turn-commands.ts';
 import { createTurnWaitMutation } from './turn-wait-commands.ts';
 
@@ -73,6 +74,11 @@ export function createOperationRegistry(deps: {
    * reported by `status.get` `sources[].waitsForBudget`; absent before the runner starts.
    */
   budgetWaits?: () => ReadonlySet<string> | undefined;
+  /**
+   * Read at operation time: each gateway's connection state in this daemon run, for `status.get`
+   * `services[].lastGoodAt`; absent before the outbox is built.
+   */
+  liveConnections?: () => ReadonlyMap<string, ConnectionRecord> | undefined;
   /** Product version of the running daemon, reported by `status.get` `daemon`. */
   productVersion?: string;
   /** Read at operation time: when the last board tick completed, or null before the first. */
@@ -264,6 +270,7 @@ export function createOperationRegistry(deps: {
           healthySince: deps.healthySince,
           budgetWaits: deps.budgetWaits?.(),
           host: deps.hostMetrics?.(),
+          liveConnections: deps.liveConnections?.(),
         },
         {
           project: input.project,
