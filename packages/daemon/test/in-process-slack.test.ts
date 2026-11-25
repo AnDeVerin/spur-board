@@ -17,6 +17,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  await daemon?.stop();
   await daemon?.teardown;
   daemon = undefined;
   rmSync(home, { recursive: true, force: true });
