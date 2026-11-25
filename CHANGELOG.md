@@ -2,6 +2,12 @@
 
 Notable changes in each spur-board release, newest first. A breaking change lists what changed and how to migrate the config under **BREAKING CHANGES**; the versioning policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog). Releases before this file, and any release not listed here, are on the [GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
 
+## [0.170.1](https://github.com/AnDeVerin/spur-board/compare/v0.170.0...v0.170.1) (2026-11-25)
+
+### Bug Fixes
+
+* **gateway-slack:** [#903](https://github.com/AnDeVerin/spur-board/issues/903) reconnect Socket Mode after every drop and log why it dropped ([#904](https://github.com/AnDeVerin/spur-board/issues/904)) ([e5bb061](https://github.com/AnDeVerin/spur-board/commit/e5bb061ce7064190bb36b29122d4eb74d372a4ba))
+
 ## [0.170.0](https://github.com/AnDeVerin/spur-board/compare/v0.169.0...v0.170.0) (2026-11-24)
 
 ### Features
