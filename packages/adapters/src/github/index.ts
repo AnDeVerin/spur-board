@@ -481,6 +481,8 @@ async function processPr(
 ): Promise<Pick<CachedPr, 'facts' | 'reviewRule'> | undefined> {
   // A denied base branch rule keeps the PR's facts; its review rule goes out unreadable.
   const ruleDenied = scopedErrors.some(deniedBranchRule);
+  // A denied head commit, suite list or suite leaves a partial list: the PR folds no check.
+  const suitesDenied = scopedErrors.some(deniedSuites);
   const errors = withoutDeniedReferences(scopedErrors).filter(
     (entry) => !deniedBranchRule(entry) && !deniedSuites(entry),
   );
@@ -533,7 +535,12 @@ async function processPr(
     entryFor(scope.continuations, scope.repo, number),
     report,
   );
-  const pr = { ...full.pr, comments: { ...full.pr.comments, nodes: feedback.nodes } };
+  const rollup = full.pr.statusCheckRollup;
+  const pr = {
+    ...full.pr,
+    comments: { ...full.pr.comments, nodes: feedback.nodes },
+    ...(suitesDenied && rollup ? { statusCheckRollup: { ...rollup, commit: null } } : {}),
+  };
   const facts = content(() =>
     normalizePr(ref?.repo ?? scope.repo, pr, scope.keys, feedback.complete, feedback.held),
   );

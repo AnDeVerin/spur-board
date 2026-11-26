@@ -703,6 +703,39 @@ describe('GitHub PR batch', () => {
       { commit: { checkSuites: null } },
       ['statusCheckRollup', 'commit', 'checkSuites'],
     ],
+    [
+      'suite beside a newer run',
+      {
+        contexts: conn([
+          {
+            __typename: 'CheckRun',
+            name: 'build',
+            status: 'COMPLETED',
+            conclusion: 'SKIPPED',
+            completedAt: time,
+            checkSuite: {
+              createdAt: '2026-01-03T00:00:00.000Z',
+              workflowRun: { event: 'pull_request', workflow: { id: 'W_1' } },
+            },
+            isRequired: true,
+          },
+        ]),
+        commit: {
+          checkSuites: {
+            nodes: [
+              null,
+              {
+                status: 'IN_PROGRESS',
+                createdAt: '2026-01-04T00:00:00.000Z',
+                workflowRun: { event: 'pull_request', workflow: { id: 'W_1' } },
+              },
+            ],
+            pageInfo: { hasNextPage: false },
+          },
+        },
+      },
+      ['statusCheckRollup', 'commit', 'checkSuites', 'nodes', 0],
+    ],
   ])('keeps the PR complete when its head %s is denied', async (_name, denied, path) => {
     const pr = wire();
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
