@@ -17,10 +17,11 @@
   changes nothing. Tree entry modes are git's, as numbers: 16384 (`040000`) for a directory,
   33188 (`100644`) for a file.
 - `create --seed` takes `baseRefName`, `main` by default, which `PrCommits` and `PrBases` answer.
-- `create --seed` takes `checkSuites: [{status, createdAt, workflowRun: {workflow: {id}} | null}]`,
+- `create --seed` takes `checkSuites: [{status, createdAt, workflowRun: {event, workflow: {id}} | null}]`,
   `[]` by default, answered under `statusCheckRollup.commit.checkSuites` of the detail read; no
-  verb changes it. A required skipped check run in a suite of workflow W reads pending while a
-  seeded suite of W created after its suite is not `COMPLETED`.
+  verb changes it. A seeded check run's `checkSuite.workflowRun` also takes `event`. A required
+  skipped check run in a suite of workflow W and event E reads pending while a seeded suite of W
+  and E created after its suite is not `COMPLETED`.
 - A PR's commits are read only once core requests it: a PR created after its issue is only
   discovered on the first poll, so poll twice before reading its `approvals`.
 - `fake github issue <n> project-status <Backlog|Ready|Done|none|archived|removed>` sets the
