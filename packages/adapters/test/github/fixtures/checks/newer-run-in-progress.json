@@ -12,6 +12,7 @@
           "checkSuite": {
             "createdAt": "2026-11-20T13:36:15Z",
             "workflowRun": {
+              "event": "pull_request",
               "workflow": {
                 "id": "W_1"
               }
@@ -35,6 +36,7 @@
             "status": "COMPLETED",
             "createdAt": "2026-11-20T13:36:15Z",
             "workflowRun": {
+              "event": "pull_request",
               "workflow": {
                 "id": "W_1"
               }
@@ -44,6 +46,7 @@
             "status": "IN_PROGRESS",
             "createdAt": "2026-11-20T13:37:05Z",
             "workflowRun": {
+              "event": "pull_request",
               "workflow": {
                 "id": "W_1"
               }

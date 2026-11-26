@@ -315,7 +315,7 @@ describe('wire facts', () => {
 
   it('answers seeded check suites that the real adapter folds into a pending required check', async () => {
     const later = '2026-01-01T00:01:00.000Z';
-    const workflowRun = { workflow: { id: 'W_stand_ci' } };
+    const workflowRun = { event: 'pull_request', workflow: { id: 'W_stand_ci' } };
     created(5, {
       contexts: [
         {

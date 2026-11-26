@@ -2,7 +2,11 @@
 import type { PrFacts } from '@spur-board/contracts';
 import { z } from 'zod';
 
-const workflowRunWire = z.object({ workflow: z.object({ id: z.string().min(1) }) });
+// `event` is optional only so the committed live recordings, which never select it, still replay.
+const workflowRunWire = z.object({
+  event: z.string().nullish(),
+  workflow: z.object({ id: z.string().min(1) }),
+});
 const checkRunWire = z
   .object({
     __typename: z.literal('CheckRun'),
@@ -125,22 +129,25 @@ export const suiteListWire = z
 export type SuiteListWire = z.output<typeof suiteListWire>;
 /**
  * Whether a required check run skipped in one run of its workflow may still run: the head has a
- * suite of the same workflow created after the skipped run's suite and not yet completed. A
- * missing or truncated suite list, or a time that does not parse, says no.
+ * suite of the same workflow and trigger event created after the skipped run's suite and not yet
+ * completed. A run of another event, such as a manual dispatch of a workflow whose skipped job
+ * runs only on pull requests, cannot produce the check. A missing or truncated suite list, a
+ * missing event, or a time that does not parse, says no.
  */
 export function awaitsNewerRun(node: ContextWire, commit: SuiteListWire): boolean {
   if (node.__typename !== 'CheckRun' || node.isRequired !== true) return false;
   if (checkState(node) !== 'skipped') return false;
-  const workflow = node.checkSuite?.workflowRun?.workflow.id;
+  const run = node.checkSuite?.workflowRun;
+  const event = run?.event;
   const suites = commit?.checkSuites;
-  if (!node.checkSuite || workflow === undefined || !suites || suites.pageInfo.hasNextPage)
-    return false;
+  if (!node.checkSuite || !run || !event || !suites || suites.pageInfo.hasNextPage) return false;
   const skippedAt = Date.parse(node.checkSuite.createdAt);
   if (Number.isNaN(skippedAt)) return false;
   return suites.nodes.some(
     (suite) =>
       suite !== null &&
-      suite.workflowRun?.workflow.id === workflow &&
+      suite.workflowRun?.workflow.id === run.workflow.id &&
+      suite.workflowRun.event === event &&
       suite.status !== 'COMPLETED' &&
       Date.parse(suite.createdAt) > skippedAt,
   );

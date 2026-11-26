@@ -295,13 +295,15 @@ describe('GitHub PR batch', () => {
     }
     for (const other of [pageQuery('pullRequests'), pageQuery('pullRequests', true), details]) {
       expect(other).not.toContain('defaultBranchRef');
-      expect(other).not.toContain('workflowRun { event workflow { id } }');
+      expect(other).not.toContain('detailsUrl');
     }
+    for (const page of [pageQuery('pullRequests'), pageQuery('pullRequests', true)])
+      expect(page).not.toContain('workflowRun { event workflow { id } }');
     expect(details).not.toContain('closingIssuesReferences');
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '5e97dfef912cf4e45e3a2ca3e76195562dccd5452a46c2a0464c244aeb8dd1b5',
+      '8b0a71719b5cf5f41452a311ad566e7297ee2362a2c7d68761abe79cf15d510f',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -459,10 +461,10 @@ describe('GitHub PR batch', () => {
       { name: 'build', state: 'pending', completedAt: null },
     ]);
     expect(pageQuery('contexts')).toContain(
-      'startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } }',
+      'startedAt completedAt checkSuite { createdAt workflowRun { event workflow { id } } app { id } }',
     );
     expect(detailQuery([7])).toContain(
-      'startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } }',
+      'startedAt completedAt checkSuite { createdAt workflowRun { event workflow { id } } app { id } }',
     );
   });
   it('uses check-suite creation time for a queued rerun without a start time', () => {
@@ -562,7 +564,10 @@ describe('GitHub PR batch', () => {
   it('keeps a skipped required check red unless a newer unfinished suite of its workflow is on the head', () => {
     const early = '2026-01-03T00:00:00.000Z';
     const late = '2026-01-04T00:00:00.000Z';
-    const skipped = (required = true, workflowRun: Json = { workflow: { id: 'W_1' } }): Json => ({
+    const skipped = (
+      required = true,
+      workflowRun: Json = { event: 'pull_request', workflow: { id: 'W_1' } },
+    ): Json => ({
       __typename: 'CheckRun',
       name: 'notify',
       status: 'COMPLETED',
@@ -572,10 +577,18 @@ describe('GitHub PR batch', () => {
       checkSuite: { createdAt: early, workflowRun, app: { id: 'A_1' } },
       isRequired: required,
     });
-    const suite = (status: string, createdAt = late, workflow: string | null = 'W_1'): Json => ({
+    const suite = (
+      status: string,
+      createdAt = late,
+      workflow: string | null = 'W_1',
+      event: string | null = 'pull_request',
+    ): Json => ({
       status,
       createdAt,
-      workflowRun: workflow === null ? null : { workflow: { id: workflow } },
+      workflowRun:
+        workflow === null
+          ? null
+          : { ...(event === null ? {} : { event }), workflow: { id: workflow } },
     });
     const suites = (nodes: Json[], hasNextPage = false): Json => ({
       checkSuites: { nodes, pageInfo: { hasNextPage } },
@@ -623,6 +636,30 @@ describe('GitHub PR batch', () => {
         check: red,
       },
       {
+        name: 'manual dispatch of the workflow',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS', late, 'W_1', 'workflow_dispatch')]),
+        check: red,
+      },
+      {
+        name: 'newer suite without event',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS', late, 'W_1', null)]),
+        check: red,
+      },
+      {
+        name: 'skipped run without event',
+        node: skipped(true, { workflow: { id: 'W_1' } }),
+        commit: suites([suite('IN_PROGRESS')]),
+        check: red,
+      },
+      {
+        name: 'newer pull request run',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS')]),
+        check: pending,
+      },
+      {
         name: 'not required',
         node: skipped(false),
         commit: suites([suite('IN_PROGRESS')]),
@@ -653,7 +690,7 @@ describe('GitHub PR batch', () => {
   });
   it('selects the head check suites in the detail query only', () => {
     const selection =
-      'commit { checkSuites(first: 100) { nodes { status createdAt workflowRun { workflow { id } } } pageInfo { hasNextPage } } }';
+      'commit { checkSuites(first: 100) { nodes { status createdAt workflowRun { event workflow { id } } } pageInfo { hasNextPage } } }';
     expect(detailQuery([7])).toContain(`statusCheckRollup { contexts(first: 100) {`);
     expect(detailQuery([7])).toContain(selection);
     expect(pageQuery('contexts')).not.toContain('checkSuites');
@@ -706,7 +743,11 @@ describe('GitHub PR batch', () => {
               conclusion: 'SKIPPED',
               startedAt: at,
               completedAt: at,
-              checkSuite: { createdAt: at, workflowRun: { workflow: { id: 'W_1' } }, app: null },
+              checkSuite: {
+                createdAt: at,
+                workflowRun: { event: 'pull_request', workflow: { id: 'W_1' } },
+                app: null,
+              },
               isRequired: true,
             },
           ],
@@ -718,7 +759,7 @@ describe('GitHub PR batch', () => {
               {
                 status: 'IN_PROGRESS',
                 createdAt: '2026-01-04T00:00:00.000Z',
-                workflowRun: { workflow: { id: 'W_1' } },
+                workflowRun: { event: 'pull_request', workflow: { id: 'W_1' } },
               },
             ],
             pageInfo: { hasNextPage: false },
