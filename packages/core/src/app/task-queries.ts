@@ -11,7 +11,7 @@ import { dispatchHolds } from '../domain/dispatch.ts';
 import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../domain/gates.ts';
 import { gateWaitsFor, waitsFor } from '../domain/waits-for.ts';
 import type { CommentTable, TaskTable } from '../store/schema.ts';
-import { authorize, projectTarget } from './authorize.ts';
+import { authorize, isOperator, projectTarget } from './authorize.ts';
 import {
   answeredVia,
   answeredViaColumn,
@@ -25,7 +25,7 @@ import {
 import { approvalViews, type ApprovalView } from './approval-watch.ts';
 import { linkView, moveViews, parsePr, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
-import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
+import { holdBlocks } from './hold-blocks.ts';
 import { blindSources, readInput } from './dispatch.ts';
 import { notificationAddressedTo } from './doorbells.ts';
 import { historyEvents } from './history.ts';
@@ -239,6 +239,11 @@ export function createTaskQueries(deps: {
         waiting,
         pr,
         work: read.input,
+        turn: shared.turn && {
+          ...shared.turn,
+          byOperator:
+            shared.turn.taken !== null && isOperator(shared.turn.taken.by, config, task.project),
+        },
       }),
       ...shared,
       dispatcher: mode,
@@ -260,26 +265,6 @@ export function createTaskQueries(deps: {
       checksWaivedBy,
       ...(waiting.length === 0 ? {} : { waiting }),
     };
-  }
-  /** The blocks of the active cycle-limit and course-check items that hold the task's turn. */
-  async function holdBlocks(trx: Trx, taskId: number) {
-    const items = await trx
-      .selectFrom('operator_item')
-      .innerJoin('block', 'block.id', 'operator_item.block_id')
-      .select(['operator_item.block_id', 'block.addressee_role'])
-      .where((eb) =>
-        eb.or([
-          eb('operator_item.item_key', 'like', `${cycleKeyPrefix(taskId)}%`),
-          eb('operator_item.item_key', 'like', `${courseKeyPrefix(taskId)}%`),
-        ]),
-      )
-      .where('operator_item.cleared_at', 'is', null)
-      .orderBy('operator_item.id')
-      .execute();
-    return items.map((item) => ({
-      id: `B${String(item.block_id)}`,
-      addressee: item.addressee_role,
-    }));
   }
   const get: Query<'task.get'> = {
     id: 'task.get',

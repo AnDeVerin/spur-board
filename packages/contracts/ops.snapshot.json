@@ -1,5 +1,5 @@
 {
-  "version": "fa112ff0bf4de5faf09c749f76b2b51c485af74a8027c3f24c444603702ae60f",
+  "version": "086642e1a9b1ec3a23b01dea21c786c0b1e43267ba8f2aa66fd5adcd3c869303",
   "grants": [
     "operator",
     "project-agent",
@@ -5775,6 +5775,7 @@
             "type": "object",
             "properties": {
               "waitsFor": {
+                "description": "What the task waits for and who acts next; absent only from an older daemon.",
                 "type": "object",
                 "properties": {
                   "kind": {
@@ -5828,8 +5829,7 @@
                   }
                 },
                 "required": ["kind", "text", "actor"],
-                "additionalProperties": false,
-                "description": "What the task waits for and who acts next; the first fact to read."
+                "additionalProperties": false
               },
               "column": {
                 "type": "string",
@@ -6535,7 +6535,6 @@
               }
             },
             "required": [
-              "waitsFor",
               "column",
               "dispatcher",
               "holds",
@@ -6950,62 +6949,6 @@
                     "key": {
                       "anyOf": [{ "type": "string", "const": "--key" }, { "type": "null" }],
                       "description": "Idempotency key flag; null for a query."
-                    },
-                    "view": {
-                      "description": "How a terminal shows the output; absent for the plain view. JSON is never shaped.",
-                      "type": "object",
-                      "properties": {
-                        "when": {
-                          "type": "string",
-                          "description": "Boolean input field that turns the terminal view on."
-                        },
-                        "lead": {
-                          "type": "object",
-                          "properties": {
-                            "label": {
-                              "type": "string",
-                              "description": "Label of the first output line."
-                            },
-                            "path": {
-                              "minItems": 1,
-                              "type": "array",
-                              "items": { "type": "string" },
-                              "description": "Output path of the text the first line shows."
-                            }
-                          },
-                          "required": ["label", "path"],
-                          "additionalProperties": false,
-                          "description": "The line printed before the result."
-                        },
-                        "hide": {
-                          "type": "object",
-                          "properties": {
-                            "path": {
-                              "minItems": 1,
-                              "type": "array",
-                              "items": { "type": "string" },
-                              "description": "Output path of the array whose entries may be left out."
-                            },
-                            "field": {
-                              "type": "string",
-                              "description": "Boolean entry field; entries where it is false are left out."
-                            },
-                            "flag": {
-                              "type": "string",
-                              "description": "CLI flag that keeps every entry."
-                            },
-                            "description": {
-                              "type": "string",
-                              "description": "Help text of the flag."
-                            }
-                          },
-                          "required": ["path", "field", "flag", "description"],
-                          "additionalProperties": false,
-                          "description": "Entries left out of the terminal view."
-                        }
-                      },
-                      "required": ["when", "lead", "hide"],
-                      "additionalProperties": false
                     }
                   },
                   "required": ["command", "args", "modes", "key"],

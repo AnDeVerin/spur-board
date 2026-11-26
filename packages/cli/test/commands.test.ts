@@ -1432,13 +1432,16 @@ describe('catalog commands', () => {
       expect(columnLines(full.stdout)).toContain('triage');
     });
 
-    it('refuses an older daemon why without waitsFor in the strict output parse', async () => {
+    it('still hides disabled columns from an older daemon without waitsFor', async () => {
       const why = Object.fromEntries(
         Object.entries(example.why ?? {}).filter(([key]) => key !== 'waitsFor'),
       );
       const { code, stdout } = await run(['task', 'PROJ-123', '--why'], true, { ...example, why });
-      expect(code).toBe(5);
-      expect(stdout).toBe('');
+      expect(code).toBe(0);
+      expect(stdout).not.toContain('waits for');
+      expect(stdout.startsWith('task:')).toBe(true);
+      expect(columnLines(stdout)).toContain('done');
+      for (const column of disabled) expect(columnLines(stdout)).not.toContain(column);
     });
 
     it('formats a view fail-soft: no lead without a string, no hiding without an array', () => {

@@ -37,6 +37,17 @@ export interface WorkFacts {
   reopened: boolean;
   ticketDone: boolean;
   liveWorker: boolean;
+  /** A linked PR, the judged one or another, is open: completion without a merge waits for it. */
+  hasOpenLinkedPr: boolean;
+}
+
+/** The open turn: `byOperator` when the operator took it over; `wait` while its holder waits. */
+interface TurnFacts {
+  id: string;
+  column: ColumnId;
+  addressee: AddresseeRole;
+  byOperator: boolean;
+  wait?: { reason: string; wakesAt: string };
 }
 
 /**
@@ -55,7 +66,7 @@ export type WaitsForFacts =
       /** Blocks of the open cycle-limit and course-check items, in item order. */
       heldBlocks: readonly { id: string; addressee: AddresseeRole }[];
       pendingSha: string | undefined;
-      turn: { id: string; column: ColumnId; addressee: AddresseeRole } | null;
+      turn: TurnFacts | null;
       waiting: readonly Waiting[];
       pr: PrRef | null;
       work: WorkFacts;
@@ -75,20 +86,41 @@ const wait = (kind: WaitsForKind, text: string, actor: WaitsFor['actor'] = null)
   actor,
 });
 
+/** A wait before its actor joins the text: a gate shows the bare text. */
+type Wait = [kind: WaitsForKind, text: string, actor: WaitsFor['actor']];
+
+/** The open turn, its actor the operator who took it over, and its holder's wait on one line. */
+function turnWait(turn: TurnFacts): WaitsFor {
+  const actor = turn.byOperator ? 'operator' : turn.addressee;
+  const line = wait('turn', `${columnName(turn.column)} turn ${turn.id}`, actor);
+  if (turn.wait === undefined) return line;
+  const until = `${turn.wait.wakesAt.slice(0, 16)}Z`;
+  const reason = turn.wait.reason.replace(/\s+/g, ' ').trim();
+  return { ...line, text: `${line.text}, waiting until ${until} for ${reason}` };
+}
 const NEXT_PASS_TO_DONE = 'the next dispatcher pass to move it to done';
 
-/** What work start waits for: after a reopen only an open PR counts. */
-const workToStart = ({ reopened }: WorkFacts) =>
-  reopened
-    ? 'work to start: an open PR (the ticket was reopened)'
-    : 'work to start: an open PR or a live worker';
-
-/** What completion waits for with no open PR: a done ticket, then no live worker. */
-function withoutOpenPr({ ticketDone, liveWorker }: WorkFacts): WaitsFor {
-  if (!ticketDone) return wait('ticket', 'ticket to close, with no open PR and no live worker');
+/**
+ * What completion waits for with the judged PR not open: a done ticket, then no open linked PR and
+ * no live worker.
+ */
+function withoutOpenPr({ ticketDone, hasOpenLinkedPr, liveWorker }: WorkFacts): Wait {
+  if (!ticketDone) return ['ticket', 'ticket to close, with no open PR and no live worker', null];
+  if (hasOpenLinkedPr) return ['merge', 'an open linked PR to merge or close', 'human'];
   return liveWorker
-    ? wait('work', 'the worker session to end, with no open PR')
-    : wait('board', NEXT_PASS_TO_DONE);
+    ? ['work', 'the worker session to end, with no open PR', null]
+    : ['board', NEXT_PASS_TO_DONE, null];
+}
+
+/**
+ * What a task waits for before work starts: with a done ticket, completion; after a reopen, an
+ * open PR, since a live worker no longer counts.
+ */
+function workWait(work: WorkFacts): Wait {
+  if (work.ticketDone) return withoutOpenPr(work);
+  return work.reopened
+    ? ['work', 'work to start: an open PR (the ticket was reopened)', null]
+    : ['work', 'work to start: an open PR or a live worker', null];
 }
 
 /** The waits-for line of each fact GitHub or the board has not settled, by its gate reason. */
@@ -134,14 +166,9 @@ export function waitsFor(facts: WaitsForFacts): WaitsFor {
           first.addressee,
         );
   }
-  if (facts.turn !== null)
-    return wait(
-      'turn',
-      `${columnName(facts.turn.column)} turn ${facts.turn.id}`,
-      facts.turn.addressee,
-    );
+  if (facts.turn !== null) return turnWait(facts.turn);
   if (holds.includes('spur_blind')) return wait('spur', 'Spur to be readable');
-  if (holds.includes('work_not_started')) return wait('work', workToStart(facts.work));
+  if (holds.includes('work_not_started')) return wait(...workWait(facts.work));
   const [waiting] = facts.waiting;
   const fact = waiting === undefined ? undefined : WAITING[waiting.reason]?.(waiting, pr);
   if (fact !== undefined) return fact;
@@ -152,7 +179,7 @@ export function waitsFor(facts: WaitsForFacts): WaitsFor {
     if (next === undefined || next === 'done')
       return pr?.state === 'open'
         ? wait('merge', `merge of ${refOf(pr)}`, 'human')
-        : withoutOpenPr(facts.work);
+        : wait(...withoutOpenPr(facts.work));
     return wait('board', `the next dispatcher pass to move it to ${next}`);
   }
   if (gate.column === column) {
@@ -181,20 +208,24 @@ export function gateWaitsFor(
   },
 ): string | undefined {
   if (facts.archived) return undefined;
-  const { ticketDone } = facts.work;
+  const { ticketDone, liveWorker } = facts.work;
   if (gate.column === 'done' && gate.enabled && facts.column !== 'done') {
+    const ref = refOf(facts.pr);
+    // A done ticket completes the task once its PR is closed too, with no live worker.
     if (facts.pr?.state === 'open')
-      return ticketDone
-        ? `merge of ${refOf(facts.pr)}`
-        : `merge of ${refOf(facts.pr)}, then the ticket to close`;
+      return !ticketDone
+        ? `merge of ${ref}, then the ticket to close`
+        : liveWorker
+          ? `merge of ${ref}`
+          : `merge of ${ref}, or close it unmerged`;
     if (facts.pr?.state === 'merged') return ticketDone ? NEXT_PASS_TO_DONE : 'ticket to close';
-    return withoutOpenPr(facts.work).text;
+    return withoutOpenPr(facts.work)[1];
   }
   if (
     isTodoGroupColumn(gate.column) &&
     gate.column === facts.column &&
     facts.holds.includes('work_not_started')
   )
-    return workToStart(facts.work);
+    return workWait(facts.work)[1];
   return undefined;
 }

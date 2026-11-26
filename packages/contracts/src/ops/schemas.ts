@@ -187,7 +187,8 @@ export const taskWhySchema = z
             'Who acts next: a role, human on GitHub, or null for the board, GitHub or Spur.',
           ),
       })
-      .describe('What the task waits for and who acts next; the first fact to read.'),
+      .optional()
+      .describe('What the task waits for and who acts next; absent only from an older daemon.'),
     column: z
       .enum(COLUMN_IDS)
       .describe('Column the dispatcher works from: the shadow column in shadow mode.'),

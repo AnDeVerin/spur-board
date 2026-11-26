@@ -103,8 +103,9 @@ function setupExample(path: string, command: CliCommand): string {
 
 /** What each `why.waitsFor.kind` means, with an example text; one row per kind in cli.md. */
 const WAITS_FOR_ROWS: Record<WaitsForKind, string> = {
-  turn: 'An open turn: `Review turn T4 (orchestrator:review)`; `actor` is its addressee.',
-  merge: 'A human merges the PR: `merge of acme/web#42 (a human)`.',
+  turn: 'An open turn: `Review turn T4 (orchestrator:review)`; `actor` is its addressee, or `operator` once the operator took it over. A waiting holder adds `, waiting until <time> for <reason>`.',
+  merge:
+    'A human merges the PR, `merge of acme/web#42 (a human)`, or merges or closes another open linked PR.',
   approval:
     'A human approval on GitHub: an external review, required reviewers, the review rule or a new review after requested changes.',
   ticket:

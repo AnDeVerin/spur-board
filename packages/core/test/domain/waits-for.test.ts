@@ -31,6 +31,7 @@ const work = (changes: Partial<Work> = {}): Work => ({
   reopened: false,
   ticketDone: false,
   liveWorker: false,
+  hasOpenLinkedPr: false,
   ...changes,
 });
 
@@ -116,7 +117,7 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
         { id: 'B4', addressee: 'curator' },
         { id: 'B9', addressee: 'operator' },
       ],
-      turn: { id: 'T2', column: 'review', addressee: 'orchestrator:review' },
+      turn: { id: 'T2', column: 'review', addressee: 'orchestrator:review', byOperator: false },
     }),
     { kind: 'answer', text: 'answer to B4, B9 (curator)', actor: 'curator' },
   ],
@@ -133,9 +134,33 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
     'an open turn',
     facts({
       holds: ['spur_blind'],
-      turn: { id: 'T2', column: 'review', addressee: 'orchestrator:review' },
+      turn: { id: 'T2', column: 'review', addressee: 'orchestrator:review', byOperator: false },
     }),
     { kind: 'turn', text: 'Review turn T2 (orchestrator:review)', actor: 'orchestrator:review' },
+  ],
+  [
+    'an open turn the operator took over',
+    facts({
+      turn: { id: 'T2', column: 'review', addressee: 'orchestrator:review', byOperator: true },
+    }),
+    { kind: 'turn', text: 'Review turn T2 (operator)', actor: 'operator' },
+  ],
+  [
+    'an open turn whose holder waits',
+    facts({
+      turn: {
+        id: 'T4',
+        column: 'dev',
+        addressee: 'worker',
+        byOperator: false,
+        wait: { reason: 'CI on\nthe head', wakesAt: '2026-01-05T10:15:30.000Z' },
+      },
+    }),
+    {
+      kind: 'turn',
+      text: 'Dev turn T4 (worker), waiting until 2026-01-05T10:15Z for CI on the head',
+      actor: 'worker',
+    },
   ],
   [
     'spur_blind',
@@ -156,6 +181,16 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
       work: work({ reopened: true }),
     }),
     { kind: 'work', text: 'work to start: an open PR (the ticket was reopened)', actor: null },
+  ],
+  [
+    'work_not_started after a reopen, the ticket done again, worker live',
+    facts({
+      column: 'todo',
+      holds: ['work_not_started'],
+      pr: null,
+      work: work({ reopened: true, ticketDone: true, liveWorker: true }),
+    }),
+    { kind: 'work', text: 'the worker session to end, with no open PR', actor: null },
   ],
   [
     'checks_pending',
@@ -244,6 +279,11 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
     { kind: 'work', text: 'the worker session to end, with no open PR', actor: null },
   ],
   [
+    'gate ok, next is Done, PR closed, ticket done, another linked PR open',
+    facts({ pr: closed, work: work({ ticketDone: true, hasOpenLinkedPr: true }) }),
+    { kind: 'merge', text: 'an open linked PR to merge or close (a human)', actor: 'human' },
+  ],
+  [
     'gate ok, next is Done, no PR, ticket done, nothing live',
     facts({ pr: null, work: work({ ticketDone: true }) }),
     { kind: 'board', text: 'the next dispatcher pass to move it to done', actor: null },
@@ -321,10 +361,16 @@ describe('gateWaitsFor', () => {
   it.each([
     ['done, PR open, ticket open', done, base, 'merge of o/r#7, then the ticket to close'],
     [
-      'done, PR open, ticket done',
+      'done, PR open, ticket done, worker live',
+      done,
+      { ...base, work: work({ ticketDone: true, liveWorker: true }) },
+      'merge of o/r#7',
+    ],
+    [
+      'done, PR open, ticket done, nothing live',
       done,
       { ...base, work: work({ ticketDone: true }) },
-      'merge of o/r#7',
+      'merge of o/r#7, or close it unmerged',
     ],
     ['done, PR merged', done, { ...base, pr: merged }, 'ticket to close'],
     [
@@ -339,6 +385,12 @@ describe('gateWaitsFor', () => {
       done,
       { ...noPr, work: work({ ticketDone: true, liveWorker: true }) },
       'the worker session to end, with no open PR',
+    ],
+    [
+      'done, PR closed, ticket done, another linked PR open',
+      done,
+      { ...base, pr: closed, work: work({ ticketDone: true, hasOpenLinkedPr: true }) },
+      'an open linked PR to merge or close',
     ],
     [
       'done, no PR, ticket done, nothing live',
@@ -357,6 +409,16 @@ describe('gateWaitsFor', () => {
       { column: 'todo', enabled: true },
       { ...notStarted, pr: null, work: work({ reopened: true }) },
       'work to start: an open PR (the ticket was reopened)',
+    ],
+    [
+      'the To Do group column after a reopen, the ticket done again, worker live',
+      { column: 'todo', enabled: true },
+      {
+        ...notStarted,
+        pr: null,
+        work: work({ reopened: true, ticketDone: true, liveWorker: true }),
+      },
+      'the worker session to end, with no open PR',
     ],
     ['a disabled Done gate', { column: 'done', enabled: false }, base, undefined],
     ['the Done gate of an archived task', done, { ...base, archived: true }, undefined],

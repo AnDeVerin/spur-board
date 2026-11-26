@@ -54,21 +54,18 @@ function ticketBrowseBase(tracker: Config['projects'][number]['tracker']): strin
   return url.href;
 }
 
-/** An operation's CLI binding as `schema.get` returns it, with mutable copies of its lists. */
-function catalogCli({ view, ...cli }: (typeof OPERATIONS)[number]['cli']) {
+/**
+ * An operation's CLI binding as `schema.get` returns it, with mutable copies of its lists. The
+ * terminal `view` stays out: the CLI reads it from its own catalog, and an older CLI's strict
+ * `schema.get` parse does not know it.
+ */
+function catalogCli(cli: (typeof OPERATIONS)[number]['cli']) {
   return {
-    ...cli,
+    command: cli.command,
     args: [...cli.args],
     modes: cli.modes?.map((mode) => ({ ...mode })) ?? null,
-    ...(view === undefined
-      ? {}
-      : {
-          view: {
-            when: view.when,
-            lead: { label: view.lead.label, path: [...view.lead.path] },
-            hide: { ...view.hide, path: [...view.hide.path] },
-          },
-        }),
+    ...(cli.defaultMode === undefined ? {} : { defaultMode: cli.defaultMode }),
+    key: cli.key,
   };
 }
 

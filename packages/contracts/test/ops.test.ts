@@ -1079,9 +1079,9 @@ describe('snapshot', () => {
     // #903 rewords the status.get services[].lastGoodAt description for a gateway. #910 adds the
     // required task.get why.waitsFor, the optional gates[].waitsFor, the optional cli.view binding
     // and its schema.get field, and rewords the task.get guidance, why and gates descriptions;
-    // its waitsFor.kind also names archived.
+    // its waitsFor.kind also names archived, and why.waitsFor is optional for older daemons.
     expect(await catalogVersion(baseline)).toBe(
-      'a6a9133166ca0c4ab18ff0a20415f0f07ff118ee3497d84d43b64c99869518f8',
+      'd0139bde00e7a270c8f205cf32237bda9d888834237fc834a5608d471d74639e',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
