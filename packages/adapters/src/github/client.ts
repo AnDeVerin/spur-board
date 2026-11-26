@@ -24,6 +24,15 @@ export function deniedBranchRule(error: GraphError): boolean {
     (error.type === 'FORBIDDEN' || error.type === 'NOT_FOUND') && error.path?.[2] === 'baseRef'
   );
 }
+// A denied head commit or check suite list of a PR (`statusCheckRollup.commit` and below) leaves
+// its check runs readable; no skipped check then waits for a newer run.
+export function deniedSuites(error: GraphError): boolean {
+  return (
+    (error.type === 'FORBIDDEN' || error.type === 'NOT_FOUND') &&
+    error.path?.[2] === 'statusCheckRollup' &&
+    error.path[3] === 'commit'
+  );
+}
 // GraphQL errors are classified before `data` is read: a denied root arrives as null.
 export const graphEnvelopeWire = z.object({
   errors: z.array(graphErrorWire).optional(),
@@ -89,9 +98,9 @@ const prFields = (
 ): string => `id number url title updatedAt mergedAt closedAt state isDraft mergeable mergeStateStatus
  author { login } headRefName headRefOid${reviewRule ? `\n reviewDecision baseRef { ${BRANCH_RULE_FIELDS} }` : ''}
  statusCheckRollup { contexts(first: 100) { nodes {
- ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } } isRequired(pullRequestNumber: ${String(number)}) }
+ ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt id workflowRun { event runNumber runAttempt workflow { id } } app { id } } isRequired(pullRequestNumber: ${String(number)}) }
  ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${String(number)}) }
- } pageInfo { hasNextPage endCursor } } }
+ } pageInfo { hasNextPage endCursor } } commit { checkSuites(first: 100) { nodes { id status createdAt workflowRun { event runNumber runAttempt workflow { id } } } pageInfo { hasNextPage } } } }
  reviews(first: 100) { nodes { ${REVIEW_FIELDS} } pageInfo { hasNextPage endCursor } }
  comments(last: 100) { ${COMMENT_FIELDS} }
  reviewThreads(first: 100) { nodes { ${THREAD_FIELDS} } pageInfo { hasNextPage endCursor } }
@@ -169,7 +178,7 @@ export function pageQuery(
     connection === 'closingIssuesReferences'
       ? `closingIssuesReferences(first: 100, after: $after) { ${CLOSING_FIELDS} }`
       : connection === 'contexts'
-        ? `statusCheckRollup { contexts(first: 100, after: $after) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } } isRequired(pullRequestNumber: $number) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: $number) } } pageInfo { hasNextPage endCursor } } }`
+        ? `statusCheckRollup { contexts(first: 100, after: $after) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt id workflowRun { event runNumber runAttempt workflow { id } } app { id } } isRequired(pullRequestNumber: $number) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: $number) } } pageInfo { hasNextPage endCursor } } }`
         : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? REVIEW_FIELDS : connection === 'reviewThreads' ? THREAD_FIELDS : REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }`;
   return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { cost limit remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }

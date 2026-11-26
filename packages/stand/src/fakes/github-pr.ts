@@ -13,6 +13,7 @@ import {
   type Verb,
 } from './github-pr-control.ts';
 import type { IssueProject } from './github-issues.ts';
+import { rollupState } from './github-pr-rollup.ts';
 import { KNOWN_SHAPES } from './github-pr-shapes.ts';
 import { projectIssuesView, projectOwnerView } from './github-project.ts';
 import {
@@ -126,7 +127,7 @@ export function createGithubPrFake(options: {
           conclusion: null,
           startedAt: at,
           completedAt: null,
-          checkSuite: { createdAt: at, workflowRun: null, app: null },
+          checkSuite: { createdAt: at, id: null, workflowRun: null, app: null },
           isRequired: true,
         },
         {
@@ -137,6 +138,7 @@ export function createGithubPrFake(options: {
           isRequired: false,
         },
       ],
+      checkSuites: [],
       reviews: [],
       comments: [],
       reviewThreads: [],
@@ -263,25 +265,6 @@ export function createGithubPrFake(options: {
     }
   }
 
-  /** GitHub's combined state: any failure wins, then anything still running. */
-  function rollupState(contexts: readonly Context[]): string {
-    const failed = contexts.some((context) =>
-      context.__typename === 'StatusContext'
-        ? context.state === 'FAILURE' || context.state === 'ERROR'
-        : context.status === 'COMPLETED' &&
-          ['FAILURE', 'TIMED_OUT', 'CANCELLED', 'STARTUP_FAILURE', 'ACTION_REQUIRED'].includes(
-            context.conclusion ?? '',
-          ),
-    );
-    if (failed) return 'FAILURE';
-    const running = contexts.some((context) =>
-      context.__typename === 'StatusContext'
-        ? context.state === 'PENDING' || context.state === 'EXPECTED'
-        : context.status !== 'COMPLETED',
-    );
-    return running ? 'PENDING' : 'SUCCESS';
-  }
-
   function prView(pr: Pr): WireObject {
     const { closingIssuesReferences: closing, contexts } = pr;
     const n = String(pr.number);
@@ -345,6 +328,9 @@ export function createGithubPrFake(options: {
           : {
               state: rollupState(contexts),
               contexts: (args: Args) => page('contexts', contexts, args),
+              commit: {
+                checkSuites: (args: Args) => page('checkSuites', pr.checkSuites, args),
+              },
             },
       reviews: (args: Args) => page('reviews', reviews, args),
       comments: (args: Args) =>

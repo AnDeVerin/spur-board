@@ -1417,6 +1417,23 @@ describe('flow tables', () => {
     expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: checks_red'));
   });
 
+  it('a required check folded to pending by a newer run reads pending in History and opens no checks_red turn', async () => {
+    const ctx = await inDev();
+    const slack = 'Slack notification';
+    await ctx.pr({ requiredChecks: [{ name: slack, state: 'pending', completedAt: null }] });
+    const checkRows = (await ctx.history()).events
+      .filter((event) => event.kind === 'checks_changed')
+      .map(({ summary }) => summary);
+    expect(checkRows.at(-1)).toBe('Checks on o/r#7: 0/1 green, 1 pending');
+    expect(checkRows.filter((summary) => summary.includes('failed'))).toEqual([]);
+    await ctx.submit(WORKER, 'T1', A);
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toBeNull();
+
+    await ctx.pr({ requiredChecks: [{ name: slack, state: 'success', completedAt: at(5) }] });
+    expect((await ctx.task()).column).toBe('review');
+  });
+
   it("a conflict in Review waits for the conductor's submit", async () => {
     const ctx = await inReview();
     await ctx.ack(REV, 'T2');

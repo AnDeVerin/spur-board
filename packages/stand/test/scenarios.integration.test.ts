@@ -285,6 +285,7 @@ describe('scenarios', () => {
       'dispatch-course-check-to',
       'dispatch-long-comment-history',
       'dispatch-ci-pending-after-submit',
+      'dispatch-skipped-required-newer-run',
       'dispatch-submit-before-pr-linked',
       'dispatch-submit-head-moved',
       'dispatch-submit-no-pr',
@@ -2454,6 +2455,33 @@ describe('dispatcher scenarios', () => {
         reason: 'review: no_review_on_head',
         head: A,
       });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-skipped-required-newer-run: a skipped required check waits for the newer run, then the same submit passes Dev',
+    async () => {
+      await up();
+      await seed('dispatch-skipped-required-newer-run');
+      expect(await turnOf(as('worker'))).toBeUndefined();
+      expect((await turnsIn('dev')).map(({ closed_reason }) => closed_reason)).toEqual([
+        'submitted',
+      ]);
+      const waiting = await op<{ why: { waiting?: unknown } }>(current(), 'task.get', {
+        task: ISSUE,
+        why: true,
+      });
+      expect(waiting.why.waiting).toEqual([
+        { reason: 'checks_pending', head: A, text: `waiting for CI on ${A}` },
+      ]);
+      await github('ci-green');
+      await poll();
+      expect(await mustTurn(as('orchestrator'))).toMatchObject({
+        reason: 'review: no_review_on_head',
+        head: A,
+      });
+      expect(await turnsIn('dev')).toHaveLength(1);
     },
     TIMEOUT,
   );

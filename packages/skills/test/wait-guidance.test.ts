@@ -46,13 +46,14 @@ describe('board wait guidance', () => {
     expect(normalise(text)).toContain('right after the push, not waiting for CI');
   });
 
-  // What the Board does with pending, red, cancelled and superseded runs after a submit (#841).
+  // What the Board does with pending, red, cancelled and superseded runs after a submit (#841),
+  // and with a required check skipped while a newer run of its workflow runs (#906).
   it.each([
     ['how-board-works-waits.md', read('../spur-board/references/how-board-works-waits.md')],
     ['docs/how-board-works-waits.md', read('../../../docs/how-board-works-waits.md')],
   ])('says how checks move the task after a submit in %s', (_name, text) => {
     expect(normalise(text)).toContain(
-      "A submit needs no green checks. Running checks hold the task at the `checksGate` column's exit (Dev by default); red checks, a cancelled run included, return it to Dev with a new turn. With `checksGate` right of Dev, a cancelled run counts as running for about two GitHub poll intervals first. Only the latest run of each check counts, so a rerun on the same head replaces a cancelled run. When the PR has required checks, only those count, and the Board does not watch the others. While GitHub computes mergeability, the task waits where it is (at Dev's exit while in Dev); a conflict returns it to Dev with a new turn.",
+      "A submit needs no green checks. Running checks hold the task at the `checksGate` column's exit (Dev by default); red checks, a cancelled run included, return it to Dev with a new turn. With `checksGate` right of Dev, a cancelled run counts as running for about two GitHub poll intervals first. Only the latest run of each check counts, so a rerun on the same head replaces a cancelled run. A required check skipped in one run follows the newest run of its workflow for the same event on the head: that run's check counts if it has one; otherwise the check counts as running until that run finishes, then it is red. When the PR has required checks, only those count, and the Board does not watch the others. While GitHub computes mergeability, the task waits where it is (at Dev's exit while in Dev); a conflict returns it to Dev with a new turn.",
     );
   });
 });

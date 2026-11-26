@@ -295,13 +295,15 @@ describe('GitHub PR batch', () => {
     }
     for (const other of [pageQuery('pullRequests'), pageQuery('pullRequests', true), details]) {
       expect(other).not.toContain('defaultBranchRef');
-      expect(other).not.toContain('workflowRun { event workflow { id } }');
+      expect(other).not.toContain('detailsUrl');
     }
+    for (const page of [pageQuery('pullRequests'), pageQuery('pullRequests', true)])
+      expect(page).not.toContain('workflowRun { event workflow { id } }');
     expect(details).not.toContain('closingIssuesReferences');
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '03705dbc621f1ba01f31e5450740e07936e60f3d897ed7d484a3badefa5271e9',
+      'e121c5963592c0e3562950f0b7cb0525bf165bdaf3e062e828ee5e929f29b716',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -459,10 +461,10 @@ describe('GitHub PR batch', () => {
       { name: 'build', state: 'pending', completedAt: null },
     ]);
     expect(pageQuery('contexts')).toContain(
-      'startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } }',
+      'startedAt completedAt checkSuite { createdAt id workflowRun { event runNumber runAttempt workflow { id } } app { id } }',
     );
     expect(detailQuery([7])).toContain(
-      'startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } }',
+      'startedAt completedAt checkSuite { createdAt id workflowRun { event runNumber runAttempt workflow { id } } app { id } }',
     );
   });
   it('uses check-suite creation time for a queued rerun without a start time', () => {
@@ -543,6 +545,462 @@ describe('GitHub PR batch', () => {
       expect(facts.checks, name).toEqual(checks);
       expect(facts.requiredChecks, name).toEqual(checks);
     }
+  });
+  it('normalizes each checks fixture', () => {
+    const cases = fixtures('checks');
+    expect(cases.map((entry) => entry.name)).toEqual([
+      'newer-run-done-without-check',
+      'newer-run-in-progress',
+      'newer-run-skipped-again',
+      'newer-run-succeeded',
+      'newer-runs-same-second',
+    ]);
+    for (const { name, value } of cases) {
+      const pr = { ...wire(), statusCheckRollup: value['statusCheckRollup'] };
+      expect(normalizePr('demo/widgets', pr, demoKeys, true).requiredChecks, name).toEqual(
+        value['requiredChecks'],
+      );
+    }
+  });
+  it('lets only the newest suite of its workflow and event decide a skipped required check', () => {
+    const early = '2026-01-03T00:00:00.000Z';
+    const late = '2026-01-04T00:00:00.000Z';
+    // Suite n has node id `CS_kwDOH${n}` and run number n; null has neither id nor run fields.
+    const run = (n: number | null, workflowRun: Json, runNumber = n): Json =>
+      workflowRun === null || runNumber === null
+        ? workflowRun
+        : { ...(workflowRun as Record<string, Json>), runNumber, runAttempt: 1 };
+    const suiteId = (n: number | null): string | null =>
+      n === null ? null : `CS_kwDOH${String(n)}`;
+    const skipped = (
+      required = true,
+      workflowRun: Json = { event: 'pull_request', workflow: { id: 'W_1' } },
+      at = early,
+    ): Json => ({
+      __typename: 'CheckRun',
+      name: 'notify',
+      status: 'COMPLETED',
+      conclusion: 'SKIPPED',
+      startedAt: at,
+      completedAt: at,
+      checkSuite: {
+        id: suiteId(1),
+        createdAt: early,
+        workflowRun: run(1, workflowRun),
+        app: { id: 'A_1' },
+      },
+      isRequired: required,
+    });
+    // The newer suite's run of the job, started before the older run recorded its skip.
+    const ranAt = '2026-01-04T00:01:00.000Z';
+    const newest = '2026-01-04T00:02:00.000Z';
+    const slowSkip = skipped(true, undefined, '2026-01-05T00:00:00.000Z');
+    const lateSkip = { name: 'notify', state: 'skipped', completedAt: '2026-01-05T00:00:00.000Z' };
+    const newerRun = (
+      status: string,
+      conclusion: string | null,
+      event = 'pull_request',
+      n: number | null = 2,
+      createdAt = late,
+    ): Json => ({
+      __typename: 'CheckRun',
+      name: 'notify',
+      status,
+      conclusion,
+      startedAt: ranAt,
+      completedAt: conclusion === null ? null : ranAt,
+      checkSuite: {
+        id: suiteId(n),
+        createdAt,
+        workflowRun: run(n, { event, workflow: { id: 'W_1' } }),
+        app: { id: 'A_1' },
+      },
+      isRequired: true,
+    });
+    const suite = (
+      status: string,
+      createdAt = late,
+      workflow: string | null = 'W_1',
+      event: string | null = 'pull_request',
+      n: number | null = 2,
+      runNumber: number | null = n,
+    ): Json => ({
+      id: suiteId(n),
+      status,
+      createdAt,
+      workflowRun:
+        workflow === null
+          ? null
+          : run(n, { ...(event === null ? {} : { event }), workflow: { id: workflow } }, runNumber),
+    });
+    const suites = (nodes: Json[], hasNextPage = false): Json => ({
+      checkSuites: { nodes, pageInfo: { hasNextPage } },
+    });
+    const red = { name: 'notify', state: 'skipped', completedAt: early };
+    const pending = { name: 'notify', state: 'pending', completedAt: null };
+    const cases: { name: string; node: Json; others?: Json[]; commit?: Json; check: unknown }[] = [
+      {
+        name: 'newer suite already failed the job',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'FAILURE')],
+        commit: suites([suite('IN_PROGRESS')]),
+        check: { name: 'notify', state: 'failure', completedAt: ranAt },
+      },
+      {
+        name: 'newer suite still runs the job',
+        node: slowSkip,
+        others: [newerRun('IN_PROGRESS', null)],
+        commit: suites([suite('IN_PROGRESS')]),
+        check: pending,
+      },
+      {
+        name: 'newer suite passed the job',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS')],
+        commit: suites([suite('IN_PROGRESS')]),
+        check: { name: 'notify', state: 'success', completedAt: ranAt },
+      },
+      {
+        name: 'finished newer suite passed the job',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS')],
+        commit: suites([suite('COMPLETED')]),
+        check: { name: 'notify', state: 'success', completedAt: ranAt },
+      },
+      {
+        name: 'finished newer suite failed the job',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'FAILURE')],
+        commit: suites([suite('COMPLETED')]),
+        check: { name: 'notify', state: 'failure', completedAt: ranAt },
+      },
+      {
+        name: 'newer run of the job from a manual dispatch',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS', 'workflow_dispatch', 3)],
+        commit: suites([suite('COMPLETED', late, 'W_1', 'workflow_dispatch', 3)]),
+        check: lateSkip,
+      },
+      {
+        name: 'manual dispatch run beside an unfinished pull request run',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS', 'workflow_dispatch', 3)],
+        commit: suites([
+          suite('IN_PROGRESS'),
+          suite('COMPLETED', late, 'W_1', 'workflow_dispatch', 3),
+        ]),
+        check: pending,
+      },
+      {
+        name: 'two newer suites created together: the higher run number decides',
+        node: slowSkip,
+        others: [
+          newerRun('COMPLETED', 'SUCCESS', 'pull_request', 2),
+          newerRun('COMPLETED', 'FAILURE', 'pull_request', 3),
+        ],
+        commit: suites([suite('COMPLETED'), suite('IN_PROGRESS', late, 'W_1', 'pull_request', 3)]),
+        check: { name: 'notify', state: 'failure', completedAt: ranAt },
+      },
+      {
+        name: 'two newer suites created together without run numbers',
+        node: slowSkip,
+        others: [
+          newerRun('COMPLETED', 'SUCCESS', 'pull_request', null),
+          newerRun('COMPLETED', 'FAILURE', 'pull_request', null),
+        ],
+        commit: suites([
+          suite('COMPLETED', late, 'W_1', 'pull_request', null),
+          suite('IN_PROGRESS', late, 'W_1', 'pull_request', null),
+        ]),
+        check: lateSkip,
+      },
+      {
+        name: 'three newer suites created together, one without a run number',
+        node: slowSkip,
+        others: [
+          newerRun('COMPLETED', 'SUCCESS', 'pull_request', 2),
+          newerRun('COMPLETED', 'FAILURE', 'pull_request', 3),
+        ],
+        commit: suites([
+          suite('COMPLETED', late, 'W_1', 'pull_request', null),
+          suite('COMPLETED'),
+          suite('IN_PROGRESS', late, 'W_1', 'pull_request', 3),
+        ]),
+        check: lateSkip,
+      },
+      {
+        name: 'middle suite passed the job, newest runs without it yet',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS')],
+        commit: suites([
+          suite('COMPLETED'),
+          suite('IN_PROGRESS', newest, 'W_1', 'pull_request', 3),
+        ]),
+        check: pending,
+      },
+      {
+        name: 'middle suite passed the job, newest finished without it',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS')],
+        commit: suites([suite('COMPLETED'), suite('COMPLETED', newest, 'W_1', 'pull_request', 3)]),
+        check: lateSkip,
+      },
+      {
+        name: 'null suite nodes',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS')],
+        commit: { checkSuites: { nodes: null, pageInfo: { hasNextPage: false } } },
+        check: lateSkip,
+      },
+      {
+        name: 'no newer suite',
+        node: skipped(),
+        commit: suites([suite('COMPLETED', early, 'W_1', 'pull_request', 1)]),
+        check: red,
+      },
+      {
+        name: 'other workflow',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS', late, 'W_2')]),
+        check: red,
+      },
+      {
+        name: 'suite without workflow run',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS', late, null)]),
+        check: red,
+      },
+      {
+        name: 'truncated list',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS')], true),
+        check: red,
+      },
+      { name: 'no commit', node: skipped(), commit: null, check: red },
+      { name: 'no suite list', node: skipped(), commit: { checkSuites: null }, check: red },
+      { name: 'no commit selected', node: skipped(), check: red },
+      {
+        name: 'same creation time',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS', early, 'W_1', 'pull_request', null)]),
+        check: red,
+      },
+      {
+        name: 'skipped run without workflow',
+        node: skipped(true, null),
+        commit: suites([suite('IN_PROGRESS')]),
+        check: red,
+      },
+      {
+        name: 'manual dispatch of the workflow',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS', late, 'W_1', 'workflow_dispatch')]),
+        check: red,
+      },
+      {
+        name: 'newer suite without event',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS', late, 'W_1', null)]),
+        check: red,
+      },
+      {
+        name: 'skipped run without event',
+        node: skipped(true, { workflow: { id: 'W_1' } }),
+        commit: suites([suite('IN_PROGRESS')]),
+        check: red,
+      },
+      {
+        name: 'newer pull request run',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS')]),
+        check: pending,
+      },
+      {
+        name: 'not required',
+        node: skipped(false),
+        commit: suites([suite('IN_PROGRESS')]),
+        check: red,
+      },
+      {
+        name: 'newer run waits',
+        node: skipped(),
+        commit: suites([suite('WAITING')]),
+        check: pending,
+      },
+      {
+        name: 'null suite beside a newer run',
+        node: skipped(),
+        commit: suites([null, suite('IN_PROGRESS')]),
+        check: red,
+      },
+      {
+        name: 'null suite beside a middle suite that passed the job',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS')],
+        commit: suites([null, suite('COMPLETED')]),
+        check: lateSkip,
+      },
+      {
+        name: 'two newer suites created together with one run number and attempt',
+        node: slowSkip,
+        commit: suites([
+          suite('COMPLETED', late, 'W_1', 'pull_request', 2),
+          suite('IN_PROGRESS', late, 'W_1', 'pull_request', 3, 2),
+        ]),
+        check: lateSkip,
+      },
+    ];
+    for (const { name, node, others = [], commit, check } of cases) {
+      const statusCheckRollup = {
+        contexts: conn([node, ...others]),
+        ...(commit === undefined ? {} : { commit }),
+      };
+      const facts = normalizePr('demo/widgets', { ...wire(), statusCheckRollup }, demoKeys, true);
+      expect(facts.checks, name).toEqual([check]);
+      expect(facts.requiredChecks, name).toEqual(name === 'not required' ? [] : [check]);
+    }
+  });
+  it('selects the head check suites in the detail query only', () => {
+    const selection =
+      'commit { checkSuites(first: 100) { nodes { id status createdAt workflowRun { event runNumber runAttempt workflow { id } } } pageInfo { hasNextPage } } }';
+    expect(detailQuery([7])).toContain(`statusCheckRollup { contexts(first: 100) {`);
+    expect(detailQuery([7])).toContain(selection);
+    expect(pageQuery('contexts')).not.toContain('checkSuites');
+    expect(indexQuery([7])).not.toContain('checkSuites');
+  });
+  it.each([
+    ['commit', { commit: null }, ['statusCheckRollup', 'commit']],
+    [
+      'suite list',
+      { commit: { checkSuites: null } },
+      ['statusCheckRollup', 'commit', 'checkSuites'],
+    ],
+    [
+      'suite beside a newer run',
+      {
+        contexts: conn([
+          {
+            __typename: 'CheckRun',
+            name: 'build',
+            status: 'COMPLETED',
+            conclusion: 'SKIPPED',
+            completedAt: time,
+            checkSuite: {
+              createdAt: '2026-01-03T00:00:00.000Z',
+              workflowRun: { event: 'pull_request', workflow: { id: 'W_1' } },
+            },
+            isRequired: true,
+          },
+        ]),
+        commit: {
+          checkSuites: {
+            nodes: [
+              null,
+              {
+                status: 'IN_PROGRESS',
+                createdAt: '2026-01-04T00:00:00.000Z',
+                workflowRun: { event: 'pull_request', workflow: { id: 'W_1' } },
+              },
+            ],
+            pageInfo: { hasNextPage: false },
+          },
+        },
+      },
+      ['statusCheckRollup', 'commit', 'checkSuites', 'nodes', 0],
+    ],
+  ])('keeps the PR complete when its head %s is denied', async (_name, denied, path) => {
+    const pr = wire();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response(
+        {
+          repository: { pullRequests: conn([]) },
+          pr0: {
+            pullRequest: { ...pr, statusCheckRollup: { ...pr.statusCheckRollup, ...denied } },
+          },
+        },
+        [
+          {
+            message: 'Resource not accessible by personal access token',
+            type: 'FORBIDDEN',
+            path: ['pr0', 'pullRequest', ...path],
+          },
+        ],
+      ),
+    );
+    const batch = await adapter(fetcher).poll(context());
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+    expect((factsFor(batch, 7) as { requiredChecks: unknown }).requiredChecks).toEqual([
+      { name: 'build', state: 'skipped', completedAt: time },
+    ]);
+  });
+  it('keeps the suite list when check contexts span two pages', async () => {
+    const at = '2026-01-03T00:00:00.000Z';
+    const first = {
+      ...wire(),
+      statusCheckRollup: {
+        contexts: conn(
+          [
+            {
+              __typename: 'CheckRun',
+              name: 'notify',
+              status: 'COMPLETED',
+              conclusion: 'SKIPPED',
+              startedAt: at,
+              completedAt: at,
+              checkSuite: {
+                createdAt: at,
+                workflowRun: { event: 'pull_request', workflow: { id: 'W_1' } },
+                app: null,
+              },
+              isRequired: true,
+            },
+          ],
+          'checks-next',
+        ),
+        commit: {
+          checkSuites: {
+            nodes: [
+              {
+                status: 'IN_PROGRESS',
+                createdAt: '2026-01-04T00:00:00.000Z',
+                workflowRun: { event: 'pull_request', workflow: { id: 'W_1' } },
+              },
+            ],
+            pageInfo: { hasNextPage: false },
+          },
+        },
+      },
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: first } }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequest: {
+              statusCheckRollup: {
+                contexts: conn([
+                  {
+                    __typename: 'StatusContext',
+                    context: 'ci/legacy',
+                    state: 'SUCCESS',
+                    createdAt: at,
+                    isRequired: false,
+                  },
+                ]),
+              },
+            },
+          },
+        }),
+      );
+    const batch = await adapter(fetcher).poll(context());
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect((factsFor(batch, 7) as { requiredChecks: unknown }).requiredChecks).toEqual([
+      { name: 'notify', state: 'pending', completedAt: null },
+    ]);
   });
   it('reads checks from the PR head on a multi-commit branch', () => {
     const olderCommit = {
@@ -3133,6 +3591,30 @@ describe('PR index cache', () => {
     expect(run.details()).toEqual([8]);
     expect((factsFor(second, 8) as { requiredChecks: unknown }).requiredChecks).toEqual([
       { name: 'build', state: 'success', completedAt: '2026-01-01T00:00:00.000Z' },
+    ]);
+  });
+  it('reads a skipped required check pending while a newer run of its workflow runs, then its result', async () => {
+    const run = scenario();
+    const fixture = (name: string) => {
+      const entry = fixtures('checks').find((value) => value.name === name);
+      if (entry === undefined) throw new Error(`Missing fixture ${name}`);
+      return { ...wire(8), statusCheckRollup: entry.value['statusCheckRollup'] };
+    };
+    const required = (batch: Batch) =>
+      (factsFor(batch, 8) as { requiredChecks: unknown }).requiredChecks;
+    run.state.index = (n) =>
+      indexPr(n, { statusCheckRollup: rollup('SUCCESS', [indexCheck('SKIPPED')]) });
+    run.state.detail = () => fixture('newer-run-in-progress');
+    const first = await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
+    expect(required(first)).toEqual([
+      { name: 'Slack notification', state: 'pending', completedAt: null },
+    ]);
+    run.state.detail = () => fixture('newer-run-succeeded');
+    const second = await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
+    expect(required(second)).toEqual([
+      { name: 'Slack notification', state: 'success', completedAt: '2026-11-20T13:45:49Z' },
     ]);
   });
   it('reads an open PR in full again while a check is skipped, which could become required unseen', async () => {
