@@ -1,5 +1,5 @@
 {
-  "version": "9d2b5a536bfca1c3092b6d50916e036e39fe358dcce5bcc486c4828945adc691",
+  "version": "28263e9563eb16825ca3171650232c21b0b1897b8dd5d46a1adcf016b1d1299a",
   "grants": [
     "operator",
     "project-agent",
@@ -5794,11 +5794,11 @@
                       "done",
                       "config"
                     ],
-                    "description": "What the task waits for: an open turn, a merge, a human approval, the ticket, CI checks, GitHub, Spur, the board, an answer to a block, work to start, a failing gate, nothing (done) or the project config."
+                    "description": "What the task waits for, e.g. turn or merge."
                   },
                   "text": {
                     "type": "string",
-                    "description": "The wait in one line, e.g. merge of acme/web#42 (a human); ends with the actor in parentheses when one acts next."
+                    "description": "The wait in one line; ends with (<actor>) when one acts next."
                   },
                   "actor": {
                     "anyOf": [
@@ -5823,7 +5823,7 @@
                       },
                       { "type": "null" }
                     ],
-                    "description": "Who acts next: a role, human for a person on GitHub, or null when the board, GitHub or Spur settles it."
+                    "description": "Who acts next: a role, human on GitHub, or null for the board, GitHub or Spur."
                   }
                 },
                 "required": ["kind", "text", "actor"],
@@ -6042,7 +6042,7 @@
                       "description": "The column's exit conditions, empty for a column without any."
                     },
                     "waitsFor": {
-                      "description": "What passing this gate waits for, when its conditions do not say it: the merge and ticket close of an enabled Done gate, or work to start on the To Do group column the task sits in; absent otherwise.",
+                      "description": "What an enabled Done gate, or the To Do group gate the task sits in, waits for; absent otherwise.",
                       "type": "string"
                     }
                   },

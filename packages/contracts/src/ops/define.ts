@@ -230,11 +230,12 @@ function checkView(
   const shapes = (
     input instanceof z.ZodDiscriminatedUnion ? input.options : [input]
   ) as readonly z.ZodObject[];
-  const fields = shapes.flatMap((shape) => Object.entries(shape.shape));
+  const fields = shapes.flatMap((shape) => Object.entries(shape.shape) as [string, z.ZodType][]);
   const when = fields.filter(([name]) => name === view.when).map(([, schema]) => schema);
   const boolean = (schema: z.ZodType) =>
-    (schema instanceof z.ZodOptional ? schema.unwrap() : schema) instanceof z.ZodBoolean;
-  if (when.length === 0 || !when.every((schema) => boolean(schema as z.ZodType)))
+    (schema instanceof z.ZodOptional ? (schema.unwrap() as z.ZodType) : schema) instanceof
+    z.ZodBoolean;
+  if (when.length === 0 || !when.every(boolean))
     throw new Error(`CLI view of ${id} needs a boolean input field ${view.when}.`);
   const taken = new Set([
     ...fields.map(([name]) => fieldFlag(name)),

@@ -4,7 +4,6 @@ import {
   PR_STATES,
   TASK_HOLDS,
   type ActorId,
-  type AddresseeRole,
   type Config,
 } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
@@ -262,10 +261,7 @@ export function createTaskQueries(deps: {
     };
   }
   /** The blocks of the active cycle-limit and course-check items that hold the task's turn. */
-  async function holdBlocks(
-    trx: Trx,
-    taskId: number,
-  ): Promise<{ id: string; addressee: AddresseeRole }[]> {
+  async function holdBlocks(trx: Trx, taskId: number) {
     const items = await trx
       .selectFrom('operator_item')
       .innerJoin('block', 'block.id', 'operator_item.block_id')

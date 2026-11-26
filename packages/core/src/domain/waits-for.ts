@@ -28,6 +28,9 @@ export interface PrRef {
   state: PrState;
 }
 
+/** A fact `why` lists in `waiting`. */
+type Waiting = { reason: GateReason; head: string; reviewers?: readonly string[] };
+
 /**
  * The facts of `why`: `project` null when the project left the config, `gate` null when the
  * stored pull request snapshot is missing.
@@ -44,7 +47,7 @@ export type WaitsForFacts =
       heldBlocks: readonly { id: string; addressee: AddresseeRole }[];
       pendingSha: string | undefined;
       turn: { id: string; column: ColumnId; addressee: AddresseeRole } | null;
-      waiting: readonly { reason: GateReason; head: string; reviewers?: readonly string[] }[];
+      waiting: readonly Waiting[];
       pr: PrRef | null;
     };
 
@@ -65,35 +68,23 @@ const wait = (kind: WaitsForKind, text: string, actor: WaitsFor['actor'] = null)
 const WORK_TO_START = 'work to start: an open PR or a live worker';
 const TICKET_WITHOUT_WORK = 'ticket to close, with no open PR and no live worker';
 
-/** The waits-for line of one fact GitHub or the board has not settled, by its gate reason. */
-function waitingFor(
-  entry: { reason: GateReason; head: string; reviewers?: readonly string[] },
-  pr: PrRef | null,
-): WaitsFor | undefined {
-  const sha8 = entry.head.slice(0, 8);
-  switch (entry.reason) {
-    case 'checks_pending':
-      return wait('checks', `CI on ${sha8}`);
-    case 'checks_red':
-      return wait('checks', `green checks on ${sha8}`);
-    case 'mergeable_unknown':
-      return wait('github', `GitHub to compute mergeability on ${sha8}`);
-    case 'comment_history_incomplete':
-      return wait('board', `the board to read the full PR comment history on ${sha8}`);
-    case 'merge_state_unknown':
-      return wait('github', 'GitHub to compute the merge state');
-    case 'review_rule_unreadable':
-      return wait('github', 'the GitHub review rule for the base branch to be readable');
-    case 'awaiting_required_reviewers':
-      return wait('approval', `review by ${(entry.reviewers ?? []).join(', ')}`, 'human');
-    case 'review_rule_blocked':
-      return wait('approval', 'the GitHub review rule to pass', 'human');
-    case 'changes_requested':
-      return wait('approval', `a new review of the requested changes on ${refOf(pr)}`, 'human');
-    default:
-      return undefined;
-  }
-}
+/** The waits-for line of each fact GitHub or the board has not settled, by its gate reason. */
+const WAITING: Partial<Record<GateReason, (entry: Waiting, pr: PrRef | null) => WaitsFor>> = {
+  checks_pending: ({ head }) => wait('checks', `CI on ${head.slice(0, 8)}`),
+  checks_red: ({ head }) => wait('checks', `green checks on ${head.slice(0, 8)}`),
+  mergeable_unknown: ({ head }) =>
+    wait('github', `GitHub to compute mergeability on ${head.slice(0, 8)}`),
+  comment_history_incomplete: ({ head }) =>
+    wait('board', `the board to read the full PR comment history on ${head.slice(0, 8)}`),
+  merge_state_unknown: () => wait('github', 'GitHub to compute the merge state'),
+  review_rule_unreadable: () =>
+    wait('github', 'the GitHub review rule for the base branch to be readable'),
+  awaiting_required_reviewers: ({ reviewers }) =>
+    wait('approval', `review by ${(reviewers ?? []).join(', ')}`, 'human'),
+  review_rule_blocked: () => wait('approval', 'the GitHub review rule to pass', 'human'),
+  changes_requested: (_entry, pr) =>
+    wait('approval', `a new review of the requested changes on ${refOf(pr)}`, 'human'),
+};
 
 /** What the task waits for: the first rung of the ladder that matches. */
 export function waitsFor(facts: WaitsForFacts): WaitsFor {
@@ -123,7 +114,7 @@ export function waitsFor(facts: WaitsForFacts): WaitsFor {
   if (holds.includes('spur_blind')) return wait('spur', 'Spur to be readable');
   if (holds.includes('work_not_started')) return wait('work', WORK_TO_START);
   const [waiting] = facts.waiting;
-  const fact = waiting === undefined ? undefined : waitingFor(waiting, pr);
+  const fact = waiting === undefined ? undefined : WAITING[waiting.reason]?.(waiting, pr);
   if (fact !== undefined) return fact;
   if (column === 'done') return wait('done', 'nothing, the task is done');
   if (gate.ok) {

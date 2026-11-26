@@ -1080,7 +1080,7 @@ describe('snapshot', () => {
     // required task.get why.waitsFor, the optional gates[].waitsFor, the optional cli.view binding
     // and its schema.get field, and rewords the task.get guidance, why and gates descriptions.
     expect(await catalogVersion(baseline)).toBe(
-      'ec7231f8cde31ade324307a96433459d725a99fed38c6936534f63d1a2e20f24',
+      'c8d811872883f53dc6390c4d287a9a9700360f06abddc1dbe231eac87fb64410',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

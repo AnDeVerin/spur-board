@@ -178,21 +178,13 @@ export const taskWhySchema = z
   .strictObject({
     waitsFor: z
       .strictObject({
-        kind: z
-          .enum(WAITS_FOR_KINDS)
-          .describe(
-            'What the task waits for: an open turn, a merge, a human approval, the ticket, CI checks, GitHub, Spur, the board, an answer to a block, work to start, a failing gate, nothing (done) or the project config.',
-          ),
-        text: z
-          .string()
-          .describe(
-            'The wait in one line, e.g. merge of acme/web#42 (a human); ends with the actor in parentheses when one acts next.',
-          ),
+        kind: z.enum(WAITS_FOR_KINDS).describe('What the task waits for, e.g. turn or merge.'),
+        text: z.string().describe('The wait in one line; ends with (<actor>) when one acts next.'),
         actor: z
           .enum([...ADDRESSEE_ROLES, 'human'])
           .nullable()
           .describe(
-            'Who acts next: a role, human for a person on GitHub, or null when the board, GitHub or Spur settles it.',
+            'Who acts next: a role, human on GitHub, or null for the board, GitHub or Spur.',
           ),
       })
       .describe('What the task waits for and who acts next; the first fact to read.'),
@@ -258,7 +250,7 @@ export const taskWhySchema = z
               .string()
               .optional()
               .describe(
-                'What passing this gate waits for, when its conditions do not say it: the merge and ticket close of an enabled Done gate, or work to start on the To Do group column the task sits in; absent otherwise.',
+                'What an enabled Done gate, or the To Do group gate the task sits in, waits for; absent otherwise.',
               ),
           })
           .describe('The gate of one column.'),

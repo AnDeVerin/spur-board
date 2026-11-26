@@ -1433,7 +1433,9 @@ describe('catalog commands', () => {
     });
 
     it('refuses an older daemon why without waitsFor in the strict output parse', async () => {
-      const { waitsFor: _waitsFor, ...why } = example.why ?? {};
+      const why = Object.fromEntries(
+        Object.entries(example.why ?? {}).filter(([key]) => key !== 'waitsFor'),
+      );
       const { code, stdout } = await run(['task', 'PROJ-123', '--why'], true, { ...example, why });
       expect(code).toBe(5);
       expect(stdout).toBe('');
