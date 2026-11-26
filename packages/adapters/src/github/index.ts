@@ -24,6 +24,7 @@ import {
   connectionWire,
   deniedBranchRule,
   deniedReference,
+  deniedSuites,
   detailQuery,
   discoveryQuery,
   indexQuery,
@@ -69,7 +70,7 @@ const prPagingWire = z.looseObject({
   comments: backPagingWire,
   reviewThreads: pagingWire,
   reviewRequests: pagingWire,
-  statusCheckRollup: z.object({ contexts: pagingWire }).nullish(),
+  statusCheckRollup: z.looseObject({ contexts: pagingWire }).nullish(),
   closingIssuesReferences: pagingWire.nullish(),
 });
 const aliasWire = z.object({ pullRequest: prPagingWire.nullish() }).nullish();
@@ -480,7 +481,9 @@ async function processPr(
 ): Promise<Pick<CachedPr, 'facts' | 'reviewRule'> | undefined> {
   // A denied base branch rule keeps the PR's facts; its review rule goes out unreadable.
   const ruleDenied = scopedErrors.some(deniedBranchRule);
-  const errors = withoutDeniedReferences(scopedErrors).filter((entry) => !deniedBranchRule(entry));
+  const errors = withoutDeniedReferences(scopedErrors).filter(
+    (entry) => !deniedBranchRule(entry) && !deniedSuites(entry),
+  );
   requireCheckAccess(errors);
   const error = errors[0];
   if (error !== undefined) {

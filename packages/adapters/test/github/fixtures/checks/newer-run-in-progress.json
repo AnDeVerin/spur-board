@@ -1,0 +1,66 @@
+{
+  "statusCheckRollup": {
+    "contexts": {
+      "nodes": [
+        {
+          "__typename": "CheckRun",
+          "name": "Slack notification",
+          "status": "COMPLETED",
+          "conclusion": "SKIPPED",
+          "startedAt": "2026-11-20T13:36:18Z",
+          "completedAt": "2026-11-20T13:36:18Z",
+          "checkSuite": {
+            "createdAt": "2026-11-20T13:36:15Z",
+            "workflowRun": {
+              "workflow": {
+                "id": "W_1"
+              }
+            },
+            "app": {
+              "id": "MDM6QXBwMTUzNjg="
+            }
+          },
+          "isRequired": true
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    },
+    "commit": {
+      "checkSuites": {
+        "nodes": [
+          {
+            "status": "COMPLETED",
+            "createdAt": "2026-11-20T13:36:15Z",
+            "workflowRun": {
+              "workflow": {
+                "id": "W_1"
+              }
+            }
+          },
+          {
+            "status": "IN_PROGRESS",
+            "createdAt": "2026-11-20T13:37:05Z",
+            "workflowRun": {
+              "workflow": {
+                "id": "W_1"
+              }
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      }
+    }
+  },
+  "requiredChecks": [
+    {
+      "name": "Slack notification",
+      "state": "pending",
+      "completedAt": null
+    }
+  ]
+}

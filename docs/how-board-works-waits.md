@@ -13,7 +13,8 @@ A submit needs no green checks. Running checks hold the task at the `checksGate`
 (Dev by default); red checks, a cancelled run included, return it to Dev with a new turn. With
 `checksGate` right of Dev, a cancelled run counts as running for about two GitHub poll intervals
 first. Only the latest run of each check counts, so a rerun on the same head replaces a
-cancelled run. When the PR has required checks, only those count, and the Board does not watch the
+cancelled run. A required check skipped in one run counts as running while a newer run of its
+workflow on the head has not finished; once that run ends without the check, it is red. When the PR has required checks, only those count, and the Board does not watch the
 others. While GitHub computes mergeability, the task waits where it is (at Dev's exit while in Dev); a conflict returns it to
 Dev with a new turn.
 

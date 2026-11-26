@@ -97,3 +97,50 @@ export function latestContexts<T extends ContextWire>(nodes: readonly T[]): T[] 
     .sort(([a, x], [b, y]) => contextName(x).localeCompare(contextName(y)) || a.localeCompare(b))
     .map(([, node]) => node);
 }
+
+/**
+ * The head commit's check suites, read in the PR detail query. Actions creates a suite for each
+ * workflow run when the run starts, before its jobs create check runs. A denied suite arrives as
+ * a null node; a denied list or commit arrives as null.
+ */
+export const suiteListWire = z
+  .object({
+    checkSuites: z
+      .object({
+        nodes: z.array(
+          z
+            .object({
+              status: z.string(),
+              createdAt: z.string(),
+              workflowRun: z.object({ workflow: z.object({ id: z.string().min(1) }) }).nullable(),
+            })
+            .nullable(),
+        ),
+        pageInfo: z.object({ hasNextPage: z.boolean() }),
+      })
+      .nullable(),
+  })
+  .nullish();
+export type SuiteListWire = z.output<typeof suiteListWire>;
+/**
+ * Whether a required check run skipped in one run of its workflow may still run: the head has a
+ * suite of the same workflow created after the skipped run's suite and not yet completed. A
+ * missing or truncated suite list, or a time that does not parse, says no.
+ */
+export function awaitsNewerRun(node: ContextWire, commit: SuiteListWire): boolean {
+  if (node.__typename !== 'CheckRun' || node.isRequired !== true) return false;
+  if (checkState(node) !== 'skipped') return false;
+  const workflow = node.checkSuite?.workflowRun?.workflow.id;
+  const suites = commit?.checkSuites;
+  if (workflow === undefined || node.checkSuite == null || !suites) return false;
+  if (suites.pageInfo.hasNextPage) return false;
+  const skippedAt = Date.parse(node.checkSuite.createdAt);
+  if (Number.isNaN(skippedAt)) return false;
+  return suites.nodes.some(
+    (suite) =>
+      suite !== null &&
+      suite.workflowRun?.workflow.id === workflow &&
+      suite.status !== 'COMPLETED' &&
+      Date.parse(suite.createdAt) > skippedAt,
+  );
+}

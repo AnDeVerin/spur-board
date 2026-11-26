@@ -301,7 +301,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '03705dbc621f1ba01f31e5450740e07936e60f3d897ed7d484a3badefa5271e9',
+      '5e97dfef912cf4e45e3a2ca3e76195562dccd5452a46c2a0464c244aeb8dd1b5',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -543,6 +543,218 @@ describe('GitHub PR batch', () => {
       expect(facts.checks, name).toEqual(checks);
       expect(facts.requiredChecks, name).toEqual(checks);
     }
+  });
+  it('normalizes each checks fixture', () => {
+    const cases = fixtures('checks');
+    expect(cases.map((entry) => entry.name)).toEqual([
+      'newer-run-done-without-check',
+      'newer-run-in-progress',
+      'newer-run-skipped-again',
+      'newer-run-succeeded',
+    ]);
+    for (const { name, value } of cases) {
+      const pr = { ...wire(), statusCheckRollup: value['statusCheckRollup'] };
+      expect(normalizePr('demo/widgets', pr, demoKeys, true).requiredChecks, name).toEqual(
+        value['requiredChecks'],
+      );
+    }
+  });
+  it('keeps a skipped required check red unless a newer unfinished suite of its workflow is on the head', () => {
+    const early = '2026-01-03T00:00:00.000Z';
+    const late = '2026-01-04T00:00:00.000Z';
+    const skipped = (required = true, workflowRun: Json = { workflow: { id: 'W_1' } }): Json => ({
+      __typename: 'CheckRun',
+      name: 'notify',
+      status: 'COMPLETED',
+      conclusion: 'SKIPPED',
+      startedAt: early,
+      completedAt: early,
+      checkSuite: { createdAt: early, workflowRun, app: { id: 'A_1' } },
+      isRequired: required,
+    });
+    const suite = (status: string, createdAt = late, workflow: string | null = 'W_1'): Json => ({
+      status,
+      createdAt,
+      workflowRun: workflow === null ? null : { workflow: { id: workflow } },
+    });
+    const suites = (nodes: Json[], hasNextPage = false): Json => ({
+      checkSuites: { nodes, pageInfo: { hasNextPage } },
+    });
+    const red = { name: 'notify', state: 'skipped', completedAt: early };
+    const pending = { name: 'notify', state: 'pending', completedAt: null };
+    const cases: { name: string; node: Json; commit?: Json; check: unknown }[] = [
+      {
+        name: 'no newer suite',
+        node: skipped(),
+        commit: suites([suite('COMPLETED', early)]),
+        check: red,
+      },
+      {
+        name: 'other workflow',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS', late, 'W_2')]),
+        check: red,
+      },
+      {
+        name: 'suite without workflow run',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS', late, null)]),
+        check: red,
+      },
+      {
+        name: 'truncated list',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS')], true),
+        check: red,
+      },
+      { name: 'no commit', node: skipped(), commit: null, check: red },
+      { name: 'no suite list', node: skipped(), commit: { checkSuites: null }, check: red },
+      { name: 'no commit selected', node: skipped(), check: red },
+      {
+        name: 'same creation time',
+        node: skipped(),
+        commit: suites([suite('IN_PROGRESS', early)]),
+        check: red,
+      },
+      {
+        name: 'skipped run without workflow',
+        node: skipped(true, null),
+        commit: suites([suite('IN_PROGRESS')]),
+        check: red,
+      },
+      {
+        name: 'not required',
+        node: skipped(false),
+        commit: suites([suite('IN_PROGRESS')]),
+        check: red,
+      },
+      {
+        name: 'newer run waits',
+        node: skipped(),
+        commit: suites([suite('WAITING')]),
+        check: pending,
+      },
+      {
+        name: 'null suite beside a newer run',
+        node: skipped(),
+        commit: suites([null, suite('IN_PROGRESS')]),
+        check: pending,
+      },
+    ];
+    for (const { name, node, commit, check } of cases) {
+      const statusCheckRollup = {
+        contexts: conn([node]),
+        ...(commit === undefined ? {} : { commit }),
+      };
+      const facts = normalizePr('demo/widgets', { ...wire(), statusCheckRollup }, demoKeys, true);
+      expect(facts.checks, name).toEqual([check]);
+      expect(facts.requiredChecks, name).toEqual(name === 'not required' ? [] : [check]);
+    }
+  });
+  it('selects the head check suites in the detail query only', () => {
+    const selection =
+      'commit { checkSuites(first: 100) { nodes { status createdAt workflowRun { workflow { id } } } pageInfo { hasNextPage } } }';
+    expect(detailQuery([7])).toContain(`statusCheckRollup { contexts(first: 100) {`);
+    expect(detailQuery([7])).toContain(selection);
+    expect(pageQuery('contexts')).not.toContain('checkSuites');
+    expect(indexQuery([7])).not.toContain('checkSuites');
+  });
+  it.each([
+    ['commit', { commit: null }, ['statusCheckRollup', 'commit']],
+    [
+      'suite list',
+      { commit: { checkSuites: null } },
+      ['statusCheckRollup', 'commit', 'checkSuites'],
+    ],
+  ])('keeps the PR complete when its head %s is denied', async (_name, denied, path) => {
+    const pr = wire();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response(
+        {
+          repository: { pullRequests: conn([]) },
+          pr0: {
+            pullRequest: { ...pr, statusCheckRollup: { ...pr.statusCheckRollup, ...denied } },
+          },
+        },
+        [
+          {
+            message: 'Resource not accessible by personal access token',
+            type: 'FORBIDDEN',
+            path: ['pr0', 'pullRequest', ...path],
+          },
+        ],
+      ),
+    );
+    const batch = await adapter(fetcher).poll(context());
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+    expect((factsFor(batch, 7) as { requiredChecks: unknown }).requiredChecks).toEqual([
+      { name: 'build', state: 'skipped', completedAt: time },
+    ]);
+  });
+  it('keeps the suite list when check contexts span two pages', async () => {
+    const at = '2026-01-03T00:00:00.000Z';
+    const first = {
+      ...wire(),
+      statusCheckRollup: {
+        contexts: conn(
+          [
+            {
+              __typename: 'CheckRun',
+              name: 'notify',
+              status: 'COMPLETED',
+              conclusion: 'SKIPPED',
+              startedAt: at,
+              completedAt: at,
+              checkSuite: { createdAt: at, workflowRun: { workflow: { id: 'W_1' } }, app: null },
+              isRequired: true,
+            },
+          ],
+          'checks-next',
+        ),
+        commit: {
+          checkSuites: {
+            nodes: [
+              {
+                status: 'IN_PROGRESS',
+                createdAt: '2026-01-04T00:00:00.000Z',
+                workflowRun: { workflow: { id: 'W_1' } },
+              },
+            ],
+            pageInfo: { hasNextPage: false },
+          },
+        },
+      },
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: first } }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequest: {
+              statusCheckRollup: {
+                contexts: conn([
+                  {
+                    __typename: 'StatusContext',
+                    context: 'ci/legacy',
+                    state: 'SUCCESS',
+                    createdAt: at,
+                    isRequired: false,
+                  },
+                ]),
+              },
+            },
+          },
+        }),
+      );
+    const batch = await adapter(fetcher).poll(context());
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect((factsFor(batch, 7) as { requiredChecks: unknown }).requiredChecks).toEqual([
+      { name: 'notify', state: 'pending', completedAt: null },
+    ]);
   });
   it('reads checks from the PR head on a multi-commit branch', () => {
     const olderCommit = {
@@ -3133,6 +3345,30 @@ describe('PR index cache', () => {
     expect(run.details()).toEqual([8]);
     expect((factsFor(second, 8) as { requiredChecks: unknown }).requiredChecks).toEqual([
       { name: 'build', state: 'success', completedAt: '2026-01-01T00:00:00.000Z' },
+    ]);
+  });
+  it('reads a skipped required check pending while a newer run of its workflow runs, then its result', async () => {
+    const run = scenario();
+    const fixture = (name: string) => {
+      const entry = fixtures('checks').find((value) => value.name === name);
+      if (entry === undefined) throw new Error(`Missing fixture ${name}`);
+      return { ...wire(8), statusCheckRollup: entry.value['statusCheckRollup'] };
+    };
+    const required = (batch: Batch) =>
+      (factsFor(batch, 8) as { requiredChecks: unknown }).requiredChecks;
+    run.state.index = (n) =>
+      indexPr(n, { statusCheckRollup: rollup('SUCCESS', [indexCheck('SKIPPED')]) });
+    run.state.detail = () => fixture('newer-run-in-progress');
+    const first = await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
+    expect(required(first)).toEqual([
+      { name: 'Slack notification', state: 'pending', completedAt: null },
+    ]);
+    run.state.detail = () => fixture('newer-run-succeeded');
+    const second = await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
+    expect(required(second)).toEqual([
+      { name: 'Slack notification', state: 'success', completedAt: '2026-11-20T13:45:49Z' },
     ]);
   });
   it('reads an open PR in full again while a check is skipped, which could become required unseen', async () => {

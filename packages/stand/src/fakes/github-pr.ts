@@ -137,6 +137,7 @@ export function createGithubPrFake(options: {
           isRequired: false,
         },
       ],
+      checkSuites: [],
       reviews: [],
       comments: [],
       reviewThreads: [],
@@ -345,6 +346,9 @@ export function createGithubPrFake(options: {
           : {
               state: rollupState(contexts),
               contexts: (args: Args) => page('contexts', contexts, args),
+              commit: {
+                checkSuites: (args: Args) => page('checkSuites', pr.checkSuites, args),
+              },
             },
       reviews: (args: Args) => page('reviews', reviews, args),
       comments: (args: Args) =>

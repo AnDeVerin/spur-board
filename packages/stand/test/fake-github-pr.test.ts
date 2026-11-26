@@ -313,6 +313,34 @@ describe('wire facts', () => {
     });
   });
 
+  it('answers seeded check suites that the real adapter folds into a pending required check', async () => {
+    const later = '2026-01-01T00:01:00.000Z';
+    const workflowRun = { workflow: { id: 'W_stand_ci' } };
+    created(5, {
+      contexts: [
+        {
+          __typename: 'CheckRun',
+          name: 'Slack notification',
+          status: 'COMPLETED',
+          conclusion: 'SKIPPED',
+          startedAt: AT,
+          completedAt: AT,
+          checkSuite: { createdAt: AT, workflowRun },
+          isRequired: true,
+        },
+      ],
+      checkSuites: [
+        { status: 'COMPLETED', createdAt: AT, workflowRun },
+        { status: 'IN_PROGRESS', createdAt: later, workflowRun },
+      ],
+    });
+    const batch = await pollRepo(fakes, BOARD);
+    expect(batch.complete).toBe(true);
+    expect(factsOf(batch, 5).requiredChecks).toEqual([
+      { name: 'Slack notification', state: 'pending', completedAt: null },
+    ]);
+  });
+
   it('reports a merged PR once the cursor is past bootstrap', async () => {
     created(6, { state: 'MERGED', mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' });
     const cursor = sourceCursorSchema.parse('2025-01-01T00:00:00.000Z');

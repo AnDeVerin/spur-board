@@ -24,6 +24,15 @@ export function deniedBranchRule(error: GraphError): boolean {
     (error.type === 'FORBIDDEN' || error.type === 'NOT_FOUND') && error.path?.[2] === 'baseRef'
   );
 }
+// A denied head commit or check suite list of a PR (`statusCheckRollup.commit` and below) leaves
+// its check runs readable; no skipped check then waits for a newer run.
+export function deniedSuites(error: GraphError): boolean {
+  return (
+    (error.type === 'FORBIDDEN' || error.type === 'NOT_FOUND') &&
+    error.path?.[2] === 'statusCheckRollup' &&
+    error.path[3] === 'commit'
+  );
+}
 // GraphQL errors are classified before `data` is read: a denied root arrives as null.
 export const graphEnvelopeWire = z.object({
   errors: z.array(graphErrorWire).optional(),
@@ -91,7 +100,7 @@ const prFields = (
  statusCheckRollup { contexts(first: 100) { nodes {
  ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt workflowRun { workflow { id } } app { id } } isRequired(pullRequestNumber: ${String(number)}) }
  ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${String(number)}) }
- } pageInfo { hasNextPage endCursor } } }
+ } pageInfo { hasNextPage endCursor } } commit { checkSuites(first: 100) { nodes { status createdAt workflowRun { workflow { id } } } pageInfo { hasNextPage } } } }
  reviews(first: 100) { nodes { ${REVIEW_FIELDS} } pageInfo { hasNextPage endCursor } }
  comments(last: 100) { ${COMMENT_FIELDS} }
  reviewThreads(first: 100) { nodes { ${THREAD_FIELDS} } pageInfo { hasNextPage endCursor } }

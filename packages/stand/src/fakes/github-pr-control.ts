@@ -66,6 +66,18 @@ const fieldsSchema = z.strictObject({
   baseRefName: z.string().min(1).optional(),
   headRefOid: z.string().regex(SHA),
   contexts: z.array(contextSchema),
+  // The head commit's check suites, answered under `statusCheckRollup.commit`; none unless
+  // seeded, and no verb changes them.
+  checkSuites: z.array(
+    z.strictObject({
+      status: z.string(),
+      createdAt: z.iso.datetime(),
+      workflowRun: z
+        .strictObject({ workflow: z.strictObject({ id: z.string().min(1) }) })
+        .nullable()
+        .default(null),
+    }),
+  ),
   reviews: z.array(
     z.strictObject({
       author: typedActorSchema,
