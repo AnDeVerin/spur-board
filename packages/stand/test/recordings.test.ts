@@ -126,13 +126,13 @@ function replayConfig(): Config {
 }
 
 /** Ignore only the newly selected optional cost and limit, comment body, links, edits, thread
- * id, outdated flag and inline comments, a check run's workflow or app, the head commit's check
- * suites, and the default branch when replaying older recorded requests. The response remains
- * untouched: a recording with no cost contributes no reported usage, one with no limit reports a
- * budget without it, a comment with no body is never a status comment, an entry with no url or
- * edit gets neither, a thread with its resolved flag alone is counted but never listed, a check
- * run with no workflow or app is grouped by name, a response with no check suites folds no
- * skipped check, and a repository with no default branch gives no default-branch fact.
+ * id, outdated flag and inline comments, a check run's suite id and workflow or app, the head
+ * commit's check suites, and the default branch when replaying older recorded requests. The
+ * response remains untouched: a recording with no cost contributes no reported usage, one with no
+ * limit reports a budget without it, a comment with no body is never a status comment, an entry
+ * with no url or edit gets neither, a thread with its resolved flag alone is counted but never
+ * listed, a check run with no workflow or app is grouped by name, a response with no check suites
+ * folds no skipped check, and a repository with no default branch gives no default-branch fact.
  */
 function replayBody(body: Json): string {
   if (isObject(body) && typeof body['query'] === 'string')
@@ -144,10 +144,10 @@ function replayBody(body: Json): string {
           '',
         )
         .replaceAll(
-          ' commit { checkSuites(first: 100) { nodes { status createdAt workflowRun { event workflow { id } } } pageInfo { hasNextPage } } }',
+          ' commit { checkSuites(first: 100) { nodes { databaseId status createdAt workflowRun { event workflow { id } } } pageInfo { hasNextPage } } }',
           '',
         )
-        .replaceAll(' workflowRun { event workflow { id } } app { id }', '')
+        .replaceAll(' databaseId workflowRun { event workflow { id } } app { id }', '')
         .replace('rateLimit { cost limit remaining resetAt }', 'rateLimit { remaining resetAt }')
         .replaceAll(' createdAt body url lastEditedAt }', ' createdAt }')
         .replaceAll(' submittedAt url lastEditedAt }', ' submittedAt }')

@@ -122,13 +122,18 @@ const skippedRequiredSeed = {
       conclusion: 'SKIPPED',
       startedAt: SKIPPED_AT,
       completedAt: SKIPPED_AT,
-      checkSuite: { createdAt: SKIPPED_AT, workflowRun: STAND_CI },
+      checkSuite: { databaseId: 1, createdAt: SKIPPED_AT, workflowRun: STAND_CI },
       isRequired: true,
     },
   ],
   checkSuites: [
-    { status: 'COMPLETED', createdAt: SKIPPED_AT, workflowRun: STAND_CI },
-    { status: 'IN_PROGRESS', createdAt: '2026-01-01T00:01:00.000Z', workflowRun: STAND_CI },
+    { databaseId: 1, status: 'COMPLETED', createdAt: SKIPPED_AT, workflowRun: STAND_CI },
+    {
+      databaseId: 2,
+      status: 'IN_PROGRESS',
+      createdAt: '2026-01-01T00:01:00.000Z',
+      workflowRun: STAND_CI,
+    },
   ],
 };
 /** Problems unless the task waits in Dev for CI on A with no worker turn. */

@@ -17,12 +17,14 @@
   changes nothing. Tree entry modes are git's, as numbers: 16384 (`040000`) for a directory,
   33188 (`100644`) for a file.
 - `create --seed` takes `baseRefName`, `main` by default, which `PrCommits` and `PrBases` answer.
-- `create --seed` takes `checkSuites: [{status, createdAt, workflowRun: {event, workflow: {id}} | null}]`,
+- `create --seed` takes `checkSuites: [{databaseId, status, createdAt, workflowRun: {event, workflow: {id}} | null}]`,
   `[]` by default, answered under `statusCheckRollup.commit.checkSuites` of the detail read; no
-  verb changes it. A non-null `workflowRun`, on a seeded check run's `checkSuite` or a seeded
+  verb changes it. A seeded check run's `checkSuite` also takes `databaseId`, a positive integer,
+  null by default. A non-null `workflowRun`, on a seeded check run's `checkSuite` or a seeded
   suite, needs a non-empty `event`; a seed with only `workflow.id` is refused. A required
-  skipped check run in a suite of workflow W and event E reads pending while a seeded suite of W
-  and E created after its suite is not `COMPLETED`.
+  skipped check run in a suite of workflow W and event E follows the newest suite of W and E, by
+  `createdAt`, then `databaseId`: its run of the check (matched by `databaseId`) counts; without
+  one the check reads pending until that suite is `COMPLETED`.
 - A PR's commits are read only once core requests it: a PR created after its issue is only
   discovered on the first poll, so poll twice before reading its `approvals`.
 - `fake github issue <n> project-status <Backlog|Ready|Done|none|archived|removed>` sets the

@@ -127,7 +127,7 @@ export function createGithubPrFake(options: {
           conclusion: null,
           startedAt: at,
           completedAt: null,
-          checkSuite: { createdAt: at, workflowRun: null, app: null },
+          checkSuite: { databaseId: null, createdAt: at, workflowRun: null, app: null },
           isRequired: true,
         },
         {

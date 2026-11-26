@@ -325,13 +325,13 @@ describe('wire facts', () => {
           conclusion: 'SKIPPED',
           startedAt: AT,
           completedAt: AT,
-          checkSuite: { createdAt: AT, workflowRun },
+          checkSuite: { databaseId: 1, createdAt: AT, workflowRun },
           isRequired: true,
         },
       ],
       checkSuites: [
-        { status: 'COMPLETED', createdAt: AT, workflowRun },
-        { status: 'IN_PROGRESS', createdAt: later, workflowRun },
+        { databaseId: 1, status: 'COMPLETED', createdAt: AT, workflowRun },
+        { databaseId: 2, status: 'IN_PROGRESS', createdAt: later, workflowRun },
       ],
     });
     const batch = await pollRepo(fakes, BOARD);

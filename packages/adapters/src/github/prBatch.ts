@@ -17,12 +17,11 @@ import {
 import { z } from 'zod';
 import { parseWire } from '../runner/wire.ts';
 import {
-  awaitsNewerRun,
   checkState,
   contextName,
   contextWire,
   latestContexts,
-  newerSuiteRun,
+  skipDecision,
   suiteListWire,
   type ContextWire,
   type SuiteListWire,
@@ -218,8 +217,8 @@ export function closingRefs(wire: ClosingWire): ClosingRef[] {
   );
 }
 
-// A required check skipped in one run reports its run in a newer suite of the same workflow and
-// event, finished or not; without one it reads pending while a newer run of its workflow runs.
+// A required check skipped in one run reads as the newest suite of its workflow and event decides
+// (see `skipDecision`).
 function latestChecks(
   nodes: readonly ContextWire[],
   commit: SuiteListWire,
@@ -234,9 +233,10 @@ function latestChecks(
     completedAt: node.__typename === 'StatusContext' ? null : node.completedAt,
   });
   const shown = (node: ContextWire): Pick<PrFacts['checks'][number], 'state' | 'completedAt'> => {
-    const newer = newerSuiteRun(node, nodes);
-    if (newer !== undefined) return visible(newer);
-    return awaitsNewerRun(node, commit) ? { state: 'pending', completedAt: null } : visible(node);
+    const decided = skipDecision(node, nodes, commit);
+    return decided === 'pending'
+      ? { state: 'pending', completedAt: null }
+      : visible(decided ?? node);
   };
   const values = latestContexts(nodes).map((node) => ({
     check: { name: contextName(node), ...shown(node) },

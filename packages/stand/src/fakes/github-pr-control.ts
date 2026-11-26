@@ -12,6 +12,8 @@ const typedActorSchema = z
 const commentBody = { body: z.string().default('Stand comment.') };
 // When a comment, review or inline comment was last edited; null when never.
 const lastEditedAt = { lastEditedAt: z.iso.datetime().nullable().default(null) };
+// A check suite's `databaseId`, which orders suites created in the same second; null unless seeded.
+const suiteId = z.number().int().positive().nullable().default(null);
 const contextSchema = z.discriminatedUnion('__typename', [
   z.strictObject({
     __typename: z.literal('CheckRun'),
@@ -22,6 +24,7 @@ const contextSchema = z.discriminatedUnion('__typename', [
     completedAt: z.string().nullable(),
     checkSuite: z
       .strictObject({
+        databaseId: suiteId,
         createdAt: z.string(),
         // The Actions workflow or the app that ran the check; GitHub sends null when absent.
         workflowRun: z
@@ -73,6 +76,7 @@ const fieldsSchema = z.strictObject({
   // seeded, and no verb changes them.
   checkSuites: z.array(
     z.strictObject({
+      databaseId: suiteId,
       status: z.string(),
       createdAt: z.iso.datetime(),
       workflowRun: z

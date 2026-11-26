@@ -15,9 +15,11 @@ const checkRunWire = z
     conclusion: z.string().nullable(),
     startedAt: z.string().nullish(),
     completedAt: z.string().nullable(),
-    // `workflowRun` and `app` are optional only so the committed live recordings still replay.
+    // `databaseId`, `workflowRun` and `app` are optional only so the committed live recordings
+    // still replay.
     checkSuite: z
       .object({
+        databaseId: z.number().int().nullish(),
         createdAt: z.string(),
         workflowRun: workflowRunWire.nullish(),
         app: z.object({ id: z.string().min(1) }).nullish(),
@@ -106,74 +108,94 @@ export function latestContexts<T extends ContextWire>(nodes: readonly T[]): T[] 
 /**
  * The head commit's check suites, read in the PR detail query. Actions creates a suite for each
  * workflow run when the run starts, before its jobs create check runs. A denied suite arrives as
- * a null node; a denied list or commit arrives as null.
+ * a null node; a denied list or commit, or a list without nodes, arrives as null.
  */
 export const suiteListWire = z
   .object({
     checkSuites: z
       .object({
-        nodes: z.array(
-          z
-            .object({
-              status: z.string(),
-              createdAt: z.string(),
-              workflowRun: workflowRunWire.nullable(),
-            })
-            .nullable(),
-        ),
+        nodes: z
+          .array(
+            z
+              .object({
+                databaseId: z.number().int().nullish(),
+                status: z.string(),
+                createdAt: z.string(),
+                workflowRun: workflowRunWire.nullable(),
+              })
+              .nullable(),
+          )
+          .nullable(),
         pageInfo: z.object({ hasNextPage: z.boolean() }),
       })
       .nullable(),
   })
   .nullish();
 export type SuiteListWire = z.output<typeof suiteListWire>;
-/**
- * For a required skipped check run, the run of the same check (see `checkKey`) and trigger event
- * in the newest suite created after the skipped run's suite, finished or not. Overlapping runs of
- * one workflow can record an older run's skip after a newer run's job started, so the skip wins
- * by time while the newer run already reports. A missing event or an unparsed time says none.
- */
-export function newerSuiteRun(
-  node: ContextWire,
-  nodes: readonly ContextWire[],
-): ContextWire | undefined {
-  if (node.__typename !== 'CheckRun' || node.isRequired !== true) return undefined;
-  const event = node.checkSuite?.workflowRun?.event;
-  if (checkState(node) !== 'skipped' || !node.checkSuite || !event) return undefined;
-  const skippedAt = Date.parse(node.checkSuite.createdAt);
-  if (Number.isNaN(skippedAt)) return undefined;
-  const key = checkKey(node);
-  let newest: { run: ContextWire; at: number } | undefined;
-  for (const other of nodes) {
-    if (other.__typename !== 'CheckRun' || !other.checkSuite || checkKey(other) !== key) continue;
-    if (other.checkSuite.workflowRun?.event !== event) continue;
-    const at = Date.parse(other.checkSuite.createdAt);
-    if (at > skippedAt && (newest === undefined || at > newest.at)) newest = { run: other, at };
-  }
-  return newest?.run;
+// A suite of one workflow and event; `status` is known only from the suite list.
+interface Suite {
+  at: number;
+  id: number | null;
+  status: string | undefined;
 }
 /**
- * Whether a required check run skipped in one run of its workflow may still run: the head has a
- * suite of the same workflow and trigger event created after the skipped run's suite and not yet
- * completed. A run of another event, such as a manual dispatch of a workflow whose skipped job
- * runs only on pull requests, cannot produce the check. A missing or truncated suite list, a
- * missing event, or a time that does not parse, says no.
+ * What decides a required check run that reads skipped, as `latestContexts` keeps it. Of the
+ * head's suites of its workflow and trigger event, from the suite list and the check runs, only
+ * the newest decides, by creation time, then `databaseId`: its run of the same check (see
+ * `checkKey`) counts, finished or not; without one the check is `pending` until that suite
+ * completes, then the skip stands. Older suites never decide, and a run of another event, such as
+ * a manual dispatch, is not one of them. A missing, denied or truncated suite list, a missing
+ * event, a time that does not parse, or a newest place `databaseId` cannot break, decides nothing.
  */
-export function awaitsNewerRun(node: ContextWire, commit: SuiteListWire): boolean {
-  if (node.__typename !== 'CheckRun' || node.isRequired !== true) return false;
-  if (checkState(node) !== 'skipped') return false;
+export function skipDecision(
+  node: ContextWire,
+  nodes: readonly ContextWire[],
+  commit: SuiteListWire,
+): ContextWire | 'pending' | undefined {
+  if (node.__typename !== 'CheckRun' || node.isRequired !== true) return undefined;
+  if (checkState(node) !== 'skipped') return undefined;
   const run = node.checkSuite?.workflowRun;
   const event = run?.event;
-  const suites = commit?.checkSuites;
-  if (!node.checkSuite || !run || !event || !suites || suites.pageInfo.hasNextPage) return false;
-  const skippedAt = Date.parse(node.checkSuite.createdAt);
-  if (Number.isNaN(skippedAt)) return false;
-  return suites.nodes.some(
-    (suite) =>
-      suite !== null &&
-      suite.workflowRun?.workflow.id === run.workflow.id &&
-      suite.workflowRun.event === event &&
-      suite.status !== 'COMPLETED' &&
-      Date.parse(suite.createdAt) > skippedAt,
+  const list = commit?.checkSuites;
+  if (!run || !event || !list?.nodes || list.pageInfo.hasNextPage) return undefined;
+  const ofRun = (wire: z.output<typeof workflowRunWire> | null | undefined): boolean =>
+    wire?.workflow.id === run.workflow.id && wire.event === event;
+  // One entry per suite id; a suite without an id may be listed twice and then ties.
+  const suites: Suite[] = [];
+  const byId = new Map<number, Suite>();
+  const add = (createdAt: string, id: number | null | undefined, status?: string): void => {
+    const known = id == null ? undefined : byId.get(id);
+    if (known !== undefined) {
+      known.status ??= status;
+      return;
+    }
+    const suite = { at: Date.parse(createdAt), id: id ?? null, status };
+    suites.push(suite);
+    if (suite.id !== null) byId.set(suite.id, suite);
+  };
+  for (const suite of list.nodes)
+    if (suite !== null && ofRun(suite.workflowRun))
+      add(suite.createdAt, suite.databaseId, suite.status);
+  for (const other of nodes)
+    if (other.__typename === 'CheckRun' && other.checkSuite && ofRun(other.checkSuite.workflowRun))
+      add(other.checkSuite.createdAt, other.checkSuite.databaseId);
+  if (suites.some((suite) => Number.isNaN(suite.at))) return undefined;
+  suites.sort((a, b) => a.at - b.at || (a.id ?? 0) - (b.id ?? 0));
+  const newest = suites.at(-1);
+  if (newest === undefined) return undefined;
+  const tied = suites.filter((suite) => suite.at === newest.at);
+  if (tied.length > 1 && tied.some((suite) => suite.id === null)) return undefined;
+  const key = checkKey(node);
+  const [decider] = latestContexts(
+    nodes.filter(
+      (other) =>
+        other.__typename === 'CheckRun' &&
+        newest.id !== null &&
+        other.checkSuite?.databaseId === newest.id &&
+        checkKey(other) === key,
+    ),
   );
+  if (decider !== undefined) return decider;
+  if (newest.status === undefined || newest.status === 'COMPLETED') return undefined;
+  return 'pending';
 }
