@@ -2,6 +2,12 @@
 
 Notable changes in each spur-board release, newest first. A breaking change lists what changed and how to migrate the config under **BREAKING CHANGES**; the versioning policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog). Releases before this file, and any release not listed here, are on the [GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
 
+## [0.170.2](https://github.com/AnDeVerin/spur-board/compare/v0.170.1...v0.170.2) (2026-11-26)
+
+### Bug Fixes
+
+* **adapters:** [#906](https://github.com/AnDeVerin/spur-board/issues/906) read a skipped required check pending while a newer run of its workflow runs ([#907](https://github.com/AnDeVerin/spur-board/issues/907)) ([a7b6c3e](https://github.com/AnDeVerin/spur-board/commit/a7b6c3ee2b47e6d6c3111ec493f8979f11d66bc4))
+
 ## [0.170.1](https://github.com/AnDeVerin/spur-board/compare/v0.170.0...v0.170.1) (2026-11-25)
 
 ### Bug Fixes
