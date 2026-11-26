@@ -69,8 +69,13 @@ export function readConfiguredPort(env: NodeJS.ProcessEnv, home: string): number
   return readBoardConfig(env, home)?.http.port;
 }
 
-/** Whether config.yaml turns Slack on, or undefined when the file is missing or invalid. */
+/**
+ * Whether config.yaml turns Slack on, or undefined when the file is missing or invalid, or when
+ * BOARD_DAEMON_URL selects the daemon.
+ */
 export function boardSlackState(env: NodeJS.ProcessEnv, home: string): boolean | undefined {
+  // The local config.yaml may not be the config of the daemon BOARD_DAEMON_URL selects.
+  if (env['BOARD_DAEMON_URL']) return undefined;
   const config = readBoardConfig(env, home);
   return config && slackConfigured(config);
 }
@@ -226,7 +231,7 @@ export function loadClientConfig(
     if (env['BOARD_TOKEN'] === '') {
       throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
     }
-    // Without config.yaml the Slack state is unknown, so the catalog hint covers both cases.
+    // Slack state unknown (no config.yaml, or BOARD_DAEMON_URL set): the catalog hint covers both.
     const slack = boardSlackState(env, paths.home);
     const hint = slack === undefined ? undefined : slack ? SLACK_IDENTITY_HINT : SPUR_IDENTITY_HINT;
     throw new CliError('identity_missing', undefined, undefined, hint);
