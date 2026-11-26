@@ -39,10 +39,11 @@ Keyed `board wait <turn> --for <min> --reason <text>`; a ring wakes you.
   `board ask <task> <text>` first.
 - Column orchestrator: ack, then keyed `board submit <turn> <sha>` for the reviewed head, or
   `board return <turn> <reason>` naming what to change for Dev. Never push.
+- Done wrap-up: ack, wrap up, keyed `board submit <turn> <sha>` at the head the turn
+  names (`head` null, no PR: `--reason <text>`); ack alone only takes it.
 - Operator (operator token or an operator Spur project's session): keyed
-  `board inbox ack <entries>` with the T<number> from `board inbox operator` (not
-  `board inbox`) or `board task <task>` takes a turn addressed to the operator or an open orchestrator turn, taken or not; then
-  submit or return it.
+  `board inbox ack <entries>` with a T<number> from `board inbox operator` (not
+  `board inbox`) or `board task <task>` takes an operator or open orchestrator turn, taken or not; then submit or return it.
 
 ## Worker flow
 
@@ -56,9 +57,8 @@ Read [the worker flow](references/worker-flow.md) for links, asks, updates, "bac
   failing gate that caused the return (red CI, draft, conflict), finding or not; then submit. The take reads its
   `code` block, your confirmed submit closes it; no unblock. Keyed `board unblock <block> --done <ref>` after the fix only
   if `board task <task>` shows it open with `addressee` worker, after your submit if a Dev
-  turn is yours. Ack it when you read it in `board inbox`; `not_found`: none due. On `forbidden` (another
-  worker's ring, or your own block): close it with `--done` if yours, else leave it. While `board task <task> --why` lists
-  `submit_pending` or another hold, wait. A hold that does not clear: keyed
+  turn is yours. Ack, `not_found`, `forbidden`: worker flow.
+  While `board task <task> --why` lists `submit_pending` or another hold, wait. A hold that does not clear: keyed
   `board ask <task> <text>` naming it.
 
 ## Board commands

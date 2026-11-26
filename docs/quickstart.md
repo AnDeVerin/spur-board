@@ -294,12 +294,16 @@ it by hand. A token that cannot read the merge:
 In the `example-operator` session, ask it to run `board status`:
 
 ```text
-Run board status and tell me the column and turn reason of example-org/example-repo#<N>.
+Run board status and tell me the column and turn reason of example-org/example-repo#<N>. Then run
+board task example-org/example-repo#<N> --why and board task history example-org/example-repo#<N>
+and tell me whether the task has an open turn and how its done: wrap up turn closed.
 ```
 
 **Success looks like:** `example-operator` reports the task in `done`. While the worker is still
-wrapping up, the task also has an open turn with the reason `done: wrap up`; once the worker
-finishes, the task stays in `done` with no open turn.
+wrapping up, the task also has an open turn with the reason `done: wrap up`. The worker closes
+that turn with `board submit` at the head the turn names; an ack alone leaves it open. Then the
+task stays in `done` with no open turn, and the history lists the wrap-up turn's `turn_closed`
+with outcome `submitted`.
 
 **If it fails:** a task that stays in Review after the merge waits for the closed issue: check
 that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.
