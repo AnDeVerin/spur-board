@@ -268,6 +268,12 @@ describe('gateWaitsFor', () => {
     ['done, PR open, ticket done', done, { ...base, ticketDone: true }, 'merge of o/r#7'],
     ['done, PR merged', done, { ...base, pr: merged }, 'ticket to close'],
     [
+      'done, PR merged, ticket done',
+      done,
+      { ...base, pr: merged, ticketDone: true },
+      'the next dispatcher pass to move it to done',
+    ],
+    [
       'done, no PR',
       done,
       { ...base, pr: null },

@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ERRORS, OPERATIONS, errorEnvelopeSchema, renderHttpProblem } from '@spur-board/contracts';
-import { createProgram, exampleCommand, runCli, type CliIo } from '../src/cli.ts';
+import { createProgram, exampleCommand, formatView, runCli, type CliIo } from '../src/cli.ts';
 import { holder } from './http-holder.ts';
 
 type Program = ReturnType<typeof createProgram>;
@@ -1439,6 +1439,25 @@ describe('catalog commands', () => {
       const { code, stdout } = await run(['task', 'PROJ-123', '--why'], true, { ...example, why });
       expect(code).toBe(5);
       expect(stdout).toBe('');
+    });
+
+    it('formats a view fail-soft: no lead without a string, no hiding without an array', () => {
+      const view = {
+        when: 'why',
+        lead: { label: 'lead', path: ['a', 'text'] },
+        hide: { path: ['a', 'list'], field: 'on', flag: '--all', description: 'All.' },
+      } as const;
+      expect(
+        formatView({ a: { text: 'go', list: [{ id: 1, on: false }, { id: 2 }] } }, view, false),
+      ).toBe('lead: go\na:\n  text: go\n  list:\n    - id: 2');
+      expect(formatView({ a: { text: 7, list: [{ id: 1, on: 'no' }] } }, view, false)).toBe(
+        'a:\n  text: 7\n  list:\n    - id: 1\n      on: no',
+      );
+      expect(formatView({ a: { list: 'none' } }, view, false)).toBe('a:\n  list: none');
+      expect(formatView({ b: 1 }, view, false)).toBe('b: 1');
+      expect(formatView({ a: { list: [{ id: 1, on: false }] } }, view, true)).toBe(
+        'a:\n  list:\n    - id: 1\n      on: false',
+      );
     });
 
     it('describes a board whose enabled columns are those of examples/minimal', () => {

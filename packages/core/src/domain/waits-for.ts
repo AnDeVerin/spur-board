@@ -154,7 +154,9 @@ export function gateWaitsFor(
       return facts.ticketDone
         ? `merge of ${refOf(facts.pr)}`
         : `merge of ${refOf(facts.pr)}, then the ticket to close`;
-    return facts.pr?.state === 'merged' ? 'ticket to close' : TICKET_WITHOUT_WORK;
+    if (facts.pr?.state === 'merged')
+      return facts.ticketDone ? 'the next dispatcher pass to move it to done' : 'ticket to close';
+    return TICKET_WITHOUT_WORK;
   }
   if (
     isTodoGroupColumn(gate.column) &&

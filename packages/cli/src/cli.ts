@@ -264,7 +264,7 @@ function withoutEntries(value: unknown, path: readonly string[], field: string):
 }
 
 /** Terminal output shaped by a catalog `cli.view`: the lead line, then the result. */
-function formatView(result: unknown, view: CliView, all: boolean): string {
+export function formatView(result: unknown, view: CliView, all: boolean): string {
   const lead = valueAt(result, view.lead.path);
   const body = formatHuman(all ? result : withoutEntries(result, view.hide.path, view.hide.field));
   return typeof lead === 'string'
