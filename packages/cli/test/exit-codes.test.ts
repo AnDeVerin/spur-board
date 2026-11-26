@@ -562,6 +562,53 @@ describe('CLI exit classes and mutation keys', () => {
     expect(submit.hint).toBe(ERRORS.identity_missing.hint);
   });
 
+  it('points the identity hint to a Spur session when config.yaml has no Slack', async () => {
+    const project = `projects:\n  - id: board\n    tracker: { type: github-issues, repo: example/board, label: board }\n    repos: [example/board]\n    operatorGithubLogin: operator\ndigest: { tz: UTC }\n`;
+    const run = async (home: string, args: string[]) => {
+      const output = capture();
+      expect(
+        await runCli([...args, '--json'], {
+          env: { BOARD_HOME: home, BOARD_DAEMON_URL: 'http://127.0.0.1:1' },
+          io: output.io,
+        }),
+      ).toBe(4);
+      const { error } = errorEnvelopeSchema.parse(JSON.parse(output.stderr));
+      expect(error.code).toBe('identity_missing');
+      return error.hint;
+    };
+
+    const withoutSlack = boardHome(project);
+    const status = await run(withoutSlack, ['status']);
+    expect(status).toBe(
+      'Run the command in a Spur session of a project listed in config.yaml, such as one whose spurProjects role is operator, or send that session the request with `spur send <session id> "<request>"`.',
+    );
+    expect(status).toContain('`spur send');
+    const tokens = await run(withoutSlack, ['token', 'list']);
+    expect(tokens).toBe(
+      '`board token list` needs operator identity: run it in a Spur session of a project whose spurProjects role is operator, or send that session the request with `spur send <session id> "<request>"`.',
+    );
+    for (const hint of [status, tokens]) {
+      expect(hint).not.toContain('board token create');
+      expect(hint.toLowerCase()).not.toContain('slack');
+    }
+
+    const withSlack = boardHome(
+      `${project}operator: { slack: U0000000000 }\nslack:\n  channels: { feed: C0000000001, orchestrators: C0000000002 }\n`,
+    );
+    expect(await run(withSlack, ['status'])).toBe(
+      'Run the command in a Spur session of a project listed in config.yaml, or run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.',
+    );
+    expect(await run(withSlack, ['token', 'list'])).toBe(
+      '`board token list` needs operator identity: run it in a Spur session of a project whose spurProjects role is operator, or run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.',
+    );
+
+    const unreadable = boardHome();
+    expect(await run(unreadable, ['status'])).toBe(ERRORS.identity_missing.hint);
+    expect(await run(unreadable, ['token', 'list'])).toBe(
+      '`board token list` needs operator identity: run it in a Spur session of a project whose spurProjects role is operator, or run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.',
+    );
+  });
+
   it('explains how to reach a daemon configured with a runtime-assigned port', async () => {
     const home = boardHome(
       `projects:\n  - id: board\n    tracker: { type: github-issues, repo: example/board, label: board }\n    repos: [example/board]\n    operatorGithubLogin: operator\noperator: { slack: U0000000000 }\ndigest: { tz: UTC }\nhttp: { port: 0 }\n`,

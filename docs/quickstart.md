@@ -195,7 +195,12 @@ gh issue create --repo example-org/example-repo --title "Add a hello script" --b
 ```
 
 `gh` prints the issue URL; its number is `<N>` below. The Board polls GitHub issues about every
-two minutes. After that, in the `example-operator` session, ask it to run `board status`:
+two minutes. After that, in the `example-operator` session, ask it to run `board status`.
+
+The CLI takes its identity from the Spur session it runs in, so `board status` in a plain shell
+fails with `identity_missing`. Type the request in the `example-operator` session, or send it from
+a shell with `spur send <session id> "…"` and read the reply by opening the session from
+`spur list`, which also shows the session id:
 
 ```text
 Run board status and tell me the column of example-org/example-repo#<N>.

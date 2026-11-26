@@ -135,6 +135,8 @@ describe('error catalog', () => {
     expect(entry.message).toContain('caller identity');
     expect(entry.message).not.toContain('up to home');
     expect(entry.hint).toContain('Spur session');
+    expect(entry.hint).toContain('`spur send <session id> "<request>"`');
+    expect(entry.hint).toContain('With Slack (slack.channels set in config.yaml)');
     expect(entry.hint).toContain('`board token create --name <name> --into <folder>`');
     expect(entry.recovery).toMatchObject({ sideEffects: 'none', maxRetries: 0 });
     expect(entry.recovery.action).not.toContain('board token create');

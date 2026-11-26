@@ -1,5 +1,5 @@
 {
-  "version": "2459cc1a6c7b30e13fa7efac6d076222d68e19ae62220e1b9aff10a265560d27",
+  "version": "73df729f4e5be10d68718850398f1b8c13df3e457395d4b3059447c72c5fbb0b",
   "grants": [
     "operator",
     "project-agent",
@@ -1054,7 +1054,7 @@
       "status": null,
       "exit": 4,
       "message": "No caller identity was found: this is not a Spur session and no .spur-board/token was found walking up from the current folder.",
-      "hint": "Run the command in a Spur session of a project listed in config.yaml, or run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.",
+      "hint": "Run the command in a Spur session of a project listed in config.yaml, or send that session the request with `spur send <session id> \"<request>\"`. With Slack (slack.channels set in config.yaml), you can instead run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.",
       "recovery": {
         "action": "Get a caller identity as the fix says, then run the command again.",
         "sideEffects": "none",

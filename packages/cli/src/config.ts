@@ -10,7 +10,12 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { configSchema, plainHttpAllowed } from '@spur-board/contracts';
+import {
+  configSchema,
+  plainHttpAllowed,
+  slackConfigured,
+  type Config,
+} from '@spur-board/contracts';
 import YAML from 'yaml';
 import { CliError } from './exit-codes.ts';
 
@@ -45,19 +50,35 @@ export function dataDirectory(env: NodeJS.ProcessEnv, home: string, cwd = proces
   return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.local', 'share'), 'spur-board');
 }
 
-/** The http.port in config.yaml, or undefined when the file is missing or invalid. */
-export function readConfiguredPort(env: NodeJS.ProcessEnv, home: string): number | undefined {
+/** The parsed config.yaml, or undefined when the file is missing, unreadable or invalid. */
+function readBoardConfig(env: NodeJS.ProcessEnv, home: string): Config | undefined {
   try {
     const parsed = YAML.parseDocument(readFileSync(configFile(env, home), 'utf8'));
     if (parsed.errors.length === 0) {
       const config = configSchema.safeParse(parsed.toJS());
-      if (config.success) return config.data.http.port;
+      if (config.success) return config.data;
     }
   } catch {
-    // A missing or unreadable file has no port; the caller decides what that means.
+    // A missing or unreadable file has no config; the caller decides what that means.
   }
   return undefined;
 }
+
+/** The http.port in config.yaml, or undefined when the file is missing or invalid. */
+export function readConfiguredPort(env: NodeJS.ProcessEnv, home: string): number | undefined {
+  return readBoardConfig(env, home)?.http.port;
+}
+
+/** Whether config.yaml turns Slack on, or undefined when the file is missing or invalid. */
+export function boardSlackState(env: NodeJS.ProcessEnv, home: string): boolean | undefined {
+  const config = readBoardConfig(env, home);
+  return config && slackConfigured(config);
+}
+
+const SLACK_IDENTITY_HINT =
+  'Run the command in a Spur session of a project listed in config.yaml, or run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.';
+const SPUR_IDENTITY_HINT =
+  'Run the command in a Spur session of a project listed in config.yaml, such as one whose spurProjects role is operator, or send that session the request with `spur send <session id> "<request>"`.';
 
 export function resolveDaemonAddress(
   env: NodeJS.ProcessEnv = process.env,
@@ -205,7 +226,10 @@ export function loadClientConfig(
     if (env['BOARD_TOKEN'] === '') {
       throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
     }
-    throw new CliError('identity_missing');
+    // Without config.yaml the Slack state is unknown, so the catalog hint covers both cases.
+    const slack = boardSlackState(env, paths.home);
+    const hint = slack === undefined ? undefined : slack ? SLACK_IDENTITY_HINT : SPUR_IDENTITY_HINT;
+    throw new CliError('identity_missing', undefined, undefined, hint);
   }
 
   return {

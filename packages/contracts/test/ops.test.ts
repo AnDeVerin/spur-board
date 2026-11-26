@@ -1016,9 +1016,11 @@ describe('snapshot', () => {
     // linked PR: optional sha, nullable output sha, the submit_sha_required code, the optional
     // task_submitted sha and task.get why.submittedWithoutCommit; the basis and from fields, the
     // submit_basis_invalid hint and the task.submit guidance say to omit basis and from there.
-    // #903 rewords the status.get services[].lastGoodAt description for a gateway.
+    // #903 rewords the status.get services[].lastGoodAt description for a gateway. #911 rewords
+    // the identity_missing hint: a Spur session or spur send first, the Slack token route only
+    // with Slack.
     expect(await catalogVersion(baseline)).toBe(
-      '32cc0d2da342bcb40cfdbf615c5c7a11133d38f6fff813dc97dfc224f57baeac',
+      'f5234b705ff357d036c12a0ea9afbf7eb82b74b209f98f047ccfc6a1b8f1283a',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
