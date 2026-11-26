@@ -115,7 +115,7 @@ The issue is a task in Todo. When the worker links its session, the Board moves 
 and gives the worker a Dev turn. The worker pushes, opens a PR that closes the issue and submits
 its head. With green checks the task goes to Review, where the reviewer submits the head or
 returns the task to Dev with the changes it needs. After the reviewer submits, you merge the PR;
-the task then moves to Done, and the worker finishes its Done turn.
+the task then moves to Done, and the worker wraps up and submits its Done turn.
 
 If the repository runs no CI checks, uncomment `reposWithoutCi` in `config.yaml`: otherwise a PR
 with no checks waits in Dev.
