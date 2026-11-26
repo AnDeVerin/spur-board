@@ -301,9 +301,9 @@ and tell me whether the task has an open turn and how its done: wrap up turn clo
 
 **Success looks like:** `example-operator` reports the task in `done`. While the worker is still
 wrapping up, the task also has an open turn with the reason `done: wrap up`. The worker closes
-that turn with `board submit` for the merged PR head; an ack alone leaves it open. Then the task
-stays in `done` with no open turn, and the history lists the wrap-up turn's `turn_closed` with
-outcome `submitted`.
+that turn with `board submit` for the head of the task's linked PR, merged or not; an ack alone
+leaves it open. Then the task stays in `done` with no open turn, and the history lists the
+wrap-up turn's `turn_closed` with outcome `submitted`.
 
 **If it fails:** a task that stays in Review after the merge waits for the closed issue: check
 that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.

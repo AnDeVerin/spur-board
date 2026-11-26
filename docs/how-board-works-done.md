@@ -66,4 +66,5 @@ end, a live worker
 still linked to the task, or the Done orchestrator, gets a new one.
 
 On a task with no linked PR, its holder closes the wrap-up turn with keyed
-`board submit <turn> --reason <text>`; with a linked PR, submit the PR head.
+`board submit <turn> --reason <text>`; with a linked PR, submit the PR head: the head of the
+PR `board task <task>` shows, merged or closed unmerged, not an earlier merged PR.

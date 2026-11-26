@@ -39,8 +39,8 @@ Keyed `board wait <turn> --for <min> --reason <text>`; a ring wakes you.
   `board ask <task> <text>` first.
 - Column orchestrator: ack, then keyed `board submit <turn> <sha>` for the reviewed head, or
   `board return <turn> <reason>` naming what to change for Dev. Never push.
-- Done wrap-up: ack, wrap up, then keyed `board submit <turn> <sha>` for the merged PR head
-  (no PR: `--reason <text>`, no sha); ack alone only takes the turn.
+- Done wrap-up: ack, wrap up, keyed `board submit <turn> <sha>` of the PR head
+  `board task <task>` shows (no PR: `--reason <text>`); ack alone only takes it.
 - Operator (operator token or an operator Spur project's session): keyed
   `board inbox ack <entries>` with a T<number> from `board inbox operator` (not
   `board inbox`) or `board task <task>` takes an operator or open orchestrator turn, taken or not; then submit or return it.

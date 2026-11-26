@@ -29,8 +29,8 @@ projects:
           "Closes #N" in its body. After each push, submit the PR head with board submit as the
           skill says, without waiting for CI. When the Board returns the task, fix what it names
           and submit again. Never merge the PR. When the PR is merged, ack the Done turn, wrap
-          up, then submit it with board submit for the merged PR head; an ack alone leaves it
-          open.
+          up, then submit it with board submit for the head of the PR that board task shows
+          (with no PR, board submit --reason); an ack alone leaves it open.
   example-reviewer:
     path: .
     defaultBranch: main
